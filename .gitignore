@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Local app state
+*.sqlite
+*.sqlite-*
+*.db
+*.log
+
+# Local audio libraries and temp data
+tmp_*/
+*.aif
+*.aiff
+*.flac
+*.m4a
+*.mp3
+*.ogg
+*.wav
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.vite-temp/
+
+# Environment
+.env
+.env.*
+!.env.example

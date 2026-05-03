@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dj-track-similarity"
+version = "0.1.0"
+description = "Local DJ track similarity utility for seamless set preparation."
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.26",
+  "mutagen>=1.47",
+  "pydantic>=2",
+  "typer>=0.12",
+  "fastapi>=0.115",
+  "uvicorn>=0.30",
+]
+
+[project.optional-dependencies]
+ml = [
+  "torch",
+  "torchaudio",
+  "transformers",
+]
+dev = [
+  "pytest>=7.4",
+]
+
+[project.scripts]
+dj-sim = "dj_track_similarity.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["dj_track_similarity*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

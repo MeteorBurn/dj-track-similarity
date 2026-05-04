@@ -21,8 +21,9 @@ class SearchFilters:
 
 
 class SimilaritySearch:
-    def __init__(self, db: LibraryDatabase) -> None:
+    def __init__(self, db: LibraryDatabase, *, embedding_key: str = "mert") -> None:
         self.db = db
+        self.embedding_key = embedding_key
 
     def search(
         self,
@@ -36,7 +37,7 @@ class SimilaritySearch:
             raise ValueError("At least one seed track is required")
         filters = filters or SearchFilters()
         lookback_track_ids = lookback_track_ids or []
-        tracks, matrix = self.db.load_embedding_matrix()
+        tracks, matrix = self.db.load_embedding_matrix(self.embedding_key)
         if matrix.size == 0:
             return []
 
@@ -61,6 +62,39 @@ class SimilaritySearch:
             if track.id in context_set:
                 continue
             if not _passes_filters(track, seed_tracks, score, filters):
+                continue
+            candidates.append((track, score, _ranking_score(track, score, filters.noise)))
+
+        if filters.epsilon is not None and candidates:
+            best_score = max(score for _, score, _ in candidates)
+            candidates = [candidate for candidate in candidates if candidate[1] >= best_score - filters.epsilon]
+
+        results: list[SearchResult] = []
+        for track, score, _ in sorted(candidates, key=lambda candidate: candidate[2], reverse=True):
+            results.append(SearchResult(track=track, score=score))
+            if len(results) >= limit:
+                break
+        return results
+
+    def search_vector(
+        self,
+        vector: np.ndarray,
+        *,
+        filters: SearchFilters | None = None,
+        limit: int = 50,
+    ) -> list[SearchResult]:
+        filters = filters or SearchFilters()
+        tracks, matrix = self.db.load_embedding_matrix(self.embedding_key)
+        if matrix.size == 0:
+            return []
+
+        query = _normalize(np.asarray(vector, dtype=np.float32).reshape(-1))
+        scores = matrix @ query
+        candidates: list[tuple[Track, float, float]] = []
+        for index in np.argsort(-scores):
+            track = tracks[int(index)]
+            score = float(scores[int(index)])
+            if not _passes_filters(track, [], score, filters):
                 continue
             candidates.append((track, score, _ranking_score(track, score, filters.noise)))
 

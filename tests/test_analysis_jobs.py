@@ -67,6 +67,18 @@ class ConfigurableAdapter:
         return self.embed_batch([path])[0]
 
 
+class ClapSpaceAdapter:
+    embedding_key = "clap"
+    model_name = "clap-space-model"
+    dim = 3
+
+    def embed_batch(self, paths):
+        return [np.array([0, 1, 0], dtype=np.float32) for _ in paths]
+
+    def embed(self, path):
+        return self.embed_batch([path])[0]
+
+
 def test_analysis_job_runs_in_batches_and_records_progress(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     _track(db, tmp_path, "a.wav")
@@ -164,3 +176,18 @@ def test_analysis_job_updates_device_after_lazy_adapter_loads(tmp_path: Path) ->
 
     assert status.state == "completed"
     assert status.device == "cuda"
+
+
+def test_analysis_job_targets_missing_embeddings_per_space(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = _track(db, tmp_path, "one.wav")
+    db.save_embedding(track_id, np.array([1, 0, 0], dtype=np.float32), "mert-model", 3, embedding_key="mert")
+    manager = AnalysisJobManager(db, {"clap": ClapSpaceAdapter}, batch_size=1)
+
+    status = manager.run_sync(adapter_name="clap")
+
+    assert status.state == "completed"
+    assert status.embedding_key == "clap"
+    assert status.total == 1
+    assert len(db.list_tracks(with_embeddings=True, embedding_key="mert")) == 1
+    assert len(db.list_tracks(with_embeddings=True, embedding_key="clap")) == 1

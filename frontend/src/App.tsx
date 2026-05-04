@@ -22,6 +22,7 @@ import { AnalysisJobStatus, api, ScanStats, SearchResult, Track } from "./api";
 type Notice = { kind: "ok" | "error" | "idle"; text: string };
 type ActivityEvent = { id: number; time: number; level: "info" | "ok" | "warn" | "error"; message: string; detail?: string };
 type DeviceMode = "auto" | "cpu" | "cuda";
+type AnalysisAdapter = "mert" | "clap" | "fake";
 
 const defaultNotice: Notice = { kind: "idle", text: "Готово к работе" };
 
@@ -29,10 +30,11 @@ const helpText = {
   musicRoot: "Папка с музыкой. Формат: путь Windows или POSIX, например D:/Music. Тип: строка. Папка должна существовать.",
   analyzeLimit: "Сколько треков анализировать. Тип: целое число 0-100000. 0 = вся библиотека.",
   scanWorkers: "Параллельное чтение метаданных при сканировании. Тип: целое число. Диапазон зависит от CPU, обычно 1-8.",
-  mertDevice: "Устройство для MERT. Значения: AUTO, CPU, CUDA. AUTO выберет CUDA, если PyTorch видит GPU, иначе CPU.",
-  mertBatchSize: "Размер inference batch для MERT. Тип: целое число 1-16. CPU: 1-4; CUDA: начни с 4-8.",
+  analysisDevice: "Устройство для MERT/CLAP. Значения: AUTO, CPU, CUDA. AUTO выберет CUDA, если PyTorch видит GPU, иначе CPU.",
+  analysisBatchSize: "Размер inference batch для MERT/CLAP. Тип: целое число 1-16. CPU: 1-4; CUDA: начни с 4-8.",
   librarySearch: "Фильтр библиотеки. Формат: текст. Ищет по artist, title, album и path.",
   similarity: "Минимальный cosine similarity. Тип: число с точкой, диапазон 0.00-1.00. Для чистой проверки MERT оставь 0.00.",
+  textPrompt: "CLAP text search. Формат: короткая фраза через запятые: genre, mood, sound, drums, vocal/no vocals. Тип: строка.",
   lookback: "Сколько последних треков сета добавить в контекст поиска. Тип: целое число 0-12.",
   limit: "Максимум результатов поиска. Тип: целое число 1-500.",
   disabledBpm: "Отключено. BPM-фильтр по метаданным. Тип был бы число, например 128 или 128.5; сейчас не участвует в MERT-only проверке.",
@@ -53,6 +55,7 @@ export function App() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [query, setQuery] = useState("");
   const [musicRoot, setMusicRoot] = useState("");
+  const [textQuery, setTextQuery] = useState("");
   const [outputDir, setOutputDir] = useState("");
   const [seeds, setSeeds] = useState<number[]>([]);
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -303,7 +306,7 @@ export function App() {
     );
   }
 
-  async function handleAnalyze(adapter: "mert" | "fake") {
+  async function handleAnalyze(adapter: AnalysisAdapter) {
     const limit = analysisLimit > 0 ? analysisLimit : undefined;
     const detail = `${analysisDevice.toUpperCase()} · batch ${analysisBatchSize} · ${limit ? `limit ${limit}` : "вся библиотека"}`;
     appendActivity("info", `${adapter.toUpperCase()} анализ запущен`, detail);
@@ -315,6 +318,29 @@ export function App() {
         setAnalysisJob(job);
         appendActivity("ok", "Analysis job создан", `${job.job_id.slice(0, 8)} · ${job.total} треков · batch ${job.batch_size}`);
         return `${adapter.toUpperCase()} job ${job.job_id.slice(0, 8)}: ${job.total} треков`;
+      }
+    );
+  }
+
+  async function handleTextSearch() {
+    const prompt = textQuery.trim();
+    if (!prompt) {
+      setNotice({ kind: "error", text: "Введите текстовый запрос для CLAP" });
+      return;
+    }
+    appendActivity("info", "CLAP text search запущен", prompt);
+    await run(
+      () =>
+        api.textSearch({
+          query: prompt,
+          limit: filters.limit,
+          min_similarity: filters.minSimilarity,
+          device: analysisDevice
+        }),
+      (value) => {
+        setResults(value);
+        appendActivity("ok", "CLAP text search завершен", `Найдено: ${value.length}`);
+        return `Найдено: ${value.length}`;
       }
     );
   }
@@ -340,7 +366,7 @@ export function App() {
       return;
     }
     if (analysisJob?.state === "cancelled") {
-      await handleAnalyze(analysisJob.adapter_name === "fake" ? "fake" : "mert");
+      await handleAnalyze((["mert", "clap", "fake"].includes(analysisJob.adapter_name) ? analysisJob.adapter_name : "mert") as AnalysisAdapter);
       return;
     }
     if (musicRoot) {
@@ -435,6 +461,10 @@ export function App() {
               <Wand2 size={16} />
               MERT
             </button>
+            <button disabled={busy || stageRunning} onClick={() => void handleAnalyze("clap")}>
+              <Search size={16} />
+              CLAP
+            </button>
             <button disabled={busy || stageRunning} onClick={() => void handleAnalyze("fake")}>
               <Gauge size={16} />
               Smoke
@@ -454,15 +484,15 @@ export function App() {
             </div>
             <small>Для чтения метаданных: 1-{maxScanWorkers}</small>
           </div>
-          <div className="analysis-device" title={helpText.mertDevice}>
-            <span><Cpu size={15} /> MERT device</span>
+          <div className="analysis-device" title={helpText.analysisDevice}>
+            <span><Cpu size={15} /> Device</span>
             <div className="segmented">
               {(["auto", "cpu", "cuda"] as DeviceMode[]).map((device) => (
                 <button
                   key={device}
                   className={analysisDevice === device ? "active" : ""}
                   disabled={busy || stageRunning}
-                  title={helpText.mertDevice}
+                  title={helpText.analysisDevice}
                   onClick={() => setAnalysisDevice(device)}
                 >
                   {device.toUpperCase()}
@@ -471,11 +501,11 @@ export function App() {
             </div>
             <small>Auto выбирает CUDA, если PyTorch видит GPU; иначе CPU.</small>
           </div>
-          <div className="worker-control" title={helpText.mertBatchSize}>
-            <span>MERT batch size</span>
+          <div className="worker-control" title={helpText.analysisBatchSize}>
+            <span>Embedding batch size</span>
             <div className="stepper">
               <button className="icon-button" disabled={busy || analysisBatchSize <= 1} onClick={() => adjustAnalysisBatchSize(-1)} aria-label="Уменьшить batch size"><Minus size={15} /></button>
-              <input type="number" min={1} max={maxAnalysisBatchSize} value={analysisBatchSize} title={helpText.mertBatchSize} onChange={(event) => setAnalysisBatchSize(Math.min(maxAnalysisBatchSize, Math.max(1, Number(event.target.value) || 1)))} />
+              <input type="number" min={1} max={maxAnalysisBatchSize} value={analysisBatchSize} title={helpText.analysisBatchSize} onChange={(event) => setAnalysisBatchSize(Math.min(maxAnalysisBatchSize, Math.max(1, Number(event.target.value) || 1)))} />
               <button className="icon-button" disabled={busy || analysisBatchSize >= maxAnalysisBatchSize} onClick={() => adjustAnalysisBatchSize(1)} aria-label="Увеличить batch size"><Plus size={15} /></button>
             </div>
             <small>CPU: 1-4; CUDA: начни с 4-8 и повышай осторожно.</small>
@@ -520,7 +550,22 @@ export function App() {
             ))}
           </div>
           <div className="mert-mode-note">
-            MERT-only режим: активны Similarity, Lookback и Limit. Metadata-фильтры и рандомизация отключены до калибровки.
+            Seed search использует MERT. Text search использует CLAP и требует отдельного CLAP-анализа библиотеки.
+          </div>
+          <div className="text-search-box">
+            <label title={helpText.textPrompt}>
+              Text query
+              <input
+                value={textQuery}
+                onChange={(event) => setTextQuery(event.target.value)}
+                placeholder="dark hypnotic techno, rolling bass, no vocals"
+                title={helpText.textPrompt}
+              />
+            </label>
+            <button disabled={busy || !textQuery.trim()} onClick={() => void handleTextSearch()}>
+              <Search size={16} />
+              Text
+            </button>
           </div>
           <div className="filters">
             <label className="disabled-filter" title={helpText.disabledBpm}><span>BPM ±</span><input type="number" disabled value={filters.bpmTolerance} min={0} max={32} title={helpText.disabledBpm} onChange={(event) => setFilters({ ...filters, bpmTolerance: Number(event.target.value) })} /></label>
@@ -536,7 +581,7 @@ export function App() {
           </div>
           <button className="primary" disabled={busy || !seeds.length} onClick={() => void handleSearch()}>
             <Search size={17} />
-            Найти
+            Seed search
           </button>
           <div className="results-list">
             {results.map(({ track, score }) => (

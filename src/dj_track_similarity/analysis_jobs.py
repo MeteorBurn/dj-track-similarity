@@ -9,12 +9,12 @@ from typing import Callable
 
 import numpy as np
 
-from .database import LibraryDatabase
-from .embedding import EmbeddingAdapter, FakeEmbeddingAdapter, MertEmbeddingAdapter
+from .database import DEFAULT_EMBEDDING_KEY, LibraryDatabase
+from .embedding import EmbeddingAdapter, adapter_factories as default_adapter_factories
 from .models import Track
 
 
-AdapterFactory = Callable[[], EmbeddingAdapter]
+AdapterFactory = Callable[..., EmbeddingAdapter]
 
 
 @dataclass(frozen=True)
@@ -38,6 +38,7 @@ class AnalysisJobStatus:
     job_id: str
     state: str
     adapter_name: str
+    embedding_key: str = DEFAULT_EMBEDDING_KEY
     model_name: str | None = None
     device: str | None = None
     device_requested: str = "auto"
@@ -65,10 +66,7 @@ class AnalysisJobManager:
         batch_size: int = 4,
     ) -> None:
         self.db = db
-        self.adapter_factories = adapter_factories or {
-            "mert": MertEmbeddingAdapter,
-            "fake": FakeEmbeddingAdapter,
-        }
+        self.adapter_factories = adapter_factories or default_adapter_factories()
         self.batch_size = max(1, batch_size)
         self._jobs: dict[str, AnalysisJobStatus] = {}
         self._lock = threading.Lock()
@@ -84,7 +82,8 @@ class AnalysisJobManager:
     ) -> str:
         if adapter_name not in self.adapter_factories:
             raise ValueError(f"Unknown analysis adapter: {adapter_name}")
-        tracks = self.db.list_tracks(with_embeddings=False)
+        embedding_key = self._adapter_embedding_key(adapter_name)
+        tracks = self.db.list_tracks(with_embeddings=False, embedding_key=embedding_key)
         if limit is not None:
             tracks = tracks[:limit]
         job_id = str(uuid.uuid4())
@@ -93,6 +92,7 @@ class AnalysisJobManager:
             job_id=job_id,
             state="queued",
             adapter_name=adapter_name,
+            embedding_key=embedding_key,
             total=len(tracks),
             device_requested=device,
             workers=effective_batch_size,
@@ -207,6 +207,10 @@ class AnalysisJobManager:
         except TypeError:
             return factory()
 
+    def _adapter_embedding_key(self, adapter_name: str) -> str:
+        factory = self.adapter_factories.get(adapter_name)
+        return str(getattr(factory, "embedding_key", DEFAULT_EMBEDDING_KEY))
+
     def _process_batch(self, job_id: str, adapter: EmbeddingAdapter, batch: list[Track]) -> None:
         paths = [track.path for track in batch]
         try:
@@ -236,7 +240,8 @@ class AnalysisJobManager:
             self._update(job_id, **changes)
 
     def _save_success(self, job_id: str, adapter: EmbeddingAdapter, track: Track, vector: np.ndarray) -> None:
-        self.db.save_embedding(track.id, vector, adapter.model_name, getattr(adapter, "dim", None))
+        embedding_key = getattr(adapter, "embedding_key", DEFAULT_EMBEDDING_KEY)
+        self.db.save_embedding(track.id, vector, adapter.model_name, getattr(adapter, "dim", None), embedding_key=embedding_key)
         self._update_progress(job_id, track.path, analyzed_delta=1)
         self._append_event(job_id, "ok", "Track analyzed", path=track.path, track_id=track.id)
 
@@ -302,6 +307,7 @@ class AnalysisJobManager:
             job_id=status.job_id,
             state=status.state,
             adapter_name=status.adapter_name,
+            embedding_key=status.embedding_key,
             model_name=status.model_name,
             device=status.device,
             device_requested=status.device_requested,

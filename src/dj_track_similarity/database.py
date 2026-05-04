@@ -10,6 +10,9 @@ import numpy as np
 from .models import Track
 
 
+DEFAULT_EMBEDDING_KEY = "mert"
+
+
 def normalize_path(path: str | Path) -> str:
     return Path(path).as_posix()
 
@@ -57,11 +60,13 @@ class LibraryDatabase:
                 );
 
                 CREATE TABLE IF NOT EXISTS embeddings (
-                    track_id INTEGER PRIMARY KEY,
+                    track_id INTEGER NOT NULL,
+                    embedding_key TEXT NOT NULL DEFAULT 'mert',
                     model_name TEXT NOT NULL,
                     dim INTEGER NOT NULL,
                     vector BLOB NOT NULL,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY(track_id, embedding_key),
                     FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
                 );
 
@@ -81,6 +86,34 @@ class LibraryDatabase:
                 );
                 """
             )
+            self._migrate_embedding_schema(connection)
+
+    def _migrate_embedding_schema(self, connection: sqlite3.Connection) -> None:
+        columns = connection.execute("PRAGMA table_info(embeddings)").fetchall()
+        if any(str(column["name"]) == "embedding_key" for column in columns):
+            return
+        connection.executescript(
+            """
+            ALTER TABLE embeddings RENAME TO embeddings_legacy;
+
+            CREATE TABLE embeddings (
+                track_id INTEGER NOT NULL,
+                embedding_key TEXT NOT NULL DEFAULT 'mert',
+                model_name TEXT NOT NULL,
+                dim INTEGER NOT NULL,
+                vector BLOB NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(track_id, embedding_key),
+                FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
+            );
+
+            INSERT INTO embeddings (track_id, embedding_key, model_name, dim, vector, updated_at)
+            SELECT track_id, 'mert', model_name, dim, vector, updated_at
+            FROM embeddings_legacy;
+
+            DROP TABLE embeddings_legacy;
+            """
+        )
 
     def get_track_by_path(self, path: str | Path) -> Track | None:
         with self.connect() as connection:
@@ -88,10 +121,10 @@ class LibraryDatabase:
                 """
                 SELECT t.*, e.model_name AS embedding_model, e.dim AS embedding_dim
                 FROM tracks t
-                LEFT JOIN embeddings e ON e.track_id = t.id
+                LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                 WHERE t.path = ?
                 """,
-                (normalize_path(path),),
+                (DEFAULT_EMBEDDING_KEY, normalize_path(path)),
             ).fetchone()
         return self._row_to_track(row) if row else None
 
@@ -101,10 +134,10 @@ class LibraryDatabase:
                 """
                 SELECT t.*, e.model_name AS embedding_model, e.dim AS embedding_dim
                 FROM tracks t
-                LEFT JOIN embeddings e ON e.track_id = t.id
+                LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                 WHERE t.id = ?
                 """,
-                (track_id,),
+                (DEFAULT_EMBEDDING_KEY, track_id),
             ).fetchone()
         if row is None:
             raise KeyError(f"Unknown track id: {track_id}")
@@ -172,7 +205,7 @@ class LibraryDatabase:
             raise RuntimeError(f"Failed to upsert track: {normalized}")
         return int(row["id"])
 
-    def list_tracks(self, *, with_embeddings: bool | None = None) -> list[Track]:
+    def list_tracks(self, *, with_embeddings: bool | None = None, embedding_key: str = DEFAULT_EMBEDDING_KEY) -> list[Track]:
         where = ""
         if with_embeddings is True:
             where = "WHERE e.track_id IS NOT NULL"
@@ -183,14 +216,23 @@ class LibraryDatabase:
                 f"""
                 SELECT t.*, e.model_name AS embedding_model, e.dim AS embedding_dim
                 FROM tracks t
-                LEFT JOIN embeddings e ON e.track_id = t.id
+                LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                 {where}
                 ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
-                """
+                """,
+                (embedding_key,),
             ).fetchall()
         return [self._row_to_track(row) for row in rows]
 
-    def save_embedding(self, track_id: int, vector: np.ndarray, model_name: str, dim: int | None = None) -> None:
+    def save_embedding(
+        self,
+        track_id: int,
+        vector: np.ndarray,
+        model_name: str,
+        dim: int | None = None,
+        *,
+        embedding_key: str = DEFAULT_EMBEDDING_KEY,
+    ) -> None:
         normalized = np.asarray(vector, dtype=np.float32).reshape(-1)
         norm = float(np.linalg.norm(normalized))
         if norm == 0:
@@ -202,26 +244,28 @@ class LibraryDatabase:
         with self.connect() as connection:
             connection.execute(
                 """
-                INSERT INTO embeddings (track_id, model_name, dim, vector)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(track_id) DO UPDATE SET
+                INSERT INTO embeddings (track_id, embedding_key, model_name, dim, vector)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(track_id, embedding_key) DO UPDATE SET
                     model_name = excluded.model_name,
                     dim = excluded.dim,
                     vector = excluded.vector,
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (track_id, model_name, actual_dim, normalized.astype(np.float32).tobytes()),
+                (track_id, embedding_key, model_name, actual_dim, normalized.astype(np.float32).tobytes()),
             )
 
-    def load_embedding_matrix(self) -> tuple[list[Track], np.ndarray]:
+    def load_embedding_matrix(self, embedding_key: str = DEFAULT_EMBEDDING_KEY) -> tuple[list[Track], np.ndarray]:
         with self.connect() as connection:
             rows = connection.execute(
                 """
                 SELECT t.*, e.model_name AS embedding_model, e.dim AS embedding_dim, e.vector
                 FROM tracks t
                 JOIN embeddings e ON e.track_id = t.id
+                WHERE e.embedding_key = ?
                 ORDER BY t.id
-                """
+                """,
+                (embedding_key,),
             ).fetchall()
         if not rows:
             return [], np.zeros((0, 0), dtype=np.float32)
@@ -254,11 +298,11 @@ class LibraryDatabase:
                 SELECT t.*, e.model_name AS embedding_model, e.dim AS embedding_dim
                 FROM playlist_tracks pt
                 JOIN tracks t ON t.id = pt.track_id
-                LEFT JOIN embeddings e ON e.track_id = t.id
+                LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                 WHERE pt.playlist_id = ?
                 ORDER BY pt.position
                 """,
-                (playlist_id,),
+                (DEFAULT_EMBEDDING_KEY, playlist_id),
             ).fetchall()
         if not rows and self.get_playlist_name(playlist_id) is None:
             raise KeyError(f"Unknown playlist id: {playlist_id}")

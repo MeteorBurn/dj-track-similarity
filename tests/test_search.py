@@ -21,6 +21,13 @@ def _add_track(db: LibraryDatabase, name: str, embedding: list[float], bpm: floa
     return track_id
 
 
+def _add_track_with_embedding_key(db: LibraryDatabase, name: str, embedding: list[float], embedding_key: str) -> int:
+    path = Path("C:/music") / name
+    track_id = db.upsert_track(path=path, size=100, mtime=1, metadata={"title": name, "artist": "Test"})
+    db.save_embedding(track_id, np.array(embedding, dtype=np.float32), f"{embedding_key}-model", 3, embedding_key=embedding_key)
+    return track_id
+
+
 def test_search_uses_multi_seed_centroid_and_excludes_seed_tracks(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     seed_a = _add_track(db, "seed-a.wav", [1.0, 0.0, 0.0])
@@ -94,3 +101,15 @@ def test_search_noise_changes_near_tie_ranking_but_keeps_similarity_scores(tmp_p
     assert [result.track.id for result in plain] == [first, second]
     assert [result.track.id for result in noisy] == [second, first]
     assert noisy[0].score < plain[0].score
+
+
+def test_search_vector_uses_requested_embedding_space(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    mert_track = _add_track_with_embedding_key(db, "mert.wav", [1.0, 0.0, 0.0], "mert")
+    clap_near = _add_track_with_embedding_key(db, "clap-near.wav", [0.0, 1.0, 0.0], "clap")
+    clap_far = _add_track_with_embedding_key(db, "clap-far.wav", [1.0, 0.0, 0.0], "clap")
+
+    results = SimilaritySearch(db, embedding_key="clap").search_vector(np.array([0.0, 1.0, 0.0], dtype=np.float32), limit=5)
+
+    assert [result.track.id for result in results] == [clap_near, clap_far]
+    assert mert_track not in {result.track.id for result in results}

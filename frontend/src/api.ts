@@ -41,6 +41,7 @@ export type AnalysisJobStatus = {
   job_id: string;
   state: "queued" | "running" | "completed" | "cancelled" | "failed";
   adapter_name: string;
+  embedding_key: string;
   model_name?: string | null;
   device?: string | null;
   device_requested: "auto" | "cpu" | "cuda";
@@ -90,7 +91,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({})
     }),
-  analyze: (adapter: "mert" | "fake", limit?: number, device: "auto" | "cpu" | "cuda" = "auto", batch_size = 4) =>
+  analyze: (adapter: "mert" | "clap" | "fake", limit?: number, device: "auto" | "cpu" | "cuda" = "auto", batch_size = 4) =>
     request<AnalysisJobStatus>("/api/analyze", {
       method: "POST",
       body: JSON.stringify({ adapter, limit: limit || null, device, batch_size })
@@ -115,6 +116,11 @@ export const api = {
     noise?: number;
   }) =>
     request<SearchResult[]>("/api/search", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  textSearch: (payload: { query: string; limit: number; min_similarity?: number | null; device?: "auto" | "cpu" | "cuda" }) =>
+    request<SearchResult[]>("/api/search/text", {
       method: "POST",
       body: JSON.stringify(payload)
     }),

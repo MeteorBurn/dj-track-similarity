@@ -7,8 +7,10 @@ import typer
 
 from .analysis_jobs import AnalysisJobManager
 from .database import LibraryDatabase
+from .embedding import ClapEmbeddingAdapter
 from .exporter import export_playlist
 from .scanner import scan_library
+from .search import SearchFilters, SimilaritySearch
 from .tags import apply_custom_tags, build_tag_preview
 
 
@@ -30,10 +32,11 @@ def analyze(
     db_path: Optional[Path] = typer.Option(None, "--db"),
     limit: Optional[int] = typer.Option(None, "--limit"),
     fake: bool = typer.Option(False, "--fake", help="Use deterministic fake embeddings for smoke tests."),
-    device: str = typer.Option("auto", "--device", help="MERT device: auto, cpu, or cuda."),
-    batch_size: int = typer.Option(4, "--batch-size", min=1, max=64, help="MERT inference batch size."),
+    adapter: str = typer.Option("mert", "--adapter", help="Embedding adapter: mert or clap."),
+    device: str = typer.Option("auto", "--device", help="Embedding device: auto, cpu, or cuda."),
+    batch_size: int = typer.Option(4, "--batch-size", min=1, max=64, help="Embedding inference batch size."),
 ) -> None:
-    adapter_name = "fake" if fake else "mert"
+    adapter_name = "fake" if fake else adapter
     status = AnalysisJobManager(_db(db_path)).run_sync(
         adapter_name=adapter_name,
         limit=limit,
@@ -42,8 +45,28 @@ def analyze(
     )
     typer.echo(
         f"state={status.state} total={status.total} processed={status.processed} "
-        f"analyzed={status.analyzed} failed={status.failed} device={status.device} batch_size={status.batch_size}"
+        f"analyzed={status.analyzed} failed={status.failed} embedding_key={status.embedding_key} "
+        f"device={status.device} batch_size={status.batch_size}"
     )
+
+
+@app.command("text-search")
+def text_search(
+    query: str,
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+    limit: int = typer.Option(50, "--limit", min=1, max=500),
+    min_similarity: Optional[float] = typer.Option(None, "--min-similarity"),
+    device: str = typer.Option("auto", "--device", help="CLAP device: auto, cpu, or cuda."),
+) -> None:
+    adapter = ClapEmbeddingAdapter(device=device)
+    vector = adapter.embed_text(query.strip())
+    results = SimilaritySearch(_db(db_path), embedding_key=adapter.embedding_key).search_vector(
+        vector,
+        filters=SearchFilters(min_similarity=min_similarity),
+        limit=limit,
+    )
+    for result in results:
+        typer.echo(f"{result.score:.3f}\t{result.track.id}\t{result.track.path}")
 
 
 @app.command()

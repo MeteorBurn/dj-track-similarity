@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .analysis_jobs import AnalysisJobManager
 from .database import LibraryDatabase
-from .embedding import FakeEmbeddingAdapter, MertEmbeddingAdapter
+from .embedding import ClapEmbeddingAdapter, FakeEmbeddingAdapter, MertEmbeddingAdapter
 from .exporter import export_playlist
 from .scan_jobs import ScanJobManager
 from .search import SearchFilters, SimilaritySearch
@@ -23,7 +23,7 @@ class ScanRequest(BaseModel):
 
 class AnalyzeRequest(BaseModel):
     limit: int | None = None
-    adapter: str = Field(default="mert", pattern="^(mert|fake)$")
+    adapter: str = Field(default="mert", pattern="^(mert|clap|fake)$")
     device: str = Field(default="auto", pattern="^(auto|cpu|cuda)$")
     batch_size: int = Field(default=4, ge=1, le=64)
     workers: int | None = Field(default=None, ge=1, le=64)
@@ -42,6 +42,13 @@ class SearchRequest(BaseModel):
     min_similarity: float | None = None
     epsilon: float | None = Field(default=None, alias="Epsilon")
     noise: float = 0.0
+
+
+class TextSearchRequest(BaseModel):
+    query: str
+    limit: int = Field(default=50, ge=1, le=500)
+    min_similarity: float | None = None
+    device: str = Field(default="auto", pattern="^(auto|cpu|cuda)$")
 
 
 class PlaylistRequest(BaseModel):
@@ -152,6 +159,23 @@ def create_app(db_path: str | Path = "dj-track-similarity.sqlite") -> FastAPI:
             return SimilaritySearch(db).search(
                 request.seed_track_ids,
                 lookback_track_ids=request.lookback_track_ids,
+                filters=filters,
+                limit=request.limit,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.post("/api/search/text")
+    def text_search(request: TextSearchRequest):
+        query = request.query.strip()
+        if not query:
+            raise HTTPException(status_code=400, detail="Text query is required")
+        adapter = ClapEmbeddingAdapter(device=request.device)
+        vector = adapter.embed_text(query)
+        filters = SearchFilters(min_similarity=request.min_similarity)
+        try:
+            return SimilaritySearch(db, embedding_key=adapter.embedding_key).search_vector(
+                vector,
                 filters=filters,
                 limit=request.limit,
             )

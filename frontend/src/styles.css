@@ -207,7 +207,7 @@ h2 {
 .analysis-actions {
   display: grid;
   gap: 8px;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.8fr);
   margin-bottom: 8px;
 }
 
@@ -789,6 +789,26 @@ h2 {
   line-height: 1.35;
   margin-top: 8px;
   padding: 8px;
+}
+
+.text-search-box {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) 86px;
+  margin: 10px 0 6px;
+}
+
+.text-search-box label {
+  color: #65705e;
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  gap: 4px;
+}
+
+.text-search-box button {
+  height: 37px;
 }
 
 .seed-chip {

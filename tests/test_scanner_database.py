@@ -1,4 +1,5 @@
 from pathlib import Path
+import sqlite3
 
 import dj_track_similarity.scanner as scanner
 from dj_track_similarity.database import LibraryDatabase
@@ -48,3 +49,69 @@ def test_read_audio_metadata_skips_tag_keys_that_mutagen_rejects(monkeypatch, tm
 
     assert metadata["title"] == "Warm Pad"
     assert "artist" not in metadata
+
+
+def test_database_stores_multiple_embedding_spaces_per_track(tmp_path: Path) -> None:
+    import numpy as np
+
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = db.upsert_track(path=tmp_path / "track.wav", size=10, mtime=1, metadata={"title": "Track"})
+
+    db.save_embedding(track_id, np.array([1, 0, 0], dtype=np.float32), "mert-model", 3, embedding_key="mert")
+    db.save_embedding(track_id, np.array([0, 1, 0], dtype=np.float32), "clap-model", 3, embedding_key="clap")
+
+    mert_tracks, mert_matrix = db.load_embedding_matrix("mert")
+    clap_tracks, clap_matrix = db.load_embedding_matrix("clap")
+
+    assert [track.id for track in mert_tracks] == [track_id]
+    assert [track.id for track in clap_tracks] == [track_id]
+    assert mert_tracks[0].embedding_model == "mert-model"
+    assert clap_tracks[0].embedding_model == "clap-model"
+    assert mert_matrix.shape == (1, 3)
+    assert clap_matrix.shape == (1, 3)
+
+
+def test_database_migrates_legacy_embedding_table(tmp_path: Path) -> None:
+    import numpy as np
+
+    db_path = tmp_path / "legacy.sqlite"
+    with sqlite3.connect(db_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE tracks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT NOT NULL UNIQUE,
+                size INTEGER NOT NULL,
+                mtime REAL NOT NULL,
+                artist TEXT,
+                title TEXT,
+                album TEXT,
+                bpm REAL,
+                musical_key TEXT,
+                energy REAL,
+                duration REAL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE embeddings (
+                track_id INTEGER PRIMARY KEY,
+                model_name TEXT NOT NULL,
+                dim INTEGER NOT NULL,
+                vector BLOB NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            INSERT INTO tracks (path, size, mtime, title) VALUES ('C:/music/a.wav', 10, 1, 'A');
+            """
+        )
+        connection.execute(
+            "INSERT INTO embeddings (track_id, model_name, dim, vector) VALUES (1, 'legacy-mert', 3, ?)",
+            (np.array([1, 0, 0], dtype=np.float32).tobytes(),),
+        )
+
+    db = LibraryDatabase(db_path)
+    tracks, matrix = db.load_embedding_matrix("mert")
+
+    assert [track.id for track in tracks] == [1]
+    assert tracks[0].embedding_model == "legacy-mert"
+    assert matrix.shape == (1, 3)

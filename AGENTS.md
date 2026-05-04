@@ -19,11 +19,11 @@ This workspace may not be a Git repository. Do not assume Git history, branches,
 - Only `tag-apply` and `/api/tags/apply` write audio metadata, and they must only write custom `DJ_SIM_*` tags. Do not overwrite standard BPM, key, title, artist, album, mood, or other normal tags.
 - Treat `dj-track-similarity.sqlite` as local user state. Tests should use temporary databases via `tmp_path` or explicit `--db` paths.
 - Do not commit or preserve generated local artifacts unless explicitly asked: `*.sqlite`, `*.log`, `__pycache__/`, `.pytest_cache/`, `frontend/node_modules/`, and transient temp folders.
-- Full MERT analysis can be slow and may download Hugging Face/PyTorch model weights on first use. Prefer `--fake` for smoke checks unless the user asks for real ML analysis.
+- Full MERT/CLAP analysis can be slow and may download Hugging Face/PyTorch model weights on first use. Prefer `--fake` for smoke checks unless the user asks for real ML analysis.
 - In the UI, `Analyze limit = 0` means analyzing the whole library and is the default. Avoid triggering whole-library analysis unless the user clearly wants it or is operating the UI themselves.
-- MERT analysis should be accelerated with a single selected device plus inference batching, not multiple parallel model workers. Use `device=auto|cpu|cuda` and `batch_size`; keep legacy `workers` only as a compatibility alias for analysis batch size.
+- MERT/CLAP analysis should be accelerated with a single selected device plus inference batching, not multiple parallel model workers. Use `device=auto|cpu|cuda` and `batch_size`; keep legacy `workers` only as a compatibility alias for analysis batch size.
 - If CUDA is explicitly requested and unavailable, surface an error instead of silently falling back to CPU. Use `auto` for fallback behavior.
-- Current search UI is in MERT-only validation mode: active knobs are `Similarity`, `Lookback`, and `Limit`. BPM, Key, Energy, Epsilon, and Noise are disabled in the UI and should not be sent from the frontend search request until calibrated.
+- Current seed search UI is in MERT validation mode: active knobs are `Similarity`, `Lookback`, and `Limit`. BPM, Key, Energy, Epsilon, and Noise are disabled in the UI and should not be sent from the frontend search request until calibrated. Text search is a separate CLAP mode and requires `clap` embeddings.
 - Keep hover help on user-editable parameters. Tooltips should explain purpose, accepted format, value type, and range.
 
 ## Common Commands
@@ -78,6 +78,8 @@ Useful CLI smoke commands:
 dj-sim scan "D:\Music"
 dj-sim analyze --device cpu --batch-size 2 --limit 3
 dj-sim analyze --device cuda --batch-size 8 --limit 3
+dj-sim analyze --adapter clap --device cpu --batch-size 2 --limit 3
+dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 5
 dj-sim analyze --fake
 dj-sim export 1 --format m3u --output-dir "D:\Exports"
 dj-sim export 1 --format csv --output-dir "D:\Exports"
@@ -90,10 +92,10 @@ dj-sim tag-preview 1 2 3
 - `src/dj_track_similarity/database.py`: SQLite schema, connection handling, track upserts, embeddings, playlists, and row mapping.
 - `src/dj_track_similarity/scanner.py`: synchronous library scan and audio metadata extraction with `mutagen`.
 - `src/dj_track_similarity/scan_jobs.py`: scan job manager with progress, cancellation, event logs, and optional parallel workers.
-- `src/dj_track_similarity/embedding.py`: embedding adapter protocol, deterministic fake adapter, and MERT adapter.
+- `src/dj_track_similarity/embedding.py`: embedding adapter protocol, deterministic fake adapter, MERT adapter, CLAP adapter, and adapter registry.
 - `src/dj_track_similarity/analysis.py`: simple analyze-missing flow.
 - `src/dj_track_similarity/analysis_jobs.py`: analysis job manager with batching, progress, cancellation, errors, adapter metadata, and embedding saves.
-- `src/dj_track_similarity/search.py`: centroid-based similarity search with BPM, Camelot key, energy, similarity, epsilon, noise, and lookback filters.
+- `src/dj_track_similarity/search.py`: centroid-based similarity search plus arbitrary query-vector search for CLAP text mode.
 - In the frontend, only Similarity, Lookback, and Limit are active for MERT validation; the other search filters remain backend capabilities/future knobs.
 - `src/dj_track_similarity/exporter.py`: playlist export to M3U or CSV.
 - `src/dj_track_similarity/tags.py`: custom `DJ_SIM_*` tag preview and apply logic.

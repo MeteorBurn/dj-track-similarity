@@ -906,7 +906,7 @@ meter {
 .activity-log-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   max-height: 172px;
   overflow-y: auto;
   padding-right: 4px;
@@ -919,17 +919,18 @@ meter {
   border-left: 3px solid #9da895;
   border-radius: 5px;
   display: grid;
-  gap: 2px 8px;
-  grid-template-columns: 58px minmax(0, 1fr);
-  min-height: 0;
-  padding: 5px 8px;
+  gap: 3px 10px;
+  grid-template-columns: 68px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  min-height: 48px;
+  padding: 7px 9px;
 }
 
 .activity-log-row time,
 .activity-log-row strong,
 .activity-log-row span {
   font-size: 11px;
-  line-height: 15px;
+  line-height: 16px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -938,15 +939,19 @@ meter {
 .activity-log-row time {
   color: #7a8473;
   font-variant-numeric: tabular-nums;
+  grid-row: 1 / 3;
+  padding-top: 1px;
 }
 
 .activity-log-row strong {
   color: #354036;
+  min-width: 0;
 }
 
 .activity-log-row span {
   color: #65705e;
   grid-column: 2;
+  min-width: 0;
 }
 
 .activity-log-row.ok {

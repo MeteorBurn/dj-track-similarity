@@ -119,7 +119,12 @@ class LibraryDatabase:
         with self.connect() as connection:
             row = connection.execute(
                 """
-                SELECT t.*, e.model_name AS embedding_model, e.dim AS embedding_dim
+                SELECT t.*, e.model_name AS embedding_model, e.dim AS embedding_dim,
+                    (
+                        SELECT json_group_array(embedding_key)
+                        FROM embeddings
+                        WHERE track_id = t.id
+                    ) AS embedding_keys_json
                 FROM tracks t
                 LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                 WHERE t.path = ?
@@ -132,7 +137,12 @@ class LibraryDatabase:
         with self.connect() as connection:
             row = connection.execute(
                 """
-                SELECT t.*, e.model_name AS embedding_model, e.dim AS embedding_dim
+                SELECT t.*, e.model_name AS embedding_model, e.dim AS embedding_dim,
+                    (
+                        SELECT json_group_array(embedding_key)
+                        FROM embeddings
+                        WHERE track_id = t.id
+                    ) AS embedding_keys_json
                 FROM tracks t
                 LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                 WHERE t.id = ?
@@ -214,7 +224,12 @@ class LibraryDatabase:
         with self.connect() as connection:
             rows = connection.execute(
                 f"""
-                SELECT t.*, e.model_name AS embedding_model, e.dim AS embedding_dim
+                SELECT t.*, e.model_name AS embedding_model, e.dim AS embedding_dim,
+                    (
+                        SELECT json_group_array(embedding_key)
+                        FROM embeddings
+                        WHERE track_id = t.id
+                    ) AS embedding_keys_json
                 FROM tracks t
                 LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                 {where}
@@ -255,11 +270,39 @@ class LibraryDatabase:
                 (track_id, embedding_key, model_name, actual_dim, normalized.astype(np.float32).tobytes()),
             )
 
+    def save_genres(self, track_id: int, genres: list[dict[str, object]], *, model_name: str) -> None:
+        cleaned = []
+        for genre in genres:
+            label = _string_or_none(genre.get("label"))
+            if not label:
+                continue
+            score = _optional_float(genre.get("score"))
+            cleaned.append({"label": label, "score": float(score or 0.0)})
+        with self.connect() as connection:
+            row = connection.execute("SELECT metadata_json FROM tracks WHERE id = ?", (track_id,)).fetchone()
+            if row is None:
+                raise KeyError(f"Unknown track id: {track_id}")
+            try:
+                metadata = json.loads(str(row["metadata_json"] or "{}"))
+            except json.JSONDecodeError:
+                metadata = {}
+            metadata["maest_genres"] = cleaned
+            metadata["maest_model"] = model_name
+            connection.execute(
+                "UPDATE tracks SET metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (json.dumps(metadata, ensure_ascii=False, sort_keys=True), track_id),
+            )
+
     def load_embedding_matrix(self, embedding_key: str = DEFAULT_EMBEDDING_KEY) -> tuple[list[Track], np.ndarray]:
         with self.connect() as connection:
             rows = connection.execute(
                 """
-                SELECT t.*, e.model_name AS embedding_model, e.dim AS embedding_dim, e.vector
+                SELECT t.*, e.model_name AS embedding_model, e.dim AS embedding_dim, e.vector,
+                    (
+                        SELECT json_group_array(embedding_key)
+                        FROM embeddings
+                        WHERE track_id = t.id
+                    ) AS embedding_keys_json
                 FROM tracks t
                 JOIN embeddings e ON e.track_id = t.id
                 WHERE e.embedding_key = ?
@@ -295,7 +338,12 @@ class LibraryDatabase:
         with self.connect() as connection:
             rows = connection.execute(
                 """
-                SELECT t.*, e.model_name AS embedding_model, e.dim AS embedding_dim
+                SELECT t.*, e.model_name AS embedding_model, e.dim AS embedding_dim,
+                    (
+                        SELECT json_group_array(embedding_key)
+                        FROM embeddings
+                        WHERE track_id = t.id
+                    ) AS embedding_keys_json
                 FROM playlist_tracks pt
                 JOIN tracks t ON t.id = pt.track_id
                 LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
@@ -310,6 +358,9 @@ class LibraryDatabase:
 
     @staticmethod
     def _row_to_track(row: sqlite3.Row) -> Track:
+        metadata = _metadata_from_json(row["metadata_json"] if "metadata_json" in row.keys() else "{}")
+        genres, genre_scores = _genres_from_metadata(metadata)
+        analyses = _analyses_from_row(row, metadata)
         return Track(
             id=int(row["id"]),
             path=str(row["path"]),
@@ -322,6 +373,10 @@ class LibraryDatabase:
             musical_key=row["musical_key"],
             energy=row["energy"],
             duration=row["duration"],
+            metadata=metadata,
+            genres=genres,
+            genre_scores=genre_scores,
+            analyses=analyses,
             embedding_model=row["embedding_model"] if "embedding_model" in row.keys() else None,
             embedding_dim=row["embedding_dim"] if "embedding_dim" in row.keys() else None,
         )
@@ -336,3 +391,49 @@ def _string_or_none(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _metadata_from_json(metadata_json: object) -> dict[str, object]:
+    try:
+        metadata = json.loads(str(metadata_json or "{}"))
+    except json.JSONDecodeError:
+        return {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _genres_from_metadata(metadata: dict[str, object]) -> tuple[list[str] | None, dict[str, float] | None]:
+    raw_genres = metadata.get("maest_genres")
+    if not isinstance(raw_genres, list):
+        return None, None
+    labels: list[str] = []
+    scores: dict[str, float] = {}
+    for item in raw_genres:
+        if not isinstance(item, dict):
+            continue
+        label = _string_or_none(item.get("label"))
+        score = _optional_float(item.get("score"))
+        if label is None:
+            continue
+        labels.append(label)
+        scores[label] = float(score or 0.0)
+    return (labels or None), (scores or None)
+
+
+def _analyses_from_row(row: sqlite3.Row, metadata: dict[str, object]) -> list[str] | None:
+    analyses_set: set[str] = set()
+    if metadata.get("maest_genres"):
+        analyses_set.add("maest")
+    keys_json = row["embedding_keys_json"] if "embedding_keys_json" in row.keys() else None
+    try:
+        keys = json.loads(str(keys_json or "[]"))
+    except json.JSONDecodeError:
+        keys = []
+    if isinstance(keys, list):
+        for key in keys:
+            text = _string_or_none(key)
+            if text:
+                analyses_set.add(text)
+    ordered = [name for name in ("maest", "mert", "clap") if name in analyses_set]
+    extras = sorted(name for name in analyses_set if name not in {"maest", "mert", "clap"})
+    analyses = ordered + extras
+    return analyses or None

@@ -11,6 +11,7 @@ from .analysis_jobs import AnalysisJobManager
 from .database import LibraryDatabase
 from .embedding import ClapEmbeddingAdapter, FakeEmbeddingAdapter, MertEmbeddingAdapter
 from .exporter import export_playlist
+from .genre_jobs import GenreAnalysisJobManager
 from .scan_jobs import ScanJobManager
 from .search import SearchFilters, SimilaritySearch
 from .tags import apply_custom_tags, build_tag_preview
@@ -27,6 +28,12 @@ class AnalyzeRequest(BaseModel):
     device: str = Field(default="auto", pattern="^(auto|cpu|cuda)$")
     batch_size: int = Field(default=4, ge=1, le=64)
     workers: int | None = Field(default=None, ge=1, le=64)
+
+
+class GenreAnalyzeRequest(BaseModel):
+    limit: int | None = None
+    device: str = Field(default="auto", pattern="^(auto|cpu|cuda)$")
+    top_k: int = Field(default=3, ge=1, le=10)
 
 
 class SearchRequest(BaseModel):
@@ -87,6 +94,7 @@ def open_folder_dialog() -> Path | None:
 def create_app(db_path: str | Path = "dj-track-similarity.sqlite") -> FastAPI:
     db = LibraryDatabase(db_path)
     analysis_jobs = AnalysisJobManager(db)
+    genre_jobs = GenreAnalysisJobManager(db)
     scan_jobs = ScanJobManager(db)
     app = FastAPI(title="dj-track-similarity Utility")
 
@@ -141,6 +149,28 @@ def create_app(db_path: str | Path = "dj-track-similarity.sqlite") -> FastAPI:
     def cancel_analyze_job(job_id: str):
         try:
             return analysis_jobs.cancel(job_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.post("/api/genres/analyze")
+    def analyze_genres(request: GenreAnalyzeRequest):
+        return genre_jobs.start(limit=request.limit, device=request.device, top_k=request.top_k)
+
+    @app.get("/api/genres/analyze/jobs/latest")
+    def latest_genre_job():
+        return genre_jobs.latest()
+
+    @app.get("/api/genres/analyze/jobs/{job_id}")
+    def genre_job(job_id: str):
+        try:
+            return genre_jobs.get(job_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.post("/api/genres/analyze/jobs/{job_id}/cancel")
+    def cancel_genre_job(job_id: str):
+        try:
+            return genre_jobs.cancel(job_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 

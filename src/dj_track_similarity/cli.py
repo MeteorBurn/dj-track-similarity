@@ -9,6 +9,8 @@ from .analysis_jobs import AnalysisJobManager
 from .database import LibraryDatabase
 from .embedding import ClapEmbeddingAdapter
 from .exporter import export_playlist
+from .genre_jobs import GenreAnalysisJobManager
+from .runtime import get_torch_runtime_info, recommended_torch_index
 from .scanner import scan_library
 from .search import SearchFilters, SimilaritySearch
 from .tags import apply_custom_tags, build_tag_preview
@@ -48,6 +50,48 @@ def analyze(
         f"analyzed={status.analyzed} failed={status.failed} embedding_key={status.embedding_key} "
         f"device={status.device} batch_size={status.batch_size}"
     )
+
+
+@app.command("analyze-genres")
+def analyze_genres(
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+    limit: Optional[int] = typer.Option(None, "--limit"),
+    device: str = typer.Option("auto", "--device", help="MAEST device: auto, cpu, or cuda."),
+    top_k: int = typer.Option(3, "--top-k", min=1, max=10, help="Number of MAEST genre labels to store per track."),
+) -> None:
+    status = GenreAnalysisJobManager(_db(db_path)).run_sync(limit=limit, device=device, top_k=top_k)
+    typer.echo(
+        f"state={status.state} total={status.total} processed={status.processed} "
+        f"analyzed={status.analyzed} failed={status.failed} device={status.device} top_k={status.top_k}"
+    )
+
+
+@app.command()
+def doctor() -> None:
+    info = get_torch_runtime_info()
+    typer.echo(f"python={info.python}")
+    if not info.torch_installed:
+        typer.echo(f"torch=missing error={info.error}")
+        index_url = recommended_torch_index(info)
+        if index_url:
+            typer.echo(f"suggested_torch_index={index_url}")
+            typer.echo(f"install=torch torchaudio --index-url {index_url}")
+        return
+
+    typer.echo(f"torch={info.torch_version}")
+    typer.echo(f"torch_cuda_build={info.torch_cuda_build}")
+    typer.echo(f"cuda_available={info.cuda_available}")
+    typer.echo(f"cuda_device_count={info.device_count}")
+    typer.echo(f"cuda_device_name={info.device_name}")
+    typer.echo(f"nvidia_smi_cuda={info.nvidia_smi_cuda}")
+    if info.cuda_available:
+        typer.echo("device_auto=cuda")
+    else:
+        typer.echo("device_auto=cpu")
+        index_url = recommended_torch_index(info)
+        if index_url:
+            typer.echo(f"suggested_torch_index={index_url}")
+            typer.echo(f"install=torch torchaudio --index-url {index_url}")
 
 
 @app.command("text-search")

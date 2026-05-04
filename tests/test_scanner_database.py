@@ -70,6 +70,35 @@ def test_database_stores_multiple_embedding_spaces_per_track(tmp_path: Path) -> 
     assert mert_matrix.shape == (1, 3)
     assert clap_matrix.shape == (1, 3)
 
+    track = db.get_track(track_id)
+
+    assert track.analyses == ["mert", "clap"]
+
+
+def test_database_stores_maest_genres_in_track_metadata(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = db.upsert_track(
+        path=tmp_path / "track.wav",
+        size=10,
+        mtime=1,
+        metadata={"title": "Track", "artist": "Artist"},
+    )
+
+    db.save_genres(
+        track_id,
+        [{"label": "Techno", "score": 0.91}, {"label": "Dub Techno", "score": 0.72}],
+        model_name="discogs-maest-30s-pw-129e-519l",
+    )
+
+    track = db.get_track(track_id)
+
+    assert track.metadata["title"] == "Track"
+    assert track.metadata["artist"] == "Artist"
+    assert track.analyses == ["maest"]
+    assert track.genres == ["Techno", "Dub Techno"]
+    assert track.genre_scores == {"Techno": 0.91, "Dub Techno": 0.72}
+    assert track.artist == "Artist"
+
 
 def test_database_migrates_legacy_embedding_table(tmp_path: Path) -> None:
     import numpy as np

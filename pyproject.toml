@@ -21,6 +21,7 @@ ml = [
   "torch",
   "torchaudio",
   "transformers",
+  "maest-infer",
 ]
 dev = [
   "pytest>=7.4",

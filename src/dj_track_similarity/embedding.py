@@ -5,6 +5,8 @@ from typing import Protocol
 
 import numpy as np
 
+from .runtime import select_torch_device
+
 
 class EmbeddingAdapter(Protocol):
     embedding_key: str
@@ -121,11 +123,7 @@ class MertEmbeddingAdapter:
         assert self._torch is not None
         if self.device:
             return self.device
-        if self.device_name:
-            if self.device_name == "cuda" and not self._torch.cuda.is_available():
-                raise RuntimeError("CUDA was requested but torch.cuda.is_available() is false")
-            return self.device_name
-        return "cuda" if self._torch.cuda.is_available() else "cpu"
+        return select_torch_device(self._torch, self.requested_device)
 
 
 class ClapEmbeddingAdapter:
@@ -225,11 +223,7 @@ class ClapEmbeddingAdapter:
         assert self._torch is not None
         if self.device:
             return self.device
-        if self.device_name:
-            if self.device_name == "cuda" and not self._torch.cuda.is_available():
-                raise RuntimeError("CUDA was requested but torch.cuda.is_available() is false")
-            return self.device_name
-        return "cuda" if self._torch.cuda.is_available() else "cpu"
+        return select_torch_device(self._torch, self.requested_device)
 
 
 def adapter_factories():

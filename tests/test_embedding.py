@@ -1,6 +1,6 @@
 import numpy as np
 
-from dj_track_similarity.embedding import _call_clap_audio_processor
+from dj_track_similarity.embedding import _call_clap_audio_processor, _model_output_to_numpy
 
 
 class StrictClapProcessor:
@@ -24,3 +24,22 @@ def test_clap_audio_processor_uses_singular_audio_keyword() -> None:
         "return_tensors": "pt",
         "padding": True,
     }
+
+
+def test_model_output_to_numpy_accepts_pooler_output_object() -> None:
+    class TensorLike:
+        def detach(self):
+            return self
+
+        def cpu(self):
+            return self
+
+        def numpy(self):
+            return np.array([[0.0, 1.0, 0.0]], dtype=np.float32)
+
+    class Output:
+        pooler_output = TensorLike()
+
+    result = _model_output_to_numpy(Output())
+
+    assert result.tolist() == [[0.0, 1.0, 0.0]]

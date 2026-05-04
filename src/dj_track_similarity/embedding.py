@@ -186,7 +186,7 @@ class ClapEmbeddingAdapter:
             inputs = {key: value.to(self._device()) for key, value in inputs.items()}
             with torch.inference_mode():
                 features = self._model.get_audio_features(**inputs)
-            pooled_windows.extend(_normalize_rows(features.detach().cpu().numpy().astype(np.float32)))
+            pooled_windows.extend(_normalize_rows(_model_output_to_numpy(features)))
 
         vectors: list[np.ndarray] = []
         for indices in track_windows:
@@ -205,7 +205,7 @@ class ClapEmbeddingAdapter:
         inputs = {key: value.to(self._device()) for key, value in inputs.items()}
         with torch.inference_mode():
             features = self._model.get_text_features(**inputs)
-        return _normalize_rows(features.detach().cpu().numpy().astype(np.float32))[0]
+        return _normalize_rows(_model_output_to_numpy(features))[0]
 
     def _load_model(self) -> None:
         if self._model is not None:
@@ -258,6 +258,13 @@ def _normalize_rows(matrix: np.ndarray) -> list[np.ndarray]:
 
 def _call_clap_audio_processor(processor, batch: list[np.ndarray], sampling_rate: int):
     return processor(audio=batch, sampling_rate=sampling_rate, return_tensors="pt", padding=True)
+
+
+def _model_output_to_numpy(output) -> np.ndarray:
+    tensor = getattr(output, "pooler_output", output)
+    if isinstance(tensor, tuple):
+        tensor = tensor[0]
+    return tensor.detach().cpu().numpy().astype(np.float32)
 
 
 def _select_windows_torch(waveform, sample_rate: int, window_seconds: float, max_windows: int, torch):

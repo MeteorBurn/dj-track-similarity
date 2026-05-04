@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .database import LibraryDatabase
-from .scanner import SUPPORTED_AUDIO_EXTENSIONS, read_audio_metadata
+from .scanner import MUTAGEN_METADATA_KEYS, SUPPORTED_AUDIO_EXTENSIONS, read_audio_metadata
 
 
 @dataclass(frozen=True)
@@ -71,6 +71,64 @@ class ScanJobManager:
         job_id = self.create_job(root, workers=workers)
         return self.run_job(job_id)
 
+    def create_tag_refresh_job(self, *, workers: int = 1) -> str:
+        tracks = self.db.list_tracks()
+        paths = [Path(track.path) for track in tracks]
+        track_ids = {track.path: track.id for track in tracks}
+        job_id = str(uuid.uuid4())
+        status = ScanJobStatus(job_id=job_id, state="queued", root="metadata refresh", total=len(paths), workers=max(1, workers))
+        status._paths = paths  # type: ignore[attr-defined]
+        status._track_ids = track_ids  # type: ignore[attr-defined]
+        status._refresh_tags = True  # type: ignore[attr-defined]
+        with self._lock:
+            self._jobs[job_id] = status
+        self._append_event(job_id, "info", "Tag refresh queued")
+        return job_id
+
+    def start_tag_refresh(self, *, workers: int = 1) -> ScanJobStatus:
+        job_id = self.create_tag_refresh_job(workers=workers)
+        thread = threading.Thread(target=self.run_tag_refresh_job, args=(job_id,), daemon=True)
+        thread.start()
+        return self.get(job_id)
+
+    def run_tag_refresh_job(self, job_id: str) -> ScanJobStatus:
+        status = self.get(job_id)
+        paths: list[Path] = getattr(status, "_paths", [])
+        if status.cancel_requested:
+            self._update(job_id, state="cancelled", finished_at=time.time())
+            self._append_event(job_id, "warn", "Tag refresh cancelled")
+            return self.get(job_id)
+
+        started = time.time()
+        self._update(job_id, state="running", started_at=started)
+        self._append_event(job_id, "info", "Tag refresh started")
+        if status.workers <= 1:
+            for path in paths:
+                if self.get(job_id).cancel_requested:
+                    self._update(job_id, state="cancelled", finished_at=time.time(), current_path=None)
+                    self._append_event(job_id, "warn", "Tag refresh cancelled")
+                    return self.get(job_id)
+                self._refresh_tags_one(job_id, path)
+        else:
+            self._run_parallel(job_id, paths, status.workers, self._refresh_tags_one)
+            if self.get(job_id).cancel_requested:
+                self._update(job_id, state="cancelled", finished_at=time.time(), current_path=None)
+                self._append_event(job_id, "warn", "Tag refresh cancelled")
+                return self.get(job_id)
+
+        final = self.get(job_id)
+        finished = time.time()
+        processed = max(1, final.processed)
+        self._update(
+            job_id,
+            state="completed",
+            finished_at=finished,
+            current_path=None,
+            avg_seconds_per_track=(finished - (final.started_at or started)) / processed,
+        )
+        self._append_event(job_id, "info", "Tag refresh completed")
+        return self.get(job_id)
+
     def run_job(self, job_id: str) -> ScanJobStatus:
         status = self.get(job_id)
         paths: list[Path] = getattr(status, "_paths", [])
@@ -90,7 +148,7 @@ class ScanJobManager:
                     return self.get(job_id)
                 self._scan_one(job_id, path)
         else:
-            self._run_parallel(job_id, paths, status.workers)
+            self._run_parallel(job_id, paths, status.workers, self._scan_one)
             if self.get(job_id).cancel_requested:
                 self._update(job_id, state="cancelled", finished_at=time.time(), current_path=None)
                 self._append_event(job_id, "warn", "Scan cancelled")
@@ -109,7 +167,7 @@ class ScanJobManager:
         self._append_event(job_id, "info", "Scan completed")
         return self.get(job_id)
 
-    def _run_parallel(self, job_id: str, paths: list[Path], workers: int) -> None:
+    def _run_parallel(self, job_id: str, paths: list[Path], workers: int, action) -> None:
         pending_paths = iter(paths)
         futures = {}
         with ThreadPoolExecutor(max_workers=workers) as executor:
@@ -123,7 +181,7 @@ class ScanJobManager:
                         path = next(pending_paths)
                     except StopIteration:
                         break
-                    futures[executor.submit(self._scan_one, job_id, path)] = path
+                    futures[executor.submit(action, job_id, path)] = path
                 if not futures:
                     return
                 done, _ = wait(futures, return_when=FIRST_COMPLETED)
@@ -178,6 +236,30 @@ class ScanJobManager:
                 self._increment(job_id, added=1, message="Track added", level="ok", path=str(path))
         except Exception as error:
             self._increment(job_id, failed=1, message=f"Track failed: {error}", level="error", path=str(path))
+
+    def _refresh_tags_one(self, job_id: str, path: Path) -> None:
+        self._update(job_id, current_path=str(path))
+        try:
+            status = self.get(job_id)
+            track_ids: dict[str, int] = getattr(status, "_track_ids", {})
+            track_id = track_ids.get(path.as_posix()) or track_ids.get(str(path))
+            if track_id is None:
+                self._increment(job_id, skipped=1, message="Track id missing for path", level="warn", path=str(path))
+                return
+            if not path.exists():
+                self._increment(job_id, skipped=1, message="Track file missing", level="warn", path=str(path))
+                return
+            metadata = read_audio_metadata(path)
+            self.db.refresh_track_file_metadata(
+                track_id,
+                size=path.stat().st_size,
+                mtime=path.stat().st_mtime,
+                metadata=metadata,
+                replace_metadata_keys=MUTAGEN_METADATA_KEYS,
+            )
+            self._increment(job_id, updated=1, message="Tags refreshed", level="ok", path=str(path))
+        except Exception as error:
+            self._increment(job_id, failed=1, message=f"Tag refresh failed: {error}", level="error", path=str(path))
 
     def _increment(
         self,
@@ -240,6 +322,10 @@ class ScanJobManager:
         )
         if hasattr(status, "_paths"):
             copy._paths = getattr(status, "_paths")  # type: ignore[attr-defined]
+        if hasattr(status, "_track_ids"):
+            copy._track_ids = getattr(status, "_track_ids")  # type: ignore[attr-defined]
+        if hasattr(status, "_refresh_tags"):
+            copy._refresh_tags = getattr(status, "_refresh_tags")  # type: ignore[attr-defined]
         return copy
 
 

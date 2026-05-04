@@ -293,6 +293,178 @@ class LibraryDatabase:
                 (json.dumps(metadata, ensure_ascii=False, sort_keys=True), track_id),
             )
 
+    def save_sonara_features(
+        self,
+        track_id: int,
+        features: dict[str, object],
+        *,
+        bpm: float | None = None,
+        musical_key: str | None = None,
+        energy: float | None = None,
+        duration: float | None = None,
+        model_name: str = "sonara",
+    ) -> None:
+        with self.connect() as connection:
+            row = connection.execute("SELECT metadata_json FROM tracks WHERE id = ?", (track_id,)).fetchone()
+            if row is None:
+                raise KeyError(f"Unknown track id: {track_id}")
+            try:
+                metadata = json.loads(str(row["metadata_json"] or "{}"))
+            except json.JSONDecodeError:
+                metadata = {}
+            metadata["sonara_features"] = features
+            metadata["sonara_model"] = model_name
+            connection.execute(
+                """
+                UPDATE tracks
+                SET bpm = COALESCE(?, bpm),
+                    musical_key = COALESCE(?, musical_key),
+                    energy = COALESCE(?, energy),
+                    duration = COALESCE(?, duration),
+                    metadata_json = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    bpm,
+                    musical_key,
+                    energy,
+                    duration,
+                    json.dumps(metadata, ensure_ascii=False, sort_keys=True),
+                    track_id,
+                ),
+            )
+
+    def refresh_track_file_metadata(
+        self,
+        track_id: int,
+        *,
+        size: int,
+        mtime: float,
+        metadata: dict[str, object],
+        replace_metadata_keys: Iterable[str],
+    ) -> None:
+        with self.connect() as connection:
+            row = connection.execute("SELECT metadata_json FROM tracks WHERE id = ?", (track_id,)).fetchone()
+            if row is None:
+                raise KeyError(f"Unknown track id: {track_id}")
+            existing_metadata = _metadata_from_json(row["metadata_json"])
+            for key in replace_metadata_keys:
+                existing_metadata.pop(key, None)
+            existing_metadata.update(metadata)
+            has_sonara = bool(existing_metadata.get("sonara_features"))
+            bpm = _optional_float(metadata.get("bpm"))
+            musical_key = _string_or_none(metadata.get("key")) or _string_or_none(metadata.get("initialkey"))
+            duration = _optional_float(metadata.get("duration"))
+            connection.execute(
+                """
+                UPDATE tracks
+                SET size = ?,
+                    mtime = ?,
+                    artist = ?,
+                    title = ?,
+                    album = ?,
+                    bpm = CASE WHEN ? THEN bpm ELSE ? END,
+                    musical_key = CASE WHEN ? THEN musical_key ELSE ? END,
+                    duration = CASE WHEN ? THEN duration ELSE ? END,
+                    metadata_json = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    int(size),
+                    float(mtime),
+                    _string_or_none(metadata.get("artist")),
+                    _string_or_none(metadata.get("title")) or Path(_string_or_none(existing_metadata.get("path")) or "").stem,
+                    _string_or_none(metadata.get("album")),
+                    1 if has_sonara else 0,
+                    bpm,
+                    1 if has_sonara else 0,
+                    musical_key,
+                    1 if has_sonara else 0,
+                    duration,
+                    json.dumps(existing_metadata, ensure_ascii=False, sort_keys=True),
+                    track_id,
+                ),
+            )
+
+    def reset_analysis(self, adapter: str) -> dict[str, object]:
+        adapter = adapter.strip().lower()
+        if adapter in {"mert", "clap", "fake"}:
+            with self.connect() as connection:
+                cursor = connection.execute("DELETE FROM embeddings WHERE embedding_key = ?", (adapter,))
+                return {"adapter": adapter, "tracks_updated": 0, "embeddings_deleted": cursor.rowcount}
+        if adapter == "maest":
+            return self._reset_metadata_analysis(adapter, ("maest_genres", "maest_model"))
+        if adapter == "sonara":
+            return self._reset_sonara_analysis()
+        raise ValueError(f"Unsupported analysis adapter reset: {adapter}")
+
+    def clear_library(self) -> dict[str, int]:
+        with self.connect() as connection:
+            counts = {
+                "tracks_deleted": int(connection.execute("SELECT COUNT(*) FROM tracks").fetchone()[0]),
+                "embeddings_deleted": int(connection.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]),
+                "playlists_deleted": int(connection.execute("SELECT COUNT(*) FROM playlists").fetchone()[0]),
+                "playlist_tracks_deleted": int(connection.execute("SELECT COUNT(*) FROM playlist_tracks").fetchone()[0]),
+            }
+            connection.execute("DELETE FROM playlist_tracks")
+            connection.execute("DELETE FROM playlists")
+            connection.execute("DELETE FROM embeddings")
+            connection.execute("DELETE FROM tracks")
+        return counts
+
+    def _reset_metadata_analysis(self, adapter: str, keys: tuple[str, ...]) -> dict[str, object]:
+        updated = 0
+        with self.connect() as connection:
+            rows = connection.execute("SELECT id, metadata_json FROM tracks").fetchall()
+            for row in rows:
+                metadata = _metadata_from_json(row["metadata_json"])
+                if not any(key in metadata for key in keys):
+                    continue
+                for key in keys:
+                    metadata.pop(key, None)
+                connection.execute(
+                    "UPDATE tracks SET metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (json.dumps(metadata, ensure_ascii=False, sort_keys=True), row["id"]),
+                )
+                updated += 1
+        return {"adapter": adapter, "tracks_updated": updated, "embeddings_deleted": 0}
+
+    def _reset_sonara_analysis(self) -> dict[str, object]:
+        updated = 0
+        keys = ("sonara_features", "sonara_features_file", "sonara_model")
+        with self.connect() as connection:
+            rows = connection.execute("SELECT id, metadata_json FROM tracks").fetchall()
+            for row in rows:
+                metadata = _metadata_from_json(row["metadata_json"])
+                if not any(key in metadata for key in keys):
+                    continue
+                for key in keys:
+                    metadata.pop(key, None)
+                connection.execute(
+                    """
+                    UPDATE tracks
+                    SET bpm = ?,
+                        musical_key = ?,
+                        energy = ?,
+                        duration = ?,
+                        metadata_json = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (
+                        _optional_float(metadata.get("bpm")),
+                        _string_or_none(metadata.get("key")) or _string_or_none(metadata.get("initialkey")),
+                        _optional_float(metadata.get("energy")),
+                        _optional_float(metadata.get("duration")),
+                        json.dumps(metadata, ensure_ascii=False, sort_keys=True),
+                        row["id"],
+                    ),
+                )
+                updated += 1
+        return {"adapter": "sonara", "tracks_updated": updated, "embeddings_deleted": 0}
+
     def load_embedding_matrix(self, embedding_key: str = DEFAULT_EMBEDDING_KEY) -> tuple[list[Track], np.ndarray]:
         with self.connect() as connection:
             rows = connection.execute(
@@ -423,6 +595,8 @@ def _analyses_from_row(row: sqlite3.Row, metadata: dict[str, object]) -> list[st
     analyses_set: set[str] = set()
     if metadata.get("maest_genres"):
         analyses_set.add("maest")
+    if metadata.get("sonara_features"):
+        analyses_set.add("sonara")
     keys_json = row["embedding_keys_json"] if "embedding_keys_json" in row.keys() else None
     try:
         keys = json.loads(str(keys_json or "[]"))
@@ -433,7 +607,7 @@ def _analyses_from_row(row: sqlite3.Row, metadata: dict[str, object]) -> list[st
             text = _string_or_none(key)
             if text:
                 analyses_set.add(text)
-    ordered = [name for name in ("maest", "mert", "clap") if name in analyses_set]
-    extras = sorted(name for name in analyses_set if name not in {"maest", "mert", "clap"})
+    ordered = [name for name in ("sonara", "maest", "mert", "clap") if name in analyses_set]
+    extras = sorted(name for name in analyses_set if name not in {"maest", "sonara", "mert", "clap"})
     analyses = ordered + extras
     return analyses or None

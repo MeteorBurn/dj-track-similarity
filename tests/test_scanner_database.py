@@ -1,5 +1,8 @@
 from pathlib import Path
+import json
 import sqlite3
+
+import pytest
 
 import dj_track_similarity.scanner as scanner
 from dj_track_similarity.database import LibraryDatabase
@@ -51,6 +54,65 @@ def test_read_audio_metadata_skips_tag_keys_that_mutagen_rejects(monkeypatch, tm
     assert "artist" not in metadata
 
 
+def test_read_audio_metadata_uses_fixed_tag_whitelist(monkeypatch, tmp_path: Path) -> None:
+    class FakeInfo:
+        length = 123.4
+
+    class FakeAudio:
+        info = FakeInfo()
+        tags = {
+            "title": ["Warm Pad"],
+            "artist": ["Artist"],
+            "genre": ["Deep Techno"],
+            "year": ["2024"],
+            "country": ["DE"],
+            "publisher": ["Small Label"],
+            "CATALOGNUMBER": ["CAT-001"],
+            "isrc": ["US-ABC-24-00001"],
+            "random_plugin_blob": ["ignore me"],
+        }
+
+    monkeypatch.setattr(scanner, "MutagenFile", lambda path: FakeAudio())
+
+    metadata = read_audio_metadata(tmp_path / "track.flac")
+
+    assert metadata == {
+        "artist": "Artist",
+        "catalog_number": "CAT-001",
+        "duration": 123.4,
+        "genre": "Deep Techno",
+        "isrc": "US-ABC-24-00001",
+        "country": "DE",
+        "label": "Small Label",
+        "title": "Warm Pad",
+        "year": "2024",
+    }
+
+
+def test_read_audio_metadata_converts_mutagen_objects_to_json_safe_values(monkeypatch, tmp_path: Path) -> None:
+    class FakeTimestamp:
+        def __str__(self) -> str:
+            return "2025-04-01"
+
+    class FakeFrame:
+        text = [FakeTimestamp()]
+
+    class FakeAudio:
+        info = None
+        tags = {
+            "TDRC": FakeFrame(),
+            "trkn": [(2, 4)],
+        }
+
+    monkeypatch.setattr(scanner, "MutagenFile", lambda path: FakeAudio())
+
+    metadata = read_audio_metadata(tmp_path / "track.mp3")
+
+    assert metadata["year"] == "2025-04-01"
+    assert metadata["track_number"] == "2/4"
+    assert json.dumps(metadata)
+
+
 def test_database_stores_multiple_embedding_spaces_per_track(tmp_path: Path) -> None:
     import numpy as np
 
@@ -73,6 +135,44 @@ def test_database_stores_multiple_embedding_spaces_per_track(tmp_path: Path) -> 
     track = db.get_track(track_id)
 
     assert track.analyses == ["mert", "clap"]
+
+
+def test_database_resets_embedding_analysis_independently(tmp_path: Path) -> None:
+    import numpy as np
+
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = db.upsert_track(path=tmp_path / "track.wav", size=10, mtime=1, metadata={"title": "Track"})
+    db.save_embedding(track_id, np.array([1, 0, 0], dtype=np.float32), "mert-model", 3, embedding_key="mert")
+    db.save_embedding(track_id, np.array([0, 1, 0], dtype=np.float32), "clap-model", 3, embedding_key="clap")
+
+    result = db.reset_analysis("mert")
+
+    assert result == {"adapter": "mert", "tracks_updated": 0, "embeddings_deleted": 1}
+    assert db.load_embedding_matrix("mert")[0] == []
+    assert [track.id for track in db.load_embedding_matrix("clap")[0]] == [track_id]
+    assert db.get_track(track_id).analyses == ["clap"]
+
+
+def test_database_clear_library_removes_tracks_embeddings_and_playlists(tmp_path: Path) -> None:
+    import numpy as np
+
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = db.upsert_track(path=tmp_path / "track.wav", size=10, mtime=1, metadata={"title": "Track"})
+    db.save_embedding(track_id, np.array([1, 0, 0], dtype=np.float32), "mert-model", 3, embedding_key="mert")
+    playlist_id = db.create_playlist("Set", [track_id])
+
+    result = db.clear_library()
+
+    assert result == {
+        "tracks_deleted": 1,
+        "embeddings_deleted": 1,
+        "playlists_deleted": 1,
+        "playlist_tracks_deleted": 1,
+    }
+    assert db.list_tracks() == []
+    assert db.load_embedding_matrix("mert")[0] == []
+    with pytest.raises(KeyError):
+        db.get_playlist_name(playlist_id)
 
 
 def test_database_stores_maest_genres_in_track_metadata(tmp_path: Path) -> None:
@@ -98,6 +198,79 @@ def test_database_stores_maest_genres_in_track_metadata(tmp_path: Path) -> None:
     assert track.genres == ["Techno", "Dub Techno"]
     assert track.genre_scores == {"Techno": 0.91, "Dub Techno": 0.72}
     assert track.artist == "Artist"
+
+
+def test_database_resets_metadata_backed_analyses(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = db.upsert_track(
+        path=tmp_path / "track.wav",
+        size=10,
+        mtime=1,
+        metadata={"title": "Track", "bpm": 120, "initialkey": "A minor", "duration": 90},
+    )
+    db.save_genres(track_id, [{"label": "Techno", "score": 0.91}], model_name="maest")
+    db.save_sonara_features(
+        track_id,
+        {"bpm": {"value": 128}},
+        bpm=128,
+        musical_key="F major",
+        energy=0.8,
+        duration=100,
+        model_name="sonara",
+    )
+
+    sonara_result = db.reset_analysis("sonara")
+    after_sonara = db.get_track(track_id)
+    maest_result = db.reset_analysis("maest")
+    after_maest = db.get_track(track_id)
+
+    assert sonara_result["tracks_updated"] == 1
+    assert after_sonara.bpm == 120
+    assert after_sonara.musical_key == "A minor"
+    assert after_sonara.energy is None
+    assert after_sonara.duration == 90
+    assert "sonara_features" not in after_sonara.metadata
+    assert after_sonara.analyses == ["maest"]
+    assert maest_result["tracks_updated"] == 1
+    assert "maest_genres" not in after_maest.metadata
+    assert after_maest.analyses is None
+
+
+def test_refresh_track_file_metadata_preserves_analysis_outputs(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = db.upsert_track(
+        path=tmp_path / "track.wav",
+        size=10,
+        mtime=1,
+        metadata={"title": "Old", "year": "2023", "random_old": "kept"},
+    )
+    db.save_sonara_features(
+        track_id,
+        {"bpm": {"value": 128}},
+        bpm=128,
+        musical_key="F major",
+        energy=0.8,
+        duration=100,
+        model_name="sonara",
+    )
+
+    db.refresh_track_file_metadata(
+        track_id,
+        size=20,
+        mtime=2,
+        metadata={"title": "New", "year": "2024", "country": "DE", "duration": 90, "bpm": 120, "key": "A minor"},
+        replace_metadata_keys=("title", "year", "country", "duration", "bpm", "key"),
+    )
+    track = db.get_track(track_id)
+
+    assert track.title == "New"
+    assert track.bpm == 128
+    assert track.musical_key == "F major"
+    assert track.duration == 100
+    assert track.metadata["year"] == "2024"
+    assert track.metadata["country"] == "DE"
+    assert track.metadata["random_old"] == "kept"
+    assert track.analyses == ["sonara"]
 
 
 def test_database_migrates_legacy_embedding_table(tmp_path: Path) -> None:

@@ -17,6 +17,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+sonara = [
+  "sonara",
+]
 ml = [
   "torch",
   "torchaudio",

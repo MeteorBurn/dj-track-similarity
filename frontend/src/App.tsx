@@ -16,13 +16,14 @@ import {
   Wand2,
   X
 } from "lucide-react";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, ReactNode, useEffect, useMemo, useState } from "react";
 import { AnalysisJobStatus, api, ScanStats, SearchResult, Track } from "./api";
 
 type Notice = { kind: "ok" | "error" | "idle"; text: string };
 type ActivityEvent = { id: number; time: number; level: "info" | "ok" | "warn" | "error"; message: string; detail?: string };
 type DeviceMode = "auto" | "cpu" | "cuda";
 type AnalysisAdapter = "mert" | "clap" | "fake";
+type ResetAdapter = "sonara" | "maest" | "mert" | "clap" | "fake";
 
 const defaultNotice: Notice = { kind: "idle", text: "Готово к работе" };
 
@@ -30,7 +31,10 @@ const helpText = {
   musicRoot: "Папка с музыкой. Формат: путь Windows или POSIX, например D:/Music. Тип: строка. Папка должна существовать.",
   analyzeLimit: "Сколько треков анализировать. Тип: целое число 0-100000. 0 = вся библиотека.",
   scanWorkers: "Параллельное чтение метаданных при сканировании. Тип: целое число. Диапазон зависит от CPU, обычно 1-8.",
+  refreshTags: "Перечитать только file tags через Mutagen для уже найденных треков. Пути, Sonara, MAEST, MERT и CLAP не трогаются.",
+  clearDatabase: "Удалить все записи из SQLite: треки, эмбеддинги, анализы, плейлисты и сет. Аудиофайлы на диске не трогаются.",
   analysisDevice: "Устройство для MERT/CLAP. Значения: AUTO, CPU, CUDA. AUTO выберет CUDA, если PyTorch видит GPU, иначе CPU.",
+  sonaraAnalyze: "SONARA lab извлекает BPM, Key, energy, danceability, valence, MFCC/chroma и mel-spectrogram summaries. Пишет признаки только в SQLite metadata.",
   maestAnalyze: "MAEST извлекает 3 жанровые метки Discogs и confidence. Пишет только в SQLite metadata, аудиофайлы не меняет.",
   analysisBatchSize: "Размер inference batch для MERT/CLAP. Тип: целое число 1-16. CPU: 1-4; CUDA: начни с 4-8.",
   librarySearch: "Фильтр библиотеки. Формат: текст. Ищет по artist, title, album и path.",
@@ -122,6 +126,12 @@ export function App() {
         if (["queued", "running"].includes(job.state)) setProcessLogKind("analysis");
       }
     }).catch(() => undefined);
+    void api.latestSonaraJob().then((job) => {
+      if (job) {
+        setAnalysisJob((current) => (current && ["queued", "running"].includes(current.state) ? current : job));
+        if (["queued", "running"].includes(job.state)) setProcessLogKind("analysis");
+      }
+    }).catch(() => undefined);
     void api.latestGenreJob().then((job) => {
       if (job) {
         setAnalysisJob((current) => (current && ["queued", "running"].includes(current.state) ? current : job));
@@ -154,7 +164,7 @@ export function App() {
   useEffect(() => {
     if (!analysisJob || !["queued", "running"].includes(analysisJob.state)) return;
     const timer = window.setInterval(() => {
-      const request = analysisJob.adapter_name === "maest" ? api.genreJob(analysisJob.job_id) : api.analyzeJob(analysisJob.job_id);
+      const request = analysisJobRequest(analysisJob);
       void request.then((job) => {
         setAnalysisJob(job);
         if (["completed", "cancelled", "failed"].includes(job.state)) {
@@ -331,6 +341,77 @@ export function App() {
     );
   }
 
+  async function handleRefreshTags() {
+    appendActivity("info", "Refresh tags запущен", "Перечитываем Mutagen tags для существующих треков");
+    setProcessLogKind("scan");
+    setScanJob(null);
+    await run(
+      () => api.refreshTags(scanWorkers),
+      (value) => {
+        setScanJob(value);
+        const detail = value.job_id ? `job ${value.job_id.slice(0, 8)} · ${value.total || 0} треков` : scanSummary(value);
+        appendActivity("ok", "Refresh tags job создан", detail);
+        return detail;
+      }
+    );
+  }
+
+  async function handleClearDatabase() {
+    const accepted = window.confirm(
+      "Удалить все данные из SQLite базы: треки, анализы, эмбеддинги, плейлисты и текущий сет? Аудиофайлы на диске останутся."
+    );
+    if (!accepted) return;
+    appendActivity("warn", "Очистка базы запущена", "Удаляем только данные SQLite, аудиофайлы не трогаем");
+    await run(
+      () => api.clearDatabase(),
+      (value) => {
+        setTracks([]);
+        setSeeds([]);
+        setResults([]);
+        setPlaylist([]);
+        setPlaylistId(null);
+        setPreview(null);
+        setMetadataTrack(null);
+        setScanJob(null);
+        setAnalysisJob(null);
+        const detail = `${value.tracks_deleted} треков · ${value.embeddings_deleted} эмбеддингов · ${value.playlists_deleted} плейлистов`;
+        appendActivity("ok", "База очищена", detail);
+        return detail;
+      }
+    );
+  }
+
+  async function handleSonaraAnalyze() {
+    const limit = analysisLimit > 0 ? analysisLimit : undefined;
+    const detail = `${limit ? `limit ${limit}` : "вся библиотека"} · SQLite metadata`;
+    appendActivity("info", "SONARA lab анализ запущен", detail);
+    setProcessLogKind("analysis");
+    setAnalysisJob(null);
+    await run(
+      () => api.analyzeSonara(limit),
+      (job) => {
+        setAnalysisJob(job);
+        appendActivity("ok", "SONARA job создан", `${job.job_id.slice(0, 8)} · ${job.total} треков · SQLite`);
+        return `SONARA job ${job.job_id.slice(0, 8)}: ${job.total} треков`;
+      }
+    );
+  }
+
+  async function handleResetAnalysis(adapter: ResetAdapter) {
+    const label = adapter.toUpperCase();
+    const accepted = window.confirm(`Сбросить результаты ${label}? Аудиофайлы не трогаем, остальные алгоритмы останутся.`);
+    if (!accepted) return;
+    appendActivity("warn", `${label} reset запущен`, "Точечная очистка результатов анализа");
+    await run(
+      () => api.resetAnalysis(adapter),
+      (result) => {
+        void refreshTracks();
+        appendActivity("ok", `${label} reset завершен`, `tracks ${result.tracks_updated} · embeddings ${result.embeddings_deleted}`);
+        return `${label}: очищено tracks ${result.tracks_updated}, embeddings ${result.embeddings_deleted}`;
+      }
+    );
+  }
+
   async function handleGenreAnalyze() {
     const limit = analysisLimit > 0 ? analysisLimit : undefined;
     const detail = `${analysisDevice.toUpperCase()} · top 3 genres · ${limit ? `limit ${limit}` : "вся библиотека"}`;
@@ -373,7 +454,7 @@ export function App() {
   async function handleCancelAnalyze() {
     if (!analysisJob) return;
     await run(
-      () => (analysisJob.adapter_name === "maest" ? api.cancelGenreJob(analysisJob.job_id) : api.cancelAnalyzeJob(analysisJob.job_id)),
+      () => cancelAnalysisJob(analysisJob),
       (job) => {
         setAnalysisJob(job);
         appendActivity("warn", "Analysis cancel requested", job.job_id.slice(0, 8));
@@ -391,6 +472,10 @@ export function App() {
       return;
     }
     if (analysisJob?.state === "cancelled") {
+      if (analysisJob.adapter_name === "sonara") {
+        await handleSonaraAnalyze();
+        return;
+      }
       if (analysisJob.adapter_name === "maest") {
         await handleGenreAnalyze();
         return;
@@ -459,6 +544,15 @@ export function App() {
           <div className="panel-title">
             <FolderOpen size={18} />
             <h2>1. База и анализ</h2>
+            <div className="panel-title-actions">
+              <button className="secondary-mini" disabled={busy || stageRunning || !tracks.length} title={helpText.refreshTags} onClick={() => void handleRefreshTags()}>
+                <Tags size={14} />
+                RefreshTags
+              </button>
+              <button className="icon-button stop-button database-clear-button" disabled={busy || stageRunning || !tracks.length} title={helpText.clearDatabase} aria-label="Удалить все данные из базы" onClick={() => void handleClearDatabase()}>
+                <Trash2 size={15} />
+              </button>
+            </div>
           </div>
           <div className="path-row library-path-row">
             <input value={musicRoot} onChange={(event) => setMusicRoot(event.target.value)} placeholder="D:/Music" title={helpText.musicRoot} />
@@ -486,22 +580,10 @@ export function App() {
             events={activityLog}
           />
           <div className="analysis-actions">
-            <button className="primary" disabled={busy || stageRunning} title={helpText.maestAnalyze} onClick={() => void handleGenreAnalyze()}>
-              <Tags size={16} />
-              MAEST
-            </button>
-            <button className="primary" disabled={busy || stageRunning} onClick={() => void handleAnalyze("mert")}>
-              <Wand2 size={16} />
-              MERT
-            </button>
-            <button className="primary" disabled={busy || stageRunning} onClick={() => void handleAnalyze("clap")}>
-              <Search size={16} />
-              CLAP
-            </button>
-            <button disabled={busy || stageRunning} onClick={() => void handleAnalyze("fake")}>
-              <Gauge size={16} />
-              Smoke
-            </button>
+            <AnalysisButton label="SONARA" icon={<Gauge size={16} />} disabled={busy || stageRunning} title={helpText.sonaraAnalyze} onRun={() => void handleSonaraAnalyze()} onReset={() => void handleResetAnalysis("sonara")} />
+            <AnalysisButton label="MAEST" icon={<Tags size={16} />} disabled={busy || stageRunning} title={helpText.maestAnalyze} onRun={() => void handleGenreAnalyze()} onReset={() => void handleResetAnalysis("maest")} />
+            <AnalysisButton label="MERT" icon={<Wand2 size={16} />} disabled={busy || stageRunning} onRun={() => void handleAnalyze("mert")} onReset={() => void handleResetAnalysis("mert")} />
+            <AnalysisButton label="CLAP" icon={<Search size={16} />} disabled={busy || stageRunning} onRun={() => void handleAnalyze("clap")} onReset={() => void handleResetAnalysis("clap")} />
           </div>
           <label className="analysis-limit" title={helpText.analyzeLimit}>
             Analyze limit
@@ -542,6 +624,10 @@ export function App() {
               <button className="icon-button" disabled={busy || analysisBatchSize >= maxAnalysisBatchSize} onClick={() => adjustAnalysisBatchSize(1)} aria-label="Увеличить batch size"><Plus size={15} /></button>
             </div>
             <small>CPU: 1-4; CUDA: начни с 4-8 и повышай осторожно.</small>
+            <button className="secondary-mini" disabled={busy || stageRunning} onClick={() => void handleAnalyze("fake")}>
+              <Gauge size={14} />
+              Smoke
+            </button>
           </div>
         </aside>
 
@@ -754,6 +840,46 @@ function processEventCount(kind: "scan" | "analysis", scanJob: ScanStats | null,
   return scanJob?.events?.length || 0;
 }
 
+function analysisJobRequest(job: AnalysisJobStatus) {
+  if (job.adapter_name === "sonara") return api.sonaraJob(job.job_id);
+  if (job.adapter_name === "maest") return api.genreJob(job.job_id);
+  return api.analyzeJob(job.job_id);
+}
+
+function cancelAnalysisJob(job: AnalysisJobStatus) {
+  if (job.adapter_name === "sonara") return api.cancelSonaraJob(job.job_id);
+  if (job.adapter_name === "maest") return api.cancelGenreJob(job.job_id);
+  return api.cancelAnalyzeJob(job.job_id);
+}
+
+function AnalysisButton({
+  label,
+  icon,
+  disabled,
+  title,
+  onRun,
+  onReset
+}: {
+  label: string;
+  icon: ReactNode;
+  disabled: boolean;
+  title?: string;
+  onRun: () => void;
+  onReset: () => void;
+}) {
+  return (
+    <div className="analysis-button-pair">
+      <button className="primary" disabled={disabled} title={title} onClick={onRun}>
+        {icon}
+        {label}
+      </button>
+      <button className="icon-button analysis-reset" disabled={disabled} title={`Reset ${label}`} aria-label={`Reset ${label}`} onClick={onReset}>
+        <Trash2 size={14} />
+      </button>
+    </div>
+  );
+}
+
 function ScanProcessLog({ job }: { job: ScanStats | null }) {
   if (!job) {
     return <div className="process-box">Сканирование не запущено</div>;
@@ -862,6 +988,7 @@ function AnalysisProcessLog({ job }: { job: AnalysisJobStatus | null }) {
         <span>{job.processed}/{job.total}</span>
         <span>ok {job.analyzed}</span>
         <span>fail {job.failed}</span>
+        {job.skipped ? <span>skip {job.skipped}</span> : null}
         <span>batch {job.batch_size || job.workers || 1}</span>
         <span>{percent}%</span>
       </div>
@@ -981,13 +1108,7 @@ function displayTrack(track: Track) {
 }
 
 function trackInfo(track: Track) {
-  const parts = [
-    track.bpm ? `${track.bpm.toFixed(1)} BPM` : null,
-    track.musical_key,
-    track.energy != null ? `E ${track.energy.toFixed(2)}` : null,
-    analysisStatusLabel(track)
-  ].filter(Boolean);
-  return parts.join(" · ");
+  return analysisStatusLabel(track);
 }
 
 function analysisStatusLabel(track: Track) {
@@ -995,6 +1116,7 @@ function analysisStatusLabel(track: Track) {
   if (track.genres?.length) analyses.add("maest");
   if (track.embedding_model) analyses.add("mert");
   const labels = [
+    analyses.has("sonara") ? "sonara" : null,
     analyses.has("maest") ? "maest" : null,
     analyses.has("mert") ? "mert" : null,
     analyses.has("clap") ? "clap" : null
@@ -1002,10 +1124,55 @@ function analysisStatusLabel(track: Track) {
   return labels.length ? labels.join(" ") : "";
 }
 
+const trackTagLabels: Record<string, string> = {
+  artist: "Artist",
+  title: "Title",
+  album: "Album",
+  genre: "Genre",
+  year: "Year",
+  country: "Country",
+  label: "Label",
+  catalog_number: "Catalog",
+  track_number: "Track no.",
+  disc_number: "Disc no.",
+  bpm: "BPM tag",
+  key: "Key tag",
+  duration: "Duration tag",
+  comment: "Comment",
+  isrc: "ISRC"
+};
+
+const trackTagOrder = [
+  "artist",
+  "title",
+  "album",
+  "genre",
+  "year",
+  "country",
+  "label",
+  "catalog_number",
+  "track_number",
+  "disc_number",
+  "bpm",
+  "key",
+  "duration",
+  "comment",
+  "isrc"
+];
+
+function readableTrackTags(raw: Track["metadata"]) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+  const record = raw as Record<string, unknown>;
+  return trackTagOrder
+    .filter((key) => record[key] != null && record[key] !== "")
+    .map((key) => [trackTagLabels[key] || key, record[key]] as const);
+}
+
 function TrackMetadataDialog({ track, onClose }: { track: Track; onClose: () => void }) {
   const genres = track.genres || [];
   const scores = track.genre_scores || {};
-  const metadataEntries = Object.entries(track.metadata || {}).filter(([key]) => !key.startsWith("maest_"));
+  const sonaraFeatures = readableSonaraFeatures(track.metadata?.sonara_features);
+  const metadataEntries = readableTrackTags(track.metadata);
   return (
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
       <section className="metadata-dialog" role="dialog" aria-modal="true" aria-label="Теги трека" onClick={(event) => event.stopPropagation()}>
@@ -1017,25 +1184,27 @@ function TrackMetadataDialog({ track, onClose }: { track: Track; onClose: () => 
           <button className="icon-button" title="Закрыть" aria-label="Закрыть" onClick={onClose}><X size={15} /></button>
         </div>
         <strong className="metadata-track-title">{displayTrack(track)}</strong>
-        <dl className="metadata-grid">
-          <dt>Artist</dt><dd>{track.artist || "-"}</dd>
-          <dt>Title</dt><dd>{track.title || "-"}</dd>
-          <dt>Album</dt><dd>{track.album || "-"}</dd>
-          <dt>BPM</dt><dd>{track.bpm != null ? track.bpm.toFixed(1) : "-"}</dd>
-          <dt>Key</dt><dd>{track.musical_key || "-"}</dd>
-          <dt>Duration</dt><dd>{track.duration != null ? formatDuration(track.duration) : "-"}</dd>
-          <dt>Path</dt><dd title={track.path}>{track.path}</dd>
-        </dl>
-        <div className="tag-block">
-          <strong>Track tags</strong>
-          {metadataEntries.length ? (
-            <dl className="metadata-grid tag-grid">
-              {metadataEntries.map(([key, value]) => (
-                <Fragment key={key}><dt>{key}</dt><dd>{formatTagValue(value)}</dd></Fragment>
-              ))}
-            </dl>
+        {metadataEntries.length ? (
+          <dl className="metadata-grid tag-grid mutagen-grid">
+            {metadataEntries.map(([key, value]) => (
+              <Fragment key={key}><dt>{key}</dt><dd>{formatTagValue(value)}</dd></Fragment>
+            ))}
+          </dl>
+        ) : (
+          <span className="empty-genres">Mutagen не нашел сохраненных тегов</span>
+        )}
+        <div className="sonara-block">
+          <strong>SONARA features</strong>
+          {sonaraFeatures.length ? (
+            <>
+              <dl className="metadata-grid tag-grid">
+                {sonaraFeatures.map((feature) => (
+                  <Fragment key={feature.key}><dt title={feature.description}>{feature.label}</dt><dd title={feature.description}>{feature.value}</dd></Fragment>
+                ))}
+              </dl>
+            </>
           ) : (
-            <span className="empty-genres">Сохраненных тегов нет</span>
+            <span className="empty-genres">SONARA признаки ещё не извлечены</span>
           )}
         </div>
         <div className="genre-block">
@@ -1053,6 +1222,111 @@ function TrackMetadataDialog({ track, onClose }: { track: Track; onClose: () => 
       </section>
     </div>
   );
+}
+
+const sonaraFeatureLabels: Record<string, string> = {
+  bpm: "BPM",
+  tempo: "Tempo",
+  key: "Key",
+  key_confidence: "Key conf.",
+  duration_sec: "Duration",
+  energy: "Energy",
+  danceability: "Danceability",
+  valence: "Valence",
+  acousticness: "Acousticness",
+  loudness_lufs: "Loudness",
+  dynamic_range_db: "Dynamic range",
+  predominant_chord: "Main chord",
+  chord_change_rate: "Chord changes",
+  dissonance: "Dissonance",
+  onset_density: "Onset density",
+  beats: "Beats",
+  n_beats: "Beat count",
+  onset_frames: "Onsets",
+  spectral_centroid_mean: "Brightness",
+  spectral_bandwidth_mean: "Bandwidth",
+  spectral_rolloff_mean: "Rolloff",
+  spectral_flatness_mean: "Flatness",
+  spectral_contrast_mean: "Contrast",
+  zero_crossing_rate: "ZCR",
+  mfcc_mean: "MFCC mean",
+  chroma_mean: "Chroma mean",
+  chord_sequence: "Chord seq.",
+  analysis_seconds: "Analysis sec.",
+  decode_path: "Decode path",
+  requested_feature_count: "Feature count"
+};
+
+const sonaraFeaturePriority: Record<string, number> = {
+  bpm: 0,
+  tempo: 1,
+  key: 2,
+  key_confidence: 3,
+  duration_sec: 4,
+  loudness_lufs: 5,
+  dynamic_range_db: 6,
+  energy: 7,
+  danceability: 8,
+  valence: 9,
+  acousticness: 10,
+  predominant_chord: 11,
+  chord_change_rate: 12,
+  dissonance: 13,
+  onset_density: 20,
+  n_beats: 21,
+  beats: 22,
+  onset_frames: 23,
+  zero_crossing_rate: 30,
+  spectral_centroid_mean: 31,
+  spectral_bandwidth_mean: 32,
+  spectral_rolloff_mean: 33,
+  spectral_flatness_mean: 34,
+  spectral_contrast_mean: 35,
+  mfcc_mean: 40,
+  chroma_mean: 41,
+  chord_sequence: 50,
+  decode_path: 90,
+  analysis_seconds: 91,
+  requested_feature_count: 92
+};
+
+function readableSonaraFeatures(raw: unknown) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+  const entries = Object.entries(raw as Record<string, unknown>);
+  return entries
+    .map(([key, payload]) => {
+      const record = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
+      return {
+        key,
+        label: sonaraFeatureLabels[key] || key,
+        value: formatSonaraValue(record),
+        description: typeof record.description === "string" ? record.description : "",
+        priority: sonaraFeaturePriority[key] ?? 100
+      };
+    })
+    .sort((left, right) => left.priority - right.priority || left.label.localeCompare(right.label));
+}
+
+function formatSonaraValue(record: Record<string, unknown>) {
+  const value = record.value;
+  if (record.type === "unavailable") return "-";
+  if (record.type === "ndarray" || record.storage) {
+    const shape = Array.isArray(record.shape) ? record.shape.join("x") : "";
+    const summary = record.summary && typeof record.summary === "object" ? record.summary as Record<string, unknown> : null;
+    const mean = typeof summary?.mean === "number" ? ` mean ${formatNumber(summary.mean)}` : "";
+    return `${shape || record.size || "array"}${mean}`;
+  }
+  if (typeof value === "number") {
+    return formatNumber(value);
+  }
+  if (Array.isArray(value)) return `${value.length} values`;
+  if (value == null) return "-";
+  return String(value);
+}
+
+function formatNumber(value: number) {
+  if (Math.abs(value) >= 100) return value.toFixed(1);
+  return value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 function formatTagValue(value: unknown) {

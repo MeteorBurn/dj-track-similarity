@@ -24,6 +24,25 @@ SUPPORTED_AUDIO_EXTENSIONS = {
 }
 
 
+MUTAGEN_TAG_LOOKUP = {
+    "artist": ["artist", "albumartist", "TPE1", "TPE2", "\xa9ART", "aART"],
+    "title": ["title", "TIT2", "\xa9nam"],
+    "album": ["album", "TALB", "\xa9alb"],
+    "genre": ["genre", "TCON", "\xa9gen"],
+    "year": ["year", "originalyear", "date", "originaldate", "TDRC", "TYER", "\xa9day"],
+    "country": ["country", "releasecountry", "MusicBrainz Album Release Country"],
+    "label": ["label", "organization", "publisher", "TPUB"],
+    "catalog_number": ["catalognumber", "catalog", "catalog_number", "CATALOGNUMBER"],
+    "track_number": ["tracknumber", "TRCK", "trkn"],
+    "disc_number": ["discnumber", "TPOS", "disk"],
+    "bpm": ["bpm", "TBPM"],
+    "key": ["initialkey", "key", "TKEY"],
+    "comment": ["comment", "description", "COMM", "\xa9cmt"],
+    "isrc": ["isrc", "TSRC"],
+}
+MUTAGEN_METADATA_KEYS = tuple(MUTAGEN_TAG_LOOKUP.keys()) + ("duration", "date")
+
+
 def scan_library(db: LibraryDatabase, root: str | Path) -> ScanStats:
     root_path = Path(root)
     if not root_path.exists():
@@ -80,14 +99,7 @@ def read_audio_metadata(path: str | Path) -> dict[str, object]:
     if not tags:
         return metadata
 
-    lookup = {
-        "artist": ["artist", "TPE1", "\xa9ART"],
-        "title": ["title", "TIT2", "\xa9nam"],
-        "album": ["album", "TALB", "\xa9alb"],
-        "bpm": ["bpm", "TBPM"],
-        "key": ["initialkey", "key", "TKEY"],
-    }
-    for target, candidates in lookup.items():
+    for target, candidates in MUTAGEN_TAG_LOOKUP.items():
         for candidate in candidates:
             if _has_tag(tags, candidate):
                 metadata[target] = _tag_value(tags[candidate])
@@ -105,10 +117,21 @@ def _has_tag(tags: object, candidate: str) -> bool:
 def _tag_value(value: object) -> object:
     text = getattr(value, "text", None)
     if isinstance(text, list) and text:
-        return text[0]
+        return _json_safe_tag_value(text[0])
     if isinstance(value, list) and value:
-        return value[0]
-    return value
+        return _json_safe_tag_value(value[0])
+    return _json_safe_tag_value(value)
+
+
+def _json_safe_tag_value(value: object) -> object:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace").strip()
+    if isinstance(value, tuple):
+        parts = [str(part).strip() for part in value if part not in (None, "")]
+        return "/".join(parts)
+    return str(value).strip()
 
 
 def _as_float(value: object) -> float | None:

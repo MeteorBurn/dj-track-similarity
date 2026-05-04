@@ -14,11 +14,16 @@ from .exporter import export_playlist
 from .genre_jobs import GenreAnalysisJobManager
 from .scan_jobs import ScanJobManager
 from .search import SearchFilters, SimilaritySearch
+from .sonara_jobs import SonaraFeatureJobManager
 from .tags import apply_custom_tags, build_tag_preview
 
 
 class ScanRequest(BaseModel):
     root: str
+    workers: int = Field(default=1, ge=1, le=64)
+
+
+class TagRefreshRequest(BaseModel):
     workers: int = Field(default=1, ge=1, le=64)
 
 
@@ -34,6 +39,14 @@ class GenreAnalyzeRequest(BaseModel):
     limit: int | None = None
     device: str = Field(default="auto", pattern="^(auto|cpu|cuda)$")
     top_k: int = Field(default=3, ge=1, le=10)
+
+
+class SonaraAnalyzeRequest(BaseModel):
+    limit: int | None = None
+
+
+class AnalysisResetRequest(BaseModel):
+    adapter: str = Field(pattern="^(sonara|maest|mert|clap|fake)$")
 
 
 class SearchRequest(BaseModel):
@@ -95,12 +108,21 @@ def create_app(db_path: str | Path = "dj-track-similarity.sqlite") -> FastAPI:
     db = LibraryDatabase(db_path)
     analysis_jobs = AnalysisJobManager(db)
     genre_jobs = GenreAnalysisJobManager(db)
+    sonara_jobs = SonaraFeatureJobManager(db)
     scan_jobs = ScanJobManager(db)
     app = FastAPI(title="dj-track-similarity Utility")
 
     @app.post("/api/library/scan")
     def scan(request: ScanRequest):
         return scan_jobs.start(request.root, workers=request.workers)
+
+    @app.post("/api/library/tags/refresh")
+    def refresh_tags(request: TagRefreshRequest):
+        return scan_jobs.start_tag_refresh(workers=request.workers)
+
+    @app.post("/api/database/clear")
+    def clear_database():
+        return db.clear_library()
 
     @app.get("/api/library/scan/jobs/latest")
     def latest_scan_job():
@@ -124,6 +146,13 @@ def create_app(db_path: str | Path = "dj-track-similarity.sqlite") -> FastAPI:
     def tracks():
         return db.list_tracks()
 
+    @app.post("/api/analysis/reset")
+    def reset_analysis(request: AnalysisResetRequest):
+        try:
+            return db.reset_analysis(request.adapter)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
     @app.post("/api/analyze")
     def analyze(request: AnalyzeRequest):
         return analysis_jobs.start(
@@ -133,6 +162,28 @@ def create_app(db_path: str | Path = "dj-track-similarity.sqlite") -> FastAPI:
             workers=request.workers,
             device=request.device,
         )
+
+    @app.post("/api/sonara/analyze")
+    def analyze_sonara(request: SonaraAnalyzeRequest):
+        return sonara_jobs.start(limit=request.limit)
+
+    @app.get("/api/sonara/analyze/jobs/latest")
+    def latest_sonara_job():
+        return sonara_jobs.latest()
+
+    @app.get("/api/sonara/analyze/jobs/{job_id}")
+    def sonara_job(job_id: str):
+        try:
+            return sonara_jobs.get(job_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.post("/api/sonara/analyze/jobs/{job_id}/cancel")
+    def cancel_sonara_job(job_id: str):
+        try:
+            return sonara_jobs.cancel(job_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
 
     @app.get("/api/analyze/jobs/latest")
     def latest_analyze_job():

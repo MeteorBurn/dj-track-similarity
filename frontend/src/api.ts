@@ -53,6 +53,7 @@ export type AnalysisJobStatus = {
   processed: number;
   analyzed: number;
   failed: number;
+  skipped?: number;
   current_path?: string | null;
   started_at?: number | null;
   finished_at?: number | null;
@@ -63,6 +64,19 @@ export type AnalysisJobStatus = {
   workers: number;
   batch_size: number;
   top_k?: number;
+};
+
+export type AnalysisResetResult = {
+  adapter: string;
+  tracks_updated: number;
+  embeddings_deleted: number;
+};
+
+export type DatabaseClearResult = {
+  tracks_deleted: number;
+  embeddings_deleted: number;
+  playlists_deleted: number;
+  playlist_tracks_deleted: number;
 };
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -79,10 +93,25 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   tracks: () => request<Track[]>("/api/tracks"),
+  resetAnalysis: (adapter: "sonara" | "maest" | "mert" | "clap" | "fake") =>
+    request<AnalysisResetResult>("/api/analysis/reset", {
+      method: "POST",
+      body: JSON.stringify({ adapter })
+    }),
   scan: (root: string, workers: number) =>
     request<ScanStats>("/api/library/scan", {
       method: "POST",
       body: JSON.stringify({ root, workers })
+    }),
+  refreshTags: (workers: number) =>
+    request<ScanStats>("/api/library/tags/refresh", {
+      method: "POST",
+      body: JSON.stringify({ workers })
+    }),
+  clearDatabase: () =>
+    request<DatabaseClearResult>("/api/database/clear", {
+      method: "POST",
+      body: JSON.stringify({})
     }),
   scanJob: (jobId: string) => request<ScanStats>(`/api/library/scan/jobs/${jobId}`),
   latestScanJob: () => request<ScanStats | null>("/api/library/scan/jobs/latest"),
@@ -100,6 +129,18 @@ export const api = {
     request<AnalysisJobStatus>("/api/analyze", {
       method: "POST",
       body: JSON.stringify({ adapter, limit: limit || null, device, batch_size })
+    }),
+  analyzeSonara: (limit?: number) =>
+    request<AnalysisJobStatus>("/api/sonara/analyze", {
+      method: "POST",
+      body: JSON.stringify({ limit: limit || null })
+    }),
+  sonaraJob: (jobId: string) => request<AnalysisJobStatus>(`/api/sonara/analyze/jobs/${jobId}`),
+  latestSonaraJob: () => request<AnalysisJobStatus | null>("/api/sonara/analyze/jobs/latest"),
+  cancelSonaraJob: (jobId: string) =>
+    request<AnalysisJobStatus>(`/api/sonara/analyze/jobs/${jobId}/cancel`, {
+      method: "POST",
+      body: JSON.stringify({})
     }),
   analyzeJob: (jobId: string) => request<AnalysisJobStatus>(`/api/analyze/jobs/${jobId}`),
   latestAnalyzeJob: () => request<AnalysisJobStatus | null>("/api/analyze/jobs/latest"),

@@ -13,6 +13,7 @@ from .genre_jobs import GenreAnalysisJobManager
 from .runtime import get_torch_runtime_info, recommended_torch_index
 from .scanner import scan_library
 from .search import SearchFilters, SimilaritySearch
+from .sonara_jobs import SonaraFeatureJobManager
 from .tags import apply_custom_tags, build_tag_preview
 
 
@@ -63,6 +64,18 @@ def analyze_genres(
     typer.echo(
         f"state={status.state} total={status.total} processed={status.processed} "
         f"analyzed={status.analyzed} failed={status.failed} device={status.device} top_k={status.top_k}"
+    )
+
+
+@app.command("analyze-sonara")
+def analyze_sonara(
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+    limit: Optional[int] = typer.Option(None, "--limit"),
+) -> None:
+    status = SonaraFeatureJobManager(_db(db_path)).run_sync(limit=limit)
+    typer.echo(
+        f"state={status.state} total={status.total} processed={status.processed} "
+        f"analyzed={status.analyzed} failed={status.failed}"
     )
 
 

@@ -182,7 +182,7 @@ class ClapEmbeddingAdapter:
         pooled_windows: list[np.ndarray] = []
         for start in range(0, len(all_windows), self.inference_batch_size):
             batch = all_windows[start : start + self.inference_batch_size]
-            inputs = self._processor(audios=batch, sampling_rate=target_rate, return_tensors="pt", padding=True)
+            inputs = _call_clap_audio_processor(self._processor, batch, target_rate)
             inputs = {key: value.to(self._device()) for key, value in inputs.items()}
             with torch.inference_mode():
                 features = self._model.get_audio_features(**inputs)
@@ -254,6 +254,10 @@ def _normalize_rows(matrix: np.ndarray) -> list[np.ndarray]:
             raise ValueError("Model produced a zero vector")
         vectors.append(vector / norm)
     return vectors
+
+
+def _call_clap_audio_processor(processor, batch: list[np.ndarray], sampling_rate: int):
+    return processor(audio=batch, sampling_rate=sampling_rate, return_tensors="pt", padding=True)
 
 
 def _select_windows_torch(waveform, sample_rate: int, window_seconds: float, max_windows: int, torch):

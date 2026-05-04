@@ -461,7 +461,7 @@ export function App() {
               <Wand2 size={16} />
               MERT
             </button>
-            <button disabled={busy || stageRunning} onClick={() => void handleAnalyze("clap")}>
+            <button className="primary" disabled={busy || stageRunning} onClick={() => void handleAnalyze("clap")}>
               <Search size={16} />
               CLAP
             </button>

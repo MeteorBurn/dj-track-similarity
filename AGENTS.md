@@ -2,7 +2,11 @@
 
 ## Project Snapshot
 
-dj-track-similarity is a local tool for preparing monotone seamless DJ sets. It scans an audio library, stores metadata in SQLite, generates track embeddings, searches for compatible tracks, builds playlists, exports M3U/CSV files, and can write custom `DJ_SIM_*` tags on explicit request.
+dj-track-similarity is a public personal/enthusiast project for exploring music-library analysis and track similarity for DJ-set preparation. The README should sound honest, practical, and modest: this is not a polished commercial product or a research benchmark. The user is building something useful for their own music collection, tagging workflow, and DJ sets, and it may also be useful to other music collectors.
+
+Technically, it is a local tool that scans an audio library, stores metadata in SQLite, generates track embeddings, searches for compatible tracks, builds playlists, exports M3U/CSV files, and can write custom `DJ_SIM_*` tags on explicit request.
+
+Keep user-facing project documentation in English unless the user asks otherwise.
 
 The project is a Python backend/CLI with a React/Vite frontend:
 

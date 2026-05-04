@@ -1,64 +1,124 @@
 # dj-track-similarity
 
-Локальная утилита для подбора похожих треков под монотонные seamless DJ-сеты.
+A personal experiment in building a local music-library tool for finding tracks
+that feel close enough to work together in DJ sets.
 
-## Запуск
+This repository started as something useful for my own workflow. I collect
+music, tag it in my own way, and spend a lot of time thinking about which
+tracks can sit next to each other in a set. I am not a professional researcher
+or audio engineer; this is an enthusiast project where I am trying ideas,
+testing models on a real library, and slowly turning the useful parts into a
+tool.
+
+The repository is public because the problem is interesting, and maybe someone
+else who collects, tags, or plays music will find the approach useful too.
+
+![dj-track-similarity web UI](dj-track-similarity-web-ui.png)
+
+## What It Does
+
+- Scans a local music folder and stores track metadata in SQLite.
+- Builds audio embeddings with MERT for audio-to-audio similarity search.
+- Builds CLAP audio embeddings for text-to-audio search.
+- Lets you choose seed tracks, search for similar tracks, preview them, and
+  assemble a small set or playlist.
+- Exports playlists as M3U or CSV.
+- Can preview and write custom `DJ_SIM_*` tags when explicitly requested.
+
+The current focus is simple and practical: check whether modern audio embedding
+models can help find tracks that sound related, without relying on BPM, key, or
+manually curated genre tags as the main signal.
+
+## Current Status
+
+The project is usable, but still experimental.
+
+MERT already gives promising results on my own library: aggressive broken
+tracks tend to pull similar aggressive material, and deeper kick-focused tracks
+tend to find related tracks. That is the main reason the project is moving
+forward.
+
+The UI currently keeps the search controls conservative:
+
+- `Similarity` sets a minimum cosine score.
+- `Lookback` adds the last N tracks from the current set into the search
+  context.
+- `Limit` caps the number of returned results.
+
+Other controls such as BPM, key, energy, epsilon, and randomization are either
+disabled in the UI or treated as future work until they are calibrated properly.
+I do not want uncalibrated knobs to make the model look better or worse than it
+really is.
+
+## Run The App
 
 ```powershell
 dj-sim serve --host 127.0.0.1 --port 8765
 ```
 
-Открой:
+Then open:
 
 ```text
 http://127.0.0.1:8765/
 ```
 
-В этом workspace также есть быстрый Windows-скрипт:
+There is also a Windows helper script in this workspace:
 
 ```powershell
 scripts\run_server.cmd
 ```
 
-## CLI
+## CLI Examples
 
 ```powershell
 dj-sim scan "D:\Music"
+
 dj-sim analyze
 dj-sim analyze --device cpu --batch-size 2
 dj-sim analyze --device cuda --batch-size 8
+
 dj-sim analyze --adapter clap --device cuda --batch-size 4
 dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 50
+
 dj-sim analyze --fake
+
 dj-sim export 1 --format m3u --output-dir "D:\Exports"
 dj-sim export 1 --format csv --output-dir "D:\Exports"
+
 dj-sim tag-preview 1 2 3
 dj-sim tag-apply 1 2 3
 ```
 
-`analyze` по умолчанию использует `m-a-p/MERT-v1-95M` через
-PyTorch/Hugging Face и может скачать веса при первом запуске.
-`--adapter clap` строит отдельные LAION-CLAP audio embeddings для текстового
-поиска. `--fake` нужен только для smoke-тестов без ML.
+`dj-sim analyze` uses `m-a-p/MERT-v1-95M` by default through
+PyTorch/Hugging Face and may download model weights on first run.
 
-В UI `Analyze limit` по умолчанию равен `0`, то есть анализируется вся
-библиотека. Если нужен короткий тест, укажи нужное целое число треков вручную.
+`--adapter clap` builds separate LAION-CLAP audio embeddings for text search.
 
-## Embedding spaces
+`--fake` is only for smoke tests without loading ML models.
 
-Проект хранит несколько независимых пространств эмбеддингов для одного и того
-же трека:
+In the UI, `Analyze limit = 0` means the whole library. If you only want to test
+a few tracks, set a specific integer limit yourself.
 
-- `mert` - основной audio-to-audio слой для поиска похожих треков по seed.
-- `clap` - LAION-CLAP audio/text слой для поиска по текстовому описанию.
+## Embedding Spaces
 
-Эти пространства не смешиваются в одну матрицу: MERT-поиск сравнивает только
-MERT-векторы, а text search сравнивает CLAP text-вектор только с CLAP
-audio-векторами. Поэтому для текстового поиска сначала нужно запустить CLAP
-анализ библиотеки.
+The database can store multiple embedding spaces for the same track:
 
-Текстовый запрос лучше писать короткой фразой через запятые: жанр, настроение,
-ритм, тембр, вокальность. Примеры:
+- `mert`: the main audio-to-audio similarity space.
+- `clap`: the LAION-CLAP audio/text space for text search.
+
+These spaces are intentionally not mixed into one matrix. MERT seed search uses
+MERT vectors only. CLAP text search compares a CLAP text vector with CLAP audio
+vectors only.
+
+That means text search requires a separate CLAP analysis pass before it can
+return useful results.
+
+## Text Search
+
+CLAP text search is not metadata filtering. It is an embedding query: the model
+tries to place your phrase near audio that matches the description.
+
+Short, concrete prompts usually make the most sense:
 
 ```text
 dark hypnotic techno, rolling bass, no vocals
@@ -66,97 +126,82 @@ deep dub techno, warm chords, soft percussion
 broken aggressive industrial sound, dense drums
 ```
 
-Это не фильтр по метаданным, а embedding-запрос: CLAP пытается приблизить
-описание к аудио-векторам.
+Good query ingredients:
 
-## Analysis performance
+- broad genre or scene words;
+- mood and intensity;
+- rhythm or drum feel;
+- sound texture;
+- vocal presence, for example `no vocals` or `female vocal`.
 
-MERT/CLAP-анализ ускоряется не Python-многопоточностью, а выбранным устройством и
-размером inference batch.
+## Performance Notes
 
-- `auto` выбирает CUDA, если PyTorch видит GPU, иначе использует CPU.
-- `cpu` стабильнее и подходит для проверки совместимости, но обычно медленнее.
-  Начинай с `batch size 1-4`.
-- `cuda` обычно быстрее. Начинай с `batch size 4-8`; если нет ошибок памяти,
-  можно повышать осторожно.
-- `batch size` влияет на скорость и потребление памяти, но не должен менять
-  результат эмбеддингов, потому что mixed precision сейчас не включен.
-- Если CUDA запрошена, но недоступна, анализ завершится ошибкой вместо тихого
-  fallback на CPU. Для fallback используй `auto`.
-- `Fake smoke` / `dj-sim analyze --fake` проверяет pipeline без загрузки MERT.
-- В UI у параметров есть hover-подсказки с назначением, форматом, типом и
-  диапазоном значений.
+MERT and CLAP analysis are accelerated mostly by device selection and inference
+batching, not by running many model workers in parallel.
+
+- `auto` uses CUDA when PyTorch can see a GPU, otherwise CPU.
+- `cpu` is slower, but useful for compatibility checks.
+- `cuda` is usually faster. Start with `batch size 4-8` and raise it carefully.
+- `batch size` affects speed and memory use, but should not change the produced
+  embeddings because mixed precision is not currently enabled.
+- If CUDA is explicitly requested but unavailable, the analysis fails instead
+  of silently falling back to CPU. Use `auto` when fallback is desired.
 
 ## Safety
 
-- Аудиофайлы не меняются при сканировании, анализе, поиске и экспорте.
-- `tag-preview` ничего не пишет.
-- `tag-apply` пишет только custom tags `DJ_SIM_*` и не перезаписывает стандартные BPM/key/mood.
+- Scanning, analysis, search, preview, and export do not modify audio files.
+- `tag-preview` is read-only.
+- `tag-apply` writes only custom `DJ_SIM_*` tags and should not overwrite normal
+  title, artist, album, BPM, key, or mood fields.
 
-## Current MERT validation mode
+## Roadmap
 
-Текущая основная задача проекта - проверить, насколько `m-a-p/MERT-v1-95M`
-полезен для поиска похожих треков сам по себе.
+These are the directions that currently seem most useful, roughly in priority
+order:
 
-В UI для seed search сейчас активны только параметры, которые напрямую относятся
-к этой проверке:
-
-- `Similarity` - минимальный raw cosine score. По умолчанию `0`, чтобы не
-  отрезать кандидатов до накопления реальной статистики по библиотеке.
-- `Lookback` - добавляет последние N треков текущего сета в centroid-контекст.
-- `Limit` - ограничивает количество результатов.
-
-Отключенные параметры не отправляются в поиск из UI:
-
-- `BPM` и `Key` отключены, чтобы не смешивать MERT similarity с фильтрацией по
-  метаданным во время базовой проверки модели.
-- `Energy` отключен, потому что проект пока не вычисляет реальную энергию
-  трека.
-- `Epsilon` отключен до калибровки на реальных MERT score: без статистики он
-  может случайно выкинуть хорошие кандидаты.
-- `Noise` отключен до безопасной калибровки: текущая рандомизация может
-  перебить реальную разницу similarity score.
-
-## Future features
-
-Будущие направления в моем порядке ожидаемой пользы для проекта:
-
-1. `Search calibration` - проверить распределение MERT cosine score на реальной
-   библиотеке и подобрать рабочие значения `Similarity`, `Epsilon` и безопасной
-   рандомизации. Это важнее новых моделей, потому что сначала нужно понять,
-   насколько текущий MERT-слой стабилен и полезен на реальных 4000+ треках.
-2. `Auto chain` - автоматическая сборка очереди похожих треков с постепенным
-   дрейфом сета. Текущий `Lookback` только добавляет последние N треков сета в
-   общий centroid-контекст поиска. `Auto chain` должен работать иначе: взять
-   seed, найти несколько ближайших кандидатов, добавить их в очередь, затем
-   использовать последний трек или последние N треков как новый контекст и
-   повторять шаги до достижения `Limit`. Возможные параметры: `Step size`,
-   `Chain context`, `Similarity floor`.
-3. `Mel/CNN similarity` - поиск по mel-спектрограммам через CNN/аудио-визуальные
-   embeddings. Цель: ловить паттерн, структуру, грув, плотность и спектральный
-   рисунок треков. Это хороший второй audio-to-audio слой рядом с MERT.
-4. `Music feature similarity` - отдельный explainable DSP-слой из набора
-   признаков: FFT, MFCC, PLP, Mel Spectrogram, Constant-Q Transform, Chroma
-   Features, Spectral Centroid, Spectral Rolloff, Spectral Bandwidth, Spectral
-   Flatness, Zero Crossing Rate, RMSE, Waveform Envelope, Autocorrelation.
-   Цель: получить дополнительный score похожести и объяснять, почему треки
-   похожи или отличаются.
-5. `Hybrid ranking` - аккуратно объединить MERT audio-to-audio score и CLAP
-   text/audio score в один контролируемый результат. Важно делать это после
-   калибровки, потому что шкалы score у моделей разные.
+1. `Search calibration` - inspect real score distributions and choose practical
+   defaults for `Similarity`, `Epsilon`, and controlled randomization.
+2. `Auto chain` - build a set gradually: seed, find a few close tracks, move the
+   context forward, and repeat until the desired limit is reached.
+3. `Mel/CNN similarity` - use mel-spectrogram or CNN-style embeddings to capture
+   pattern, structure, groove, density, and spectral shape.
+4. `Music feature similarity` - add an explainable DSP layer with FFT, MFCC,
+   PLP, Mel Spectrogram, Constant-Q Transform, Chroma Features, Spectral
+   Centroid, Spectral Rolloff, Spectral Bandwidth, Spectral Flatness, Zero
+   Crossing Rate, RMSE, Waveform Envelope, and Autocorrelation.
+5. `Hybrid ranking` - combine MERT audio similarity and CLAP text/audio
+   similarity in a controlled way after both score ranges are understood.
 6. `DJ transition features` - beatgrid, downbeat, phrase structure, loudness,
-   real energy, spectral balance по интро/аутро, вокальность,
-   groove/percussion density и другие признаки, важные именно для качества
-   сведения. Это отдельная задача на усовершенствование после проверки базовых
-   similarity-подходов.
-7. `MERT model upgrade` - добавить опциональную модель `m-a-p/MERT-v1-330M`
-   после проверки стабильности текущего pipeline на `m-a-p/MERT-v1-95M`.
-8. `Scale improvements` - рассмотреть ANN-индекс или кэш матрицы эмбеддингов
-   для больших библиотек.
+   real energy, intro/outro spectral balance, vocalness, groove/percussion
+   density, and other features that matter specifically for mixing.
+7. `MERT model upgrade` - add `m-a-p/MERT-v1-330M` as an optional heavier model
+   after the current pipeline is stable.
+8. `Scale improvements` - add an ANN index or cached embedding matrix for larger
+   libraries.
 
-## Search knobs
+## Development
 
-- `Similarity` задает минимальный raw cosine score.
-- `Lookback` добавляет последние N треков текущего сета в centroid-контекст поиска.
-- `Epsilon` и `Noise` есть в backend как экспериментальные ручки, но в UI
-  отключены до калибровки.
+Install for development:
+
+```powershell
+python -m pip install -e ".[dev]"
+```
+
+Install optional ML dependencies:
+
+```powershell
+python -m pip install -e ".[ml,dev]"
+```
+
+Run backend tests:
+
+```powershell
+pytest
+```
+
+Build the frontend:
+
+```powershell
+cd frontend
+npm run build
+```

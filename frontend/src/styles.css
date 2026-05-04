@@ -207,8 +207,12 @@ h2 {
 .analysis-actions {
   display: grid;
   gap: 8px;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 0.8fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(74px, 0.72fr);
   margin-bottom: 8px;
+}
+
+.analysis-actions button {
+  min-width: 0;
 }
 
 .analysis-actions .primary {

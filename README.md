@@ -13,7 +13,7 @@ tool.
 The repository is public because the problem is interesting, and maybe someone
 else who collects, tags, or plays music will find the approach useful too.
 
-![dj-track-similarity web UI](dj-track-similarity-web-ui.jpg)
+![dj-track-similarity web UI](https://i.ibb.co/bghycZbf/dj-track-similarity-web-ui.png)
 
 ## What It Does
 

@@ -540,7 +540,16 @@ export function App() {
           </button>
           <div className="results-list">
             {results.map(({ track, score }) => (
-              <ResultRow key={track.id} track={track} score={score} inPlaylist={playlistSet.has(track.id)} onTogglePlaylist={togglePlaylist} onPreview={setPreview} />
+              <ResultRow
+                key={track.id}
+                track={track}
+                score={score}
+                isSeed={seedSet.has(track.id)}
+                inPlaylist={playlistSet.has(track.id)}
+                onSeed={addSeed}
+                onTogglePlaylist={togglePlaylist}
+                onPreview={setPreview}
+              />
             ))}
           </div>
           </section>
@@ -842,13 +851,17 @@ function TrackList({
 function ResultRow({
   track,
   score,
+  isSeed,
   inPlaylist,
+  onSeed,
   onTogglePlaylist,
   onPreview
 }: {
   track: Track;
   score: number;
+  isSeed: boolean;
   inPlaylist: boolean;
+  onSeed: (track: Track) => void;
   onTogglePlaylist: (track: Track) => void;
   onPreview: (track: Track) => void;
 }) {
@@ -861,6 +874,7 @@ function ResultRow({
       </div>
       <meter min={0} max={1} value={Math.max(0, Math.min(1, score))} />
       <span className="score">{score.toFixed(3)}</span>
+      <button className={`icon-button ${isSeed ? "active" : ""}`} title="Seed" aria-label={`Seed ${displayTrack(track)}`} onClick={() => onSeed(track)}><Search size={15} /></button>
       <button
         className={`icon-button ${inPlaylist ? "intent-remove active" : "intent-add"}`}
         title={inPlaylist ? "Убрать из сета" : "В сет"}

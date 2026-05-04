@@ -10,6 +10,10 @@ export type Track = {
   musical_key?: string | null;
   energy?: number | null;
   duration?: number | null;
+  metadata?: Record<string, unknown> | null;
+  genres?: string[] | null;
+  genre_scores?: Record<string, number> | null;
+  analyses?: string[] | null;
   embedding_model?: string | null;
   embedding_dim?: number | null;
 };
@@ -58,6 +62,7 @@ export type AnalysisJobStatus = {
   cancel_requested: boolean;
   workers: number;
   batch_size: number;
+  top_k?: number;
 };
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -100,6 +105,18 @@ export const api = {
   latestAnalyzeJob: () => request<AnalysisJobStatus | null>("/api/analyze/jobs/latest"),
   cancelAnalyzeJob: (jobId: string) =>
     request<AnalysisJobStatus>(`/api/analyze/jobs/${jobId}/cancel`, {
+      method: "POST",
+      body: JSON.stringify({})
+    }),
+  analyzeGenres: (limit?: number, device: "auto" | "cpu" | "cuda" = "auto", top_k = 3) =>
+    request<AnalysisJobStatus>("/api/genres/analyze", {
+      method: "POST",
+      body: JSON.stringify({ limit: limit || null, device, top_k })
+    }),
+  genreJob: (jobId: string) => request<AnalysisJobStatus>(`/api/genres/analyze/jobs/${jobId}`),
+  latestGenreJob: () => request<AnalysisJobStatus | null>("/api/genres/analyze/jobs/latest"),
+  cancelGenreJob: (jobId: string) =>
+    request<AnalysisJobStatus>(`/api/genres/analyze/jobs/${jobId}/cancel`, {
       method: "POST",
       body: JSON.stringify({})
     }),

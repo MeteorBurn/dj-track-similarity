@@ -16,7 +16,7 @@ import {
   Wand2,
   X
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { AnalysisJobStatus, api, ScanStats, SearchResult, Track } from "./api";
 
 type Notice = { kind: "ok" | "error" | "idle"; text: string };
@@ -31,6 +31,7 @@ const helpText = {
   analyzeLimit: "Сколько треков анализировать. Тип: целое число 0-100000. 0 = вся библиотека.",
   scanWorkers: "Параллельное чтение метаданных при сканировании. Тип: целое число. Диапазон зависит от CPU, обычно 1-8.",
   analysisDevice: "Устройство для MERT/CLAP. Значения: AUTO, CPU, CUDA. AUTO выберет CUDA, если PyTorch видит GPU, иначе CPU.",
+  maestAnalyze: "MAEST извлекает 3 жанровые метки Discogs и confidence. Пишет только в SQLite metadata, аудиофайлы не меняет.",
   analysisBatchSize: "Размер inference batch для MERT/CLAP. Тип: целое число 1-16. CPU: 1-4; CUDA: начни с 4-8.",
   librarySearch: "Фильтр библиотеки. Формат: текст. Ищет по artist, title, album и path.",
   similarity: "Минимальный cosine similarity. Тип: число с точкой, диапазон 0.00-1.00. Для чистой проверки MERT оставь 0.00.",
@@ -63,6 +64,7 @@ export function App() {
   const [playlistName, setPlaylistName] = useState("seamless-set");
   const [playlistId, setPlaylistId] = useState<number | null>(null);
   const [preview, setPreview] = useState<Track | null>(null);
+  const [metadataTrack, setMetadataTrack] = useState<Track | null>(null);
   const [analysisJob, setAnalysisJob] = useState<AnalysisJobStatus | null>(null);
   const [scanJob, setScanJob] = useState<ScanStats | null>(null);
   const [processLogKind, setProcessLogKind] = useState<"scan" | "analysis">("scan");
@@ -120,6 +122,12 @@ export function App() {
         if (["queued", "running"].includes(job.state)) setProcessLogKind("analysis");
       }
     }).catch(() => undefined);
+    void api.latestGenreJob().then((job) => {
+      if (job) {
+        setAnalysisJob((current) => (current && ["queued", "running"].includes(current.state) ? current : job));
+        if (["queued", "running"].includes(job.state)) setProcessLogKind("analysis");
+      }
+    }).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -146,7 +154,8 @@ export function App() {
   useEffect(() => {
     if (!analysisJob || !["queued", "running"].includes(analysisJob.state)) return;
     const timer = window.setInterval(() => {
-      void api.analyzeJob(analysisJob.job_id).then((job) => {
+      const request = analysisJob.adapter_name === "maest" ? api.genreJob(analysisJob.job_id) : api.analyzeJob(analysisJob.job_id);
+      void request.then((job) => {
         setAnalysisJob(job);
         if (["completed", "cancelled", "failed"].includes(job.state)) {
           void refreshTracks();
@@ -322,6 +331,22 @@ export function App() {
     );
   }
 
+  async function handleGenreAnalyze() {
+    const limit = analysisLimit > 0 ? analysisLimit : undefined;
+    const detail = `${analysisDevice.toUpperCase()} · top 3 genres · ${limit ? `limit ${limit}` : "вся библиотека"}`;
+    appendActivity("info", "MAEST анализ жанров запущен", detail);
+    setProcessLogKind("analysis");
+    setAnalysisJob(null);
+    await run(
+      () => api.analyzeGenres(limit, analysisDevice, 3),
+      (job) => {
+        setAnalysisJob(job);
+        appendActivity("ok", "MAEST job создан", `${job.job_id.slice(0, 8)} · ${job.total} треков · top 3`);
+        return `MAEST job ${job.job_id.slice(0, 8)}: ${job.total} треков`;
+      }
+    );
+  }
+
   async function handleTextSearch() {
     const prompt = textQuery.trim();
     if (!prompt) {
@@ -348,7 +373,7 @@ export function App() {
   async function handleCancelAnalyze() {
     if (!analysisJob) return;
     await run(
-      () => api.cancelAnalyzeJob(analysisJob.job_id),
+      () => (analysisJob.adapter_name === "maest" ? api.cancelGenreJob(analysisJob.job_id) : api.cancelAnalyzeJob(analysisJob.job_id)),
       (job) => {
         setAnalysisJob(job);
         appendActivity("warn", "Analysis cancel requested", job.job_id.slice(0, 8));
@@ -366,6 +391,10 @@ export function App() {
       return;
     }
     if (analysisJob?.state === "cancelled") {
+      if (analysisJob.adapter_name === "maest") {
+        await handleGenreAnalyze();
+        return;
+      }
       await handleAnalyze((["mert", "clap", "fake"].includes(analysisJob.adapter_name) ? analysisJob.adapter_name : "mert") as AnalysisAdapter);
       return;
     }
@@ -420,7 +449,7 @@ export function App() {
       <header className="topbar">
         <div>
           <h1>dj-track-similarity</h1>
-          <span className="meta">{tracks.length} треков · {tracks.filter((track) => track.embedding_model).length} с эмбеддингами</span>
+          <span className="meta">{tracks.length} треков · {tracks.filter((track) => track.embedding_model).length} с эмбеддингами · {tracks.filter((track) => track.genres?.length).length} с жанрами</span>
         </div>
         <div className={`notice ${notice.kind}`}>{notice.text}</div>
       </header>
@@ -457,6 +486,10 @@ export function App() {
             events={activityLog}
           />
           <div className="analysis-actions">
+            <button className="primary" disabled={busy || stageRunning} title={helpText.maestAnalyze} onClick={() => void handleGenreAnalyze()}>
+              <Tags size={16} />
+              MAEST
+            </button>
             <button className="primary" disabled={busy || stageRunning} onClick={() => void handleAnalyze("mert")}>
               <Wand2 size={16} />
               MERT
@@ -532,6 +565,7 @@ export function App() {
             onSeed={addSeed}
             onTogglePlaylist={togglePlaylist}
             onPreview={setPreview}
+            onDetails={setMetadataTrack}
           />
         </section>
 
@@ -594,6 +628,7 @@ export function App() {
                 onSeed={addSeed}
                 onTogglePlaylist={togglePlaylist}
                 onPreview={setPreview}
+                onDetails={setMetadataTrack}
               />
             ))}
           </div>
@@ -622,6 +657,7 @@ export function App() {
                     <strong>{displayTrack(track)}</strong>
                     <span>{trackInfo(track)}</span>
                   </div>
+                  <button className="icon-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={() => setMetadataTrack(track)}><Tags size={15} /></button>
                   <button className="icon-button intent-remove" title="Убрать из сета" aria-label={`Убрать ${displayTrack(track)} из сета`} onClick={() => removeFromPlaylist(track.id)}><Trash2 size={15} /></button>
                 </div>
               ))
@@ -645,6 +681,7 @@ export function App() {
           </section>
         </aside>
       </section>
+      {metadataTrack && <TrackMetadataDialog track={metadataTrack} onClose={() => setMetadataTrack(null)} />}
     </main>
   );
 }
@@ -860,7 +897,8 @@ function TrackList({
   playlistSet,
   onSeed,
   onTogglePlaylist,
-  onPreview
+  onPreview,
+  onDetails
 }: {
   tracks: Track[];
   seedSet: Set<number>;
@@ -868,6 +906,7 @@ function TrackList({
   onSeed: (track: Track) => void;
   onTogglePlaylist: (track: Track) => void;
   onPreview: (track: Track) => void;
+  onDetails: (track: Track) => void;
 }) {
   return (
     <div className="track-list">
@@ -878,6 +917,7 @@ function TrackList({
             <strong>{displayTrack(track)}</strong>
             <span>{trackInfo(track)}</span>
           </div>
+          <button className="icon-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={() => onDetails(track)}><Tags size={15} /></button>
           <button className={`icon-button ${seedSet.has(track.id) ? "active" : ""}`} title="Seed" aria-label={`Seed ${displayTrack(track)}`} onClick={() => onSeed(track)}><Search size={15} /></button>
           <button
             className={`icon-button ${playlistSet.has(track.id) ? "intent-remove active" : "intent-add"}`}
@@ -900,7 +940,8 @@ function ResultRow({
   inPlaylist,
   onSeed,
   onTogglePlaylist,
-  onPreview
+  onPreview,
+  onDetails
 }: {
   track: Track;
   score: number;
@@ -909,6 +950,7 @@ function ResultRow({
   onSeed: (track: Track) => void;
   onTogglePlaylist: (track: Track) => void;
   onPreview: (track: Track) => void;
+  onDetails: (track: Track) => void;
 }) {
   return (
     <div className="result-row">
@@ -917,6 +959,7 @@ function ResultRow({
         <strong>{displayTrack(track)}</strong>
         <span>{trackInfo(track)}</span>
       </div>
+      <button className="icon-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={() => onDetails(track)}><Tags size={15} /></button>
       <meter min={0} max={1} value={Math.max(0, Math.min(1, score))} />
       <span className="score">{score.toFixed(3)}</span>
       <button className={`icon-button ${isSeed ? "active" : ""}`} title="Seed" aria-label={`Seed ${displayTrack(track)}`} onClick={() => onSeed(track)}><Search size={15} /></button>
@@ -942,9 +985,96 @@ function trackInfo(track: Track) {
     track.bpm ? `${track.bpm.toFixed(1)} BPM` : null,
     track.musical_key,
     track.energy != null ? `E ${track.energy.toFixed(2)}` : null,
-    track.embedding_model ? "vec" : "no vec"
+    analysisStatusLabel(track)
   ].filter(Boolean);
   return parts.join(" · ");
+}
+
+function analysisStatusLabel(track: Track) {
+  const analyses = new Set(track.analyses || []);
+  if (track.genres?.length) analyses.add("maest");
+  if (track.embedding_model) analyses.add("mert");
+  const labels = [
+    analyses.has("maest") ? "maest" : null,
+    analyses.has("mert") ? "mert" : null,
+    analyses.has("clap") ? "clap" : null
+  ].filter(Boolean);
+  return labels.length ? labels.join(" ") : "";
+}
+
+function TrackMetadataDialog({ track, onClose }: { track: Track; onClose: () => void }) {
+  const genres = track.genres || [];
+  const scores = track.genre_scores || {};
+  const metadataEntries = Object.entries(track.metadata || {}).filter(([key]) => !key.startsWith("maest_"));
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <section className="metadata-dialog" role="dialog" aria-modal="true" aria-label="Теги трека" onClick={(event) => event.stopPropagation()}>
+        <div className="dialog-title">
+          <div>
+            <h2>Теги и жанры</h2>
+            <span>{basename(track.path)}</span>
+          </div>
+          <button className="icon-button" title="Закрыть" aria-label="Закрыть" onClick={onClose}><X size={15} /></button>
+        </div>
+        <strong className="metadata-track-title">{displayTrack(track)}</strong>
+        <dl className="metadata-grid">
+          <dt>Artist</dt><dd>{track.artist || "-"}</dd>
+          <dt>Title</dt><dd>{track.title || "-"}</dd>
+          <dt>Album</dt><dd>{track.album || "-"}</dd>
+          <dt>BPM</dt><dd>{track.bpm != null ? track.bpm.toFixed(1) : "-"}</dd>
+          <dt>Key</dt><dd>{track.musical_key || "-"}</dd>
+          <dt>Duration</dt><dd>{track.duration != null ? formatDuration(track.duration) : "-"}</dd>
+          <dt>Path</dt><dd title={track.path}>{track.path}</dd>
+        </dl>
+        <div className="tag-block">
+          <strong>Track tags</strong>
+          {metadataEntries.length ? (
+            <dl className="metadata-grid tag-grid">
+              {metadataEntries.map(([key, value]) => (
+                <Fragment key={key}><dt>{key}</dt><dd>{formatTagValue(value)}</dd></Fragment>
+              ))}
+            </dl>
+          ) : (
+            <span className="empty-genres">Сохраненных тегов нет</span>
+          )}
+        </div>
+        <div className="genre-block">
+          <strong>MAEST genres</strong>
+          {genres.length ? (
+            <div className="genre-list">
+              {genres.map((genre) => (
+                <span className="genre-pill" key={genre}>{formatGenreLabel(genre)} <b>{formatConfidence(scores[genre])}</b></span>
+              ))}
+            </div>
+          ) : (
+            <span className="empty-genres">Жанры ещё не извлечены</span>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function formatTagValue(value: unknown) {
+  if (Array.isArray(value)) return value.map((item) => String(item)).join(", ");
+  if (value == null) return "-";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function formatConfidence(value: number | undefined) {
+  if (value == null) return "0%";
+  return `${Math.round(value * 100)}%`;
+}
+
+function formatGenreLabel(label: string) {
+  return label.replace(/^Electronic---/i, "");
+}
+
+function formatDuration(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60).toString().padStart(2, "0");
+  return `${minutes}:${rest}`;
 }
 
 function formatEta(seconds: number) {

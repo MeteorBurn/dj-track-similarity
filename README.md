@@ -18,16 +18,25 @@ else who collects, tags, or plays music will find the approach useful too.
 ## What It Does
 
 - Scans a local music folder and stores track metadata in SQLite.
+- Reads a fixed, human-sized set of file tags through Mutagen and shows those
+  tags separately from model-derived values.
+- Refreshes Mutagen tags for already indexed tracks without rescanning paths or
+  deleting analysis results.
+- Extracts Sonara playlist features, including analyzed BPM and key, and stores
+  compact feature summaries in SQLite.
 - Builds audio embeddings with MERT for audio-to-audio similarity search.
 - Builds CLAP audio embeddings for text-to-audio search.
 - Extracts top genre labels with MAEST and stores them in the local SQLite
   database.
-- Shows compact per-track analysis status (`maest`, `mert`, `clap`) and a
-  metadata popup with MAEST genre confidence scores.
+- Shows compact per-track analysis status (`sonara`, `maest`, `mert`, `clap`)
+  and a metadata popup with Mutagen tags, Sonara features, and MAEST genre
+  confidence scores.
 - Lets you choose seed tracks, search for similar tracks, preview them, and
   assemble a small set or playlist.
 - Exports playlists as M3U or CSV.
 - Can preview and write custom `DJ_SIM_*` tags when explicitly requested.
+- Can reset one analysis family at a time, or clear the local SQLite database
+  after confirmation. These actions do not delete audio files.
 
 The current focus is simple and practical: check whether modern audio embedding
 models can help find tracks that sound related, without relying on BPM, key, or
@@ -54,6 +63,22 @@ disabled in the UI or treated as future work until they are calibrated properly.
 I do not want uncalibrated knobs to make the model look better or worse than it
 really is.
 
+Sonara is currently used in `playlist` mode as a fast, practical feature pass.
+It writes analyzed BPM/key and compact feature summaries into SQLite metadata.
+Large arrays such as mel spectrograms are summarized instead of being dumped in
+full, because the current goal is inspection and calibration, not a final data
+format.
+
+The metadata popup is intentionally split by source:
+
+- the top unnamed table is file metadata parsed by Mutagen;
+- `SONARA features` are computed analysis values;
+- `MAEST genres` are model genre labels and confidence scores.
+
+This separation is important because file tags and model-derived values can
+disagree. In particular, BPM and key shown as Sonara values are analyzed, not
+copied from tags.
+
 ## Run The App
 
 ```powershell
@@ -77,6 +102,8 @@ scripts\run_server.cmd
 ```powershell
 dj-sim scan "D:\Music"
 
+dj-sim analyze-sonara --limit 25
+
 dj-sim analyze
 dj-sim analyze --device cpu --batch-size 2
 dj-sim analyze --device cuda --batch-size 8
@@ -98,6 +125,12 @@ dj-sim tag-apply 1 2 3
 
 `dj-sim analyze` uses `m-a-p/MERT-v1-95M` by default through
 PyTorch/Hugging Face and may download model weights on first run.
+
+`analyze-sonara` uses `sonara.analyze_file(..., mode="playlist")` and stores
+feature summaries in SQLite metadata. If Sonara's default decoder cannot read a
+WAV-like file, the app can fall back to `ffmpeg` decoding to mono float PCM
+before calling Sonara signal analysis. BPM and key from this pass are analyzed
+values, not file tags.
 
 `--adapter clap` builds separate LAION-CLAP audio embeddings for text search.
 
@@ -127,6 +160,35 @@ vectors only.
 
 That means text search requires a separate CLAP analysis pass before it can
 return useful results.
+
+## Tag And Analysis Data
+
+The app keeps a deliberately plain separation between local file metadata and
+computed analysis data.
+
+Mutagen file tags are read from a fixed whitelist instead of importing every
+possible tag blob:
+
+- artist, title, album, genre, year, country;
+- label, catalog number, track number, disc number;
+- BPM tag, key tag, comment, ISRC, and duration.
+
+Values are normalized before writing to SQLite metadata so odd Mutagen objects
+such as ID3 timestamps can still be stored as JSON-safe strings.
+
+`RefreshTags` in the UI rereads only these Mutagen fields for already indexed
+tracks. It preserves paths and model analysis data, including Sonara, MAEST,
+MERT, and CLAP results.
+
+The small trash buttons next to analysis names reset only that analysis family:
+
+- Sonara reset removes `sonara_features` and restores BPM/key/duration from
+  file tags where possible.
+- MAEST reset removes stored genre labels.
+- MERT, CLAP, and fake reset remove only their embedding rows.
+
+The database clear button removes local SQLite records after confirmation. It
+does not remove or edit audio files.
 
 ## Text Search
 
@@ -164,6 +226,12 @@ batching, not by running many model workers in parallel.
 
 MAEST genre extraction uses the same `auto`, `cpu`, and `cuda` device behavior.
 
+Sonara playlist analysis is usually much lighter than MERT/CLAP/MAEST model
+inference. It still reads and decodes audio, so the full-library pass is not
+free, but it is intended to be a fast feature inspection step. The current
+implementation summarizes large arrays instead of storing full arrays in the
+database.
+
 PyTorch CUDA wheels should be installed explicitly for the local machine before
 running real MERT, CLAP, or MAEST analysis. For example, choose the matching
 command from the official PyTorch installer, such as:
@@ -182,6 +250,10 @@ python -m pip install transformers maest-infer --no-deps
 ## Safety
 
 - Scanning, analysis, search, preview, and export do not modify audio files.
+- `RefreshTags` rereads file metadata and updates SQLite only.
+- Analysis reset buttons delete only local SQLite analysis outputs.
+- Database clear deletes local SQLite records only; it does not delete music
+  files.
 - `tag-preview` is read-only.
 - `tag-apply` writes only custom `DJ_SIM_*` tags and should not overwrite normal
   title, artist, album, BPM, key, or mood fields.
@@ -195,20 +267,22 @@ order:
    defaults for `Similarity`, `Epsilon`, and controlled randomization.
 2. `Auto chain` - build a set gradually: seed, find a few close tracks, move the
    context forward, and repeat until the desired limit is reached.
-3. `Mel/CNN similarity` - use mel-spectrogram or CNN-style embeddings to capture
+3. `Sonara calibration` - decide which Sonara playlist features are actually
+   useful for search, display, and later storage in a better typed format.
+4. `Mel/CNN similarity` - use mel-spectrogram or CNN-style embeddings to capture
    pattern, structure, groove, density, and spectral shape.
-4. `Music feature similarity` - add an explainable DSP layer with FFT, MFCC,
+5. `Music feature similarity` - add an explainable DSP layer with FFT, MFCC,
    PLP, Mel Spectrogram, Constant-Q Transform, Chroma Features, Spectral
    Centroid, Spectral Rolloff, Spectral Bandwidth, Spectral Flatness, Zero
    Crossing Rate, RMSE, Waveform Envelope, and Autocorrelation.
-5. `Hybrid ranking` - combine MERT audio similarity and CLAP text/audio
+6. `Hybrid ranking` - combine MERT audio similarity and CLAP text/audio
    similarity in a controlled way after both score ranges are understood.
-6. `DJ transition features` - beatgrid, downbeat, phrase structure, loudness,
+7. `DJ transition features` - beatgrid, downbeat, phrase structure, loudness,
    real energy, intro/outro spectral balance, vocalness, groove/percussion
    density, and other features that matter specifically for mixing.
-7. `MERT model upgrade` - add `m-a-p/MERT-v1-330M` as an optional heavier model
+8. `MERT model upgrade` - add `m-a-p/MERT-v1-330M` as an optional heavier model
    after the current pipeline is stable.
-8. `Scale improvements` - add an ANN index or cached embedding matrix for larger
+9. `Scale improvements` - add an ANN index or cached embedding matrix for larger
    libraries.
 
 ## Development
@@ -223,6 +297,18 @@ Install optional ML dependencies:
 
 ```powershell
 python -m pip install -e ".[ml,dev]"
+```
+
+Install Sonara support:
+
+```powershell
+python -m pip install -e ".[sonara,dev]"
+```
+
+Install everything used by the full local lab:
+
+```powershell
+python -m pip install -e ".[sonara,ml,dev]"
 ```
 
 For CUDA work, prefer installing PyTorch separately with the official CUDA wheel

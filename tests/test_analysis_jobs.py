@@ -52,6 +52,21 @@ class LazyDeviceAdapter:
         return self.embed_batch([path])[0]
 
 
+class ConfigurableAdapter:
+    model_name = "configurable-model"
+    dim = 3
+
+    def __init__(self, device=None, inference_batch_size=1) -> None:
+        self.device = device
+        self.inference_batch_size = inference_batch_size
+
+    def embed_batch(self, paths):
+        return [np.array([1, 0, 0], dtype=np.float32) for _ in paths]
+
+    def embed(self, path):
+        return self.embed_batch([path])[0]
+
+
 def test_analysis_job_runs_in_batches_and_records_progress(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     _track(db, tmp_path, "a.wav")
@@ -88,7 +103,23 @@ def test_analysis_job_uses_requested_worker_count_as_batch_size(tmp_path: Path) 
     status = manager.run_sync(adapter_name="batch", workers=3)
 
     assert status.workers == 3
+    assert status.batch_size == 3
     assert adapter.batches == [["a.wav", "b.wav", "c.wav"]]
+
+
+def test_analysis_job_passes_requested_device_and_batch_size_to_adapter(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    _track(db, tmp_path, "a.wav")
+    adapter = ConfigurableAdapter
+    manager = AnalysisJobManager(db, {"configurable": adapter}, batch_size=1)
+
+    status = manager.run_sync(adapter_name="configurable", device="cpu", batch_size=5)
+
+    assert status.state == "completed"
+    assert status.device_requested == "cpu"
+    assert status.device == "cpu"
+    assert status.batch_size == 5
+    assert status.workers == 5
 
 
 def test_analysis_job_records_per_track_errors_without_stopping(tmp_path: Path) -> None:

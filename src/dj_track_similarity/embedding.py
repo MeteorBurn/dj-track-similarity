@@ -34,15 +34,23 @@ class MertEmbeddingAdapter:
     model_name = "m-a-p/MERT-v1-95M"
     dim = 768
 
-    def __init__(self, device: str | None = None, window_seconds: float = 5.0, max_windows: int = 5) -> None:
-        self.device_name = device
+    def __init__(
+        self,
+        device: str | None = None,
+        window_seconds: float = 5.0,
+        max_windows: int = 5,
+        inference_batch_size: int = 16,
+    ) -> None:
+        self.requested_device = device or "auto"
+        self.device_name = None if self.requested_device == "auto" else self.requested_device
         self.window_seconds = window_seconds
         self.max_windows = max_windows
+        self.inference_batch_size = max(1, int(inference_batch_size))
         self._model = None
         self._processor = None
         self._torch = None
         self._torchaudio = None
-        self.device = device
+        self.device: str | None = None
 
     def embed(self, path: str | Path) -> np.ndarray:
         return self.embed_batch([path])[0]
@@ -73,11 +81,11 @@ class MertEmbeddingAdapter:
             track_windows.append(window_indices)
 
         pooled_windows: list[np.ndarray] = []
-        for start in range(0, len(all_windows), 16):
-            window_batch = all_windows[start : start + 16]
+        for start in range(0, len(all_windows), self.inference_batch_size):
+            window_batch = all_windows[start : start + self.inference_batch_size]
             inputs = self._processor(window_batch, sampling_rate=target_rate, padding=True, return_tensors="pt")
             inputs = {key: value.to(self._device()) for key, value in inputs.items()}
-            with torch.no_grad():
+            with torch.inference_mode():
                 outputs = self._model(**inputs, output_hidden_states=True)
             hidden = torch.stack(outputs.hidden_states[-4:]).mean(dim=0)
             pooled = hidden.mean(dim=1).detach().cpu().numpy().astype(np.float32)
@@ -111,6 +119,8 @@ class MertEmbeddingAdapter:
         if self.device:
             return self.device
         if self.device_name:
+            if self.device_name == "cuda" and not self._torch.cuda.is_available():
+                raise RuntimeError("CUDA was requested but torch.cuda.is_available() is false")
             return self.device_name
         return "cuda" if self._torch.cuda.is_available() else "cpu"
 

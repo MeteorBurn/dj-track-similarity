@@ -30,12 +30,19 @@ def analyze(
     db_path: Optional[Path] = typer.Option(None, "--db"),
     limit: Optional[int] = typer.Option(None, "--limit"),
     fake: bool = typer.Option(False, "--fake", help="Use deterministic fake embeddings for smoke tests."),
+    device: str = typer.Option("auto", "--device", help="MERT device: auto, cpu, or cuda."),
+    batch_size: int = typer.Option(4, "--batch-size", min=1, max=64, help="MERT inference batch size."),
 ) -> None:
     adapter_name = "fake" if fake else "mert"
-    status = AnalysisJobManager(_db(db_path)).run_sync(adapter_name=adapter_name, limit=limit)
+    status = AnalysisJobManager(_db(db_path)).run_sync(
+        adapter_name=adapter_name,
+        limit=limit,
+        device=device,
+        batch_size=batch_size,
+    )
     typer.echo(
         f"state={status.state} total={status.total} processed={status.processed} "
-        f"analyzed={status.analyzed} failed={status.failed} device={status.device}"
+        f"analyzed={status.analyzed} failed={status.failed} device={status.device} batch_size={status.batch_size}"
     )
 
 

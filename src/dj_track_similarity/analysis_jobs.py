@@ -40,6 +40,7 @@ class AnalysisJobStatus:
     adapter_name: str
     model_name: str | None = None
     device: str | None = None
+    device_requested: str = "auto"
     total: int = 0
     processed: int = 0
     analyzed: int = 0
@@ -52,6 +53,7 @@ class AnalysisJobStatus:
     events: list[AnalysisLogEvent] = field(default_factory=list)
     cancel_requested: bool = False
     workers: int = 1
+    batch_size: int = 1
 
 
 class AnalysisJobManager:
@@ -71,19 +73,30 @@ class AnalysisJobManager:
         self._jobs: dict[str, AnalysisJobStatus] = {}
         self._lock = threading.Lock()
 
-    def create_job(self, *, adapter_name: str, limit: int | None = None, workers: int | None = None) -> str:
+    def create_job(
+        self,
+        *,
+        adapter_name: str,
+        limit: int | None = None,
+        workers: int | None = None,
+        batch_size: int | None = None,
+        device: str = "auto",
+    ) -> str:
         if adapter_name not in self.adapter_factories:
             raise ValueError(f"Unknown analysis adapter: {adapter_name}")
         tracks = self.db.list_tracks(with_embeddings=False)
         if limit is not None:
             tracks = tracks[:limit]
         job_id = str(uuid.uuid4())
+        effective_batch_size = max(1, int(batch_size or workers or self.batch_size))
         status = AnalysisJobStatus(
             job_id=job_id,
             state="queued",
             adapter_name=adapter_name,
             total=len(tracks),
-            workers=max(1, int(workers or self.batch_size)),
+            device_requested=device,
+            workers=effective_batch_size,
+            batch_size=effective_batch_size,
         )
         status._tracks = tracks  # type: ignore[attr-defined]
         with self._lock:
@@ -91,14 +104,42 @@ class AnalysisJobManager:
         self._append_event(job_id, "info", "Analysis queued")
         return job_id
 
-    def start(self, *, adapter_name: str, limit: int | None = None, workers: int | None = None) -> AnalysisJobStatus:
-        job_id = self.create_job(adapter_name=adapter_name, limit=limit, workers=workers)
+    def start(
+        self,
+        *,
+        adapter_name: str,
+        limit: int | None = None,
+        workers: int | None = None,
+        batch_size: int | None = None,
+        device: str = "auto",
+    ) -> AnalysisJobStatus:
+        job_id = self.create_job(
+            adapter_name=adapter_name,
+            limit=limit,
+            workers=workers,
+            batch_size=batch_size,
+            device=device,
+        )
         thread = threading.Thread(target=self.run_job, args=(job_id,), daemon=True)
         thread.start()
         return self.get(job_id)
 
-    def run_sync(self, *, adapter_name: str, limit: int | None = None, workers: int | None = None) -> AnalysisJobStatus:
-        job_id = self.create_job(adapter_name=adapter_name, limit=limit, workers=workers)
+    def run_sync(
+        self,
+        *,
+        adapter_name: str,
+        limit: int | None = None,
+        workers: int | None = None,
+        batch_size: int | None = None,
+        device: str = "auto",
+    ) -> AnalysisJobStatus:
+        job_id = self.create_job(
+            adapter_name=adapter_name,
+            limit=limit,
+            workers=workers,
+            batch_size=batch_size,
+            device=device,
+        )
         return self.run_job(job_id)
 
     def run_job(self, job_id: str) -> AnalysisJobStatus:
@@ -109,7 +150,7 @@ class AnalysisJobManager:
             self._append_event(job_id, "warn", "Analysis cancelled")
             return self.get(job_id)
 
-        adapter = self.adapter_factories[status.adapter_name]()
+        adapter = self._create_adapter(status.adapter_name, device=status.device_requested, batch_size=status.batch_size)
         model_name = getattr(adapter, "model_name", status.adapter_name)
         device = getattr(adapter, "device", None) or getattr(adapter, "device_name", None)
         if device is None and hasattr(adapter, "_device"):
@@ -121,7 +162,7 @@ class AnalysisJobManager:
         self._update(job_id, state="running", model_name=model_name, device=device, started_at=started)
         self._append_event(job_id, "info", "Analysis started")
 
-        for batch in _chunks(tracks, max(1, status.workers)):
+        for batch in _chunks(tracks, max(1, status.batch_size)):
             if self.get(job_id).cancel_requested:
                 self._update(job_id, state="cancelled", finished_at=time.time(), current_path=None)
                 self._append_event(job_id, "warn", "Analysis cancelled")
@@ -158,6 +199,13 @@ class AnalysisJobManager:
     def cancel(self, job_id: str) -> AnalysisJobStatus:
         self._update(job_id, cancel_requested=True)
         return self.get(job_id)
+
+    def _create_adapter(self, adapter_name: str, *, device: str, batch_size: int) -> EmbeddingAdapter:
+        factory = self.adapter_factories[adapter_name]
+        try:
+            return factory(device=device, inference_batch_size=batch_size)  # type: ignore[misc,call-arg]
+        except TypeError:
+            return factory()
 
     def _process_batch(self, job_id: str, adapter: EmbeddingAdapter, batch: list[Track]) -> None:
         paths = [track.path for track in batch]
@@ -256,6 +304,7 @@ class AnalysisJobManager:
             adapter_name=status.adapter_name,
             model_name=status.model_name,
             device=status.device,
+            device_requested=status.device_requested,
             total=status.total,
             processed=status.processed,
             analyzed=status.analyzed,
@@ -268,6 +317,7 @@ class AnalysisJobManager:
             events=list(status.events),
             cancel_requested=status.cancel_requested,
             workers=status.workers,
+            batch_size=status.batch_size,
         )
         if hasattr(status, "_tracks"):
             copy._tracks = getattr(status, "_tracks")  # type: ignore[attr-defined]

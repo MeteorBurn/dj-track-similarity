@@ -20,7 +20,11 @@ This workspace may not be a Git repository. Do not assume Git history, branches,
 - Treat `dj-track-similarity.sqlite` as local user state. Tests should use temporary databases via `tmp_path` or explicit `--db` paths.
 - Do not commit or preserve generated local artifacts unless explicitly asked: `*.sqlite`, `*.log`, `__pycache__/`, `.pytest_cache/`, `frontend/node_modules/`, and transient temp folders.
 - Full MERT analysis can be slow and may download Hugging Face/PyTorch model weights on first use. Prefer `--fake` for smoke checks unless the user asks for real ML analysis.
-- In the UI, `Analyze limit = 0` means analyzing the whole library. Avoid triggering whole-library analysis unless the user clearly wants it.
+- In the UI, `Analyze limit = 0` means analyzing the whole library and is the default. Avoid triggering whole-library analysis unless the user clearly wants it or is operating the UI themselves.
+- MERT analysis should be accelerated with a single selected device plus inference batching, not multiple parallel model workers. Use `device=auto|cpu|cuda` and `batch_size`; keep legacy `workers` only as a compatibility alias for analysis batch size.
+- If CUDA is explicitly requested and unavailable, surface an error instead of silently falling back to CPU. Use `auto` for fallback behavior.
+- Current search UI is in MERT-only validation mode: active knobs are `Similarity`, `Lookback`, and `Limit`. BPM, Key, Energy, Epsilon, and Noise are disabled in the UI and should not be sent from the frontend search request until calibrated.
+- Keep hover help on user-editable parameters. Tooltips should explain purpose, accepted format, value type, and range.
 
 ## Common Commands
 
@@ -72,6 +76,8 @@ Useful CLI smoke commands:
 
 ```powershell
 dj-sim scan "D:\Music"
+dj-sim analyze --device cpu --batch-size 2 --limit 3
+dj-sim analyze --device cuda --batch-size 8 --limit 3
 dj-sim analyze --fake
 dj-sim export 1 --format m3u --output-dir "D:\Exports"
 dj-sim export 1 --format csv --output-dir "D:\Exports"
@@ -88,6 +94,7 @@ dj-sim tag-preview 1 2 3
 - `src/dj_track_similarity/analysis.py`: simple analyze-missing flow.
 - `src/dj_track_similarity/analysis_jobs.py`: analysis job manager with batching, progress, cancellation, errors, adapter metadata, and embedding saves.
 - `src/dj_track_similarity/search.py`: centroid-based similarity search with BPM, Camelot key, energy, similarity, epsilon, noise, and lookback filters.
+- In the frontend, only Similarity, Lookback, and Limit are active for MERT validation; the other search filters remain backend capabilities/future knobs.
 - `src/dj_track_similarity/exporter.py`: playlist export to M3U or CSV.
 - `src/dj_track_similarity/tags.py`: custom `DJ_SIM_*` tag preview and apply logic.
 - `src/dj_track_similarity/api.py`: FastAPI factory, request models, REST endpoints, static frontend mount, and media serving.
@@ -107,6 +114,8 @@ dj-sim tag-preview 1 2 3
 - Keep FastAPI request/response shapes in sync with `frontend/src/api.ts` types.
 - If adding or changing scan or analysis job state, update both backend tests and frontend polling/display logic as needed.
 - If changing search behavior, add or update focused tests in `tests/test_search.py`.
+- If changing analysis performance controls, keep `frontend/src/api.ts`, `src/dj_track_similarity/api.py`, `src/dj_track_similarity/analysis_jobs.py`, and `src/dj_track_similarity/embedding.py` aligned.
+- If changing UI controls, preserve tooltip coverage for format/type/range guidance.
 - If touching tag writing, keep tests strict about preview being read-only and apply writing only custom tags.
 - Prefer deterministic test data and fake adapters over real audio analysis in automated tests.
 - Avoid broad refactors in `frontend/src/App.tsx` unless the task is specifically about frontend structure; it is currently the main UI surface.

@@ -24,7 +24,9 @@ class ScanRequest(BaseModel):
 class AnalyzeRequest(BaseModel):
     limit: int | None = None
     adapter: str = Field(default="mert", pattern="^(mert|fake)$")
-    workers: int = Field(default=1, ge=1, le=64)
+    device: str = Field(default="auto", pattern="^(auto|cpu|cuda)$")
+    batch_size: int = Field(default=4, ge=1, le=64)
+    workers: int | None = Field(default=None, ge=1, le=64)
 
 
 class SearchRequest(BaseModel):
@@ -109,7 +111,13 @@ def create_app(db_path: str | Path = "dj-track-similarity.sqlite") -> FastAPI:
 
     @app.post("/api/analyze")
     def analyze(request: AnalyzeRequest):
-        return analysis_jobs.start(adapter_name=request.adapter, limit=request.limit, workers=request.workers)
+        return analysis_jobs.start(
+            adapter_name=request.adapter,
+            limit=request.limit,
+            batch_size=request.batch_size,
+            workers=request.workers,
+            device=request.device,
+        )
 
     @app.get("/api/analyze/jobs/latest")
     def latest_analyze_job():
@@ -184,8 +192,13 @@ def create_app(db_path: str | Path = "dj-track-similarity.sqlite") -> FastAPI:
             raise HTTPException(status_code=404, detail="Audio file is missing")
         return FileResponse(path)
 
-    static_dir = Path(__file__).resolve().parent.parent / "frontend" / "dist"
-    if static_dir.exists():
+    package_path = Path(__file__).resolve()
+    static_candidates = [
+        package_path.parents[2] / "frontend" / "dist",
+        package_path.parent.parent / "frontend" / "dist",
+    ]
+    static_dir = next((candidate for candidate in static_candidates if candidate.exists()), None)
+    if static_dir is not None:
         app.mount("/", StaticFiles(directory=static_dir, html=True), name="frontend")
 
     return app

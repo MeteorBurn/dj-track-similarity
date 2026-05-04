@@ -43,6 +43,7 @@ export type AnalysisJobStatus = {
   adapter_name: string;
   model_name?: string | null;
   device?: string | null;
+  device_requested: "auto" | "cpu" | "cuda";
   total: number;
   processed: number;
   analyzed: number;
@@ -55,6 +56,7 @@ export type AnalysisJobStatus = {
   events: Array<{ timestamp: number; level: string; message: string; path?: string | null; track_id?: number | null }>;
   cancel_requested: boolean;
   workers: number;
+  batch_size: number;
 };
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -88,10 +90,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({})
     }),
-  analyze: (adapter: "mert" | "fake", limit?: number, workers = 1) =>
+  analyze: (adapter: "mert" | "fake", limit?: number, device: "auto" | "cpu" | "cuda" = "auto", batch_size = 4) =>
     request<AnalysisJobStatus>("/api/analyze", {
       method: "POST",
-      body: JSON.stringify({ adapter, limit: limit || null, workers })
+      body: JSON.stringify({ adapter, limit: limit || null, device, batch_size })
     }),
   analyzeJob: (jobId: string) => request<AnalysisJobStatus>(`/api/analyze/jobs/${jobId}`),
   latestAnalyzeJob: () => request<AnalysisJobStatus | null>("/api/analyze/jobs/latest"),

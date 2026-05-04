@@ -34,6 +34,7 @@ button {
   justify-content: center;
   min-height: 34px;
   padding: 7px 10px;
+  white-space: nowrap;
 }
 
 button.icon-button {
@@ -203,6 +204,17 @@ h2 {
   margin-bottom: 8px;
 }
 
+.analysis-actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  margin-bottom: 8px;
+}
+
+.analysis-actions .primary {
+  margin-bottom: 0;
+}
+
 .library-path-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 42px;
@@ -287,6 +299,65 @@ h2 {
   padding: 8px;
 }
 
+.log-panel {
+  background: #f7f8f2;
+  border: 1px solid #dfe3d6;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 8px;
+  min-height: 248px;
+}
+
+.log-tabs {
+  border-bottom: 1px solid #dfe3d6;
+  display: grid;
+  gap: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 6px 6px 0;
+}
+
+.log-tabs button {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 5px 5px 0 0;
+  color: #65705e;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.log-tabs button.active {
+  background: #ffffff;
+  border-bottom-color: #40a487;
+  color: #176c5a;
+}
+
+.log-tabs span {
+  background: #eef2e7;
+  border: 1px solid #d8dccf;
+  border-radius: 999px;
+  color: #586351;
+  font-size: 11px;
+  min-width: 24px;
+  padding: 1px 7px;
+  text-align: center;
+}
+
+.log-tab-body {
+  min-height: 0;
+  padding: 8px;
+}
+
+.log-tab-body .process-box,
+.log-tab-body .activity-log {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  margin: 0;
+  padding: 0;
+}
+
 .analysis-limit {
   color: #65705e;
   display: flex;
@@ -294,6 +365,13 @@ h2 {
   font-size: 12px;
   gap: 4px;
   margin-bottom: 8px;
+}
+
+.analysis-limit small,
+.analysis-device small {
+  color: #7a8473;
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .worker-control {
@@ -309,6 +387,30 @@ h2 {
 
 .worker-control small {
   font-size: 11px;
+}
+
+.analysis-device {
+  color: #65705e;
+  display: grid;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.analysis-device > span {
+  align-items: center;
+  display: flex;
+  font-size: 12px;
+  gap: 6px;
+}
+
+.segmented {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.segmented button {
+  min-width: 0;
 }
 
 .stepper {
@@ -562,7 +664,7 @@ h2 {
 }
 
 .search-section .filters {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(92px, 1fr));
 }
 
 .search-section .results-list {
@@ -591,7 +693,6 @@ h2 {
   border-radius: 6px;
   color: #65705e;
   display: flex;
-  gap: 6px;
   justify-content: center;
   min-height: 96px;
   padding: 14px;
@@ -677,7 +778,17 @@ h2 {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  min-height: 42px;
+}
+
+.mert-mode-note {
+  background: #f7f8f2;
+  border: 1px solid #dfe3d6;
+  border-radius: 6px;
+  color: #586351;
+  font-size: 12px;
+  line-height: 1.35;
+  margin-top: 8px;
+  padding: 8px;
 }
 
 .seed-chip {
@@ -705,6 +816,16 @@ h2 {
   align-items: center;
   flex-direction: row;
   justify-content: center;
+}
+
+.filters .disabled-filter {
+  color: #8c9585;
+}
+
+.filters .disabled-filter input {
+  background: #f4f5ef;
+  border-color: #dde2d8;
+  color: #7d8775;
 }
 
 .filters .toggle input {
@@ -767,13 +888,10 @@ meter {
 }
 
 .activity-log {
-  border-top: 1px solid #e2e5dc;
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  margin: 0 0 8px;
-  min-height: 128px;
-  padding-top: 10px;
+  gap: 6px;
+  min-height: 0;
 }
 
 .activity-log-title {
@@ -788,9 +906,11 @@ meter {
 .activity-log-list {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  max-height: 150px;
-  overflow: auto;
+  gap: 4px;
+  max-height: 172px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
 }
 
 .activity-log-row {
@@ -799,16 +919,17 @@ meter {
   border-left: 3px solid #9da895;
   border-radius: 5px;
   display: grid;
-  gap: 5px;
-  grid-template-columns: 58px minmax(0, 0.8fr);
-  min-height: 34px;
-  padding: 5px 7px;
+  gap: 2px 8px;
+  grid-template-columns: 58px minmax(0, 1fr);
+  min-height: 0;
+  padding: 5px 8px;
 }
 
 .activity-log-row time,
 .activity-log-row strong,
 .activity-log-row span {
   font-size: 11px;
+  line-height: 15px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -825,7 +946,7 @@ meter {
 
 .activity-log-row span {
   color: #65705e;
-  grid-column: 1 / -1;
+  grid-column: 2;
 }
 
 .activity-log-row.ok {
@@ -840,14 +961,39 @@ meter {
   border-left-color: #bc5d34;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 1180px) {
+  .workspace {
+    grid-template-columns: minmax(260px, 0.88fr) minmax(320px, 1.12fr);
+    height: auto;
+  }
+
+  .search-panel {
+    grid-column: 1 / -1;
+  }
+
+  .search-section .results-list {
+    max-height: 240px;
+  }
+
+  .playlist-section .playlist-list {
+    max-height: 360px;
+  }
+}
+
+@media (max-width: 820px) {
   .workspace {
     grid-template-columns: 1fr;
     height: auto;
   }
 
   .panel {
-    min-height: 520px;
+    min-height: auto;
+  }
+
+  .track-list,
+  .results-list,
+  .playlist-list {
+    max-height: 420px;
   }
 }
 

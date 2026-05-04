@@ -1,6 +1,8 @@
 import {
+  Cpu,
   Download,
   FolderOpen,
+  Gauge,
   ListMusic,
   Minus,
   Play,
@@ -19,8 +21,28 @@ import { AnalysisJobStatus, api, ScanStats, SearchResult, Track } from "./api";
 
 type Notice = { kind: "ok" | "error" | "idle"; text: string };
 type ActivityEvent = { id: number; time: number; level: "info" | "ok" | "warn" | "error"; message: string; detail?: string };
+type DeviceMode = "auto" | "cpu" | "cuda";
 
 const defaultNotice: Notice = { kind: "idle", text: "Готово к работе" };
+
+const helpText = {
+  musicRoot: "Папка с музыкой. Формат: путь Windows или POSIX, например D:/Music. Тип: строка. Папка должна существовать.",
+  analyzeLimit: "Сколько треков анализировать. Тип: целое число 0-100000. 0 = вся библиотека.",
+  scanWorkers: "Параллельное чтение метаданных при сканировании. Тип: целое число. Диапазон зависит от CPU, обычно 1-8.",
+  mertDevice: "Устройство для MERT. Значения: AUTO, CPU, CUDA. AUTO выберет CUDA, если PyTorch видит GPU, иначе CPU.",
+  mertBatchSize: "Размер inference batch для MERT. Тип: целое число 1-16. CPU: 1-4; CUDA: начни с 4-8.",
+  librarySearch: "Фильтр библиотеки. Формат: текст. Ищет по artist, title, album и path.",
+  similarity: "Минимальный cosine similarity. Тип: число с точкой, диапазон 0.00-1.00. Для чистой проверки MERT оставь 0.00.",
+  lookback: "Сколько последних треков сета добавить в контекст поиска. Тип: целое число 0-12.",
+  limit: "Максимум результатов поиска. Тип: целое число 1-500.",
+  disabledBpm: "Отключено. BPM-фильтр по метаданным. Тип был бы число, например 128 или 128.5; сейчас не участвует в MERT-only проверке.",
+  disabledKey: "Отключено. Key-фильтр по метаданным. Формат был бы Camelot 1A-12B или обычная строка key; сейчас не участвует в MERT-only проверке.",
+  disabledEnergy: "Отключено. Energy пока не вычисляется. Будущий формат: число с точкой 0.00-1.00.",
+  disabledEpsilon: "Отключено до калибровки. Будущий формат: число с точкой 0.00-1.00, обычно малое значение вроде 0.01-0.05.",
+  disabledNoise: "Отключено до калибровки. Будущий формат: число с точкой 0.00-1.00, но безопасный диапазон еще не выбран.",
+  playlistName: "Название сохраняемого сета. Формат: текст. Используется как имя плейлиста и файла экспорта.",
+  outputDir: "Папка экспорта. Формат: путь Windows или POSIX, например D:/Exports. Если папки нет, она будет создана.",
+} as const;
 
 function optimalWorkerLimit() {
   const cores = typeof navigator === "undefined" ? 4 : navigator.hardwareConcurrency || 4;
@@ -41,8 +63,11 @@ export function App() {
   const [analysisJob, setAnalysisJob] = useState<AnalysisJobStatus | null>(null);
   const [scanJob, setScanJob] = useState<ScanStats | null>(null);
   const [processLogKind, setProcessLogKind] = useState<"scan" | "analysis">("scan");
-  const [analysisLimit, setAnalysisLimit] = useState(10);
-  const [workerCount, setWorkerCount] = useState(1);
+  const [logTab, setLogTab] = useState<"journal" | "process">("journal");
+  const [analysisLimit, setAnalysisLimit] = useState(0);
+  const [scanWorkers, setScanWorkers] = useState(1);
+  const [analysisBatchSize, setAnalysisBatchSize] = useState(4);
+  const [analysisDevice, setAnalysisDevice] = useState<DeviceMode>("auto");
   const [notice, setNotice] = useState<Notice>(defaultNotice);
   const [activityLog, setActivityLog] = useState<ActivityEvent[]>([
     { id: 1, time: Date.now(), level: "info", message: "Интерфейс загружен" }
@@ -50,12 +75,12 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [filters, setFilters] = useState({
     bpmTolerance: 4,
-    keyCompatibility: true,
+    keyCompatibility: false,
     energyEnabled: false,
     energyMin: 0,
     energyMax: 1,
-    minSimilarity: 0.15,
-    epsilon: 0.04,
+    minSimilarity: 0,
+    epsilon: 0,
     noise: 0,
     lookback: 2,
     limit: 50
@@ -75,7 +100,8 @@ export function App() {
   const analysisRunning = Boolean(analysisJob && ["queued", "running"].includes(analysisJob.state));
   const stageRunning = scanRunning || analysisRunning;
   const canStartStage = Boolean(musicRoot || analysisJob?.state === "cancelled");
-  const maxWorkers = useMemo(() => optimalWorkerLimit(), []);
+  const maxScanWorkers = useMemo(() => optimalWorkerLimit(), []);
+  const maxAnalysisBatchSize = 16;
 
   useEffect(() => {
     void refreshTracks();
@@ -204,13 +230,13 @@ export function App() {
           seed_track_ids: seeds,
           lookback_track_ids: lookbackTrackIds,
           limit: filters.limit,
-          bpm_tolerance: filters.bpmTolerance,
-          key_compatibility: filters.keyCompatibility ? "compatible" : null,
-          energy_min: filters.energyEnabled ? filters.energyMin : null,
-          energy_max: filters.energyEnabled ? filters.energyMax : null,
+          bpm_tolerance: null,
+          key_compatibility: null,
+          energy_min: null,
+          energy_max: null,
           min_similarity: filters.minSimilarity,
-          epsilon: filters.epsilon,
-          noise: filters.noise
+          epsilon: null,
+          noise: 0
         }),
       (value) => {
         setResults(value);
@@ -225,7 +251,7 @@ export function App() {
     setProcessLogKind("scan");
     setScanJob(null);
     await run(
-      () => api.scan(musicRoot, workerCount),
+      () => api.scan(musicRoot, scanWorkers),
       (value) => {
         setScanJob(value);
         const detail = value.job_id ? `job ${value.job_id.slice(0, 8)} · ${value.total || 0} файлов` : scanSummary(value);
@@ -279,14 +305,15 @@ export function App() {
 
   async function handleAnalyze(adapter: "mert" | "fake") {
     const limit = analysisLimit > 0 ? analysisLimit : undefined;
-    appendActivity("info", `${adapter.toUpperCase()} анализ запущен`, limit ? `limit ${limit}` : "вся библиотека");
+    const detail = `${analysisDevice.toUpperCase()} · batch ${analysisBatchSize} · ${limit ? `limit ${limit}` : "вся библиотека"}`;
+    appendActivity("info", `${adapter.toUpperCase()} анализ запущен`, detail);
     setProcessLogKind("analysis");
     setAnalysisJob(null);
     await run(
-      () => api.analyze(adapter, limit, workerCount),
+      () => api.analyze(adapter, limit, analysisDevice, analysisBatchSize),
       (job) => {
         setAnalysisJob(job);
-        appendActivity("ok", "Analysis job создан", `${job.job_id.slice(0, 8)} · ${job.total} треков`);
+        appendActivity("ok", "Analysis job создан", `${job.job_id.slice(0, 8)} · ${job.total} треков · batch ${job.batch_size}`);
         return `${adapter.toUpperCase()} job ${job.job_id.slice(0, 8)}: ${job.total} треков`;
       }
     );
@@ -354,8 +381,12 @@ export function App() {
     });
   }
 
-  function adjustWorkers(delta: number) {
-    setWorkerCount((current) => Math.min(maxWorkers, Math.max(1, current + delta)));
+  function adjustScanWorkers(delta: number) {
+    setScanWorkers((current) => Math.min(maxScanWorkers, Math.max(1, current + delta)));
+  }
+
+  function adjustAnalysisBatchSize(delta: number) {
+    setAnalysisBatchSize((current) => Math.min(maxAnalysisBatchSize, Math.max(1, current + delta)));
   }
 
   return (
@@ -375,7 +406,7 @@ export function App() {
             <h2>1. База и анализ</h2>
           </div>
           <div className="path-row library-path-row">
-            <input value={musicRoot} onChange={(event) => setMusicRoot(event.target.value)} placeholder="D:/Music" />
+            <input value={musicRoot} onChange={(event) => setMusicRoot(event.target.value)} placeholder="D:/Music" title={helpText.musicRoot} />
             <button className="icon-button folder-picker" title="Выбрать папку" aria-label="Выбрать папку" disabled={busy || stageRunning} onClick={() => void handleChooseFolder()}>
               <FolderOpen size={17} />
             </button>
@@ -391,26 +422,63 @@ export function App() {
               <RefreshCcw size={17} />
             </span>
           </div>
-          <ProcessLog kind={processLogKind} scanJob={scanJob} analysisJob={analysisJob} />
-          <ActivityLog events={activityLog} />
-          <div className="action-row">
-            <button disabled={busy || stageRunning} onClick={() => void handleAnalyze("mert")}>
+          <TabbedLog
+            activeTab={logTab}
+            onTabChange={setLogTab}
+            processKind={processLogKind}
+            scanJob={scanJob}
+            analysisJob={analysisJob}
+            events={activityLog}
+          />
+          <div className="analysis-actions">
+            <button className="primary" disabled={busy || stageRunning} onClick={() => void handleAnalyze("mert")}>
               <Wand2 size={16} />
               MERT
             </button>
+            <button disabled={busy || stageRunning} onClick={() => void handleAnalyze("fake")}>
+              <Gauge size={16} />
+              Smoke
+            </button>
           </div>
-          <label className="analysis-limit">
+          <label className="analysis-limit" title={helpText.analyzeLimit}>
             Analyze limit
-            <input type="number" min={0} max={100000} value={analysisLimit} onChange={(event) => setAnalysisLimit(Number(event.target.value))} />
+            <input type="number" min={0} max={100000} value={analysisLimit} title={helpText.analyzeLimit} onChange={(event) => setAnalysisLimit(Number(event.target.value))} />
+            <small>0 = вся библиотека</small>
           </label>
-          <div className="worker-control">
-            <span>Потоки</span>
+          <div className="worker-control" title={helpText.scanWorkers}>
+            <span>Scan workers</span>
             <div className="stepper">
-              <button className="icon-button" disabled={busy || workerCount <= 1} onClick={() => adjustWorkers(-1)} aria-label="Уменьшить количество потоков"><Minus size={15} /></button>
-              <input type="number" min={1} max={maxWorkers} value={workerCount} onChange={(event) => setWorkerCount(Math.min(maxWorkers, Math.max(1, Number(event.target.value) || 1)))} />
-              <button className="icon-button" disabled={busy || workerCount >= maxWorkers} onClick={() => adjustWorkers(1)} aria-label="Увеличить количество потоков"><Plus size={15} /></button>
+              <button className="icon-button" disabled={busy || scanWorkers <= 1} onClick={() => adjustScanWorkers(-1)} aria-label="Уменьшить количество потоков сканирования"><Minus size={15} /></button>
+              <input type="number" min={1} max={maxScanWorkers} value={scanWorkers} title={helpText.scanWorkers} onChange={(event) => setScanWorkers(Math.min(maxScanWorkers, Math.max(1, Number(event.target.value) || 1)))} />
+              <button className="icon-button" disabled={busy || scanWorkers >= maxScanWorkers} onClick={() => adjustScanWorkers(1)} aria-label="Увеличить количество потоков сканирования"><Plus size={15} /></button>
             </div>
-            <small>1-{maxWorkers} оптимум</small>
+            <small>Для чтения метаданных: 1-{maxScanWorkers}</small>
+          </div>
+          <div className="analysis-device" title={helpText.mertDevice}>
+            <span><Cpu size={15} /> MERT device</span>
+            <div className="segmented">
+              {(["auto", "cpu", "cuda"] as DeviceMode[]).map((device) => (
+                <button
+                  key={device}
+                  className={analysisDevice === device ? "active" : ""}
+                  disabled={busy || stageRunning}
+                  title={helpText.mertDevice}
+                  onClick={() => setAnalysisDevice(device)}
+                >
+                  {device.toUpperCase()}
+                </button>
+              ))}
+            </div>
+            <small>Auto выбирает CUDA, если PyTorch видит GPU; иначе CPU.</small>
+          </div>
+          <div className="worker-control" title={helpText.mertBatchSize}>
+            <span>MERT batch size</span>
+            <div className="stepper">
+              <button className="icon-button" disabled={busy || analysisBatchSize <= 1} onClick={() => adjustAnalysisBatchSize(-1)} aria-label="Уменьшить batch size"><Minus size={15} /></button>
+              <input type="number" min={1} max={maxAnalysisBatchSize} value={analysisBatchSize} title={helpText.mertBatchSize} onChange={(event) => setAnalysisBatchSize(Math.min(maxAnalysisBatchSize, Math.max(1, Number(event.target.value) || 1)))} />
+              <button className="icon-button" disabled={busy || analysisBatchSize >= maxAnalysisBatchSize} onClick={() => adjustAnalysisBatchSize(1)} aria-label="Увеличить batch size"><Plus size={15} /></button>
+            </div>
+            <small>CPU: 1-4; CUDA: начни с 4-8 и повышай осторожно.</small>
           </div>
         </aside>
 
@@ -421,7 +489,7 @@ export function App() {
           </div>
           <div className="search-input">
             <Search size={16} />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="artist, title, path" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="artist, title, path" title={helpText.librarySearch} />
           </div>
           <div className="player library-player">
             <span>{preview ? displayTrack(preview) : "Preview"}</span>
@@ -451,17 +519,20 @@ export function App() {
               </button>
             ))}
           </div>
+          <div className="mert-mode-note">
+            MERT-only режим: активны Similarity, Lookback и Limit. Metadata-фильтры и рандомизация отключены до калибровки.
+          </div>
           <div className="filters">
-            <label>BPM ±<input type="number" value={filters.bpmTolerance} min={0} max={32} onChange={(event) => setFilters({ ...filters, bpmTolerance: Number(event.target.value) })} /></label>
-            <label>Similarity<input type="number" value={filters.minSimilarity} min={0} max={1} step={0.01} onChange={(event) => setFilters({ ...filters, minSimilarity: Number(event.target.value) })} /></label>
-            <label>Epsilon<input type="number" value={filters.epsilon} min={0} max={1} step={0.01} onChange={(event) => setFilters({ ...filters, epsilon: Number(event.target.value) })} /></label>
-            <label>Noise<input type="number" value={filters.noise} min={0} max={1} step={0.01} onChange={(event) => setFilters({ ...filters, noise: Number(event.target.value) })} /></label>
-            <label>Lookback<input type="number" value={filters.lookback} min={0} max={12} onChange={(event) => setFilters({ ...filters, lookback: Number(event.target.value) })} /></label>
-            <label>Energy min<input type="number" disabled={!filters.energyEnabled} value={filters.energyMin} min={0} max={1} step={0.01} onChange={(event) => setFilters({ ...filters, energyMin: Number(event.target.value) })} /></label>
-            <label>Energy max<input type="number" disabled={!filters.energyEnabled} value={filters.energyMax} min={0} max={1} step={0.01} onChange={(event) => setFilters({ ...filters, energyMax: Number(event.target.value) })} /></label>
-            <label>Limit<input type="number" value={filters.limit} min={1} max={500} onChange={(event) => setFilters({ ...filters, limit: Number(event.target.value) })} /></label>
-            <label className="toggle"><input type="checkbox" checked={filters.keyCompatibility} onChange={(event) => setFilters({ ...filters, keyCompatibility: event.target.checked })} />Key</label>
-            <label className="toggle"><input type="checkbox" checked={filters.energyEnabled} onChange={(event) => setFilters({ ...filters, energyEnabled: event.target.checked })} />Energy</label>
+            <label className="disabled-filter" title={helpText.disabledBpm}><span>BPM ±</span><input type="number" disabled value={filters.bpmTolerance} min={0} max={32} title={helpText.disabledBpm} onChange={(event) => setFilters({ ...filters, bpmTolerance: Number(event.target.value) })} /></label>
+            <label title={helpText.similarity}>Similarity<input type="number" value={filters.minSimilarity} min={0} max={1} step={0.01} title={helpText.similarity} onChange={(event) => setFilters({ ...filters, minSimilarity: Number(event.target.value) })} /></label>
+            <label className="disabled-filter" title={helpText.disabledEpsilon}><span>Epsilon</span><input type="number" disabled value={filters.epsilon} min={0} max={1} step={0.01} title={helpText.disabledEpsilon} onChange={(event) => setFilters({ ...filters, epsilon: Number(event.target.value) })} /></label>
+            <label className="disabled-filter" title={helpText.disabledNoise}><span>Noise</span><input type="number" disabled value={filters.noise} min={0} max={1} step={0.01} title={helpText.disabledNoise} onChange={(event) => setFilters({ ...filters, noise: Number(event.target.value) })} /></label>
+            <label title={helpText.lookback}>Lookback<input type="number" value={filters.lookback} min={0} max={12} title={helpText.lookback} onChange={(event) => setFilters({ ...filters, lookback: Number(event.target.value) })} /></label>
+            <label className="disabled-filter" title={helpText.disabledEnergy}><span>Energy min</span><input type="number" disabled value={filters.energyMin} min={0} max={1} step={0.01} title={helpText.disabledEnergy} onChange={(event) => setFilters({ ...filters, energyMin: Number(event.target.value) })} /></label>
+            <label className="disabled-filter" title={helpText.disabledEnergy}><span>Energy max</span><input type="number" disabled value={filters.energyMax} min={0} max={1} step={0.01} title={helpText.disabledEnergy} onChange={(event) => setFilters({ ...filters, energyMax: Number(event.target.value) })} /></label>
+            <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => setFilters({ ...filters, limit: Number(event.target.value) })} /></label>
+            <label className="toggle disabled-filter" title={helpText.disabledKey}><input type="checkbox" disabled checked={filters.keyCompatibility} onChange={(event) => setFilters({ ...filters, keyCompatibility: event.target.checked })} />Key</label>
+            <label className="toggle disabled-filter" title={helpText.disabledEnergy}><input type="checkbox" disabled checked={filters.energyEnabled} onChange={(event) => setFilters({ ...filters, energyEnabled: event.target.checked })} />Energy</label>
           </div>
           <button className="primary" disabled={busy || !seeds.length} onClick={() => void handleSearch()}>
             <Search size={17} />
@@ -479,14 +550,14 @@ export function App() {
             <h2>Сет и экспорт</h2>
             <span className="panel-counter">{playlist.length}</span>
           </div>
-          <input value={playlistName} onChange={(event) => setPlaylistName(event.target.value)} />
+          <input value={playlistName} onChange={(event) => setPlaylistName(event.target.value)} title={helpText.playlistName} />
           <span className={`save-state ${playlistId ? "saved" : "dirty"}`}>
             {playlistId ? `Сохранен #${playlistId}` : playlist.length ? "Есть несохраненные изменения" : "Сет пуст"}
           </span>
           <div className="playlist-list">
             {playlist.length === 0 ? (
               <div className="empty-state">
-                Добавляй треки из библиотеки или результатов поиска кнопкой <Plus size={14} />.
+                Сет пуст
               </div>
             ) : (
               playlist.map((track, index) => (
@@ -507,7 +578,7 @@ export function App() {
             Сохранить
           </button>
           <div className="path-row output-row">
-            <input value={outputDir} onChange={(event) => setOutputDir(event.target.value)} placeholder="D:/Exports" />
+            <input value={outputDir} onChange={(event) => setOutputDir(event.target.value)} placeholder="D:/Exports" title={helpText.outputDir} />
           </div>
           <div className="action-row">
             <button disabled={busy || !playlistId} onClick={() => void handleExport("m3u")}><Download size={16} />M3U</button>
@@ -539,6 +610,59 @@ function ProcessLog({
   return <ScanProcessLog job={scanJob} />;
 }
 
+function TabbedLog({
+  activeTab,
+  onTabChange,
+  processKind,
+  scanJob,
+  analysisJob,
+  events
+}: {
+  activeTab: "journal" | "process";
+  onTabChange: (tab: "journal" | "process") => void;
+  processKind: "scan" | "analysis";
+  scanJob: ScanStats | null;
+  analysisJob: AnalysisJobStatus | null;
+  events: ActivityEvent[];
+}) {
+  return (
+    <section className="log-panel">
+      <div className="log-tabs" role="tablist" aria-label="Журналы процесса">
+        <button
+          className={activeTab === "journal" ? "active" : ""}
+          role="tab"
+          aria-selected={activeTab === "journal"}
+          onClick={() => onTabChange("journal")}
+        >
+          Журнал
+          <span>{events.length}</span>
+        </button>
+        <button
+          className={activeTab === "process" ? "active" : ""}
+          role="tab"
+          aria-selected={activeTab === "process"}
+          onClick={() => onTabChange("process")}
+        >
+          Лог
+          <span>{processEventCount(processKind, scanJob, analysisJob)}</span>
+        </button>
+      </div>
+      <div className="log-tab-body">
+        {activeTab === "journal" ? (
+          <ActivityLog events={events} />
+        ) : (
+          <ProcessLog kind={processKind} scanJob={scanJob} analysisJob={analysisJob} />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function processEventCount(kind: "scan" | "analysis", scanJob: ScanStats | null, analysisJob: AnalysisJobStatus | null) {
+  if (kind === "analysis") return analysisJob?.events.length || 0;
+  return scanJob?.events?.length || 0;
+}
+
 function ScanProcessLog({ job }: { job: ScanStats | null }) {
   if (!job) {
     return <div className="process-box">Сканирование не запущено</div>;
@@ -564,7 +688,7 @@ function ScanProcessLog({ job }: { job: ScanStats | null }) {
         <span>{job.workers || 1} поток</span>
         <span>{percent}%</span>
       </div>
-      {job.avg_seconds_per_track && <span className="analysis-muted">{job.avg_seconds_per_track.toFixed(2)} s/file{etaSeconds ? ` · ETA ${formatEta(etaSeconds)}` : ""}</span>}
+      {job.avg_seconds_per_track != null && <span className="analysis-muted">{job.avg_seconds_per_track.toFixed(2)} s/file{etaSeconds ? ` · ETA ${formatEta(etaSeconds)}` : ""}</span>}
       {job.current_path && <span className="analysis-current">Сейчас: {basename(job.current_path)}</span>}
       <div className="process-log">
         <div className="process-log-title">
@@ -622,6 +746,12 @@ function stageIndicatorLabel(scanJob: ScanStats | null, analysisJob: AnalysisJob
   return "Процесс не запущен";
 }
 
+function analysisRuntimeLabel(job: AnalysisJobStatus) {
+  const model = job.model_name || job.adapter_name;
+  if (job.adapter_name === "fake") return `${model} · smoke`;
+  return `${model} · ${job.device || `${job.device_requested} pending`}`;
+}
+
 function AnalysisProcessLog({ job }: { job: AnalysisJobStatus | null }) {
   if (!job) {
     return <div className="process-box">Анализ не запущен</div>;
@@ -634,17 +764,17 @@ function AnalysisProcessLog({ job }: { job: AnalysisJobStatus | null }) {
     <div className="process-box">
       <div className="process-head">
         <strong>{job.state}</strong>
-        <span>{job.model_name || job.adapter_name} · {job.device || "device pending"}</span>
+        <span>{analysisRuntimeLabel(job)}</span>
       </div>
       <progress max={job.total || 1} value={job.processed} />
       <div className="process-grid">
         <span>{job.processed}/{job.total}</span>
         <span>ok {job.analyzed}</span>
         <span>fail {job.failed}</span>
-        <span>{job.workers || 1} поток</span>
+        <span>batch {job.batch_size || job.workers || 1}</span>
         <span>{percent}%</span>
       </div>
-      {job.avg_seconds_per_track && <span className="analysis-muted">{job.avg_seconds_per_track.toFixed(2)} s/track{etaSeconds ? ` · ETA ${formatEta(etaSeconds)}` : ""}</span>}
+      {job.avg_seconds_per_track != null && <span className="analysis-muted">{job.avg_seconds_per_track.toFixed(2)} s/track{etaSeconds ? ` · ETA ${formatEta(etaSeconds)}` : ""}</span>}
       {job.current_path && <span className="analysis-current">Сейчас: {basename(job.current_path)}</span>}
       {job.errors.length > 0 && <span className="analysis-error">{job.errors[0].path}: {job.errors[0].error}</span>}
       <div className="process-log">

@@ -20,6 +20,10 @@ else who collects, tags, or plays music will find the approach useful too.
 - Scans a local music folder and stores track metadata in SQLite.
 - Builds audio embeddings with MERT for audio-to-audio similarity search.
 - Builds CLAP audio embeddings for text-to-audio search.
+- Extracts top genre labels with MAEST and stores them in the local SQLite
+  database.
+- Shows compact per-track analysis status (`maest`, `mert`, `clap`) and a
+  metadata popup with MAEST genre confidence scores.
 - Lets you choose seed tracks, search for similar tracks, preview them, and
   assemble a small set or playlist.
 - Exports playlists as M3U or CSV.
@@ -80,7 +84,10 @@ dj-sim analyze --device cuda --batch-size 8
 dj-sim analyze --adapter clap --device cuda --batch-size 4
 dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 50
 
+dj-sim analyze-genres --device cuda --limit 25
+
 dj-sim analyze --fake
+dj-sim doctor
 
 dj-sim export 1 --format m3u --output-dir "D:\Exports"
 dj-sim export 1 --format csv --output-dir "D:\Exports"
@@ -94,7 +101,15 @@ PyTorch/Hugging Face and may download model weights on first run.
 
 `--adapter clap` builds separate LAION-CLAP audio embeddings for text search.
 
+`analyze-genres` uses MAEST through `maest-infer` with
+`discogs-maest-30s-pw-129e-519l` to store the top 3 genre labels and confidence
+scores in SQLite track metadata. It does not modify audio files.
+
 `--fake` is only for smoke tests without loading ML models.
+
+`doctor` reports the Python executable, installed PyTorch build, CUDA build,
+whether `torch.cuda.is_available()` is true, and the device that `auto` will
+choose. Use it when CUDA behavior looks suspicious.
 
 In the UI, `Analyze limit = 0` means the whole library. If you only want to test
 a few tracks, set a specific integer limit yourself.
@@ -147,6 +162,23 @@ batching, not by running many model workers in parallel.
 - If CUDA is explicitly requested but unavailable, the analysis fails instead
   of silently falling back to CPU. Use `auto` when fallback is desired.
 
+MAEST genre extraction uses the same `auto`, `cpu`, and `cuda` device behavior.
+
+PyTorch CUDA wheels should be installed explicitly for the local machine before
+running real MERT, CLAP, or MAEST analysis. For example, choose the matching
+command from the official PyTorch installer, such as:
+
+```powershell
+python -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
+```
+
+Then install the remaining ML packages without replacing the selected torch
+stack:
+
+```powershell
+python -m pip install transformers maest-infer --no-deps
+```
+
 ## Safety
 
 - Scanning, analysis, search, preview, and export do not modify audio files.
@@ -192,6 +224,10 @@ Install optional ML dependencies:
 ```powershell
 python -m pip install -e ".[ml,dev]"
 ```
+
+For CUDA work, prefer installing PyTorch separately with the official CUDA wheel
+index first. A plain `.[ml]` install can only express generic Python
+dependencies; it cannot know which CUDA wheel your machine needs.
 
 Run backend tests:
 

@@ -4,7 +4,7 @@
 
 dj-track-similarity is a public personal/enthusiast project for exploring music-library analysis and track similarity for DJ-set preparation. The README should sound honest, practical, and modest: this is not a polished commercial product or a research benchmark. The user is building something useful for their own music collection, tagging workflow, and DJ sets, and it may also be useful to other music collectors.
 
-Technically, it is a local tool that scans an audio library, stores metadata in SQLite, generates track embeddings, searches for compatible tracks, builds playlists, exports M3U/CSV files, and can write custom `DJ_SIM_*` tags on explicit request.
+Technically, it is a local tool that scans an audio library, stores metadata in SQLite, generates track embeddings, extracts MAEST genre labels, searches for compatible tracks, builds playlists, exports M3U/CSV files, and can write custom `DJ_SIM_*` tags on explicit request.
 
 Keep user-facing project documentation in English unless the user asks otherwise.
 
@@ -23,10 +23,13 @@ This workspace may not be a Git repository. Do not assume Git history, branches,
 - Only `tag-apply` and `/api/tags/apply` write audio metadata, and they must only write custom `DJ_SIM_*` tags. Do not overwrite standard BPM, key, title, artist, album, mood, or other normal tags.
 - Treat `dj-track-similarity.sqlite` as local user state. Tests should use temporary databases via `tmp_path` or explicit `--db` paths.
 - Do not commit or preserve generated local artifacts unless explicitly asked: `*.sqlite`, `*.log`, `__pycache__/`, `.pytest_cache/`, `frontend/node_modules/`, and transient temp folders.
-- Full MERT/CLAP analysis can be slow and may download Hugging Face/PyTorch model weights on first use. Prefer `--fake` for smoke checks unless the user asks for real ML analysis.
+- MAEST genre analysis writes only SQLite track metadata (`maest_genres` and `maest_model`). It must not modify audio files.
+- Full MERT/CLAP/MAEST analysis can be slow and may download Hugging Face/PyTorch/MAEST model weights on first use. Prefer `--fake` for embedding smoke checks unless the user asks for real ML analysis.
 - In the UI, `Analyze limit = 0` means analyzing the whole library and is the default. Avoid triggering whole-library analysis unless the user clearly wants it or is operating the UI themselves.
 - MERT/CLAP analysis should be accelerated with a single selected device plus inference batching, not multiple parallel model workers. Use `device=auto|cpu|cuda` and `batch_size`; keep legacy `workers` only as a compatibility alias for analysis batch size.
+- MAEST uses the same `device=auto|cpu|cuda` selection model. `auto` chooses CUDA when PyTorch sees a GPU, otherwise CPU.
 - If CUDA is explicitly requested and unavailable, surface an error instead of silently falling back to CPU. Use `auto` for fallback behavior.
+- For CUDA systems, PyTorch should usually be installed separately with the official CUDA wheel index before installing remaining ML dependencies. Do not assume plain `pip install -e ".[ml]"` will pick the correct CUDA build.
 - Current seed search UI is in MERT validation mode: active knobs are `Similarity`, `Lookback`, and `Limit`. BPM, Key, Energy, Epsilon, and Noise are disabled in the UI and should not be sent from the frontend search request until calibrated. Text search is a separate CLAP mode and requires `clap` embeddings.
 - Keep hover help on user-editable parameters. Tooltips should explain purpose, accepted format, value type, and range.
 
@@ -83,8 +86,11 @@ dj-sim scan "D:\Music"
 dj-sim analyze --device cpu --batch-size 2 --limit 3
 dj-sim analyze --device cuda --batch-size 8 --limit 3
 dj-sim analyze --adapter clap --device cpu --batch-size 2 --limit 3
+dj-sim analyze-genres --device cpu --limit 3
+dj-sim analyze-genres --device cuda --limit 3
 dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 5
 dj-sim analyze --fake
+dj-sim doctor
 dj-sim export 1 --format m3u --output-dir "D:\Exports"
 dj-sim export 1 --format csv --output-dir "D:\Exports"
 dj-sim tag-preview 1 2 3
@@ -93,12 +99,15 @@ dj-sim tag-preview 1 2 3
 ## Backend Map
 
 - `src/dj_track_similarity/models.py`: dataclasses for tracks, scan/analyze stats, search results, and tag previews.
-- `src/dj_track_similarity/database.py`: SQLite schema, connection handling, track upserts, embeddings, playlists, and row mapping.
+- `src/dj_track_similarity/database.py`: SQLite schema, connection handling, track upserts, embeddings, MAEST genre metadata, playlists, and row mapping.
 - `src/dj_track_similarity/scanner.py`: synchronous library scan and audio metadata extraction with `mutagen`.
 - `src/dj_track_similarity/scan_jobs.py`: scan job manager with progress, cancellation, event logs, and optional parallel workers.
 - `src/dj_track_similarity/embedding.py`: embedding adapter protocol, deterministic fake adapter, MERT adapter, CLAP adapter, and adapter registry.
+- `src/dj_track_similarity/runtime.py`: shared PyTorch runtime helpers for `auto|cpu|cuda`, CUDA diagnostics, and install hints.
+- `src/dj_track_similarity/genres.py`: MAEST genre adapter using `maest-infer` with `discogs-maest-30s-pw-129e-519l`.
 - `src/dj_track_similarity/analysis.py`: simple analyze-missing flow.
 - `src/dj_track_similarity/analysis_jobs.py`: analysis job manager with batching, progress, cancellation, errors, adapter metadata, and embedding saves.
+- `src/dj_track_similarity/genre_jobs.py`: MAEST genre analysis job manager with progress, cancellation, errors, and SQLite metadata saves.
 - `src/dj_track_similarity/search.py`: centroid-based similarity search plus arbitrary query-vector search for CLAP text mode.
 - In the frontend, only Similarity, Lookback, and Limit are active for MERT validation; the other search filters remain backend capabilities/future knobs.
 - `src/dj_track_similarity/exporter.py`: playlist export to M3U or CSV.
@@ -109,7 +118,7 @@ dj-sim tag-preview 1 2 3
 ## Frontend Map
 
 - `frontend/src/api.ts`: typed fetch wrapper and API contract mirror for the FastAPI endpoints.
-- `frontend/src/App.tsx`: single-page React app for scanning, analysis, search, playlist assembly, export, and tagging workflows.
+- `frontend/src/App.tsx`: single-page React app for scanning, MAEST/MERT/CLAP analysis, track metadata popups, search, playlist assembly, export, and tagging workflows.
 - `frontend/src/styles.css`: app styling.
 - `frontend/dist/`: built static frontend served by FastAPI. Regenerate it with `npm run build` after UI changes instead of editing built assets by hand.
 
@@ -119,8 +128,9 @@ dj-sim tag-preview 1 2 3
 - Prefer small, focused changes in the existing modules instead of introducing new architecture.
 - Keep FastAPI request/response shapes in sync with `frontend/src/api.ts` types.
 - If adding or changing scan or analysis job state, update both backend tests and frontend polling/display logic as needed.
+- If adding or changing MAEST genre job state, update `frontend/src/api.ts`, `frontend/src/App.tsx`, and focused genre job/API tests.
 - If changing search behavior, add or update focused tests in `tests/test_search.py`.
-- If changing analysis performance controls, keep `frontend/src/api.ts`, `src/dj_track_similarity/api.py`, `src/dj_track_similarity/analysis_jobs.py`, and `src/dj_track_similarity/embedding.py` aligned.
+- If changing analysis performance controls, keep `frontend/src/api.ts`, `src/dj_track_similarity/api.py`, `src/dj_track_similarity/analysis_jobs.py`, `src/dj_track_similarity/genre_jobs.py`, `src/dj_track_similarity/embedding.py`, `src/dj_track_similarity/genres.py`, and `src/dj_track_similarity/runtime.py` aligned.
 - If changing UI controls, preserve tooltip coverage for format/type/range guidance.
 - If touching tag writing, keep tests strict about preview being read-only and apply writing only custom tags.
 - Prefer deterministic test data and fake adapters over real audio analysis in automated tests.

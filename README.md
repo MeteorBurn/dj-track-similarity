@@ -13,7 +13,9 @@ tool.
 The repository is public because the problem is interesting, and maybe someone
 else who collects, tags, or plays music will find the approach useful too.
 
-![dj-track-similarity web UI](dj-track-similarity-web-ui.png)
+<p>
+  <img src="./dj-track-similarity-web-ui.png" alt="dj-track-similarity web UI" width="100%">
+</p>
 
 ## What It Does
 

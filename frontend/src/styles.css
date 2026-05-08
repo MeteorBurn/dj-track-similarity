@@ -211,6 +211,10 @@ h2 {
   margin-left: 4px;
 }
 
+.process-controls {
+  margin-left: auto;
+}
+
 .panel-title-actions .secondary-mini {
   align-self: auto;
   margin-top: 0;
@@ -333,15 +337,16 @@ h2 {
   width: 100%;
 }
 
-.stage-control-row {
+.scan-action-row {
   align-items: stretch;
   display: grid;
   gap: 8px;
-  grid-template-columns: minmax(0, 1fr) 42px 42px;
+  grid-template-columns: minmax(0, 1fr) auto 42px;
   margin-bottom: 8px;
 }
 
-.stage-control-row .primary {
+.scan-action-row .primary,
+.scan-action-row .secondary-mini {
   margin-bottom: 0;
 }
 
@@ -369,6 +374,21 @@ h2 {
 
 .process-indicator.running svg {
   animation: spin 1s linear infinite;
+}
+
+.scan-start-button {
+  min-width: 0;
+  padding-inline: 8px;
+  width: 100%;
+}
+
+.refresh-tags-button {
+  align-self: stretch;
+  min-height: 34px;
+}
+
+.scan-action-row .database-clear-button {
+  width: 42px;
 }
 
 .stop-button {

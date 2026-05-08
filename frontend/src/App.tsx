@@ -112,7 +112,8 @@ export function App() {
   const scanRunning = Boolean(scanJob?.state && ["queued", "running"].includes(scanJob.state));
   const analysisRunning = Boolean(analysisJob && ["queued", "running"].includes(analysisJob.state));
   const stageRunning = scanRunning || analysisRunning;
-  const canStartStage = Boolean(musicRoot || analysisJob?.state === "cancelled");
+  const hasTracks = tracks.length > 0;
+  const canStartScan = Boolean(musicRoot);
   const maxScanWorkers = useMemo(() => optimalWorkerLimit(), []);
   const maxAnalysisBatchSize = 16;
 
@@ -467,31 +468,6 @@ export function App() {
     );
   }
 
-  async function handleStageControl() {
-    if (stageRunning) {
-      return;
-    }
-    if (scanJob?.state === "cancelled" && musicRoot) {
-      await handleScan();
-      return;
-    }
-    if (analysisJob?.state === "cancelled") {
-      if (analysisJob.adapter_name === "sonara") {
-        await handleSonaraAnalyze();
-        return;
-      }
-      if (analysisJob.adapter_name === "maest") {
-        await handleGenreAnalyze();
-        return;
-      }
-      await handleAnalyze((["mert", "clap", "fake"].includes(analysisJob.adapter_name) ? analysisJob.adapter_name : "mert") as AnalysisAdapter);
-      return;
-    }
-    if (musicRoot) {
-      await handleScan();
-    }
-  }
-
   async function handleStopActiveStage() {
     if (scanRunning) {
       await handleCancelScan();
@@ -561,14 +537,13 @@ export function App() {
           <div className="panel-title">
             <FolderOpen size={18} />
             <h2>1. База и анализ</h2>
-            <div className="panel-title-actions">
-              <button className="secondary-mini" disabled={busy || stageRunning || !tracks.length} title={helpText.refreshTags} onClick={() => void handleRefreshTags()}>
-                <Tags size={14} />
-                RefreshTags
+            <div className="panel-title-actions process-controls">
+              <button className="icon-button stop-button" title="Остановить текущий scan или анализ" aria-label="Остановить текущий scan или анализ" disabled={busy || !stageRunning} onClick={() => void handleStopActiveStage()}>
+                <Square size={15} />
               </button>
-              <button className="icon-button stop-button database-clear-button" disabled={busy || stageRunning || !tracks.length} title={helpText.clearDatabase} aria-label="Удалить все данные из базы" onClick={() => void handleClearDatabase()}>
-                <Trash2 size={15} />
-              </button>
+              <span className={`process-indicator ${stageRunning ? "running" : ""}`} title={stageIndicatorLabel(scanJob, analysisJob)} aria-label={stageIndicatorLabel(scanJob, analysisJob)}>
+                <RefreshCcw size={17} />
+              </span>
             </div>
           </div>
           <div className="path-row library-path-row">
@@ -577,26 +552,37 @@ export function App() {
               <FolderOpen size={17} />
             </button>
           </div>
-          <div className="stage-control-row">
-            <button className="primary stage-control" disabled={busy || stageRunning || !canStartStage} onClick={() => void handleStageControl()}>
-              Старт
+          <div className="worker-control" title={helpText.scanWorkers}>
+            <span>Scan workers</span>
+            <div className="stepper">
+              <button className="icon-button" disabled={busy || scanWorkers <= 1} onClick={() => adjustScanWorkers(-1)} aria-label="Уменьшить количество потоков сканирования"><Minus size={15} /></button>
+              <input type="number" min={1} max={maxScanWorkers} value={scanWorkers} title={helpText.scanWorkers} onChange={(event) => setScanWorkers(Math.min(maxScanWorkers, Math.max(1, Number(event.target.value) || 1)))} />
+              <button className="icon-button" disabled={busy || scanWorkers >= maxScanWorkers} onClick={() => adjustScanWorkers(1)} aria-label="Увеличить количество потоков сканирования"><Plus size={15} /></button>
+            </div>
+            <small>Для чтения метаданных: 1-{maxScanWorkers}</small>
+          </div>
+          <div className="scan-action-row">
+            <button className="primary scan-start-button" title="Первично прочитать треки через Mutagen и добавить или обновить записи в SQLite" disabled={busy || stageRunning || !canStartScan} onClick={() => void handleScan()}>
+              <Play size={15} />
+              Загрузить треки в базу
             </button>
-            <button className="icon-button stop-button" title="Остановить текущий этап" aria-label="Остановить текущий этап" disabled={busy || !stageRunning} onClick={() => void handleStopActiveStage()}>
-              <Square size={15} />
+            <button className="secondary-mini refresh-tags-button" disabled={busy || stageRunning || !tracks.length} title={helpText.refreshTags} onClick={() => void handleRefreshTags()}>
+              <Tags size={14} />
+              Обновить теги
             </button>
-            <span className={`process-indicator ${stageRunning ? "running" : ""}`} title={stageIndicatorLabel(scanJob, analysisJob)} aria-label={stageIndicatorLabel(scanJob, analysisJob)}>
-              <RefreshCcw size={17} />
-            </span>
+            <button className="icon-button stop-button database-clear-button" disabled={busy || stageRunning || !tracks.length} title={helpText.clearDatabase} aria-label="Удалить все данные из базы" onClick={() => void handleClearDatabase()}>
+              <Trash2 size={15} />
+            </button>
           </div>
           <div className="analysis-section-title">
             <span>Анализ моделей</span>
             <small>Запуск отдельных алгоритмов для текущей базы</small>
           </div>
           <div className="analysis-actions">
-            <AnalysisButton label="SONARA" icon={<Gauge size={16} />} disabled={busy || stageRunning} title={helpText.sonaraAnalyze} onRun={() => void handleSonaraAnalyze()} onReset={() => void handleResetAnalysis("sonara")} />
-            <AnalysisButton label="MAEST" icon={<Tags size={16} />} disabled={busy || stageRunning} title={helpText.maestAnalyze} onRun={() => void handleGenreAnalyze()} onReset={() => void handleResetAnalysis("maest")} />
-            <AnalysisButton label="MERT" icon={<Wand2 size={16} />} disabled={busy || stageRunning} title={helpText.mertAnalyze} onRun={() => void handleAnalyze("mert")} onReset={() => void handleResetAnalysis("mert")} />
-            <AnalysisButton label="CLAP" icon={<Search size={16} />} disabled={busy || stageRunning} title={helpText.clapAnalyze} onRun={() => void handleAnalyze("clap")} onReset={() => void handleResetAnalysis("clap")} />
+            <AnalysisButton label="SONARA" icon={<Gauge size={16} />} disabled={busy || stageRunning || !hasTracks} title={helpText.sonaraAnalyze} onRun={() => void handleSonaraAnalyze()} onReset={() => void handleResetAnalysis("sonara")} />
+            <AnalysisButton label="MAEST" icon={<Tags size={16} />} disabled={busy || stageRunning || !hasTracks} title={helpText.maestAnalyze} onRun={() => void handleGenreAnalyze()} onReset={() => void handleResetAnalysis("maest")} />
+            <AnalysisButton label="MERT" icon={<Wand2 size={16} />} disabled={busy || stageRunning || !hasTracks} title={helpText.mertAnalyze} onRun={() => void handleAnalyze("mert")} onReset={() => void handleResetAnalysis("mert")} />
+            <AnalysisButton label="CLAP" icon={<Search size={16} />} disabled={busy || stageRunning || !hasTracks} title={helpText.clapAnalyze} onRun={() => void handleAnalyze("clap")} onReset={() => void handleResetAnalysis("clap")} />
           </div>
           <button className="secondary-mini genre-write-button" disabled={busy || stageRunning || !maestGenreTrackIds.length} title={helpText.writeMaestGenres} onClick={() => void handleGenreTagsApply()}>
             <Save size={14} />
@@ -607,15 +593,6 @@ export function App() {
             <input type="number" min={0} max={100000} value={analysisLimit} title={helpText.analyzeLimit} onChange={(event) => setAnalysisLimit(Number(event.target.value))} />
             <small>0 = вся библиотека</small>
           </label>
-          <div className="worker-control" title={helpText.scanWorkers}>
-            <span>Scan workers</span>
-            <div className="stepper">
-              <button className="icon-button" disabled={busy || scanWorkers <= 1} onClick={() => adjustScanWorkers(-1)} aria-label="Уменьшить количество потоков сканирования"><Minus size={15} /></button>
-              <input type="number" min={1} max={maxScanWorkers} value={scanWorkers} title={helpText.scanWorkers} onChange={(event) => setScanWorkers(Math.min(maxScanWorkers, Math.max(1, Number(event.target.value) || 1)))} />
-              <button className="icon-button" disabled={busy || scanWorkers >= maxScanWorkers} onClick={() => adjustScanWorkers(1)} aria-label="Увеличить количество потоков сканирования"><Plus size={15} /></button>
-            </div>
-            <small>Для чтения метаданных: 1-{maxScanWorkers}</small>
-          </div>
           <div className="analysis-device" title={helpText.analysisDevice}>
             <span><Cpu size={15} /> Device</span>
             <div className="segmented">
@@ -641,7 +618,7 @@ export function App() {
               <button className="icon-button" disabled={busy || analysisBatchSize >= maxAnalysisBatchSize} onClick={() => adjustAnalysisBatchSize(1)} aria-label="Увеличить batch size"><Plus size={15} /></button>
             </div>
             <small>CPU: 1-4; CUDA: начни с 4-8 и повышай осторожно.</small>
-            <button className="secondary-mini" disabled={busy || stageRunning} onClick={() => void handleAnalyze("fake")}>
+            <button className="secondary-mini" disabled={busy || stageRunning || !hasTracks} onClick={() => void handleAnalyze("fake")}>
               <Gauge size={14} />
               Smoke
             </button>

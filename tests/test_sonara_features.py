@@ -116,6 +116,9 @@ def test_analyze_and_store_sonara_features_writes_metadata_and_json_dump(tmp_pat
     assert track.metadata["sonara_features"]["camelot_key"]["source_feature"] == "key"
     assert track.metadata["sonara_features"]["key"]["value"] == "A minor"
     assert track.metadata["sonara_features"]["danceability"]["value"] == 0.68
+    assert track.metadata["sonara_features"]["onset_density"]["description"] == (
+        "Onset density measured as value/sec; a proxy for rhythmic activity."
+    )
     assert track.metadata["sonara_features"]["mfcc_mean"]["summary"]["mean"] == 2.0
     assert list(track.metadata["sonara_features"]) == [
         "bpm",

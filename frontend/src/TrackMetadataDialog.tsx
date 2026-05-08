@@ -208,7 +208,7 @@ function readableSonaraFeatureGroups(raw: unknown) {
           return {
             key,
             label: sonaraFeatureLabels[key] || formatFeatureLabel(key),
-            value: formatSonaraValue(featureRecord),
+            value: formatSonaraValue(featureRecord, key),
             description: typeof featureRecord.description === "string" ? featureRecord.description : ""
           };
         })
@@ -225,7 +225,7 @@ function formatFeatureLabel(key: string) {
     .replace(/^./, (letter) => letter.toUpperCase());
 }
 
-function formatSonaraValue(record: Record<string, unknown>) {
+function formatSonaraValue(record: Record<string, unknown>, key?: string) {
   const value = record.value;
   if (record.type === "unavailable") return "-";
   if (record.type === "duration" && typeof value === "number") return formatPlayerDuration(value);
@@ -236,6 +236,7 @@ function formatSonaraValue(record: Record<string, unknown>) {
     return `${shape || record.size || "array"}${mean}`;
   }
   if (typeof value === "number") {
+    if (key === "onset_density") return `${formatNumber(value)} value/sec`;
     return formatNumber(value);
   }
   if (Array.isArray(value)) return `${value.length} values`;

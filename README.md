@@ -281,9 +281,9 @@ The Sonara feature table is deliberately limited to fields produced by the
 playlist workflow and the app's derived Camelot key. It currently keeps these
 groups in order:
 
-- Core features: BPM, Camelot key, beat frames, onset frames, onset density,
-  beat count, RMS mean/max, LUFS loudness, dynamic range, spectral centroid,
-  zero crossing rate, and duration.
+- Core features: BPM, Camelot key, beat frames, onset frames, onset density
+  (value/sec), beat count, RMS mean/max, LUFS loudness, dynamic range, spectral
+  centroid, zero crossing rate, and duration.
 - Perceptual features: energy, danceability, valence, and acousticness.
 - Musical key: original Sonara key and key confidence.
 - Tonal analysis: chord sequence, predominant chord, chord change rate, and

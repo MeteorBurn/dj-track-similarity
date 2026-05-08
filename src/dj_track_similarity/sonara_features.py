@@ -82,7 +82,7 @@ FEATURE_DESCRIPTIONS = {
     "camelot_key": "Camelot key converted from Sonara tonal analysis.",
     "beats": "Beat frame positions detected by sonara.",
     "onset_frames": "Detected onset frame positions; shows where rhythmic or transient events begin.",
-    "onset_density": "Onsets per second; a proxy for rhythmic activity.",
+    "onset_density": "Onset density measured as value/sec; a proxy for rhythmic activity.",
     "rms_mean": "Average RMS loudness.",
     "rms_max": "Peak RMS loudness.",
     "loudness_lufs": "Integrated loudness in LUFS.",

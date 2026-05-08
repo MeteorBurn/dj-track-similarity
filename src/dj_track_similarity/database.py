@@ -7,6 +7,7 @@ from typing import Iterable
 
 import numpy as np
 
+from .key_utils import camelot_key_from_sonara_analysis
 from .models import Track
 
 
@@ -531,6 +532,7 @@ class LibraryDatabase:
     @staticmethod
     def _row_to_track(row: sqlite3.Row) -> Track:
         metadata = _metadata_from_json(row["metadata_json"] if "metadata_json" in row.keys() else "{}")
+        camelot_key = _ensure_sonara_camelot_key(metadata)
         genres, genre_scores = _genres_from_metadata(metadata)
         analyses = _analyses_from_row(row, metadata)
         return Track(
@@ -542,7 +544,7 @@ class LibraryDatabase:
             title=row["title"],
             album=row["album"],
             bpm=row["bpm"],
-            musical_key=row["musical_key"],
+            musical_key=camelot_key or row["musical_key"],
             energy=row["energy"],
             duration=row["duration"],
             metadata=metadata,
@@ -571,6 +573,35 @@ def _metadata_from_json(metadata_json: object) -> dict[str, object]:
     except json.JSONDecodeError:
         return {}
     return metadata if isinstance(metadata, dict) else {}
+
+
+def _ensure_sonara_camelot_key(metadata: dict[str, object]) -> str | None:
+    raw_features = metadata.get("sonara_features")
+    if not isinstance(raw_features, dict):
+        return None
+    existing = raw_features.get("camelot_key")
+    if isinstance(existing, dict):
+        value = _string_or_none(existing.get("value"))
+        if value:
+            return value
+
+    analysis: dict[str, object] = {}
+    for key in ("key", "key_detection", "detect_key", "predominant_key", "predominant_chord"):
+        payload = raw_features.get(key)
+        if isinstance(payload, dict):
+            value = payload.get("value")
+            if value is not None:
+                analysis[key] = value
+    camelot_key = camelot_key_from_sonara_analysis(analysis)
+    if not camelot_key:
+        return None
+    raw_features["camelot_key"] = {
+        "value": camelot_key,
+        "type": "str",
+        "description": "Camelot key converted from Sonara tonal analysis.",
+        "source_feature": "key" if "key" in analysis else next(iter(analysis), "none"),
+    }
+    return camelot_key
 
 
 def _genres_from_metadata(metadata: dict[str, object]) -> tuple[list[str] | None, dict[str, float] | None]:

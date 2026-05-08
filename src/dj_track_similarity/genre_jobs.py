@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 import time
 import uuid
@@ -8,6 +9,7 @@ from typing import Callable, Protocol
 
 from .database import LibraryDatabase
 from .genres import MaestGenreAdapter, genre_adapter_factories as default_genre_adapter_factories
+from .logging_config import event_log_level, exception_summary
 from .models import Track
 
 
@@ -20,6 +22,7 @@ class GenreAdapter(Protocol):
 
 
 GenreAdapterFactory = Callable[..., GenreAdapter]
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -175,11 +178,13 @@ class GenreAnalysisJobManager:
             return factory()
 
     def _save_failure(self, job_id: str, track: Track, error: Exception) -> None:
+        error_text = exception_summary(error)
+        LOGGER.exception("MAEST genre track failed job_id=%s track_id=%s path=%s", job_id, track.id, track.path)
         status = self.get(job_id)
         errors = list(status.errors)
-        errors.append(GenreTrackError(track_id=track.id, path=track.path, error=str(error)))
+        errors.append(GenreTrackError(track_id=track.id, path=track.path, error=error_text))
         self._update_progress(job_id, track.path, failed_delta=1, errors=errors)
-        self._append_event(job_id, "error", f"Track failed: {error}", path=track.path, track_id=track.id)
+        self._append_event(job_id, "error", f"Track failed: {error_text}", path=track.path, track_id=track.id)
 
     def _update_progress(
         self,
@@ -216,6 +221,14 @@ class GenreAnalysisJobManager:
         path: str | None = None,
         track_id: int | None = None,
     ) -> None:
+        LOGGER.log(
+            event_log_level(level),
+            "%s job_id=%s track_id=%s path=%s",
+            message,
+            job_id,
+            track_id,
+            path,
+        )
         with self._lock:
             status = self._jobs[job_id]
             status.events.append(GenreLogEvent(time.time(), level, message, path, track_id))

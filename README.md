@@ -24,6 +24,8 @@ else who collects, tags, or plays music will find the approach useful too.
   deleting analysis results.
 - Extracts Sonara playlist features, including analyzed BPM and key, and stores
   compact feature summaries in SQLite.
+- Converts analyzed Sonara key data to Camelot notation for the displayed
+  musical key.
 - Builds audio embeddings with MERT for audio-to-audio similarity search.
 - Builds CLAP audio embeddings for text-to-audio search.
 - Extracts top genre labels with MAEST and stores them in the local SQLite
@@ -138,7 +140,8 @@ PyTorch/Hugging Face and may download model weights on first run.
 feature summaries in SQLite metadata. If Sonara's default decoder cannot read a
 WAV-like file, the app can fall back to `ffmpeg` decoding to mono float PCM
 before calling Sonara signal analysis. BPM and key from this pass are analyzed
-values, not file tags.
+values, not file tags. The UI displays the working musical key in Camelot
+notation when Sonara provides enough tonal information.
 
 `--adapter clap` builds separate LAION-CLAP audio embeddings for text search.
 
@@ -177,9 +180,10 @@ computed analysis data.
 Mutagen file tags are read from a fixed whitelist instead of importing every
 possible tag blob:
 
-- artist, title, album, genre, year, country;
+- title, artist, album, genre, year, country;
 - label, catalog number, track number, disc number;
-- BPM tag, key tag, comment, ISRC, and duration.
+- BPM tag, key tag, comment, ISRC, audio length, audio format, file size, and
+  file path.
 
 Values are normalized before writing to SQLite metadata so odd Mutagen objects
 such as ID3 timestamps can still be stored as JSON-safe strings.
@@ -192,7 +196,11 @@ When explicitly saved from the UI, MAEST labels are written as one
 semicolon-separated genre string, for example `Tech House; Minimal; Techno`.
 The writer uses `TCON` for MP3/WAV/AIFF, `GENRE` for FLAC/Vorbis-style tags,
 and `©gen` for MP4/M4A/ALAC. MAEST prefixes such as `Electronic---` are removed
-before writing.
+before writing. WAV genre updates use Mutagen's tag writer and validate that the
+WAV container remains readable after saving.
+
+Runtime logs are written to `dj-track-similarity.log` in the current working
+directory by default. Set `DJ_TRACK_SIMILARITY_LOG` to choose another path.
 
 The small trash buttons next to analysis names reset only that analysis family:
 

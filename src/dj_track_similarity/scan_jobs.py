@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 import time
 import uuid
@@ -8,7 +9,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .database import LibraryDatabase
+from .logging_config import event_log_level, exception_summary
 from .scanner import MUTAGEN_METADATA_KEYS, SUPPORTED_AUDIO_EXTENSIONS, read_audio_metadata
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -235,7 +240,9 @@ class ScanJobManager:
             else:
                 self._increment(job_id, added=1, message="Track added", level="ok", path=str(path))
         except Exception as error:
-            self._increment(job_id, failed=1, message=f"Track failed: {error}", level="error", path=str(path))
+            error_text = exception_summary(error)
+            LOGGER.exception("Scan track failed job_id=%s path=%s", job_id, path)
+            self._increment(job_id, failed=1, message=f"Track failed: {error_text}", level="error", path=str(path))
 
     def _refresh_tags_one(self, job_id: str, path: Path) -> None:
         self._update(job_id, current_path=str(path))
@@ -259,7 +266,9 @@ class ScanJobManager:
             )
             self._increment(job_id, updated=1, message="Tags refreshed", level="ok", path=str(path))
         except Exception as error:
-            self._increment(job_id, failed=1, message=f"Tag refresh failed: {error}", level="error", path=str(path))
+            error_text = exception_summary(error)
+            LOGGER.exception("Tag refresh failed job_id=%s path=%s", job_id, path)
+            self._increment(job_id, failed=1, message=f"Tag refresh failed: {error_text}", level="error", path=str(path))
 
     def _increment(
         self,
@@ -293,6 +302,7 @@ class ScanJobManager:
                 setattr(status, key, value)
 
     def _append_event(self, job_id: str, level: str, message: str, *, path: str | None = None) -> None:
+        LOGGER.log(event_log_level(level), "%s job_id=%s path=%s", message, job_id, path)
         with self._lock:
             status = self._jobs[job_id]
             status.events.append(ScanLogEvent(timestamp=time.time(), level=level, message=message, path=path))

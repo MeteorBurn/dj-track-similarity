@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 
 from .database import LibraryDatabase
+from .key_utils import camelot_key_from_sonara_analysis, camelot_source_feature
 from .models import Track
 
 
@@ -21,6 +22,7 @@ SUMMARY_AUDIO_MAX_SECONDS = 5.0
 
 FEATURE_DESCRIPTIONS = {
     "bpm": "Analyzed tempo in beats per minute; useful for DJ tempo compatibility.",
+    "camelot_key": "Camelot key converted from Sonara tonal analysis.",
     "beats": "Beat frame positions detected by sonara.",
     "onset_frames": "Detected onset frame positions; shows where rhythmic or transient events begin.",
     "onset_density": "Onsets per second; a proxy for rhythmic activity.",
@@ -142,6 +144,7 @@ REQUESTED_FEATURE_KEYS = [
 
 HUMAN_FEATURES = {
     "bpm",
+    "camelot_key",
     "key",
     "key_confidence",
     "energy",
@@ -212,6 +215,14 @@ def analyze_and_store_sonara_features(
     features = {str(key): _feature_payload(value, str(key)) for key, value in dict(analysis).items()}
     features.update(mel_payload)
     _fill_requested_feature_aliases(features)
+    camelot_key = camelot_key_from_sonara_analysis(analysis)
+    if camelot_key:
+        features["camelot_key"] = {
+            "value": camelot_key,
+            "type": "str",
+            "description": FEATURE_DESCRIPTIONS["camelot_key"],
+            "source_feature": camelot_source_feature(analysis),
+        }
     elapsed = time.perf_counter() - started
     features["analysis_seconds"] = {
         "value": analysis_seconds,
@@ -249,7 +260,7 @@ def analyze_and_store_sonara_features(
         track.id,
         features,
         bpm=_optional_float(analysis.get("bpm")),
-        musical_key=_optional_string(analysis.get("key")),
+        musical_key=camelot_key or _optional_string(analysis.get("key")),
         energy=_optional_float(analysis.get("energy")),
         duration=_optional_float(analysis.get("duration_sec")),
         model_name=SONARA_MODEL_NAME,

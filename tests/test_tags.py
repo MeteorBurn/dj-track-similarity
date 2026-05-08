@@ -1,6 +1,8 @@
 from pathlib import Path
 import wave
 
+import pytest
+
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity import tags
 from dj_track_similarity.tags import apply_genre_tags, build_genre_tag_preview, build_tag_preview
@@ -128,6 +130,8 @@ def test_write_genre_tag_handles_id3_tags_inside_wave(tmp_path: Path) -> None:
 
     saved = MutagenFile(audio_path)
     assert saved.tags["TCON"].text == ["Tech House; Minimal"]
+    with wave.open(str(audio_path), "rb") as handle:
+        assert handle.getnframes() == 44_100
 
 
 def test_write_genre_tag_persists_to_wave_and_preserves_existing_id3_tags(tmp_path: Path) -> None:
@@ -149,9 +153,11 @@ def test_write_genre_tag_persists_to_wave_and_preserves_existing_id3_tags(tmp_pa
     assert saved.tags["TCON"].text == ["Tech House; Minimal; Techno"]
     assert saved.tags["TPE1"].text == ["Existing Artist"]
     assert saved.tags["TIT2"].text == ["Existing Title"]
+    with wave.open(str(audio_path), "rb") as handle:
+        assert handle.getnframes() == 44_100
 
 
-def test_write_genre_tag_persists_to_wave_when_data_chunk_size_is_too_large(tmp_path: Path) -> None:
+def test_write_genre_tag_refuses_malformed_wave_without_rewriting(tmp_path: Path) -> None:
     audio_path = tmp_path / "track.wav"
     with wave.open(str(audio_path), "wb") as handle:
         handle.setnchannels(1)
@@ -159,13 +165,14 @@ def test_write_genre_tag_persists_to_wave_when_data_chunk_size_is_too_large(tmp_
         handle.setframerate(44_100)
         handle.writeframes(b"\x00\x00" * 44_100)
     data = bytearray(audio_path.read_bytes())
-    data[40:44] = (len(data) * 4).to_bytes(4, "little")
+    data[36:40] = b"\x00dat"
     audio_path.write_bytes(data)
+    before = audio_path.read_bytes()
 
-    tags._write_genre_tag(audio_path, "Tech House; Minimal; Techno")
+    with pytest.raises(ValueError, match="readable data chunk"):
+        tags._write_genre_tag(audio_path, "Tech House; Minimal; Techno")
 
-    saved = MutagenFile(audio_path)
-    assert saved.tags["TCON"].text == ["Tech House; Minimal; Techno"]
+    assert audio_path.read_bytes() == before
 
 
 def test_write_genre_tag_persists_to_mp3_id3_and_preserves_existing_tags(tmp_path: Path) -> None:

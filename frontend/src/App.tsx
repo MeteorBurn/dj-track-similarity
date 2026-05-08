@@ -1161,7 +1161,6 @@ function analysisStatusLabel(track: Track) {
 
 const trackTagLabels: Record<string, string> = {
   artist: "Artist",
-  title: "Title",
   album: "Album",
   genre: "Genre",
   year: "Year",
@@ -1172,14 +1171,12 @@ const trackTagLabels: Record<string, string> = {
   disc_number: "Disc no.",
   bpm: "BPM tag",
   key: "Key tag",
-  duration: "Duration tag",
   comment: "Comment",
   isrc: "ISRC"
 };
 
 const trackTagOrder = [
   "artist",
-  "title",
   "album",
   "genre",
   "year",
@@ -1190,10 +1187,25 @@ const trackTagOrder = [
   "disc_number",
   "bpm",
   "key",
-  "duration",
   "comment",
   "isrc"
 ];
+
+function readablePrimaryTrackInfo(track: Track) {
+  const metadata = (track.metadata && typeof track.metadata === "object" && !Array.isArray(track.metadata)
+    ? track.metadata
+    : {}) as Record<string, unknown>;
+  const audioFormat = displayAudioFormat(metadata.audio_format, track.path);
+  const audioCodec = formatTagValue(metadata.audio_codec);
+  const formatAndCodec = formatAudioFormat(audioFormat, audioCodec);
+  return [
+    ["Title", track.title || String(metadata.title || basename(track.path))],
+    ["Audio Length", typeof track.duration === "number" ? formatPlayerDuration(track.duration) : "-"],
+    ["Audio Format", formatAndCodec],
+    ["File Size", formatFileSizeMb(track.size)],
+    ["File Path", track.path]
+  ] as const;
+}
 
 function readableTrackTags(raw: Track["metadata"]) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
@@ -1217,6 +1229,7 @@ function TrackMetadataDialog({
   const genres = track.genres || [];
   const scores = track.genre_scores || {};
   const sonaraFeatures = readableSonaraFeatures(track.metadata?.sonara_features);
+  const primaryEntries = readablePrimaryTrackInfo(track);
   const metadataEntries = readableTrackTags(track.metadata);
   return (
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
@@ -1229,8 +1242,11 @@ function TrackMetadataDialog({
           <button className="icon-button" title="Закрыть" aria-label="Закрыть" onClick={onClose}><X size={15} /></button>
         </div>
         <strong className="metadata-track-title">{displayTrack(track)}</strong>
-        {metadataEntries.length ? (
+        {primaryEntries.length || metadataEntries.length ? (
           <dl className="metadata-grid tag-grid mutagen-grid">
+            {primaryEntries.map(([key, value]) => (
+              <Fragment key={key}><dt>{key}</dt><dd>{value}</dd></Fragment>
+            ))}
             {metadataEntries.map(([key, value]) => (
               <Fragment key={key}><dt>{key}</dt><dd>{formatTagValue(value)}</dd></Fragment>
             ))}
@@ -1279,15 +1295,16 @@ const sonaraFeatureLabels: Record<string, string> = {
   duration_sec: "Duration",
   duration_player: "Length",
   bpm: "BPM",
+  camelot_key: "Musical Key",
   key: "Key",
-  key_confidence: "Key conf.",
+  key_confidence: "Key confidence",
   energy: "Energy",
   danceability: "Danceability",
   valence: "Valence",
   acousticness: "Acousticness",
   loudness_lufs: "Loudness",
   dynamic_range_db: "Dynamic range",
-  predominant_chord: "Main chord",
+  predominant_chord: "Predominant chord",
   chord_change_rate: "Chord changes",
   dissonance: "Dissonance",
   onset_density: "Onset density",
@@ -1302,43 +1319,78 @@ const sonaraFeatureLabels: Record<string, string> = {
   zero_crossing_rate: "ZCR",
   mfcc_mean: "MFCC mean",
   chroma_mean: "Chroma mean",
-  chord_sequence: "Chord seq.",
-  analysis_seconds: "Analysis sec.",
+  chord_sequence: "Chord sequence",
+  analysis_seconds: "Analysis seconds",
+  total_seconds: "Total analysis seconds",
   decode_path: "Decode path",
   requested_feature_count: "Feature count"
 };
 
+const tonalFeatureKeys = new Set([
+  "key",
+  "key_confidence",
+  "key_detection",
+  "detect_key",
+  "predominant_key",
+  "predominant_chord",
+  "chord_sequence",
+  "chord_change_rate",
+  "chord_descriptors",
+  "chords_from_beats",
+  "chords_from_frames",
+  "chroma_mean",
+  "chroma_stft",
+  "hpcp",
+  "dissonance",
+  "estimate_tuning",
+  "pitch_tuning",
+  "salience"
+]);
+
 const sonaraFeaturePriority: Record<string, number> = {
-  duration_sec: 0,
-  duration_player: 1,
+  duration_player: 0,
+  duration_sec: 1,
   bpm: 2,
-  key: 3,
-  key_confidence: 4,
-  energy: 5,
-  danceability: 6,
-  valence: 7,
-  acousticness: 8,
-  dissonance: 9,
-  loudness_lufs: 10,
-  dynamic_range_db: 11,
-  onset_density: 12,
-  n_beats: 13,
-  beats: 14,
-  onset_frames: 15,
-  zero_crossing_rate: 16,
-  spectral_centroid_mean: 17,
-  spectral_bandwidth_mean: 18,
-  spectral_rolloff_mean: 19,
-  spectral_flatness_mean: 20,
-  predominant_chord: 101,
-  chord_change_rate: 102,
-  spectral_contrast_mean: 103,
-  mfcc_mean: 104,
-  chroma_mean: 105,
+  camelot_key: 3,
+  energy: 4,
+  danceability: 5,
+  valence: 6,
+  acousticness: 7,
+  loudness_lufs: 8,
+  dynamic_range_db: 9,
+  onset_density: 10,
+  n_beats: 11,
+  beats: 12,
+  onset_frames: 13,
+  zero_crossing_rate: 14,
+  spectral_centroid_mean: 15,
+  spectral_bandwidth_mean: 16,
+  spectral_rolloff_mean: 17,
+  spectral_flatness_mean: 18,
+  key: 100,
+  key_confidence: 101,
+  key_detection: 102,
+  detect_key: 103,
+  predominant_key: 104,
+  predominant_chord: 105,
   chord_sequence: 106,
-  decode_path: 107,
-  analysis_seconds: 108,
-  requested_feature_count: 109
+  chord_change_rate: 107,
+  chord_descriptors: 108,
+  chords_from_beats: 109,
+  chords_from_frames: 110,
+  chroma_mean: 111,
+  chroma_stft: 112,
+  hpcp: 113,
+  dissonance: 114,
+  estimate_tuning: 115,
+  pitch_tuning: 116,
+  salience: 117,
+  spectral_contrast_mean: 201,
+  mfcc_mean: 202,
+  decode_path: 203,
+  analysis_seconds: 204,
+  total_seconds: 205,
+  requested_feature_count: 206
 };
 
 function readableSonaraFeatures(raw: unknown) {
@@ -1362,13 +1414,23 @@ function readableSonaraFeatures(raw: unknown) {
       const record = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
       return {
         key,
-        label: sonaraFeatureLabels[key] || key,
+        label: sonaraFeatureLabels[key] || formatFeatureLabel(key),
         value: formatSonaraValue(record),
         description: typeof record.description === "string" ? record.description : "",
+        sortGroup: sonaraFeatureSortGroup(key, record),
+        valueGroup: sonaraFeatureValueGroup(record),
         priority: sonaraFeaturePriority[key] ?? 100
       };
     })
-    .sort((left, right) => left.priority - right.priority || left.label.localeCompare(right.label));
+    .sort((left, right) => left.sortGroup - right.sortGroup || left.valueGroup - right.valueGroup || left.priority - right.priority || left.label.localeCompare(right.label));
+}
+
+function formatFeatureLabel(key: string) {
+  return key
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^./, (letter) => letter.toUpperCase());
 }
 
 function formatSonaraValue(record: Record<string, unknown>) {
@@ -1389,6 +1451,17 @@ function formatSonaraValue(record: Record<string, unknown>) {
   return String(value);
 }
 
+function sonaraFeatureValueGroup(record: Record<string, unknown>) {
+  if (Array.isArray(record.value)) return 1;
+  return record.type === "unavailable" || record.value == null ? 2 : 0;
+}
+
+function sonaraFeatureSortGroup(key: string, record: Record<string, unknown>) {
+  if (key === "duration_player" || key === "duration_sec" || key === "bpm" || key === "camelot_key") return 0;
+  if (tonalFeatureKeys.has(key)) return 2;
+  return sonaraFeatureValueGroup(record) === 2 ? 3 : 1;
+}
+
 function sonaraFeatureNumber(payload: unknown) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
   const value = (payload as Record<string, unknown>).value;
@@ -1405,6 +1478,50 @@ function formatTagValue(value: unknown) {
   if (value == null) return "-";
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
+}
+
+function displayAudioFormat(value: unknown, path: string) {
+  const stored = formatTagValue(value);
+  if (stored && stored !== "-") {
+    if (stored.toLowerCase().startsWith("audio/")) return audioFormatFromPath(path) || stored.replace(/^audio\//i, "").toUpperCase();
+    return stored;
+  }
+  return audioFormatFromPath(path) || "-";
+}
+
+function audioFormatFromPath(path: string) {
+  const extension = path.split(".").pop()?.toLowerCase();
+  const formats: Record<string, string> = {
+    aif: "AIFF",
+    aiff: "AIFF",
+    alac: "ALAC",
+    flac: "FLAC",
+    m4a: "M4A",
+    mp3: "MP3",
+    ogg: "Ogg",
+    opus: "Opus",
+    wav: "Wave",
+    wave: "Wave"
+  };
+  return extension ? formats[extension] : undefined;
+}
+
+function formatAudioFormat(audioFormat: string, audioCodec: string) {
+  if (!audioCodec || audioCodec === "-") return audioFormat || "-";
+  if (!audioFormat || audioFormat === "-") return audioCodec;
+  const normalizedFormat = normalizeAudioFormatPart(audioFormat);
+  const normalizedCodec = normalizeAudioFormatPart(audioCodec);
+  if (normalizedFormat && normalizedFormat === normalizedCodec) return audioFormat;
+  return `${audioFormat} / ${audioCodec}`;
+}
+
+function normalizeAudioFormatPart(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function formatFileSizeMb(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "-";
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 }
 
 function formatConfidence(value: number | undefined) {

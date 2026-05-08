@@ -57,9 +57,11 @@ def test_read_audio_metadata_skips_tag_keys_that_mutagen_rejects(monkeypatch, tm
 def test_read_audio_metadata_uses_fixed_tag_whitelist(monkeypatch, tmp_path: Path) -> None:
     class FakeInfo:
         length = 123.4
+        codec = "FLAC"
 
     class FakeAudio:
         info = FakeInfo()
+        mime = ["audio/flac"]
         tags = {
             "title": ["Warm Pad"],
             "artist": ["Artist"],
@@ -78,6 +80,8 @@ def test_read_audio_metadata_uses_fixed_tag_whitelist(monkeypatch, tmp_path: Pat
 
     assert metadata == {
         "artist": "Artist",
+        "audio_codec": "FLAC",
+        "audio_format": "FLAC",
         "catalog_number": "CAT-001",
         "duration": 123.4,
         "genre": "Deep Techno",
@@ -234,6 +238,30 @@ def test_database_resets_metadata_backed_analyses(tmp_path: Path) -> None:
     assert maest_result["tracks_updated"] == 1
     assert "maest_genres" not in after_maest.metadata
     assert after_maest.analyses is None
+
+
+def test_database_enriches_existing_sonara_key_with_camelot_on_read(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = db.upsert_track(
+        path=tmp_path / "track.wav",
+        size=10,
+        mtime=1,
+        metadata={
+            "title": "Track",
+            "sonara_features": {
+                "bpm": {"value": 128, "type": "float"},
+                "key": {"value": "F major", "type": "str"},
+            },
+            "sonara_model": "sonara-playlist-lab",
+        },
+        bpm=128,
+        musical_key="F major",
+    )
+
+    track = db.get_track(track_id)
+
+    assert track.musical_key == "7B"
+    assert track.metadata["sonara_features"]["camelot_key"]["value"] == "7B"
 
 
 def test_refresh_track_file_metadata_preserves_analysis_outputs(tmp_path: Path) -> None:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import io
+import logging
 from pathlib import Path
 
 from mutagen import File as MutagenFile
@@ -11,11 +11,13 @@ from mutagen.mp4 import MP4
 from mutagen.wave import WAVE
 
 from .database import LibraryDatabase
+from .logging_config import exception_summary
 from .models import TagPreview, Track
 from .scanner import MUTAGEN_METADATA_KEYS, read_audio_metadata
 
 
 CUSTOM_TAG_PREFIX = "DJ_SIM"
+LOGGER = logging.getLogger(__name__)
 
 
 def build_tag_preview(db: LibraryDatabase, track_ids: list[int]) -> list[TagPreview]:
@@ -25,7 +27,17 @@ def build_tag_preview(db: LibraryDatabase, track_ids: list[int]) -> list[TagPrev
 def apply_custom_tags(db: LibraryDatabase, track_ids: list[int]) -> list[TagPreview]:
     previews = build_tag_preview(db, track_ids)
     for preview in previews:
-        _write_tags(Path(preview.path), preview.tags)
+        try:
+            _write_tags(Path(preview.path), preview.tags)
+            LOGGER.info("Custom tags applied track_id=%s path=%s keys=%s", preview.track_id, preview.path, sorted(preview.tags))
+        except Exception as error:
+            LOGGER.exception(
+                "Custom tag apply failed track_id=%s path=%s error=%s",
+                preview.track_id,
+                preview.path,
+                exception_summary(error),
+            )
+            raise
     return previews
 
 
@@ -38,14 +50,24 @@ def apply_genre_tags(db: LibraryDatabase, track_ids: list[int]) -> list[TagPrevi
     for preview in previews:
         if preview.tags:
             path = Path(preview.path)
-            _write_genre_tag(path, list(preview.tags.values())[0])
-            db.refresh_track_file_metadata(
-                preview.track_id,
-                size=path.stat().st_size,
-                mtime=path.stat().st_mtime,
-                metadata=read_audio_metadata(path),
-                replace_metadata_keys=MUTAGEN_METADATA_KEYS,
-            )
+            try:
+                _write_genre_tag(path, list(preview.tags.values())[0])
+                db.refresh_track_file_metadata(
+                    preview.track_id,
+                    size=path.stat().st_size,
+                    mtime=path.stat().st_mtime,
+                    metadata=read_audio_metadata(path),
+                    replace_metadata_keys=MUTAGEN_METADATA_KEYS,
+                )
+                LOGGER.info("Genre tags applied track_id=%s path=%s tags=%s", preview.track_id, preview.path, preview.tags)
+            except Exception as error:
+                LOGGER.exception(
+                    "Genre tag apply failed track_id=%s path=%s error=%s",
+                    preview.track_id,
+                    preview.path,
+                    exception_summary(error),
+                )
+                raise
     return previews
 
 
@@ -107,13 +129,20 @@ def _write_genre_tag(path: Path, genre: str) -> None:
         return
     genre_text = "; ".join(values)
     suffix = path.suffix.lower()
-    if suffix in {".wav", ".wave"}:
-        _write_wave_id3_genre(path, genre_text)
-        return
     if suffix == ".mp3":
         id3 = _load_id3(path)
         _set_id3_genre(id3, genre_text)
         id3.save(path, v2_version=3)
+        return
+
+    if suffix in {".wav", ".wave"}:
+        _validate_wave_container(path)
+        audio = MutagenFile(path)
+        if audio is None:
+            raise ValueError(f"Unsupported audio tag format: {path}")
+        _set_audio_id3_genre(audio, genre_text)
+        audio.save()
+        _validate_wave_container(path)
         return
 
     audio = MutagenFile(path)
@@ -157,61 +186,12 @@ def _set_audio_id3_genre(audio: object, genre_text: str) -> None:
     audio.tags.add(TCON(encoding=3, text=[genre_text]))
 
 
-def _write_wave_id3_genre(path: Path, genre_text: str) -> None:
+def _validate_wave_container(path: Path) -> None:
     data = path.read_bytes()
     if len(data) < 12 or data[:4] != b"RIFF" or data[8:12] != b"WAVE":
         raise ValueError(f"Unsupported WAV file: {path}")
-    id3 = _read_wave_id3(path) or ID3()
-    _set_id3_genre(id3, genre_text)
-    chunk = _build_id3_wave_chunk(id3)
-    start, end = _find_pre_data_wave_id3_chunk(data)
-    if start is None or end is None:
-        data_start = _find_wave_data_chunk_start(data)
-        if data_start is None:
-            raise ValueError(f"Unsupported WAV file without data chunk: {path}")
-        updated = data[:data_start] + chunk + data[data_start:]
-    else:
-        updated = data[:start] + chunk + data[end:]
-    updated = updated[:4] + max(0, len(updated) - 8).to_bytes(4, "little") + updated[8:]
-    path.write_bytes(updated)
-
-
-def _read_wave_id3(path: Path) -> ID3 | None:
-    try:
-        audio = MutagenFile(path)
-    except Exception:
-        return None
-    tags = getattr(audio, "tags", None)
-    return tags if isinstance(tags, ID3) else None
-
-
-def _build_id3_wave_chunk(id3: ID3) -> bytes:
-    plain_id3 = ID3()
-    for frame in id3.values():
-        plain_id3.add(frame)
-    buffer = io.BytesIO()
-    plain_id3.save(buffer, v2_version=3)
-    payload = buffer.getvalue()
-    chunk = b"id3 " + len(payload).to_bytes(4, "little") + payload
-    if len(payload) % 2:
-        chunk += b"\x00"
-    return chunk
-
-
-def _find_pre_data_wave_id3_chunk(data: bytes) -> tuple[int | None, int | None]:
-    pos = 12
-    while pos + 8 <= len(data):
-        chunk_id = data[pos : pos + 4]
-        chunk_size = int.from_bytes(data[pos + 4 : pos + 8], "little")
-        chunk_end = pos + 8 + chunk_size + (chunk_size % 2)
-        if chunk_id in {b"id3 ", b"ID3 "}:
-            return pos, min(chunk_end, len(data))
-        if chunk_id == b"data":
-            return None, None
-        if chunk_end <= pos or chunk_end > len(data):
-            return None, None
-        pos = chunk_end
-    return None, None
+    if _find_wave_data_chunk_start(data) is None:
+        raise ValueError(f"Unsupported WAV file without readable data chunk: {path}")
 
 
 def _find_wave_data_chunk_start(data: bytes) -> int | None:

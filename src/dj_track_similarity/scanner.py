@@ -22,6 +22,18 @@ SUPPORTED_AUDIO_EXTENSIONS = {
     ".wav",
     ".wave",
 }
+DISPLAY_AUDIO_FORMATS = {
+    ".aif": "AIFF",
+    ".aiff": "AIFF",
+    ".alac": "ALAC",
+    ".flac": "FLAC",
+    ".m4a": "M4A",
+    ".mp3": "MP3",
+    ".ogg": "Ogg",
+    ".opus": "Opus",
+    ".wav": "Wave",
+    ".wave": "Wave",
+}
 
 
 MUTAGEN_TAG_LOOKUP = {
@@ -40,7 +52,7 @@ MUTAGEN_TAG_LOOKUP = {
     "comment": ["comment", "description", "COMM", "\xa9cmt"],
     "isrc": ["isrc", "TSRC"],
 }
-MUTAGEN_METADATA_KEYS = tuple(MUTAGEN_TAG_LOOKUP.keys()) + ("duration", "date")
+MUTAGEN_METADATA_KEYS = tuple(MUTAGEN_TAG_LOOKUP.keys()) + ("duration", "audio_format", "audio_codec", "date")
 
 
 def scan_library(db: LibraryDatabase, root: str | Path) -> ScanStats:
@@ -92,8 +104,15 @@ def read_audio_metadata(path: str | Path) -> dict[str, object]:
     if audio is None:
         return metadata
 
-    if getattr(audio, "info", None) and getattr(audio.info, "length", None):
-        metadata["duration"] = float(audio.info.length)
+    info = getattr(audio, "info", None)
+    if info and getattr(info, "length", None):
+        metadata["duration"] = float(info.length)
+    audio_format = _audio_format(audio, audio_path)
+    if audio_format:
+        metadata["audio_format"] = audio_format
+    audio_codec = _audio_codec(audio, info)
+    if audio_codec:
+        metadata["audio_codec"] = audio_codec
 
     tags = getattr(audio, "tags", None)
     if not tags:
@@ -132,6 +151,44 @@ def _json_safe_tag_value(value: object) -> object:
         parts = [str(part).strip() for part in value if part not in (None, "")]
         return "/".join(parts)
     return str(value).strip()
+
+
+def _audio_format(audio: object, path: Path) -> str | None:
+    suffix = path.suffix.lower()
+    if suffix in DISPLAY_AUDIO_FORMATS:
+        return DISPLAY_AUDIO_FORMATS[suffix]
+    mime = getattr(audio, "mime", None)
+    if isinstance(mime, list) and mime:
+        return _audio_format_from_mime(str(mime[0]))
+    if isinstance(mime, str) and mime.strip():
+        return _audio_format_from_mime(mime)
+    return None
+
+
+def _audio_format_from_mime(mime: str) -> str | None:
+    cleaned = mime.strip().lower()
+    if not cleaned:
+        return None
+    if cleaned.startswith("audio/"):
+        cleaned = cleaned.removeprefix("audio/")
+    return DISPLAY_AUDIO_FORMATS.get(f".{cleaned}") or cleaned.upper()
+
+
+def _audio_codec(audio: object, info: object | None) -> str | None:
+    for source in (info, audio):
+        if source is None:
+            continue
+        for attribute in ("codec", "codec_name", "encoder_info", "pprint"):
+            value = getattr(source, attribute, None)
+            if callable(value):
+                try:
+                    value = value()
+                except Exception:
+                    continue
+            text = _as_string(value)
+            if text:
+                return text
+    return None
 
 
 def _as_float(value: object) -> float | None:

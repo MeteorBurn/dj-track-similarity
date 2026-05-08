@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -12,10 +13,14 @@ from .database import LibraryDatabase
 from .embedding import ClapEmbeddingAdapter
 from .exporter import export_playlist
 from .genre_jobs import GenreAnalysisJobManager
+from .logging_config import configure_logging
 from .scan_jobs import ScanJobManager
 from .search import SearchFilters, SimilaritySearch
 from .sonara_jobs import SonaraFeatureJobManager
 from .tags import apply_custom_tags, apply_genre_tags, build_tag_preview
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class ScanRequest(BaseModel):
@@ -105,6 +110,8 @@ def open_folder_dialog() -> Path | None:
 
 
 def create_app(db_path: str | Path = "dj-track-similarity.sqlite") -> FastAPI:
+    log_path = configure_logging()
+    LOGGER.info("API app created db_path=%s log_path=%s", db_path, log_path)
     db = LibraryDatabase(db_path)
     analysis_jobs = AnalysisJobManager(db)
     genre_jobs = GenreAnalysisJobManager(db)

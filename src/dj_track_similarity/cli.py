@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -10,6 +11,7 @@ from .database import LibraryDatabase
 from .embedding import ClapEmbeddingAdapter
 from .exporter import export_playlist
 from .genre_jobs import GenreAnalysisJobManager
+from .logging_config import configure_logging
 from .runtime import get_torch_runtime_info, recommended_torch_index
 from .scanner import scan_library
 from .search import SearchFilters, SimilaritySearch
@@ -18,10 +20,14 @@ from .tags import apply_custom_tags, build_tag_preview
 
 
 app = typer.Typer(help="Local dj-track-similarity utility.")
+LOGGER = logging.getLogger(__name__)
 
 
 def _db(path: Optional[Path]) -> LibraryDatabase:
-    return LibraryDatabase(path or Path("dj-track-similarity.sqlite"))
+    log_path = configure_logging()
+    db_path = path or Path("dj-track-similarity.sqlite")
+    LOGGER.info("CLI database opened db_path=%s log_path=%s", db_path, log_path)
+    return LibraryDatabase(db_path)
 
 
 @app.command()
@@ -159,4 +165,6 @@ def serve(
 
     from .api import create_app
 
+    log_path = configure_logging()
+    LOGGER.info("Server starting host=%s port=%s db_path=%s log_path=%s", host, port, db_path, log_path)
     uvicorn.run(create_app(db_path or Path("dj-track-similarity.sqlite")), host=host, port=port)

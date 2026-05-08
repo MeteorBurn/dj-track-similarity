@@ -154,11 +154,15 @@ def _write_genre_tag(path: Path, genre: str) -> None:
 
     if suffix in {".wav", ".wave"}:
         _validate_wave_container(path)
+        _repair_shifted_wave_id3_chunk(path)
         _repair_oversized_wave_data_chunk(path)
+        _remove_duplicate_wave_id3_chunks(path)
         audio = WAVE(path)
         _set_audio_id3_genre(audio, genre_text)
         audio.save()
         _validate_wave_container(path)
+        _remove_duplicate_wave_id3_chunks(path)
+        _verify_wave_genre_tag(path, genre_text)
         return
 
     audio = MutagenFile(path)
@@ -224,6 +228,64 @@ def _repair_oversized_wave_data_chunk(path: Path) -> None:
     data[4:8] = (len(data) - 8).to_bytes(4, "little")
     path.write_bytes(data)
     LOGGER.warning("Repaired oversized WAV data chunk before tag write path=%s", path)
+
+
+def _repair_shifted_wave_id3_chunk(path: Path) -> None:
+    data = bytearray(path.read_bytes())
+    bounds = _find_wave_data_chunk_bounds(data)
+    if bounds is None:
+        return
+    data_start, declared_size = bounds
+    declared_end = data_start + declared_size
+    shifted_chunk_start = declared_end - 2
+    if shifted_chunk_start < data_start or shifted_chunk_start + 8 > len(data):
+        return
+    if data[shifted_chunk_start : shifted_chunk_start + 4] != b"id3 ":
+        return
+    data_size_offset = data_start - 4
+    data[data_size_offset : data_size_offset + 4] = (declared_size - 2).to_bytes(4, "little")
+    data[4:8] = (len(data) - 8).to_bytes(4, "little")
+    path.write_bytes(data)
+    LOGGER.warning("Repaired WAV data/id3 chunk boundary before tag write path=%s", path)
+
+
+def _verify_wave_genre_tag(path: Path, genre_text: str) -> None:
+    audio = WAVE(path)
+    if audio.tags is None or "TCON" not in audio.tags:
+        raise RuntimeError(f"Genre tag was not readable after WAV save: {path}")
+    if list(audio.tags["TCON"].text) != [genre_text]:
+        raise RuntimeError(f"Genre tag readback mismatch after WAV save: {path}")
+
+
+def _remove_duplicate_wave_id3_chunks(path: Path) -> None:
+    data = path.read_bytes()
+    pos = 12
+    chunks: list[tuple[int, int, bytes]] = []
+    while pos + 8 <= len(data):
+        chunk_id = data[pos : pos + 4]
+        chunk_size = int.from_bytes(data[pos + 4 : pos + 8], "little")
+        chunk_end = pos + 8 + chunk_size + (chunk_size % 2)
+        if chunk_end <= pos or chunk_end > len(data) + 1:
+            return
+        chunks.append((pos, chunk_end, chunk_id))
+        pos = chunk_end
+
+    seen_id3 = False
+    rebuilt = bytearray(data[:12])
+    removed = 0
+    for start, end, chunk_id in chunks:
+        if chunk_id in {b"id3 ", b"ID3 "}:
+            if seen_id3:
+                removed += 1
+                continue
+            seen_id3 = True
+        rebuilt.extend(data[start:end])
+
+    if not removed:
+        return
+    rebuilt[4:8] = (len(rebuilt) - 8).to_bytes(4, "little")
+    path.write_bytes(rebuilt)
+    LOGGER.warning("Removed duplicate WAV id3 chunks before tag write path=%s count=%s", path, removed)
 
 
 def _find_wave_data_chunk_bounds(data: bytes) -> tuple[int, int] | None:

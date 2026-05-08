@@ -118,11 +118,30 @@ h2 {
   max-width: 1680px;
 }
 
+.topbar h1 {
+  color: #17221c;
+  font-size: 28px;
+  font-weight: 820;
+  line-height: 1;
+  position: relative;
+}
+
+.topbar h1::after {
+  background: linear-gradient(90deg, #2b8a78, #d28b3c);
+  border-radius: 999px;
+  content: "";
+  display: block;
+  height: 3px;
+  margin-top: 7px;
+  width: 132px;
+}
+
 .meta {
   color: #66705f;
   display: block;
   font-size: 13px;
-  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+  margin-top: 8px;
 }
 
 .notice {
@@ -225,6 +244,27 @@ h2 {
   margin-bottom: 8px;
 }
 
+.analysis-section-title {
+  border-top: 1px solid #dfe3d6;
+  color: #354036;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 2px 0 8px;
+  padding-top: 10px;
+}
+
+.analysis-section-title span {
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.analysis-section-title small {
+  color: #65705e;
+  font-size: 11px;
+  line-height: 15px;
+}
+
 .analysis-actions button {
   min-width: 0;
 }
@@ -235,8 +275,8 @@ h2 {
 
 .analysis-button-pair {
   display: grid;
-  gap: 4px;
-  grid-template-columns: minmax(0, 1fr) 30px;
+  gap: 5px;
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
 }
 
@@ -246,8 +286,11 @@ h2 {
 
 .analysis-reset {
   color: #9a3d25;
-  min-height: 34px;
-  width: 30px;
+  font-size: 12px;
+  gap: 4px;
+  min-height: 26px;
+  padding: 4px 8px;
+  width: 100%;
 }
 
 .analysis-reset:hover:not(:disabled) {
@@ -361,9 +404,10 @@ h2 {
   border: 1px solid #dfe3d6;
   border-radius: 6px;
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
-  margin-bottom: 8px;
-  min-height: 248px;
+  margin-top: 4px;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -403,6 +447,9 @@ h2 {
 }
 
 .log-tab-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
   min-height: 0;
   overflow: hidden;
   padding: 8px;
@@ -413,12 +460,37 @@ h2 {
   background: transparent;
   border: 0;
   border-radius: 0;
+  flex: 1 1 auto;
   margin: 0;
+  min-height: 0;
   padding: 0;
 }
 
 .log-tab-body .process-log-list {
-  height: 92px;
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+}
+
+.log-tab-body .process-log,
+.log-tab-body .analysis-log {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.log-tab-body .process-head,
+.log-tab-body .process-box progress,
+.log-tab-body .process-grid,
+.log-tab-body .analysis-muted,
+.log-tab-body .analysis-current,
+.log-tab-body .analysis-error {
+  flex: 0 0 auto;
+}
+
+.log-tab-body .activity-log-list {
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 0;
 }
 
 .analysis-limit {
@@ -608,6 +680,7 @@ h2 {
   flex-direction: column;
   gap: 6px;
   margin-top: 2px;
+  min-height: 0;
   padding-top: 7px;
 }
 
@@ -1244,6 +1317,10 @@ meter {
   .topbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .topbar h1 {
+    font-size: 24px;
   }
 
   .filters {

@@ -34,8 +34,10 @@ const helpText = {
   refreshTags: "Перечитать только file tags через Mutagen для уже найденных треков. Пути, Sonara, MAEST, MERT и CLAP не трогаются.",
   clearDatabase: "Удалить все записи из SQLite: треки, эмбеддинги, анализы, плейлисты и сет. Аудиофайлы на диске не трогаются.",
   analysisDevice: "Устройство для MERT/CLAP. Значения: AUTO, CPU, CUDA. AUTO выберет CUDA, если PyTorch видит GPU, иначе CPU.",
-  sonaraAnalyze: "SONARA lab извлекает BPM, Key, energy, danceability, valence, MFCC/chroma и mel-spectrogram summaries. Пишет признаки только в SQLite metadata.",
-  maestAnalyze: "MAEST извлекает 3 жанровые метки Discogs и confidence. Пишет только в SQLite metadata, аудиофайлы не меняет.",
+  sonaraAnalyze: "SONARA считает BPM, key и музыкальные признаки. Нужна для базового описания трека и будущих DJ-фильтров.",
+  maestAnalyze: "MAEST определяет жанровые метки. Нужна для жанровой навигации и проверки характера библиотеки.",
+  mertAnalyze: "MERT строит аудио-эмбеддинги. Нужна для поиска похожих треков от выбранных seed-треков.",
+  clapAnalyze: "CLAP связывает аудио с текстовым описанием. Нужна для поиска треков по фразе о звучании.",
   analysisBatchSize: "Размер inference batch для MERT/CLAP. Тип: целое число 1-16. CPU: 1-4; CUDA: начни с 4-8.",
   librarySearch: "Фильтр библиотеки. Формат: текст. Ищет по artist, title, album и path.",
   similarity: "Минимальный cosine similarity. Тип: число с точкой, диапазон 0.00-1.00. Для чистой проверки MERT оставь 0.00.",
@@ -533,8 +535,8 @@ export function App() {
     <main className="app-shell">
       <header className="topbar">
         <div>
-          <h1>dj-track-similarity</h1>
-          <span className="meta">{tracks.length} треков · {tracks.filter((track) => track.embedding_model).length} с эмбеддингами · {tracks.filter((track) => track.genres?.length).length} с жанрами</span>
+          <h1>DJ Track Similarity</h1>
+          <span className="meta">{tracks.length} {trackCountLabel(tracks.length)}</span>
         </div>
         <div className={`notice ${notice.kind}`}>{notice.text}</div>
       </header>
@@ -571,19 +573,15 @@ export function App() {
               <RefreshCcw size={17} />
             </span>
           </div>
-          <TabbedLog
-            activeTab={logTab}
-            onTabChange={setLogTab}
-            processKind={processLogKind}
-            scanJob={scanJob}
-            analysisJob={analysisJob}
-            events={activityLog}
-          />
+          <div className="analysis-section-title">
+            <span>Анализ моделей</span>
+            <small>Запуск отдельных алгоритмов для текущей базы</small>
+          </div>
           <div className="analysis-actions">
             <AnalysisButton label="SONARA" icon={<Gauge size={16} />} disabled={busy || stageRunning} title={helpText.sonaraAnalyze} onRun={() => void handleSonaraAnalyze()} onReset={() => void handleResetAnalysis("sonara")} />
             <AnalysisButton label="MAEST" icon={<Tags size={16} />} disabled={busy || stageRunning} title={helpText.maestAnalyze} onRun={() => void handleGenreAnalyze()} onReset={() => void handleResetAnalysis("maest")} />
-            <AnalysisButton label="MERT" icon={<Wand2 size={16} />} disabled={busy || stageRunning} onRun={() => void handleAnalyze("mert")} onReset={() => void handleResetAnalysis("mert")} />
-            <AnalysisButton label="CLAP" icon={<Search size={16} />} disabled={busy || stageRunning} onRun={() => void handleAnalyze("clap")} onReset={() => void handleResetAnalysis("clap")} />
+            <AnalysisButton label="MERT" icon={<Wand2 size={16} />} disabled={busy || stageRunning} title={helpText.mertAnalyze} onRun={() => void handleAnalyze("mert")} onReset={() => void handleResetAnalysis("mert")} />
+            <AnalysisButton label="CLAP" icon={<Search size={16} />} disabled={busy || stageRunning} title={helpText.clapAnalyze} onRun={() => void handleAnalyze("clap")} onReset={() => void handleResetAnalysis("clap")} />
           </div>
           <label className="analysis-limit" title={helpText.analyzeLimit}>
             Analyze limit
@@ -629,6 +627,14 @@ export function App() {
               Smoke
             </button>
           </div>
+          <TabbedLog
+            activeTab={logTab}
+            onTabChange={setLogTab}
+            processKind={processLogKind}
+            scanJob={scanJob}
+            analysisJob={analysisJob}
+            events={activityLog}
+          />
         </aside>
 
         <section className="panel track-panel">
@@ -873,7 +879,8 @@ function AnalysisButton({
         {icon}
         {label}
       </button>
-      <button className="icon-button analysis-reset" disabled={disabled} title={`Reset ${label}`} aria-label={`Reset ${label}`} onClick={onReset}>
+      <button className="analysis-reset" disabled={disabled} title={`Reset ${label}`} aria-label={`Reset ${label}`} onClick={onReset}>
+        Reset
         <Trash2 size={14} />
       </button>
     </div>
@@ -1111,6 +1118,15 @@ function trackInfo(track: Track) {
   return analysisStatusLabel(track);
 }
 
+function trackCountLabel(count: number) {
+  const lastTwo = count % 100;
+  const last = count % 10;
+  if (lastTwo >= 11 && lastTwo <= 14) return "треков";
+  if (last === 1) return "трек";
+  if (last >= 2 && last <= 4) return "трека";
+  return "треков";
+}
+
 function analysisStatusLabel(track: Track) {
   const analyses = new Set(track.analyses || []);
   if (track.genres?.length) analyses.add("maest");
@@ -1225,11 +1241,11 @@ function TrackMetadataDialog({ track, onClose }: { track: Track; onClose: () => 
 }
 
 const sonaraFeatureLabels: Record<string, string> = {
+  duration_sec: "Duration",
+  duration_player: "Length",
   bpm: "BPM",
-  tempo: "Tempo",
   key: "Key",
   key_confidence: "Key conf.",
-  duration_sec: "Duration",
   energy: "Energy",
   danceability: "Danceability",
   valence: "Valence",
@@ -1258,42 +1274,55 @@ const sonaraFeatureLabels: Record<string, string> = {
 };
 
 const sonaraFeaturePriority: Record<string, number> = {
-  bpm: 0,
-  tempo: 1,
-  key: 2,
-  key_confidence: 3,
-  duration_sec: 4,
-  loudness_lufs: 5,
-  dynamic_range_db: 6,
-  energy: 7,
-  danceability: 8,
-  valence: 9,
-  acousticness: 10,
-  predominant_chord: 11,
-  chord_change_rate: 12,
-  dissonance: 13,
-  onset_density: 20,
-  n_beats: 21,
-  beats: 22,
-  onset_frames: 23,
-  zero_crossing_rate: 30,
-  spectral_centroid_mean: 31,
-  spectral_bandwidth_mean: 32,
-  spectral_rolloff_mean: 33,
-  spectral_flatness_mean: 34,
-  spectral_contrast_mean: 35,
-  mfcc_mean: 40,
-  chroma_mean: 41,
-  chord_sequence: 50,
-  decode_path: 90,
-  analysis_seconds: 91,
-  requested_feature_count: 92
+  duration_sec: 0,
+  duration_player: 1,
+  bpm: 2,
+  key: 3,
+  key_confidence: 4,
+  energy: 5,
+  danceability: 6,
+  valence: 7,
+  acousticness: 8,
+  dissonance: 9,
+  loudness_lufs: 10,
+  dynamic_range_db: 11,
+  onset_density: 12,
+  n_beats: 13,
+  beats: 14,
+  onset_frames: 15,
+  zero_crossing_rate: 16,
+  spectral_centroid_mean: 17,
+  spectral_bandwidth_mean: 18,
+  spectral_rolloff_mean: 19,
+  spectral_flatness_mean: 20,
+  predominant_chord: 101,
+  chord_change_rate: 102,
+  spectral_contrast_mean: 103,
+  mfcc_mean: 104,
+  chroma_mean: 105,
+  chord_sequence: 106,
+  decode_path: 107,
+  analysis_seconds: 108,
+  requested_feature_count: 109
 };
 
 function readableSonaraFeatures(raw: unknown) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
-  const entries = Object.entries(raw as Record<string, unknown>);
+  const record = raw as Record<string, unknown>;
+  const entries = Object.entries(record);
+  const durationSeconds = sonaraFeatureNumber(record.duration_sec);
+  if (durationSeconds != null) {
+    entries.push([
+      "duration_player",
+      {
+        value: durationSeconds,
+        type: "duration",
+        description: "Track duration formatted like a music player."
+      }
+    ]);
+  }
   return entries
+    .filter(([key]) => key !== "tempo")
     .map(([key, payload]) => {
       const record = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
       return {
@@ -1310,6 +1339,7 @@ function readableSonaraFeatures(raw: unknown) {
 function formatSonaraValue(record: Record<string, unknown>) {
   const value = record.value;
   if (record.type === "unavailable") return "-";
+  if (record.type === "duration" && typeof value === "number") return formatPlayerDuration(value);
   if (record.type === "ndarray" || record.storage) {
     const shape = Array.isArray(record.shape) ? record.shape.join("x") : "";
     const summary = record.summary && typeof record.summary === "object" ? record.summary as Record<string, unknown> : null;
@@ -1322,6 +1352,12 @@ function formatSonaraValue(record: Record<string, unknown>) {
   if (Array.isArray(value)) return `${value.length} values`;
   if (value == null) return "-";
   return String(value);
+}
+
+function sonaraFeatureNumber(payload: unknown) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const value = (payload as Record<string, unknown>).value;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function formatNumber(value: number) {
@@ -1348,6 +1384,15 @@ function formatGenreLabel(label: string) {
 function formatDuration(seconds: number) {
   const minutes = Math.floor(seconds / 60);
   const rest = Math.round(seconds % 60).toString().padStart(2, "0");
+  return `${minutes}:${rest}`;
+}
+
+function formatPlayerDuration(seconds: number) {
+  const rounded = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(rounded / 3600);
+  const minutes = Math.floor((rounded % 3600) / 60);
+  const rest = (rounded % 60).toString().padStart(2, "0");
+  if (hours > 0) return `${hours}:${minutes.toString().padStart(2, "0")}:${rest}`;
   return `${minutes}:${rest}`;
 }
 

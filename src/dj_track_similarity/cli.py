@@ -37,6 +37,32 @@ def scan(music_root: Path, db_path: Optional[Path] = typer.Option(None, "--db"))
     typer.echo(f"added={stats.added} updated={stats.updated} unchanged={stats.unchanged} skipped={stats.skipped}")
 
 
+@app.command("relocate-library")
+def relocate_library(
+    old_root: Path,
+    new_root: Path,
+    apply: bool = typer.Option(False, "--apply", help="Update stored track paths after preview checks pass."),
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+) -> None:
+    try:
+        result = _db(db_path).relocate_library(old_root, new_root, apply=apply)
+    except ValueError as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+    typer.echo(
+        f"dry_run={result['dry_run']} tracks_matched={result['tracks_matched']} "
+        f"tracks_updated={result['tracks_updated']} missing_files={len(result['missing_files'])} "
+        f"conflicts={len(result['conflicts'])}"
+    )
+    for conflict in result["conflicts"]:
+        typer.echo(
+            f"conflict track_id={conflict['track_id']} existing_track_id={conflict['existing_track_id']} "
+            f"{conflict['old_path']} -> {conflict['new_path']}"
+        )
+    for missing in result["missing_files"]:
+        typer.echo(f"missing track_id={missing['track_id']} path={missing['path']}")
+
+
 @app.command()
 def analyze(
     db_path: Optional[Path] = typer.Option(None, "--db"),

@@ -33,6 +33,12 @@ class TagRefreshRequest(BaseModel):
     workers: int = Field(default=1, ge=1, le=64)
 
 
+class RelocateLibraryRequest(BaseModel):
+    old_root: str
+    new_root: str
+    apply: bool = False
+
+
 class AnalyzeRequest(BaseModel):
     limit: int | None = None
     adapter: str = Field(default="mert", pattern="^(mert|clap|fake)$")
@@ -131,6 +137,13 @@ def create_app(db_path: str | Path = "dj-track-similarity.sqlite", *, log_level:
     @app.post("/api/library/tags/refresh")
     def refresh_tags(request: TagRefreshRequest):
         return scan_jobs.start_tag_refresh(workers=request.workers)
+
+    @app.post("/api/library/relocate")
+    def relocate_library(request: RelocateLibraryRequest):
+        try:
+            return db.relocate_library(request.old_root, request.new_root, apply=request.apply)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.post("/api/database/clear")
     def clear_database():

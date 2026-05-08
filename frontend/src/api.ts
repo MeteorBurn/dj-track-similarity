@@ -79,6 +79,17 @@ export type DatabaseClearResult = {
   playlist_tracks_deleted: number;
 };
 
+export type LibraryRelocationResult = {
+  old_root: string;
+  new_root: string;
+  dry_run: boolean;
+  tracks_matched: number;
+  tracks_updated: number;
+  missing_files: Array<{ track_id: number; path: string }>;
+  conflicts: Array<{ track_id: number; old_path: string; new_path: string; existing_track_id: number | null }>;
+  changes: Array<{ track_id: number; old_path: string; new_path: string }>;
+};
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
@@ -107,6 +118,11 @@ export const api = {
     request<ScanStats>("/api/library/tags/refresh", {
       method: "POST",
       body: JSON.stringify({ workers })
+    }),
+  relocateLibrary: (old_root: string, new_root: string, apply = false) =>
+    request<LibraryRelocationResult>("/api/library/relocate", {
+      method: "POST",
+      body: JSON.stringify({ old_root, new_root, apply })
     }),
   clearDatabase: () =>
     request<DatabaseClearResult>("/api/database/clear", {

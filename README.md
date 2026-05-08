@@ -22,6 +22,8 @@ else who collects, tags, or plays music will find the approach useful too.
   tags separately from model-derived values.
 - Refreshes Mutagen tags for already indexed tracks without rescanning paths or
   deleting analysis results.
+- Can relocate stored track paths after moving the same music folder to another
+  drive, without repeating completed analysis.
 - Extracts Sonara playlist features, including analyzed BPM and key, and stores
   compact feature summaries in SQLite.
 - Uses a native-first audio loader with tolerant WAV recovery for playable files
@@ -151,6 +153,9 @@ dj-sim doctor
 dj-sim export 1 --format m3u --output-dir "D:\Exports"
 dj-sim export 1 --format csv --output-dir "D:\Exports"
 
+dj-sim relocate-library "E:\MusicFast" "D:\MusicArchive"
+dj-sim relocate-library "E:\MusicFast" "D:\MusicArchive" --apply
+
 dj-sim tag-preview 1 2 3
 dj-sim tag-apply 1 2 3
 ```
@@ -178,6 +183,27 @@ batching on the selected device. It does not modify audio files by itself.
 `doctor` reports the Python executable, installed PyTorch build, CUDA build,
 whether `torch.cuda.is_available()` is true, and the device that `auto` will
 choose. Use it when CUDA behavior looks suspicious.
+
+`relocate-library` is for a practical two-drive workflow: scan and analyze a
+folder on a fast SSD, move that same folder to another drive, then update the
+stored track paths in SQLite. The command is a dry run by default:
+
+```powershell
+dj-sim relocate-library "E:\MusicFast" "D:\MusicArchive"
+```
+
+It reports how many tracks match the old root, which target files are missing,
+and whether any target paths would conflict with tracks already in the database.
+When the preview looks right and the files exist at the new location, apply the
+change:
+
+```powershell
+dj-sim relocate-library "E:\MusicFast" "D:\MusicArchive" --apply
+```
+
+This updates only `tracks.path` in SQLite. It keeps track IDs, Sonara features,
+MAEST genres, MERT/CLAP embeddings, playlists, and other analysis results. It
+does not move, edit, or delete audio files.
 
 In the UI, `Analyze limit = 0` means the whole library. If you only want to test
 a few tracks, set a specific integer limit yourself. Limits count missing

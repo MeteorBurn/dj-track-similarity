@@ -415,6 +415,75 @@ class LibraryDatabase:
             connection.execute("DELETE FROM tracks")
         return counts
 
+    def relocate_library(self, old_root: str | Path, new_root: str | Path, *, apply: bool = False) -> dict[str, object]:
+        old_root_text = _normalize_root(old_root)
+        new_root_text = _normalize_root(new_root)
+        if old_root_text == new_root_text:
+            raise ValueError("Old and new library roots must be different")
+
+        with self.connect() as connection:
+            rows = connection.execute("SELECT id, path FROM tracks ORDER BY id").fetchall()
+            existing_by_path = {str(row["path"]).casefold(): int(row["id"]) for row in rows}
+            changes: list[dict[str, object]] = []
+            conflicts: list[dict[str, object]] = []
+            missing_files: list[dict[str, object]] = []
+            planned_paths: set[str] = set()
+
+            for row in rows:
+                track_id = int(row["id"])
+                old_path = str(row["path"])
+                new_path = _relocate_path(old_path, old_root_text, new_root_text)
+                if new_path is None:
+                    continue
+
+                new_path_key = new_path.casefold()
+                existing_track_id = existing_by_path.get(new_path_key)
+                if existing_track_id is not None and existing_track_id != track_id:
+                    conflicts.append(
+                        {
+                            "track_id": track_id,
+                            "old_path": old_path,
+                            "new_path": new_path,
+                            "existing_track_id": existing_track_id,
+                        }
+                    )
+                if new_path_key in planned_paths:
+                    conflicts.append(
+                        {
+                            "track_id": track_id,
+                            "old_path": old_path,
+                            "new_path": new_path,
+                            "existing_track_id": None,
+                        }
+                    )
+                planned_paths.add(new_path_key)
+
+                if not Path(new_path).is_file():
+                    missing_files.append({"track_id": track_id, "path": new_path})
+                changes.append({"track_id": track_id, "old_path": old_path, "new_path": new_path})
+
+            if apply:
+                if conflicts:
+                    raise ValueError("Cannot relocate library because one or more target paths conflict")
+                if missing_files:
+                    raise ValueError("Cannot relocate library because one or more target files are missing")
+                for change in changes:
+                    connection.execute(
+                        "UPDATE tracks SET path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (change["new_path"], change["track_id"]),
+                    )
+
+        return {
+            "old_root": old_root_text,
+            "new_root": new_root_text,
+            "dry_run": not apply,
+            "tracks_matched": len(changes),
+            "tracks_updated": len(changes) if apply else 0,
+            "missing_files": missing_files,
+            "conflicts": conflicts,
+            "changes": changes,
+        }
+
     def _reset_metadata_analysis(self, adapter: str, keys: tuple[str, ...]) -> dict[str, object]:
         updated = 0
         with self.connect() as connection:
@@ -573,6 +642,25 @@ def _metadata_from_json(metadata_json: object) -> dict[str, object]:
     except json.JSONDecodeError:
         return {}
     return metadata if isinstance(metadata, dict) else {}
+
+
+def _normalize_root(path: str | Path) -> str:
+    normalized = normalize_path(path).rstrip("/")
+    if not normalized:
+        raise ValueError("Library root must not be empty")
+    return normalized
+
+
+def _relocate_path(path: str, old_root: str, new_root: str) -> str | None:
+    path_key = path.casefold()
+    old_key = old_root.casefold()
+    if path_key == old_key:
+        return new_root
+    prefix = f"{old_key}/"
+    if not path_key.startswith(prefix):
+        return None
+    relative = path[len(old_root) :].lstrip("/")
+    return f"{new_root}/{relative}" if relative else new_root
 
 
 def _ensure_sonara_camelot_key(metadata: dict[str, object]) -> str | None:

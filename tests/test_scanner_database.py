@@ -345,3 +345,91 @@ def test_database_migrates_legacy_embedding_table(tmp_path: Path) -> None:
     assert [track.id for track in tracks] == [1]
     assert tracks[0].embedding_model == "legacy-mert"
     assert matrix.shape == (1, 3)
+
+
+def test_relocate_library_dry_run_preserves_tracks_and_reports_missing_files(tmp_path: Path) -> None:
+    old_root = tmp_path / "ssd_music"
+    new_root = tmp_path / "archive_music"
+    old_root.mkdir()
+    new_root.mkdir()
+    old_file = old_root / "Artist" / "track.wav"
+    old_file.parent.mkdir()
+    old_file.write_bytes(b"audio")
+
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = db.upsert_track(path=old_file, size=old_file.stat().st_size, mtime=old_file.stat().st_mtime)
+    db.save_sonara_features(track_id, {"tempo": 128}, bpm=128.0, model_name="sonara-test")
+
+    result = db.relocate_library(old_root, new_root, apply=False)
+
+    assert result["dry_run"] is True
+    assert result["tracks_matched"] == 1
+    assert result["tracks_updated"] == 0
+    assert result["missing_files"] == [
+        {
+            "track_id": track_id,
+            "path": (new_root / "Artist" / "track.wav").as_posix(),
+        }
+    ]
+    assert db.get_track(track_id).path == old_file.as_posix()
+    assert db.get_track(track_id).bpm == 128.0
+
+
+def test_relocate_library_apply_updates_paths_without_losing_analysis(tmp_path: Path) -> None:
+    old_root = tmp_path / "ssd_music"
+    new_root = tmp_path / "archive_music"
+    old_root.mkdir()
+    new_root.mkdir()
+    old_file = old_root / "Artist" / "track.wav"
+    new_file = new_root / "Artist" / "track.wav"
+    old_file.parent.mkdir()
+    new_file.parent.mkdir()
+    old_file.write_bytes(b"audio")
+    new_file.write_bytes(b"audio")
+
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = db.upsert_track(path=old_file, size=old_file.stat().st_size, mtime=old_file.stat().st_mtime)
+    db.save_sonara_features(track_id, {"tempo": 128}, bpm=128.0, model_name="sonara-test")
+
+    result = db.relocate_library(old_root, new_root, apply=True)
+
+    assert result["dry_run"] is False
+    assert result["tracks_matched"] == 1
+    assert result["tracks_updated"] == 1
+    assert result["missing_files"] == []
+    track = db.get_track(track_id)
+    assert track.path == new_file.as_posix()
+    assert track.bpm == 128.0
+
+
+def test_relocate_library_apply_rejects_path_conflicts(tmp_path: Path) -> None:
+    old_root = tmp_path / "ssd_music"
+    new_root = tmp_path / "archive_music"
+    old_root.mkdir()
+    new_root.mkdir()
+    old_file = old_root / "track.wav"
+    new_file = new_root / "track.wav"
+    old_file.write_bytes(b"old")
+    new_file.write_bytes(b"new")
+
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    old_track_id = db.upsert_track(path=old_file, size=old_file.stat().st_size, mtime=old_file.stat().st_mtime)
+    existing_track_id = db.upsert_track(path=new_file, size=new_file.stat().st_size, mtime=new_file.stat().st_mtime)
+
+    result = db.relocate_library(old_root, new_root, apply=False)
+
+    assert result["conflicts"] == [
+        {
+            "track_id": old_track_id,
+            "old_path": old_file.as_posix(),
+            "new_path": new_file.as_posix(),
+            "existing_track_id": existing_track_id,
+        }
+    ]
+    try:
+        db.relocate_library(old_root, new_root, apply=True)
+    except ValueError as error:
+        assert "conflict" in str(error).lower()
+    else:
+        raise AssertionError("relocate_library should reject conflicting paths")
+    assert db.get_track(old_track_id).path == old_file.as_posix()

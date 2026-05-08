@@ -4,7 +4,7 @@
 
 dj-track-similarity is a public personal/enthusiast project for exploring music-library analysis and track similarity for DJ-set preparation. The README should sound honest, practical, and modest: this is not a polished commercial product or a research benchmark. The user is building something useful for their own music collection, tagging workflow, and DJ sets, and it may also be useful to other music collectors.
 
-Technically, it is a local tool that scans an audio library, stores metadata in SQLite, refreshes selected Mutagen file tags, extracts Sonara playlist features, generates track embeddings, extracts MAEST genre labels, searches for compatible tracks, builds playlists, exports M3U/CSV files, can write custom `DJ_SIM_*` tags on explicit request, and can explicitly save MAEST genres into standard audio genre tags.
+Technically, it is a local tool that scans an audio library, stores metadata in SQLite, refreshes selected Mutagen file tags, relocates stored track paths after a library folder is moved, extracts Sonara playlist features, generates track embeddings, extracts MAEST genre labels, searches for compatible tracks, builds playlists, exports M3U/CSV files, can write custom `DJ_SIM_*` tags on explicit request, and can explicitly save MAEST genres into standard audio genre tags.
 
 Keep user-facing project documentation in English unless the user asks otherwise.
 
@@ -20,6 +20,9 @@ This workspace may not be a Git repository. Do not assume Git history, branches,
 ## Safety Rules
 
 - Treat real audio files as user data. Scanning, analysis, search, preview, RefreshTags, reset, clear, and export should not modify audio files.
+- Library path relocation updates only stored `tracks.path` values in SQLite. It must not move, copy, delete, rewrite, retag, or reanalyze audio files.
+- Library path relocation must be previewable before applying. Dry-run output should report matched tracks, missing target files, and path conflicts. Apply must reject missing target files and conflicts instead of partially updating the database.
+- Library path relocation must preserve track IDs and all dependent local state, including embeddings, Sonara features, MAEST genres, playlists, and tag metadata.
 - `tag-apply` and `/api/tags/apply` write only custom `DJ_SIM_*` tags. They must not overwrite standard BPM, key, title, artist, album, mood, genre, or other normal tags.
 - `/api/tags/genres/apply` is the explicit exception for standard metadata writes: it overwrites only the standard genre tag from stored MAEST labels. It must preserve existing artist, title, album, BPM, key, and other normal tags.
 - Standard genre tag writing should use player-compatible fields: `TCON` for MP3/WAV/AIFF ID3 tags, `GENRE` for FLAC/Vorbis-style tags, and `©gen` for MP4/M4A/ALAC. Multiple MAEST labels should be written as one string separated by `;`, for example `Tech House; Minimal; Techno`.
@@ -128,6 +131,8 @@ dj-sim analyze --adapter clap --device cpu --batch-size 2 --limit 3
 dj-sim analyze-genres --device cpu --batch-size 2 --limit 3
 dj-sim analyze-genres --device cuda --batch-size 4 --limit 3
 dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 5
+dj-sim relocate-library "E:\MusicFast" "D:\MusicArchive"
+dj-sim relocate-library "E:\MusicFast" "D:\MusicArchive" --apply
 dj-sim analyze --fake
 dj-sim doctor
 dj-sim export 1 --format m3u --output-dir "D:\Exports"
@@ -138,7 +143,7 @@ dj-sim tag-preview 1 2 3
 ## Backend Map
 
 - `src/dj_track_similarity/models.py`: dataclasses for tracks, scan/analyze stats, search results, and tag previews.
-- `src/dj_track_similarity/database.py`: SQLite schema, connection handling, track upserts, embeddings, Sonara and MAEST metadata, analysis resets, database clearing, playlists, and row mapping.
+- `src/dj_track_similarity/database.py`: SQLite schema, connection handling, track upserts, embeddings, Sonara and MAEST metadata, library path relocation, analysis resets, database clearing, playlists, and row mapping.
 - `src/dj_track_similarity/scanner.py`: synchronous library scan and fixed-whitelist audio metadata extraction with `mutagen`. Keep extracted values JSON-safe.
 - `src/dj_track_similarity/scan_jobs.py`: scan and tag-refresh job manager with progress, cancellation, event logs, and optional parallel workers.
 - `src/dj_track_similarity/audio_loader.py`: shared native-first audio loading and tolerant WAV recovery used by Sonara fallback, MAEST, MERT, and CLAP paths.
@@ -157,8 +162,8 @@ dj-sim tag-preview 1 2 3
 - In the frontend, only Similarity, Lookback, and Limit are active for MERT validation; the other search filters remain backend capabilities/future knobs.
 - `src/dj_track_similarity/exporter.py`: playlist export to M3U or CSV.
 - `src/dj_track_similarity/tags.py`: custom `DJ_SIM_*` tag preview/apply logic plus explicit MAEST-to-standard-genre tag writing, including guarded WAV genre writes.
-- `src/dj_track_similarity/api.py`: FastAPI factory, request models, REST endpoints, static frontend mount, and media serving.
-- `src/dj_track_similarity/cli.py`: Typer CLI entrypoint exposed as `dj-sim`.
+- `src/dj_track_similarity/api.py`: FastAPI factory, request models, REST endpoints including `/api/library/relocate`, static frontend mount, and media serving.
+- `src/dj_track_similarity/cli.py`: Typer CLI entrypoint exposed as `dj-sim`, including `relocate-library` for previewing and applying stored path updates after moving a library folder.
 
 ## Frontend Map
 
@@ -178,6 +183,7 @@ dj-sim tag-preview 1 2 3
 - If adding or changing MAEST genre job state, update `frontend/src/api.ts`, `frontend/src/App.tsx`, and focused genre job/API tests.
 - If changing audio decode behavior, keep `src/dj_track_similarity/audio_loader.py`, Sonara fallback, MAEST/MERT/CLAP adapters, and focused malformed-WAV tests aligned.
 - If changing search behavior, add or update focused tests in `tests/test_search.py`.
+- If changing library path relocation, keep `src/dj_track_similarity/database.py`, `src/dj_track_similarity/api.py`, `src/dj_track_similarity/cli.py`, `frontend/src/api.ts`, and focused database/API/CLI tests aligned.
 - If changing analysis performance controls, keep `frontend/src/api.ts`, `src/dj_track_similarity/api.py`, `src/dj_track_similarity/analysis_jobs.py`, `src/dj_track_similarity/genre_jobs.py`, `src/dj_track_similarity/embedding.py`, `src/dj_track_similarity/genres.py`, and `src/dj_track_similarity/runtime.py` aligned.
 - If changing UI controls, preserve tooltip coverage for format/type/range guidance. Keep destructive controls such as database clear behind action-time confirmation.
 - If touching custom tag writing, keep tests strict about preview being read-only and `tag-apply` writing only custom tags.
@@ -191,4 +197,5 @@ dj-sim tag-preview 1 2 3
 - Run `npm run build` in `frontend/` for frontend changes and when backend static serving depends on current built assets.
 - For API contract changes, exercise the affected endpoint through tests or a local server.
 - For CLI behavior changes, run the specific `dj-sim ...` command with a temporary database or fake adapter when possible.
+- For library path relocation changes, verify dry-run does not modify paths, apply preserves track IDs and analysis state, and conflicts or missing target files block apply.
 - For Sonara changes, prefer tests with fakes or small temp WAV fixtures; avoid requiring a full user music library in automated tests.

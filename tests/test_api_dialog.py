@@ -37,3 +37,27 @@ def test_choose_folder_endpoint_allows_cancel(monkeypatch, tmp_path: Path) -> No
 
     assert response.status_code == 200
     assert response.json() == {"path": None}
+
+
+def test_relocate_library_endpoint_returns_dry_run_preview(monkeypatch, tmp_path: Path) -> None:
+    old_root = tmp_path / "ssd"
+    new_root = tmp_path / "archive"
+    old_root.mkdir()
+    new_root.mkdir()
+    old_file = old_root / "track.wav"
+    old_file.write_bytes(b"audio")
+
+    db_path = tmp_path / "library.sqlite"
+    database = api.LibraryDatabase(db_path)
+    track_id = database.upsert_track(path=old_file, size=old_file.stat().st_size, mtime=old_file.stat().st_mtime)
+
+    client = TestClient(create_app(db_path))
+    response = client.post(
+        "/api/library/relocate",
+        json={"old_root": str(old_root), "new_root": str(new_root), "apply": False},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["dry_run"] is True
+    assert response.json()["tracks_matched"] == 1
+    assert api.LibraryDatabase(db_path).get_track(track_id).path == old_file.as_posix()

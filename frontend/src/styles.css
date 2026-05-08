@@ -1198,7 +1198,8 @@ meter {
 }
 
 .mutagen-grid {
-  max-height: 220px;
+  max-height: none;
+  overflow: visible;
 }
 
 .genre-block > strong,

@@ -1238,7 +1238,7 @@ function TrackMetadataDialog({
         </div>
         <strong className="metadata-track-title">{displayTrack(track)}</strong>
         <div className="mutagen-block">
-          <dl className="metadata-grid tag-grid mutagen-grid">
+          <dl className="metadata-grid mutagen-grid">
             {primaryEntries.map(([key, value]) => (
               <Fragment key={key}><dt>{key}</dt><dd>{value}</dd></Fragment>
             ))}

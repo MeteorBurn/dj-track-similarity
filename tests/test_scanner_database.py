@@ -271,7 +271,7 @@ def test_database_stores_maest_genres_in_track_metadata(tmp_path: Path) -> None:
 
     db.save_genres(
         track_id,
-        [{"label": "Techno", "score": 0.91}, {"label": "Dub Techno", "score": 0.72}],
+        [{"label": "Electronic---Techno", "score": 0.91}, {"label": "Electronic---Dub_Techno", "score": 0.72}],
         model_name="discogs-maest-30s-pw-129e-519l",
     )
 

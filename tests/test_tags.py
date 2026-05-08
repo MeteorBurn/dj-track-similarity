@@ -627,4 +627,4 @@ def test_apply_genre_tags_refreshes_database_metadata_and_preserves_existing_fil
     assert track.metadata["title"] == "Existing Title"
     assert track.metadata["album"] == "Existing Album"
     assert track.metadata["genre"] == "Tech House"
-    assert track.genres == ["Electronic---Tech House"]
+    assert track.genres == ["Tech House"]

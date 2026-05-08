@@ -36,7 +36,7 @@ export function TrackPanel({
       </div>
       <div className="search-input">
         <Search size={16} />
-        <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="artist, title, path" title={librarySearchHelp} />
+        <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="artist, title, genre, path" title={librarySearchHelp} />
       </div>
       <div className="player library-player">
         <span>{preview ? displayTrack(preview) : "Preview"}</span>

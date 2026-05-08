@@ -3,6 +3,7 @@ import { AnalysisJobStatus, api, ScanStats, SearchResult, SonaraSearchMode, Trac
 import { ActivityEvent, analysisJobRequest, cancelAnalysisJob, scanSummary } from "./jobUi";
 import { LibraryPanel } from "./LibraryPanel";
 import { SearchPlaylistPanel } from "./SearchPlaylistPanel";
+import { formatMaestGenreLabel, hasSyncopatedRhythm, SYNCOPATED_RHYTHM_LABEL } from "./syncopatedRhythm";
 import { TrackMetadataDialog } from "./TrackMetadataDialog";
 import { TrackPanel } from "./TrackPanel";
 import { basename, displayTrack, trackCountLabel, trackHasAnalysis } from "./trackDisplay";
@@ -27,7 +28,7 @@ const helpText = {
   mertAnalyze: "MERT строит аудио-эмбеддинги. Нужна для поиска похожих треков от выбранных seed-треков.",
   clapAnalyze: "CLAP связывает аудио с текстовым описанием. Нужна для поиска треков по фразе о звучании.",
   analysisBatchSize: "Для SONARA это число параллельных track workers. Для MAEST/MERT/CLAP это inference batch. Тип: целое число 1-16.",
-  librarySearch: "Фильтр библиотеки. Формат: текст. Ищет по artist, title, album и path.",
+  librarySearch: "Фильтр библиотеки. Формат: текст. Ищет по artist, title, album, path, MAEST genres и syncopated rhythm.",
   similarity: "Минимальный similarity. Тип: число с точкой, диапазон 0.00-1.00.",
   sonaraMode: "Режим SONARA similarity. Balanced смешивает признаки, Vibe смотрит настроение, Sound тембр, DJ переходный контекст.",
   textPrompt: "CLAP text search. Формат: короткая фраза через запятые: genre, mood, sound, drums, vocal/no vocals. Тип: строка.",
@@ -92,9 +93,18 @@ export function App() {
   const filteredTracks = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return tracks;
-    return tracks.filter((track) =>
-      [track.artist, track.title, track.album, track.path].some((value) => value?.toLowerCase().includes(needle))
-    );
+    return tracks.filter((track) => {
+      const genres = track.genres || [];
+      const searchableValues = [
+        track.artist,
+        track.title,
+        track.album,
+        track.path,
+        ...genres.map(formatMaestGenreLabel),
+        hasSyncopatedRhythm(genres) ? SYNCOPATED_RHYTHM_LABEL : null
+      ];
+      return searchableValues.some((value) => value?.toLowerCase().includes(needle));
+    });
   }, [tracks, query]);
   const seedTracks = useMemo(() => seeds.map((id) => tracks.find((track) => track.id === id)).filter(Boolean) as Track[], [seeds, tracks]);
   const maestGenreTrackIds = useMemo(() => tracks.filter((track) => track.genres?.length).map((track) => track.id), [tracks]);

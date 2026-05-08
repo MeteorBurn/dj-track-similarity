@@ -45,6 +45,15 @@ def _optional_float(value: object) -> float | None:
         return None
 
 
+def _clean_maest_genre_label(label: str | None) -> str | None:
+    if not label:
+        return None
+    text = label.replace("_", " ").strip()
+    if "---" in text:
+        text = text.rsplit("---", 1)[-1].strip()
+    return text or None
+
+
 class LibraryDatabase:
     _write_locks: ClassVar[dict[Path, threading.RLock]] = {}
     _write_locks_guard: ClassVar[threading.Lock] = threading.Lock()
@@ -293,7 +302,7 @@ class LibraryDatabase:
     def save_genres(self, track_id: int, genres: list[dict[str, object]], *, model_name: str) -> None:
         cleaned = []
         for genre in genres:
-            label = _string_or_none(genre.get("label"))
+            label = _clean_maest_genre_label(_string_or_none(genre.get("label")))
             if not label:
                 continue
             score = _optional_float(genre.get("score"))

@@ -1200,9 +1200,10 @@ meter {
 }
 
 .mutagen-block {
-  display: block;
-  flex: 0 0 auto;
-  min-height: auto;
+  display: flex;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .tag-grid {
@@ -1240,8 +1241,10 @@ meter {
 }
 
 .mutagen-grid {
-  max-height: none;
-  overflow: visible;
+  max-height: min(204px, 28vh);
+  overflow: auto;
+  padding-right: 6px;
+  scrollbar-gutter: stable;
 }
 
 .genre-block > strong,
@@ -1293,6 +1296,13 @@ meter {
   font-size: 11px;
   line-height: 1.15;
   padding: 2px 6px;
+}
+
+.syncopated-rhythm-pill {
+  background: #ffe4bd;
+  border-color: #eda145;
+  color: #8a3f00;
+  font-weight: 700;
 }
 
 .genre-pill b {

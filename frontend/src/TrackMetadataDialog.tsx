@@ -1,6 +1,7 @@
 import { Save, X } from "lucide-react";
 import { Fragment } from "react";
 import { Track } from "./api";
+import { formatMaestGenreLabel, hasSyncopatedRhythm, SYNCOPATED_RHYTHM_LABEL } from "./syncopatedRhythm";
 import { basename, displayTrack } from "./trackDisplay";
 
 const trackTagLabels: Record<string, string> = {
@@ -72,6 +73,7 @@ export function TrackMetadataDialog({
 }) {
   const genres = track.genres || [];
   const scores = track.genre_scores || {};
+  const trackHasSyncopatedRhythm = hasSyncopatedRhythm(genres);
   const sonaraFeatureGroups = readableSonaraFeatureGroups(track.metadata?.sonara_features);
   const sonaraFeatureCount = sonaraFeatureGroups.reduce((total, group) => total + group.features.length, 0);
   const primaryEntries = readablePrimaryTrackInfo(track);
@@ -127,8 +129,9 @@ export function TrackMetadataDialog({
           {genres.length ? (
             <div className="genre-list">
               {genres.map((genre) => (
-                <span className="genre-pill" key={genre}>{formatGenreLabel(genre)} <b>{formatConfidence(scores[genre])}</b></span>
+                <span className="genre-pill" key={genre}>{formatMaestGenreLabel(genre)} <b>{formatConfidence(scores[genre])}</b></span>
               ))}
+              {trackHasSyncopatedRhythm ? <span className="genre-pill syncopated-rhythm-pill">{SYNCOPATED_RHYTHM_LABEL}</span> : null}
             </div>
           ) : (
             <span className="empty-genres">Жанры ещё не извлечены</span>
@@ -302,10 +305,6 @@ function formatFileSizeMb(bytes: number) {
 function formatConfidence(value: number | undefined) {
   if (value == null) return "0%";
   return `${Math.round(value * 100)}%`;
-}
-
-function formatGenreLabel(label: string) {
-  return label.replace(/^Electronic---/i, "");
 }
 
 function formatPlayerDuration(seconds: number) {

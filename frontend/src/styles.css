@@ -1085,7 +1085,7 @@ meter {
   gap: 14px;
   max-height: min(680px, calc(100vh - 36px));
   max-width: 860px;
-  overflow: auto;
+  overflow: hidden;
   padding: 14px;
   width: min(860px, calc(100vw - 36px));
 }
@@ -1093,6 +1093,7 @@ meter {
 .dialog-title {
   align-items: start;
   display: grid;
+  flex: 0 0 auto;
   gap: 10px;
   grid-template-columns: minmax(0, 1fr) 34px;
 }
@@ -1120,6 +1121,7 @@ meter {
 }
 
 .metadata-track-title {
+  flex: 0 0 auto;
   font-size: 14px;
   overflow-wrap: anywhere;
 }
@@ -1141,6 +1143,7 @@ meter {
 .genre-block {
   border-top: 1px solid #e2e5dc;
   display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: 8px;
   padding-top: 12px;
@@ -1149,8 +1152,11 @@ meter {
 .sonara-block {
   border-top: 1px solid #e2e5dc;
   display: flex;
+  flex: 1 1 260px;
   flex-direction: column;
   gap: 8px;
+  min-height: 140px;
+  overflow: hidden;
   padding-top: 12px;
 }
 
@@ -1175,8 +1181,13 @@ meter {
 
 .sonara-feature-groups {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 12px;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 6px;
+  scrollbar-gutter: stable;
 }
 
 .sonara-feature-group {

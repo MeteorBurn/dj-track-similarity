@@ -55,17 +55,24 @@ manually curated genre tags as the main signal.
 
 The project is usable, but still experimental.
 
-MERT already gives promising results on my own library: aggressive broken
-tracks tend to pull similar aggressive material, and deeper kick-focused tracks
-tend to find related tracks. That is the main reason the project is moving
-forward.
+SONARA seed search is now the primary explainable search path in the UI. It
+compares stored playlist features in a few practical modes: balanced overall
+similarity, vibe/mood, sound/texture, and DJ-transition fit. It deliberately
+uses raw SONARA tonal fields and does not derive Camelot notation.
 
-The UI currently keeps the search controls conservative:
+MERT is still available as a separate seed-search tab. It already gives
+promising results on my own library: aggressive broken tracks tend to pull
+similar aggressive material, and deeper kick-focused tracks tend to find
+related tracks. CLAP remains separate for text-to-audio search.
 
+The UI keeps the search controls separated by model:
+
+- `Mode` appears for SONARA and chooses balanced, vibe, sound, or DJ ranking.
 - `Similarity` sets a minimum cosine score.
 - `Lookback` adds the last N tracks from the current set into the search
   context.
 - `Limit` caps the number of returned results.
+- `Text query` appears only on the CLAP tab.
 
 Other controls such as BPM, key, energy, epsilon, and randomization are either
 disabled in the UI or treated as future work until they are calibrated properly.
@@ -225,9 +232,9 @@ The database can store multiple embedding spaces for the same track:
 - `mert`: the main audio-to-audio similarity space.
 - `clap`: the LAION-CLAP audio/text space for text search.
 
-These spaces are intentionally not mixed into one matrix. MERT seed search uses
-MERT vectors only. CLAP text search compares a CLAP text vector with CLAP audio
-vectors only.
+These spaces are intentionally not mixed into one matrix. SONARA search uses
+stored SONARA playlist features from SQLite. MERT seed search uses MERT vectors
+only. CLAP text search compares a CLAP text vector with CLAP audio vectors only.
 
 That means text search requires a separate CLAP analysis pass before it can
 return useful results.
@@ -383,14 +390,13 @@ order:
    defaults for `Similarity`, `Epsilon`, and controlled randomization.
 2. `Auto chain` - build a set gradually: seed, find a few close tracks, move the
    context forward, and repeat until the desired limit is reached.
-3. `Sonara calibration` - decide which Sonara playlist features are actually
-   useful for search, display, and later storage in a better typed format.
+3. `Sonara calibration` - inspect real result sets for the balanced, vibe,
+   sound, and DJ-transition modes and tune weights/default thresholds.
 4. `Mel/CNN similarity` - use mel-spectrogram or CNN-style embeddings to capture
    pattern, structure, groove, density, and spectral shape.
-5. `Music feature similarity` - add an explainable DSP layer with FFT, MFCC,
-   PLP, Mel Spectrogram, Constant-Q Transform, Chroma Features, Spectral
-   Centroid, Spectral Rolloff, Spectral Bandwidth, Spectral Flatness, Zero
-   Crossing Rate, RMSE, Waveform Envelope, and Autocorrelation.
+5. `Music feature similarity` - improve the explainable DSP layer with
+   additional calibrated features such as PLP, Mel Spectrogram, Constant-Q
+   Transform, waveform envelope, and autocorrelation.
 6. `Hybrid ranking` - combine MERT audio similarity and CLAP text/audio
    similarity in a controlled way after both score ranges are understood.
 7. `DJ transition features` - beatgrid, downbeat, phrase structure, loudness,

@@ -957,12 +957,43 @@ h2 {
   padding: 8px;
 }
 
+.search-tabs {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 8px;
+}
+
+.search-tabs button {
+  min-width: 0;
+}
+
+.search-tab-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.mode-selector {
+  color: #65705e;
+  display: grid;
+  font-size: 12px;
+  gap: 6px;
+}
+
+.sonara-mode-segmented {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.filters.compact-filters {
+  grid-template-columns: repeat(3, minmax(80px, 1fr));
+}
+
 .text-search-box {
   align-items: end;
   display: grid;
   gap: 8px;
-  grid-template-columns: minmax(0, 1fr) 86px;
-  margin: 10px 0 6px;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0;
 }
 
 .text-search-box label {

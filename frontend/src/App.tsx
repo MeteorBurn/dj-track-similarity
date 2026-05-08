@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AnalysisJobStatus, api, ScanStats, SearchResult, Track } from "./api";
+import { AnalysisJobStatus, api, ScanStats, SearchResult, SonaraSearchMode, Track } from "./api";
 import { ActivityEvent, analysisJobRequest, cancelAnalysisJob, scanSummary } from "./jobUi";
 import { LibraryPanel } from "./LibraryPanel";
 import { SearchPlaylistPanel } from "./SearchPlaylistPanel";
@@ -28,7 +28,8 @@ const helpText = {
   clapAnalyze: "CLAP связывает аудио с текстовым описанием. Нужна для поиска треков по фразе о звучании.",
   analysisBatchSize: "Для SONARA это число параллельных track workers. Для MAEST/MERT/CLAP это inference batch. Тип: целое число 1-16.",
   librarySearch: "Фильтр библиотеки. Формат: текст. Ищет по artist, title, album и path.",
-  similarity: "Минимальный cosine similarity. Тип: число с точкой, диапазон 0.00-1.00. Для чистой проверки MERT оставь 0.00.",
+  similarity: "Минимальный similarity. Тип: число с точкой, диапазон 0.00-1.00.",
+  sonaraMode: "Режим SONARA similarity. Balanced смешивает признаки, Vibe смотрит настроение, Sound тембр, DJ переходный контекст.",
   textPrompt: "CLAP text search. Формат: короткая фраза через запятые: genre, mood, sound, drums, vocal/no vocals. Тип: строка.",
   lookback: "Сколько последних треков сета добавить в контекст поиска. Тип: целое число 0-12.",
   limit: "Максимум результатов поиска. Тип: целое число 1-500.",
@@ -82,7 +83,8 @@ export function App() {
     epsilon: 0,
     noise: 0,
     lookback: 2,
-    limit: 50
+    limit: 50,
+    sonaraMode: "balanced" as SonaraSearchMode
   });
 
   const seedSet = useMemo(() => new Set(seeds), [seeds]);
@@ -237,13 +239,37 @@ export function App() {
     }
   }
 
-  async function handleSearch() {
+  async function handleSonaraSearch() {
     if (!seeds.length) {
       setNotice({ kind: "error", text: "Выберите seed-треки" });
       return;
     }
     const lookbackTrackIds = filters.lookback > 0 ? playlist.slice(-filters.lookback).map((track) => track.id) : [];
-    appendActivity("info", "Поиск запущен", `${seeds.length} seed · lookback ${lookbackTrackIds.length}`);
+    appendActivity("info", "SONARA search запущен", `${filters.sonaraMode} · ${seeds.length} seed · lookback ${lookbackTrackIds.length}`);
+    await run(
+      () =>
+        api.sonaraSearch({
+          seed_track_ids: seeds,
+          lookback_track_ids: lookbackTrackIds,
+          limit: filters.limit,
+          mode: filters.sonaraMode,
+          min_similarity: filters.minSimilarity
+        }),
+      (value) => {
+        setResults(value);
+        appendActivity("ok", "SONARA search завершен", `Найдено: ${value.length}`);
+        return `Найдено: ${value.length}`;
+      }
+    );
+  }
+
+  async function handleMertSearch() {
+    if (!seeds.length) {
+      setNotice({ kind: "error", text: "Выберите seed-треки" });
+      return;
+    }
+    const lookbackTrackIds = filters.lookback > 0 ? playlist.slice(-filters.lookback).map((track) => track.id) : [];
+    appendActivity("info", "MERT search запущен", `${seeds.length} seed · lookback ${lookbackTrackIds.length}`);
     await run(
       () =>
         api.search({
@@ -260,7 +286,7 @@ export function App() {
         }),
       (value) => {
         setResults(value);
-        appendActivity("ok", "Поиск завершен", `Найдено: ${value.length}`);
+        appendActivity("ok", "MERT search завершен", `Найдено: ${value.length}`);
         return `Найдено: ${value.length}`;
       }
     );
@@ -605,7 +631,8 @@ export function App() {
           helpText={helpText}
           removeSeed={removeSeed}
           handleTextSearch={() => void handleTextSearch()}
-          handleSearch={() => void handleSearch()}
+          handleSonaraSearch={() => void handleSonaraSearch()}
+          handleMertSearch={() => void handleMertSearch()}
           addSeed={addSeed}
           togglePlaylist={togglePlaylist}
           setPreview={setPreview}

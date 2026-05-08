@@ -23,6 +23,8 @@ export type SearchResult = {
   score: number;
 };
 
+export type SonaraSearchMode = "balanced" | "vibe" | "sound" | "dj_transition";
+
 export type ScanStats = {
   job_id?: string;
   state?: string;
@@ -190,6 +192,17 @@ export const api = {
     noise?: number;
   }) =>
     request<SearchResult[]>("/api/search", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  sonaraSearch: (payload: {
+    seed_track_ids: number[];
+    lookback_track_ids?: number[];
+    limit: number;
+    mode: SonaraSearchMode;
+    min_similarity?: number | null;
+  }) =>
+    request<SearchResult[]>("/api/search/sonara", {
       method: "POST",
       body: JSON.stringify(payload)
     }),

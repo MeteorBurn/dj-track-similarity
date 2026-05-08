@@ -17,6 +17,7 @@ from .genre_jobs import GenreAnalysisJobManager
 from .logging_config import configure_logging
 from .scan_jobs import ScanJobManager
 from .search import SearchFilters, SimilaritySearch
+from .sonara_similarity import SonaraSimilaritySearch
 from .sonara_jobs import SonaraFeatureJobManager
 from .tags import apply_custom_tags, apply_genre_tags, build_tag_preview
 
@@ -76,6 +77,14 @@ class SearchRequest(BaseModel):
     min_similarity: float | None = None
     epsilon: float | None = Field(default=None, alias="Epsilon")
     noise: float = 0.0
+
+
+class SonaraSearchRequest(BaseModel):
+    seed_track_ids: list[int]
+    lookback_track_ids: list[int] = Field(default_factory=list)
+    limit: int = Field(default=50, ge=1, le=500)
+    mode: str = Field(default="balanced", pattern="^(balanced|vibe|sound|dj_transition)$")
+    min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class TextSearchRequest(BaseModel):
@@ -271,6 +280,19 @@ def create_app(db_path: str | Path = "dj-track-similarity.sqlite", *, log_level:
                 request.seed_track_ids,
                 lookback_track_ids=request.lookback_track_ids,
                 filters=filters,
+                limit=request.limit,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.post("/api/search/sonara")
+    def sonara_search(request: SonaraSearchRequest):
+        try:
+            return SonaraSimilaritySearch(db).search(
+                request.seed_track_ids,
+                lookback_track_ids=request.lookback_track_ids,
+                mode=request.mode,  # type: ignore[arg-type]
+                min_similarity=request.min_similarity,
                 limit=request.limit,
             )
         except ValueError as error:

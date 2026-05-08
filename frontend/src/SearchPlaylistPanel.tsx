@@ -1,6 +1,6 @@
-import { Dispatch, SetStateAction } from "react";
+import { Dispatch, SetStateAction, useState } from "react";
 import { Download, ListMusic, Play, Save, Search, Tags, Trash2, X } from "lucide-react";
-import { SearchResult, Track } from "./api";
+import { SearchResult, SonaraSearchMode, Track } from "./api";
 import { ResultRow } from "./TrackRows";
 import { displayTrack, trackInfo } from "./trackDisplay";
 
@@ -15,16 +15,13 @@ export type SearchFiltersState = {
   noise: number;
   lookback: number;
   limit: number;
+  sonaraMode: SonaraSearchMode;
 };
 
 type SearchHelpText = {
   textPrompt: string;
-  disabledBpm: string;
-  disabledEpsilon: string;
-  disabledNoise: string;
-  disabledEnergy: string;
-  disabledKey: string;
   similarity: string;
+  sonaraMode: string;
   lookback: string;
   limit: string;
   playlistName: string;
@@ -51,7 +48,8 @@ export function SearchPlaylistPanel({
   helpText,
   removeSeed,
   handleTextSearch,
-  handleSearch,
+  handleSonaraSearch,
+  handleMertSearch,
   addSeed,
   togglePlaylist,
   setPreview,
@@ -80,7 +78,8 @@ export function SearchPlaylistPanel({
   helpText: SearchHelpText;
   removeSeed: (trackId: number) => void;
   handleTextSearch: () => void;
-  handleSearch: () => void;
+  handleSonaraSearch: () => void;
+  handleMertSearch: () => void;
   addSeed: (track: Track) => void;
   togglePlaylist: (track: Track) => void;
   setPreview: (track: Track) => void;
@@ -90,6 +89,14 @@ export function SearchPlaylistPanel({
   handleExport: (format: "m3u" | "csv") => void;
   handleTags: (apply: boolean) => void;
 }) {
+  const [activeSearchTab, setActiveSearchTab] = useState<"sonara" | "mert" | "clap">("sonara");
+  const modeOptions: Array<{ value: SonaraSearchMode; label: string }> = [
+    { value: "balanced", label: "Balanced" },
+    { value: "vibe", label: "Vibe" },
+    { value: "sound", label: "Sound" },
+    { value: "dj_transition", label: "DJ" }
+  ];
+
   return (
     <aside className="panel search-panel">
       <section className="search-section">
@@ -105,40 +112,76 @@ export function SearchPlaylistPanel({
             </button>
           ))}
         </div>
-        <div className="mert-mode-note">
-          Seed search использует MERT. Text search использует CLAP и требует отдельного CLAP-анализа библиотеки.
-        </div>
-        <div className="text-search-box">
-          <label title={helpText.textPrompt}>
-            Text query
-            <input
-              value={textQuery}
-              onChange={(event) => onTextQueryChange(event.target.value)}
-              placeholder="dark hypnotic techno, rolling bass, no vocals"
-              title={helpText.textPrompt}
-            />
-          </label>
-          <button disabled={busy || !textQuery.trim()} onClick={handleTextSearch}>
-            <Search size={16} />
-            Text
+        <div className="search-tabs" role="tablist" aria-label="Search model">
+          <button className={activeSearchTab === "sonara" ? "active" : ""} onClick={() => setActiveSearchTab("sonara")} role="tab" aria-selected={activeSearchTab === "sonara"} type="button">
+            SONARA
+          </button>
+          <button className={activeSearchTab === "mert" ? "active" : ""} onClick={() => setActiveSearchTab("mert")} role="tab" aria-selected={activeSearchTab === "mert"} type="button">
+            MERT
+          </button>
+          <button className={activeSearchTab === "clap" ? "active" : ""} onClick={() => setActiveSearchTab("clap")} role="tab" aria-selected={activeSearchTab === "clap"} type="button">
+            CLAP
           </button>
         </div>
-        <div className="filters">
-          <label className="disabled-filter" title={helpText.disabledBpm}><span>BPM ±</span><input type="number" disabled value={filters.bpmTolerance} min={0} max={32} title={helpText.disabledBpm} onChange={(event) => setFilters({ ...filters, bpmTolerance: Number(event.target.value) })} /></label>
-          <label title={helpText.similarity}>Similarity<input type="number" value={filters.minSimilarity} min={0} max={1} step={0.01} title={helpText.similarity} onChange={(event) => setFilters({ ...filters, minSimilarity: Number(event.target.value) })} /></label>
-          <label className="disabled-filter" title={helpText.disabledEpsilon}><span>Epsilon</span><input type="number" disabled value={filters.epsilon} min={0} max={1} step={0.01} title={helpText.disabledEpsilon} onChange={(event) => setFilters({ ...filters, epsilon: Number(event.target.value) })} /></label>
-          <label className="disabled-filter" title={helpText.disabledNoise}><span>Noise</span><input type="number" disabled value={filters.noise} min={0} max={1} step={0.01} title={helpText.disabledNoise} onChange={(event) => setFilters({ ...filters, noise: Number(event.target.value) })} /></label>
-          <label title={helpText.lookback}>Lookback<input type="number" value={filters.lookback} min={0} max={12} title={helpText.lookback} onChange={(event) => setFilters({ ...filters, lookback: Number(event.target.value) })} /></label>
-          <label className="disabled-filter" title={helpText.disabledEnergy}><span>Energy min</span><input type="number" disabled value={filters.energyMin} min={0} max={1} step={0.01} title={helpText.disabledEnergy} onChange={(event) => setFilters({ ...filters, energyMin: Number(event.target.value) })} /></label>
-          <label className="disabled-filter" title={helpText.disabledEnergy}><span>Energy max</span><input type="number" disabled value={filters.energyMax} min={0} max={1} step={0.01} title={helpText.disabledEnergy} onChange={(event) => setFilters({ ...filters, energyMax: Number(event.target.value) })} /></label>
-          <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => setFilters({ ...filters, limit: Number(event.target.value) })} /></label>
-          <label className="toggle disabled-filter" title={helpText.disabledKey}><input type="checkbox" disabled checked={filters.keyCompatibility} onChange={(event) => setFilters({ ...filters, keyCompatibility: event.target.checked })} />Key</label>
-          <label className="toggle disabled-filter" title={helpText.disabledEnergy}><input type="checkbox" disabled checked={filters.energyEnabled} onChange={(event) => setFilters({ ...filters, energyEnabled: event.target.checked })} />Energy</label>
-        </div>
-        <button className="primary" disabled={busy || !seeds.length} onClick={handleSearch}>
-          <Search size={17} />
-          Seed search
-        </button>
+        {activeSearchTab === "sonara" && (
+          <div className="search-tab-panel" role="tabpanel">
+            <label className="mode-selector" title={helpText.sonaraMode}>
+              <span>Mode</span>
+              <div className="segmented sonara-mode-segmented">
+                {modeOptions.map((option) => (
+                  <button className={filters.sonaraMode === option.value ? "active" : ""} key={option.value} onClick={() => setFilters({ ...filters, sonaraMode: option.value })} title={helpText.sonaraMode} type="button">
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </label>
+            <div className="filters compact-filters">
+              <label title={helpText.similarity}>Similarity<input type="number" value={filters.minSimilarity} min={0} max={1} step={0.01} title={helpText.similarity} onChange={(event) => setFilters({ ...filters, minSimilarity: Number(event.target.value) })} /></label>
+              <label title={helpText.lookback}>Lookback<input type="number" value={filters.lookback} min={0} max={12} title={helpText.lookback} onChange={(event) => setFilters({ ...filters, lookback: Number(event.target.value) })} /></label>
+              <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => setFilters({ ...filters, limit: Number(event.target.value) })} /></label>
+            </div>
+            <button className="primary" disabled={busy || !seeds.length} onClick={handleSonaraSearch}>
+              <Search size={17} />
+              SONARA search
+            </button>
+          </div>
+        )}
+        {activeSearchTab === "mert" && (
+          <div className="search-tab-panel" role="tabpanel">
+            <div className="filters compact-filters">
+              <label title={helpText.similarity}>Similarity<input type="number" value={filters.minSimilarity} min={0} max={1} step={0.01} title={helpText.similarity} onChange={(event) => setFilters({ ...filters, minSimilarity: Number(event.target.value) })} /></label>
+              <label title={helpText.lookback}>Lookback<input type="number" value={filters.lookback} min={0} max={12} title={helpText.lookback} onChange={(event) => setFilters({ ...filters, lookback: Number(event.target.value) })} /></label>
+              <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => setFilters({ ...filters, limit: Number(event.target.value) })} /></label>
+            </div>
+            <button className="primary" disabled={busy || !seeds.length} onClick={handleMertSearch}>
+              <Search size={17} />
+              MERT search
+            </button>
+          </div>
+        )}
+        {activeSearchTab === "clap" && (
+          <div className="search-tab-panel" role="tabpanel">
+            <div className="text-search-box">
+              <label title={helpText.textPrompt}>
+                Text query
+                <input
+                  value={textQuery}
+                  onChange={(event) => onTextQueryChange(event.target.value)}
+                  placeholder="dark hypnotic techno, rolling bass, no vocals"
+                  title={helpText.textPrompt}
+                />
+              </label>
+            </div>
+            <div className="filters compact-filters">
+              <label title={helpText.similarity}>Similarity<input type="number" value={filters.minSimilarity} min={0} max={1} step={0.01} title={helpText.similarity} onChange={(event) => setFilters({ ...filters, minSimilarity: Number(event.target.value) })} /></label>
+              <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => setFilters({ ...filters, limit: Number(event.target.value) })} /></label>
+            </div>
+            <button className="primary" disabled={busy || !textQuery.trim()} onClick={handleTextSearch}>
+              <Search size={17} />
+              CLAP text
+            </button>
+          </div>
+        )}
         <div className="results-list">
           {results.map(({ track, score }) => (
             <ResultRow

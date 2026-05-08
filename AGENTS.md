@@ -53,7 +53,7 @@ This workspace may not be a Git repository. Do not assume Git history, branches,
 - `auto` chooses CUDA when PyTorch sees a GPU, otherwise CPU.
 - If CUDA is explicitly requested and unavailable, surface an error instead of silently falling back to CPU. Use `auto` for fallback behavior.
 - For CUDA systems, PyTorch should usually be installed separately with the official CUDA wheel index before installing remaining ML dependencies. Do not assume plain `pip install -e ".[ml]"` will pick the correct CUDA build.
-- Current seed search UI is in MERT validation mode: active knobs are `Similarity`, `Lookback`, and `Limit`. BPM, Key, Energy, Epsilon, and Noise are disabled in the UI and should not be sent from the frontend search request until calibrated. Text search is a separate CLAP mode and requires `clap` embeddings.
+- Search UI is split into SONARA, MERT, and CLAP tabs inside the same search/listening panel. SONARA is the primary seed-search path and sends only `Mode`, `Similarity`, `Lookback`, and `Limit` to `/api/search/sonara`. MERT keeps its own seed-search tab and sends only `Similarity`, `Lookback`, and `Limit` to `/api/search`. CLAP text search keeps the prompt field in its own tab and requires `clap` embeddings.
 - Algorithm reset controls are database-only. Reset Sonara, MAEST, MERT, CLAP, or fake independently without touching unrelated analysis families or audio files.
 - The database clear control deletes local SQLite records only and must require an explicit UI confirmation. It must not delete audio files.
 - The track metadata dialog should keep sources visually separate: the unnamed top table first, Sonara computed features next, and MAEST genre labels separately. The top table must always show `Title`, `Audio Length`, `Audio Format`, `File Size`, and `File Path`; then show Mutagen tags only when present in this order: `Artist`, `Album`, `Genre`, `Year`, `Country`, `Label`, `Catalog`, `Track no.`, `Disc no.`, `BPM tag`, `Key tag`, `Comment`, `ISRC`.
@@ -156,12 +156,13 @@ dj-sim tag-preview 1 2 3
 - `src/dj_track_similarity/logging_config.py`: file logging setup, event log levels, and concise exception summaries.
 - `src/dj_track_similarity/sonara_features.py`: Sonara playlist feature extraction, signal fallback through the shared audio loader, grouped feature summaries, and SQLite storage preparation.
 - `src/dj_track_similarity/sonara_jobs.py`: Sonara feature analysis job manager with progress, cancellation, errors, and SQLite metadata saves.
+- `src/dj_track_similarity/sonara_similarity.py`: SONARA-only feature similarity search for balanced, vibe, sound, and DJ-transition seed matching. It must ignore `camelot_key` even if stale metadata contains it.
 - `src/dj_track_similarity/genres.py`: MAEST genre adapter using `maest-infer` with `discogs-maest-30s-pw-129e-519l`; batch inference must use direct model logits, not `predict_labels()`.
 - `src/dj_track_similarity/analysis.py`: simple analyze-missing flow.
 - `src/dj_track_similarity/analysis_jobs.py`: analysis job manager with batching, progress, cancellation, errors, adapter metadata, and embedding saves.
 - `src/dj_track_similarity/genre_jobs.py`: MAEST genre analysis job manager with batching, progress, cancellation, errors, and SQLite metadata saves.
-- `src/dj_track_similarity/search.py`: centroid-based similarity search plus arbitrary query-vector search for CLAP text mode.
-- In the frontend, only Similarity, Lookback, and Limit are active for MERT validation; the other search filters remain backend capabilities/future knobs.
+- `src/dj_track_similarity/search.py`: embedding-space centroid similarity search plus arbitrary query-vector search for CLAP text mode.
+- In the frontend, SONARA, MERT, and CLAP search controls should stay separated by tabs so each model shows only its own parameters.
 - `src/dj_track_similarity/exporter.py`: playlist export to M3U or CSV.
 - `src/dj_track_similarity/tags.py`: custom `DJ_SIM_*` tag preview/apply logic plus explicit MAEST-to-standard-genre tag writing, including guarded WAV genre writes.
 - `src/dj_track_similarity/api.py`: FastAPI factory, request models, REST endpoints including `/api/library/relocate`, static frontend mount, and media serving.
@@ -184,7 +185,7 @@ dj-sim tag-preview 1 2 3
 - If adding or changing Sonara feature extraction, update `src/dj_track_similarity/sonara_features.py`, `src/dj_track_similarity/sonara_jobs.py`, `src/dj_track_similarity/database.py`, `src/dj_track_similarity/api.py`, `src/dj_track_similarity/cli.py`, `frontend/src/api.ts`, `frontend/src/App.tsx`, docs, and focused Sonara tests as needed. Keep the SQLite feature order and the UI group order in sync.
 - If adding or changing MAEST genre job state, update `frontend/src/api.ts`, `frontend/src/App.tsx`, and focused genre job/API tests.
 - If changing audio decode behavior, keep `src/dj_track_similarity/audio_loader.py`, Sonara fallback, MAEST/MERT/CLAP adapters, and focused malformed-WAV tests aligned.
-- If changing search behavior, add or update focused tests in `tests/test_search.py`.
+- If changing search behavior, add or update focused tests in `tests/test_search.py`, `tests/test_sonara_similarity.py`, or API tests as appropriate.
 - If changing library path relocation, keep `src/dj_track_similarity/database.py`, `src/dj_track_similarity/api.py`, `src/dj_track_similarity/cli.py`, `frontend/src/api.ts`, and focused database/API/CLI tests aligned.
 - If changing analysis performance controls, keep `frontend/src/api.ts`, `src/dj_track_similarity/api.py`, `src/dj_track_similarity/analysis_jobs.py`, `src/dj_track_similarity/genre_jobs.py`, `src/dj_track_similarity/embedding.py`, `src/dj_track_similarity/genres.py`, and `src/dj_track_similarity/runtime.py` aligned.
 - If changing SQLite connection handling, write paths, job batching, or worker concurrency, keep project-wide database-write safety in mind. Add or update focused tests that cover mixed parallel writes across analysis families and across separate `LibraryDatabase` instances pointing at the same SQLite file.

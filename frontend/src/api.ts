@@ -130,10 +130,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ adapter, limit: limit || null, device, batch_size })
     }),
-  analyzeSonara: (limit?: number) =>
+  analyzeSonara: (limit?: number, batch_size = 1) =>
     request<AnalysisJobStatus>("/api/sonara/analyze", {
       method: "POST",
-      body: JSON.stringify({ limit: limit || null })
+      body: JSON.stringify({ limit: limit || null, batch_size })
     }),
   sonaraJob: (jobId: string) => request<AnalysisJobStatus>(`/api/sonara/analyze/jobs/${jobId}`),
   latestSonaraJob: () => request<AnalysisJobStatus | null>("/api/sonara/analyze/jobs/latest"),
@@ -149,10 +149,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({})
     }),
-  analyzeGenres: (limit?: number, device: "auto" | "cpu" | "cuda" = "auto", top_k = 3) =>
+  analyzeGenres: (limit?: number, device: "auto" | "cpu" | "cuda" = "auto", top_k = 3, batch_size = 4) =>
     request<AnalysisJobStatus>("/api/genres/analyze", {
       method: "POST",
-      body: JSON.stringify({ limit: limit || null, device, top_k })
+      body: JSON.stringify({ limit: limit || null, device, top_k, batch_size })
     }),
   genreJob: (jobId: string) => request<AnalysisJobStatus>(`/api/genres/analyze/jobs/${jobId}`),
   latestGenreJob: () => request<AnalysisJobStatus | null>("/api/genres/analyze/jobs/latest"),

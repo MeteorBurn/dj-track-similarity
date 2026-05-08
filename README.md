@@ -35,7 +35,8 @@ else who collects, tags, or plays music will find the approach useful too.
 - Can explicitly save stored MAEST labels into standard audio genre tags for
   players such as AIMP.
 - Shows compact per-track analysis status (`sonara`, `maest`, `mert`, `clap`)
-  and a metadata popup with Mutagen tags, Sonara features, and MAEST genre
+  and header counters for how many tracks have each analysis family.
+- Shows a metadata popup with Mutagen tags, Sonara features, and MAEST genre
   confidence scores.
 - Lets you choose seed tracks, search for similar tracks, preview them, and
   assemble a small set or playlist.
@@ -73,7 +74,8 @@ Sonara is currently used in `playlist` mode as a fast, practical feature pass.
 It writes analyzed BPM/key and compact feature summaries into SQLite metadata.
 Large arrays such as mel spectrograms are summarized instead of being dumped in
 full, because the current goal is inspection and calibration, not a final data
-format.
+format. In the UI, `Embedding batch size` controls how many Sonara track
+workers run concurrently.
 
 The metadata popup is intentionally split by source:
 
@@ -89,7 +91,9 @@ MAEST genres can be saved explicitly from the UI. The global `Save genres`
 button writes genres for all tracks with MAEST labels; the compact `Save`
 button in the metadata popup writes genres for one track. It overwrites only
 the standard genre field and keeps existing title, artist, album, BPM, key, and
-other tags.
+other tags. MAEST genre extraction uses inference batching through direct model
+logits, not the convenience `predict_labels()` helper, so each track in a batch
+keeps its own genre scores.
 
 ## Run The App
 
@@ -130,7 +134,7 @@ and errors only; use `--log-level info` when debugging detailed track behavior.
 ```powershell
 dj-sim scan "D:\Music"
 
-dj-sim analyze-sonara --limit 25
+dj-sim analyze-sonara --batch-size 4 --limit 25
 
 dj-sim analyze
 dj-sim analyze --device cpu --batch-size 2
@@ -139,7 +143,7 @@ dj-sim analyze --device cuda --batch-size 8
 dj-sim analyze --adapter clap --device cuda --batch-size 4
 dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 50
 
-dj-sim analyze-genres --device cuda --limit 25
+dj-sim analyze-genres --device cuda --batch-size 4 --limit 25
 
 dj-sim analyze --fake
 dj-sim doctor
@@ -155,17 +159,19 @@ dj-sim tag-apply 1 2 3
 PyTorch/Hugging Face and may download model weights on first run.
 
 `analyze-sonara` uses `sonara.analyze_file(..., mode="playlist")` and stores
-feature summaries in SQLite metadata. If Sonara's default decoder cannot read a
-WAV-like file, the app falls back to the shared tolerant audio loader before
-calling Sonara signal analysis. BPM and key from this pass are analyzed values,
-not file tags. The UI displays the working musical key in Camelot notation when
-Sonara provides enough tonal information.
+feature summaries in SQLite metadata. Its `--batch-size` controls parallel
+track workers, not a neural-network batch. If Sonara's default decoder cannot
+read a WAV-like file, the app falls back to the shared tolerant audio loader
+before calling Sonara signal analysis. BPM and key from this pass are analyzed
+values, not file tags. The UI displays the working musical key in Camelot
+notation when Sonara provides enough tonal information.
 
 `--adapter clap` builds separate LAION-CLAP audio embeddings for text search.
 
 `analyze-genres` uses MAEST through `maest-infer` with
 `discogs-maest-30s-pw-129e-519l` to store the top 3 genre labels and confidence
-scores in SQLite track metadata. It does not modify audio files by itself.
+scores in SQLite track metadata. Its `--batch-size` controls MAEST inference
+batching on the selected device. It does not modify audio files by itself.
 
 `--fake` is only for smoke tests without loading ML models.
 
@@ -191,6 +197,18 @@ vectors only.
 
 That means text search requires a separate CLAP analysis pass before it can
 return useful results.
+
+## Analysis Counters
+
+The header shows the total library size and four analysis counters, for example:
+
+```text
+3016 треков | sonara 3016 | maest 742 | mert 3016 | clap 900
+```
+
+These counters are based on the same per-track analysis markers shown in the
+track list. Sonara and MAEST are counted from stored metadata, while MERT and
+CLAP are counted from their separate embedding spaces.
 
 ## Tag And Analysis Data
 
@@ -256,22 +274,27 @@ Good query ingredients:
 
 ## Performance Notes
 
-MERT and CLAP analysis are accelerated mostly by device selection and inference
-batching, not by running many model workers in parallel.
+MERT, CLAP, and MAEST analysis are accelerated mostly by device selection and
+inference batching, not by running many model workers in parallel.
 
 - `auto` uses CUDA when PyTorch can see a GPU, otherwise CPU.
 - `cpu` is slower, but useful for compatibility checks.
 - `cuda` is usually faster. Start with `batch size 4-8` and raise it carefully.
 - `batch size` affects speed and memory use, but should not change the produced
-  embeddings because mixed precision is not currently enabled.
+  embeddings or genre scores because mixed precision is not currently enabled.
 - If CUDA is explicitly requested but unavailable, the analysis fails instead
   of silently falling back to CPU. Use `auto` when fallback is desired.
 
 MAEST genre extraction uses the same `auto`, `cpu`, and `cuda` device behavior.
+Internally, the app sends a `[batch, time]` audio tensor to `maest-infer` and
+reads per-track logits from `model(...)`. It intentionally avoids
+`predict_labels()` for batch analysis because that helper averages activations
+into one label vector.
 
 Sonara playlist analysis is usually much lighter than MERT/CLAP/MAEST model
 inference. It still reads and decodes audio, so the full-library pass is not
-free, but it is intended to be a fast feature inspection step. The current
+free, but it is intended to be a fast feature inspection step. Its batch size
+means parallel track workers rather than model inference batching. The current
 implementation summarizes large arrays instead of storing full arrays in the
 database.
 

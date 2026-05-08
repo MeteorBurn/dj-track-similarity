@@ -45,10 +45,12 @@ class GenreAnalyzeRequest(BaseModel):
     limit: int | None = None
     device: str = Field(default="auto", pattern="^(auto|cpu|cuda)$")
     top_k: int = Field(default=3, ge=1, le=10)
+    batch_size: int = Field(default=4, ge=1, le=64)
 
 
 class SonaraAnalyzeRequest(BaseModel):
     limit: int | None = None
+    batch_size: int = Field(default=1, ge=1, le=64)
 
 
 class AnalysisResetRequest(BaseModel):
@@ -175,7 +177,7 @@ def create_app(db_path: str | Path = "dj-track-similarity.sqlite", *, log_level:
 
     @app.post("/api/sonara/analyze")
     def analyze_sonara(request: SonaraAnalyzeRequest):
-        return sonara_jobs.start(limit=request.limit)
+        return sonara_jobs.start(limit=request.limit, batch_size=request.batch_size)
 
     @app.get("/api/sonara/analyze/jobs/latest")
     def latest_sonara_job():
@@ -215,7 +217,12 @@ def create_app(db_path: str | Path = "dj-track-similarity.sqlite", *, log_level:
 
     @app.post("/api/genres/analyze")
     def analyze_genres(request: GenreAnalyzeRequest):
-        return genre_jobs.start(limit=request.limit, device=request.device, top_k=request.top_k)
+        return genre_jobs.start(
+            limit=request.limit,
+            device=request.device,
+            top_k=request.top_k,
+            batch_size=request.batch_size,
+        )
 
     @app.get("/api/genres/analyze/jobs/latest")
     def latest_genre_job():

@@ -7,10 +7,13 @@ from dj_track_similarity.database import LibraryDatabase
 
 
 class SynchronousGenreManager:
+    last_batch_size = None
+
     def __init__(self, db):
         self.db = db
 
-    def start(self, *, limit=None, device="auto", top_k=5):
+    def start(self, *, limit=None, device="auto", top_k=5, batch_size=1):
+        type(self).last_batch_size = batch_size
         tracks = self.db.list_tracks()
         if limit is not None:
             tracks = tracks[:limit]
@@ -35,6 +38,8 @@ class SynchronousGenreManager:
             "events": [],
             "cancel_requested": False,
             "top_k": top_k,
+            "batch_size": batch_size,
+            "workers": batch_size,
         }
 
     def latest(self):
@@ -54,10 +59,13 @@ def test_api_runs_maest_genre_analysis_and_returns_track_genres(monkeypatch, tmp
     monkeypatch.setattr(api, "GenreAnalysisJobManager", SynchronousGenreManager)
 
     client = TestClient(api.create_app(db_path))
-    response = client.post("/api/genres/analyze", json={"limit": 1, "device": "cpu", "top_k": 1})
+    response = client.post("/api/genres/analyze", json={"limit": 1, "device": "cpu", "top_k": 1, "batch_size": 4})
 
     assert response.status_code == 200
     assert response.json()["analyzed"] == 1
+    assert response.json()["batch_size"] == 4
+    assert response.json()["workers"] == 4
+    assert SynchronousGenreManager.last_batch_size == 4
     tracks = client.get("/api/tracks").json()
     assert tracks[0]["genres"] == ["Techno"]
     assert tracks[0]["genre_scores"] == {"Techno": 0.95}

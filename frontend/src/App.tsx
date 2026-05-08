@@ -34,12 +34,12 @@ const helpText = {
   refreshTags: "Перечитать только file tags через Mutagen для уже найденных треков. Пути, Sonara, MAEST, MERT и CLAP не трогаются.",
   clearDatabase: "Удалить все записи из SQLite: треки, эмбеддинги, анализы, плейлисты и сет. Аудиофайлы на диске не трогаются.",
   analysisDevice: "Устройство для MERT/CLAP. Значения: AUTO, CPU, CUDA. AUTO выберет CUDA, если PyTorch видит GPU, иначе CPU.",
-  sonaraAnalyze: "SONARA считает BPM, key и музыкальные признаки. Нужна для базового описания трека и будущих DJ-фильтров.",
-  maestAnalyze: "MAEST определяет жанровые метки. Нужна для жанровой навигации и проверки характера библиотеки.",
+  sonaraAnalyze: "SONARA считает BPM, key и музыкальные признаки. Нужна для базового описания трека и будущих DJ-фильтров. Параллельность берется из Embedding batch size.",
+  maestAnalyze: "MAEST определяет жанровые метки. Нужна для жанровой навигации и проверки характера библиотеки. Batch берется из Embedding batch size.",
   writeMaestGenres: "Перезаписать стандартный Genre/TCON/©gen в аудиофайлах жанрами MAEST. Плееры вроде AIMP будут видеть эти жанры.",
   mertAnalyze: "MERT строит аудио-эмбеддинги. Нужна для поиска похожих треков от выбранных seed-треков.",
   clapAnalyze: "CLAP связывает аудио с текстовым описанием. Нужна для поиска треков по фразе о звучании.",
-  analysisBatchSize: "Размер inference batch для MERT/CLAP. Тип: целое число 1-16. CPU: 1-4; CUDA: начни с 4-8.",
+  analysisBatchSize: "Для SONARA это число параллельных track workers. Для MAEST/MERT/CLAP это inference batch. Тип: целое число 1-16.",
   librarySearch: "Фильтр библиотеки. Формат: текст. Ищет по artist, title, album и path.",
   similarity: "Минимальный cosine similarity. Тип: число с точкой, диапазон 0.00-1.00. Для чистой проверки MERT оставь 0.00.",
   textPrompt: "CLAP text search. Формат: короткая фраза через запятые: genre, mood, sound, drums, vocal/no vocals. Тип: строка.",
@@ -109,6 +109,12 @@ export function App() {
   }, [tracks, query]);
   const seedTracks = useMemo(() => seeds.map((id) => tracks.find((track) => track.id === id)).filter(Boolean) as Track[], [seeds, tracks]);
   const maestGenreTrackIds = useMemo(() => tracks.filter((track) => track.genres?.length).map((track) => track.id), [tracks]);
+  const analysisCounts = useMemo(() => ({
+    sonara: tracks.filter((track) => trackHasAnalysis(track, "sonara")).length,
+    maest: tracks.filter((track) => trackHasAnalysis(track, "maest")).length,
+    mert: tracks.filter((track) => trackHasAnalysis(track, "mert")).length,
+    clap: tracks.filter((track) => trackHasAnalysis(track, "clap")).length
+  }), [tracks]);
   const scanRunning = Boolean(scanJob?.state && ["queued", "running"].includes(scanJob.state));
   const analysisRunning = Boolean(analysisJob && ["queued", "running"].includes(analysisJob.state));
   const stageRunning = scanRunning || analysisRunning;
@@ -388,15 +394,15 @@ export function App() {
 
   async function handleSonaraAnalyze() {
     const limit = analysisLimit > 0 ? analysisLimit : undefined;
-    const detail = `${limit ? `limit ${limit}` : "вся библиотека"} · SQLite metadata`;
+    const detail = `batch ${analysisBatchSize} · ${limit ? `limit ${limit}` : "вся библиотека"} · SQLite metadata`;
     appendActivity("info", "SONARA lab анализ запущен", detail);
     setProcessLogKind("analysis");
     setAnalysisJob(null);
     await run(
-      () => api.analyzeSonara(limit),
+      () => api.analyzeSonara(limit, analysisBatchSize),
       (job) => {
         setAnalysisJob(job);
-        appendActivity("ok", "SONARA job создан", `${job.job_id.slice(0, 8)} · ${job.total} треков · SQLite`);
+        appendActivity("ok", "SONARA job создан", `${job.job_id.slice(0, 8)} · ${job.total} треков · batch ${job.batch_size}`);
         return `SONARA job ${job.job_id.slice(0, 8)}: ${job.total} треков`;
       }
     );
@@ -419,15 +425,15 @@ export function App() {
 
   async function handleGenreAnalyze() {
     const limit = analysisLimit > 0 ? analysisLimit : undefined;
-    const detail = `${analysisDevice.toUpperCase()} · top 3 genres · ${limit ? `limit ${limit}` : "вся библиотека"}`;
+    const detail = `${analysisDevice.toUpperCase()} · batch ${analysisBatchSize} · top 3 genres · ${limit ? `limit ${limit}` : "вся библиотека"}`;
     appendActivity("info", "MAEST анализ жанров запущен", detail);
     setProcessLogKind("analysis");
     setAnalysisJob(null);
     await run(
-      () => api.analyzeGenres(limit, analysisDevice, 3),
+      () => api.analyzeGenres(limit, analysisDevice, 3, analysisBatchSize),
       (job) => {
         setAnalysisJob(job);
-        appendActivity("ok", "MAEST job создан", `${job.job_id.slice(0, 8)} · ${job.total} треков · top 3`);
+        appendActivity("ok", "MAEST job создан", `${job.job_id.slice(0, 8)} · ${job.total} треков · batch ${job.batch_size} · top 3`);
         return `MAEST job ${job.job_id.slice(0, 8)}: ${job.total} треков`;
       }
     );
@@ -527,7 +533,13 @@ export function App() {
       <header className="topbar">
         <div>
           <h1>DJ Track Similarity</h1>
-          <span className="meta">{tracks.length} {trackCountLabel(tracks.length)}</span>
+          <span className="meta">
+            {tracks.length} {trackCountLabel(tracks.length)}
+            {" | sonara "}{analysisCounts.sonara}
+            {" | maest "}{analysisCounts.maest}
+            {" | mert "}{analysisCounts.mert}
+            {" | clap "}{analysisCounts.clap}
+          </span>
         </div>
         <div className={`notice ${notice.kind}`}>{notice.text}</div>
       </header>
@@ -617,7 +629,7 @@ export function App() {
               <input type="number" min={1} max={maxAnalysisBatchSize} value={analysisBatchSize} title={helpText.analysisBatchSize} onChange={(event) => setAnalysisBatchSize(Math.min(maxAnalysisBatchSize, Math.max(1, Number(event.target.value) || 1)))} />
               <button className="icon-button" disabled={busy || analysisBatchSize >= maxAnalysisBatchSize} onClick={() => adjustAnalysisBatchSize(1)} aria-label="Увеличить batch size"><Plus size={15} /></button>
             </div>
-            <small>CPU: 1-4; CUDA: начни с 4-8 и повышай осторожно.</small>
+            <small>SONARA: параллельные треки. MAEST/MERT/CLAP: inference batch; CPU 1-4, CUDA начни с 4-8.</small>
             <button className="secondary-mini" disabled={busy || stageRunning || !hasTracks} onClick={() => void handleAnalyze("fake")}>
               <Gauge size={14} />
               Smoke
@@ -1124,16 +1136,21 @@ function trackCountLabel(count: number) {
 }
 
 function analysisStatusLabel(track: Track) {
-  const analyses = new Set(track.analyses || []);
-  if (track.genres?.length) analyses.add("maest");
-  if (track.embedding_model) analyses.add("mert");
   const labels = [
-    analyses.has("sonara") ? "sonara" : null,
-    analyses.has("maest") ? "maest" : null,
-    analyses.has("mert") ? "mert" : null,
-    analyses.has("clap") ? "clap" : null
+    trackHasAnalysis(track, "sonara") ? "sonara" : null,
+    trackHasAnalysis(track, "maest") ? "maest" : null,
+    trackHasAnalysis(track, "mert") ? "mert" : null,
+    trackHasAnalysis(track, "clap") ? "clap" : null
   ].filter(Boolean);
   return labels.length ? labels.join(" ") : "";
+}
+
+function trackHasAnalysis(track: Track, adapter: "sonara" | "maest" | "mert" | "clap") {
+  const analyses = new Set(track.analyses || []);
+  if (track.metadata?.sonara_features) analyses.add("sonara");
+  if (track.genres?.length) analyses.add("maest");
+  if (track.embedding_model) analyses.add("mert");
+  return analyses.has(adapter);
 }
 
 const trackTagLabels: Record<string, string> = {

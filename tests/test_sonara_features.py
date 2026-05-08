@@ -1,4 +1,6 @@
 from pathlib import Path
+import threading
+import time
 import wave
 
 import numpy as np
@@ -101,10 +103,13 @@ def test_analyze_and_store_sonara_features_writes_metadata_and_json_dump(tmp_pat
 
 
 class SynchronousSonaraManager:
+    last_batch_size = None
+
     def __init__(self, db, *args, **kwargs):
         self.db = db
 
-    def start(self, *, limit=None):
+    def start(self, *, limit=None, batch_size=1):
+        type(self).last_batch_size = batch_size
         tracks = self.db.list_tracks()
         if limit is not None:
             tracks = tracks[:limit]
@@ -129,8 +134,8 @@ class SynchronousSonaraManager:
             "errors": [],
             "events": [],
             "cancel_requested": False,
-            "workers": 1,
-            "batch_size": 1,
+            "workers": batch_size,
+            "batch_size": batch_size,
         }
 
     def latest(self):
@@ -152,10 +157,13 @@ def test_api_runs_sonara_analysis_and_returns_track_features(monkeypatch, tmp_pa
     monkeypatch.setattr(api, "SonaraFeatureJobManager", SynchronousSonaraManager)
 
     client = TestClient(api.create_app(db_path))
-    response = client.post("/api/sonara/analyze", json={"limit": 1})
+    response = client.post("/api/sonara/analyze", json={"limit": 1, "batch_size": 3})
 
     assert response.status_code == 200
     assert response.json()["adapter_name"] == "sonara"
+    assert response.json()["batch_size"] == 3
+    assert response.json()["workers"] == 3
+    assert SynchronousSonaraManager.last_batch_size == 3
     tracks = client.get("/api/tracks").json()
     assert tracks[0]["bpm"] == 126.4
     assert tracks[0]["musical_key"] == "8A"
@@ -208,6 +216,38 @@ def test_sonara_limit_counts_tracks_without_sonara_features(monkeypatch, tmp_pat
     assert status.total == 2
     assert status.analyzed == 2
     assert processed == ["b.wav", "c.wav"]
+
+
+def test_sonara_batch_size_runs_tracks_in_parallel(monkeypatch, tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    for name in ["a.wav", "b.wav", "c.wav"]:
+        audio_path = tmp_path / name
+        _write_wav(audio_path)
+        db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": name})
+    active = 0
+    max_active = 0
+    lock = threading.Lock()
+
+    def fake_analyze(db, track):
+        nonlocal active, max_active
+        with lock:
+            active += 1
+            max_active = max(max_active, active)
+        time.sleep(0.05)
+        db.save_sonara_features(track.id, {"bpm": {"value": 121}}, model_name="sonara-test")
+        with lock:
+            active -= 1
+
+    monkeypatch.setattr("dj_track_similarity.sonara_jobs.analyze_and_store_sonara_features", fake_analyze)
+
+    status = SonaraFeatureJobManager(db).run_sync(batch_size=2)
+
+    assert status.state == "completed"
+    assert status.total == 3
+    assert status.analyzed == 3
+    assert status.workers == 2
+    assert status.batch_size == 2
+    assert max_active == 2
 
 
 def test_sonara_key_conversion_to_camelot_uses_tonal_fields() -> None:

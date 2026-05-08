@@ -20,6 +20,9 @@ class GenreAdapter(Protocol):
     def predict(self, path: str) -> list[dict[str, object]]:
         ...
 
+    def predict_batch(self, paths: list[str]) -> list[list[dict[str, object]]]:
+        ...
+
 
 GenreAdapterFactory = Callable[..., GenreAdapter]
 LOGGER = logging.getLogger(__name__)
@@ -76,17 +79,20 @@ class GenreAnalysisJobManager:
         self._jobs: dict[str, GenreJobStatus] = {}
         self._lock = threading.Lock()
 
-    def create_job(self, *, limit: int | None = None, device: str = "auto", top_k: int = 3) -> str:
+    def create_job(self, *, limit: int | None = None, device: str = "auto", top_k: int = 3, batch_size: int = 4) -> str:
         tracks = [track for track in self.db.list_tracks() if not track.genres]
         if limit is not None:
             tracks = tracks[:limit]
         job_id = str(uuid.uuid4())
+        effective_batch_size = max(1, int(batch_size))
         status = GenreJobStatus(
             job_id=job_id,
             state="queued",
             total=len(tracks),
             device_requested=device,
             top_k=max(1, int(top_k)),
+            batch_size=effective_batch_size,
+            workers=effective_batch_size,
         )
         status._tracks = tracks  # type: ignore[attr-defined]
         with self._lock:
@@ -94,14 +100,14 @@ class GenreAnalysisJobManager:
         self._append_event(job_id, "info", "MAEST genre analysis queued")
         return job_id
 
-    def start(self, *, limit: int | None = None, device: str = "auto", top_k: int = 3) -> GenreJobStatus:
-        job_id = self.create_job(limit=limit, device=device, top_k=top_k)
+    def start(self, *, limit: int | None = None, device: str = "auto", top_k: int = 3, batch_size: int = 4) -> GenreJobStatus:
+        job_id = self.create_job(limit=limit, device=device, top_k=top_k, batch_size=batch_size)
         thread = threading.Thread(target=self.run_job, args=(job_id,), daemon=True)
         thread.start()
         return self.get(job_id)
 
-    def run_sync(self, *, limit: int | None = None, device: str = "auto", top_k: int = 3) -> GenreJobStatus:
-        job_id = self.create_job(limit=limit, device=device, top_k=top_k)
+    def run_sync(self, *, limit: int | None = None, device: str = "auto", top_k: int = 3, batch_size: int = 4) -> GenreJobStatus:
+        job_id = self.create_job(limit=limit, device=device, top_k=top_k, batch_size=batch_size)
         return self.run_job(job_id)
 
     def run_job(self, job_id: str) -> GenreJobStatus:
@@ -122,19 +128,13 @@ class GenreAnalysisJobManager:
             started_at=started,
         )
         self._append_event(job_id, "info", "MAEST genre analysis started")
-        for track in tracks:
+        for batch in _chunks(tracks, max(1, status.batch_size)):
             if self.get(job_id).cancel_requested:
                 self._update(job_id, state="cancelled", finished_at=time.time(), current_path=None)
                 self._append_event(job_id, "warn", "MAEST genre analysis cancelled")
                 return self.get(job_id)
-            self._update(job_id, current_path=track.path)
-            try:
-                genres = adapter.predict(track.path)
-                self.db.save_genres(track.id, genres, model_name=adapter.model_name)
-                self._update_progress(job_id, track.path, analyzed_delta=1)
-                self._append_event(job_id, "ok", "Genres analyzed", path=track.path, track_id=track.id)
-            except Exception as error:
-                self._save_failure(job_id, track, error)
+            self._update(job_id, current_path=batch[0].path if batch else None)
+            self._process_batch(job_id, adapter, batch)
             device = getattr(adapter, "device", None)
             if device:
                 self._update(job_id, device=device)
@@ -176,6 +176,30 @@ class GenreAnalysisJobManager:
             if factory is MaestGenreAdapter:
                 raise
             return factory()
+
+    def _process_batch(self, job_id: str, adapter: GenreAdapter, batch: list[Track]) -> None:
+        if hasattr(adapter, "predict_batch"):
+            try:
+                genre_batches = adapter.predict_batch([track.path for track in batch])  # type: ignore[attr-defined]
+                if len(genre_batches) != len(batch):
+                    raise ValueError("MAEST batch result count does not match track count")
+                for track, genres in zip(batch, genre_batches):
+                    self.db.save_genres(track.id, genres, model_name=adapter.model_name)
+                    self._update_progress(job_id, track.path, analyzed_delta=1)
+                    self._append_event(job_id, "ok", "Genres analyzed", path=track.path, track_id=track.id)
+            except Exception as error:
+                for track in batch:
+                    self._save_failure(job_id, track, error)
+            return
+
+        for track in batch:
+            try:
+                genres = adapter.predict(track.path)
+                self.db.save_genres(track.id, genres, model_name=adapter.model_name)
+                self._update_progress(job_id, track.path, analyzed_delta=1)
+                self._append_event(job_id, "ok", "Genres analyzed", path=track.path, track_id=track.id)
+            except Exception as error:
+                self._save_failure(job_id, track, error)
 
     def _save_failure(self, job_id: str, track: Track, error: Exception) -> None:
         error_text = exception_summary(error)
@@ -262,3 +286,8 @@ class GenreAnalysisJobManager:
         if hasattr(status, "_tracks"):
             copy._tracks = getattr(status, "_tracks")  # type: ignore[attr-defined]
         return copy
+
+
+def _chunks(tracks: list[Track], size: int):
+    for index in range(0, len(tracks), size):
+        yield tracks[index : index + size]

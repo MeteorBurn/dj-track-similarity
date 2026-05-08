@@ -66,11 +66,18 @@ def analyze_genres(
     limit: Optional[int] = typer.Option(None, "--limit"),
     device: str = typer.Option("auto", "--device", help="MAEST device: auto, cpu, or cuda."),
     top_k: int = typer.Option(3, "--top-k", min=1, max=10, help="Number of MAEST genre labels to store per track."),
+    batch_size: int = typer.Option(4, "--batch-size", min=1, max=64, help="MAEST inference batch size."),
 ) -> None:
-    status = GenreAnalysisJobManager(_db(db_path)).run_sync(limit=limit, device=device, top_k=top_k)
+    status = GenreAnalysisJobManager(_db(db_path)).run_sync(
+        limit=limit,
+        device=device,
+        top_k=top_k,
+        batch_size=batch_size,
+    )
     typer.echo(
         f"state={status.state} total={status.total} processed={status.processed} "
-        f"analyzed={status.analyzed} failed={status.failed} device={status.device} top_k={status.top_k}"
+        f"analyzed={status.analyzed} failed={status.failed} device={status.device} "
+        f"top_k={status.top_k} batch_size={status.batch_size}"
     )
 
 
@@ -78,11 +85,12 @@ def analyze_genres(
 def analyze_sonara(
     db_path: Optional[Path] = typer.Option(None, "--db"),
     limit: Optional[int] = typer.Option(None, "--limit"),
+    batch_size: int = typer.Option(1, "--batch-size", min=1, max=64, help="Parallel Sonara track workers."),
 ) -> None:
-    status = SonaraFeatureJobManager(_db(db_path)).run_sync(limit=limit)
+    status = SonaraFeatureJobManager(_db(db_path)).run_sync(limit=limit, batch_size=batch_size)
     typer.echo(
         f"state={status.state} total={status.total} processed={status.processed} "
-        f"analyzed={status.analyzed} failed={status.failed}"
+        f"analyzed={status.analyzed} failed={status.failed} batch_size={status.batch_size}"
     )
 
 

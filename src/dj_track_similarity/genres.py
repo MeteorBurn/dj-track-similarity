@@ -20,10 +20,31 @@ class MaestGenreAdapter:
         self.device: str | None = None
 
     def predict(self, path: str | Path) -> list[dict[str, float | str]]:
+        return self.predict_batch([path])[0]
+
+    def predict_batch(self, paths: list[str | Path]) -> list[list[dict[str, float | str]]]:
         self._load_model()
         torch = self._torch
         torchaudio = self._torchaudio
         assert torch is not None and torchaudio is not None and self._model is not None
+
+        prepared = [self._prepare_audio(path) for path in paths]
+        device = self._device()
+        audio_batch = torch.stack(prepared, dim=0).to(device)
+        _move_maest_runtime_modules(self._model, device)
+
+        with torch.inference_mode():
+            logits, _embeddings = self._model(audio_batch, melspectrogram_input=False)
+
+        activations = torch.sigmoid(logits)
+        rows = _to_score_rows(activations, expected_rows=len(paths))
+        label_values = [str(label) for label in getattr(self._model, "labels")]
+        return [_rank_genres(label_values, scores, self.top_k) for scores in rows]
+
+    def _prepare_audio(self, path: str | Path):
+        torch = self._torch
+        torchaudio = self._torchaudio
+        assert torch is not None and torchaudio is not None
 
         audio_values, sample_rate, _decode_detail = load_audio_mono(path, torchaudio_module=torchaudio)
         audio = torch.from_numpy(audio_values).unsqueeze(0)
@@ -36,17 +57,7 @@ class MaestGenreAdapter:
         elif audio.numel() > target_samples:
             start = max(0, (audio.numel() - target_samples) // 2)
             audio = audio[start : start + target_samples]
-        device = self._device()
-        audio = audio.to(device)
-        _move_maest_runtime_modules(self._model, device)
-
-        with torch.inference_mode():
-            activations, labels = self._model.predict_labels(audio)
-
-        scores = _to_float_list(activations)
-        label_values = [str(label) for label in labels]
-        ranked = sorted(zip(label_values, scores), key=lambda item: item[1], reverse=True)
-        return [{"label": label, "score": float(score)} for label, score in ranked[: self.top_k]]
+        return audio
 
     def _load_model(self) -> None:
         if self._model is not None:
@@ -103,3 +114,32 @@ def _to_float_list(values: object) -> list[float]:
     if callable(reshape):
         values = reshape(-1)
     return [float(value) for value in values]  # type: ignore[union-attr]
+
+
+def _to_score_rows(values: object, *, expected_rows: int) -> list[list[float]]:
+    detach = getattr(values, "detach", None)
+    if callable(detach):
+        values = detach()
+    cpu = getattr(values, "cpu", None)
+    if callable(cpu):
+        values = cpu()
+    numpy = getattr(values, "numpy", None)
+    if callable(numpy):
+        values = numpy()
+
+    shape = getattr(values, "shape", None)
+    if shape is not None and len(shape) >= 2:
+        rows = [[float(score) for score in row] for row in values]  # type: ignore[union-attr]
+        if len(rows) != expected_rows:
+            raise ValueError("MAEST batch output shape does not match the requested batch size")
+        return rows
+
+    flat = _to_float_list(values)
+    if expected_rows == 1:
+        return [flat]
+    raise ValueError("MAEST batch output shape does not include per-track rows")
+
+
+def _rank_genres(labels: list[str], scores: list[float], top_k: int) -> list[dict[str, float | str]]:
+    ranked = sorted(zip(labels, scores), key=lambda item: item[1], reverse=True)
+    return [{"label": label, "score": float(score)} for label, score in ranked[:top_k]]

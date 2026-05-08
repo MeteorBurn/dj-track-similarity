@@ -9,7 +9,6 @@ import numpy as np
 
 from .audio_loader import load_audio_mono
 from .database import LibraryDatabase
-from .key_utils import camelot_key_from_sonara_analysis, camelot_source_feature
 from .models import Track
 
 
@@ -22,7 +21,6 @@ PLAYLIST_FEATURE_GROUPS = (
         "Core features",
         (
             "bpm",
-            "camelot_key",
             "beats",
             "onset_frames",
             "onset_density",
@@ -79,7 +77,6 @@ PLAYLIST_FEATURE_KEYS = tuple(key for _group, keys in PLAYLIST_FEATURE_GROUPS fo
 
 FEATURE_DESCRIPTIONS = {
     "bpm": "Analyzed tempo in beats per minute; useful for DJ tempo compatibility.",
-    "camelot_key": "Camelot key converted from Sonara tonal analysis.",
     "beats": "Beat frame positions detected by sonara.",
     "onset_frames": "Detected onset frame positions; shows where rhythmic or transient events begin.",
     "onset_density": "Onset density measured as value/sec; a proxy for rhythmic activity.",
@@ -146,7 +143,6 @@ FEATURE_DESCRIPTIONS = {
 
 HUMAN_FEATURES = {
     "bpm",
-    "camelot_key",
     "key",
     "key_confidence",
     "energy",
@@ -189,17 +185,7 @@ def analyze_and_store_sonara_features(
     analysis = _analyze_file_or_signal(sonara, track.path)
 
     features: dict[str, object] = {}
-    camelot_key = camelot_key_from_sonara_analysis(analysis)
     for key in PLAYLIST_FEATURE_KEYS:
-        if key == "camelot_key":
-            if camelot_key:
-                features[key] = {
-                    "value": camelot_key,
-                    "type": "str",
-                    "description": FEATURE_DESCRIPTIONS["camelot_key"],
-                    "source_feature": camelot_source_feature(analysis),
-                }
-            continue
         if key in analysis:
             features[key] = _feature_payload(analysis[key], key)
     elapsed = time.perf_counter() - started
@@ -208,7 +194,7 @@ def analyze_and_store_sonara_features(
         track.id,
         features,
         bpm=_optional_float(analysis.get("bpm")),
-        musical_key=camelot_key or _optional_string(analysis.get("key")),
+        musical_key=_sonara_musical_key(analysis),
         energy=_optional_float(analysis.get("energy")),
         duration=_optional_float(analysis.get("duration_sec")),
         model_name=SONARA_MODEL_NAME,
@@ -336,3 +322,11 @@ def _optional_string(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _sonara_musical_key(analysis: dict[str, object]) -> str | None:
+    for key in ("key", "key_detection", "detect_key", "predominant_key"):
+        value = _optional_string(analysis.get(key))
+        if value:
+            return value
+    return None

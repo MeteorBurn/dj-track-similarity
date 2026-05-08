@@ -25,12 +25,11 @@ else who collects, tags, or plays music will find the approach useful too.
 - Can relocate stored track paths after moving the same music folder to another
   drive, without repeating completed analysis.
 - Extracts a focused Sonara playlist feature set, including analyzed BPM,
-  Camelot key, rhythm/loudness values, perceptual scores, tonal descriptors,
-  and compact spectral summaries, then stores those summaries in SQLite.
+  raw Sonara key data, rhythm/loudness values, perceptual scores, tonal
+  descriptors, and compact spectral summaries, then stores those summaries in SQLite.
 - Uses a native-first audio loader with tolerant WAV recovery for playable files
   that strict RIFF parsers reject.
-- Converts analyzed Sonara key data to Camelot notation for the displayed
-  musical key.
+- Keeps analyzed Sonara key data in its original form for display and storage.
 - Builds audio embeddings with MERT for audio-to-audio similarity search.
 - Builds CLAP audio embeddings for text-to-audio search.
 - Extracts top genre labels with MAEST and stores them in the local SQLite
@@ -77,7 +76,7 @@ Sonara is currently used in `playlist` mode as a fast, practical feature pass.
 It writes a focused set of analyzed playlist features into SQLite metadata:
 core rhythm/loudness fields, perceptual scores, musical key, tonal analysis,
 and compact spectral summaries. The UI displays Sonara values in those groups,
-starting with analyzed BPM and Camelot key. Large unavailable or non-playlist
+starting with analyzed BPM and raw Sonara key data. Large unavailable or non-playlist
 fields are not represented as placeholder rows; the current goal is inspection
 and calibration, not a final data format. In the UI, `Embedding batch size`
 controls how many Sonara track workers run concurrently.
@@ -177,8 +176,8 @@ only the focused playlist feature set in SQLite metadata. Its `--batch-size`
 controls parallel track workers, not a neural-network batch. If Sonara's
 default decoder cannot read a WAV-like file, the app falls back to the shared
 tolerant audio loader before calling Sonara signal analysis. BPM and key from
-this pass are analyzed values, not file tags. The UI displays the working
-musical key in Camelot notation when Sonara provides enough tonal information.
+this pass are analyzed values, not file tags. The UI displays the raw Sonara
+key fields rather than deriving another notation.
 
 `--adapter clap` builds separate LAION-CLAP audio embeddings for text search.
 
@@ -278,10 +277,9 @@ Runtime logs are written to `dj-track-similarity.log` in the current working
 directory by default. Set `DJ_TRACK_SIMILARITY_LOG` to choose another path.
 
 The Sonara feature table is deliberately limited to fields produced by the
-playlist workflow and the app's derived Camelot key. It currently keeps these
-groups in order:
+playlist workflow. It currently keeps these groups in order:
 
-- Core features: BPM, Camelot key, beat frames, onset frames, onset density
+- Core features: BPM, beat frames, onset frames, onset density
   (value/sec), beat count, RMS mean/max, LUFS loudness, dynamic range, spectral
   centroid, zero crossing rate, and duration.
 - Perceptual features: energy, danceability, valence, and acousticness.

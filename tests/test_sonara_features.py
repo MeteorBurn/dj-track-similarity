@@ -9,7 +9,6 @@ from fastapi.testclient import TestClient
 
 import dj_track_similarity.api as api
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.key_utils import camelot_key_from_sonara_analysis
 from dj_track_similarity.sonara_features import analyze_and_store_sonara_features
 from dj_track_similarity.sonara_jobs import SonaraFeatureJobManager
 
@@ -109,11 +108,10 @@ def test_analyze_and_store_sonara_features_writes_metadata_and_json_dump(tmp_pat
     track = db.get_track(track_id)
     assert result.elapsed_seconds >= 0
     assert track.bpm == 126.4
-    assert track.musical_key == "8A"
+    assert track.musical_key == "A minor"
     assert track.energy == 0.74
     assert track.analyses == ["sonara"]
-    assert track.metadata["sonara_features"]["camelot_key"]["value"] == "8A"
-    assert track.metadata["sonara_features"]["camelot_key"]["source_feature"] == "key"
+    assert "camelot_key" not in track.metadata["sonara_features"]
     assert track.metadata["sonara_features"]["key"]["value"] == "A minor"
     assert track.metadata["sonara_features"]["danceability"]["value"] == 0.68
     assert track.metadata["sonara_features"]["onset_density"]["description"] == (
@@ -122,7 +120,6 @@ def test_analyze_and_store_sonara_features_writes_metadata_and_json_dump(tmp_pat
     assert track.metadata["sonara_features"]["mfcc_mean"]["summary"]["mean"] == 2.0
     assert list(track.metadata["sonara_features"]) == [
         "bpm",
-        "camelot_key",
         "beats",
         "onset_frames",
         "onset_density",
@@ -231,9 +228,9 @@ def test_api_runs_sonara_analysis_and_returns_track_features(monkeypatch, tmp_pa
     assert SynchronousSonaraManager.last_batch_size == 3
     tracks = client.get("/api/tracks").json()
     assert tracks[0]["bpm"] == 126.4
-    assert tracks[0]["musical_key"] == "8A"
+    assert tracks[0]["musical_key"] == "A minor"
     assert tracks[0]["analyses"] == ["sonara"]
-    assert tracks[0]["metadata"]["sonara_features"]["camelot_key"]["value"] == "8A"
+    assert "camelot_key" not in tracks[0]["metadata"]["sonara_features"]
     assert tracks[0]["metadata"]["sonara_features"]["key"]["description"] == "Analyzed musical key, independent of file tags."
 
 
@@ -254,7 +251,7 @@ def test_analyze_sonara_falls_back_to_signal_for_truncated_wav(tmp_path: Path) -
 
     assert result.elapsed_seconds >= 0
     assert track.bpm == 126.4
-    assert track.musical_key == "8A"
+    assert track.musical_key == "A minor"
     assert track.metadata["sonara_features"]["energy"]["value"] == 0.74
     assert "decode_path" not in track.metadata["sonara_features"]
 
@@ -314,13 +311,3 @@ def test_sonara_batch_size_runs_tracks_in_parallel(monkeypatch, tmp_path: Path) 
     assert status.workers == 2
     assert status.batch_size == 2
     assert max_active == 2
-
-
-def test_sonara_key_conversion_to_camelot_uses_tonal_fields() -> None:
-    assert camelot_key_from_sonara_analysis({"key": "A minor"}) == "8A"
-    assert camelot_key_from_sonara_analysis({"key": "C major"}) == "8B"
-    assert camelot_key_from_sonara_analysis({"key": "Bb minor"}) == "3A"
-    assert camelot_key_from_sonara_analysis({"key": "F# major"}) == "2B"
-    assert camelot_key_from_sonara_analysis({"key_detection": "D#m"}) == "2A"
-    assert camelot_key_from_sonara_analysis({"predominant_chord": "G:maj"}) == "9B"
-    assert camelot_key_from_sonara_analysis({"camelot_key": "08a", "key": "C major"}) == "8A"

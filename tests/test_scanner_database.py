@@ -321,7 +321,7 @@ def test_database_resets_metadata_backed_analyses(tmp_path: Path) -> None:
     assert after_maest.analyses is None
 
 
-def test_database_enriches_existing_sonara_key_with_camelot_on_read(tmp_path: Path) -> None:
+def test_database_does_not_enrich_existing_sonara_key_with_camelot_on_read(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_id = db.upsert_track(
         path=tmp_path / "track.wav",
@@ -341,8 +341,8 @@ def test_database_enriches_existing_sonara_key_with_camelot_on_read(tmp_path: Pa
 
     track = db.get_track(track_id)
 
-    assert track.musical_key == "7B"
-    assert track.metadata["sonara_features"]["camelot_key"]["value"] == "7B"
+    assert track.musical_key == "F major"
+    assert "camelot_key" not in track.metadata["sonara_features"]
 
 
 def test_refresh_track_file_metadata_preserves_analysis_outputs(tmp_path: Path) -> None:

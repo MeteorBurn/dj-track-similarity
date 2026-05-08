@@ -141,7 +141,6 @@ export function TrackMetadataDialog({
 
 const sonaraFeatureLabels: Record<string, string> = {
   bpm: "BPM",
-  camelot_key: "Musical Key",
   duration_sec: "Duration",
   key: "Key",
   key_confidence: "Key confidence",
@@ -172,7 +171,7 @@ const sonaraFeatureLabels: Record<string, string> = {
 const sonaraPlaylistFeatureGroups = [
   {
     title: "Core features",
-    keys: ["bpm", "camelot_key", "beats", "onset_frames", "onset_density", "n_beats", "rms_mean", "rms_max", "loudness_lufs", "dynamic_range_db", "spectral_centroid_mean", "zero_crossing_rate", "duration_sec"]
+    keys: ["bpm", "beats", "onset_frames", "onset_density", "n_beats", "rms_mean", "rms_max", "loudness_lufs", "dynamic_range_db", "spectral_centroid_mean", "zero_crossing_rate", "duration_sec"]
   },
   {
     title: "Perceptual features (0.0 - 1.0)",
@@ -236,7 +235,7 @@ function formatSonaraValue(record: Record<string, unknown>, key?: string) {
     return `${shape || record.size || "array"}${mean}`;
   }
   if (typeof value === "number") {
-    if (key === "onset_density") return `${formatNumber(value)} value/sec`;
+    if (key === "onset_density") return `${formatNumber(value)}/sec`;
     return formatNumber(value);
   }
   if (Array.isArray(value)) return `${value.length} values`;

@@ -36,6 +36,7 @@ const helpText = {
   analysisDevice: "Устройство для MERT/CLAP. Значения: AUTO, CPU, CUDA. AUTO выберет CUDA, если PyTorch видит GPU, иначе CPU.",
   sonaraAnalyze: "SONARA считает BPM, key и музыкальные признаки. Нужна для базового описания трека и будущих DJ-фильтров.",
   maestAnalyze: "MAEST определяет жанровые метки. Нужна для жанровой навигации и проверки характера библиотеки.",
+  writeMaestGenres: "Перезаписать стандартный Genre/TCON/©gen в аудиофайлах жанрами MAEST. Плееры вроде AIMP будут видеть эти жанры.",
   mertAnalyze: "MERT строит аудио-эмбеддинги. Нужна для поиска похожих треков от выбранных seed-треков.",
   clapAnalyze: "CLAP связывает аудио с текстовым описанием. Нужна для поиска треков по фразе о звучании.",
   analysisBatchSize: "Размер inference batch для MERT/CLAP. Тип: целое число 1-16. CPU: 1-4; CUDA: начни с 4-8.",
@@ -107,6 +108,7 @@ export function App() {
     );
   }, [tracks, query]);
   const seedTracks = useMemo(() => seeds.map((id) => tracks.find((track) => track.id === id)).filter(Boolean) as Track[], [seeds, tracks]);
+  const maestGenreTrackIds = useMemo(() => tracks.filter((track) => track.genres?.length).map((track) => track.id), [tracks]);
   const scanRunning = Boolean(scanJob?.state && ["queued", "running"].includes(scanJob.state));
   const analysisRunning = Boolean(analysisJob && ["queued", "running"].includes(analysisJob.state));
   const stageRunning = scanRunning || analysisRunning;
@@ -527,6 +529,19 @@ export function App() {
     setScanWorkers((current) => Math.min(maxScanWorkers, Math.max(1, current + delta)));
   }
 
+  async function handleGenreTagsApply(trackIds = maestGenreTrackIds) {
+    const ids = trackIds.filter((id) => tracks.some((track) => track.id === id && track.genres?.length));
+    if (!ids.length) {
+      setNotice({ kind: "error", text: "Нет MAEST жанров для записи" });
+      return;
+    }
+    appendActivity("warn", "Запись жанров запущена", `${ids.length} треков · standard Genre`);
+    await run(() => api.genreTagApply(ids), (value) => {
+      appendActivity("ok", "Жанры записаны", `${value.length} треков · Genre overwritten`);
+      return `Жанры записаны: ${value.length}`;
+    });
+  }
+
   function adjustAnalysisBatchSize(delta: number) {
     setAnalysisBatchSize((current) => Math.min(maxAnalysisBatchSize, Math.max(1, current + delta)));
   }
@@ -583,6 +598,10 @@ export function App() {
             <AnalysisButton label="MERT" icon={<Wand2 size={16} />} disabled={busy || stageRunning} title={helpText.mertAnalyze} onRun={() => void handleAnalyze("mert")} onReset={() => void handleResetAnalysis("mert")} />
             <AnalysisButton label="CLAP" icon={<Search size={16} />} disabled={busy || stageRunning} title={helpText.clapAnalyze} onRun={() => void handleAnalyze("clap")} onReset={() => void handleResetAnalysis("clap")} />
           </div>
+          <button className="secondary-mini genre-write-button" disabled={busy || stageRunning || !maestGenreTrackIds.length} title={helpText.writeMaestGenres} onClick={() => void handleGenreTagsApply()}>
+            <Save size={14} />
+            Сохранить жанры
+          </button>
           <label className="analysis-limit" title={helpText.analyzeLimit}>
             Analyze limit
             <input type="number" min={0} max={100000} value={analysisLimit} title={helpText.analyzeLimit} onChange={(event) => setAnalysisLimit(Number(event.target.value))} />
@@ -773,7 +792,7 @@ export function App() {
           </section>
         </aside>
       </section>
-      {metadataTrack && <TrackMetadataDialog track={metadataTrack} onClose={() => setMetadataTrack(null)} />}
+      {metadataTrack && <TrackMetadataDialog track={metadataTrack} busy={busy || stageRunning} onWriteGenres={(track) => void handleGenreTagsApply([track.id])} onClose={() => setMetadataTrack(null)} />}
     </main>
   );
 }
@@ -1184,7 +1203,17 @@ function readableTrackTags(raw: Track["metadata"]) {
     .map((key) => [trackTagLabels[key] || key, record[key]] as const);
 }
 
-function TrackMetadataDialog({ track, onClose }: { track: Track; onClose: () => void }) {
+function TrackMetadataDialog({
+  track,
+  busy,
+  onWriteGenres,
+  onClose
+}: {
+  track: Track;
+  busy: boolean;
+  onWriteGenres: (track: Track) => void;
+  onClose: () => void;
+}) {
   const genres = track.genres || [];
   const scores = track.genre_scores || {};
   const sonaraFeatures = readableSonaraFeatures(track.metadata?.sonara_features);
@@ -1224,7 +1253,13 @@ function TrackMetadataDialog({ track, onClose }: { track: Track; onClose: () => 
           )}
         </div>
         <div className="genre-block">
-          <strong>MAEST genres</strong>
+          <div className="genre-block-title">
+            <strong>MAEST genres</strong>
+            <button className="secondary-mini" disabled={busy || !genres.length} title="Перезаписать стандартный Genre тег этого файла жанрами MAEST" onClick={() => onWriteGenres(track)}>
+              <Save size={13} />
+              Save
+            </button>
+          </div>
           {genres.length ? (
             <div className="genre-list">
               {genres.map((genre) => (

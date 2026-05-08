@@ -273,6 +273,11 @@ h2 {
   margin-bottom: 0;
 }
 
+.genre-write-button {
+  margin-bottom: 8px;
+  width: 100%;
+}
+
 .analysis-button-pair {
   display: grid;
   gap: 5px;
@@ -1149,6 +1154,29 @@ meter {
 .genre-block > strong,
 .sonara-block > strong {
   font-size: 13px;
+}
+
+.genre-block-title {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  min-height: 22px;
+}
+
+.genre-block-title > strong {
+  flex: 1 1 auto;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.genre-block-title .secondary-mini {
+  align-self: auto;
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 16px;
+  min-height: 22px;
+  padding: 2px 8px;
 }
 
 .feature-file {

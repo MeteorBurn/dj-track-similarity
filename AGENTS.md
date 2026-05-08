@@ -4,7 +4,7 @@
 
 dj-track-similarity is a public personal/enthusiast project for exploring music-library analysis and track similarity for DJ-set preparation. The README should sound honest, practical, and modest: this is not a polished commercial product or a research benchmark. The user is building something useful for their own music collection, tagging workflow, and DJ sets, and it may also be useful to other music collectors.
 
-Technically, it is a local tool that scans an audio library, stores metadata in SQLite, refreshes selected Mutagen file tags, extracts Sonara playlist features, generates track embeddings, extracts MAEST genre labels, searches for compatible tracks, builds playlists, exports M3U/CSV files, and can write custom `DJ_SIM_*` tags on explicit request.
+Technically, it is a local tool that scans an audio library, stores metadata in SQLite, refreshes selected Mutagen file tags, extracts Sonara playlist features, generates track embeddings, extracts MAEST genre labels, searches for compatible tracks, builds playlists, exports M3U/CSV files, can write custom `DJ_SIM_*` tags on explicit request, and can explicitly save MAEST genres into standard audio genre tags.
 
 Keep user-facing project documentation in English unless the user asks otherwise.
 
@@ -19,15 +19,17 @@ This workspace may not be a Git repository. Do not assume Git history, branches,
 
 ## Safety Rules
 
-- Treat real audio files as user data. Scanning, analysis, search, and export should not modify audio files.
-- Only `tag-apply` and `/api/tags/apply` write audio metadata, and they must only write custom `DJ_SIM_*` tags. Do not overwrite standard BPM, key, title, artist, album, mood, or other normal tags.
+- Treat real audio files as user data. Scanning, analysis, search, preview, RefreshTags, reset, clear, and export should not modify audio files.
+- `tag-apply` and `/api/tags/apply` write only custom `DJ_SIM_*` tags. They must not overwrite standard BPM, key, title, artist, album, mood, genre, or other normal tags.
+- `/api/tags/genres/apply` is the explicit exception for standard metadata writes: it overwrites only the standard genre tag from stored MAEST labels. It must preserve existing artist, title, album, BPM, key, and other normal tags.
+- Standard genre tag writing should use player-compatible fields: `TCON` for MP3/WAV/AIFF ID3 tags, `GENRE` for FLAC/Vorbis-style tags, and `©gen` for MP4/M4A/ALAC. Multiple MAEST labels should be written as one string separated by `;`, for example `Tech House; Minimal; Techno`.
 - Treat `dj-track-similarity.sqlite` as local user state. Tests should use temporary databases via `tmp_path` or explicit `--db` paths.
 - Do not commit or preserve generated local artifacts unless explicitly asked: `*.sqlite`, `*.log`, `__pycache__/`, `.pytest_cache/`, `frontend/node_modules/`, and transient temp folders.
 - Mutagen scanning and `RefreshTags` read only a fixed whitelist of human-relevant file tags. They update SQLite metadata only and must not modify audio files.
 - Mutagen metadata written to SQLite must be JSON-safe. Convert Mutagen-specific objects such as ID3 timestamps to strings before saving.
 - Sonara feature analysis writes only SQLite track metadata (`sonara_features` and `sonara_model`) plus working BPM/key/duration/energy fields derived from analysis. BPM and key from Sonara must be analyzed values, not copied from file tags.
 - Sonara may use an `ffmpeg` decode fallback for WAV-like files that Sonara's default reader rejects. The fallback should decode to mono float PCM for Sonara signal analysis and should not write temporary decoded audio files into the project.
-- MAEST genre analysis writes only SQLite track metadata (`maest_genres` and `maest_model`). It must not modify audio files.
+- MAEST genre analysis itself writes only SQLite track metadata (`maest_genres` and `maest_model`). It must not modify audio files. The separate genre-save action may later write those stored labels into standard audio genre tags.
 - Full MERT/CLAP/MAEST analysis can be slow and may download Hugging Face/PyTorch/MAEST model weights on first use. Sonara is lighter but still decodes audio. Prefer `--fake` for embedding smoke checks unless the user asks for real ML analysis.
 - In the UI, `Analyze limit = 0` means analyzing the whole library and is the default. Avoid triggering whole-library analysis unless the user clearly wants it or is operating the UI themselves.
 - MERT/CLAP analysis should be accelerated with a single selected device plus inference batching, not multiple parallel model workers. Use `device=auto|cpu|cuda` and `batch_size`; keep legacy `workers` only as a compatibility alias for analysis batch size.
@@ -133,7 +135,7 @@ dj-sim tag-preview 1 2 3
 - `src/dj_track_similarity/search.py`: centroid-based similarity search plus arbitrary query-vector search for CLAP text mode.
 - In the frontend, only Similarity, Lookback, and Limit are active for MERT validation; the other search filters remain backend capabilities/future knobs.
 - `src/dj_track_similarity/exporter.py`: playlist export to M3U or CSV.
-- `src/dj_track_similarity/tags.py`: custom `DJ_SIM_*` tag preview and apply logic.
+- `src/dj_track_similarity/tags.py`: custom `DJ_SIM_*` tag preview/apply logic plus explicit MAEST-to-standard-genre tag writing.
 - `src/dj_track_similarity/api.py`: FastAPI factory, request models, REST endpoints, static frontend mount, and media serving.
 - `src/dj_track_similarity/cli.py`: Typer CLI entrypoint exposed as `dj-sim`.
 
@@ -156,7 +158,8 @@ dj-sim tag-preview 1 2 3
 - If changing search behavior, add or update focused tests in `tests/test_search.py`.
 - If changing analysis performance controls, keep `frontend/src/api.ts`, `src/dj_track_similarity/api.py`, `src/dj_track_similarity/analysis_jobs.py`, `src/dj_track_similarity/genre_jobs.py`, `src/dj_track_similarity/embedding.py`, `src/dj_track_similarity/genres.py`, and `src/dj_track_similarity/runtime.py` aligned.
 - If changing UI controls, preserve tooltip coverage for format/type/range guidance. Keep destructive controls such as database clear behind action-time confirmation.
-- If touching tag writing, keep tests strict about preview being read-only and apply writing only custom tags.
+- If touching custom tag writing, keep tests strict about preview being read-only and `tag-apply` writing only custom tags.
+- If touching standard genre writing, keep tests strict that only genre fields are overwritten, existing normal tags are preserved, MAEST category prefixes such as `Electronic---` are stripped, multiple labels are joined with `;`, and real temporary audio files are reread through Mutagen after saving.
 - Prefer deterministic test data and fake adapters over real audio analysis in automated tests.
 - Avoid broad refactors in `frontend/src/App.tsx` unless the task is specifically about frontend structure; it is currently the main UI surface.
 

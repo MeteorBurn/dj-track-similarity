@@ -28,6 +28,8 @@ else who collects, tags, or plays music will find the approach useful too.
 - Builds CLAP audio embeddings for text-to-audio search.
 - Extracts top genre labels with MAEST and stores them in the local SQLite
   database.
+- Can explicitly save stored MAEST labels into standard audio genre tags for
+  players such as AIMP.
 - Shows compact per-track analysis status (`sonara`, `maest`, `mert`, `clap`)
   and a metadata popup with Mutagen tags, Sonara features, and MAEST genre
   confidence scores.
@@ -78,6 +80,12 @@ The metadata popup is intentionally split by source:
 This separation is important because file tags and model-derived values can
 disagree. In particular, BPM and key shown as Sonara values are analyzed, not
 copied from tags.
+
+MAEST genres can be saved explicitly from the UI. The global `Save genres`
+button writes genres for all tracks with MAEST labels; the compact `Save`
+button in the metadata popup writes genres for one track. It overwrites only
+the standard genre field and keeps existing title, artist, album, BPM, key, and
+other tags.
 
 ## Run The App
 
@@ -136,7 +144,7 @@ values, not file tags.
 
 `analyze-genres` uses MAEST through `maest-infer` with
 `discogs-maest-30s-pw-129e-519l` to store the top 3 genre labels and confidence
-scores in SQLite track metadata. It does not modify audio files.
+scores in SQLite track metadata. It does not modify audio files by itself.
 
 `--fake` is only for smoke tests without loading ML models.
 
@@ -179,6 +187,12 @@ such as ID3 timestamps can still be stored as JSON-safe strings.
 `RefreshTags` in the UI rereads only these Mutagen fields for already indexed
 tracks. It preserves paths and model analysis data, including Sonara, MAEST,
 MERT, and CLAP results.
+
+When explicitly saved from the UI, MAEST labels are written as one
+semicolon-separated genre string, for example `Tech House; Minimal; Techno`.
+The writer uses `TCON` for MP3/WAV/AIFF, `GENRE` for FLAC/Vorbis-style tags,
+and `©gen` for MP4/M4A/ALAC. MAEST prefixes such as `Electronic---` are removed
+before writing.
 
 The small trash buttons next to analysis names reset only that analysis family:
 
@@ -257,6 +271,8 @@ python -m pip install transformers maest-infer --no-deps
 - `tag-preview` is read-only.
 - `tag-apply` writes only custom `DJ_SIM_*` tags and should not overwrite normal
   title, artist, album, BPM, key, or mood fields.
+- The UI genre save action is the explicit exception: it writes MAEST genres
+  into the standard audio genre tag and should overwrite only that genre field.
 
 ## Roadmap
 

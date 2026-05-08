@@ -201,5 +201,10 @@ export const api = {
     request<Array<{ track_id: number; path: string; tags: Record<string, string> }>>("/api/tags/apply", {
       method: "POST",
       body: JSON.stringify({ track_ids })
+    }),
+  genreTagApply: (track_ids: number[]) =>
+    request<Array<{ track_id: number; path: string; tags: Record<string, string> }>>("/api/tags/genres/apply", {
+      method: "POST",
+      body: JSON.stringify({ track_ids })
     })
 };

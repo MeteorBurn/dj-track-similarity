@@ -1,7 +1,11 @@
 from pathlib import Path
+import wave
 
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.tags import build_tag_preview
+from dj_track_similarity import tags
+from dj_track_similarity.tags import apply_genre_tags, build_genre_tag_preview, build_tag_preview
+from mutagen import File as MutagenFile
+from mutagen.id3 import ID3, TALB, TCON, TIT2, TPE1
 
 
 def test_tag_preview_reports_custom_tags_without_touching_audio_file(tmp_path: Path) -> None:
@@ -29,3 +33,192 @@ def test_tag_preview_reports_custom_tags_without_touching_audio_file(tmp_path: P
         "DJ_SIM_KEY": "8A",
         "DJ_SIM_ENERGY": "0.730",
     }
+
+
+def test_genre_tag_preview_uses_maest_genres_without_touching_audio_file(tmp_path: Path) -> None:
+    audio_path = tmp_path / "track.flac"
+    audio_path.write_bytes(b"fake audio")
+    before = audio_path.read_bytes()
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = db.upsert_track(
+        path=audio_path,
+        size=len(before),
+        mtime=audio_path.stat().st_mtime,
+        metadata={"title": "T"},
+    )
+    db.save_genres(track_id, [{"label": "Deep_Techno", "score": 0.9}, {"label": "Minimal", "score": 0.8}], model_name="maest")
+
+    preview = build_genre_tag_preview(db, [track_id])
+
+    assert audio_path.read_bytes() == before
+    assert preview[0].tags == {"GENRE": "Deep Techno; Minimal"}
+
+
+def test_genre_tag_preview_removes_maest_category_prefix(tmp_path: Path) -> None:
+    audio_path = tmp_path / "track.flac"
+    audio_path.write_bytes(b"fake audio")
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = db.upsert_track(
+        path=audio_path,
+        size=audio_path.stat().st_size,
+        mtime=audio_path.stat().st_mtime,
+        metadata={"title": "T"},
+    )
+    db.save_genres(
+        track_id,
+        [{"label": "Electronic---Tech House", "score": 0.9}, {"label": "Electronic---Minimal_Techno", "score": 0.8}],
+        model_name="maest",
+    )
+
+    preview = build_genre_tag_preview(db, [track_id])
+
+    assert preview[0].tags == {"GENRE": "Tech House; Minimal Techno"}
+
+
+def test_apply_genre_tags_overwrites_standard_genre_tag(monkeypatch, tmp_path: Path) -> None:
+    audio_path = tmp_path / "track.flac"
+    audio_path.write_bytes(b"fake audio")
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = db.upsert_track(
+        path=audio_path,
+        size=audio_path.stat().st_size,
+        mtime=audio_path.stat().st_mtime,
+        metadata={"title": "T"},
+    )
+    db.save_genres(track_id, [{"label": "House", "score": 0.9}], model_name="maest")
+    written: list[tuple[Path, str]] = []
+    monkeypatch.setattr(tags, "_write_genre_tag", lambda path, genre: written.append((path, genre)))
+
+    result = apply_genre_tags(db, [track_id])
+
+    assert result[0].tags == {"GENRE": "House"}
+    assert written == [(audio_path, "House")]
+
+
+def test_write_genre_tag_replaces_common_audio_genre_field(monkeypatch, tmp_path: Path) -> None:
+    class FakeAudio:
+        def __init__(self) -> None:
+            self.tags = {"GENRE": ["Old"]}
+            self.saved = False
+
+        def __setitem__(self, key: str, value: str) -> None:
+            self.tags[key] = value
+
+        def save(self) -> None:
+            self.saved = True
+
+    fake_audio = FakeAudio()
+    monkeypatch.setattr(tags, "MutagenFile", lambda path: fake_audio)
+
+    tags._write_genre_tag(tmp_path / "track.flac", "House; Techno")
+
+    assert fake_audio.tags["Genre"] == "House; Techno"
+    assert fake_audio.saved
+
+
+def test_write_genre_tag_handles_id3_tags_inside_wave(tmp_path: Path) -> None:
+    audio_path = tmp_path / "track.wav"
+    with wave.open(str(audio_path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(44_100)
+        handle.writeframes(b"\x00\x00" * 44_100)
+
+    tags._write_genre_tag(audio_path, "Tech House; Minimal")
+
+    saved = MutagenFile(audio_path)
+    assert saved.tags["TCON"].text == ["Tech House; Minimal"]
+
+
+def test_write_genre_tag_persists_to_wave_and_preserves_existing_id3_tags(tmp_path: Path) -> None:
+    audio_path = tmp_path / "track.wav"
+    with wave.open(str(audio_path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(44_100)
+        handle.writeframes(b"\x00\x00" * 44_100)
+    audio = MutagenFile(audio_path)
+    audio.add_tags()
+    audio.tags.add(TPE1(encoding=3, text=["Existing Artist"]))
+    audio.tags.add(TIT2(encoding=3, text=["Existing Title"]))
+    audio.save()
+
+    tags._write_genre_tag(audio_path, "Tech House; Minimal; Techno")
+
+    saved = MutagenFile(audio_path)
+    assert saved.tags["TCON"].text == ["Tech House; Minimal; Techno"]
+    assert saved.tags["TPE1"].text == ["Existing Artist"]
+    assert saved.tags["TIT2"].text == ["Existing Title"]
+
+
+def test_write_genre_tag_persists_to_wave_when_data_chunk_size_is_too_large(tmp_path: Path) -> None:
+    audio_path = tmp_path / "track.wav"
+    with wave.open(str(audio_path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(44_100)
+        handle.writeframes(b"\x00\x00" * 44_100)
+    data = bytearray(audio_path.read_bytes())
+    data[40:44] = (len(data) * 4).to_bytes(4, "little")
+    audio_path.write_bytes(data)
+
+    tags._write_genre_tag(audio_path, "Tech House; Minimal; Techno")
+
+    saved = MutagenFile(audio_path)
+    assert saved.tags["TCON"].text == ["Tech House; Minimal; Techno"]
+
+
+def test_write_genre_tag_persists_to_mp3_id3_and_preserves_existing_tags(tmp_path: Path) -> None:
+    audio_path = tmp_path / "track.mp3"
+    id3 = ID3()
+    id3.add(TPE1(encoding=3, text=["Existing Artist"]))
+    id3.add(TIT2(encoding=3, text=["Existing Title"]))
+    id3.add(TALB(encoding=3, text=["Existing Album"]))
+    id3.add(TCON(encoding=3, text=["Old Genre"]))
+    id3.save(audio_path)
+
+    tags._write_genre_tag(audio_path, "Tech House; Minimal; Techno")
+
+    saved = ID3(audio_path)
+    assert saved["TCON"].text == ["Tech House; Minimal; Techno"]
+    assert saved["TPE1"].text == ["Existing Artist"]
+    assert saved["TIT2"].text == ["Existing Title"]
+    assert saved["TALB"].text == ["Existing Album"]
+
+
+def test_apply_genre_tags_refreshes_database_metadata_and_preserves_existing_file_tags(tmp_path: Path) -> None:
+    audio_path = tmp_path / "track.wav"
+    with wave.open(str(audio_path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(44_100)
+        handle.writeframes(b"\x00\x00" * 44_100)
+    audio = MutagenFile(audio_path)
+    audio.add_tags()
+    audio.tags.add(TPE1(encoding=3, text=["Existing Artist"]))
+    audio.tags.add(TIT2(encoding=3, text=["Existing Title"]))
+    audio.tags.add(TALB(encoding=3, text=["Existing Album"]))
+    audio.tags.add(TCON(encoding=3, text=["Old Genre"]))
+    audio.save()
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = db.upsert_track(
+        path=audio_path,
+        size=audio_path.stat().st_size,
+        mtime=audio_path.stat().st_mtime,
+        metadata={"artist": "Existing Artist", "title": "Existing Title", "album": "Existing Album", "genre": "Old Genre"},
+    )
+    db.save_genres(track_id, [{"label": "Electronic---Tech House", "score": 0.9}], model_name="maest")
+
+    apply_genre_tags(db, [track_id])
+
+    saved = MutagenFile(audio_path)
+    track = db.get_track(track_id)
+    assert saved["TCON"].text == ["Tech House"]
+    assert saved["TPE1"].text == ["Existing Artist"]
+    assert saved["TIT2"].text == ["Existing Title"]
+    assert saved["TALB"].text == ["Existing Album"]
+    assert track.metadata["artist"] == "Existing Artist"
+    assert track.metadata["title"] == "Existing Title"
+    assert track.metadata["album"] == "Existing Album"
+    assert track.metadata["genre"] == "Tech House"
+    assert track.genres == ["Electronic---Tech House"]

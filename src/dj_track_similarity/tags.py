@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 from mutagen import File as MutagenFile
-from mutagen.id3 import ID3, TXXX
+from mutagen.aiff import AIFF
+from mutagen.flac import FLAC
+from mutagen.id3 import ID3, ID3NoHeaderError, TCON, TXXX
+from mutagen.mp4 import MP4
+from mutagen.wave import WAVE
 
 from .database import LibraryDatabase
 from .models import TagPreview, Track
+from .scanner import MUTAGEN_METADATA_KEYS, read_audio_metadata
 
 
 CUSTOM_TAG_PREFIX = "DJ_SIM"
@@ -20,6 +26,26 @@ def apply_custom_tags(db: LibraryDatabase, track_ids: list[int]) -> list[TagPrev
     previews = build_tag_preview(db, track_ids)
     for preview in previews:
         _write_tags(Path(preview.path), preview.tags)
+    return previews
+
+
+def build_genre_tag_preview(db: LibraryDatabase, track_ids: list[int]) -> list[TagPreview]:
+    return [TagPreview(track_id=track.id, path=track.path, tags=_genre_tags_for_track(track)) for track in _tracks(db, track_ids)]
+
+
+def apply_genre_tags(db: LibraryDatabase, track_ids: list[int]) -> list[TagPreview]:
+    previews = build_genre_tag_preview(db, track_ids)
+    for preview in previews:
+        if preview.tags:
+            path = Path(preview.path)
+            _write_genre_tag(path, list(preview.tags.values())[0])
+            db.refresh_track_file_metadata(
+                preview.track_id,
+                size=path.stat().st_size,
+                mtime=path.stat().st_mtime,
+                metadata=read_audio_metadata(path),
+                replace_metadata_keys=MUTAGEN_METADATA_KEYS,
+            )
     return previews
 
 
@@ -40,6 +66,21 @@ def _custom_tags_for_track(track: Track) -> dict[str, str]:
     return tags
 
 
+def _genre_tags_for_track(track: Track) -> dict[str, str]:
+    if not track.genres:
+        return {}
+    genres = [_clean_genre_label(genre) for genre in track.genres]
+    genres = [genre for genre in genres if genre]
+    return {"GENRE": "; ".join(genres)} if genres else {}
+
+
+def _clean_genre_label(genre: str) -> str:
+    text = str(genre).replace("_", " ").strip()
+    if "---" in text:
+        text = text.rsplit("---", 1)[-1].strip()
+    return text
+
+
 def _write_tags(path: Path, tags: dict[str, str]) -> None:
     suffix = path.suffix.lower()
     if suffix == ".mp3":
@@ -58,3 +99,130 @@ def _write_tags(path: Path, tags: dict[str, str]) -> None:
     for key, value in tags.items():
         audio.tags[key] = [value]
     audio.save()
+
+
+def _write_genre_tag(path: Path, genre: str) -> None:
+    values = [part.strip() for part in genre.split(";") if part.strip()]
+    if not values:
+        return
+    genre_text = "; ".join(values)
+    suffix = path.suffix.lower()
+    if suffix in {".wav", ".wave"}:
+        _write_wave_id3_genre(path, genre_text)
+        return
+    if suffix == ".mp3":
+        id3 = _load_id3(path)
+        _set_id3_genre(id3, genre_text)
+        id3.save(path, v2_version=3)
+        return
+
+    audio = MutagenFile(path)
+    if audio is None:
+        raise ValueError(f"Unsupported audio tag format: {path}")
+    if isinstance(audio, MP4) or suffix in {".m4a", ".mp4", ".alac"}:
+        audio["\xa9gen"] = [genre_text]
+    elif isinstance(audio, FLAC):
+        audio["GENRE"] = genre_text
+    elif isinstance(audio, (WAVE, AIFF)) or suffix in {".aif", ".aiff", ".dsf", ".dff"}:
+        _set_audio_id3_genre(audio, genre_text)
+    else:
+        if not hasattr(audio, "tags") or audio.tags is None:
+            audio.add_tags()
+        if hasattr(audio.tags, "add"):
+            _set_audio_id3_genre(audio, genre_text)
+        else:
+            audio["Genre"] = genre_text
+    audio.save()
+
+
+def _set_id3_genre(tags: object, genre_text: str) -> None:
+    tags.delall("TCON")
+    tags.add(TCON(encoding=3, text=[genre_text]))
+
+
+def _load_id3(path: Path) -> ID3:
+    try:
+        return ID3(path)
+    except ID3NoHeaderError:
+        return ID3()
+
+
+def _set_audio_id3_genre(audio: object, genre_text: str) -> None:
+    if not hasattr(audio, "tags") or audio.tags is None:
+        audio.add_tags()
+    if audio.tags is None:
+        raise RuntimeError("Unable to create or access ID3 tags")
+    if "TCON" in audio.tags:
+        del audio.tags["TCON"]
+    audio.tags.add(TCON(encoding=3, text=[genre_text]))
+
+
+def _write_wave_id3_genre(path: Path, genre_text: str) -> None:
+    data = path.read_bytes()
+    if len(data) < 12 or data[:4] != b"RIFF" or data[8:12] != b"WAVE":
+        raise ValueError(f"Unsupported WAV file: {path}")
+    id3 = _read_wave_id3(path) or ID3()
+    _set_id3_genre(id3, genre_text)
+    chunk = _build_id3_wave_chunk(id3)
+    start, end = _find_pre_data_wave_id3_chunk(data)
+    if start is None or end is None:
+        data_start = _find_wave_data_chunk_start(data)
+        if data_start is None:
+            raise ValueError(f"Unsupported WAV file without data chunk: {path}")
+        updated = data[:data_start] + chunk + data[data_start:]
+    else:
+        updated = data[:start] + chunk + data[end:]
+    updated = updated[:4] + max(0, len(updated) - 8).to_bytes(4, "little") + updated[8:]
+    path.write_bytes(updated)
+
+
+def _read_wave_id3(path: Path) -> ID3 | None:
+    try:
+        audio = MutagenFile(path)
+    except Exception:
+        return None
+    tags = getattr(audio, "tags", None)
+    return tags if isinstance(tags, ID3) else None
+
+
+def _build_id3_wave_chunk(id3: ID3) -> bytes:
+    plain_id3 = ID3()
+    for frame in id3.values():
+        plain_id3.add(frame)
+    buffer = io.BytesIO()
+    plain_id3.save(buffer, v2_version=3)
+    payload = buffer.getvalue()
+    chunk = b"id3 " + len(payload).to_bytes(4, "little") + payload
+    if len(payload) % 2:
+        chunk += b"\x00"
+    return chunk
+
+
+def _find_pre_data_wave_id3_chunk(data: bytes) -> tuple[int | None, int | None]:
+    pos = 12
+    while pos + 8 <= len(data):
+        chunk_id = data[pos : pos + 4]
+        chunk_size = int.from_bytes(data[pos + 4 : pos + 8], "little")
+        chunk_end = pos + 8 + chunk_size + (chunk_size % 2)
+        if chunk_id in {b"id3 ", b"ID3 "}:
+            return pos, min(chunk_end, len(data))
+        if chunk_id == b"data":
+            return None, None
+        if chunk_end <= pos or chunk_end > len(data):
+            return None, None
+        pos = chunk_end
+    return None, None
+
+
+def _find_wave_data_chunk_start(data: bytes) -> int | None:
+    pos = 12
+    while pos + 8 <= len(data):
+        chunk_id = data[pos : pos + 4]
+        chunk_size = int.from_bytes(data[pos + 4 : pos + 8], "little")
+        if chunk_id == b"data":
+            return pos
+        chunk_end = pos + 8 + chunk_size + (chunk_size % 2)
+        if chunk_end <= pos or chunk_end > len(data):
+            return None
+        pos = chunk_end
+    return None

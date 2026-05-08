@@ -9,13 +9,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .analysis_jobs import AnalysisJobManager
 from .database import LibraryDatabase
-from .embedding import ClapEmbeddingAdapter, FakeEmbeddingAdapter, MertEmbeddingAdapter
+from .embedding import ClapEmbeddingAdapter
 from .exporter import export_playlist
 from .genre_jobs import GenreAnalysisJobManager
 from .scan_jobs import ScanJobManager
 from .search import SearchFilters, SimilaritySearch
 from .sonara_jobs import SonaraFeatureJobManager
-from .tags import apply_custom_tags, build_tag_preview
+from .tags import apply_custom_tags, apply_genre_tags, build_tag_preview
 
 
 class ScanRequest(BaseModel):
@@ -280,6 +280,10 @@ def create_app(db_path: str | Path = "dj-track-similarity.sqlite") -> FastAPI:
     @app.post("/api/tags/apply")
     def tags_apply(request: TagRequest):
         return apply_custom_tags(db, request.track_ids)
+
+    @app.post("/api/tags/genres/apply")
+    def genre_tags_apply(request: TagRequest):
+        return apply_genre_tags(db, request.track_ids)
 
     @app.post("/api/dialog/folder")
     def folder_dialog():

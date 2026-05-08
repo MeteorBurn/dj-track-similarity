@@ -38,6 +38,8 @@ This workspace may not be a Git repository. Do not assume Git history, branches,
 - Mutagen metadata written to SQLite must be JSON-safe. Convert Mutagen-specific objects such as ID3 timestamps to strings before saving.
 - Sonara feature analysis writes only SQLite track metadata (`sonara_features` and `sonara_model`) plus working BPM/key/duration/energy fields derived from analysis. BPM and key from Sonara must be analyzed values, not copied from file tags.
 - Sonara key data should be converted to Camelot notation for the UI working key when possible; keep the original Sonara tonal fields available in `sonara_features`.
+- Sonara `playlist` storage should stay focused on the current grouped UI contract instead of dumping every possible Sonara or helper field. Keep these groups and order aligned between SQLite JSON and the metadata dialog: Core features (`bpm`, `camelot_key`, `beats`, `onset_frames`, `onset_density`, `n_beats`, `rms_mean`, `rms_max`, `loudness_lufs`, `dynamic_range_db`, `spectral_centroid_mean`, `zero_crossing_rate`, `duration_sec`), Perceptual features (`energy`, `danceability`, `valence`, `acousticness`), Musical key (`key`, `key_confidence`), Tonal analysis (`chord_sequence`, `predominant_chord`, `chord_change_rate`, `dissonance`), and Spectral features (`spectral_bandwidth_mean`, `spectral_rolloff_mean`, `spectral_flatness_mean`, `spectral_contrast_mean`, `mfcc_mean`, `chroma_mean`).
+- Do not store or show `unavailable` placeholder rows for Sonara fields that the playlist workflow cannot produce. Do not persist helper-only diagnostics such as `requested_feature_count` or `decode_path` inside `sonara_features`.
 - Audio analysis uses a native-first shared loader: Sonara starts with `sonara.analyze_file`, while MAEST/MERT/CLAP use decoded waveform input. If native decoding fails for WAV-like files, the shared loader may recover playable PCM from malformed containers and return mono float audio without writing temporary decoded audio into the project.
 - Sonara fallback should call `sonara.analyze_signal` with decoded audio. MAEST/MERT/CLAP should keep using the shared loader rather than direct `torchaudio.load` so malformed but playable WAV files behave consistently across all analysis families.
 - MAEST genre analysis itself writes only SQLite track metadata (`maest_genres` and `maest_model`). It must not modify audio files. The separate genre-save action may later write those stored labels into standard audio genre tags.
@@ -53,7 +55,7 @@ This workspace may not be a Git repository. Do not assume Git history, branches,
 - Current seed search UI is in MERT validation mode: active knobs are `Similarity`, `Lookback`, and `Limit`. BPM, Key, Energy, Epsilon, and Noise are disabled in the UI and should not be sent from the frontend search request until calibrated. Text search is a separate CLAP mode and requires `clap` embeddings.
 - Algorithm reset controls are database-only. Reset Sonara, MAEST, MERT, CLAP, or fake independently without touching unrelated analysis families or audio files.
 - The database clear control deletes local SQLite records only and must require an explicit UI confirmation. It must not delete audio files.
-- The track metadata dialog should keep sources visually separate: unnamed Mutagen file tags first, Sonara computed features next, and MAEST genre labels separately.
+- The track metadata dialog should keep sources visually separate: the unnamed top table first, Sonara computed features next, and MAEST genre labels separately. The top table must always show `Title`, `Audio Length`, `Audio Format`, `File Size`, and `File Path`; then show Mutagen tags only when present in this order: `Artist`, `Album`, `Genre`, `Year`, `Country`, `Label`, `Catalog`, `Track no.`, `Disc no.`, `BPM tag`, `Key tag`, `Comment`, `ISRC`.
 - Keep hover help on user-editable parameters. Tooltips should explain purpose, accepted format, value type, and range.
 
 ## Common Commands
@@ -152,7 +154,7 @@ dj-sim tag-preview 1 2 3
 - `src/dj_track_similarity/runtime.py`: shared PyTorch runtime helpers for `auto|cpu|cuda`, CUDA diagnostics, and install hints.
 - `src/dj_track_similarity/logging_config.py`: file logging setup, event log levels, and concise exception summaries.
 - `src/dj_track_similarity/key_utils.py`: Sonara tonal-field normalization and Camelot key conversion helpers.
-- `src/dj_track_similarity/sonara_features.py`: Sonara playlist feature extraction, signal fallback through the shared audio loader, feature summaries, and SQLite storage preparation.
+- `src/dj_track_similarity/sonara_features.py`: Sonara playlist feature extraction, signal fallback through the shared audio loader, grouped feature summaries, and SQLite storage preparation.
 - `src/dj_track_similarity/sonara_jobs.py`: Sonara feature analysis job manager with progress, cancellation, errors, and SQLite metadata saves.
 - `src/dj_track_similarity/genres.py`: MAEST genre adapter using `maest-infer` with `discogs-maest-30s-pw-129e-519l`; batch inference must use direct model logits, not `predict_labels()`.
 - `src/dj_track_similarity/analysis.py`: simple analyze-missing flow.
@@ -179,7 +181,7 @@ dj-sim tag-preview 1 2 3
 - Keep FastAPI request/response shapes in sync with `frontend/src/api.ts` types.
 - If adding or changing scan or analysis job state, update both backend tests and frontend polling/display logic as needed.
 - If adding or changing Mutagen tag extraction, keep the fixed whitelist intentional, keep values JSON-safe, and update focused scanner/database tests.
-- If adding or changing Sonara feature extraction, update `src/dj_track_similarity/sonara_features.py`, `src/dj_track_similarity/sonara_jobs.py`, `src/dj_track_similarity/database.py`, `src/dj_track_similarity/api.py`, `src/dj_track_similarity/cli.py`, `frontend/src/api.ts`, `frontend/src/App.tsx`, and focused Sonara tests as needed.
+- If adding or changing Sonara feature extraction, update `src/dj_track_similarity/sonara_features.py`, `src/dj_track_similarity/sonara_jobs.py`, `src/dj_track_similarity/database.py`, `src/dj_track_similarity/api.py`, `src/dj_track_similarity/cli.py`, `frontend/src/api.ts`, `frontend/src/App.tsx`, docs, and focused Sonara tests as needed. Keep the SQLite feature order and the UI group order in sync.
 - If adding or changing MAEST genre job state, update `frontend/src/api.ts`, `frontend/src/App.tsx`, and focused genre job/API tests.
 - If changing audio decode behavior, keep `src/dj_track_similarity/audio_loader.py`, Sonara fallback, MAEST/MERT/CLAP adapters, and focused malformed-WAV tests aligned.
 - If changing search behavior, add or update focused tests in `tests/test_search.py`.

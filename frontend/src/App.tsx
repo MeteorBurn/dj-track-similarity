@@ -1222,7 +1222,8 @@ function TrackMetadataDialog({
 }) {
   const genres = track.genres || [];
   const scores = track.genre_scores || {};
-  const sonaraFeatures = readableSonaraFeatures(track.metadata?.sonara_features);
+  const sonaraFeatureGroups = readableSonaraFeatureGroups(track.metadata?.sonara_features);
+  const sonaraFeatureCount = sonaraFeatureGroups.reduce((total, group) => total + group.features.length, 0);
   const primaryEntries = readablePrimaryTrackInfo(track);
   const metadataEntries = readableTrackTags(track.metadata);
   return (
@@ -1236,7 +1237,7 @@ function TrackMetadataDialog({
           <button className="icon-button" title="Закрыть" aria-label="Закрыть" onClick={onClose}><X size={15} /></button>
         </div>
         <strong className="metadata-track-title">{displayTrack(track)}</strong>
-        {primaryEntries.length || metadataEntries.length ? (
+        <div className="mutagen-block">
           <dl className="metadata-grid tag-grid mutagen-grid">
             {primaryEntries.map(([key, value]) => (
               <Fragment key={key}><dt>{key}</dt><dd>{value}</dd></Fragment>
@@ -1245,19 +1246,22 @@ function TrackMetadataDialog({
               <Fragment key={key}><dt>{key}</dt><dd>{formatTagValue(value)}</dd></Fragment>
             ))}
           </dl>
-        ) : (
-          <span className="empty-genres">Mutagen не нашел сохраненных тегов</span>
-        )}
+        </div>
         <div className="sonara-block">
           <strong>SONARA features</strong>
-          {sonaraFeatures.length ? (
-            <>
-              <dl className="metadata-grid tag-grid">
-                {sonaraFeatures.map((feature) => (
-                  <Fragment key={feature.key}><dt title={feature.description}>{feature.label}</dt><dd title={feature.description}>{feature.value}</dd></Fragment>
-                ))}
-              </dl>
-            </>
+          {sonaraFeatureCount ? (
+            <div className="sonara-feature-groups">
+              {sonaraFeatureGroups.map((group) => (
+                <div className="sonara-feature-group" key={group.title}>
+                  <span className="sonara-feature-group-title">{group.title}</span>
+                  <dl className="metadata-grid tag-grid sonara-feature-grid">
+                    {group.features.map((feature) => (
+                      <Fragment key={feature.key}><dt title={feature.description}>{feature.label}</dt><dd title={feature.description}>{feature.value}</dd></Fragment>
+                    ))}
+                  </dl>
+                </div>
+              ))}
+            </div>
           ) : (
             <span className="empty-genres">SONARA признаки ещё не извлечены</span>
           )}
@@ -1286,10 +1290,9 @@ function TrackMetadataDialog({
 }
 
 const sonaraFeatureLabels: Record<string, string> = {
-  duration_sec: "Duration",
-  duration_player: "Length",
   bpm: "BPM",
   camelot_key: "Musical Key",
+  duration_sec: "Duration",
   key: "Key",
   key_confidence: "Key confidence",
   energy: "Energy",
@@ -1313,110 +1316,55 @@ const sonaraFeatureLabels: Record<string, string> = {
   zero_crossing_rate: "ZCR",
   mfcc_mean: "MFCC mean",
   chroma_mean: "Chroma mean",
-  chord_sequence: "Chord sequence",
-  analysis_seconds: "Analysis seconds",
-  total_seconds: "Total analysis seconds",
-  decode_path: "Decode path",
-  requested_feature_count: "Feature count"
+  chord_sequence: "Chord sequence"
 };
 
-const tonalFeatureKeys = new Set([
-  "key",
-  "key_confidence",
-  "key_detection",
-  "detect_key",
-  "predominant_key",
-  "predominant_chord",
-  "chord_sequence",
-  "chord_change_rate",
-  "chord_descriptors",
-  "chords_from_beats",
-  "chords_from_frames",
-  "chroma_mean",
-  "chroma_stft",
-  "hpcp",
-  "dissonance",
-  "estimate_tuning",
-  "pitch_tuning",
-  "salience"
-]);
+const sonaraPlaylistFeatureGroups = [
+  {
+    title: "Core features",
+    keys: ["bpm", "camelot_key", "beats", "onset_frames", "onset_density", "n_beats", "rms_mean", "rms_max", "loudness_lufs", "dynamic_range_db", "spectral_centroid_mean", "zero_crossing_rate", "duration_sec"]
+  },
+  {
+    title: "Perceptual features (0.0 - 1.0)",
+    keys: ["energy", "danceability", "valence", "acousticness"]
+  },
+  {
+    title: "Musical key",
+    keys: ["key", "key_confidence"]
+  },
+  {
+    title: "Tonal analysis",
+    keys: ["chord_sequence", "predominant_chord", "chord_change_rate", "dissonance"]
+  },
+  {
+    title: "Spectral features",
+    keys: ["spectral_bandwidth_mean", "spectral_rolloff_mean", "spectral_flatness_mean", "spectral_contrast_mean", "mfcc_mean", "chroma_mean"]
+  }
+] as const;
 
-const sonaraFeaturePriority: Record<string, number> = {
-  duration_player: 0,
-  duration_sec: 1,
-  bpm: 2,
-  camelot_key: 3,
-  energy: 4,
-  danceability: 5,
-  valence: 6,
-  acousticness: 7,
-  loudness_lufs: 8,
-  dynamic_range_db: 9,
-  onset_density: 10,
-  n_beats: 11,
-  beats: 12,
-  onset_frames: 13,
-  zero_crossing_rate: 14,
-  spectral_centroid_mean: 15,
-  spectral_bandwidth_mean: 16,
-  spectral_rolloff_mean: 17,
-  spectral_flatness_mean: 18,
-  key: 100,
-  key_confidence: 101,
-  key_detection: 102,
-  detect_key: 103,
-  predominant_key: 104,
-  predominant_chord: 105,
-  chord_sequence: 106,
-  chord_change_rate: 107,
-  chord_descriptors: 108,
-  chords_from_beats: 109,
-  chords_from_frames: 110,
-  chroma_mean: 111,
-  chroma_stft: 112,
-  hpcp: 113,
-  dissonance: 114,
-  estimate_tuning: 115,
-  pitch_tuning: 116,
-  salience: 117,
-  spectral_contrast_mean: 201,
-  mfcc_mean: 202,
-  decode_path: 203,
-  analysis_seconds: 204,
-  total_seconds: 205,
-  requested_feature_count: 206
-};
+const sonaraPlaylistFeatureKeys = new Set(sonaraPlaylistFeatureGroups.flatMap((group) => [...group.keys]));
 
-function readableSonaraFeatures(raw: unknown) {
+function readableSonaraFeatureGroups(raw: unknown) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
   const record = raw as Record<string, unknown>;
-  const entries = Object.entries(record);
-  const durationSeconds = sonaraFeatureNumber(record.duration_sec);
-  if (durationSeconds != null) {
-    entries.push([
-      "duration_player",
-      {
-        value: durationSeconds,
-        type: "duration",
-        description: "Track duration formatted like a music player."
-      }
-    ]);
-  }
-  return entries
-    .filter(([key]) => key !== "tempo")
-    .map(([key, payload]) => {
-      const record = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
-      return {
-        key,
-        label: sonaraFeatureLabels[key] || formatFeatureLabel(key),
-        value: formatSonaraValue(record),
-        description: typeof record.description === "string" ? record.description : "",
-        sortGroup: sonaraFeatureSortGroup(key, record),
-        valueGroup: sonaraFeatureValueGroup(record),
-        priority: sonaraFeaturePriority[key] ?? 100
-      };
-    })
-    .sort((left, right) => left.sortGroup - right.sortGroup || left.valueGroup - right.valueGroup || left.priority - right.priority || left.label.localeCompare(right.label));
+  return sonaraPlaylistFeatureGroups
+    .map((group) => ({
+      title: group.title,
+      features: group.keys
+        .map((key) => {
+          const payload = record[key];
+          const featureRecord = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
+          if (!sonaraPlaylistFeatureKeys.has(key) || featureRecord.type === "unavailable" || featureRecord.value == null) return null;
+          return {
+            key,
+            label: sonaraFeatureLabels[key] || formatFeatureLabel(key),
+            value: formatSonaraValue(featureRecord),
+            description: typeof featureRecord.description === "string" ? featureRecord.description : ""
+          };
+        })
+        .filter((feature) => feature != null)
+    }))
+    .filter((group) => group.features.length);
 }
 
 function formatFeatureLabel(key: string) {
@@ -1443,23 +1391,6 @@ function formatSonaraValue(record: Record<string, unknown>) {
   if (Array.isArray(value)) return `${value.length} values`;
   if (value == null) return "-";
   return String(value);
-}
-
-function sonaraFeatureValueGroup(record: Record<string, unknown>) {
-  if (Array.isArray(record.value)) return 1;
-  return record.type === "unavailable" || record.value == null ? 2 : 0;
-}
-
-function sonaraFeatureSortGroup(key: string, record: Record<string, unknown>) {
-  if (key === "duration_player" || key === "duration_sec" || key === "bpm" || key === "camelot_key") return 0;
-  if (tonalFeatureKeys.has(key)) return 2;
-  return sonaraFeatureValueGroup(record) === 2 ? 3 : 1;
-}
-
-function sonaraFeatureNumber(payload: unknown) {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
-  const value = (payload as Record<string, unknown>).value;
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function formatNumber(value: number) {

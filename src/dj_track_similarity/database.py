@@ -331,7 +331,7 @@ class LibraryDatabase:
                     musical_key,
                     energy,
                     duration,
-                    json.dumps(metadata, ensure_ascii=False, sort_keys=True),
+                    json.dumps(metadata, ensure_ascii=False),
                     track_id,
                 ),
             )

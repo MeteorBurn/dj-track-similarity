@@ -24,8 +24,9 @@ else who collects, tags, or plays music will find the approach useful too.
   deleting analysis results.
 - Can relocate stored track paths after moving the same music folder to another
   drive, without repeating completed analysis.
-- Extracts Sonara playlist features, including analyzed BPM and key, and stores
-  compact feature summaries in SQLite.
+- Extracts a focused Sonara playlist feature set, including analyzed BPM,
+  Camelot key, rhythm/loudness values, perceptual scores, tonal descriptors,
+  and compact spectral summaries, then stores those summaries in SQLite.
 - Uses a native-first audio loader with tolerant WAV recovery for playable files
   that strict RIFF parsers reject.
 - Converts analyzed Sonara key data to Camelot notation for the displayed
@@ -38,8 +39,8 @@ else who collects, tags, or plays music will find the approach useful too.
   players such as AIMP.
 - Shows compact per-track analysis status (`sonara`, `maest`, `mert`, `clap`)
   and header counters for how many tracks have each analysis family.
-- Shows a metadata popup with Mutagen tags, Sonara features, and MAEST genre
-  confidence scores.
+- Shows a metadata popup with source-separated Mutagen file metadata, grouped
+  Sonara playlist features, and MAEST genre confidence scores.
 - Lets you choose seed tracks, search for similar tracks, preview them, and
   assemble a small set or playlist.
 - Exports playlists as M3U or CSV.
@@ -73,16 +74,24 @@ I do not want uncalibrated knobs to make the model look better or worse than it
 really is.
 
 Sonara is currently used in `playlist` mode as a fast, practical feature pass.
-It writes analyzed BPM/key and compact feature summaries into SQLite metadata.
-Large arrays such as mel spectrograms are summarized instead of being dumped in
-full, because the current goal is inspection and calibration, not a final data
-format. In the UI, `Embedding batch size` controls how many Sonara track
-workers run concurrently.
+It writes a focused set of analyzed playlist features into SQLite metadata:
+core rhythm/loudness fields, perceptual scores, musical key, tonal analysis,
+and compact spectral summaries. The UI displays Sonara values in those groups,
+starting with analyzed BPM and Camelot key. Large unavailable or non-playlist
+fields are not represented as placeholder rows; the current goal is inspection
+and calibration, not a final data format. In the UI, `Embedding batch size`
+controls how many Sonara track workers run concurrently.
 
 The metadata popup is intentionally split by source:
 
-- the top unnamed table is file metadata parsed by Mutagen;
-- `SONARA features` are computed analysis values;
+- the top unnamed table starts with always-present local track/file facts:
+  title, audio length, audio format, file size, and file path;
+- the same top table then shows Mutagen file tags only when present: artist,
+  album, genre, year, country, label, catalog, track number, disc number, BPM
+  tag, key tag, comment, and ISRC;
+- `SONARA features` are computed playlist analysis values grouped as Core
+  features, Perceptual features, Musical key, Tonal analysis, and Spectral
+  features;
 - `MAEST genres` are model genre labels and confidence scores.
 
 This separation is important because file tags and model-derived values can
@@ -164,12 +173,12 @@ dj-sim tag-apply 1 2 3
 PyTorch/Hugging Face and may download model weights on first run.
 
 `analyze-sonara` uses `sonara.analyze_file(..., mode="playlist")` and stores
-feature summaries in SQLite metadata. Its `--batch-size` controls parallel
-track workers, not a neural-network batch. If Sonara's default decoder cannot
-read a WAV-like file, the app falls back to the shared tolerant audio loader
-before calling Sonara signal analysis. BPM and key from this pass are analyzed
-values, not file tags. The UI displays the working musical key in Camelot
-notation when Sonara provides enough tonal information.
+only the focused playlist feature set in SQLite metadata. Its `--batch-size`
+controls parallel track workers, not a neural-network batch. If Sonara's
+default decoder cannot read a WAV-like file, the app falls back to the shared
+tolerant audio loader before calling Sonara signal analysis. BPM and key from
+this pass are analyzed values, not file tags. The UI displays the working
+musical key in Camelot notation when Sonara provides enough tonal information.
 
 `--adapter clap` builds separate LAION-CLAP audio embeddings for text search.
 
@@ -244,10 +253,11 @@ computed analysis data.
 Mutagen file tags are read from a fixed whitelist instead of importing every
 possible tag blob:
 
-- title, artist, album, genre, year, country;
-- label, catalog number, track number, disc number;
-- BPM tag, key tag, comment, ISRC, audio length, audio format, file size, and
-  file path.
+- title, audio length, audio format, file size, and file path are always shown
+  in the metadata popup's top table;
+- artist, album, genre, year, country, label, catalog number, track number,
+  disc number, BPM tag, key tag, comment, and ISRC are shown there when Mutagen
+  has those values.
 
 Values are normalized before writing to SQLite metadata so odd Mutagen objects
 such as ID3 timestamps can still be stored as JSON-safe strings.
@@ -266,6 +276,20 @@ and can repair an oversized `data` chunk size before writing tags.
 
 Runtime logs are written to `dj-track-similarity.log` in the current working
 directory by default. Set `DJ_TRACK_SIMILARITY_LOG` to choose another path.
+
+The Sonara feature table is deliberately limited to fields produced by the
+playlist workflow and the app's derived Camelot key. It currently keeps these
+groups in order:
+
+- Core features: BPM, Camelot key, beat frames, onset frames, onset density,
+  beat count, RMS mean/max, LUFS loudness, dynamic range, spectral centroid,
+  zero crossing rate, and duration.
+- Perceptual features: energy, danceability, valence, and acousticness.
+- Musical key: original Sonara key and key confidence.
+- Tonal analysis: chord sequence, predominant chord, chord change rate, and
+  dissonance.
+- Spectral features: spectral bandwidth, rolloff, flatness, contrast, MFCC
+  mean, and chroma mean.
 
 The small trash buttons next to analysis names reset only that analysis family:
 

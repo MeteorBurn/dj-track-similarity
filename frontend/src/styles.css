@@ -1162,9 +1162,39 @@ meter {
   padding-top: 12px;
 }
 
+.mutagen-block {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .tag-grid {
   max-height: 260px;
   overflow: auto;
+}
+
+.sonara-feature-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sonara-feature-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sonara-feature-group-title {
+  color: #3f4b38;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 16px;
+}
+
+.sonara-feature-grid {
+  max-height: none;
 }
 
 .mutagen-grid {

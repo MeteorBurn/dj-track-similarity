@@ -9,6 +9,7 @@ from .runtime import select_torch_device
 
 class MaestGenreAdapter:
     model_name = "discogs-maest-30s-pw-129e-519l"
+    analysis_offset_seconds = 60.0
 
     def __init__(self, device: str | None = None, top_k: int = 3) -> None:
         self.requested_device = device or "auto"
@@ -55,8 +56,13 @@ class MaestGenreAdapter:
         if audio.numel() < target_samples:
             audio = torch.nn.functional.pad(audio, (0, target_samples - audio.numel()))
         elif audio.numel() > target_samples:
-            start = max(0, (audio.numel() - target_samples) // 2)
-            audio = audio[start : start + target_samples]
+            start = int(16000 * self.analysis_offset_seconds)
+            if start >= audio.numel():
+                start = 0
+            segment = audio[start : start + target_samples]
+            if segment.numel() < target_samples:
+                segment = torch.nn.functional.pad(segment, (0, target_samples - segment.numel()))
+            audio = segment
         return audio
 
     def _load_model(self) -> None:

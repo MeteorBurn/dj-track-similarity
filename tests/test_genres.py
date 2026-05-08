@@ -79,3 +79,21 @@ def test_maest_predict_batch_uses_model_logits_per_track(monkeypatch) -> None:
         [{"label": "B", "score": torch.sigmoid(torch.tensor(2.0)).item()}, {"label": "C", "score": torch.sigmoid(torch.tensor(1.0)).item()}],
         [{"label": "A", "score": torch.sigmoid(torch.tensor(3.0)).item()}, {"label": "B", "score": torch.sigmoid(torch.tensor(1.0)).item()}],
     ]
+
+
+def test_maest_prepares_audio_from_60_to_90_second_window(monkeypatch) -> None:
+    sample_rate = 16000
+    audio = np.arange(sample_rate * 120, dtype=np.float32)
+
+    def fake_load_audio(path, *, torchaudio_module=None):
+        return audio, sample_rate, "fake"
+
+    monkeypatch.setattr(genres, "load_audio_mono", fake_load_audio)
+    adapter = BatchMaestAdapter()
+    adapter._load_model()
+
+    prepared = adapter._prepare_audio("long.wav")
+
+    assert prepared.numel() == sample_rate * 30
+    assert prepared[0].item() == sample_rate * 60
+    assert prepared[-1].item() == sample_rate * 90 - 1

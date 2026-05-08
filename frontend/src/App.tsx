@@ -5,7 +5,7 @@ import { LibraryPanel } from "./LibraryPanel";
 import { SearchPlaylistPanel } from "./SearchPlaylistPanel";
 import { TrackMetadataDialog } from "./TrackMetadataDialog";
 import { TrackPanel } from "./TrackPanel";
-import { displayTrack, trackCountLabel, trackHasAnalysis } from "./trackDisplay";
+import { basename, displayTrack, trackCountLabel, trackHasAnalysis } from "./trackDisplay";
 
 type Notice = { kind: "ok" | "error" | "idle"; text: string };
 type DeviceMode = "auto" | "cpu" | "cuda";
@@ -197,6 +197,14 @@ export function App() {
   function appendActivity(level: ActivityEvent["level"], message: string, detail?: string) {
     setActivityLog((current) => [
       { id: Date.now() + Math.random(), time: Date.now(), level, message, detail },
+      ...current
+    ].slice(0, 80));
+  }
+
+  function appendActivities(events: Array<{ level: ActivityEvent["level"]; message: string; detail?: string }>) {
+    const now = Date.now();
+    setActivityLog((current) => [
+      ...events.map((event, index) => ({ id: now + index + Math.random(), time: now, ...event })),
       ...current
     ].slice(0, 80));
   }
@@ -530,10 +538,21 @@ export function App() {
       setNotice({ kind: "error", text: "Нет MAEST жанров для записи" });
       return;
     }
-    appendActivity("warn", "Запись жанров запущена", `${ids.length} треков · standard Genre`);
+    appendActivity("warn", "Запись жанров в теги файлов запущена", `${ids.length} треков · standard Genre`);
     await run(() => api.genreTagApply(ids), (value) => {
-      appendActivity("ok", "Жанры записаны", `${value.length} треков · Genre overwritten`);
-      return `Жанры записаны: ${value.length}`;
+      appendActivities([
+        {
+          level: "ok" as const,
+          message: "Жанры записаны в теги файлов",
+          detail: `${value.length} треков · Genre overwritten`
+        },
+        ...value.map((preview) => ({
+          level: "ok" as const,
+          message: "Жанры записаны в файл",
+          detail: genreWriteLogDetail(preview.path, preview.tags)
+        }))
+      ]);
+      return `Жанры записаны в теги файлов: ${value.length}`;
     });
   }
 
@@ -646,4 +665,10 @@ export function App() {
       {metadataTrack && <TrackMetadataDialog track={metadataTrack} busy={busy || stageRunning} onWriteGenres={(track) => void handleGenreTagsApply([track.id])} onClose={() => setMetadataTrack(null)} />}
     </main>
   );
+}
+
+function genreWriteLogDetail(path: string, tags: Record<string, string>) {
+  const tagEntries = Object.entries(tags);
+  const tagText = tagEntries.length ? tagEntries.map(([key, value]) => `${key}: ${value}`).join(" · ") : "Genre tag skipped";
+  return `${basename(path)} · ${tagText}`;
 }

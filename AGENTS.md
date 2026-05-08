@@ -48,7 +48,7 @@ This workspace may not be a Git repository. Do not assume Git history, branches,
 - In the UI, `Analyze limit = 0` means analyzing the whole library and is the default. Positive limits count missing results for the selected analysis family, not the first N tracks overall: Sonara skips tracks with `sonara_features`, MAEST skips tracks with stored genres, and MERT/CLAP skip tracks with embeddings in their own embedding space. Avoid triggering whole-library analysis unless the user clearly wants it or is operating the UI themselves.
 - The UI `Embedding batch size` control is shared deliberately: Sonara uses it as parallel track workers; MAEST, MERT, and CLAP use it as inference batch size.
 - MERT/CLAP analysis should be accelerated with a single selected device plus inference batching, not multiple parallel model workers. Use `device=auto|cpu|cuda` and `batch_size`; keep legacy `workers` only as a compatibility alias for analysis batch size.
-- MAEST uses the same `device=auto|cpu|cuda` selection model and supports inference batching through `batch_size`. Its adapter must call `model(audio_batch, melspectrogram_input=False)` and rank per-row logits; do not use `model.predict_labels()` for batch work because that helper averages activations into one label vector.
+- MAEST uses the same `device=auto|cpu|cuda` selection model and supports inference batching through `batch_size`. Its adapter must analyze the 60-90 second window when the file is long enough, falling back to available audio plus padding for shorter files. It must call `model(audio_batch, melspectrogram_input=False)` and rank per-row logits; do not use `model.predict_labels()` for batch work because that helper averages activations into one label vector.
 - Sonara batch size is not ML inference batching. It controls concurrent Sonara track workers in one job.
 - `auto` chooses CUDA when PyTorch sees a GPU, otherwise CPU.
 - If CUDA is explicitly requested and unavailable, surface an error instead of silently falling back to CPU. Use `auto` for fallback behavior.
@@ -157,7 +157,7 @@ dj-sim tag-preview 1 2 3
 - `src/dj_track_similarity/sonara_features.py`: Sonara playlist feature extraction, signal fallback through the shared audio loader, grouped feature summaries, and SQLite storage preparation.
 - `src/dj_track_similarity/sonara_jobs.py`: Sonara feature analysis job manager with progress, cancellation, errors, and SQLite metadata saves.
 - `src/dj_track_similarity/sonara_similarity.py`: SONARA-only feature similarity search for balanced, vibe, sound, and DJ-transition seed matching. It must ignore `camelot_key` even if stale metadata contains it.
-- `src/dj_track_similarity/genres.py`: MAEST genre adapter using `maest-infer` with `discogs-maest-30s-pw-129e-519l`; batch inference must use direct model logits, not `predict_labels()`.
+- `src/dj_track_similarity/genres.py`: MAEST genre adapter using `maest-infer` with `discogs-maest-30s-pw-129e-519l`; batch inference must use the 60-90 second audio window and direct model logits, not `predict_labels()`.
 - `src/dj_track_similarity/analysis.py`: simple analyze-missing flow.
 - `src/dj_track_similarity/analysis_jobs.py`: analysis job manager with batching, progress, cancellation, errors, adapter metadata, and embedding saves.
 - `src/dj_track_similarity/genre_jobs.py`: MAEST genre analysis job manager with batching, progress, cancellation, errors, and SQLite metadata saves.

@@ -191,7 +191,9 @@ key fields rather than deriving another notation.
 `analyze-genres` uses MAEST through `maest-infer` with
 `discogs-maest-30s-pw-129e-519l` to store the top 3 genre labels and confidence
 scores in SQLite track metadata. Its `--batch-size` controls MAEST inference
-batching on the selected device. It does not modify audio files by itself.
+batching on the selected device. For each track, MAEST analyzes the 60-90 second
+window when the file is long enough; shorter files fall back to the available
+audio and are padded as needed for batching. It does not modify audio files by itself.
 
 `--fake` is only for smoke tests without loading ML models.
 
@@ -344,7 +346,8 @@ MAEST genre extraction uses the same `auto`, `cpu`, and `cuda` device behavior.
 Internally, the app sends a `[batch, time]` audio tensor to `maest-infer` and
 reads per-track logits from `model(...)`. It intentionally avoids
 `predict_labels()` for batch analysis because that helper averages activations
-into one label vector.
+into one label vector. The analyzed MAEST window is the 60-90 second section of
+the track where available.
 
 Sonara playlist analysis is usually much lighter than MERT/CLAP/MAEST model
 inference. It still reads and decodes audio, so the full-library pass is not

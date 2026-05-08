@@ -33,12 +33,6 @@ class ScanStats:
 
 
 @dataclass(frozen=True)
-class AnalyzeStats:
-    analyzed: int = 0
-    failed: int = 0
-
-
-@dataclass(frozen=True)
 class SearchResult:
     track: Track
     score: float

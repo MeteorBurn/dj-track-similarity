@@ -134,9 +134,6 @@ FEATURE_DESCRIPTIONS = {
     "chords_from_frames": "Frame/segment chord labels produced from HPCP.",
     "chord_descriptors": "Summary statistics for a chord sequence.",
     "key_detection": "Analyzed musical key, independent of file tags.",
-    "chord_sequence": "Chord labels over time.",
-    "predominant_chord": "Most frequent chord in the analyzed track.",
-    "chord_change_rate": "Chord changes per second; a harmonic complexity proxy.",
     "yin": "Fundamental frequency estimate from YIN pitch tracking.",
     "pyin": "Probabilistic YIN pitch estimate and voiced probabilities.",
     "piptrack": "Pitch salience tracks from spectral peaks.",
@@ -230,7 +227,7 @@ def _import_sonara():
 def _analyze_file_or_signal(sonara: Any, path: str | Path) -> dict[str, object]:
     try:
         return dict(sonara.analyze_file(str(path), sr=22050, mode=SONARA_ANALYSIS_MODE))
-    except Exception as error:
+    except Exception:
         if Path(path).suffix.lower() not in {".wav", ".wave"}:
             raise
         audio, _detail = _load_wav_fallback(path, sonara)

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .database import LibraryDatabase
+from .job_runtime import JobStore
 from .logging_config import event_log_level, exception_summary
 from .scanner import MUTAGEN_METADATA_KEYS, SUPPORTED_AUDIO_EXTENSIONS, read_audio_metadata
 
@@ -48,8 +49,7 @@ class ScanJobStatus:
 class ScanJobManager:
     def __init__(self, db: LibraryDatabase) -> None:
         self.db = db
-        self._jobs: dict[str, ScanJobStatus] = {}
-        self._lock = threading.Lock()
+        self._store = JobStore(self._copy_status, unknown_label="scan job")
 
     def create_job(self, root: str | Path, *, workers: int = 1) -> str:
         root_path = Path(root)
@@ -61,8 +61,7 @@ class ScanJobManager:
         job_id = str(uuid.uuid4())
         status = ScanJobStatus(job_id=job_id, state="queued", root=str(root_path), total=len(paths), workers=max(1, workers))
         status._paths = paths  # type: ignore[attr-defined]
-        with self._lock:
-            self._jobs[job_id] = status
+        self._store.add(job_id, status)
         self._append_event(job_id, "info", "Scan queued", path=str(root_path))
         return job_id
 
@@ -85,8 +84,7 @@ class ScanJobManager:
         status._paths = paths  # type: ignore[attr-defined]
         status._track_ids = track_ids  # type: ignore[attr-defined]
         status._refresh_tags = True  # type: ignore[attr-defined]
-        with self._lock:
-            self._jobs[job_id] = status
+        self._store.add(job_id, status)
         self._append_event(job_id, "info", "Tag refresh queued")
         return job_id
 
@@ -201,16 +199,10 @@ class ScanJobManager:
             self._scan_one(job_id, path)
 
     def get(self, job_id: str) -> ScanJobStatus:
-        with self._lock:
-            if job_id not in self._jobs:
-                raise KeyError(f"Unknown scan job: {job_id}")
-            return self._copy_status(self._jobs[job_id])
+        return self._store.get(job_id)
 
     def latest(self) -> ScanJobStatus | None:
-        with self._lock:
-            if not self._jobs:
-                return None
-            return self._copy_status(next(reversed(self._jobs.values())))
+        return self._store.latest()
 
     def cancel(self, job_id: str) -> ScanJobStatus:
         self._update(job_id, cancel_requested=True)
@@ -283,8 +275,7 @@ class ScanJobManager:
         skipped: int = 0,
         failed: int = 0,
     ) -> None:
-        with self._lock:
-            status = self._jobs[job_id]
+        with self._store.locked(job_id) as status:
             status.processed += 1
             status.added += added
             status.updated += updated
@@ -296,18 +287,11 @@ class ScanJobManager:
         self._append_event(job_id, level, message, path=path)
 
     def _update(self, job_id: str, **changes: object) -> None:
-        with self._lock:
-            status = self._jobs[job_id]
-            for key, value in changes.items():
-                setattr(status, key, value)
+        self._store.update(job_id, **changes)
 
     def _append_event(self, job_id: str, level: str, message: str, *, path: str | None = None) -> None:
         LOGGER.log(event_log_level(level), "%s job_id=%s path=%s", message, job_id, path)
-        with self._lock:
-            status = self._jobs[job_id]
-            status.events.append(ScanLogEvent(timestamp=time.time(), level=level, message=message, path=path))
-            if len(status.events) > 200:
-                status.events = status.events[-200:]
+        self._store.append_event(job_id, ScanLogEvent(timestamp=time.time(), level=level, message=message, path=path))
 
     @staticmethod
     def _copy_status(status: ScanJobStatus) -> ScanJobStatus:

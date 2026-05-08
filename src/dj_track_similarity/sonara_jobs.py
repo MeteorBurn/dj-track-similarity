@@ -8,6 +8,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 
 from .database import LibraryDatabase
+from .job_runtime import JobStore
 from .logging_config import event_log_level, exception_summary
 from .models import Track
 from .sonara_features import SONARA_MODEL_NAME, analyze_and_store_sonara_features
@@ -59,8 +60,7 @@ class SonaraJobStatus:
 class SonaraFeatureJobManager:
     def __init__(self, db: LibraryDatabase) -> None:
         self.db = db
-        self._jobs: dict[str, SonaraJobStatus] = {}
-        self._lock = threading.Lock()
+        self._store = JobStore(self._copy_status, unknown_label="sonara job")
 
     def create_job(self, *, limit: int | None = None, batch_size: int = 1) -> str:
         tracks = [track for track in self.db.list_tracks() if "sonara_features" not in track.metadata]
@@ -70,8 +70,7 @@ class SonaraFeatureJobManager:
         workers = max(1, batch_size)
         status = SonaraJobStatus(job_id=job_id, state="queued", total=len(tracks), workers=workers, batch_size=workers)
         status._tracks = tracks  # type: ignore[attr-defined]
-        with self._lock:
-            self._jobs[job_id] = status
+        self._store.add(job_id, status)
         self._append_event(job_id, "info", "Sonara feature analysis queued")
         return job_id
 
@@ -156,16 +155,10 @@ class SonaraFeatureJobManager:
             self._save_failure(job_id, track, error)
 
     def get(self, job_id: str) -> SonaraJobStatus:
-        with self._lock:
-            if job_id not in self._jobs:
-                raise KeyError(f"Unknown sonara job: {job_id}")
-            return self._copy_status(self._jobs[job_id])
+        return self._store.get(job_id)
 
     def latest(self) -> SonaraJobStatus | None:
-        with self._lock:
-            if not self._jobs:
-                return None
-            return self._copy_status(next(reversed(self._jobs.values())))
+        return self._store.latest()
 
     def cancel(self, job_id: str) -> SonaraJobStatus:
         self._update(job_id, cancel_requested=True)
@@ -174,8 +167,7 @@ class SonaraFeatureJobManager:
     def _save_failure(self, job_id: str, track: Track, error: Exception) -> None:
         error_text = exception_summary(error)
         LOGGER.exception("Sonara track failed job_id=%s track_id=%s path=%s", job_id, track.id, track.path)
-        with self._lock:
-            status = self._jobs[job_id]
+        with self._store.locked(job_id) as status:
             status.current_path = track.path
             status.processed += 1
             status.failed += 1
@@ -193,8 +185,7 @@ class SonaraFeatureJobManager:
         failed_delta: int = 0,
         errors: list[SonaraTrackError] | None = None,
     ) -> None:
-        with self._lock:
-            status = self._jobs[job_id]
+        with self._store.locked(job_id) as status:
             status.current_path = current_path
             status.processed += 1
             status.analyzed += analyzed_delta
@@ -205,10 +196,7 @@ class SonaraFeatureJobManager:
                 status.avg_seconds_per_track = (time.time() - status.started_at) / status.processed
 
     def _update(self, job_id: str, **changes: object) -> None:
-        with self._lock:
-            status = self._jobs[job_id]
-            for key, value in changes.items():
-                setattr(status, key, value)
+        self._store.update(job_id, **changes)
 
     def _append_event(
         self,
@@ -227,11 +215,7 @@ class SonaraFeatureJobManager:
             track_id,
             path,
         )
-        with self._lock:
-            status = self._jobs[job_id]
-            status.events.append(SonaraLogEvent(time.time(), level, message, path, track_id))
-            if len(status.events) > 200:
-                status.events = status.events[-200:]
+        self._store.append_event(job_id, SonaraLogEvent(time.time(), level, message, path, track_id))
 
     @staticmethod
     def _copy_status(status: SonaraJobStatus) -> SonaraJobStatus:

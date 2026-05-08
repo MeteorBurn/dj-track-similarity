@@ -15,6 +15,22 @@ from .models import Track
 
 DEFAULT_EMBEDDING_KEY = "mert"
 SQLITE_BUSY_TIMEOUT_SECONDS = 30
+TRACK_SELECT_FIELDS = """
+t.*, e.model_name AS embedding_model, e.dim AS embedding_dim,
+    (
+        SELECT json_group_array(embedding_key)
+        FROM embeddings
+        WHERE track_id = t.id
+    ) AS embedding_keys_json
+"""
+TRACK_SELECT_FIELDS_WITH_VECTOR = """
+t.*, e.model_name AS embedding_model, e.dim AS embedding_dim, e.vector,
+    (
+        SELECT json_group_array(embedding_key)
+        FROM embeddings
+        WHERE track_id = t.id
+    ) AS embedding_keys_json
+"""
 
 
 def normalize_path(path: str | Path) -> str:
@@ -138,13 +154,8 @@ class LibraryDatabase:
     def get_track_by_path(self, path: str | Path) -> Track | None:
         with self.connect() as connection:
             row = connection.execute(
-                """
-                SELECT t.*, e.model_name AS embedding_model, e.dim AS embedding_dim,
-                    (
-                        SELECT json_group_array(embedding_key)
-                        FROM embeddings
-                        WHERE track_id = t.id
-                    ) AS embedding_keys_json
+                f"""
+                SELECT {TRACK_SELECT_FIELDS}
                 FROM tracks t
                 LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                 WHERE t.path = ?
@@ -156,13 +167,8 @@ class LibraryDatabase:
     def get_track(self, track_id: int) -> Track:
         with self.connect() as connection:
             row = connection.execute(
-                """
-                SELECT t.*, e.model_name AS embedding_model, e.dim AS embedding_dim,
-                    (
-                        SELECT json_group_array(embedding_key)
-                        FROM embeddings
-                        WHERE track_id = t.id
-                    ) AS embedding_keys_json
+                f"""
+                SELECT {TRACK_SELECT_FIELDS}
                 FROM tracks t
                 LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                 WHERE t.id = ?
@@ -244,12 +250,7 @@ class LibraryDatabase:
         with self.connect() as connection:
             rows = connection.execute(
                 f"""
-                SELECT t.*, e.model_name AS embedding_model, e.dim AS embedding_dim,
-                    (
-                        SELECT json_group_array(embedding_key)
-                        FROM embeddings
-                        WHERE track_id = t.id
-                    ) AS embedding_keys_json
+                SELECT {TRACK_SELECT_FIELDS}
                 FROM tracks t
                 LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                 {where}
@@ -299,13 +300,7 @@ class LibraryDatabase:
             score = _optional_float(genre.get("score"))
             cleaned.append({"label": label, "score": float(score or 0.0)})
         with self._write_lock, self.connect() as connection:
-            row = connection.execute("SELECT metadata_json FROM tracks WHERE id = ?", (track_id,)).fetchone()
-            if row is None:
-                raise KeyError(f"Unknown track id: {track_id}")
-            try:
-                metadata = json.loads(str(row["metadata_json"] or "{}"))
-            except json.JSONDecodeError:
-                metadata = {}
+            metadata = self._metadata_for_track_update(connection, track_id)
             metadata["maest_genres"] = cleaned
             metadata["maest_model"] = model_name
             connection.execute(
@@ -325,13 +320,7 @@ class LibraryDatabase:
         model_name: str = "sonara",
     ) -> None:
         with self._write_lock, self.connect() as connection:
-            row = connection.execute("SELECT metadata_json FROM tracks WHERE id = ?", (track_id,)).fetchone()
-            if row is None:
-                raise KeyError(f"Unknown track id: {track_id}")
-            try:
-                metadata = json.loads(str(row["metadata_json"] or "{}"))
-            except json.JSONDecodeError:
-                metadata = {}
+            metadata = self._metadata_for_track_update(connection, track_id)
             metadata["sonara_features"] = features
             metadata["sonara_model"] = model_name
             connection.execute(
@@ -365,10 +354,7 @@ class LibraryDatabase:
         replace_metadata_keys: Iterable[str],
     ) -> None:
         with self._write_lock, self.connect() as connection:
-            row = connection.execute("SELECT metadata_json FROM tracks WHERE id = ?", (track_id,)).fetchone()
-            if row is None:
-                raise KeyError(f"Unknown track id: {track_id}")
-            existing_metadata = _metadata_from_json(row["metadata_json"])
+            existing_metadata = self._metadata_for_track_update(connection, track_id)
             for key in replace_metadata_keys:
                 existing_metadata.pop(key, None)
             existing_metadata.update(metadata)
@@ -407,6 +393,12 @@ class LibraryDatabase:
                     track_id,
                 ),
             )
+
+    def _metadata_for_track_update(self, connection: sqlite3.Connection, track_id: int) -> dict[str, object]:
+        row = connection.execute("SELECT metadata_json FROM tracks WHERE id = ?", (track_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"Unknown track id: {track_id}")
+        return _metadata_from_json(row["metadata_json"])
 
     def reset_analysis(self, adapter: str) -> dict[str, object]:
         adapter = adapter.strip().lower()
@@ -557,13 +549,8 @@ class LibraryDatabase:
     def load_embedding_matrix(self, embedding_key: str = DEFAULT_EMBEDDING_KEY) -> tuple[list[Track], np.ndarray]:
         with self.connect() as connection:
             rows = connection.execute(
-                """
-                SELECT t.*, e.model_name AS embedding_model, e.dim AS embedding_dim, e.vector,
-                    (
-                        SELECT json_group_array(embedding_key)
-                        FROM embeddings
-                        WHERE track_id = t.id
-                    ) AS embedding_keys_json
+                f"""
+                SELECT {TRACK_SELECT_FIELDS_WITH_VECTOR}
                 FROM tracks t
                 JOIN embeddings e ON e.track_id = t.id
                 WHERE e.embedding_key = ?
@@ -598,13 +585,8 @@ class LibraryDatabase:
     def get_playlist_tracks(self, playlist_id: int) -> list[Track]:
         with self.connect() as connection:
             rows = connection.execute(
-                """
-                SELECT t.*, e.model_name AS embedding_model, e.dim AS embedding_dim,
-                    (
-                        SELECT json_group_array(embedding_key)
-                        FROM embeddings
-                        WHERE track_id = t.id
-                    ) AS embedding_keys_json
+                f"""
+                SELECT {TRACK_SELECT_FIELDS}
                 FROM playlist_tracks pt
                 JOIN tracks t ON t.id = pt.track_id
                 LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?

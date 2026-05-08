@@ -9,6 +9,7 @@ from typing import Callable, Protocol
 
 from .database import LibraryDatabase
 from .genres import MaestGenreAdapter, genre_adapter_factories as default_genre_adapter_factories
+from .job_runtime import JobStore, chunks
 from .logging_config import event_log_level, exception_summary
 from .models import Track
 
@@ -76,8 +77,7 @@ class GenreAnalysisJobManager:
     ) -> None:
         self.db = db
         self.adapter_factories = adapter_factories or default_genre_adapter_factories()
-        self._jobs: dict[str, GenreJobStatus] = {}
-        self._lock = threading.Lock()
+        self._store = JobStore(self._copy_status, unknown_label="MAEST genre job")
 
     def create_job(self, *, limit: int | None = None, device: str = "auto", top_k: int = 3, batch_size: int = 4) -> str:
         tracks = [track for track in self.db.list_tracks() if not track.genres]
@@ -95,8 +95,7 @@ class GenreAnalysisJobManager:
             workers=effective_batch_size,
         )
         status._tracks = tracks  # type: ignore[attr-defined]
-        with self._lock:
-            self._jobs[job_id] = status
+        self._store.add(job_id, status)
         self._append_event(job_id, "info", "MAEST genre analysis queued")
         return job_id
 
@@ -128,7 +127,7 @@ class GenreAnalysisJobManager:
             started_at=started,
         )
         self._append_event(job_id, "info", "MAEST genre analysis started")
-        for batch in _chunks(tracks, max(1, status.batch_size)):
+        for batch in chunks(tracks, max(1, status.batch_size)):
             if self.get(job_id).cancel_requested:
                 self._update(job_id, state="cancelled", finished_at=time.time(), current_path=None)
                 self._append_event(job_id, "warn", "MAEST genre analysis cancelled")
@@ -153,16 +152,10 @@ class GenreAnalysisJobManager:
         return self.get(job_id)
 
     def get(self, job_id: str) -> GenreJobStatus:
-        with self._lock:
-            if job_id not in self._jobs:
-                raise KeyError(f"Unknown MAEST genre job: {job_id}")
-            return self._copy_status(self._jobs[job_id])
+        return self._store.get(job_id)
 
     def latest(self) -> GenreJobStatus | None:
-        with self._lock:
-            if not self._jobs:
-                return None
-            return self._copy_status(next(reversed(self._jobs.values())))
+        return self._store.latest()
 
     def cancel(self, job_id: str) -> GenreJobStatus:
         self._update(job_id, cancel_requested=True)
@@ -219,8 +212,7 @@ class GenreAnalysisJobManager:
         failed_delta: int = 0,
         errors: list[GenreTrackError] | None = None,
     ) -> None:
-        with self._lock:
-            status = self._jobs[job_id]
+        with self._store.locked(job_id) as status:
             status.current_path = current_path
             status.processed += 1
             status.analyzed += analyzed_delta
@@ -231,10 +223,7 @@ class GenreAnalysisJobManager:
                 status.avg_seconds_per_track = (time.time() - status.started_at) / status.processed
 
     def _update(self, job_id: str, **changes: object) -> None:
-        with self._lock:
-            status = self._jobs[job_id]
-            for key, value in changes.items():
-                setattr(status, key, value)
+        self._store.update(job_id, **changes)
 
     def _append_event(
         self,
@@ -253,11 +242,7 @@ class GenreAnalysisJobManager:
             track_id,
             path,
         )
-        with self._lock:
-            status = self._jobs[job_id]
-            status.events.append(GenreLogEvent(time.time(), level, message, path, track_id))
-            if len(status.events) > 200:
-                status.events = status.events[-200:]
+        self._store.append_event(job_id, GenreLogEvent(time.time(), level, message, path, track_id))
 
     @staticmethod
     def _copy_status(status: GenreJobStatus) -> GenreJobStatus:
@@ -286,8 +271,3 @@ class GenreAnalysisJobManager:
         if hasattr(status, "_tracks"):
             copy._tracks = getattr(status, "_tracks")  # type: ignore[attr-defined]
         return copy
-
-
-def _chunks(tracks: list[Track], size: int):
-    for index in range(0, len(tracks), size):
-        yield tracks[index : index + size]

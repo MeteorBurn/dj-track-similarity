@@ -1163,9 +1163,9 @@ meter {
 }
 
 .mutagen-block {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
+  display: block;
+  flex: 0 0 auto;
+  min-height: auto;
 }
 
 .tag-grid {

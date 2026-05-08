@@ -50,6 +50,13 @@ def apply_genre_tags(db: LibraryDatabase, track_ids: list[int]) -> list[TagPrevi
     for preview in previews:
         if preview.tags:
             path = Path(preview.path)
+            if _should_skip_genre_tag_write(path):
+                LOGGER.warning(
+                    "Skipping genre tag write for unsupported WAV container track_id=%s path=%s",
+                    preview.track_id,
+                    preview.path,
+                )
+                continue
             try:
                 _write_genre_tag(path, list(preview.tags.values())[0])
                 db.refresh_track_file_metadata(
@@ -69,6 +76,16 @@ def apply_genre_tags(db: LibraryDatabase, track_ids: list[int]) -> list[TagPrevi
                 )
                 raise
     return previews
+
+
+def _should_skip_genre_tag_write(path: Path) -> bool:
+    if path.suffix.lower() not in {".wav", ".wave"}:
+        return False
+    try:
+        _validate_wave_container(path)
+    except ValueError:
+        return True
+    return False
 
 
 def _tracks(db: LibraryDatabase, track_ids: list[int]) -> list[Track]:
@@ -137,9 +154,8 @@ def _write_genre_tag(path: Path, genre: str) -> None:
 
     if suffix in {".wav", ".wave"}:
         _validate_wave_container(path)
-        audio = MutagenFile(path)
-        if audio is None:
-            raise ValueError(f"Unsupported audio tag format: {path}")
+        _repair_oversized_wave_data_chunk(path)
+        audio = WAVE(path)
         _set_audio_id3_genre(audio, genre_text)
         audio.save()
         _validate_wave_container(path)
@@ -192,6 +208,36 @@ def _validate_wave_container(path: Path) -> None:
         raise ValueError(f"Unsupported WAV file: {path}")
     if _find_wave_data_chunk_start(data) is None:
         raise ValueError(f"Unsupported WAV file without readable data chunk: {path}")
+
+
+def _repair_oversized_wave_data_chunk(path: Path) -> None:
+    data = bytearray(path.read_bytes())
+    bounds = _find_wave_data_chunk_bounds(data)
+    if bounds is None:
+        return
+    data_start, declared_size = bounds
+    actual_size = len(data) - data_start
+    if declared_size <= actual_size:
+        return
+    chunk_size_offset = data_start - 4
+    data[chunk_size_offset : chunk_size_offset + 4] = actual_size.to_bytes(4, "little")
+    data[4:8] = (len(data) - 8).to_bytes(4, "little")
+    path.write_bytes(data)
+    LOGGER.warning("Repaired oversized WAV data chunk before tag write path=%s", path)
+
+
+def _find_wave_data_chunk_bounds(data: bytes) -> tuple[int, int] | None:
+    pos = 12
+    while pos + 8 <= len(data):
+        chunk_id = data[pos : pos + 4]
+        chunk_size = int.from_bytes(data[pos + 4 : pos + 8], "little")
+        if chunk_id == b"data":
+            return pos + 8, chunk_size
+        chunk_end = pos + 8 + chunk_size + (chunk_size % 2)
+        if chunk_end <= pos or chunk_end > len(data):
+            return None
+        pos = chunk_end
+    return None
 
 
 def _find_wave_data_chunk_start(data: bytes) -> int | None:

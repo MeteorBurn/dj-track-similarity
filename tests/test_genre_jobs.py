@@ -44,3 +44,20 @@ def test_genre_job_saves_maest_genres_without_creating_embeddings(tmp_path: Path
     assert status.device == "cpu"
     assert track.genres == ["Techno", "Dub Techno"]
     assert len(db.list_tracks(with_embeddings=True)) == 0
+
+
+def test_genre_limit_counts_tracks_without_maest_genres(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    analyzed_id = _track(db, tmp_path, "a.wav")
+    _track(db, tmp_path, "b.wav")
+    _track(db, tmp_path, "c.wav")
+    _track(db, tmp_path, "d.wav")
+    db.save_genres(analyzed_id, [{"label": "House", "score": 0.8}], model_name="fake-maest")
+    adapter = FakeGenreAdapter()
+    manager = GenreAnalysisJobManager(db, {"maest": lambda device=None, top_k=3: adapter})
+
+    status = manager.run_sync(limit=2, device="cpu", top_k=1)
+
+    assert status.total == 2
+    assert status.analyzed == 2
+    assert adapter.paths == ["b.wav", "c.wav"]

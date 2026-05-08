@@ -8,6 +8,7 @@ import typer
 
 from .analysis_jobs import AnalysisJobManager
 from .database import LibraryDatabase
+from .dependencies import require_ffmpeg
 from .embedding import ClapEmbeddingAdapter
 from .exporter import export_playlist
 from .genre_jobs import GenreAnalysisJobManager
@@ -160,11 +161,18 @@ def serve(
     host: str = typer.Option("127.0.0.1", "--host"),
     port: int = typer.Option(8765, "--port"),
     db_path: Optional[Path] = typer.Option(None, "--db"),
+    log_level: str = typer.Option("warning", "--log-level", help="File log level: debug, info, warning, error, critical."),
 ) -> None:
     import uvicorn
 
     from .api import create_app
 
-    log_path = configure_logging()
+    try:
+        log_path = configure_logging(level=log_level)
+        ffmpeg_path = require_ffmpeg()
+    except (RuntimeError, ValueError) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
     LOGGER.info("Server starting host=%s port=%s db_path=%s log_path=%s", host, port, db_path, log_path)
-    uvicorn.run(create_app(db_path or Path("dj-track-similarity.sqlite")), host=host, port=port)
+    LOGGER.debug("ffmpeg available path=%s", ffmpeg_path)
+    uvicorn.run(create_app(db_path or Path("dj-track-similarity.sqlite"), log_level=log_level), host=host, port=port)

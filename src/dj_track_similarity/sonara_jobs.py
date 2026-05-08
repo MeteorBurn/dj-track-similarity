@@ -62,7 +62,7 @@ class SonaraFeatureJobManager:
         self._lock = threading.Lock()
 
     def create_job(self, *, limit: int | None = None) -> str:
-        tracks = self.db.list_tracks()
+        tracks = [track for track in self.db.list_tracks() if "sonara_features" not in track.metadata]
         if limit is not None:
             tracks = tracks[:limit]
         job_id = str(uuid.uuid4())

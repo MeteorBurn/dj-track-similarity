@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import shutil
-import subprocess
 import time
-import wave
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
+from .audio_loader import load_audio_mono
 from .database import LibraryDatabase
 from .key_utils import camelot_key_from_sonara_analysis, camelot_source_feature
 from .models import Track
@@ -288,80 +286,10 @@ def _analyze_file_or_signal(sonara: Any, path: str | Path) -> tuple[dict[str, ob
 
 
 def _load_wav_fallback(path: str | Path, sonara: Any) -> tuple[np.ndarray, str]:
-    try:
-        return _load_wav_with_ffmpeg(path)
-    except Exception as ffmpeg_error:
-        audio, sr_native, detail = _load_wav_tolerant(path)
-        if sr_native != 22050:
-            audio = sonara.resample(audio, orig_sr=sr_native, target_sr=22050)
-        return audio, f"{detail}; ffmpeg fallback unavailable/failed: {ffmpeg_error}"
-
-
-def _load_wav_with_ffmpeg(path: str | Path) -> tuple[np.ndarray, str]:
-    ffmpeg = shutil.which("ffmpeg")
-    if not ffmpeg:
-        raise RuntimeError("ffmpeg not found on PATH")
-    command = [
-        ffmpeg,
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-i",
-        str(path),
-        "-ac",
-        "1",
-        "-ar",
-        "22050",
-        "-f",
-        "f32le",
-        "pipe:1",
-    ]
-    completed = subprocess.run(command, check=True, capture_output=True)
-    if not completed.stdout:
-        raise RuntimeError("ffmpeg produced no PCM samples")
-    audio = np.frombuffer(completed.stdout, dtype="<f4").copy()
-    return audio, f"decoded with ffmpeg to mono f32 PCM at 22050 Hz ({len(audio) / 22050:.1f}s)"
-
-
-def _load_wav_tolerant(path: str | Path) -> tuple[np.ndarray, int, str]:
-    audio_path = Path(path)
-    try:
-        with wave.open(str(audio_path), "rb") as audio:
-            channels = audio.getnchannels()
-            sample_width = audio.getsampwidth()
-            sample_rate = audio.getframerate()
-            expected_audio_bytes = audio.getnframes() * channels * sample_width
-            raw = audio.readframes(audio.getnframes())
-    except (EOFError, wave.Error) as error:
-        raise RuntimeError(f"Tolerant WAV fallback cannot read header: {error}") from error
-    if not raw:
-        raise RuntimeError("Tolerant WAV fallback read no audio bytes")
-    usable = len(raw) - (len(raw) % (channels * sample_width))
-    raw = raw[:usable]
-    samples = _decode_pcm_bytes(raw, sample_width)
-    if channels > 1:
-        samples = samples.reshape(-1, channels).mean(axis=1)
-    actual_payload_bytes = len(raw)
-    detail = (
-        f"read {actual_payload_bytes / 1_000_000:.1f} MB of PCM from WAV"
-        f" (header expected {expected_audio_bytes / 1_000_000:.1f} MB)"
-    )
-    return samples.astype(np.float32, copy=False), sample_rate, detail
-
-
-def _decode_pcm_bytes(raw: bytes, sample_width: int) -> np.ndarray:
-    if sample_width == 1:
-        return (np.frombuffer(raw, dtype=np.uint8).astype(np.float32) - 128.0) / 128.0
-    if sample_width == 2:
-        return np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
-    if sample_width == 3:
-        data = np.frombuffer(raw, dtype=np.uint8).reshape(-1, 3)
-        values = data[:, 0].astype(np.int32) | (data[:, 1].astype(np.int32) << 8) | (data[:, 2].astype(np.int32) << 16)
-        values = np.where(values & 0x800000, values - 0x1000000, values)
-        return values.astype(np.float32) / 8388608.0
-    if sample_width == 4:
-        return np.frombuffer(raw, dtype="<i4").astype(np.float32) / 2147483648.0
-    raise RuntimeError(f"Unsupported WAV sample width for fallback: {sample_width} bytes")
+    audio, sr_native, detail = load_audio_mono(path)
+    if sr_native != 22050:
+        audio = sonara.resample(audio, orig_sr=sr_native, target_sr=22050)
+    return audio, detail
 
 
 def _summary_audio_window(y: np.ndarray, sr: int) -> tuple[np.ndarray, str]:

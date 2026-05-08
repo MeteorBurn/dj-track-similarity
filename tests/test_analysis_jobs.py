@@ -191,3 +191,20 @@ def test_analysis_job_targets_missing_embeddings_per_space(tmp_path: Path) -> No
     assert status.total == 1
     assert len(db.list_tracks(with_embeddings=True, embedding_key="mert")) == 1
     assert len(db.list_tracks(with_embeddings=True, embedding_key="clap")) == 1
+
+
+def test_analysis_limit_counts_missing_embeddings_not_all_tracks(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    analyzed_id = _track(db, tmp_path, "a.wav")
+    _track(db, tmp_path, "b.wav")
+    _track(db, tmp_path, "c.wav")
+    _track(db, tmp_path, "d.wav")
+    db.save_embedding(analyzed_id, np.array([1, 0, 0], dtype=np.float32), "batch-model", 3, embedding_key="mert")
+    adapter = BatchAdapter()
+    manager = AnalysisJobManager(db, {"batch": lambda: adapter}, batch_size=2)
+
+    status = manager.run_sync(adapter_name="batch", limit=2)
+
+    assert status.total == 2
+    assert status.analyzed == 2
+    assert adapter.batches == [["b.wav", "c.wav"]]

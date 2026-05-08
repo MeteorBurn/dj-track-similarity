@@ -5,6 +5,7 @@ from typing import Protocol
 
 import numpy as np
 
+from .audio_loader import load_audio_mono
 from .runtime import select_torch_device
 
 
@@ -70,9 +71,8 @@ class MertEmbeddingAdapter:
         track_windows: list[list[int]] = []
         all_windows = []
         for path in paths:
-            waveform, sample_rate = torchaudio.load(str(path))
-            if waveform.shape[0] > 1:
-                waveform = waveform.mean(dim=0, keepdim=True)
+            audio, sample_rate, _decode_detail = load_audio_mono(path, torchaudio_module=torchaudio)
+            waveform = torch.from_numpy(audio).unsqueeze(0)
             if sample_rate != target_rate:
                 waveform = torchaudio.transforms.Resample(sample_rate, target_rate)(waveform)
             waveform = waveform.squeeze(0)
@@ -162,9 +162,8 @@ class ClapEmbeddingAdapter:
         track_windows: list[list[int]] = []
         all_windows = []
         for path in paths:
-            waveform, sample_rate = torchaudio.load(str(path))
-            if waveform.shape[0] > 1:
-                waveform = waveform.mean(dim=0, keepdim=True)
+            audio, sample_rate, _decode_detail = load_audio_mono(path, torchaudio_module=torchaudio)
+            waveform = torch.from_numpy(audio).unsqueeze(0)
             if sample_rate != target_rate:
                 waveform = torchaudio.transforms.Resample(sample_rate, target_rate)(waveform)
             waveform = waveform.squeeze(0)

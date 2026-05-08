@@ -185,6 +185,31 @@ def test_analyze_sonara_falls_back_to_signal_for_truncated_wav(tmp_path: Path) -
     assert "tolerant WAV fallback" in track.metadata["sonara_features"]["decode_path"]["value"]
 
 
+def test_sonara_limit_counts_tracks_without_sonara_features(monkeypatch, tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_ids = []
+    for name in ["a.wav", "b.wav", "c.wav", "d.wav"]:
+        audio_path = tmp_path / name
+        _write_wav(audio_path)
+        track_ids.append(
+            db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": name})
+        )
+    db.save_sonara_features(track_ids[0], {"bpm": {"value": 120}}, model_name="sonara-test")
+    processed: list[str] = []
+
+    def fake_analyze(db, track):
+        processed.append(Path(track.path).name)
+        db.save_sonara_features(track.id, {"bpm": {"value": 121}}, model_name="sonara-test")
+
+    monkeypatch.setattr("dj_track_similarity.sonara_jobs.analyze_and_store_sonara_features", fake_analyze)
+
+    status = SonaraFeatureJobManager(db).run_sync(limit=2)
+
+    assert status.total == 2
+    assert status.analyzed == 2
+    assert processed == ["b.wav", "c.wav"]
+
+
 def test_sonara_key_conversion_to_camelot_uses_tonal_fields() -> None:
     assert camelot_key_from_sonara_analysis({"key": "A minor"}) == "8A"
     assert camelot_key_from_sonara_analysis({"key": "C major"}) == "8B"

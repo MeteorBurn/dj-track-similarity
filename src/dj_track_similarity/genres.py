@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from .audio_loader import load_audio_mono
 from .runtime import select_torch_device
 
 
@@ -24,9 +25,8 @@ class MaestGenreAdapter:
         torchaudio = self._torchaudio
         assert torch is not None and torchaudio is not None and self._model is not None
 
-        audio, sample_rate = torchaudio.load(str(path))
-        if audio.shape[0] > 1:
-            audio = audio.mean(dim=0, keepdim=True)
+        audio_values, sample_rate, _decode_detail = load_audio_mono(path, torchaudio_module=torchaudio)
+        audio = torch.from_numpy(audio_values).unsqueeze(0)
         if sample_rate != 16000:
             audio = torchaudio.transforms.Resample(sample_rate, 16000)(audio)
         audio = audio.squeeze(0)

@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .analysis_jobs import AnalysisJobManager
 from .database import LibraryDatabase
+from .dependencies import require_ffmpeg
 from .embedding import ClapEmbeddingAdapter
 from .exporter import export_playlist
 from .genre_jobs import GenreAnalysisJobManager
@@ -109,9 +110,11 @@ def open_folder_dialog() -> Path | None:
     return Path(selected) if selected else None
 
 
-def create_app(db_path: str | Path = "dj-track-similarity.sqlite") -> FastAPI:
-    log_path = configure_logging()
+def create_app(db_path: str | Path = "dj-track-similarity.sqlite", *, log_level: int | str | None = None) -> FastAPI:
+    log_path = configure_logging(level=log_level)
+    ffmpeg_path = require_ffmpeg()
     LOGGER.info("API app created db_path=%s log_path=%s", db_path, log_path)
+    LOGGER.debug("ffmpeg available path=%s", ffmpeg_path)
     db = LibraryDatabase(db_path)
     analysis_jobs = AnalysisJobManager(db)
     genre_jobs = GenreAnalysisJobManager(db)

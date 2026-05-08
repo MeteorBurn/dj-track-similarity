@@ -18,6 +18,17 @@ def test_choose_folder_endpoint_returns_selected_path(monkeypatch, tmp_path: Pat
     assert response.json() == {"path": str(selected)}
 
 
+def test_create_app_requires_ffmpeg(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(api, "require_ffmpeg", lambda: (_ for _ in ()).throw(RuntimeError("ffmpeg is required")))
+
+    try:
+        create_app(tmp_path / "library.sqlite")
+    except RuntimeError as error:
+        assert "ffmpeg is required" in str(error)
+    else:
+        raise AssertionError("create_app should fail when ffmpeg is unavailable")
+
+
 def test_choose_folder_endpoint_allows_cancel(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(api, "open_folder_dialog", lambda: None, raising=False)
 

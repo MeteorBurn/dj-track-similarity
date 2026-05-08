@@ -24,6 +24,8 @@ else who collects, tags, or plays music will find the approach useful too.
   deleting analysis results.
 - Extracts Sonara playlist features, including analyzed BPM and key, and stores
   compact feature summaries in SQLite.
+- Uses a native-first audio loader with tolerant WAV recovery for playable files
+  that strict RIFF parsers reject.
 - Converts analyzed Sonara key data to Camelot notation for the displayed
   musical key.
 - Builds audio embeddings with MERT for audio-to-audio similarity search.
@@ -107,6 +109,22 @@ There is also a Windows helper script in this workspace:
 scripts\run_server.cmd
 ```
 
+### Startup Options
+
+| Setting | Default | Notes |
+| --- | --- | --- |
+| `--host` | `127.0.0.1` | Bind address for the local FastAPI server. |
+| `--port` | `8765` | Local HTTP port. |
+| `--db` | `dj-track-similarity.sqlite` | SQLite database path. |
+| `--log-level` | `warning` | File log level: `debug`, `info`, `warning`, `error`, or `critical`. |
+| `DJ_TRACK_SIMILARITY_LOG` | `dj-track-similarity.log` | File log path. |
+| `DJ_TRACK_SIMILARITY_LOG_LEVEL` | `warning` | Alternative way to set the file log level. |
+| `DJ_TRACK_SIMILARITY_FFMPEG` | auto-detected from `PATH` | Full path to `ffmpeg.exe` when ffmpeg is not on `PATH`. |
+
+`ffmpeg` is required for robust audio decoding. The server checks it on startup
+and exits with a clear error if it is missing. File logging defaults to warnings
+and errors only; use `--log-level info` when debugging detailed track behavior.
+
 ## CLI Examples
 
 ```powershell
@@ -138,10 +156,10 @@ PyTorch/Hugging Face and may download model weights on first run.
 
 `analyze-sonara` uses `sonara.analyze_file(..., mode="playlist")` and stores
 feature summaries in SQLite metadata. If Sonara's default decoder cannot read a
-WAV-like file, the app can fall back to `ffmpeg` decoding to mono float PCM
-before calling Sonara signal analysis. BPM and key from this pass are analyzed
-values, not file tags. The UI displays the working musical key in Camelot
-notation when Sonara provides enough tonal information.
+WAV-like file, the app falls back to the shared tolerant audio loader before
+calling Sonara signal analysis. BPM and key from this pass are analyzed values,
+not file tags. The UI displays the working musical key in Camelot notation when
+Sonara provides enough tonal information.
 
 `--adapter clap` builds separate LAION-CLAP audio embeddings for text search.
 
@@ -156,7 +174,9 @@ whether `torch.cuda.is_available()` is true, and the device that `auto` will
 choose. Use it when CUDA behavior looks suspicious.
 
 In the UI, `Analyze limit = 0` means the whole library. If you only want to test
-a few tracks, set a specific integer limit yourself.
+a few tracks, set a specific integer limit yourself. Limits count missing
+results for the selected analysis family, so later runs continue from tracks
+without that analysis data.
 
 ## Embedding Spaces
 
@@ -196,8 +216,9 @@ When explicitly saved from the UI, MAEST labels are written as one
 semicolon-separated genre string, for example `Tech House; Minimal; Techno`.
 The writer uses `TCON` for MP3/WAV/AIFF, `GENRE` for FLAC/Vorbis-style tags,
 and `©gen` for MP4/M4A/ALAC. MAEST prefixes such as `Electronic---` are removed
-before writing. WAV genre updates use Mutagen's tag writer and validate that the
-WAV container remains readable after saving.
+before writing. WAV genre updates use Mutagen's WAVE writer, validate the
+container before and after saving, skip unsupported malformed WAV containers,
+and can repair an oversized `data` chunk size before writing tags.
 
 Runtime logs are written to `dj-track-similarity.log` in the current working
 directory by default. Set `DJ_TRACK_SIMILARITY_LOG` to choose another path.

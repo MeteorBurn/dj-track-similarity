@@ -134,6 +134,35 @@ def test_write_genre_tag_handles_id3_tags_inside_wave(tmp_path: Path) -> None:
         assert handle.getnframes() == 44_100
 
 
+def test_write_genre_tag_uses_wave_loader_when_generic_mutagen_detects_no_tags(monkeypatch, tmp_path: Path) -> None:
+    class FakeWave:
+        def __init__(self, path: Path) -> None:
+            self.path = path
+            self.tags = None
+            self.saved = False
+
+        def add_tags(self) -> None:
+            self.tags = ID3()
+
+        def save(self) -> None:
+            self.saved = True
+
+    audio_path = tmp_path / "track.wav"
+    with wave.open(str(audio_path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(44_100)
+        handle.writeframes(b"\x00\x00" * 44_100)
+    fake_wave = FakeWave(audio_path)
+    monkeypatch.setattr(tags, "MutagenFile", lambda path: None)
+    monkeypatch.setattr(tags, "WAVE", lambda path: fake_wave)
+
+    tags._write_genre_tag(audio_path, "Minimal")
+
+    assert fake_wave.saved
+    assert fake_wave.tags["TCON"].text == ["Minimal"]
+
+
 def test_write_genre_tag_persists_to_wave_and_preserves_existing_id3_tags(tmp_path: Path) -> None:
     audio_path = tmp_path / "track.wav"
     with wave.open(str(audio_path), "wb") as handle:
@@ -173,6 +202,82 @@ def test_write_genre_tag_refuses_malformed_wave_without_rewriting(tmp_path: Path
         tags._write_genre_tag(audio_path, "Tech House; Minimal; Techno")
 
     assert audio_path.read_bytes() == before
+
+
+def test_apply_genre_tags_skips_malformed_wave_and_continues(tmp_path: Path, caplog) -> None:
+    malformed_path = tmp_path / "malformed.wav"
+    with wave.open(str(malformed_path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(44_100)
+        handle.writeframes(b"\x00\x00" * 44_100)
+    data = bytearray(malformed_path.read_bytes())
+    data[36:40] = b"\x00dat"
+    malformed_path.write_bytes(data)
+    malformed_before = malformed_path.read_bytes()
+
+    valid_path = tmp_path / "valid.wav"
+    with wave.open(str(valid_path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(44_100)
+        handle.writeframes(b"\x00\x00" * 44_100)
+
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    malformed_id = db.upsert_track(
+        path=malformed_path,
+        size=malformed_path.stat().st_size,
+        mtime=malformed_path.stat().st_mtime,
+        metadata={"title": "Malformed"},
+    )
+    valid_id = db.upsert_track(
+        path=valid_path,
+        size=valid_path.stat().st_size,
+        mtime=valid_path.stat().st_mtime,
+        metadata={"title": "Valid"},
+    )
+    db.save_genres(malformed_id, [{"label": "Tech House", "score": 0.9}], model_name="maest")
+    db.save_genres(valid_id, [{"label": "Minimal", "score": 0.8}], model_name="maest")
+
+    with caplog.at_level("WARNING", logger="dj_track_similarity.tags"):
+        previews = apply_genre_tags(db, [malformed_id, valid_id])
+
+    assert malformed_path.read_bytes() == malformed_before
+    assert MutagenFile(valid_path).tags["TCON"].text == ["Minimal"]
+    assert [preview.track_id for preview in previews] == [malformed_id, valid_id]
+    assert "Skipping genre tag write for unsupported WAV container" in caplog.text
+
+
+def test_apply_genre_tags_repairs_oversized_wave_data_chunk_before_writing(tmp_path: Path) -> None:
+    audio_path = tmp_path / "oversized-data.wav"
+    with wave.open(str(audio_path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(44_100)
+        handle.writeframes(b"\x00\x00" * 44_100)
+    data = bytearray(audio_path.read_bytes())
+    data_offset = data.index(b"data")
+    actual_size = len(data) - data_offset - 8
+    data[data_offset + 4 : data_offset + 8] = (actual_size + 4096).to_bytes(4, "little")
+    audio_path.write_bytes(data)
+
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = db.upsert_track(
+        path=audio_path,
+        size=audio_path.stat().st_size,
+        mtime=audio_path.stat().st_mtime,
+        metadata={"title": "Oversized"},
+    )
+    db.save_genres(track_id, [{"label": "Minimal", "score": 0.8}], model_name="maest")
+
+    apply_genre_tags(db, [track_id])
+
+    saved = MutagenFile(audio_path)
+    track = db.get_track(track_id)
+    assert saved.tags["TCON"].text == ["Minimal"]
+    assert track.metadata["genre"] == "Minimal"
+    repaired = audio_path.read_bytes()
+    assert int.from_bytes(repaired[data_offset + 4 : data_offset + 8], "little") == actual_size
 
 
 def test_write_genre_tag_persists_to_mp3_id3_and_preserves_existing_tags(tmp_path: Path) -> None:

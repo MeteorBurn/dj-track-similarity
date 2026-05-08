@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import json
 import sqlite3
@@ -7,6 +8,86 @@ import pytest
 import dj_track_similarity.scanner as scanner
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.scanner import read_audio_metadata, scan_library
+
+
+def test_database_uses_wal_and_busy_timeout_for_concurrent_jobs(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+
+    with db.connect() as connection:
+        journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
+        busy_timeout = connection.execute("PRAGMA busy_timeout").fetchone()[0]
+
+    assert str(journal_mode).lower() == "wal"
+    assert busy_timeout >= 30_000
+
+
+def test_database_instances_for_same_file_share_write_lock(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    first = LibraryDatabase(db_path)
+    second = LibraryDatabase(db_path)
+
+    assert first._write_lock is second._write_lock
+
+
+def test_database_serializes_parallel_sonara_feature_writes(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_ids = [
+        db.upsert_track(path=tmp_path / f"track-{index}.wav", size=10, mtime=1, metadata={"title": f"Track {index}"})
+        for index in range(16)
+    ]
+
+    def save(track_id: int) -> None:
+        db.save_sonara_features(
+            track_id,
+            {"bpm": {"value": 120 + track_id}},
+            bpm=120 + track_id,
+            model_name="sonara-test",
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(save, track_ids))
+
+    tracks = db.list_tracks()
+    assert len(tracks) == len(track_ids)
+    assert all(track.metadata["sonara_model"] == "sonara-test" for track in tracks)
+
+
+def test_database_serializes_mixed_parallel_analysis_writes_across_instances(tmp_path: Path) -> None:
+    import numpy as np
+
+    db_path = tmp_path / "library.sqlite"
+    setup_db = LibraryDatabase(db_path)
+    sonara_id = setup_db.upsert_track(path=tmp_path / "sonara.wav", size=10, mtime=1, metadata={"title": "Sonara"})
+    maest_id = setup_db.upsert_track(path=tmp_path / "maest.wav", size=10, mtime=1, metadata={"title": "Maest"})
+    mert_id = setup_db.upsert_track(path=tmp_path / "mert.wav", size=10, mtime=1, metadata={"title": "Mert"})
+
+    def save_sonara() -> None:
+        LibraryDatabase(db_path).save_sonara_features(
+            sonara_id,
+            {"energy": {"value": 0.7}},
+            energy=0.7,
+            model_name="sonara-test",
+        )
+
+    def save_genres() -> None:
+        LibraryDatabase(db_path).save_genres(maest_id, [{"label": "Techno", "score": 0.9}], model_name="maest-test")
+
+    def save_embedding() -> None:
+        LibraryDatabase(db_path).save_embedding(
+            mert_id,
+            np.array([1, 0, 0], dtype=np.float32),
+            "mert-test",
+            3,
+            embedding_key="mert",
+        )
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        list(executor.map(lambda action: action(), [save_sonara, save_genres, save_embedding]))
+
+    tracks = {Path(track.path).name: track for track in LibraryDatabase(db_path).list_tracks()}
+    assert tracks["sonara.wav"].metadata["sonara_model"] == "sonara-test"
+    assert tracks["maest.wav"].metadata["maest_model"] == "maest-test"
+    assert tracks["mert.wav"].analyses == ["mert"]
 
 
 def test_scan_library_indexes_supported_audio_files_and_skips_unchanged(tmp_path: Path) -> None:

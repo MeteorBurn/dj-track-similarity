@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from contextlib import nullcontext as _nullcontext
 import json
 import sqlite3
+import threading
 from pathlib import Path
-from typing import Iterable
+from typing import ClassVar, Iterable
 
 import numpy as np
 
@@ -12,6 +14,7 @@ from .models import Track
 
 
 DEFAULT_EMBEDDING_KEY = "mert"
+SQLITE_BUSY_TIMEOUT_SECONDS = 30
 
 
 def normalize_path(path: str | Path) -> str:
@@ -28,19 +31,35 @@ def _optional_float(value: object) -> float | None:
 
 
 class LibraryDatabase:
+    _write_locks: ClassVar[dict[Path, threading.RLock]] = {}
+    _write_locks_guard: ClassVar[threading.Lock] = threading.Lock()
+
     def __init__(self, path: str | Path) -> None:
-        self.path = Path(path)
+        self.path = Path(path).expanduser().resolve(strict=False)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._write_lock = self._write_lock_for_path(self.path)
         self._ensure_schema()
 
+    @classmethod
+    def _write_lock_for_path(cls, path: Path) -> threading.RLock:
+        with cls._write_locks_guard:
+            lock = cls._write_locks.get(path)
+            if lock is None:
+                lock = threading.RLock()
+                cls._write_locks[path] = lock
+            return lock
+
     def connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path)
+        connection = sqlite3.connect(self.path, timeout=SQLITE_BUSY_TIMEOUT_SECONDS)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_SECONDS * 1000}")
         return connection
 
     def _ensure_schema(self) -> None:
-        with self.connect() as connection:
+        with self._write_lock, self.connect() as connection:
+            connection.execute("PRAGMA journal_mode = WAL")
+            connection.execute("PRAGMA synchronous = NORMAL")
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS tracks (
@@ -176,7 +195,7 @@ class LibraryDatabase:
         duration = duration if duration is not None else _optional_float(metadata.get("duration"))
         metadata_json = json.dumps(metadata, ensure_ascii=False, sort_keys=True)
 
-        with self.connect() as connection:
+        with self._write_lock, self.connect() as connection:
             connection.execute(
                 """
                 INSERT INTO tracks (
@@ -257,7 +276,7 @@ class LibraryDatabase:
         actual_dim = int(dim or normalized.shape[0])
         if actual_dim != normalized.shape[0]:
             raise ValueError(f"Embedding dim mismatch: {actual_dim} != {normalized.shape[0]}")
-        with self.connect() as connection:
+        with self._write_lock, self.connect() as connection:
             connection.execute(
                 """
                 INSERT INTO embeddings (track_id, embedding_key, model_name, dim, vector)
@@ -279,7 +298,7 @@ class LibraryDatabase:
                 continue
             score = _optional_float(genre.get("score"))
             cleaned.append({"label": label, "score": float(score or 0.0)})
-        with self.connect() as connection:
+        with self._write_lock, self.connect() as connection:
             row = connection.execute("SELECT metadata_json FROM tracks WHERE id = ?", (track_id,)).fetchone()
             if row is None:
                 raise KeyError(f"Unknown track id: {track_id}")
@@ -305,7 +324,7 @@ class LibraryDatabase:
         duration: float | None = None,
         model_name: str = "sonara",
     ) -> None:
-        with self.connect() as connection:
+        with self._write_lock, self.connect() as connection:
             row = connection.execute("SELECT metadata_json FROM tracks WHERE id = ?", (track_id,)).fetchone()
             if row is None:
                 raise KeyError(f"Unknown track id: {track_id}")
@@ -345,7 +364,7 @@ class LibraryDatabase:
         metadata: dict[str, object],
         replace_metadata_keys: Iterable[str],
     ) -> None:
-        with self.connect() as connection:
+        with self._write_lock, self.connect() as connection:
             row = connection.execute("SELECT metadata_json FROM tracks WHERE id = ?", (track_id,)).fetchone()
             if row is None:
                 raise KeyError(f"Unknown track id: {track_id}")
@@ -392,7 +411,7 @@ class LibraryDatabase:
     def reset_analysis(self, adapter: str) -> dict[str, object]:
         adapter = adapter.strip().lower()
         if adapter in {"mert", "clap", "fake"}:
-            with self.connect() as connection:
+            with self._write_lock, self.connect() as connection:
                 cursor = connection.execute("DELETE FROM embeddings WHERE embedding_key = ?", (adapter,))
                 return {"adapter": adapter, "tracks_updated": 0, "embeddings_deleted": cursor.rowcount}
         if adapter == "maest":
@@ -402,7 +421,7 @@ class LibraryDatabase:
         raise ValueError(f"Unsupported analysis adapter reset: {adapter}")
 
     def clear_library(self) -> dict[str, int]:
-        with self.connect() as connection:
+        with self._write_lock, self.connect() as connection:
             counts = {
                 "tracks_deleted": int(connection.execute("SELECT COUNT(*) FROM tracks").fetchone()[0]),
                 "embeddings_deleted": int(connection.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]),
@@ -421,7 +440,7 @@ class LibraryDatabase:
         if old_root_text == new_root_text:
             raise ValueError("Old and new library roots must be different")
 
-        with self.connect() as connection:
+        with self._write_lock if apply else _nullcontext(), self.connect() as connection:
             rows = connection.execute("SELECT id, path FROM tracks ORDER BY id").fetchall()
             existing_by_path = {str(row["path"]).casefold(): int(row["id"]) for row in rows}
             changes: list[dict[str, object]] = []
@@ -486,7 +505,7 @@ class LibraryDatabase:
 
     def _reset_metadata_analysis(self, adapter: str, keys: tuple[str, ...]) -> dict[str, object]:
         updated = 0
-        with self.connect() as connection:
+        with self._write_lock, self.connect() as connection:
             rows = connection.execute("SELECT id, metadata_json FROM tracks").fetchall()
             for row in rows:
                 metadata = _metadata_from_json(row["metadata_json"])
@@ -504,7 +523,7 @@ class LibraryDatabase:
     def _reset_sonara_analysis(self) -> dict[str, object]:
         updated = 0
         keys = ("sonara_features", "sonara_features_file", "sonara_model")
-        with self.connect() as connection:
+        with self._write_lock, self.connect() as connection:
             rows = connection.execute("SELECT id, metadata_json FROM tracks").fetchall()
             for row in rows:
                 metadata = _metadata_from_json(row["metadata_json"])
@@ -560,7 +579,7 @@ class LibraryDatabase:
 
     def create_playlist(self, name: str, track_ids: Iterable[int]) -> int:
         ordered_ids = list(track_ids)
-        with self.connect() as connection:
+        with self._write_lock, self.connect() as connection:
             cursor = connection.execute("INSERT INTO playlists (name) VALUES (?)", (name,))
             playlist_id = int(cursor.lastrowid)
             connection.executemany(

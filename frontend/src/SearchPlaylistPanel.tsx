@@ -1,5 +1,5 @@
 import { Dispatch, SetStateAction, useState } from "react";
-import { Download, ListMusic, Play, Save, Search, Tags, Trash2, X } from "lucide-react";
+import { Download, FolderOpen, ListMusic, Play, Save, Search, Tags, Trash2, X } from "lucide-react";
 import { SearchResult, SonaraSearchMode, Track } from "./api";
 import { ResultRow } from "./TrackRows";
 import { displayTrack, trackInfo } from "./trackDisplay";
@@ -45,6 +45,7 @@ export function SearchPlaylistPanel({
   playlistId,
   outputDir,
   onOutputDirChange,
+  onChooseOutputFolder,
   helpText,
   removeSeed,
   handleTextSearch,
@@ -75,6 +76,7 @@ export function SearchPlaylistPanel({
   playlistId: number | null;
   outputDir: string;
   onOutputDirChange: (value: string) => void;
+  onChooseOutputFolder: () => void;
   helpText: SearchHelpText;
   removeSeed: (trackId: number) => void;
   handleTextSearch: () => void;
@@ -234,6 +236,9 @@ export function SearchPlaylistPanel({
         </button>
         <div className="path-row output-row">
           <input value={outputDir} onChange={(event) => onOutputDirChange(event.target.value)} placeholder="D:/Exports" title={helpText.outputDir} />
+          <button className="icon-button folder-picker" title="Выбрать папку экспорта" aria-label="Выбрать папку экспорта" disabled={busy} onClick={onChooseOutputFolder} type="button">
+            <FolderOpen size={17} />
+          </button>
         </div>
         <div className="action-row">
           <button disabled={busy || !playlistId} onClick={() => handleExport("m3u")}><Download size={16} />M3U</button>

@@ -215,6 +215,10 @@ h2 {
   margin-left: auto;
 }
 
+.track-panel-actions {
+  margin-left: auto;
+}
+
 .panel-title-actions .secondary-mini {
   align-self: auto;
   margin-top: 0;
@@ -324,17 +328,15 @@ h2 {
   width: fit-content;
 }
 
-.library-path-row {
+.library-path-row,
+.output-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 42px;
 }
 
-.library-path-row .icon-button {
+.library-path-row .icon-button,
+.output-row .icon-button {
   width: 42px;
-}
-
-.output-row input {
-  width: 100%;
 }
 
 .scan-action-row {
@@ -410,6 +412,30 @@ h2 {
 
 .search-input input {
   border: 0;
+}
+
+.library-view-controls {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.library-preset-button {
+  background: #f5f0ff;
+  border-color: #cab9ee;
+  color: #6f45b5;
+}
+
+.library-preset-button:hover:not(:disabled) {
+  border-color: #8b5bd3;
+  color: #5d36a1;
+}
+
+.library-preset-button.active {
+  background: #e9ddff;
+  border-color: #8b5bd3;
+  color: #4f278e;
 }
 
 .process-box,

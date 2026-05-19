@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { AnalysisJobStatus, api, ScanStats, SearchResult, SonaraSearchMode, Track } from "./api";
+import { exportDirectoryError } from "./exportView";
 import { ActivityEvent, analysisJobRequest, cancelAnalysisJob, scanSummary } from "./jobUi";
 import { LibraryPanel } from "./LibraryPanel";
+import { appendVisibleTracksToPlaylist, LibraryPreset, visibleLibraryTracks } from "./libraryView";
 import { SearchPlaylistPanel } from "./SearchPlaylistPanel";
-import { formatMaestGenreLabel, hasSyncopatedRhythm, SYNCOPATED_RHYTHM_LABEL } from "./syncopatedRhythm";
 import { TrackMetadataDialog } from "./TrackMetadataDialog";
 import { TrackPanel } from "./TrackPanel";
 import { basename, displayTrack, trackCountLabel, trackHasAnalysis } from "./trackDisplay";
@@ -51,6 +52,7 @@ function optimalWorkerLimit() {
 export function App() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [query, setQuery] = useState("");
+  const [libraryPreset, setLibraryPreset] = useState<LibraryPreset>("all");
   const [musicRoot, setMusicRoot] = useState("");
   const [textQuery, setTextQuery] = useState("");
   const [outputDir, setOutputDir] = useState("");
@@ -90,22 +92,7 @@ export function App() {
 
   const seedSet = useMemo(() => new Set(seeds), [seeds]);
   const playlistSet = useMemo(() => new Set(playlist.map((track) => track.id)), [playlist]);
-  const filteredTracks = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return tracks;
-    return tracks.filter((track) => {
-      const genres = track.genres || [];
-      const searchableValues = [
-        track.artist,
-        track.title,
-        track.album,
-        track.path,
-        ...genres.map(formatMaestGenreLabel),
-        hasSyncopatedRhythm(genres) ? SYNCOPATED_RHYTHM_LABEL : null
-      ];
-      return searchableValues.some((value) => value?.toLowerCase().includes(needle));
-    });
-  }, [tracks, query]);
+  const filteredTracks = useMemo(() => visibleLibraryTracks(tracks, query, libraryPreset), [tracks, query, libraryPreset]);
   const seedTracks = useMemo(() => seeds.map((id) => tracks.find((track) => track.id === id)).filter(Boolean) as Track[], [seeds, tracks]);
   const maestGenreTrackIds = useMemo(() => tracks.filter((track) => track.genres?.length).map((track) => track.id), [tracks]);
   const analysisCounts = useMemo(() => ({
@@ -257,6 +244,23 @@ export function App() {
     }
   }
 
+  function toggleLibraryPreset(preset: LibraryPreset) {
+    setLibraryPreset((current) => (current === preset ? "all" : preset));
+  }
+
+  function addVisibleTracksToPlaylist() {
+    const nextPlaylist = appendVisibleTracksToPlaylist(playlist, filteredTracks);
+    const added = nextPlaylist.length - playlist.length;
+    if (!added) {
+      setNotice({ kind: "idle", text: "Все видимые треки уже в сете" });
+      return;
+    }
+    setPlaylistId(null);
+    setPlaylist(nextPlaylist);
+    appendActivity("ok", "Видимые треки добавлены в сет", `${added} новых · видимых ${filteredTracks.length}`);
+    setNotice({ kind: "ok", text: `Добавлено в сет: ${added}` });
+  }
+
   async function handleSonaraSearch() {
     if (!seeds.length) {
       setNotice({ kind: "error", text: "Выберите seed-треки" });
@@ -335,6 +339,21 @@ export function App() {
         }
         setMusicRoot(value.path);
         appendActivity("ok", "Папка выбрана", value.path);
+        return value.path;
+      }
+    );
+  }
+
+  async function handleChooseOutputFolder() {
+    await run(
+      () => api.chooseFolder(),
+      (value) => {
+        if (!value.path) {
+          appendActivity("info", "Выбор папки экспорта отменен");
+          return "Выбор папки экспорта отменен";
+        }
+        setOutputDir(value.path);
+        appendActivity("ok", "Папка экспорта выбрана", value.path);
         return value.path;
       }
     );
@@ -520,7 +539,13 @@ export function App() {
       setNotice({ kind: "error", text: "Сначала сохраните плейлист" });
       return;
     }
-    await run(() => api.exportPlaylist(playlistId, outputDir || ".", format), (value) => {
+    const pathError = exportDirectoryError(outputDir);
+    if (pathError) {
+      setNotice({ kind: "error", text: pathError });
+      appendActivity("error", "Экспорт не запущен", pathError);
+      return;
+    }
+    await run(() => api.exportPlaylist(playlistId, outputDir.trim(), format), (value) => {
       appendActivity("ok", `Экспорт ${format.toUpperCase()}`, value.path);
       return value.path;
     });
@@ -629,11 +654,14 @@ export function App() {
         <TrackPanel
           query={query}
           onQueryChange={setQuery}
+          libraryPreset={libraryPreset}
+          onToggleLibraryPreset={toggleLibraryPreset}
           preview={preview}
           tracks={filteredTracks}
           seedSet={seedSet}
           playlistSet={playlistSet}
           librarySearchHelp={helpText.librarySearch}
+          onAddVisibleTracks={addVisibleTracksToPlaylist}
           onSeed={addSeed}
           onTogglePlaylist={togglePlaylist}
           onPreview={setPreview}
@@ -657,6 +685,7 @@ export function App() {
           playlistId={playlistId}
           outputDir={outputDir}
           onOutputDirChange={setOutputDir}
+          onChooseOutputFolder={() => void handleChooseOutputFolder()}
           helpText={helpText}
           removeSeed={removeSeed}
           handleTextSearch={() => void handleTextSearch()}

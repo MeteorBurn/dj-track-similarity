@@ -18,6 +18,7 @@ venv/
 
 # Local audio libraries and temp data
 tmp_*/
+outputs/
 *.aif
 *.aiff
 *.flac

@@ -11,7 +11,7 @@ from .database import LibraryDatabase
 from .models import SearchResult, Track
 
 
-SonaraSearchMode = Literal["balanced", "vibe", "sound", "dj_transition"]
+SonaraSearchMode = Literal["balanced", "vibe", "sound", "dj_transition", "custom"]
 
 
 @dataclass(frozen=True)
@@ -62,6 +62,54 @@ _BALANCED_WEIGHTS = {
     "dissonance": 0.7,
     "key_confidence": 0.4,
 }
+_CUSTOM_GROUP_WEIGHTS = {
+    "timbre": {
+        "mfcc_mean": 1.7,
+        "spectral_centroid_mean": 1.0,
+        "spectral_bandwidth_mean": 0.9,
+        "spectral_rolloff_mean": 0.9,
+        "spectral_flatness_mean": 0.9,
+        "spectral_contrast_mean": 0.8,
+    },
+    "rhythm": {
+        "onset_density": 1.4,
+        "zero_crossing_rate": 0.9,
+        "danceability": 0.9,
+        "chord_change_rate": 0.4,
+    },
+    "dynamics": {
+        "energy": 1.2,
+        "rms_mean": 1.0,
+        "rms_max": 0.7,
+        "loudness_lufs": 0.9,
+        "dynamic_range_db": 0.8,
+    },
+    "harmonic": {
+        "chroma_mean": 1.2,
+        "dissonance": 0.9,
+        "chord_change_rate": 0.8,
+        "key_confidence": 0.4,
+    },
+    "tempo": {
+        "bpm": 1.0,
+    },
+}
+_DEFAULT_CUSTOM_MIXER_WEIGHTS = {
+    "timbre": 1.0,
+    "rhythm": 1.0,
+    "dynamics": 0.8,
+    "harmonic": 0.8,
+    "tempo": 0.35,
+}
+_CUSTOM_MODIFIER_FIELDS = {
+    "energy": "energy",
+    "valence": "valence",
+    "acousticness": "acousticness",
+    "brightness": "spectral_centroid_mean",
+    "rhythm_density": "onset_density",
+    "dynamic_range": "dynamic_range_db",
+    "loudness": "loudness_lufs",
+}
 
 
 class SonaraSimilaritySearch:
@@ -74,12 +122,14 @@ class SonaraSimilaritySearch:
         *,
         lookback_track_ids: list[int] | None = None,
         mode: SonaraSearchMode = "balanced",
+        mixer_weights: dict[str, float] | None = None,
+        modifiers: dict[str, float] | None = None,
         min_similarity: float | None = None,
         limit: int = 50,
     ) -> list[SearchResult]:
         if not seed_track_ids:
             raise ValueError("At least one seed track is required")
-        if mode not in {"balanced", "vibe", "sound", "dj_transition"}:
+        if mode not in {"balanced", "vibe", "sound", "dj_transition", "custom"}:
             raise ValueError(f"Unsupported SONARA search mode: {mode}")
 
         lookback_track_ids = lookback_track_ids or []
@@ -98,6 +148,19 @@ class SonaraSimilaritySearch:
         if not tracks:
             return []
 
+        use_custom = mode == "custom" or mixer_weights is not None or modifiers is not None
+        if use_custom:
+            return self._search_custom(
+                tracks,
+                track_by_id,
+                context_ids,
+                mode=mode,
+                mixer_weights=mixer_weights,
+                modifiers=modifiers,
+                min_similarity=min_similarity,
+                limit=limit,
+            )
+
         numeric_weights = _numeric_weights_for_mode(mode)
         dimensions, ranges = _numeric_dimensions(tracks, numeric_weights)
         context = [track_by_id[track_id] for track_id in context_ids]
@@ -114,6 +177,42 @@ class SonaraSimilaritySearch:
             if min_similarity is not None and score < min_similarity:
                 continue
             candidates.append(SearchResult(track=item.track, score=score))
+
+        candidates.sort(key=lambda result: result.score, reverse=True)
+        return candidates[: max(0, limit)]
+
+    def _search_custom(
+        self,
+        tracks: list[_ComparableTrack],
+        track_by_id: dict[int, _ComparableTrack],
+        context_ids: set[int],
+        *,
+        mode: SonaraSearchMode,
+        mixer_weights: dict[str, float] | None,
+        modifiers: dict[str, float] | None,
+        min_similarity: float | None,
+        limit: int,
+    ) -> list[SearchResult]:
+        del mode
+        clean_mixer = _clean_mixer_weights(mixer_weights)
+        clean_modifiers = _clean_modifiers(modifiers)
+        numeric_weights = _custom_numeric_fields(clean_mixer, clean_modifiers)
+        dimensions, ranges = _numeric_dimensions(tracks, numeric_weights)
+        context = [track_by_id[track_id] for track_id in context_ids]
+        centroid = _centroid(context, dimensions, ranges)
+        tonal_context = _tonal_context(context)
+
+        candidates: list[SearchResult] = []
+        for item in tracks:
+            if item.track.id in context_ids:
+                continue
+            scored = _score_custom_candidate(item, dimensions, ranges, centroid, tonal_context, clean_mixer, clean_modifiers)
+            if scored is None:
+                continue
+            score, breakdown = scored
+            if min_similarity is not None and score < min_similarity:
+                continue
+            candidates.append(SearchResult(track=item.track, score=score, score_breakdown=breakdown))
 
         candidates.sort(key=lambda result: result.score, reverse=True)
         return candidates[: max(0, limit)]
@@ -162,7 +261,7 @@ def _numeric_dimensions(
 
 
 def _feature_values(features: dict[str, object], field: str) -> list[tuple[tuple[str, int | None], float]]:
-    value = features.get(field)
+    value = _unwrap_feature_value(features.get(field))
     if isinstance(value, (list, tuple)):
         pairs: list[tuple[tuple[str, int | None], float]] = []
         for index, item in enumerate(value):
@@ -236,6 +335,154 @@ def _score_candidate(
     return max(0.0, min(1.0, weighted_score / total_weight))
 
 
+def _score_custom_candidate(
+    item: _ComparableTrack,
+    dimensions: list[tuple[str, int | None, float]],
+    ranges: dict[tuple[str, int | None], tuple[float, float]],
+    centroid: dict[tuple[str, int | None], float],
+    tonal_context: dict[str, set[str]],
+    mixer_weights: dict[str, float],
+    modifiers: dict[str, float],
+) -> tuple[float, dict[str, float]] | None:
+    weighted_score = 0.0
+    total_weight = 0.0
+    breakdown: dict[str, float] = {}
+
+    for group_name, group_weight in mixer_weights.items():
+        if group_weight <= 0:
+            continue
+        group_score = _score_custom_group(item, group_name, dimensions, ranges, centroid, tonal_context)
+        if group_score is None:
+            continue
+        weighted_score += group_score * group_weight
+        total_weight += group_weight
+        breakdown[group_name] = round(group_score, 6)
+
+    for modifier_name, direction in modifiers.items():
+        if direction == 0:
+            continue
+        modifier_score = _score_modifier(item, modifier_name, direction, ranges, centroid)
+        if modifier_score is None:
+            continue
+        modifier_weight = abs(direction)
+        weighted_score += modifier_score * modifier_weight
+        total_weight += modifier_weight
+        breakdown[f"modifier_{modifier_name}"] = round(modifier_score, 6)
+
+    if total_weight <= 0:
+        return None
+    score = max(0.0, min(1.0, weighted_score / total_weight))
+    return score, breakdown
+
+
+def _score_custom_group(
+    item: _ComparableTrack,
+    group_name: str,
+    dimensions: list[tuple[str, int | None, float]],
+    ranges: dict[tuple[str, int | None], tuple[float, float]],
+    centroid: dict[tuple[str, int | None], float],
+    tonal_context: dict[str, set[str]],
+) -> float | None:
+    field_weights = _CUSTOM_GROUP_WEIGHTS[group_name]
+    weighted_score = 0.0
+    total_weight = 0.0
+    for field, index, _ in dimensions:
+        if field not in field_weights:
+            continue
+        key = (field, index)
+        if key not in centroid:
+            continue
+        raw_value = _feature_value(item.features, field, index)
+        if raw_value is None:
+            continue
+        if field == "bpm":
+            score = _tempo_score(raw_value, _denormalize_feature(centroid[key], ranges[key]))
+        else:
+            value = _normalize_feature(raw_value, ranges[key])
+            if value is None:
+                continue
+            score = max(0.0, 1.0 - abs(value - centroid[key]))
+        weight = field_weights[field]
+        weighted_score += score * weight
+        total_weight += weight
+
+    if group_name == "harmonic":
+        for field, weight in _TONAL_TEXT_WEIGHTS.items():
+            context_values = tonal_context.get(field, set())
+            candidate = _normalize_text(item.features.get(field))
+            if not context_values or candidate is None:
+                continue
+            weighted_score += (1.0 if candidate in context_values else 0.0) * weight
+            total_weight += weight
+
+    if total_weight <= 0:
+        return None
+    return max(0.0, min(1.0, weighted_score / total_weight))
+
+
+def _score_modifier(
+    item: _ComparableTrack,
+    modifier_name: str,
+    direction: float,
+    ranges: dict[tuple[str, int | None], tuple[float, float]],
+    centroid: dict[tuple[str, int | None], float],
+) -> float | None:
+    field = _CUSTOM_MODIFIER_FIELDS[modifier_name]
+    key = (field, None)
+    if key not in ranges or key not in centroid:
+        return None
+    raw_value = _feature_value(item.features, field, None)
+    if raw_value is None:
+        return None
+    value = _normalize_feature(raw_value, ranges[key])
+    if value is None:
+        return None
+    signed_delta = value - centroid[key]
+    desired_delta = signed_delta if direction > 0 else -signed_delta
+    return max(0.0, min(1.0, 0.5 + desired_delta / 2.0))
+
+
+def _clean_mixer_weights(mixer_weights: dict[str, float] | None) -> dict[str, float]:
+    if mixer_weights is None:
+        return dict(_DEFAULT_CUSTOM_MIXER_WEIGHTS)
+    cleaned = {name: 0.0 for name in _CUSTOM_GROUP_WEIGHTS}
+    for name, value in mixer_weights.items():
+        if name not in _CUSTOM_GROUP_WEIGHTS:
+            raise ValueError(f"Unsupported SONARA mixer weight: {name}")
+        number = _optional_float(value)
+        if number is None:
+            raise ValueError(f"Invalid SONARA mixer weight: {name}")
+        cleaned[name] = max(0.0, min(5.0, number))
+    return cleaned
+
+
+def _clean_modifiers(modifiers: dict[str, float] | None) -> dict[str, float]:
+    if not modifiers:
+        return {}
+    cleaned: dict[str, float] = {}
+    for name, value in modifiers.items():
+        if name not in _CUSTOM_MODIFIER_FIELDS:
+            raise ValueError(f"Unsupported SONARA modifier: {name}")
+        number = _optional_float(value)
+        if number is None:
+            raise ValueError(f"Invalid SONARA modifier: {name}")
+        cleaned[name] = max(-1.0, min(1.0, number))
+    return cleaned
+
+
+def _custom_numeric_fields(mixer_weights: dict[str, float], modifiers: dict[str, float]) -> dict[str, float]:
+    fields: dict[str, float] = {}
+    for group_name, group_weight in mixer_weights.items():
+        if group_weight <= 0:
+            continue
+        for field in _CUSTOM_GROUP_WEIGHTS[group_name]:
+            fields[field] = 1.0
+    for modifier_name, direction in modifiers.items():
+        if direction != 0:
+            fields[_CUSTOM_MODIFIER_FIELDS[modifier_name]] = 1.0
+    return fields
+
+
 def _tonal_context(context: list[_ComparableTrack]) -> dict[str, set[str]]:
     result: dict[str, set[str]] = {}
     for field in _TONAL_TEXT_WEIGHTS:
@@ -248,11 +495,11 @@ def _tonal_context(context: list[_ComparableTrack]) -> dict[str, set[str]]:
 
 
 def _feature_value(features: dict[str, object], field: str, index: int | None) -> float | None:
-    value = features.get(field)
+    value = _unwrap_feature_value(features.get(field))
     if index is not None:
         if not isinstance(value, (list, tuple)) or index >= len(value):
             return None
-        value = value[index]
+        value = _unwrap_feature_value(value[index])
     return _optional_float(value)
 
 
@@ -281,10 +528,17 @@ def _optional_float(value: object) -> float | None:
 
 
 def _normalize_text(value: object) -> str | None:
+    value = _unwrap_feature_value(value)
     if value is None:
         return None
     text = str(value).strip().casefold()
     return text or None
+
+
+def _unwrap_feature_value(value: object) -> object:
+    if isinstance(value, dict) and "value" in value:
+        return value.get("value")
+    return value
 
 
 def _tempo_score(candidate_bpm: float, centroid_bpm: float) -> float:

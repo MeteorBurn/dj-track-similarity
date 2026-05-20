@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AnalysisJobStatus, api, LibrarySummary, ScanStats, SearchResult, SonaraSearchMode, Track } from "./api";
+import { AnalysisJobStatus, api, LibrarySummary, ScanStats, SearchResult, Track } from "./api";
 import { exportDirectoryError } from "./exportView";
 import { ActivityEvent, analysisJobRequest, cancelAnalysisJob, scanSummary } from "./jobUi";
 import { LibraryPanel } from "./LibraryPanel";
@@ -33,7 +33,18 @@ const helpText = {
   analysisBatchSize: "Для SONARA это число параллельных track workers. Для MAEST/MERT/CLAP это inference batch. Тип: целое число 1-16.",
   librarySearch: "Фильтр библиотеки. Формат: текст. Ищет по artist, title, album, path, MAEST genres и syncopated rhythm.",
   similarity: "Минимальный similarity. Тип: число с точкой, диапазон 0.00-1.00.",
-  sonaraMode: "Режим SONARA similarity. Balanced смешивает признаки, Vibe смотрит настроение, Sound тембр, DJ переходный контекст.",
+  sonaraMixerTimbre: "Вес тембра и спектральной фактуры: MFCC, centroid, bandwidth, rolloff, flatness, contrast. Повышай для похожего материала звука.",
+  sonaraMixerRhythm: "Вес ритмической текстуры: onset density, zero crossing, danceability, chord movement. Повышай для кликов, ломанности и микро-грува.",
+  sonaraMixerDynamics: "Вес динамики: energy, RMS, LUFS, dynamic range. Повышай для похожего давления, дыхания и громкости.",
+  sonaraMixerHarmonic: "Вес гармонического цвета: chroma, dissonance, chord change, key confidence. Повышай для похожего аккордового ощущения.",
+  sonaraMixerTempo: "Вес BPM compatibility с half/double-tempo логикой. Повышай для более удобных DJ-переходов, снижай для свободного поиска.",
+  sonaraModifierEnergy: "Направление energy относительно seed/lookback: ниже = спокойнее, выше = активнее. 0 не тянет выдачу.",
+  sonaraModifierValence: "Направление valence относительно seed/lookback: ниже = темнее/меланхоличнее, выше = светлее. Это не preset, а числовой bias.",
+  sonaraModifierAcousticness: "Направление acousticness: ниже = электроннее, выше = органичнее/живее по Sonara.",
+  sonaraModifierBrightness: "Направление spectral centroid: ниже = мягче/темнее по спектру, выше = ярче.",
+  sonaraModifierRhythmDensity: "Направление onset density: ниже = меньше событий, выше = плотнее клики/перкуссия.",
+  sonaraModifierDynamicRange: "Направление dynamic range: ниже = ровнее/плотнее, выше = больше дыхания и перепадов.",
+  sonaraModifierLoudness: "Направление LUFS: ниже = тише/дальше, выше = громче/ближе.",
   textPrompt: "CLAP text search. Формат: короткая фраза через запятые: genre, mood, sound, drums, vocal/no vocals. Тип: строка.",
   lookback: "Сколько последних треков сета добавить в контекст поиска. Тип: целое число 0-12.",
   limit: "Максимум результатов поиска. Тип: целое число 1-500.",
@@ -93,8 +104,23 @@ export function App() {
     epsilon: 0,
     noise: 0,
     lookback: 2,
-    limit: 50,
-    sonaraMode: "balanced" as SonaraSearchMode
+    limit: 5,
+    sonaraMixer: {
+      timbre: 1,
+      rhythm: 1,
+      dynamics: 0.8,
+      harmonic: 0.8,
+      tempo: 0.35
+    },
+    sonaraModifiers: {
+      energy: 0,
+      valence: 0,
+      acousticness: 0,
+      brightness: 0,
+      rhythm_density: 0,
+      dynamic_range: 0,
+      loudness: 0
+    }
   });
 
   const seedSet = useMemo(() => new Set(seeds), [seeds]);
@@ -310,14 +336,16 @@ export function App() {
       return;
     }
     const lookbackTrackIds = filters.lookback > 0 ? playlist.slice(-filters.lookback).map((track) => track.id) : [];
-    appendActivity("info", "SONARA search запущен", `${filters.sonaraMode} · ${seeds.length} seed · lookback ${lookbackTrackIds.length}`);
+    appendActivity("info", "SONARA search запущен", `custom mixer · ${seeds.length} seed · lookback ${lookbackTrackIds.length}`);
     await run(
       () =>
         api.sonaraSearch({
           seed_track_ids: seeds,
           lookback_track_ids: lookbackTrackIds,
           limit: filters.limit,
-          mode: filters.sonaraMode,
+          mode: "custom",
+          mixer_weights: filters.sonaraMixer,
+          modifiers: filters.sonaraModifiers,
           min_similarity: filters.minSimilarity
         }),
       (value) => {

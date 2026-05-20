@@ -56,3 +56,25 @@ Implement SONARA-only seed search with multiple similarity modes: `Balanced`, `V
 - SONARA search should become the primary seed-search action.
 - MERT search remains available internally through the existing `/api/search`, but the UI seed button will call SONARA search for this feature.
 - Raw SONARA tonal fields are trusted directly; Camelot conversion is not part of this workflow.
+
+## 2026-05-20 Update
+
+The first SONARA search pass shipped the preset modes above, but calibration
+showed that the UI needed direct control rather than another small set of mode
+buttons. The current UI path now uses a custom mixer:
+
+- `Timbre`
+- `Rhythm`
+- `Dynamics`
+- `Harmonic`
+- `Tempo`
+
+It also supports directional modifiers for energy, valence, acousticness,
+brightness, rhythm density, dynamic range, and loudness. The backend keeps the
+older preset modes for compatibility, but `/api/search/sonara` can now accept
+`mode="custom"`, `mixer_weights`, and `modifiers`.
+
+A real database bug was found during calibration: some stored SONARA features
+are wrapped as objects with a `value` field. The similarity scorer now unwraps
+those values before numeric or text comparison. Without that, most custom
+controls appeared inert while harmonic text fields still produced results.

@@ -422,20 +422,22 @@ h2 {
 }
 
 .library-preset-button {
-  background: #f5f0ff;
-  border-color: #cab9ee;
-  color: #6f45b5;
+  background: #ffe4bd;
+  border-color: #eda145;
+  color: #8a3f00;
+  font-weight: 700;
 }
 
 .library-preset-button:hover:not(:disabled) {
-  border-color: #8b5bd3;
-  color: #5d36a1;
+  background: #ffd69b;
+  border-color: #d9821f;
+  color: #713200;
 }
 
 .library-preset-button.active {
-  background: #e9ddff;
-  border-color: #8b5bd3;
-  color: #4f278e;
+  background: #ffd69b;
+  border-color: #d9821f;
+  color: #713200;
 }
 
 .process-box,
@@ -999,15 +1001,72 @@ h2 {
   gap: 10px;
 }
 
-.mode-selector {
-  color: #65705e;
+.sonara-custom-controls {
+  border: 1px solid #dfe3d6;
+  border-radius: 6px;
   display: grid;
-  font-size: 12px;
-  gap: 6px;
+  gap: 8px;
+  padding: 8px;
 }
 
-.sonara-mode-segmented {
+.custom-control-header {
+  align-items: center;
+  color: #586351;
+  display: flex;
+  font-size: 12px;
+  font-weight: 720;
+  justify-content: space-between;
+}
+
+.custom-control-header button {
+  min-height: 28px;
+  padding: 4px 8px;
+}
+
+.range-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.mixer-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.modifier-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.range-control {
+  color: #65705e;
+  display: grid;
+  font-size: 11px;
+  gap: 5px;
+  min-width: 0;
+}
+
+.range-control span {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.range-control strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.range-control em {
+  color: #354036;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.range-control input[type="range"] {
+  min-height: 20px;
+  padding: 0;
 }
 
 .filters.compact-filters {

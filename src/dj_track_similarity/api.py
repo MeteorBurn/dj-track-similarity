@@ -69,7 +69,7 @@ class SearchRequest(BaseModel):
 
     seed_track_ids: list[int]
     lookback_track_ids: list[int] = Field(default_factory=list)
-    limit: int = 50
+    limit: int = 5
     bpm_tolerance: float | None = None
     key_compatibility: str | None = None
     energy_min: float | None = None
@@ -79,17 +79,37 @@ class SearchRequest(BaseModel):
     noise: float = 0.0
 
 
+class SonaraMixerWeights(BaseModel):
+    timbre: float = Field(default=1.0, ge=0.0, le=5.0)
+    rhythm: float = Field(default=1.0, ge=0.0, le=5.0)
+    dynamics: float = Field(default=0.8, ge=0.0, le=5.0)
+    harmonic: float = Field(default=0.8, ge=0.0, le=5.0)
+    tempo: float = Field(default=0.35, ge=0.0, le=5.0)
+
+
+class SonaraModifiers(BaseModel):
+    energy: float = Field(default=0.0, ge=-1.0, le=1.0)
+    valence: float = Field(default=0.0, ge=-1.0, le=1.0)
+    acousticness: float = Field(default=0.0, ge=-1.0, le=1.0)
+    brightness: float = Field(default=0.0, ge=-1.0, le=1.0)
+    rhythm_density: float = Field(default=0.0, ge=-1.0, le=1.0)
+    dynamic_range: float = Field(default=0.0, ge=-1.0, le=1.0)
+    loudness: float = Field(default=0.0, ge=-1.0, le=1.0)
+
+
 class SonaraSearchRequest(BaseModel):
     seed_track_ids: list[int]
     lookback_track_ids: list[int] = Field(default_factory=list)
-    limit: int = Field(default=50, ge=1, le=500)
-    mode: str = Field(default="balanced", pattern="^(balanced|vibe|sound|dj_transition)$")
+    limit: int = Field(default=5, ge=1, le=500)
+    mode: str = Field(default="balanced", pattern="^(balanced|vibe|sound|dj_transition|custom)$")
     min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
+    mixer_weights: SonaraMixerWeights | None = None
+    modifiers: SonaraModifiers | None = None
 
 
 class TextSearchRequest(BaseModel):
     query: str
-    limit: int = Field(default=50, ge=1, le=500)
+    limit: int = Field(default=5, ge=1, le=500)
     min_similarity: float | None = None
     device: str = Field(default="auto", pattern="^(auto|cpu|cuda)$")
 
@@ -315,6 +335,8 @@ def create_app(db_path: str | Path = "dj-track-similarity.sqlite", *, log_level:
                 request.seed_track_ids,
                 lookback_track_ids=request.lookback_track_ids,
                 mode=request.mode,  # type: ignore[arg-type]
+                mixer_weights=request.mixer_weights.model_dump() if request.mixer_weights else None,
+                modifiers=request.modifiers.model_dump() if request.modifiers else None,
                 min_similarity=request.min_similarity,
                 limit=request.limit,
             )

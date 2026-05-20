@@ -26,6 +26,45 @@ def test_sonara_search_endpoint_uses_stored_sonara_features(monkeypatch, tmp_pat
     assert payload[0]["score"] > payload[1]["score"]
 
 
+def test_sonara_search_endpoint_accepts_custom_mixer_and_modifiers(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    seed = _add_sonara_track(
+        db,
+        "seed.wav",
+        {"mfcc_mean": [0.2, 0.4], "spectral_centroid_mean": 1600, "valence": 0.4, "energy": 0.5},
+    )
+    brighter = _add_sonara_track(
+        db,
+        "brighter.wav",
+        {"mfcc_mean": [0.22, 0.41], "spectral_centroid_mean": 1620, "valence": 0.7, "energy": 0.5},
+    )
+    darker = _add_sonara_track(
+        db,
+        "darker.wav",
+        {"mfcc_mean": [0.21, 0.39], "spectral_centroid_mean": 1580, "valence": 0.2, "energy": 0.5},
+    )
+
+    response = TestClient(create_app(db_path)).post(
+        "/api/search/sonara",
+        json={
+            "seed_track_ids": [seed],
+            "mode": "custom",
+            "limit": 5,
+            "min_similarity": 0.0,
+            "mixer_weights": {"timbre": 1.0, "rhythm": 0.0, "dynamics": 0.0, "harmonic": 0.0, "tempo": 0.0},
+            "modifiers": {"valence": 1.0},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["track"]["id"] for item in payload] == [brighter, darker]
+    assert "timbre" in payload[0]["score_breakdown"]
+    assert "modifier_valence" in payload[0]["score_breakdown"]
+
+
 def _add_sonara_track(db: LibraryDatabase, name: str, features: dict[str, object]) -> int:
     path = Path("C:/music") / name
     track_id = db.upsert_track(path=path, size=100, mtime=1, metadata={"title": name})

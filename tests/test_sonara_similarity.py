@@ -116,6 +116,127 @@ def test_seed_and_lookback_build_shared_centroid(tmp_path: Path) -> None:
     assert [result.track.id for result in results[:2]] == [bridge, seed_clone]
 
 
+def test_custom_mixer_can_prioritize_rhythm_texture_over_dynamics(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed = _add_sonara_track(
+        db,
+        "seed.wav",
+        {"onset_density": 5.0, "zero_crossing_rate": 0.05, "danceability": 0.8, "energy": 0.78, "rms_mean": 0.2, "loudness_lufs": -9.0},
+    )
+    rhythm_close = _add_sonara_track(
+        db,
+        "rhythm-close.wav",
+        {"onset_density": 5.1, "zero_crossing_rate": 0.052, "danceability": 0.78, "energy": 0.22, "rms_mean": 0.06, "loudness_lufs": -19.0},
+    )
+    dynamics_close = _add_sonara_track(
+        db,
+        "dynamics-close.wav",
+        {"onset_density": 1.2, "zero_crossing_rate": 0.18, "danceability": 0.28, "energy": 0.77, "rms_mean": 0.19, "loudness_lufs": -9.2},
+    )
+
+    results = SonaraSimilaritySearch(db).search(
+        [seed],
+        mode="custom",
+        mixer_weights={"timbre": 0.0, "rhythm": 3.0, "dynamics": 0.2, "harmonic": 0.0, "tempo": 0.0},
+        limit=5,
+    )
+
+    assert [result.track.id for result in results] == [rhythm_close, dynamics_close]
+    assert results[0].score_breakdown
+    assert results[0].score_breakdown["rhythm"] > results[1].score_breakdown["rhythm"]
+
+
+def test_custom_modifiers_bias_direction_without_hardcoded_mood(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed = _add_sonara_track(
+        db,
+        "seed.wav",
+        {"mfcc_mean": [0.2, 0.4], "spectral_centroid_mean": 1600, "valence": 0.4, "acousticness": 0.6, "energy": 0.5},
+    )
+    brighter = _add_sonara_track(
+        db,
+        "brighter.wav",
+        {"mfcc_mean": [0.22, 0.41], "spectral_centroid_mean": 1620, "valence": 0.68, "acousticness": 0.58, "energy": 0.5},
+    )
+    darker = _add_sonara_track(
+        db,
+        "darker.wav",
+        {"mfcc_mean": [0.21, 0.39], "spectral_centroid_mean": 1580, "valence": 0.18, "acousticness": 0.62, "energy": 0.5},
+    )
+
+    brighter_results = SonaraSimilaritySearch(db).search(
+        [seed],
+        mode="custom",
+        mixer_weights={"timbre": 1.0, "rhythm": 0.0, "dynamics": 0.0, "harmonic": 0.0, "tempo": 0.0},
+        modifiers={"valence": 1.0},
+        limit=5,
+    )
+    darker_results = SonaraSimilaritySearch(db).search(
+        [seed],
+        mode="custom",
+        mixer_weights={"timbre": 1.0, "rhythm": 0.0, "dynamics": 0.0, "harmonic": 0.0, "tempo": 0.0},
+        modifiers={"valence": -1.0},
+        limit=5,
+    )
+
+    assert [result.track.id for result in brighter_results] == [brighter, darker]
+    assert [result.track.id for result in darker_results] == [darker, brighter]
+    assert brighter_results[0].score_breakdown
+    assert "modifier_valence" in brighter_results[0].score_breakdown
+
+
+def test_custom_mixer_reads_wrapped_sonara_feature_values(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed = _add_sonara_track(
+        db,
+        "seed.wav",
+        {
+            "onset_density": {"type": "float", "value": 5.0},
+            "zero_crossing_rate": {"type": "float", "value": 0.05},
+            "danceability": {"type": "float", "value": 0.8},
+            "energy": {"type": "float", "value": 0.78},
+            "rms_mean": {"type": "float", "value": 0.2},
+            "loudness_lufs": {"type": "float", "value": -9.0},
+            "key": {"type": "str", "value": "A minor"},
+        },
+    )
+    rhythm_close = _add_sonara_track(
+        db,
+        "rhythm-close.wav",
+        {
+            "onset_density": {"type": "float", "value": 5.1},
+            "zero_crossing_rate": {"type": "float", "value": 0.052},
+            "danceability": {"type": "float", "value": 0.78},
+            "energy": {"type": "float", "value": 0.22},
+            "rms_mean": {"type": "float", "value": 0.06},
+            "loudness_lufs": {"type": "float", "value": -19.0},
+            "key": {"type": "str", "value": "C minor"},
+        },
+    )
+    dynamics_close = _add_sonara_track(
+        db,
+        "dynamics-close.wav",
+        {
+            "onset_density": {"type": "float", "value": 1.2},
+            "zero_crossing_rate": {"type": "float", "value": 0.18},
+            "danceability": {"type": "float", "value": 0.28},
+            "energy": {"type": "float", "value": 0.77},
+            "rms_mean": {"type": "float", "value": 0.19},
+            "loudness_lufs": {"type": "float", "value": -9.2},
+            "key": {"type": "str", "value": "F major"},
+        },
+    )
+
+    results = SonaraSimilaritySearch(db).search(
+        [seed],
+        mode="custom",
+        mixer_weights={"timbre": 0.0, "rhythm": 3.0, "dynamics": 0.0, "harmonic": 0.0, "tempo": 0.0},
+        limit=5,
+    )
+
+    assert [result.track.id for result in results] == [rhythm_close, dynamics_close]
+
+
 def test_sonara_search_reports_context_tracks_without_features(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     seed = db.upsert_track(path=Path("C:/music/seed.wav"), size=100, mtime=1, metadata={"title": "seed"})

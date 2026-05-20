@@ -21,6 +21,7 @@ export type Track = {
 export type SearchResult = {
   track: Track;
   score: number;
+  score_breakdown?: Record<string, number> | null;
 };
 
 export type TrackPage = {
@@ -38,7 +39,25 @@ export type LibrarySummary = {
   clap: number;
 };
 
-export type SonaraSearchMode = "balanced" | "vibe" | "sound" | "dj_transition";
+export type SonaraSearchMode = "balanced" | "vibe" | "sound" | "dj_transition" | "custom";
+
+export type SonaraMixerWeights = {
+  timbre: number;
+  rhythm: number;
+  dynamics: number;
+  harmonic: number;
+  tempo: number;
+};
+
+export type SonaraModifiers = {
+  energy: number;
+  valence: number;
+  acousticness: number;
+  brightness: number;
+  rhythm_density: number;
+  dynamic_range: number;
+  loudness: number;
+};
 
 export type ScanStats = {
   job_id?: string;
@@ -225,6 +244,8 @@ export const api = {
     lookback_track_ids?: number[];
     limit: number;
     mode: SonaraSearchMode;
+    mixer_weights?: SonaraMixerWeights | null;
+    modifiers?: SonaraModifiers | null;
     min_similarity?: number | null;
   }) =>
     request<SearchResult[]>("/api/search/sonara", {

@@ -36,6 +36,7 @@ class ScanStats:
 class SearchResult:
     track: Track
     score: float
+    score_breakdown: dict[str, float] | None = None
 
 
 @dataclass(frozen=True)

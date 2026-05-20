@@ -1,6 +1,6 @@
 import { Dispatch, SetStateAction, useState } from "react";
 import { Download, FolderOpen, ListMusic, Play, Save, Search, Tags, Trash2, X } from "lucide-react";
-import { SearchResult, SonaraSearchMode, Track } from "./api";
+import { SearchResult, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
 import { ResultRow } from "./TrackRows";
 import { displayTrack, trackInfo } from "./trackDisplay";
 
@@ -15,15 +15,27 @@ export type SearchFiltersState = {
   noise: number;
   lookback: number;
   limit: number;
-  sonaraMode: SonaraSearchMode;
+  sonaraMixer: SonaraMixerWeights;
+  sonaraModifiers: SonaraModifiers;
 };
 
 type SearchHelpText = {
   textPrompt: string;
   similarity: string;
-  sonaraMode: string;
   lookback: string;
   limit: string;
+  sonaraMixerTimbre: string;
+  sonaraMixerRhythm: string;
+  sonaraMixerDynamics: string;
+  sonaraMixerHarmonic: string;
+  sonaraMixerTempo: string;
+  sonaraModifierEnergy: string;
+  sonaraModifierValence: string;
+  sonaraModifierAcousticness: string;
+  sonaraModifierBrightness: string;
+  sonaraModifierRhythmDensity: string;
+  sonaraModifierDynamicRange: string;
+  sonaraModifierLoudness: string;
   playlistName: string;
   outputDir: string;
 };
@@ -92,12 +104,38 @@ export function SearchPlaylistPanel({
   handleTags: (apply: boolean) => void;
 }) {
   const [activeSearchTab, setActiveSearchTab] = useState<"sonara" | "mert" | "clap">("sonara");
-  const modeOptions: Array<{ value: SonaraSearchMode; label: string }> = [
-    { value: "balanced", label: "Balanced" },
-    { value: "vibe", label: "Vibe" },
-    { value: "sound", label: "Sound" },
-    { value: "dj_transition", label: "DJ" }
+  const mixerControls: Array<{ key: keyof SonaraMixerWeights; label: string; title: string }> = [
+    { key: "timbre", label: "Timbre", title: helpText.sonaraMixerTimbre },
+    { key: "rhythm", label: "Rhythm", title: helpText.sonaraMixerRhythm },
+    { key: "dynamics", label: "Dynamics", title: helpText.sonaraMixerDynamics },
+    { key: "harmonic", label: "Harmonic", title: helpText.sonaraMixerHarmonic },
+    { key: "tempo", label: "Tempo", title: helpText.sonaraMixerTempo }
   ];
+  const modifierControls: Array<{ key: keyof SonaraModifiers; label: string; title: string }> = [
+    { key: "energy", label: "Energy", title: helpText.sonaraModifierEnergy },
+    { key: "valence", label: "Valence", title: helpText.sonaraModifierValence },
+    { key: "acousticness", label: "Acoustic", title: helpText.sonaraModifierAcousticness },
+    { key: "brightness", label: "Bright", title: helpText.sonaraModifierBrightness },
+    { key: "rhythm_density", label: "Density", title: helpText.sonaraModifierRhythmDensity },
+    { key: "dynamic_range", label: "Range", title: helpText.sonaraModifierDynamicRange },
+    { key: "loudness", label: "LUFS", title: helpText.sonaraModifierLoudness }
+  ];
+
+  function setSonaraMixerValue(key: keyof SonaraMixerWeights, value: number) {
+    setFilters((current) => ({ ...current, sonaraMixer: { ...current.sonaraMixer, [key]: value } }));
+  }
+
+  function setSonaraModifierValue(key: keyof SonaraModifiers, value: number) {
+    setFilters((current) => ({ ...current, sonaraModifiers: { ...current.sonaraModifiers, [key]: value } }));
+  }
+
+  function resetCustomSonara() {
+    setFilters((current) => ({
+      ...current,
+      sonaraMixer: { timbre: 1, rhythm: 1, dynamics: 0.8, harmonic: 0.8, tempo: 0.35 },
+      sonaraModifiers: { energy: 0, valence: 0, acousticness: 0, brightness: 0, rhythm_density: 0, dynamic_range: 0, loudness: 0 }
+    }));
+  }
 
   return (
     <aside className="panel search-panel">
@@ -127,16 +165,53 @@ export function SearchPlaylistPanel({
         </div>
         {activeSearchTab === "sonara" && (
           <div className="search-tab-panel" role="tabpanel">
-            <label className="mode-selector" title={helpText.sonaraMode}>
-              <span>Mode</span>
-              <div className="segmented sonara-mode-segmented">
-                {modeOptions.map((option) => (
-                  <button className={filters.sonaraMode === option.value ? "active" : ""} key={option.value} onClick={() => setFilters({ ...filters, sonaraMode: option.value })} title={helpText.sonaraMode} type="button">
-                    {option.label}
-                  </button>
+            <div className="sonara-custom-controls">
+              <div className="custom-control-header">
+                <span>Mixer</span>
+                <button type="button" onClick={resetCustomSonara}>Reset</button>
+              </div>
+              <div className="range-grid mixer-grid">
+                {mixerControls.map((control) => (
+                  <label className="range-control" key={control.key} title={control.title}>
+                    <span>
+                      <strong>{control.label}</strong>
+                      <em>{filters.sonaraMixer[control.key].toFixed(2)}</em>
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={3}
+                      step={0.05}
+                      value={filters.sonaraMixer[control.key]}
+                      title={control.title}
+                      onChange={(event) => setSonaraMixerValue(control.key, Number(event.target.value))}
+                    />
+                  </label>
                 ))}
               </div>
-            </label>
+              <div className="custom-control-header">
+                <span>Modifiers</span>
+              </div>
+              <div className="range-grid modifier-grid">
+                {modifierControls.map((control) => (
+                  <label className="range-control" key={control.key} title={control.title}>
+                    <span>
+                      <strong>{control.label}</strong>
+                      <em>{formatSigned(filters.sonaraModifiers[control.key])}</em>
+                    </span>
+                    <input
+                      type="range"
+                      min={-1}
+                      max={1}
+                      step={0.05}
+                      value={filters.sonaraModifiers[control.key]}
+                      title={control.title}
+                      onChange={(event) => setSonaraModifierValue(control.key, Number(event.target.value))}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
             <div className="filters compact-filters">
               <label title={helpText.similarity}>Similarity<input type="number" value={filters.minSimilarity} min={0} max={1} step={0.01} title={helpText.similarity} onChange={(event) => setFilters({ ...filters, minSimilarity: Number(event.target.value) })} /></label>
               <label title={helpText.lookback}>Lookback<input type="number" value={filters.lookback} min={0} max={12} title={helpText.lookback} onChange={(event) => setFilters({ ...filters, lookback: Number(event.target.value) })} /></label>
@@ -185,11 +260,12 @@ export function SearchPlaylistPanel({
           </div>
         )}
         <div className="results-list">
-          {results.map(({ track, score }) => (
+          {results.map(({ track, score, score_breakdown }) => (
             <ResultRow
               key={track.id}
               track={track}
               score={score}
+              scoreBreakdown={score_breakdown}
               isSeed={seedSet.has(track.id)}
               inPlaylist={playlistSet.has(track.id)}
               onSeed={addSeed}
@@ -251,4 +327,9 @@ export function SearchPlaylistPanel({
       </section>
     </aside>
   );
+}
+
+function formatSigned(value: number) {
+  if (value === 0) return "0.00";
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}`;
 }

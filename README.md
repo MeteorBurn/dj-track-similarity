@@ -42,8 +42,12 @@ else who collects, tags, or plays music will find the approach useful too.
   usable without sending every track and every metadata blob to the browser.
 - Shows a metadata popup with source-separated Mutagen file metadata, grouped
   Sonara playlist features, and MAEST genre confidence scores.
-- Lets you choose seed tracks, search for similar tracks, preview them, and
-  assemble a small set or playlist.
+- Lets you choose seed tracks, search for similar tracks with SONARA mixer
+  controls or embedding/text models, preview results, and assemble a small set
+  or playlist.
+- Includes an experimental MAEST multi-window benchmark script for comparing
+  stored single-window genre labels with temporary 3x30-second consensus labels
+  without writing the result back to SQLite.
 - Exports playlists as M3U or CSV.
 - Can preview and write custom `DJ_SIM_*` tags when explicitly requested.
 - Can reset one analysis family at a time, or clear the local SQLite database
@@ -57,10 +61,12 @@ manually curated genre tags as the main signal.
 
 The project is usable, but still experimental.
 
-SONARA seed search is now the primary explainable search path in the UI. It
-compares stored playlist features in a few practical modes: balanced overall
-similarity, vibe/mood, sound/texture, and DJ-transition fit. It deliberately
-uses raw SONARA tonal fields and does not derive Camelot notation.
+SONARA seed search is now the primary explainable search path in the UI. The
+current UI uses a custom mixer instead of preset mode buttons. The mixer exposes
+weights for timbre, rhythm, dynamics, harmonic color, and tempo compatibility;
+optional modifiers can bias the result toward higher or lower energy, valence,
+acousticness, brightness, rhythm density, dynamic range, or loudness. It still
+deliberately uses raw SONARA tonal fields and does not derive Camelot notation.
 
 MERT is still available as a separate seed-search tab. It already gives
 promising results on my own library: aggressive broken tracks tend to pull
@@ -69,17 +75,21 @@ related tracks. CLAP remains separate for text-to-audio search.
 
 The UI keeps the search controls separated by model:
 
-- `Mode` appears for SONARA and chooses balanced, vibe, sound, or DJ ranking.
-- `Similarity` sets a minimum cosine score.
+- `Mixer` appears for SONARA and weights timbre, rhythm, dynamics, harmonic,
+  and tempo similarity.
+- `Modifiers` appear for SONARA and bias the custom ranking relative to the
+  current seed/lookback context.
+- `Similarity` sets a minimum score.
 - `Lookback` adds the last N tracks from the current set into the search
   context.
 - `Limit` caps the number of returned results.
 - `Text query` appears only on the CLAP tab.
 
-Other controls such as BPM, key, energy, epsilon, and randomization are either
-disabled in the UI or treated as future work until they are calibrated properly.
-I do not want uncalibrated knobs to make the model look better or worse than it
-really is.
+The older SONARA preset modes still exist in the backend for compatibility, but
+the active UI path sends the custom mixer and modifiers to `/api/search/sonara`.
+Other controls such as randomization are either disabled in the UI or treated as
+future work until they are calibrated properly. I do not want uncalibrated knobs
+to make the model look better or worse than it really is.
 
 Large libraries are handled as a paged server-side list. The browser requests
 the current library page from `/api/tracks` with optional query, preset, limit,
@@ -121,6 +131,12 @@ the standard genre field and keeps existing title, artist, album, BPM, key, and
 other tags. MAEST genre extraction uses inference batching through direct model
 logits, not the convenience `predict_labels()` helper, so each track in a batch
 keeps its own genre scores.
+
+There is also an experimental benchmark script for checking whether MAEST genre
+labels become more useful when three 30-second windows are aggregated instead of
+using the stored single 60-90 second window. The benchmark is read-only with
+respect to the database: it reads stored labels, runs temporary MAEST inference,
+and writes a JSON report under `outputs/`.
 
 ## Run The App
 
@@ -234,6 +250,21 @@ audio and are padded as needed for batching. If one track in a MAEST batch fails
 to decode, the job retries that batch one track at a time so the bad file is
 reported directly and the other tracks can still be analyzed. It does not modify
 audio files by itself.
+
+The optional benchmark script compares those stored labels with a temporary
+three-window MAEST pass:
+
+```powershell
+python scripts\benchmark_maest_multiwindow.py `
+  --db "D:\DJDatabases\library.sqlite" `
+  --limit 125 `
+  --device auto `
+  --top-k 8 `
+  --output "outputs\maest_multiwindow_125.json"
+```
+
+This is a calibration tool, not the production genre-writing path. It does not
+call `save_genres` and does not write the multi-window labels into SQLite.
 
 `--fake` is only for smoke tests without loading ML models.
 
@@ -392,6 +423,12 @@ loading to TorchCodec; if that native path is unavailable or fails, the shared
 loader uses the existing `ffmpeg` executable from `PATH` or
 `DJ_TRACK_SIMILARITY_FFMPEG` as a fallback.
 
+The experimental `benchmark_maest_multiwindow.py` script multiplies MAEST model
+inputs by up to three windows per track, so it is expected to be roughly
+2.5-3x slower than the single-window genre path on the same hardware. On one
+local CUDA run, 125 tracks / 374 windows took about 75 seconds, but that number
+depends heavily on GPU, disk, and file decode behavior.
+
 Sonara playlist analysis is usually much lighter than MERT/CLAP/MAEST model
 inference. It still reads and decodes audio, so the full-library pass is not
 free, but it is intended to be a fast feature inspection step. Its batch size
@@ -436,8 +473,8 @@ order:
    defaults for `Similarity`, `Epsilon`, and controlled randomization.
 2. `Auto chain` - build a set gradually: seed, find a few close tracks, move the
    context forward, and repeat until the desired limit is reached.
-3. `Sonara calibration` - inspect real result sets for the balanced, vibe,
-   sound, and DJ-transition modes and tune weights/default thresholds.
+3. `Sonara calibration` - inspect real result sets for the custom mixer,
+   modifier controls, score breakdowns, and default thresholds.
 4. `Mel/CNN similarity` - use mel-spectrogram or CNN-style embeddings to capture
    pattern, structure, groove, density, and spectral shape.
 5. `Music feature similarity` - improve the explainable DSP layer with

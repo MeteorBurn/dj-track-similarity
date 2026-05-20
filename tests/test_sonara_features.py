@@ -226,7 +226,7 @@ def test_api_runs_sonara_analysis_and_returns_track_features(monkeypatch, tmp_pa
     assert response.json()["batch_size"] == 3
     assert response.json()["workers"] == 3
     assert SynchronousSonaraManager.last_batch_size == 3
-    tracks = client.get("/api/tracks").json()
+    tracks = client.get("/api/tracks?include_metadata=true").json()["items"]
     assert tracks[0]["bpm"] == 126.4
     assert tracks[0]["musical_key"] == "A minor"
     assert tracks[0]["analyses"] == ["sonara"]

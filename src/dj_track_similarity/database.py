@@ -14,6 +14,21 @@ from .models import Track
 
 DEFAULT_EMBEDDING_KEY = "mert"
 SQLITE_BUSY_TIMEOUT_SECONDS = 30
+SYNCOPATED_RHYTHM_GENRES = (
+    "Breakbeat",
+    "Breakcore",
+    "Breaks",
+    "Progressive Breaks",
+    "Broken Beat",
+    "Drum n Bass",
+    "Jungle",
+    "Halftime",
+    "Juke",
+    "UK Garage",
+    "Speed Garage",
+    "Bassline",
+    "Electro",
+)
 TRACK_SELECT_FIELDS = """
 t.*, e.model_name AS embedding_model, e.dim AS embedding_dim,
     (
@@ -249,7 +264,13 @@ class LibraryDatabase:
             raise RuntimeError(f"Failed to upsert track: {normalized}")
         return int(row["id"])
 
-    def list_tracks(self, *, with_embeddings: bool | None = None, embedding_key: str = DEFAULT_EMBEDDING_KEY) -> list[Track]:
+    def list_tracks(
+        self,
+        *,
+        with_embeddings: bool | None = None,
+        embedding_key: str = DEFAULT_EMBEDDING_KEY,
+        include_metadata: bool = True,
+    ) -> list[Track]:
         where = ""
         if with_embeddings is True:
             where = "WHERE e.track_id IS NOT NULL"
@@ -266,7 +287,58 @@ class LibraryDatabase:
                 """,
                 (embedding_key,),
             ).fetchall()
-        return [self._row_to_track(row) for row in rows]
+        return [self._row_to_track(row, include_metadata=include_metadata) for row in rows]
+
+    def list_tracks_page(
+        self,
+        *,
+        query: str = "",
+        preset: str = "all",
+        limit: int = 100,
+        offset: int = 0,
+        include_metadata: bool = False,
+        embedding_key: str = DEFAULT_EMBEDDING_KEY,
+    ) -> dict[str, object]:
+        where_parts, params = _track_filter_sql(query=query, preset=preset)
+        where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+        bounded_limit = max(1, min(500, int(limit)))
+        bounded_offset = max(0, int(offset))
+        with self.connect() as connection:
+            total = int(connection.execute(f"SELECT COUNT(*) FROM tracks t {where_sql}", params).fetchone()[0])
+            rows = connection.execute(
+                f"""
+                SELECT {TRACK_SELECT_FIELDS}
+                FROM tracks t
+                LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
+                {where_sql}
+                ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
+                LIMIT ? OFFSET ?
+                """,
+                (embedding_key, *params, bounded_limit, bounded_offset),
+            ).fetchall()
+        return {
+            "items": [self._row_to_track(row, include_metadata=include_metadata) for row in rows],
+            "total": total,
+            "limit": bounded_limit,
+            "offset": bounded_offset,
+        }
+
+    def library_summary(self) -> dict[str, int]:
+        with self.connect() as connection:
+            tracks = int(connection.execute("SELECT COUNT(*) FROM tracks").fetchone()[0])
+            sonara = int(
+                connection.execute("SELECT COUNT(*) FROM tracks WHERE metadata_json LIKE ?", ('%"sonara_features"%',)).fetchone()[0]
+            )
+            maest = int(
+                connection.execute("SELECT COUNT(*) FROM tracks WHERE metadata_json LIKE ?", ('%"maest_genres"%',)).fetchone()[0]
+            )
+            mert = int(
+                connection.execute("SELECT COUNT(DISTINCT track_id) FROM embeddings WHERE embedding_key = ?", ("mert",)).fetchone()[0]
+            )
+            clap = int(
+                connection.execute("SELECT COUNT(DISTINCT track_id) FROM embeddings WHERE embedding_key = ?", ("clap",)).fetchone()[0]
+            )
+        return {"tracks": tracks, "sonara": sonara, "maest": maest, "mert": mert, "clap": clap}
 
     def save_embedding(
         self,
@@ -608,7 +680,7 @@ class LibraryDatabase:
         return [self._row_to_track(row) for row in rows]
 
     @staticmethod
-    def _row_to_track(row: sqlite3.Row) -> Track:
+    def _row_to_track(row: sqlite3.Row, *, include_metadata: bool = True) -> Track:
         metadata = _metadata_from_json(row["metadata_json"] if "metadata_json" in row.keys() else "{}")
         genres, genre_scores = _genres_from_metadata(metadata)
         analyses = _analyses_from_row(row, metadata)
@@ -624,7 +696,7 @@ class LibraryDatabase:
             musical_key=row["musical_key"],
             energy=row["energy"],
             duration=row["duration"],
-            metadata=metadata,
+            metadata=metadata if include_metadata else None,
             genres=genres,
             genre_scores=genre_scores,
             analyses=analyses,
@@ -650,6 +722,30 @@ def _metadata_from_json(metadata_json: object) -> dict[str, object]:
     except json.JSONDecodeError:
         return {}
     return metadata if isinstance(metadata, dict) else {}
+
+
+def _track_filter_sql(*, query: str, preset: str) -> tuple[list[str], list[object]]:
+    where_parts: list[str] = []
+    params: list[object] = []
+    needle = query.strip().lower()
+    if needle:
+        like = f"%{needle}%"
+        searchable_columns = (
+            "LOWER(COALESCE(t.artist, ''))",
+            "LOWER(COALESCE(t.title, ''))",
+            "LOWER(COALESCE(t.album, ''))",
+            "LOWER(t.path)",
+            "LOWER(t.metadata_json)",
+        )
+        where_parts.append("(" + " OR ".join(f"{column} LIKE ?" for column in searchable_columns) + ")")
+        params.extend([like] * len(searchable_columns))
+    if preset == "syncopated":
+        patterns = [f"%{genre.lower()}%" for genre in SYNCOPATED_RHYTHM_GENRES]
+        where_parts.append("(" + " OR ".join("LOWER(t.metadata_json) LIKE ?" for _ in patterns) + ")")
+        params.extend(patterns)
+    elif preset != "all":
+        raise ValueError(f"Unknown library preset: {preset}")
+    return where_parts, params
 
 
 def _normalize_root(path: str | Path) -> str:

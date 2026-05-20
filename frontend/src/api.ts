@@ -23,6 +23,21 @@ export type SearchResult = {
   score: number;
 };
 
+export type TrackPage = {
+  items: Track[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type LibrarySummary = {
+  tracks: number;
+  sonara: number;
+  maest: number;
+  mert: number;
+  clap: number;
+};
+
 export type SonaraSearchMode = "balanced" | "vibe" | "sound" | "dj_transition";
 
 export type ScanStats = {
@@ -105,7 +120,17 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  tracks: () => request<Track[]>("/api/tracks"),
+  tracks: (params: { query?: string; preset?: string; limit?: number; offset?: number; includeMetadata?: boolean } = {}) => {
+    const search = new URLSearchParams();
+    if (params.query) search.set("q", params.query);
+    if (params.preset) search.set("preset", params.preset);
+    if (params.limit != null) search.set("limit", String(params.limit));
+    if (params.offset != null) search.set("offset", String(params.offset));
+    search.set("include_metadata", params.includeMetadata ? "true" : "false");
+    return request<TrackPage>(`/api/tracks?${search.toString()}`);
+  },
+  track: (trackId: number) => request<Track>(`/api/tracks/${trackId}`),
+  librarySummary: () => request<LibrarySummary>("/api/library/summary"),
   resetAnalysis: (adapter: "sonara" | "maest" | "mert" | "clap" | "fake") =>
     request<AnalysisResetResult>("/api/analysis/reset", {
       method: "POST",

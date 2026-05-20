@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
@@ -177,8 +177,31 @@ def create_app(db_path: str | Path = "dj-track-similarity.sqlite", *, log_level:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
     @app.get("/api/tracks")
-    def tracks():
-        return db.list_tracks()
+    def tracks(
+        q: str = "",
+        preset: str = Query(default="all", pattern="^(all|syncopated)$"),
+        limit: int = Query(default=100, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
+        include_metadata: bool = False,
+    ):
+        return db.list_tracks_page(
+            query=q,
+            preset=preset,
+            limit=limit,
+            offset=offset,
+            include_metadata=include_metadata,
+        )
+
+    @app.get("/api/tracks/{track_id}")
+    def track(track_id: int):
+        try:
+            return db.get_track(track_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.get("/api/library/summary")
+    def library_summary():
+        return db.library_summary()
 
     @app.post("/api/analysis/reset")
     def reset_analysis(request: AnalysisResetRequest):

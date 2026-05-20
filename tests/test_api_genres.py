@@ -66,6 +66,6 @@ def test_api_runs_maest_genre_analysis_and_returns_track_genres(monkeypatch, tmp
     assert response.json()["batch_size"] == 4
     assert response.json()["workers"] == 4
     assert SynchronousGenreManager.last_batch_size == 4
-    tracks = client.get("/api/tracks").json()
+    tracks = client.get("/api/tracks").json()["items"]
     assert tracks[0]["genres"] == ["Techno"]
     assert tracks[0]["genre_scores"] == {"Techno": 0.95}

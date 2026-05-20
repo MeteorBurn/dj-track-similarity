@@ -1,0 +1,91 @@
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+import numpy as np
+
+from dj_track_similarity.api import create_app
+from dj_track_similarity.database import LibraryDatabase
+
+
+def test_tracks_endpoint_returns_paginated_slim_items_and_total(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    _add_track(db, tmp_path, "alpha.wav", "Artist A", "Alpha", {"comment": "large metadata"})
+    _add_track(db, tmp_path, "beta.wav", "Artist B", "Beta", {"comment": "large metadata"})
+    _add_track(db, tmp_path, "gamma.wav", "Artist C", "Gamma", {"comment": "large metadata"})
+
+    response = TestClient(create_app(db_path)).get("/api/tracks?limit=2&offset=1&include_metadata=false")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 3
+    assert payload["limit"] == 2
+    assert payload["offset"] == 1
+    assert [item["title"] for item in payload["items"]] == ["Beta", "Gamma"]
+    assert all(item["metadata"] is None for item in payload["items"])
+
+
+def test_tracks_endpoint_filters_by_query_and_syncopated_preset(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    house_id = _add_track(db, tmp_path, "house.wav", "DJ One", "Deep House", {})
+    breaks_id = _add_track(db, tmp_path, "breaks.wav", "DJ Two", "Broken Rhythm", {})
+    db.save_genres(house_id, [{"label": "House", "score": 0.8}], model_name="maest")
+    db.save_genres(breaks_id, [{"label": "Breakbeat", "score": 0.9}], model_name="maest")
+    client = TestClient(create_app(db_path))
+
+    query_payload = client.get("/api/tracks?q=two").json()
+    preset_payload = client.get("/api/tracks?preset=syncopated").json()
+
+    assert query_payload["total"] == 1
+    assert query_payload["items"][0]["id"] == breaks_id
+    assert preset_payload["total"] == 1
+    assert preset_payload["items"][0]["id"] == breaks_id
+
+
+def test_track_detail_endpoint_returns_full_metadata(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    track_id = _add_track(db, tmp_path, "alpha.wav", "Artist", "Alpha", {"comment": "stored comment"})
+
+    response = TestClient(create_app(db_path)).get(f"/api/tracks/{track_id}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["id"] == track_id
+    assert payload["metadata"]["comment"] == "stored comment"
+
+
+def test_library_summary_counts_tracks_and_analysis_families(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    sonara_id = _add_track(db, tmp_path, "sonara.wav", "Artist", "Sonara", {})
+    maest_id = _add_track(db, tmp_path, "maest.wav", "Artist", "Maest", {})
+    mert_id = _add_track(db, tmp_path, "mert.wav", "Artist", "Mert", {})
+    db.save_sonara_features(sonara_id, {"energy": 0.7}, energy=0.7, model_name="sonara-test")
+    db.save_genres(maest_id, [{"label": "Breakbeat", "score": 0.9}], model_name="maest-test")
+    db.save_embedding(mert_id, np.asarray([1.0, 0.0], dtype=np.float32), model_name="mert-test", embedding_key="mert")
+
+    response = TestClient(create_app(db_path)).get("/api/library/summary")
+
+    assert response.status_code == 200
+    assert response.json() == {"tracks": 3, "sonara": 1, "maest": 1, "mert": 1, "clap": 0}
+
+
+def _add_track(
+    db: LibraryDatabase,
+    tmp_path: Path,
+    filename: str,
+    artist: str,
+    title: str,
+    metadata: dict[str, object],
+) -> int:
+    path = tmp_path / filename
+    path.write_bytes(b"audio")
+    return db.upsert_track(
+        path=path,
+        size=path.stat().st_size,
+        mtime=1,
+        metadata={"artist": artist, "title": title, **metadata},
+    )

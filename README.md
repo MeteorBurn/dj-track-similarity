@@ -146,6 +146,30 @@ scripts\run_server.cmd
 and exits with a clear error if it is missing. File logging defaults to warnings
 and errors only; use `--log-level info` when debugging detailed track behavior.
 
+### Multiple Databases
+
+The app uses `dj-track-similarity.sqlite` by default. To keep separate music
+folders isolated from each other, start the server with a different SQLite
+database path:
+
+```powershell
+dj-sim serve --host 127.0.0.1 --port 8765 --db "D:\DJDatabases\breaks.sqlite"
+```
+
+Then scan the matching music folder in the UI, or use the CLI with the same
+`--db` path:
+
+```powershell
+dj-sim scan "D:\Music\Breaks" --db "D:\DJDatabases\breaks.sqlite"
+dj-sim analyze-sonara --batch-size 4 --limit 25 --db "D:\DJDatabases\breaks.sqlite"
+dj-sim analyze-genres --device cuda --batch-size 4 --limit 25 --db "D:\DJDatabases\breaks.sqlite"
+dj-sim analyze --adapter clap --device cuda --batch-size 4 --db "D:\DJDatabases\breaks.sqlite"
+```
+
+The UI does not switch databases while the server is running. Stop the server
+and start it again with another `--db` value to work with another library. Each
+database keeps its own tracks, analysis results, playlists, and stored paths.
+
 ## CLI Examples
 
 ```powershell

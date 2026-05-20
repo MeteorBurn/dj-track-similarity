@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { AnalysisJobStatus, api, ScanStats, SearchResult, SonaraSearchMode, Track } from "./api";
+import { AnalysisJobStatus, api, LibrarySummary, ScanStats, SearchResult, SonaraSearchMode, Track } from "./api";
 import { exportDirectoryError } from "./exportView";
 import { ActivityEvent, analysisJobRequest, cancelAnalysisJob, scanSummary } from "./jobUi";
 import { LibraryPanel } from "./LibraryPanel";
-import { appendVisibleTracksToPlaylist, LibraryPreset, visibleLibraryTracks } from "./libraryView";
+import { appendVisibleTracksToPlaylist, LibraryPreset } from "./libraryView";
 import { SearchPlaylistPanel } from "./SearchPlaylistPanel";
 import { TrackMetadataDialog } from "./TrackMetadataDialog";
 import { TrackPanel } from "./TrackPanel";
@@ -15,6 +15,8 @@ type AnalysisAdapter = "mert" | "clap" | "fake";
 type ResetAdapter = "sonara" | "maest" | "mert" | "clap" | "fake";
 
 const defaultNotice: Notice = { kind: "idle", text: "Готово к работе" };
+const libraryPageSize = 200;
+const emptySummary: LibrarySummary = { tracks: 0, sonara: 0, maest: 0, mert: 0, clap: 0 };
 
 const helpText = {
   musicRoot: "Папка с музыкой. Формат: путь Windows или POSIX, например D:/Music. Тип: строка. Папка должна существовать.",
@@ -51,6 +53,10 @@ function optimalWorkerLimit() {
 
 export function App() {
   const [tracks, setTracks] = useState<Track[]>([]);
+  const [libraryTotal, setLibraryTotal] = useState(0);
+  const [libraryOffset, setLibraryOffset] = useState(0);
+  const [libraryLoading, setLibraryLoading] = useState(false);
+  const [librarySummary, setLibrarySummary] = useState<LibrarySummary>(emptySummary);
   const [query, setQuery] = useState("");
   const [libraryPreset, setLibraryPreset] = useState<LibraryPreset>("all");
   const [musicRoot, setMusicRoot] = useState("");
@@ -63,6 +69,7 @@ export function App() {
   const [playlistId, setPlaylistId] = useState<number | null>(null);
   const [preview, setPreview] = useState<Track | null>(null);
   const [metadataTrack, setMetadataTrack] = useState<Track | null>(null);
+  const [seedTrackMap, setSeedTrackMap] = useState<Record<number, Track>>({});
   const [analysisJob, setAnalysisJob] = useState<AnalysisJobStatus | null>(null);
   const [scanJob, setScanJob] = useState<ScanStats | null>(null);
   const [processLogKind, setProcessLogKind] = useState<"scan" | "analysis">("scan");
@@ -92,25 +99,20 @@ export function App() {
 
   const seedSet = useMemo(() => new Set(seeds), [seeds]);
   const playlistSet = useMemo(() => new Set(playlist.map((track) => track.id)), [playlist]);
-  const filteredTracks = useMemo(() => visibleLibraryTracks(tracks, query, libraryPreset), [tracks, query, libraryPreset]);
-  const seedTracks = useMemo(() => seeds.map((id) => tracks.find((track) => track.id === id)).filter(Boolean) as Track[], [seeds, tracks]);
-  const maestGenreTrackIds = useMemo(() => tracks.filter((track) => track.genres?.length).map((track) => track.id), [tracks]);
-  const analysisCounts = useMemo(() => ({
-    sonara: tracks.filter((track) => trackHasAnalysis(track, "sonara")).length,
-    maest: tracks.filter((track) => trackHasAnalysis(track, "maest")).length,
-    mert: tracks.filter((track) => trackHasAnalysis(track, "mert")).length,
-    clap: tracks.filter((track) => trackHasAnalysis(track, "clap")).length
-  }), [tracks]);
+  const seedTracks = useMemo(() => seeds.map((id) => seedTrackMap[id]).filter(Boolean) as Track[], [seeds, seedTrackMap]);
+  const visibleMaestGenreTrackIds = useMemo(() => tracks.filter((track) => track.genres?.length).map((track) => track.id), [tracks]);
   const scanRunning = Boolean(scanJob?.state && ["queued", "running"].includes(scanJob.state));
   const analysisRunning = Boolean(analysisJob && ["queued", "running"].includes(analysisJob.state));
   const stageRunning = scanRunning || analysisRunning;
-  const hasTracks = tracks.length > 0;
+  const hasTracks = librarySummary.tracks > 0;
+  const canGoBack = libraryOffset > 0 && !libraryLoading;
+  const canGoForward = libraryOffset + tracks.length < libraryTotal && !libraryLoading;
   const canStartScan = Boolean(musicRoot);
   const maxScanWorkers = useMemo(() => optimalWorkerLimit(), []);
   const maxAnalysisBatchSize = 16;
 
   useEffect(() => {
-    void refreshTracks();
+    void refreshLibrary(0);
     void api.latestScanJob().then((job) => {
       if (job) {
         setScanJob(job);
@@ -138,12 +140,19 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void refreshLibrary(0);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [query, libraryPreset]);
+
+  useEffect(() => {
     if (!scanJob?.job_id || !["queued", "running"].includes(scanJob.state || "")) return;
     const timer = window.setInterval(() => {
       void api.scanJob(scanJob.job_id!).then((job) => {
         setScanJob(job);
         if (["completed", "cancelled", "failed"].includes(job.state || "")) {
-          void refreshTracks();
+          void refreshLibrary();
           if (job.state === "completed") {
             appendActivity("ok", "Сканирование завершено", scanSummary(job));
           }
@@ -165,7 +174,7 @@ export function App() {
       void request.then((job) => {
         setAnalysisJob(job);
         if (["completed", "cancelled", "failed"].includes(job.state)) {
-          void refreshTracks();
+          void refreshLibrary();
         }
       }).catch((error) => {
         setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
@@ -178,7 +187,7 @@ export function App() {
     setBusy(true);
     try {
       const value = await action();
-      await refreshTracks();
+      await refreshLibrary();
       const text = ok(value);
       setNotice({ kind: "ok", text: text || "Готово" });
       return value;
@@ -206,16 +215,50 @@ export function App() {
     ].slice(0, 80));
   }
 
-  async function refreshTracks() {
-    const nextTracks = await api.tracks();
-    setTracks(nextTracks);
+  async function refreshLibrary(nextOffset = libraryOffset) {
+    setLibraryLoading(true);
+    try {
+      const [page, summary] = await Promise.all([
+        api.tracks({ query, preset: libraryPreset, limit: libraryPageSize, offset: nextOffset }),
+        api.librarySummary()
+      ]);
+      setTracks(page.items);
+      setLibraryTotal(page.total);
+      setLibraryOffset(page.offset);
+      setLibrarySummary(summary);
+    } finally {
+      setLibraryLoading(false);
+    }
+  }
+
+  function changeLibraryPage(delta: number) {
+    const nextOffset = Math.max(0, libraryOffset + delta * libraryPageSize);
+    void refreshLibrary(nextOffset);
+  }
+
+  async function handleTrackDetails(track: Track) {
+    setMetadataTrack(track);
+    try {
+      const fullTrack = await api.track(track.id);
+      setMetadataTrack(fullTrack);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setNotice({ kind: "error", text: message });
+      appendActivity("error", "Не удалось загрузить теги трека", message);
+    }
   }
 
   function addSeed(track: Track) {
+    setSeedTrackMap((current) => ({ ...current, [track.id]: track }));
     setSeeds((current) => (current.includes(track.id) ? current : [...current, track.id]));
   }
 
   function removeSeed(trackId: number) {
+    setSeedTrackMap((current) => {
+      const next = { ...current };
+      delete next[trackId];
+      return next;
+    });
     setSeeds((current) => current.filter((id) => id !== trackId));
   }
 
@@ -249,7 +292,7 @@ export function App() {
   }
 
   function addVisibleTracksToPlaylist() {
-    const nextPlaylist = appendVisibleTracksToPlaylist(playlist, filteredTracks);
+    const nextPlaylist = appendVisibleTracksToPlaylist(playlist, tracks);
     const added = nextPlaylist.length - playlist.length;
     if (!added) {
       setNotice({ kind: "idle", text: "Все видимые треки уже в сете" });
@@ -257,7 +300,7 @@ export function App() {
     }
     setPlaylistId(null);
     setPlaylist(nextPlaylist);
-    appendActivity("ok", "Видимые треки добавлены в сет", `${added} новых · видимых ${filteredTracks.length}`);
+    appendActivity("ok", "Текущая страница добавлена в сет", `${added} новых · на странице ${tracks.length}`);
     setNotice({ kind: "ok", text: `Добавлено в сет: ${added}` });
   }
 
@@ -466,7 +509,7 @@ export function App() {
     await run(
       () => api.resetAnalysis(adapter),
       (result) => {
-        void refreshTracks();
+        void refreshLibrary();
         appendActivity("ok", `${label} reset завершен`, `tracks ${result.tracks_updated} · embeddings ${result.embeddings_deleted}`);
         return `${label}: очищено tracks ${result.tracks_updated}, embeddings ${result.embeddings_deleted}`;
       }
@@ -567,7 +610,7 @@ export function App() {
     setScanWorkers((current) => Math.min(maxScanWorkers, Math.max(1, current + delta)));
   }
 
-  async function handleGenreTagsApply(trackIds = maestGenreTrackIds) {
+  async function handleGenreTagsApply(trackIds = visibleMaestGenreTrackIds) {
     const ids = trackIds.filter((id) => tracks.some((track) => track.id === id && track.genres?.length));
     if (!ids.length) {
       setNotice({ kind: "error", text: "Нет MAEST жанров для записи" });
@@ -601,11 +644,11 @@ export function App() {
         <div>
           <h1>DJ Track Similarity</h1>
           <span className="meta">
-            {tracks.length} {trackCountLabel(tracks.length)}
-            {" | sonara "}{analysisCounts.sonara}
-            {" | maest "}{analysisCounts.maest}
-            {" | mert "}{analysisCounts.mert}
-            {" | clap "}{analysisCounts.clap}
+            {librarySummary.tracks} {trackCountLabel(librarySummary.tracks)}
+            {" | sonara "}{librarySummary.sonara}
+            {" | maest "}{librarySummary.maest}
+            {" | mert "}{librarySummary.mert}
+            {" | clap "}{librarySummary.clap}
           </span>
         </div>
         <div className={`notice ${notice.kind}`}>{notice.text}</div>
@@ -631,7 +674,7 @@ export function App() {
           maxAnalysisBatchSize={maxAnalysisBatchSize}
           adjustAnalysisBatchSize={adjustAnalysisBatchSize}
           onAnalysisBatchSizeChange={setAnalysisBatchSize}
-          maestGenreTrackCount={maestGenreTrackIds.length}
+          maestGenreTrackCount={visibleMaestGenreTrackIds.length}
           logTab={logTab}
           onLogTabChange={setLogTab}
           processLogKind={processLogKind}
@@ -657,7 +700,15 @@ export function App() {
           libraryPreset={libraryPreset}
           onToggleLibraryPreset={toggleLibraryPreset}
           preview={preview}
-          tracks={filteredTracks}
+          tracks={tracks}
+          total={libraryTotal}
+          offset={libraryOffset}
+          pageSize={libraryPageSize}
+          loading={libraryLoading}
+          canGoBack={canGoBack}
+          canGoForward={canGoForward}
+          onPreviousPage={() => changeLibraryPage(-1)}
+          onNextPage={() => changeLibraryPage(1)}
           seedSet={seedSet}
           playlistSet={playlistSet}
           librarySearchHelp={helpText.librarySearch}
@@ -665,7 +716,7 @@ export function App() {
           onSeed={addSeed}
           onTogglePlaylist={togglePlaylist}
           onPreview={setPreview}
-          onDetails={setMetadataTrack}
+          onDetails={(track) => void handleTrackDetails(track)}
         />
 
         <SearchPlaylistPanel
@@ -694,7 +745,7 @@ export function App() {
           addSeed={addSeed}
           togglePlaylist={togglePlaylist}
           setPreview={setPreview}
-          setMetadataTrack={setMetadataTrack}
+          setMetadataTrack={(track) => void handleTrackDetails(track)}
           removeFromPlaylist={removeFromPlaylist}
           handleCreatePlaylist={() => void handleCreatePlaylist()}
           handleExport={(format) => void handleExport(format)}

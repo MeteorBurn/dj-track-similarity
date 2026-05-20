@@ -11,6 +11,14 @@ export function TrackPanel({
   onToggleLibraryPreset,
   preview,
   tracks,
+  total,
+  offset,
+  pageSize,
+  loading,
+  canGoBack,
+  canGoForward,
+  onPreviousPage,
+  onNextPage,
   seedSet,
   playlistSet,
   librarySearchHelp,
@@ -26,6 +34,14 @@ export function TrackPanel({
   onToggleLibraryPreset: (preset: LibraryPreset) => void;
   preview: Track | null;
   tracks: Track[];
+  total: number;
+  offset: number;
+  pageSize: number;
+  loading: boolean;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  onPreviousPage: () => void;
+  onNextPage: () => void;
   seedSet: Set<number>;
   playlistSet: Set<number>;
   librarySearchHelp: string;
@@ -36,6 +52,8 @@ export function TrackPanel({
   onDetails: (track: Track) => void;
 }) {
   const newVisibleTracks = tracks.filter((track) => !playlistSet.has(track.id)).length;
+  const pageStart = total && tracks.length ? offset + 1 : 0;
+  const pageEnd = Math.min(offset + tracks.length, total);
   const addVisibleTitle = tracks.length === 0
     ? "Нет видимых треков для добавления"
     : newVisibleTracks === 0
@@ -74,6 +92,11 @@ export function TrackPanel({
         >
           <AudioWaveform size={16} />
         </button>
+        <span className="library-page-status">
+          {loading ? "Загрузка..." : `${pageStart}-${pageEnd} из ${total}`}
+        </span>
+        <button className="secondary-mini" disabled={!canGoBack} onClick={onPreviousPage} type="button">Prev</button>
+        <button className="secondary-mini" disabled={!canGoForward} onClick={onNextPage} type="button">Next</button>
       </div>
       <div className="player library-player">
         <span>{preview ? displayTrack(preview) : "Preview"}</span>

@@ -38,6 +38,8 @@ else who collects, tags, or plays music will find the approach useful too.
   players such as AIMP.
 - Shows compact per-track analysis status (`sonara`, `maest`, `mert`, `clap`)
   and header counters for how many tracks have each analysis family.
+- Loads the library view in server-side pages so large local databases stay
+  usable without sending every track and every metadata blob to the browser.
 - Shows a metadata popup with source-separated Mutagen file metadata, grouped
   Sonara playlist features, and MAEST genre confidence scores.
 - Lets you choose seed tracks, search for similar tracks, preview them, and
@@ -78,6 +80,14 @@ Other controls such as BPM, key, energy, epsilon, and randomization are either
 disabled in the UI or treated as future work until they are calibrated properly.
 I do not want uncalibrated knobs to make the model look better or worse than it
 really is.
+
+Large libraries are handled as a paged server-side list. The browser requests
+the current library page from `/api/tracks` with optional query, preset, limit,
+and offset parameters. Header counters come from `/api/library/summary`, and
+the full metadata payload for a single track is loaded only when the metadata
+dialog opens through `/api/tracks/{id}`. Search and analysis still run against
+the SQLite database on the backend; the paged library view is only a UI loading
+strategy.
 
 Sonara is currently used in `playlist` mode as a fast, practical feature pass.
 It writes a focused set of analyzed playlist features into SQLite metadata:

@@ -54,6 +54,7 @@ This workspace may not be a Git repository. Do not assume Git history, branches,
 - If CUDA is explicitly requested and unavailable, surface an error instead of silently falling back to CPU. Use `auto` for fallback behavior.
 - For CUDA systems, PyTorch should usually be installed separately with the official CUDA wheel index before installing remaining ML dependencies. Do not assume plain `pip install -e ".[ml]"` will pick the correct CUDA build.
 - Search UI is split into SONARA, MERT, and CLAP tabs inside the same search/listening panel. SONARA is the primary seed-search path and sends only `Mode`, `Similarity`, `Lookback`, and `Limit` to `/api/search/sonara`. MERT keeps its own seed-search tab and sends only `Similarity`, `Lookback`, and `Limit` to `/api/search`. CLAP text search keeps the prompt field in its own tab and requires `clap` embeddings.
+- The library browser must stay usable with tens of thousands of tracks. Do not make the frontend load the full library or full `metadata_json` blobs into React state. Keep `/api/tracks` as a server-side paginated/searchable endpoint with lightweight track rows, keep `/api/library/summary` as the source for header analysis counters, and load full metadata for one track through `/api/tracks/{id}` only when the metadata dialog opens.
 - Algorithm reset controls are database-only. Reset Sonara, MAEST, MERT, CLAP, or fake independently without touching unrelated analysis families or audio files.
 - The database clear control deletes local SQLite records only and must require an explicit UI confirmation. It must not delete audio files.
 - The track metadata dialog should keep sources visually separate: the unnamed top table first, Sonara computed features next, and MAEST genre labels separately. The top table must always show `Title`, `Audio Length`, `Audio Format`, `File Size`, and `File Path`; then show Mutagen tags only when present in this order: `Artist`, `Album`, `Genre`, `Year`, `Country`, `Label`, `Catalog`, `Track no.`, `Disc no.`, `BPM tag`, `Key tag`, `Comment`, `ISRC`.
@@ -146,7 +147,7 @@ dj-sim tag-preview 1 2 3
 ## Backend Map
 
 - `src/dj_track_similarity/models.py`: dataclasses for tracks, scan/analyze stats, search results, and tag previews.
-- `src/dj_track_similarity/database.py`: SQLite schema, connection handling, path-scoped write serialization for parallel jobs, track upserts, embeddings, Sonara and MAEST metadata, library path relocation, analysis resets, database clearing, playlists, and row mapping.
+- `src/dj_track_similarity/database.py`: SQLite schema, connection handling, path-scoped write serialization for parallel jobs, track upserts, paginated library row queries, summary counters, embeddings, Sonara and MAEST metadata, library path relocation, analysis resets, database clearing, playlists, and row mapping.
 - `src/dj_track_similarity/scanner.py`: synchronous library scan and fixed-whitelist audio metadata extraction with `mutagen`. Keep extracted values JSON-safe.
 - `src/dj_track_similarity/scan_jobs.py`: scan and tag-refresh job manager with progress, cancellation, event logs, and optional parallel workers.
 - `src/dj_track_similarity/audio_loader.py`: shared native-first audio loading and tolerant WAV recovery used by Sonara fallback, MAEST, MERT, and CLAP paths.
@@ -165,13 +166,13 @@ dj-sim tag-preview 1 2 3
 - In the frontend, SONARA, MERT, and CLAP search controls should stay separated by tabs so each model shows only its own parameters.
 - `src/dj_track_similarity/exporter.py`: playlist export to M3U or CSV.
 - `src/dj_track_similarity/tags.py`: custom `DJ_SIM_*` tag preview/apply logic plus explicit MAEST-to-standard-genre tag writing, including guarded WAV genre writes.
-- `src/dj_track_similarity/api.py`: FastAPI factory, request models, REST endpoints including `/api/library/relocate`, static frontend mount, and media serving.
+- `src/dj_track_similarity/api.py`: FastAPI factory, request models, REST endpoints including paged `/api/tracks`, `/api/tracks/{id}`, `/api/library/summary`, `/api/library/relocate`, static frontend mount, and media serving.
 - `src/dj_track_similarity/cli.py`: Typer CLI entrypoint exposed as `dj-sim`, including `relocate-library` for previewing and applying stored path updates after moving a library folder.
 
 ## Frontend Map
 
-- `frontend/src/api.ts`: typed fetch wrapper and API contract mirror for the FastAPI endpoints.
-- `frontend/src/App.tsx`: single-page React app for scanning, RefreshTags, Sonara/MAEST/MERT/CLAP analysis, analysis counters in the header, algorithm resets, database clearing, track metadata popups, search, playlist assembly, export, and tagging workflows.
+- `frontend/src/api.ts`: typed fetch wrapper and API contract mirror for the FastAPI endpoints, including paged track responses and library summary counters.
+- `frontend/src/App.tsx`: single-page React app for scanning, RefreshTags, Sonara/MAEST/MERT/CLAP analysis, paged library browsing, analysis counters in the header, algorithm resets, database clearing, track metadata popups, search, playlist assembly, export, and tagging workflows.
 - `frontend/src/styles.css`: app styling.
 - `frontend/dist/`: built static frontend served by FastAPI. Regenerate it with `npm run build` after UI changes instead of editing built assets by hand.
 
@@ -186,6 +187,7 @@ dj-sim tag-preview 1 2 3
 - If adding or changing MAEST genre job state, update `frontend/src/api.ts`, `frontend/src/App.tsx`, and focused genre job/API tests.
 - If changing audio decode behavior, keep `src/dj_track_similarity/audio_loader.py`, Sonara fallback, MAEST/MERT/CLAP adapters, and focused malformed-WAV tests aligned.
 - If changing search behavior, add or update focused tests in `tests/test_search.py`, `tests/test_sonara_similarity.py`, or API tests as appropriate.
+- If changing library browsing, keep backend pagination/search, `/api/library/summary`, `/api/tracks/{id}`, `frontend/src/api.ts`, `frontend/src/App.tsx`, `frontend/src/TrackPanel.tsx`, and `tests/test_api_tracks.py` aligned. Avoid reverting to client-side full-library filtering for large databases.
 - If changing library path relocation, keep `src/dj_track_similarity/database.py`, `src/dj_track_similarity/api.py`, `src/dj_track_similarity/cli.py`, `frontend/src/api.ts`, and focused database/API/CLI tests aligned.
 - If changing analysis performance controls, keep `frontend/src/api.ts`, `src/dj_track_similarity/api.py`, `src/dj_track_similarity/analysis_jobs.py`, `src/dj_track_similarity/genre_jobs.py`, `src/dj_track_similarity/embedding.py`, `src/dj_track_similarity/genres.py`, and `src/dj_track_similarity/runtime.py` aligned.
 - If changing SQLite connection handling, write paths, job batching, or worker concurrency, keep project-wide database-write safety in mind. Add or update focused tests that cover mixed parallel writes across analysis families and across separate `LibraryDatabase` instances pointing at the same SQLite file.

@@ -177,22 +177,37 @@ class GenreAnalysisJobManager:
                 if len(genre_batches) != len(batch):
                     raise ValueError("MAEST batch result count does not match track count")
                 for track, genres in zip(batch, genre_batches):
-                    self.db.save_genres(track.id, genres, model_name=adapter.model_name)
-                    self._update_progress(job_id, track.path, analyzed_delta=1)
-                    self._append_event(job_id, "ok", "Genres analyzed", path=track.path, track_id=track.id)
+                    self._save_success(job_id, adapter, track, genres)
             except Exception as error:
+                if len(batch) <= 1:
+                    self._save_failure(job_id, batch[0], error)
+                    return
+                LOGGER.warning(
+                    "MAEST genre batch failed; retrying tracks individually job_id=%s batch_size=%s error=%s",
+                    job_id,
+                    len(batch),
+                    exception_summary(error),
+                )
+                self._append_event(job_id, "warn", "MAEST batch failed; retrying tracks individually")
                 for track in batch:
-                    self._save_failure(job_id, track, error)
+                    try:
+                        genres = adapter.predict_batch([track.path])[0]  # type: ignore[attr-defined]
+                        self._save_success(job_id, adapter, track, genres)
+                    except Exception as track_error:
+                        self._save_failure(job_id, track, track_error)
             return
 
         for track in batch:
             try:
                 genres = adapter.predict(track.path)
-                self.db.save_genres(track.id, genres, model_name=adapter.model_name)
-                self._update_progress(job_id, track.path, analyzed_delta=1)
-                self._append_event(job_id, "ok", "Genres analyzed", path=track.path, track_id=track.id)
+                self._save_success(job_id, adapter, track, genres)
             except Exception as error:
                 self._save_failure(job_id, track, error)
+
+    def _save_success(self, job_id: str, adapter: GenreAdapter, track: Track, genres: list[dict[str, object]]) -> None:
+        self.db.save_genres(track.id, genres, model_name=adapter.model_name)
+        self._update_progress(job_id, track.path, analyzed_delta=1)
+        self._append_event(job_id, "ok", "Genres analyzed", path=track.path, track_id=track.id)
 
     def _save_failure(self, job_id: str, track: Track, error: Exception) -> None:
         error_text = exception_summary(error)

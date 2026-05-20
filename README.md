@@ -153,8 +153,11 @@ scripts\run_server.cmd
 | `DJ_TRACK_SIMILARITY_FFMPEG` | auto-detected from `PATH` | Full path to `ffmpeg.exe` when ffmpeg is not on `PATH`. |
 
 `ffmpeg` is required for robust audio decoding. The server checks it on startup
-and exits with a clear error if it is missing. File logging defaults to warnings
-and errors only; use `--log-level info` when debugging detailed track behavior.
+and exits with a clear error if it is missing. MERT, CLAP, MAEST, and Sonara
+fallback decoding use the shared audio loader: it tries the native library path
+first and then falls back to `ffmpeg` without writing decoded temporary audio
+into the project. File logging defaults to warnings and errors only; use
+`--log-level info` when debugging detailed track behavior.
 
 ### Multiple Databases
 
@@ -227,7 +230,10 @@ key fields rather than deriving another notation.
 scores in SQLite track metadata. Its `--batch-size` controls MAEST inference
 batching on the selected device. For each track, MAEST analyzes the 60-90 second
 window when the file is long enough; shorter files fall back to the available
-audio and are padded as needed for batching. It does not modify audio files by itself.
+audio and are padded as needed for batching. If one track in a MAEST batch fails
+to decode, the job retries that batch one track at a time so the bad file is
+reported directly and the other tracks can still be analyzed. It does not modify
+audio files by itself.
 
 `--fake` is only for smoke tests without loading ML models.
 
@@ -381,7 +387,10 @@ Internally, the app sends a `[batch, time]` audio tensor to `maest-infer` and
 reads per-track logits from `model(...)`. It intentionally avoids
 `predict_labels()` for batch analysis because that helper averages activations
 into one label vector. The analyzed MAEST window is the 60-90 second section of
-the track where available.
+the track where available. Some current `torchaudio` builds delegate audio
+loading to TorchCodec; if that native path is unavailable or fails, the shared
+loader uses the existing `ffmpeg` executable from `PATH` or
+`DJ_TRACK_SIMILARITY_FFMPEG` as a fallback.
 
 Sonara playlist analysis is usually much lighter than MERT/CLAP/MAEST model
 inference. It still reads and decodes audio, so the full-library pass is not

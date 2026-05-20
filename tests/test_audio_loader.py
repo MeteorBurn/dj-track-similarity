@@ -1,9 +1,12 @@
 from pathlib import Path
+import subprocess
+from types import SimpleNamespace
 import wave
 
 import numpy as np
 import pytest
 
+import dj_track_similarity.audio_loader as audio_loader
 from dj_track_similarity.audio_loader import load_audio_mono
 
 
@@ -91,3 +94,39 @@ def test_load_audio_mono_rejects_unknown_malformed_wav(tmp_path: Path) -> None:
 
     with pytest.raises(RuntimeError, match="Unable to decode audio"):
         load_audio_mono(audio_path)
+
+
+def test_load_audio_mono_falls_back_to_ffmpeg_when_torchaudio_decode_fails(monkeypatch, tmp_path: Path) -> None:
+    audio_path = tmp_path / "track.mp3"
+    audio_path.write_bytes(b"not real mp3 bytes")
+    decoded = np.array([0.25, -0.5, 0.75], dtype=np.float32)
+
+    class FailingTorchaudio:
+        @staticmethod
+        def load(path: str):
+            raise RuntimeError("TorchCodec is required for load_with_torchcodec")
+
+    def fake_run(command, *, check, stdout, stderr):
+        assert command[:2] == ["ffmpeg", "-v"]
+        assert "-f" in command
+        assert command[command.index("-f") + 1] == "f32le"
+        assert "-ar" in command
+        assert command[command.index("-ar") + 1] == "22050"
+        assert command[-1] == "-"
+        return subprocess.CompletedProcess(command, 0, stdout=decoded.tobytes(), stderr=b"")
+
+    monkeypatch.setattr(
+        audio_loader,
+        "shutil",
+        SimpleNamespace(which=lambda name: "ffmpeg" if name == "ffmpeg" else None),
+        raising=False,
+    )
+    monkeypatch.setattr(audio_loader, "subprocess", SimpleNamespace(run=fake_run, PIPE=subprocess.PIPE), raising=False)
+
+    audio, sample_rate, detail = load_audio_mono(audio_path, torchaudio_module=FailingTorchaudio, target_sample_rate=22_050)
+
+    assert sample_rate == 22_050
+    assert audio.dtype == np.float32
+    assert np.allclose(audio, decoded)
+    assert "ffmpeg decode" in detail
+    assert "TorchCodec is required" in detail

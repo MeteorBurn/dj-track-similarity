@@ -1,12 +1,24 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import shutil
+import subprocess
 import wave
 
 import numpy as np
 
+from .dependencies import FFMPEG_ENV_VAR
 
-def load_audio_mono(path: str | Path, *, torchaudio_module: object | None = None) -> tuple[np.ndarray, int, str]:
+DEFAULT_FFMPEG_SAMPLE_RATE = 16_000
+
+
+def load_audio_mono(
+    path: str | Path,
+    *,
+    torchaudio_module: object | None = None,
+    target_sample_rate: int | None = None,
+) -> tuple[np.ndarray, int, str]:
     audio_path = Path(path)
     errors: list[str] = []
     if torchaudio_module is not None:
@@ -28,6 +40,14 @@ def load_audio_mono(path: str | Path, *, torchaudio_module: object | None = None
         except Exception as error:
             errors.append(f"wav recovery: {error}")
 
+    try:
+        audio, sample_rate, detail = _load_with_ffmpeg(audio_path, target_sample_rate=target_sample_rate)
+        if errors:
+            detail = f"{detail}; native decoders failed ({'; '.join(errors)})"
+        return audio, sample_rate, detail
+    except Exception as error:
+        errors.append(f"ffmpeg: {error}")
+
     detail = "; ".join(errors) if errors else "no decoder available"
     raise RuntimeError(f"Unable to decode audio: {audio_path} ({detail})")
 
@@ -40,6 +60,50 @@ def _load_with_torchaudio(path: Path, torchaudio_module: object) -> tuple[np.nda
     elif audio.ndim != 1:
         raise RuntimeError(f"Unsupported decoded audio shape: {audio.shape}")
     return audio.astype(np.float32, copy=False), int(sample_rate), "native torchaudio decode"
+
+
+def _load_with_ffmpeg(path: Path, *, target_sample_rate: int | None = None) -> tuple[np.ndarray, int, str]:
+    ffmpeg = _ffmpeg_path()
+    if not ffmpeg:
+        raise RuntimeError(f"ffmpeg executable not found on PATH or {FFMPEG_ENV_VAR}")
+    sample_rate = int(target_sample_rate or DEFAULT_FFMPEG_SAMPLE_RATE)
+    command = [
+        ffmpeg,
+        "-v",
+        "error",
+        "-i",
+        str(path),
+        "-f",
+        "f32le",
+        "-acodec",
+        "pcm_f32le",
+        "-ac",
+        "1",
+        "-ar",
+        str(sample_rate),
+        "-",
+    ]
+    try:
+        result = subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError as error:
+        stderr = (error.stderr or b"").decode("utf-8", errors="replace").strip()
+        raise RuntimeError(stderr or f"ffmpeg exited with status {error.returncode}") from error
+    if not result.stdout:
+        raise RuntimeError("ffmpeg produced no decoded audio")
+    usable = len(result.stdout) - (len(result.stdout) % np.dtype(np.float32).itemsize)
+    if usable <= 0:
+        raise RuntimeError("ffmpeg produced an incomplete float32 audio buffer")
+    audio = np.frombuffer(result.stdout[:usable], dtype=np.float32)
+    return audio.astype(np.float32, copy=False), sample_rate, "ffmpeg decode"
+
+
+def _ffmpeg_path() -> str | None:
+    configured = os.environ.get(FFMPEG_ENV_VAR)
+    if configured:
+        candidate = Path(configured)
+        if candidate.is_file():
+            return str(candidate)
+    return shutil.which("ffmpeg")
 
 
 def _load_with_wave(path: Path) -> tuple[np.ndarray, int, str]:

@@ -44,6 +44,26 @@ def test_tracks_endpoint_filters_by_query_and_syncopated_preset(tmp_path: Path) 
     assert preset_payload["items"][0]["id"] == breaks_id
 
 
+def test_syncopated_preset_ignores_non_genre_metadata_text(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    house_id = _add_track(
+        db,
+        tmp_path,
+        "house.wav",
+        "DJ One",
+        "Deep House",
+        {"sonara_features": {"acousticness": {"description": "Acoustic versus electronic character estimate."}}},
+    )
+    db.save_genres(house_id, [{"label": "Tech House", "score": 0.8}], model_name="maest")
+    client = TestClient(create_app(db_path))
+
+    preset_payload = client.get("/api/tracks?preset=syncopated").json()
+
+    assert preset_payload["total"] == 0
+    assert preset_payload["items"] == []
+
+
 def test_track_detail_endpoint_returns_full_metadata(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)

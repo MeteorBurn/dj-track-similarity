@@ -740,9 +740,21 @@ def _track_filter_sql(*, query: str, preset: str) -> tuple[list[str], list[objec
         where_parts.append("(" + " OR ".join(f"{column} LIKE ?" for column in searchable_columns) + ")")
         params.extend([like] * len(searchable_columns))
     if preset == "syncopated":
-        patterns = [f"%{genre.lower()}%" for genre in SYNCOPATED_RHYTHM_GENRES]
-        where_parts.append("(" + " OR ".join("LOWER(t.metadata_json) LIKE ?" for _ in patterns) + ")")
-        params.extend(patterns)
+        labels = [genre.lower() for genre in SYNCOPATED_RHYTHM_GENRES]
+        where_parts.append(
+            """
+            EXISTS (
+                SELECT 1
+                FROM json_each(t.metadata_json, '$.maest_genres') AS genre
+                WHERE LOWER(COALESCE(json_extract(genre.value, '$.label'), '')) IN (
+                    """
+            + ", ".join("?" for _ in labels)
+            + """
+                )
+            )
+            """
+        )
+        params.extend(labels)
     elif preset != "all":
         raise ValueError(f"Unknown library preset: {preset}")
     return where_parts, params

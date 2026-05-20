@@ -47,7 +47,11 @@ class MaestGenreAdapter:
         torchaudio = self._torchaudio
         assert torch is not None and torchaudio is not None
 
-        audio_values, sample_rate, _decode_detail = load_audio_mono(path, torchaudio_module=torchaudio)
+        audio_values, sample_rate, _decode_detail = load_audio_mono(
+            path,
+            torchaudio_module=torchaudio,
+            target_sample_rate=16000,
+        )
         audio = torch.from_numpy(audio_values).unsqueeze(0)
         if sample_rate != 16000:
             audio = torchaudio.transforms.Resample(sample_rate, 16000)(audio)

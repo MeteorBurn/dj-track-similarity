@@ -46,6 +46,21 @@ class BatchGenreAdapter:
         raise AssertionError("MAEST batch job should call predict_batch")
 
 
+class PartlyFailingBatchGenreAdapter:
+    model_name = "batch-maest"
+    device = "cpu"
+
+    def __init__(self) -> None:
+        self.batches: list[list[str]] = []
+
+    def predict_batch(self, paths):
+        names = [Path(path).name for path in paths]
+        self.batches.append(names)
+        if "bad.wav" in names:
+            raise RuntimeError(f"Unable to decode audio: {paths[names.index('bad.wav')]}")
+        return [[{"label": f"Genre {name}", "score": 0.9}] for name in names]
+
+
 def test_genre_job_saves_maest_genres_without_creating_embeddings(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_id = _track(db, tmp_path, "one.wav")
@@ -108,3 +123,24 @@ def test_genre_job_runs_maest_in_batches_and_records_progress(tmp_path: Path) ->
     assert tracks[0].genres == ["Genre 0"]
     assert tracks[1].genres == ["Genre 1"]
     assert tracks[2].genres == ["Genre 0"]
+
+
+def test_genre_job_retries_failed_maest_batch_per_track(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    good_a = _track(db, tmp_path, "a-good.wav")
+    bad = _track(db, tmp_path, "bad.wav")
+    good_b = _track(db, tmp_path, "c-good.wav")
+    adapter = PartlyFailingBatchGenreAdapter()
+    manager = GenreAnalysisJobManager(db, {"maest": lambda **kwargs: adapter})
+
+    status = manager.run_sync(device="cpu", batch_size=3)
+
+    assert status.state == "completed"
+    assert status.processed == 3
+    assert status.analyzed == 2
+    assert status.failed == 1
+    assert [(error.track_id, Path(error.path).name) for error in status.errors] == [(bad, "bad.wav")]
+    assert db.get_track(good_a).genres == ["Genre a-good.wav"]
+    assert db.get_track(bad).genres is None
+    assert db.get_track(good_b).genres == ["Genre c-good.wav"]
+    assert adapter.batches == [["a-good.wav", "bad.wav", "c-good.wav"], ["a-good.wav"], ["bad.wav"], ["c-good.wav"]]

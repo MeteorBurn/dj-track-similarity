@@ -71,7 +71,11 @@ class MertEmbeddingAdapter:
         track_windows: list[list[int]] = []
         all_windows = []
         for path in paths:
-            audio, sample_rate, _decode_detail = load_audio_mono(path, torchaudio_module=torchaudio)
+            audio, sample_rate, _decode_detail = load_audio_mono(
+                path,
+                torchaudio_module=torchaudio,
+                target_sample_rate=target_rate,
+            )
             waveform = torch.from_numpy(audio).unsqueeze(0)
             if sample_rate != target_rate:
                 waveform = torchaudio.transforms.Resample(sample_rate, target_rate)(waveform)
@@ -162,7 +166,11 @@ class ClapEmbeddingAdapter:
         track_windows: list[list[int]] = []
         all_windows = []
         for path in paths:
-            audio, sample_rate, _decode_detail = load_audio_mono(path, torchaudio_module=torchaudio)
+            audio, sample_rate, _decode_detail = load_audio_mono(
+                path,
+                torchaudio_module=torchaudio,
+                target_sample_rate=target_rate,
+            )
             waveform = torch.from_numpy(audio).unsqueeze(0)
             if sample_rate != target_rate:
                 waveform = torchaudio.transforms.Resample(sample_rate, target_rate)(waveform)

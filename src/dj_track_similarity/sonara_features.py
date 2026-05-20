@@ -221,7 +221,7 @@ def _analyze_file_or_signal(sonara: Any, path: str | Path) -> dict[str, object]:
 
 
 def _load_wav_fallback(path: str | Path, sonara: Any) -> tuple[np.ndarray, str]:
-    audio, sr_native, detail = load_audio_mono(path)
+    audio, sr_native, detail = load_audio_mono(path, target_sample_rate=22050)
     if sr_native != 22050:
         audio = sonara.resample(audio, orig_sr=sr_native, target_sr=22050)
     return audio, detail

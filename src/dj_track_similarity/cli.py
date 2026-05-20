@@ -68,7 +68,7 @@ def analyze(
     db_path: Optional[Path] = typer.Option(None, "--db"),
     limit: Optional[int] = typer.Option(None, "--limit"),
     fake: bool = typer.Option(False, "--fake", help="Use deterministic fake embeddings for smoke tests."),
-    adapter: str = typer.Option("mert", "--adapter", help="Embedding adapter: mert or clap."),
+    adapter: str = typer.Option("mert", "--adapter", help="Embedding adapter: mert or clap. clap uses the LAION music checkpoint."),
     device: str = typer.Option("auto", "--device", help="Embedding device: auto, cpu, or cuda."),
     batch_size: int = typer.Option(4, "--batch-size", min=1, max=64, help="Embedding inference batch size."),
 ) -> None:

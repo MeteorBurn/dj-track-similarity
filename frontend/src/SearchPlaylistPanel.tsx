@@ -244,7 +244,7 @@ export function SearchPlaylistPanel({
                 <input
                   value={textQuery}
                   onChange={(event) => onTextQueryChange(event.target.value)}
-                  placeholder="dark hypnotic techno, rolling bass, no vocals"
+                  placeholder="Melancholic minimal house with broken drums, warm chords, no vocals"
                   title={helpText.textPrompt}
                 />
               </label>
@@ -255,7 +255,7 @@ export function SearchPlaylistPanel({
             </div>
             <button className="primary" disabled={busy || !textQuery.trim()} onClick={handleTextSearch}>
               <Search size={17} />
-              CLAP text
+              CLAP search
             </button>
           </div>
         )}

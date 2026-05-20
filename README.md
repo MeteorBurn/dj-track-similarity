@@ -241,6 +241,11 @@ this pass are analyzed values, not file tags. The UI displays the raw Sonara
 key fields rather than deriving another notation.
 
 `--adapter clap` builds separate LAION-CLAP audio embeddings for text search.
+The active CLAP path uses LAION's music-focused
+`lukewys/laion_clap/music_audioset_epoch_15_esc_90.14.pt` checkpoint through
+the `laion-clap` package. If you previously analyzed CLAP with the older
+general `laion/clap-htsat-fused` model, reset CLAP and reanalyze it so text and
+audio vectors come from the same model.
 
 `analyze-genres` uses MAEST through `maest-infer` with
 `discogs-maest-30s-pw-129e-519l` to store the top 3 genre labels and confidence
@@ -307,11 +312,13 @@ without that analysis data.
 The database can store multiple embedding spaces for the same track:
 
 - `mert`: the main audio-to-audio similarity space.
-- `clap`: the LAION-CLAP audio/text space for text search.
+- `clap`: the music-focused LAION-CLAP audio/text space for text search.
 
 These spaces are intentionally not mixed into one matrix. SONARA search uses
 stored SONARA playlist features from SQLite. MERT seed search uses MERT vectors
 only. CLAP text search compares a CLAP text vector with CLAP audio vectors only.
+The text query and analyzed audio embeddings must be produced by the same CLAP
+checkpoint.
 
 That means text search requires a separate CLAP analysis pass before it can
 return useful results.
@@ -385,15 +392,17 @@ does not remove or edit audio files.
 
 ## Text Search
 
-CLAP text search is not metadata filtering. It is an embedding query: the model
-tries to place your phrase near audio that matches the description.
+CLAP text search is not metadata filtering. It is an embedding query: the
+music-focused LAION-CLAP model tries to place your phrase near audio that
+matches the description.
 
-Short, concrete prompts usually make the most sense:
+Short, concrete English prompts usually make the most sense. Prefer a compact
+caption that names audible musical details:
 
 ```text
-dark hypnotic techno, rolling bass, no vocals
-deep dub techno, warm chords, soft percussion
-broken aggressive industrial sound, dense drums
+Melancholic minimal house with broken drums, warm chords, no vocals
+Dark hypnotic rominimal with sparse clicks, wooden percussion, deep rolling bass
+Organic microhouse with guitar-like plucks, soft pads, spacious sunset mood
 ```
 
 Good query ingredients:

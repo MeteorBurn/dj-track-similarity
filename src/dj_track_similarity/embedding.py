@@ -132,7 +132,9 @@ class MertEmbeddingAdapter:
 
 class ClapEmbeddingAdapter:
     embedding_key = "clap"
-    model_name = "laion/clap-htsat-fused"
+    checkpoint_repo = "lukewys/laion_clap"
+    checkpoint_filename = "music_audioset_epoch_15_esc_90.14.pt"
+    model_name = f"{checkpoint_repo}/{checkpoint_filename}"
     dim = 512
 
     def __init__(
@@ -148,7 +150,6 @@ class ClapEmbeddingAdapter:
         self.max_windows = max_windows
         self.inference_batch_size = max(1, int(inference_batch_size))
         self._model = None
-        self._processor = None
         self._torch = None
         self._torchaudio = None
         self.device: str | None = None
@@ -160,9 +161,10 @@ class ClapEmbeddingAdapter:
         self._load_model()
         torch = self._torch
         torchaudio = self._torchaudio
-        assert torch is not None and torchaudio is not None and self._model is not None and self._processor is not None
+        assert torch is not None and torchaudio is not None and self._model is not None
 
-        target_rate = int(getattr(self._processor.feature_extractor, "sampling_rate", 48000))
+        target_rate = 48_000
+        window_size = max(1, int(target_rate * self.window_seconds))
         track_windows: list[list[int]] = []
         all_windows = []
         for path in paths:
@@ -181,17 +183,15 @@ class ClapEmbeddingAdapter:
             window_indices = []
             for window in windows:
                 window_indices.append(len(all_windows))
-                all_windows.append(window.cpu().numpy())
+                all_windows.append(_pad_or_trim_audio_window(window.cpu().numpy(), window_size))
             track_windows.append(window_indices)
 
         pooled_windows: list[np.ndarray] = []
         for start in range(0, len(all_windows), self.inference_batch_size):
-            batch = all_windows[start : start + self.inference_batch_size]
-            inputs = _call_clap_audio_processor(self._processor, batch, target_rate)
-            inputs = {key: value.to(self._device()) for key, value in inputs.items()}
+            batch = np.stack(all_windows[start : start + self.inference_batch_size]).astype(np.float32)
             with torch.inference_mode():
-                features = self._model.get_audio_features(**inputs)
-            pooled_windows.extend(_normalize_rows(_model_output_to_numpy(features)))
+                features = self._model.get_audio_embedding_from_data(x=batch, use_tensor=False)
+            pooled_windows.extend(_normalize_rows(_array_output_to_numpy(features)))
 
         vectors: list[np.ndarray] = []
         for indices in track_windows:
@@ -205,26 +205,25 @@ class ClapEmbeddingAdapter:
     def embed_text(self, text: str) -> np.ndarray:
         self._load_model()
         torch = self._torch
-        assert torch is not None and self._model is not None and self._processor is not None
-        inputs = self._processor(text=[text], return_tensors="pt", padding=True)
-        inputs = {key: value.to(self._device()) for key, value in inputs.items()}
+        assert torch is not None and self._model is not None
         with torch.inference_mode():
-            features = self._model.get_text_features(**inputs)
-        return _normalize_rows(_model_output_to_numpy(features))[0]
+            features = self._model.get_text_embedding([text], use_tensor=False)
+        return _normalize_rows(_array_output_to_numpy(features))[0]
 
     def _load_model(self) -> None:
         if self._model is not None:
             return
         import torch
         import torchaudio
-        from transformers import ClapModel, ClapProcessor
+        import laion_clap
+        from huggingface_hub import hf_hub_download
 
         self._torch = torch
         self._torchaudio = torchaudio
-        self._processor = ClapProcessor.from_pretrained(self.model_name)
         self.device = self._device()
-        self._model = ClapModel.from_pretrained(self.model_name)
-        self._model = self._model.to(self.device).eval()
+        checkpoint_path = hf_hub_download(repo_id=self.checkpoint_repo, filename=self.checkpoint_filename)
+        self._model = laion_clap.CLAP_Module(enable_fusion=False, amodel="HTSAT-base", device=torch.device(self.device))
+        self._model.load_ckpt(checkpoint_path)
 
     def _device(self) -> str:
         assert self._torch is not None
@@ -257,15 +256,19 @@ def _normalize_rows(matrix: np.ndarray) -> list[np.ndarray]:
     return vectors
 
 
-def _call_clap_audio_processor(processor, batch: list[np.ndarray], sampling_rate: int):
-    return processor(audio=batch, sampling_rate=sampling_rate, return_tensors="pt", padding=True)
+def _array_output_to_numpy(output) -> np.ndarray:
+    if hasattr(output, "detach"):
+        output = output.detach().cpu().numpy()
+    return np.asarray(output, dtype=np.float32)
 
 
-def _model_output_to_numpy(output) -> np.ndarray:
-    tensor = getattr(output, "pooler_output", output)
-    if isinstance(tensor, tuple):
-        tensor = tensor[0]
-    return tensor.detach().cpu().numpy().astype(np.float32)
+def _pad_or_trim_audio_window(audio: np.ndarray, target_samples: int) -> np.ndarray:
+    window = np.asarray(audio, dtype=np.float32).reshape(-1)
+    if window.shape[0] > target_samples:
+        return window[:target_samples]
+    if window.shape[0] < target_samples:
+        return np.pad(window, (0, target_samples - window.shape[0]))
+    return window
 
 
 def _select_windows_torch(waveform, sample_rate: int, window_seconds: float, max_windows: int, torch):

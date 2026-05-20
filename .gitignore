@@ -15,6 +15,7 @@ venv/
 *.sqlite-*
 *.db
 *.log
+*.log.*
 
 # Local audio libraries and temp data
 tmp_*/

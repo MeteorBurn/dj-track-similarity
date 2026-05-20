@@ -24,6 +24,8 @@ ml = [
   "torch",
   "torchaudio",
   "transformers",
+  "huggingface-hub",
+  "laion-clap>=1.1.7",
   "maest-infer",
 ]
 dev = [

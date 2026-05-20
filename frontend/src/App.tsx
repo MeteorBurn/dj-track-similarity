@@ -29,7 +29,7 @@ const helpText = {
   maestAnalyze: "MAEST определяет жанровые метки. Нужна для жанровой навигации и проверки характера библиотеки. Batch берется из Embedding batch size.",
   writeMaestGenres: "Перезаписать стандартный Genre/TCON/©gen в аудиофайлах жанрами MAEST. Плееры вроде AIMP будут видеть эти жанры.",
   mertAnalyze: "MERT строит аудио-эмбеддинги. Нужна для поиска похожих треков от выбранных seed-треков.",
-  clapAnalyze: "CLAP связывает аудио с текстовым описанием. Нужна для поиска треков по фразе о звучании.",
+  clapAnalyze: "CLAP строит music-focused аудио-эмбеддинги для поиска по текстовому описанию звучания.",
   analysisBatchSize: "Для SONARA это число параллельных track workers. Для MAEST/MERT/CLAP это inference batch. Тип: целое число 1-16.",
   librarySearch: "Фильтр библиотеки. Формат: текст. Ищет по artist, title, album, path, MAEST genres и syncopated rhythm.",
   similarity: "Минимальный similarity. Тип: число с точкой, диапазон 0.00-1.00.",
@@ -45,7 +45,7 @@ const helpText = {
   sonaraModifierRhythmDensity: "Направление onset density: ниже = меньше событий, выше = плотнее клики/перкуссия.",
   sonaraModifierDynamicRange: "Направление dynamic range: ниже = ровнее/плотнее, выше = больше дыхания и перепадов.",
   sonaraModifierLoudness: "Направление LUFS: ниже = тише/дальше, выше = громче/ближе.",
-  textPrompt: "CLAP text search. Формат: короткая фраза через запятые: genre, mood, sound, drums, vocal/no vocals. Тип: строка.",
+  textPrompt: "CLAP search. Лучше писать на английском одно связное описание звучания: genre/scene, rhythm/drums, bass, texture, instruments, mood/space, vocals/no vocals. Не полагайся только на абстрактное настроение без слышимых признаков.",
   lookback: "Сколько последних треков сета добавить в контекст поиска. Тип: целое число 0-12.",
   limit: "Максимум результатов поиска. Тип: целое число 1-500.",
   disabledBpm: "Отключено. BPM-фильтр по метаданным. Тип был бы число, например 128 или 128.5; сейчас не участвует в MERT-only проверке.",
@@ -566,7 +566,7 @@ export function App() {
       setNotice({ kind: "error", text: "Введите текстовый запрос для CLAP" });
       return;
     }
-    appendActivity("info", "CLAP text search запущен", prompt);
+    appendActivity("info", "CLAP search запущен", prompt);
     await run(
       () =>
         api.textSearch({
@@ -577,7 +577,7 @@ export function App() {
         }),
       (value) => {
         setResults(value);
-        appendActivity("ok", "CLAP text search завершен", `Найдено: ${value.length}`);
+        appendActivity("ok", "CLAP search завершен", `Найдено: ${value.length}`);
         return `Найдено: ${value.length}`;
       }
     );

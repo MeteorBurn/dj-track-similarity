@@ -32,8 +32,8 @@ else who collects, tags, or plays music will find the approach useful too.
 - Keeps analyzed Sonara key data in its original form for display and storage.
 - Builds audio embeddings with MERT for audio-to-audio similarity search.
 - Builds CLAP audio embeddings for text-to-audio search.
-- Extracts top genre labels with MAEST and stores them in the local SQLite
-  database.
+- Extracts top genre labels with MAEST using a three-window consensus and
+  stores the final top 3 labels in the local SQLite database.
 - Can explicitly save stored MAEST labels into standard audio genre tags for
   players such as AIMP.
 - Shows compact per-track analysis status (`sonara`, `maest`, `mert`, `clap`)
@@ -45,9 +45,9 @@ else who collects, tags, or plays music will find the approach useful too.
 - Lets you choose seed tracks, search for similar tracks with SONARA mixer
   controls or embedding/text models, preview results, and assemble a small set
   or playlist.
-- Includes an experimental MAEST multi-window benchmark script for comparing
-  stored single-window genre labels with temporary 3x30-second consensus labels
-  without writing the result back to SQLite.
+- Includes a MAEST multi-window benchmark script for comparing stored genre
+  labels with a temporary 3x30-second report without writing that report back
+  to SQLite.
 - Exports playlists as M3U or CSV.
 - Can preview and write custom `DJ_SIM_*` tags when explicitly requested.
 - Can reset one analysis family at a time, or clear the local SQLite database
@@ -130,13 +130,14 @@ button in the metadata popup writes genres for one track. It overwrites only
 the standard genre field and keeps existing title, artist, album, BPM, key, and
 other tags. MAEST genre extraction uses inference batching through direct model
 logits, not the convenience `predict_labels()` helper, so each track in a batch
-keeps its own genre scores.
+keeps its own genre scores. Each track is represented by three 30-second
+windows, and the final stored top 3 labels are ranked after averaging per-label
+activation scores across those windows.
 
-There is also an experimental benchmark script for checking whether MAEST genre
-labels become more useful when three 30-second windows are aggregated instead of
-using the stored single 60-90 second window. The benchmark is read-only with
-respect to the database: it reads stored labels, runs temporary MAEST inference,
-and writes a JSON report under `outputs/`.
+There is also a benchmark script for checking how MAEST labels change under the
+three-window policy. The benchmark is read-only with respect to the database: it
+reads stored labels, runs temporary MAEST inference, and writes a JSON report
+under `outputs/`.
 
 ## Run The App
 
@@ -244,15 +245,18 @@ key fields rather than deriving another notation.
 `analyze-genres` uses MAEST through `maest-infer` with
 `discogs-maest-30s-pw-129e-519l` to store the top 3 genre labels and confidence
 scores in SQLite track metadata. Its `--batch-size` controls MAEST inference
-batching on the selected device. For each track, MAEST analyzes the 60-90 second
-window when the file is long enough; shorter files fall back to the available
-audio and are padded as needed for batching. If one track in a MAEST batch fails
-to decode, the job retries that batch one track at a time so the bad file is
+batching on the selected device. For each track, MAEST analyzes up to three
+30-second windows: the section starting at 60 seconds, then windows near 38% and
+72% of track duration. For short tracks, duplicate or impossible windows are
+clamped/deduplicated, and very short audio is padded as needed for batching. The
+stored genre scores are averaged per-label activation scores across the windows,
+then ranked into the final top 3 labels. If one track in a MAEST batch fails to
+decode, the job retries that batch one track at a time so the bad file is
 reported directly and the other tracks can still be analyzed. It does not modify
 audio files by itself.
 
-The optional benchmark script compares those stored labels with a temporary
-three-window MAEST pass:
+The optional benchmark script compares stored labels with a temporary
+three-window MAEST report:
 
 ```powershell
 python scripts\benchmark_maest_multiwindow.py `
@@ -263,8 +267,8 @@ python scripts\benchmark_maest_multiwindow.py `
   --output "outputs\maest_multiwindow_125.json"
 ```
 
-This is a calibration tool, not the production genre-writing path. It does not
-call `save_genres` and does not write the multi-window labels into SQLite.
+This is a calibration/reporting tool. It does not call `save_genres` and does
+not write its report labels into SQLite.
 
 `--fake` is only for smoke tests without loading ML models.
 
@@ -417,17 +421,18 @@ MAEST genre extraction uses the same `auto`, `cpu`, and `cuda` device behavior.
 Internally, the app sends a `[batch, time]` audio tensor to `maest-infer` and
 reads per-track logits from `model(...)`. It intentionally avoids
 `predict_labels()` for batch analysis because that helper averages activations
-into one label vector. The analyzed MAEST window is the 60-90 second section of
-the track where available. Some current `torchaudio` builds delegate audio
-loading to TorchCodec; if that native path is unavailable or fails, the shared
-loader uses the existing `ffmpeg` executable from `PATH` or
+into one label vector. The active MAEST model expects 30-second inputs, so the
+app creates up to three 30-second windows per track and averages per-label
+activation scores before ranking the final labels. Some current `torchaudio`
+builds delegate audio loading to TorchCodec; if that native path is unavailable
+or fails, the shared loader uses the existing `ffmpeg` executable from `PATH` or
 `DJ_TRACK_SIMILARITY_FFMPEG` as a fallback.
 
-The experimental `benchmark_maest_multiwindow.py` script multiplies MAEST model
-inputs by up to three windows per track, so it is expected to be roughly
-2.5-3x slower than the single-window genre path on the same hardware. On one
-local CUDA run, 125 tracks / 374 windows took about 75 seconds, but that number
-depends heavily on GPU, disk, and file decode behavior.
+The three-window MAEST path multiplies model inputs by up to three windows per
+track, so it is expected to be roughly 2.5-3x slower than the previous
+single-window genre path on the same hardware. On one local CUDA benchmark, 125
+tracks / 374 windows took about 75 seconds, but that number depends heavily on
+GPU, disk, and file decode behavior.
 
 Sonara playlist analysis is usually much lighter than MERT/CLAP/MAEST model
 inference. It still reads and decodes audio, so the full-library pass is not

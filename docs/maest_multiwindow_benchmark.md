@@ -1,17 +1,18 @@
 # MAEST Multi-Window Benchmark
 
-This note documents the temporary MAEST `3x30` calibration check. It is not the
-production genre analysis path yet.
+This note documents the MAEST `3x30` calibration check. The main MAEST adapter
+now uses the same three-window averaging idea for production genre analysis, but
+the benchmark script remains useful for read-only reports and before/after
+inspection.
 
 ## Goal
 
-The current MAEST analysis stores the top genre labels from one 30-second model
-input taken from the 60-90 second section of a track. That can over-label a
-track as broken, electro, or garage if the selected window happens to contain a
-short rhythmic detail that is not representative of the full track.
+The earlier MAEST analysis stored the top genre labels from one 30-second model
+input taken from the 60-90 second section of a track. That could over-label a
+track as broken, electro, or garage if the selected window happened to contain a
+short rhythmic detail that was not representative of the full track.
 
-The benchmark compares the stored single-window labels with a temporary
-three-window consensus:
+The benchmark compares stored labels with a temporary three-window consensus:
 
 - first window: `60s`
 - second window: `38%` of track duration
@@ -33,7 +34,9 @@ python scripts\benchmark_maest_multiwindow.py `
 ```
 
 The script is read-only with respect to SQLite. It reads stored MAEST labels,
-runs temporary inference, and writes only the requested JSON report.
+runs temporary inference, and writes only the requested JSON report. The normal
+`analyze-genres` path writes the same compact `maest_genres` shape as before:
+three labels and their averaged confidence scores, with no extra diagnostics.
 
 ## Local 125-Track Check
 
@@ -58,12 +61,10 @@ confidence slightly because multiple windows can disagree.
 
 ## Interpretation
 
-The benchmark suggests that `3x30` is useful as a calibration and possible
-future MAEST mode, but it should not blindly replace the current stored labels
-without a better confidence model.
+The benchmark suggested that `3x30` is useful because it can reduce false
+single-window genre spikes while keeping the stored output simple.
 
-If this becomes production behavior, the stored output should likely keep only
-three final labels, computed from averaged per-label scores across windows.
-Additional diagnostics such as window support, score variance, and window
-disagreement would help distinguish stable genre signals from one-window
-artifacts.
+The production behavior intentionally keeps only three final labels, computed
+from averaged per-label activation scores across windows. Extra diagnostics such
+as window support, score variance, and window disagreement are not stored in
+SQLite for now; they stay in benchmark/reporting workflows only.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 import re
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from .runtime import select_torch_device
 class MaestGenreAdapter:
     model_name = "discogs-maest-30s-pw-129e-519l"
     analysis_offset_seconds = 60.0
+    analysis_window_ratios = (0.38, 0.72)
 
     def __init__(self, device: str | None = None, top_k: int = 3) -> None:
         self.requested_device = device or "auto"
@@ -29,7 +31,12 @@ class MaestGenreAdapter:
         torchaudio = self._torchaudio
         assert torch is not None and torchaudio is not None and self._model is not None
 
-        prepared = [self._prepare_audio(path) for path in paths]
+        prepared = []
+        window_track_indexes: list[int] = []
+        for track_index, path in enumerate(paths):
+            windows = self._prepare_audio_windows(path)
+            prepared.extend(windows)
+            window_track_indexes.extend([track_index] * len(windows))
         device = self._device()
         audio_batch = torch.stack(prepared, dim=0).to(device)
         _move_maest_runtime_modules(self._model, device)
@@ -38,11 +45,15 @@ class MaestGenreAdapter:
             logits, _embeddings = self._model(audio_batch, melspectrogram_input=False)
 
         activations = torch.sigmoid(logits)
-        rows = _to_score_rows(activations, expected_rows=len(paths))
+        rows = _to_score_rows(activations, expected_rows=len(prepared))
+        averaged_rows = _average_window_rows(rows, window_track_indexes, expected_tracks=len(paths))
         label_values = [str(label) for label in getattr(self._model, "labels")]
-        return [_rank_genres(label_values, scores, self.top_k) for scores in rows]
+        return [_rank_genres(label_values, scores, self.top_k) for scores in averaged_rows]
 
     def _prepare_audio(self, path: str | Path):
+        return self._prepare_audio_windows(path)[0]
+
+    def _prepare_audio_windows(self, path: str | Path):
         torch = self._torch
         torchaudio = self._torchaudio
         assert torch is not None and torchaudio is not None
@@ -58,16 +69,22 @@ class MaestGenreAdapter:
         audio = audio.squeeze(0)
         target_samples = int(16000 * _input_seconds(self.model_name))
         if audio.numel() < target_samples:
-            audio = torch.nn.functional.pad(audio, (0, target_samples - audio.numel()))
-        elif audio.numel() > target_samples:
-            start = int(16000 * self.analysis_offset_seconds)
-            if start >= audio.numel():
-                start = 0
+            return [torch.nn.functional.pad(audio, (0, target_samples - audio.numel()))]
+
+        starts = _analysis_window_starts(
+            audio.numel() / 16000,
+            _input_seconds(self.model_name),
+            self.analysis_offset_seconds,
+            self.analysis_window_ratios,
+        )
+        windows = []
+        for start_seconds in starts:
+            start = max(0, int(16000 * start_seconds))
             segment = audio[start : start + target_samples]
             if segment.numel() < target_samples:
                 segment = torch.nn.functional.pad(segment, (0, target_samples - segment.numel()))
-            audio = segment
-        return audio
+            windows.append(segment)
+        return windows or [audio[:target_samples]]
 
     def _load_model(self) -> None:
         if self._model is not None:
@@ -108,6 +125,43 @@ def _move_maest_runtime_modules(model: object, device: str) -> None:
 def _input_seconds(model_name: str) -> float:
     match = re.search(r"-(5|10|20|30)s-", model_name)
     return float(match.group(1)) if match else 30.0
+
+
+def _analysis_window_starts(
+    duration_seconds: float,
+    input_seconds: float,
+    offset_seconds: float,
+    ratios: tuple[float, ...],
+) -> list[float]:
+    max_start = max(0.0, duration_seconds - input_seconds)
+    requested = [offset_seconds, *(duration_seconds * ratio for ratio in ratios)]
+    starts: list[float] = []
+    for value in requested:
+        start = min(max(0.0, value), max_start)
+        if not any(abs(start - existing) < 1.0 for existing in starts):
+            starts.append(start)
+    return starts or [0.0]
+
+
+def _average_window_rows(
+    rows: list[list[float]],
+    window_track_indexes: list[int],
+    *,
+    expected_tracks: int,
+) -> list[list[float]]:
+    grouped: dict[int, list[list[float]]] = defaultdict(list)
+    for row, track_index in zip(rows, window_track_indexes):
+        grouped[track_index].append(row)
+
+    averaged: list[list[float]] = []
+    for track_index in range(expected_tracks):
+        track_rows = grouped.get(track_index, [])
+        if not track_rows:
+            averaged.append([])
+            continue
+        columns = zip(*track_rows)
+        averaged.append([sum(values) / len(track_rows) for values in columns])
+    return averaged
 
 
 def _to_float_list(values: object) -> list[float]:

@@ -9,7 +9,9 @@ import pytest
 
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity import tags
-from dj_track_similarity.tags import apply_genre_tags, build_genre_tag_preview, build_tag_preview
+from dj_track_similarity.api import create_app
+from dj_track_similarity.tags import GenreTagJobManager, apply_genre_tags, build_genre_tag_preview, build_tag_preview, genre_tag_apply_summary
+from fastapi.testclient import TestClient
 from mutagen import File as MutagenFile
 from mutagen.id3 import ID3, TALB, TCON, TIT2, TPE1
 
@@ -189,7 +191,141 @@ def test_apply_genre_tags_overwrites_standard_genre_tag(monkeypatch, tmp_path: P
     result = apply_genre_tags(db, [track_id])
 
     assert result[0].tags == {"GENRE": "House"}
+    assert result[0].status == "applied"
+    assert result[0].message == "Genre tag written"
     assert written == [(audio_path, "House")]
+
+
+def test_apply_genre_tags_reports_failures_and_continues(monkeypatch, tmp_path: Path, caplog) -> None:
+    first_path = tmp_path / "first.flac"
+    second_path = tmp_path / "second.flac"
+    first_path.write_bytes(b"fake audio")
+    second_path.write_bytes(b"fake audio")
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    first_id = db.upsert_track(path=first_path, size=first_path.stat().st_size, mtime=1, metadata={"title": "First"})
+    second_id = db.upsert_track(path=second_path, size=second_path.stat().st_size, mtime=1, metadata={"title": "Second"})
+    db.save_genres(first_id, [{"label": "House", "score": 0.9}], model_name="maest")
+    db.save_genres(second_id, [{"label": "Minimal", "score": 0.8}], model_name="maest")
+    written: list[Path] = []
+
+    def fake_write(path: Path, genre: str) -> None:
+        if path == first_path:
+            raise RuntimeError("permission denied")
+        written.append(path)
+
+    monkeypatch.setattr(tags, "_write_genre_tag", fake_write)
+
+    with caplog.at_level("INFO", logger="dj_track_similarity.tags"):
+        result = apply_genre_tags(db, [first_id, second_id])
+
+    assert [item.status for item in result] == ["failed", "applied"]
+    assert result[0].error == "permission denied"
+    assert written == [second_path]
+    assert genre_tag_apply_summary(result) == "applied=1 skipped=0 failed=1 total=2"
+    assert "Genre tag apply failed" in caplog.text
+    assert "Genre tag apply finished applied=1 skipped=0 failed=1 total=2" in caplog.text
+
+
+def test_genre_tags_apply_api_returns_per_track_status(monkeypatch, tmp_path: Path) -> None:
+    audio_path = tmp_path / "track.flac"
+    audio_path.write_bytes(b"fake audio")
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    track_id = db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": "Track"})
+    db.save_genres(track_id, [{"label": "House", "score": 0.9}], model_name="maest")
+    monkeypatch.setattr(tags, "_write_genre_tag", lambda path, genre: None)
+
+    response = TestClient(create_app(db_path)).post("/api/tags/genres/apply", json={"track_ids": [track_id]})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload == [
+        {
+            "track_id": track_id,
+            "path": audio_path.as_posix(),
+            "tags": {"GENRE": "House"},
+            "status": "applied",
+            "message": "Genre tag written",
+            "error": None,
+        }
+    ]
+
+
+def test_genre_tags_apply_api_can_apply_all_maest_tracks(monkeypatch, tmp_path: Path) -> None:
+    first_path = tmp_path / "first.flac"
+    second_path = tmp_path / "second.flac"
+    third_path = tmp_path / "third.flac"
+    for path in (first_path, second_path, third_path):
+        path.write_bytes(b"fake audio")
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    first_id = db.upsert_track(path=first_path, size=first_path.stat().st_size, mtime=1, metadata={"title": "First"})
+    second_id = db.upsert_track(path=second_path, size=second_path.stat().st_size, mtime=1, metadata={"title": "Second"})
+    db.upsert_track(path=third_path, size=third_path.stat().st_size, mtime=1, metadata={"title": "Third"})
+    db.save_genres(first_id, [{"label": "House", "score": 0.9}], model_name="maest")
+    db.save_genres(second_id, [{"label": "Techno", "score": 0.8}], model_name="maest")
+    written: list[Path] = []
+    monkeypatch.setattr(tags, "_write_genre_tag", lambda path, genre: written.append(path))
+
+    response = TestClient(create_app(db_path)).post("/api/tags/genres/apply", json={})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["track_id"] for item in payload] == [first_id, second_id]
+    assert [item["status"] for item in payload] == ["applied", "applied"]
+    assert written == [first_path, second_path]
+
+
+def test_genre_tag_job_processes_all_maest_tracks_without_page_ids(monkeypatch, tmp_path: Path) -> None:
+    first_path = tmp_path / "first.flac"
+    second_path = tmp_path / "second.flac"
+    third_path = tmp_path / "third.flac"
+    for path in (first_path, second_path, third_path):
+        path.write_bytes(b"fake audio")
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    first_id = db.upsert_track(path=first_path, size=first_path.stat().st_size, mtime=1, metadata={"title": "First"})
+    second_id = db.upsert_track(path=second_path, size=second_path.stat().st_size, mtime=1, metadata={"title": "Second"})
+    db.upsert_track(path=third_path, size=third_path.stat().st_size, mtime=1, metadata={"title": "Third"})
+    db.save_genres(first_id, [{"label": "House", "score": 0.9}], model_name="maest")
+    db.save_genres(second_id, [{"label": "Techno", "score": 0.8}], model_name="maest")
+    written: list[Path] = []
+    monkeypatch.setattr(tags, "_write_genre_tag", lambda path, genre: written.append(path))
+
+    result = GenreTagJobManager(db).run_sync()
+
+    assert result.state == "completed"
+    assert result.total == 2
+    assert result.processed == 2
+    assert result.applied == 2
+    assert result.skipped == 0
+    assert result.failed == 0
+    assert written == [first_path, second_path]
+    assert [event.message for event in result.events] == [
+        "Genre tag apply queued",
+        "Genre tag apply started",
+        "Genre tag written",
+        "Genre tag written",
+        "Genre tag apply completed",
+    ]
+
+
+def test_genre_tag_job_api_returns_job_status(monkeypatch, tmp_path: Path) -> None:
+    audio_path = tmp_path / "track.flac"
+    audio_path.write_bytes(b"fake audio")
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    track_id = db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": "Track"})
+    db.save_genres(track_id, [{"label": "House", "score": 0.9}], model_name="maest")
+    monkeypatch.setattr(tags, "_write_genre_tag", lambda path, genre: None)
+
+    client = TestClient(create_app(db_path))
+    response = client.post("/api/tags/genres/jobs", json={})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["job_id"]
+    assert payload["total"] == 1
+    assert payload["state"] in {"queued", "running", "completed"}
 
 
 def test_write_genre_tag_replaces_common_audio_genre_field(monkeypatch, tmp_path: Path) -> None:
@@ -349,6 +485,7 @@ def test_apply_genre_tags_skips_malformed_wave_and_continues(tmp_path: Path, cap
     assert malformed_path.read_bytes() == malformed_before
     assert MutagenFile(valid_path).tags["TCON"].text == ["Minimal"]
     assert [preview.track_id for preview in previews] == [malformed_id, valid_id]
+    assert [preview.status for preview in previews] == ["skipped", "applied"]
     assert "Skipping genre tag write for unsupported WAV container" in caplog.text
 
 

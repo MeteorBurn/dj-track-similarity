@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import json
+import math
 import sqlite3
 
 import pytest
@@ -285,6 +286,31 @@ def test_database_stores_maest_genres_in_track_metadata(tmp_path: Path) -> None:
     assert track.artist == "Artist"
 
 
+def test_database_stores_metadata_json_without_non_finite_numbers(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = db.upsert_track(
+        path=tmp_path / "track.wav",
+        size=10,
+        mtime=1,
+        metadata={"title": "Track", "tag_confidence": math.nan},
+    )
+    db.save_genres(track_id, [{"label": "Breakbeat", "score": math.nan}], model_name="maest")
+    db.save_sonara_features(track_id, {"energy": {"value": math.inf}}, energy=math.inf, model_name="sonara")
+
+    with db.connect() as connection:
+        row = connection.execute(
+            "SELECT metadata_json, json_valid(metadata_json) AS valid FROM tracks WHERE id = ?",
+            (track_id,),
+        ).fetchone()
+
+    assert row["valid"] == 1
+    metadata = json.loads(row["metadata_json"])
+    assert metadata["tag_confidence"] is None
+    assert metadata["maest_genres"][0]["score"] == 0.0
+    assert metadata["sonara_features"]["energy"]["value"] is None
+    assert db.get_track(track_id).energy is None
+
+
 def test_database_resets_metadata_backed_analyses(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_id = db.upsert_track(
@@ -426,6 +452,65 @@ def test_database_migrates_legacy_embedding_table(tmp_path: Path) -> None:
     assert [track.id for track in tracks] == [1]
     assert tracks[0].embedding_model == "legacy-mert"
     assert matrix.shape == (1, 3)
+
+
+def test_database_blocks_new_invalid_metadata_json_values(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    track_id = db.upsert_track(path=tmp_path / "track.wav", size=10, mtime=1, metadata={"title": "Track"})
+
+    with db.connect() as connection:
+        with pytest.raises(sqlite3.DatabaseError):
+            connection.execute(
+                "UPDATE tracks SET metadata_json = ? WHERE id = ?",
+                ("{", track_id),
+            )
+
+
+def test_database_adds_metadata_json_guards_to_legacy_schema(tmp_path: Path) -> None:
+    db_path = tmp_path / "legacy.sqlite"
+    with sqlite3.connect(db_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE tracks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT NOT NULL UNIQUE,
+                size INTEGER NOT NULL,
+                mtime REAL NOT NULL,
+                artist TEXT,
+                title TEXT,
+                album TEXT,
+                bpm REAL,
+                musical_key TEXT,
+                energy REAL,
+                duration REAL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE embeddings (
+                track_id INTEGER NOT NULL,
+                embedding_key TEXT NOT NULL DEFAULT 'mert',
+                model_name TEXT NOT NULL,
+                dim INTEGER NOT NULL,
+                vector BLOB NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(track_id, embedding_key),
+                FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
+            );
+            INSERT INTO tracks (path, size, mtime, title, metadata_json)
+            VALUES ('C:/music/track.wav', 10, 1, 'Track', '{}');
+            """
+        )
+
+    db = LibraryDatabase(db_path)
+
+    with db.connect() as connection:
+        with pytest.raises(sqlite3.DatabaseError):
+            connection.execute(
+                "UPDATE tracks SET metadata_json = ? WHERE path = ?",
+                ("{", "C:/music/track.wav"),
+            )
 
 
 def test_relocate_library_dry_run_preserves_tracks_and_reports_missing_files(tmp_path: Path) -> None:

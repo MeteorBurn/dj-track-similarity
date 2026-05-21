@@ -1,6 +1,6 @@
-import { Cpu, FolderOpen, Gauge, Minus, Play, Plus, RefreshCcw, Save, Search, Square, Tags, Trash2, Wand2 } from "lucide-react";
-import { AnalysisJobStatus, ScanStats } from "./api";
-import { ActivityEvent, AnalysisButton, TabbedLog, stageIndicatorLabel } from "./jobUi";
+import { Cpu, FolderOpen, Gauge, Minus, Play, Plus, RefreshCcw, Search, Square, Tags, Trash2, Wand2 } from "lucide-react";
+import { AnalysisJobStatus, GenreTagJobStatus, ScanStats } from "./api";
+import { ActivityEvent, AnalysisButton, stageIndicatorLabel, UnifiedLog } from "./jobUi";
 
 type DeviceMode = "auto" | "cpu" | "cuda";
 type AnalysisAdapter = "mert" | "clap" | "fake";
@@ -40,12 +40,10 @@ export function LibraryPanel({
   maxAnalysisBatchSize,
   adjustAnalysisBatchSize,
   onAnalysisBatchSizeChange,
-  maestGenreTrackCount,
-  logTab,
-  onLogTabChange,
   processLogKind,
   scanJob,
   analysisJob,
+  genreTagJob,
   activityLog,
   helpText,
   onStopActiveStage,
@@ -56,8 +54,7 @@ export function LibraryPanel({
   onSonaraAnalyze,
   onGenreAnalyze,
   onAnalyze,
-  onResetAnalysis,
-  onWriteMaestGenres
+  onResetAnalysis
 }: {
   musicRoot: string;
   onMusicRootChange: (value: string) => void;
@@ -77,12 +74,10 @@ export function LibraryPanel({
   maxAnalysisBatchSize: number;
   adjustAnalysisBatchSize: (delta: number) => void;
   onAnalysisBatchSizeChange: (value: number) => void;
-  maestGenreTrackCount: number;
-  logTab: "journal" | "process";
-  onLogTabChange: (tab: "journal" | "process") => void;
-  processLogKind: "scan" | "analysis";
+  processLogKind: "scan" | "analysis" | "genre_tags";
   scanJob: ScanStats | null;
   analysisJob: AnalysisJobStatus | null;
+  genreTagJob: GenreTagJobStatus | null;
   activityLog: ActivityEvent[];
   helpText: LibraryHelpText;
   onStopActiveStage: () => void;
@@ -94,7 +89,6 @@ export function LibraryPanel({
   onGenreAnalyze: () => void;
   onAnalyze: (adapter: AnalysisAdapter) => void;
   onResetAnalysis: (adapter: ResetAdapter) => void;
-  onWriteMaestGenres: () => void;
 }) {
   return (
     <aside className="panel library-panel">
@@ -148,10 +142,6 @@ export function LibraryPanel({
         <AnalysisButton label="MERT" icon={<Wand2 size={16} />} disabled={busy || stageRunning || !hasTracks} title={helpText.mertAnalyze} onRun={() => onAnalyze("mert")} onReset={() => onResetAnalysis("mert")} />
         <AnalysisButton label="CLAP" icon={<Search size={16} />} disabled={busy || stageRunning || !hasTracks} title={helpText.clapAnalyze} onRun={() => onAnalyze("clap")} onReset={() => onResetAnalysis("clap")} />
       </div>
-      <button className="secondary-mini genre-write-button" disabled={busy || stageRunning || !maestGenreTrackCount} title={helpText.writeMaestGenres} onClick={onWriteMaestGenres}>
-        <Save size={14} />
-        Сохранить жанры
-      </button>
       <label className="analysis-limit" title={helpText.analyzeLimit}>
         Analyze limit
         <input type="number" min={0} max={100000} value={analysisLimit} title={helpText.analyzeLimit} onChange={(event) => onAnalysisLimitChange(Number(event.target.value))} />
@@ -187,12 +177,11 @@ export function LibraryPanel({
           Smoke
         </button>
       </div>
-      <TabbedLog
-        activeTab={logTab}
-        onTabChange={onLogTabChange}
+      <UnifiedLog
         processKind={processLogKind}
         scanJob={scanJob}
         analysisJob={analysisJob}
+        genreTagJob={genreTagJob}
         events={activityLog}
       />
     </aside>

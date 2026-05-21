@@ -13,6 +13,7 @@ venv/
 # Local app state
 *.sqlite
 *.sqlite-*
+*.sqlite.*.bak
 *.db
 *.log
 *.log.*

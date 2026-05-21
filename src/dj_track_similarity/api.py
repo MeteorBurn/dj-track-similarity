@@ -19,7 +19,7 @@ from .scan_jobs import ScanJobManager
 from .search import SearchFilters, SimilaritySearch
 from .sonara_similarity import SonaraSimilaritySearch
 from .sonara_jobs import SonaraFeatureJobManager
-from .tags import apply_custom_tags, apply_genre_tags, build_tag_preview
+from .tags import GenreTagJobManager, apply_custom_tags, apply_genre_tags, apply_genre_tags_to_tracks, build_tag_preview
 
 
 LOGGER = logging.getLogger(__name__)
@@ -129,6 +129,10 @@ class TagRequest(BaseModel):
     track_ids: list[int]
 
 
+class GenreTagRequest(BaseModel):
+    track_ids: list[int] | None = None
+
+
 def open_folder_dialog() -> Path | None:
     try:
         import tkinter as tk
@@ -157,6 +161,7 @@ def create_app(db_path: str | Path = "dj-track-similarity.sqlite", *, log_level:
     genre_jobs = GenreAnalysisJobManager(db)
     sonara_jobs = SonaraFeatureJobManager(db)
     scan_jobs = ScanJobManager(db)
+    genre_tag_jobs = GenreTagJobManager(db)
     app = FastAPI(title="dj-track-similarity Utility")
 
     @app.post("/api/library/scan")
@@ -379,8 +384,32 @@ def create_app(db_path: str | Path = "dj-track-similarity.sqlite", *, log_level:
         return apply_custom_tags(db, request.track_ids)
 
     @app.post("/api/tags/genres/apply")
-    def genre_tags_apply(request: TagRequest):
+    def genre_tags_apply(request: GenreTagRequest):
+        if request.track_ids is None:
+            return apply_genre_tags_to_tracks(db, db.list_tracks_with_maest_genres())
         return apply_genre_tags(db, request.track_ids)
+
+    @app.post("/api/tags/genres/jobs")
+    def genre_tags_job_start(request: GenreTagRequest):
+        return genre_tag_jobs.start(request.track_ids)
+
+    @app.get("/api/tags/genres/jobs/latest")
+    def latest_genre_tags_job():
+        return genre_tag_jobs.latest()
+
+    @app.get("/api/tags/genres/jobs/{job_id}")
+    def genre_tags_job(job_id: str):
+        try:
+            return genre_tag_jobs.get(job_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.post("/api/tags/genres/jobs/{job_id}/cancel")
+    def cancel_genre_tags_job(job_id: str):
+        try:
+            return genre_tag_jobs.cancel(job_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
 
     @app.post("/api/dialog/folder")
     def folder_dialog():

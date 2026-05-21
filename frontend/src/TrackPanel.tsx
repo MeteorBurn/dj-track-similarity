@@ -1,4 +1,4 @@
-import { AudioWaveform, ListMusic, Plus, Search } from "lucide-react";
+import { AudioWaveform, ListMusic, Plus, Save, Search } from "lucide-react";
 import { Track } from "./api";
 import type { LibraryPreset } from "./libraryView";
 import { TrackList } from "./TrackRows";
@@ -19,6 +19,10 @@ export function TrackPanel({
   canGoForward,
   onPreviousPage,
   onNextPage,
+  busy,
+  maestGenreTrackCount,
+  writeMaestGenresHelp,
+  onWriteMaestGenres,
   seedSet,
   playlistSet,
   librarySearchHelp,
@@ -42,6 +46,10 @@ export function TrackPanel({
   canGoForward: boolean;
   onPreviousPage: () => void;
   onNextPage: () => void;
+  busy: boolean;
+  maestGenreTrackCount: number;
+  writeMaestGenresHelp: string;
+  onWriteMaestGenres: () => void;
   seedSet: Set<number>;
   playlistSet: Set<number>;
   librarySearchHelp: string;
@@ -82,6 +90,16 @@ export function TrackPanel({
         <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="artist, title, genre, path" title={librarySearchHelp} />
       </div>
       <div className="library-view-controls">
+        <button
+          className="icon-button genre-save-button"
+          title={`${writeMaestGenresHelp} Доступно: ${maestGenreTrackCount}.`}
+          aria-label="Сохранить MAEST жанры в теги всех доступных треков"
+          disabled={busy || !maestGenreTrackCount}
+          onClick={onWriteMaestGenres}
+          type="button"
+        >
+          <Save size={16} />
+        </button>
         <button
           className={`icon-button library-preset-button ${libraryPreset === "syncopated" ? "active" : ""}`}
           title="Показать только треки с syncopated rhythm по MAEST-жанрам"

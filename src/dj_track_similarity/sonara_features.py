@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -294,6 +295,9 @@ def _array_summary(array: np.ndarray) -> dict[str, float]:
     if array.size == 0:
         return {"min": 0.0, "max": 0.0, "mean": 0.0, "std": 0.0}
     finite = np.asarray(array, dtype=np.float32)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return {"min": 0.0, "max": 0.0, "mean": 0.0, "std": 0.0}
     return {
         "min": float(np.nanmin(finite)),
         "max": float(np.nanmax(finite)),
@@ -312,9 +316,10 @@ def _optional_float(value: object) -> float | None:
     if value is None:
         return None
     try:
-        return float(value)
+        result = float(value)
     except (TypeError, ValueError):
         return None
+    return result if math.isfinite(result) else None
 
 
 def _optional_string(value: object) -> str | None:

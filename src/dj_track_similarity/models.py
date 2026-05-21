@@ -44,3 +44,13 @@ class TagPreview:
     track_id: int
     path: str
     tags: dict[str, str]
+
+
+@dataclass(frozen=True)
+class GenreTagApplyResult:
+    track_id: int
+    path: str
+    tags: dict[str, str]
+    status: str
+    message: str
+    error: str | None = None

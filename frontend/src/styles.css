@@ -281,11 +281,6 @@ h2 {
   margin-bottom: 0;
 }
 
-.genre-write-button {
-  margin-bottom: 8px;
-  width: 100%;
-}
-
 .analysis-button-pair {
   display: grid;
   gap: 5px;
@@ -440,6 +435,19 @@ h2 {
   color: #713200;
 }
 
+.genre-save-button {
+  background: #dff6ee;
+  border-color: #63b895;
+  color: #176c5a;
+  font-weight: 700;
+}
+
+.genre-save-button:hover:not(:disabled) {
+  background: #c8efdf;
+  border-color: #3d9f7b;
+  color: #0f5c4b;
+}
+
 .process-box,
 .analysis-box {
   background: #f7f8f2;
@@ -464,31 +472,18 @@ h2 {
   overflow: hidden;
 }
 
-.log-tabs {
+.log-title {
+  align-items: center;
   border-bottom: 1px solid #dfe3d6;
-  display: grid;
-  gap: 0;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  padding: 6px 6px 0;
-}
-
-.log-tabs button {
-  background: transparent;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  border-radius: 5px 5px 0 0;
-  color: #65705e;
+  color: #4c5747;
+  display: flex;
+  font-size: 12px;
+  font-weight: 720;
   justify-content: space-between;
-  min-width: 0;
+  padding: 8px;
 }
 
-.log-tabs button.active {
-  background: #ffffff;
-  border-bottom-color: #40a487;
-  color: #176c5a;
-}
-
-.log-tabs span {
+.log-title span:last-child {
   background: #eef2e7;
   border: 1px solid #d8dccf;
   border-radius: 999px;
@@ -499,7 +494,7 @@ h2 {
   text-align: center;
 }
 
-.log-tab-body {
+.log-body {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
@@ -508,42 +503,34 @@ h2 {
   padding: 8px;
 }
 
-.log-tab-body .process-box,
-.log-tab-body .activity-log {
+.log-body .process-box {
   background: transparent;
   border: 0;
   border-radius: 0;
-  flex: 1 1 auto;
-  margin: 0;
-  min-height: 0;
+  flex: 0 0 auto;
+  margin: 0 0 8px;
   padding: 0;
 }
 
-.log-tab-body .process-log-list {
+.log-body .process-log-list {
   flex: 1 1 auto;
   height: auto;
   min-height: 0;
 }
 
-.log-tab-body .process-log,
-.log-tab-body .analysis-log {
+.log-body .process-log,
+.log-body .analysis-log {
   flex: 1 1 auto;
   min-height: 0;
 }
 
-.log-tab-body .process-head,
-.log-tab-body .process-box progress,
-.log-tab-body .process-grid,
-.log-tab-body .analysis-muted,
-.log-tab-body .analysis-current,
-.log-tab-body .analysis-error {
+.log-body .process-head,
+.log-body .process-box progress,
+.log-body .process-grid,
+.log-body .analysis-muted,
+.log-body .analysis-current,
+.log-body .analysis-error {
   flex: 0 0 auto;
-}
-
-.log-tab-body .activity-log-list {
-  flex: 1 1 auto;
-  max-height: none;
-  min-height: 0;
 }
 
 .analysis-limit {

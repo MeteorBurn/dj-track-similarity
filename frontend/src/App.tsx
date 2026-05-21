@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AnalysisJobStatus, api, LibrarySummary, ScanStats, SearchResult, Track } from "./api";
+import { AnalysisJobStatus, api, GenreTagJobStatus, LibrarySummary, ScanStats, SearchResult, Track } from "./api";
 import { exportDirectoryError } from "./exportView";
 import { ActivityEvent, analysisJobRequest, cancelAnalysisJob, scanSummary } from "./jobUi";
 import { LibraryPanel } from "./LibraryPanel";
@@ -7,7 +7,7 @@ import { appendVisibleTracksToPlaylist, LibraryPreset } from "./libraryView";
 import { SearchPlaylistPanel } from "./SearchPlaylistPanel";
 import { TrackMetadataDialog } from "./TrackMetadataDialog";
 import { TrackPanel } from "./TrackPanel";
-import { basename, displayTrack, trackCountLabel, trackHasAnalysis } from "./trackDisplay";
+import { displayTrack, trackCountLabel, trackHasAnalysis } from "./trackDisplay";
 
 type Notice = { kind: "ok" | "error" | "idle"; text: string };
 type DeviceMode = "auto" | "cpu" | "cuda";
@@ -83,8 +83,8 @@ export function App() {
   const [seedTrackMap, setSeedTrackMap] = useState<Record<number, Track>>({});
   const [analysisJob, setAnalysisJob] = useState<AnalysisJobStatus | null>(null);
   const [scanJob, setScanJob] = useState<ScanStats | null>(null);
-  const [processLogKind, setProcessLogKind] = useState<"scan" | "analysis">("scan");
-  const [logTab, setLogTab] = useState<"journal" | "process">("journal");
+  const [genreTagJob, setGenreTagJob] = useState<GenreTagJobStatus | null>(null);
+  const [processLogKind, setProcessLogKind] = useState<"scan" | "analysis" | "genre_tags">("scan");
   const [analysisLimit, setAnalysisLimit] = useState(0);
   const [scanWorkers, setScanWorkers] = useState(1);
   const [analysisBatchSize, setAnalysisBatchSize] = useState(4);
@@ -126,10 +126,10 @@ export function App() {
   const seedSet = useMemo(() => new Set(seeds), [seeds]);
   const playlistSet = useMemo(() => new Set(playlist.map((track) => track.id)), [playlist]);
   const seedTracks = useMemo(() => seeds.map((id) => seedTrackMap[id]).filter(Boolean) as Track[], [seeds, seedTrackMap]);
-  const visibleMaestGenreTrackIds = useMemo(() => tracks.filter((track) => track.genres?.length).map((track) => track.id), [tracks]);
   const scanRunning = Boolean(scanJob?.state && ["queued", "running"].includes(scanJob.state));
   const analysisRunning = Boolean(analysisJob && ["queued", "running"].includes(analysisJob.state));
-  const stageRunning = scanRunning || analysisRunning;
+  const genreTagRunning = Boolean(genreTagJob && ["queued", "running"].includes(genreTagJob.state));
+  const stageRunning = scanRunning || analysisRunning || genreTagRunning;
   const hasTracks = librarySummary.tracks > 0;
   const canGoBack = libraryOffset > 0 && !libraryLoading;
   const canGoForward = libraryOffset + tracks.length < libraryTotal && !libraryLoading;
@@ -161,6 +161,12 @@ export function App() {
       if (job) {
         setAnalysisJob((current) => (current && ["queued", "running"].includes(current.state) ? current : job));
         if (["queued", "running"].includes(job.state)) setProcessLogKind("analysis");
+      }
+    }).catch(() => undefined);
+    void api.genreTagJobLatest().then((job) => {
+      if (job) {
+        setGenreTagJob(job);
+        if (["queued", "running"].includes(job.state)) setProcessLogKind("genre_tags");
       }
     }).catch(() => undefined);
   }, []);
@@ -209,6 +215,27 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [analysisJob?.job_id, analysisJob?.state]);
 
+  useEffect(() => {
+    if (!genreTagJob || !["queued", "running"].includes(genreTagJob.state)) return;
+    const timer = window.setInterval(() => {
+      void api.genreTagJob(genreTagJob.job_id).then((job) => {
+        setGenreTagJob(job);
+        if (["completed", "cancelled", "failed"].includes(job.state)) {
+          void refreshLibrary();
+          if (job.state === "completed") {
+            appendActivity("ok", "Запись жанров завершена", genreTagJobSummary(job));
+          }
+          if (job.state === "cancelled") {
+            appendActivity("warn", "Запись жанров остановлена", genreTagJobSummary(job));
+          }
+        }
+      }).catch((error) => {
+        setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
+      });
+    }, 1200);
+    return () => window.clearInterval(timer);
+  }, [genreTagJob?.job_id, genreTagJob?.state]);
+
   async function run<T>(action: () => Promise<T>, ok: (value: T) => string | void) {
     setBusy(true);
     try {
@@ -229,14 +256,6 @@ export function App() {
   function appendActivity(level: ActivityEvent["level"], message: string, detail?: string) {
     setActivityLog((current) => [
       { id: Date.now() + Math.random(), time: Date.now(), level, message, detail },
-      ...current
-    ].slice(0, 80));
-  }
-
-  function appendActivities(events: Array<{ level: ActivityEvent["level"]; message: string; detail?: string }>) {
-    const now = Date.now();
-    setActivityLog((current) => [
-      ...events.map((event, index) => ({ id: now + index + Math.random(), time: now, ...event })),
       ...current
     ].slice(0, 80));
   }
@@ -595,6 +614,18 @@ export function App() {
     );
   }
 
+  async function handleCancelGenreTags() {
+    if (!genreTagJob) return;
+    await run(
+      () => api.cancelGenreTagJob(genreTagJob.job_id),
+      (job) => {
+        setGenreTagJob(job);
+        appendActivity("warn", "Genre tag cancel requested", job.job_id.slice(0, 8));
+        return `Cancel requested: ${job.job_id.slice(0, 8)}`;
+      }
+    );
+  }
+
   async function handleStopActiveStage() {
     if (scanRunning) {
       await handleCancelScan();
@@ -602,6 +633,10 @@ export function App() {
     }
     if (analysisRunning) {
       await handleCancelAnalyze();
+      return;
+    }
+    if (genreTagRunning) {
+      await handleCancelGenreTags();
     }
   }
 
@@ -638,27 +673,23 @@ export function App() {
     setScanWorkers((current) => Math.min(maxScanWorkers, Math.max(1, current + delta)));
   }
 
-  async function handleGenreTagsApply(trackIds = visibleMaestGenreTrackIds) {
-    const ids = trackIds.filter((id) => tracks.some((track) => track.id === id && track.genres?.length));
-    if (!ids.length) {
+  async function handleGenreTagsApply(trackIds?: number[]) {
+    if (trackIds && !trackIds.length) {
       setNotice({ kind: "error", text: "Нет MAEST жанров для записи" });
       return;
     }
-    appendActivity("warn", "Запись жанров в теги файлов запущена", `${ids.length} треков · standard Genre`);
-    await run(() => api.genreTagApply(ids), (value) => {
-      appendActivities([
-        {
-          level: "ok" as const,
-          message: "Жанры записаны в теги файлов",
-          detail: `${value.length} треков · Genre overwritten`
-        },
-        ...value.map((preview) => ({
-          level: "ok" as const,
-          message: "Жанры записаны в файл",
-          detail: genreWriteLogDetail(preview.path, preview.tags)
-        }))
-      ]);
-      return `Жанры записаны в теги файлов: ${value.length}`;
+    if (!trackIds && !librarySummary.maest) {
+      setNotice({ kind: "error", text: "Нет MAEST жанров для записи" });
+      return;
+    }
+    const targetText = trackIds ? `${trackIds.length} треков` : `${librarySummary.maest} MAEST треков`;
+    appendActivity("warn", "Запись жанров в теги файлов запущена", `${targetText} · standard Genre`);
+    setProcessLogKind("genre_tags");
+    setGenreTagJob(null);
+    await run(() => api.genreTagJobStart(trackIds), (job) => {
+      setGenreTagJob(job);
+      appendActivity("ok", "Genre tag job создан", `${job.job_id.slice(0, 8)} · ${job.total} треков`);
+      return `Genre tag job ${job.job_id.slice(0, 8)}: ${job.total} треков`;
     });
   }
 
@@ -702,12 +733,10 @@ export function App() {
           maxAnalysisBatchSize={maxAnalysisBatchSize}
           adjustAnalysisBatchSize={adjustAnalysisBatchSize}
           onAnalysisBatchSizeChange={setAnalysisBatchSize}
-          maestGenreTrackCount={visibleMaestGenreTrackIds.length}
-          logTab={logTab}
-          onLogTabChange={setLogTab}
           processLogKind={processLogKind}
           scanJob={scanJob}
           analysisJob={analysisJob}
+          genreTagJob={genreTagJob}
           activityLog={activityLog}
           helpText={helpText}
           onStopActiveStage={() => void handleStopActiveStage()}
@@ -719,7 +748,6 @@ export function App() {
           onGenreAnalyze={() => void handleGenreAnalyze()}
           onAnalyze={(adapter) => void handleAnalyze(adapter)}
           onResetAnalysis={(adapter) => void handleResetAnalysis(adapter)}
-          onWriteMaestGenres={() => void handleGenreTagsApply()}
         />
 
         <TrackPanel
@@ -737,6 +765,10 @@ export function App() {
           canGoForward={canGoForward}
           onPreviousPage={() => changeLibraryPage(-1)}
           onNextPage={() => changeLibraryPage(1)}
+          busy={busy || stageRunning}
+          maestGenreTrackCount={librarySummary.maest}
+          writeMaestGenresHelp={helpText.writeMaestGenres}
+          onWriteMaestGenres={() => void handleGenreTagsApply()}
           seedSet={seedSet}
           playlistSet={playlistSet}
           librarySearchHelp={helpText.librarySearch}
@@ -785,8 +817,6 @@ export function App() {
   );
 }
 
-function genreWriteLogDetail(path: string, tags: Record<string, string>) {
-  const tagEntries = Object.entries(tags);
-  const tagText = tagEntries.length ? tagEntries.map(([key, value]) => `${key}: ${value}`).join(" · ") : "Genre tag skipped";
-  return `${basename(path)} · ${tagText}`;
+function genreTagJobSummary(job: GenreTagJobStatus) {
+  return `записано ${job.applied} · пропущено ${job.skipped} · ошибок ${job.failed} · всего ${job.total}`;
 }

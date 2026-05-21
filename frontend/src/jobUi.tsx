@@ -1,76 +1,106 @@
 import { Trash2 } from "lucide-react";
 import { ReactNode } from "react";
-import { AnalysisJobStatus, api, ScanStats } from "./api";
-import { basename, formatEta, formatTime } from "./trackDisplay";
+import { AnalysisJobStatus, api, GenreTagJobStatus, ScanStats } from "./api";
+import { basename, formatEta } from "./trackDisplay";
 
 export type ActivityEvent = { id: number; time: number; level: "info" | "ok" | "warn" | "error"; message: string; detail?: string };
 
-export function ProcessLog({
-  kind,
-  scanJob,
-  analysisJob
-}: {
-  kind: "scan" | "analysis";
-  scanJob: ScanStats | null;
-  analysisJob: AnalysisJobStatus | null;
-}) {
-  if (kind === "analysis") {
-    return <AnalysisProcessLog job={analysisJob} />;
-  }
-  return <ScanProcessLog job={scanJob} />;
-}
+type UnifiedLogEvent = {
+  id: string;
+  timeMs: number;
+  level: ActivityEvent["level"];
+  source: string;
+  message: string;
+  detail?: string;
+};
 
-export function TabbedLog({
-  activeTab,
-  onTabChange,
+export function UnifiedLog({
   processKind,
   scanJob,
   analysisJob,
+  genreTagJob,
   events
 }: {
-  activeTab: "journal" | "process";
-  onTabChange: (tab: "journal" | "process") => void;
-  processKind: "scan" | "analysis";
+  processKind: "scan" | "analysis" | "genre_tags";
   scanJob: ScanStats | null;
   analysisJob: AnalysisJobStatus | null;
+  genreTagJob: GenreTagJobStatus | null;
   events: ActivityEvent[];
 }) {
+  const mergedEvents = unifiedLogEvents(scanJob, analysisJob, genreTagJob, events);
   return (
     <section className="log-panel">
-      <div className="log-tabs" role="tablist" aria-label="Журналы процесса">
-        <button
-          className={activeTab === "journal" ? "active" : ""}
-          role="tab"
-          aria-selected={activeTab === "journal"}
-          onClick={() => onTabChange("journal")}
-        >
-          Журнал
-          <span>{events.length}</span>
-        </button>
-        <button
-          className={activeTab === "process" ? "active" : ""}
-          role="tab"
-          aria-selected={activeTab === "process"}
-          onClick={() => onTabChange("process")}
-        >
-          Лог
-          <span>{processEventCount(processKind, scanJob, analysisJob)}</span>
-        </button>
+      <div className="log-title">
+        <span>Лог</span>
+        <span>{mergedEvents.length}</span>
       </div>
-      <div className="log-tab-body">
-        {activeTab === "journal" ? (
-          <ActivityLog events={events} />
-        ) : (
-          <ProcessLog kind={processKind} scanJob={scanJob} analysisJob={analysisJob} />
-        )}
+      <div className="log-body">
+        <ProcessStatus kind={processKind} scanJob={scanJob} analysisJob={analysisJob} genreTagJob={genreTagJob} />
+        <UnifiedEventList events={mergedEvents} />
       </div>
     </section>
   );
 }
 
-function processEventCount(kind: "scan" | "analysis", scanJob: ScanStats | null, analysisJob: AnalysisJobStatus | null) {
-  if (kind === "analysis") return analysisJob?.events.length || 0;
-  return scanJob?.events?.length || 0;
+function ProcessStatus({
+  kind,
+  scanJob,
+  analysisJob,
+  genreTagJob
+}: {
+  kind: "scan" | "analysis" | "genre_tags";
+  scanJob: ScanStats | null;
+  analysisJob: AnalysisJobStatus | null;
+  genreTagJob: GenreTagJobStatus | null;
+}) {
+  if (kind === "genre_tags") {
+    return <GenreTagProcessStatus job={genreTagJob} />;
+  }
+  if (kind === "analysis") {
+    return <AnalysisProcessStatus job={analysisJob} />;
+  }
+  return <ScanProcessStatus job={scanJob} />;
+}
+
+function unifiedLogEvents(
+  scanJob: ScanStats | null,
+  analysisJob: AnalysisJobStatus | null,
+  genreTagJob: GenreTagJobStatus | null,
+  activityEvents: ActivityEvent[]
+) {
+  const uiEvents: UnifiedLogEvent[] = activityEvents.map((event) => ({
+    id: `ui-${event.id}`,
+    timeMs: event.time,
+    level: event.level,
+    source: "ui",
+    message: event.message,
+    detail: event.detail
+  }));
+  const scanEvents: UnifiedLogEvent[] = (scanJob?.events || []).map((event, index) => ({
+    id: `scan-${event.timestamp}-${index}`,
+    timeMs: event.timestamp * 1000,
+    level: event.level as ActivityEvent["level"],
+    source: "scan",
+    message: event.message,
+    detail: event.path ? basename(event.path) : undefined
+  }));
+  const analysisEvents: UnifiedLogEvent[] = (analysisJob?.events || []).map((event, index) => ({
+    id: `analysis-${event.timestamp}-${index}`,
+    timeMs: event.timestamp * 1000,
+    level: event.level as ActivityEvent["level"],
+    source: "analysis",
+    message: event.message,
+    detail: event.path ? basename(event.path) : undefined
+  }));
+  const genreTagEvents: UnifiedLogEvent[] = (genreTagJob?.events || []).map((event, index) => ({
+    id: `genre-tags-${event.timestamp}-${index}`,
+    timeMs: event.timestamp * 1000,
+    level: event.level as ActivityEvent["level"],
+    source: "genre tags",
+    message: event.message,
+    detail: event.path ? basename(event.path) : undefined
+  }));
+  return [...uiEvents, ...scanEvents, ...analysisEvents, ...genreTagEvents].sort((left, right) => right.timeMs - left.timeMs).slice(0, 120);
 }
 
 export function analysisJobRequest(job: AnalysisJobStatus) {
@@ -114,7 +144,7 @@ export function AnalysisButton({
   );
 }
 
-function ScanProcessLog({ job }: { job: ScanStats | null }) {
+function ScanProcessStatus({ job }: { job: ScanStats | null }) {
   if (!job) {
     return <div className="process-box">Сканирование не запущено</div>;
   }
@@ -123,7 +153,6 @@ function ScanProcessLog({ job }: { job: ScanStats | null }) {
   const percent = total ? Math.round((processed / total) * 100) : 100;
   const running = ["queued", "running"].includes(job.state || "");
   const etaSeconds = running && job.avg_seconds_per_track ? Math.max(0, (total - processed) * job.avg_seconds_per_track) : null;
-  const latestEvents = [...(job.events || [])].reverse().slice(0, 12);
   return (
     <div className="process-box">
       <div className="process-head">
@@ -141,49 +170,39 @@ function ScanProcessLog({ job }: { job: ScanStats | null }) {
       </div>
       {job.avg_seconds_per_track != null && <span className="analysis-muted">{job.avg_seconds_per_track.toFixed(2)} s/file{etaSeconds ? ` · ETA ${formatEta(etaSeconds)}` : ""}</span>}
       {job.current_path && <span className="analysis-current">Сейчас: {basename(job.current_path)}</span>}
-      <div className="process-log">
-        <div className="process-log-title">
-          <span>Журнал процесса</span>
-          <span>{latestEvents.length}/{job.events?.length || 0}</span>
-        </div>
-        <div className="process-log-list simple">
-        {latestEvents.length === 0 ? (
+    </div>
+  );
+}
+
+function UnifiedEventList({ events }: { events: UnifiedLogEvent[] }) {
+  return (
+    <div className="process-log">
+      <div className="process-log-title">
+        <span>События</span>
+        <span>{events.length}</span>
+      </div>
+      <div className="process-log-list">
+        {events.length === 0 ? (
           <span className="process-log-empty">Событий пока нет</span>
         ) : (
-          latestEvents.map((event, index) => (
-            <div className={`process-log-row ${event.level}`} key={`${event.timestamp}-${index}`}>
-              <time>{formatTime(event.timestamp)}</time>
+          events.map((event) => (
+            <div className={`process-log-row ${event.level}`} key={event.id}>
+              <time>{new Date(event.timeMs).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
               <strong>{event.level}</strong>
-              <span>
-              {event.message}{event.path ? ` · ${basename(event.path)}` : ""}
-              </span>
+              <span>{sourceLabel(event.source)}: {event.message}{event.detail ? ` · ${event.detail}` : ""}</span>
             </div>
           ))
         )}
-        </div>
       </div>
     </div>
   );
 }
 
-function ActivityLog({ events }: { events: ActivityEvent[] }) {
-  return (
-    <div className="activity-log">
-      <div className="activity-log-title">
-        <span>Журнал действий</span>
-        <span>{events.length}</span>
-      </div>
-      <div className="activity-log-list">
-        {events.map((event) => (
-          <div className={`activity-log-row ${event.level}`} key={event.id}>
-            <time>{new Date(event.time).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
-            <strong>{event.message}</strong>
-            {event.detail && <span>{event.detail}</span>}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+function sourceLabel(source: string) {
+  if (source === "scan") return "scan";
+  if (source === "analysis") return "analysis";
+  if (source === "genre tags") return "genre tags";
+  return "UI";
 }
 
 export function scanSummary(job: ScanStats) {
@@ -203,14 +222,13 @@ function analysisRuntimeLabel(job: AnalysisJobStatus) {
   return `${model} · ${job.device || `${job.device_requested} pending`}`;
 }
 
-function AnalysisProcessLog({ job }: { job: AnalysisJobStatus | null }) {
+function AnalysisProcessStatus({ job }: { job: AnalysisJobStatus | null }) {
   if (!job) {
     return <div className="process-box">Анализ не запущен</div>;
   }
   const percent = job.total ? Math.round((job.processed / job.total) * 100) : 100;
   const running = ["queued", "running"].includes(job.state);
   const etaSeconds = running && job.avg_seconds_per_track ? Math.max(0, (job.total - job.processed) * job.avg_seconds_per_track) : null;
-  const latestEvents = [...job.events].reverse().slice(0, 14);
   return (
     <div className="process-box">
       <div className="process-head">
@@ -229,25 +247,32 @@ function AnalysisProcessLog({ job }: { job: AnalysisJobStatus | null }) {
       {job.avg_seconds_per_track != null && <span className="analysis-muted">{job.avg_seconds_per_track.toFixed(2)} s/track{etaSeconds ? ` · ETA ${formatEta(etaSeconds)}` : ""}</span>}
       {job.current_path && <span className="analysis-current">Сейчас: {basename(job.current_path)}</span>}
       {job.errors.length > 0 && <span className="analysis-error">{job.errors[0].path}: {job.errors[0].error}</span>}
-      <div className="process-log">
-        <div className="process-log-title">
-          <span>Журнал процесса</span>
-          <span>{latestEvents.length}/{job.events.length}</span>
-        </div>
-        <div className="process-log-list">
-          {latestEvents.length === 0 ? (
-            <span className="process-log-empty">Событий пока нет</span>
-          ) : (
-            latestEvents.map((event, index) => (
-              <div className={`process-log-row ${event.level}`} key={`${event.timestamp}-${index}`}>
-                <time>{formatTime(event.timestamp)}</time>
-                <strong>{event.level}</strong>
-                <span>{event.message}{event.path ? ` · ${basename(event.path)}` : ""}</span>
-              </div>
-            ))
-          )}
-        </div>
+    </div>
+  );
+}
+
+function GenreTagProcessStatus({ job }: { job: GenreTagJobStatus | null }) {
+  if (!job) {
+    return <div className="process-box">Запись жанров не запущена</div>;
+  }
+  const percent = job.total ? Math.round((job.processed / job.total) * 100) : 100;
+  const running = ["queued", "running"].includes(job.state);
+  const etaSeconds = running && job.avg_seconds_per_track ? Math.max(0, (job.total - job.processed) * job.avg_seconds_per_track) : null;
+  return (
+    <div className="process-box">
+      <div className="process-head">
+        <strong>{job.state}</strong>
+        <span>{job.processed}/{job.total} · {percent}%</span>
       </div>
+      <progress value={job.processed} max={job.total || 1} />
+      <div className="process-grid">
+        <span>applied {job.applied}</span>
+        <span>skipped {job.skipped}</span>
+        <span>failed {job.failed}</span>
+      </div>
+      {job.avg_seconds_per_track != null && <span className="analysis-muted">{job.avg_seconds_per_track.toFixed(2)} s/track{etaSeconds ? ` · ETA ${formatEta(etaSeconds)}` : ""}</span>}
+      {job.current_path && <span className="analysis-current">Сейчас: {basename(job.current_path)}</span>}
+      {job.errors.length > 0 && <span className="analysis-error">{job.errors[0].path}: {job.errors[0].error}</span>}
     </div>
   );
 }

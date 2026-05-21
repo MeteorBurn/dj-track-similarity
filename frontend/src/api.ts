@@ -31,6 +31,18 @@ export type TrackPage = {
   offset: number;
 };
 
+export type TagPreview = {
+  track_id: number;
+  path: string;
+  tags: Record<string, string>;
+};
+
+export type GenreTagApplyResult = TagPreview & {
+  status: "applied" | "skipped" | "failed";
+  message: string;
+  error?: string | null;
+};
+
 export type LibrarySummary = {
   tracks: number;
   sonara: number;
@@ -100,6 +112,23 @@ export type AnalysisJobStatus = {
   workers: number;
   batch_size: number;
   top_k?: number;
+};
+
+export type GenreTagJobStatus = {
+  job_id: string;
+  state: "queued" | "running" | "completed" | "cancelled" | "failed";
+  total: number;
+  processed: number;
+  applied: number;
+  skipped: number;
+  failed: number;
+  current_path?: string | null;
+  started_at?: number | null;
+  finished_at?: number | null;
+  avg_seconds_per_track?: number | null;
+  errors: Array<{ track_id: number; path: string; error: string }>;
+  events: Array<{ timestamp: number; level: string; message: string; path?: string | null; track_id?: number | null }>;
+  cancel_requested: boolean;
 };
 
 export type AnalysisResetResult = {
@@ -268,18 +297,29 @@ export const api = {
       body: JSON.stringify({ playlist_id, output_dir, format })
     }),
   tagPreview: (track_ids: number[]) =>
-    request<Array<{ track_id: number; path: string; tags: Record<string, string> }>>("/api/tags/preview", {
+    request<TagPreview[]>("/api/tags/preview", {
       method: "POST",
       body: JSON.stringify({ track_ids })
     }),
   tagApply: (track_ids: number[]) =>
-    request<Array<{ track_id: number; path: string; tags: Record<string, string> }>>("/api/tags/apply", {
+    request<TagPreview[]>("/api/tags/apply", {
       method: "POST",
       body: JSON.stringify({ track_ids })
     }),
-  genreTagApply: (track_ids: number[]) =>
-    request<Array<{ track_id: number; path: string; tags: Record<string, string> }>>("/api/tags/genres/apply", {
+  genreTagApply: (track_ids?: number[]) =>
+    request<GenreTagApplyResult[]>("/api/tags/genres/apply", {
       method: "POST",
-      body: JSON.stringify({ track_ids })
+      body: JSON.stringify(track_ids == null ? {} : { track_ids })
+    }),
+  genreTagJobStart: (track_ids?: number[]) =>
+    request<GenreTagJobStatus>("/api/tags/genres/jobs", {
+      method: "POST",
+      body: JSON.stringify(track_ids == null ? {} : { track_ids })
+    }),
+  genreTagJobLatest: () => request<GenreTagJobStatus | null>("/api/tags/genres/jobs/latest"),
+  genreTagJob: (jobId: string) => request<GenreTagJobStatus>(`/api/tags/genres/jobs/${jobId}`),
+  cancelGenreTagJob: (jobId: string) =>
+    request<GenreTagJobStatus>(`/api/tags/genres/jobs/${jobId}/cancel`, {
+      method: "POST"
     })
 };

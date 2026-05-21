@@ -11,8 +11,8 @@ import { displayTrack, trackCountLabel } from "./trackDisplay";
 
 type Notice = { kind: "ok" | "error" | "idle"; text: string };
 type DeviceMode = "auto" | "cpu" | "cuda";
-type AnalysisAdapter = "mert" | "clap" | "fake";
-type ResetAdapter = "sonara" | "maest" | "mert" | "clap" | "fake";
+type AnalysisAdapter = "mert" | "clap";
+type ResetAdapter = "sonara" | "maest" | "mert" | "clap";
 
 const defaultNotice: Notice = { kind: "idle", text: "Готово к работе" };
 const libraryPageSize = 200;

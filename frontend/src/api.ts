@@ -179,7 +179,7 @@ export const api = {
   },
   track: (trackId: number) => request<Track>(`/api/tracks/${trackId}`),
   librarySummary: () => request<LibrarySummary>("/api/library/summary"),
-  resetAnalysis: (adapter: "sonara" | "maest" | "mert" | "clap" | "fake") =>
+  resetAnalysis: (adapter: "sonara" | "maest" | "mert" | "clap") =>
     request<AnalysisResetResult>("/api/analysis/reset", {
       method: "POST",
       body: JSON.stringify({ adapter })
@@ -216,7 +216,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({})
     }),
-  analyze: (adapter: "mert" | "clap" | "fake", limit?: number, device: "auto" | "cpu" | "cuda" = "auto", batch_size = 4) =>
+  analyze: (adapter: "mert" | "clap", limit?: number, device: "auto" | "cpu" | "cuda" = "auto", batch_size = 4) =>
     request<AnalysisJobStatus>("/api/analyze", {
       method: "POST",
       body: JSON.stringify({ adapter, limit: limit || null, device, batch_size })

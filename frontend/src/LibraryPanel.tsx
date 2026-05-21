@@ -3,8 +3,8 @@ import { AnalysisJobStatus, GenreTagJobStatus, ScanStats } from "./api";
 import { ActivityEvent, AnalysisButton, stageIndicatorLabel, UnifiedLog } from "./jobUi";
 
 type DeviceMode = "auto" | "cpu" | "cuda";
-type AnalysisAdapter = "mert" | "clap" | "fake";
-type ResetAdapter = "sonara" | "maest" | "mert" | "clap" | "fake";
+type AnalysisAdapter = "mert" | "clap";
+type ResetAdapter = "sonara" | "maest" | "mert" | "clap";
 
 type LibraryHelpText = {
   musicRoot: string;
@@ -172,10 +172,6 @@ export function LibraryPanel({
           <button className="icon-button" disabled={busy || analysisBatchSize >= maxAnalysisBatchSize} onClick={() => adjustAnalysisBatchSize(1)} aria-label="Увеличить batch size"><Plus size={15} /></button>
         </div>
         <small>SONARA: параллельные треки. MAEST/MERT/CLAP: inference batch; CPU 1-4, CUDA начни с 4-8.</small>
-        <button className="secondary-mini" disabled={busy || stageRunning || !hasTracks} onClick={() => onAnalyze("fake")}>
-          <Gauge size={14} />
-          Smoke
-        </button>
       </div>
       <UnifiedLog
         processKind={processLogKind}

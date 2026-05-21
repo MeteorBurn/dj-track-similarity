@@ -45,9 +45,6 @@ else who collects, tags, or plays music will find the approach useful too.
 - Lets you choose seed tracks, search for similar tracks with SONARA mixer
   controls or embedding/text models, preview results, and assemble a small set
   or playlist.
-- Includes a MAEST multi-window benchmark script for comparing stored genre
-  labels with a temporary 3x30-second report without writing that report back
-  to SQLite.
 - Exports playlists as M3U or CSV.
 - Can preview and write custom `DJ_SIM_*` tags when explicitly requested.
 - Can reset one analysis family at a time, or clear the local SQLite database
@@ -133,11 +130,6 @@ logits, not the convenience `predict_labels()` helper, so each track in a batch
 keeps its own genre scores. Each track is represented by three 30-second
 windows, and the final stored top 3 labels are ranked after averaging per-label
 activation scores across those windows.
-
-There is also a benchmark script for checking how MAEST labels change under the
-three-window policy. The benchmark is read-only with respect to the database: it
-reads stored labels, runs temporary MAEST inference, and writes a JSON report
-under `outputs/`.
 
 ## Run The App
 
@@ -263,21 +255,6 @@ then ranked into the final top 3 labels. If one track in a MAEST batch fails to
 decode, the job retries that batch one track at a time so the bad file is
 reported directly and the other tracks can still be analyzed. It does not modify
 audio files by itself.
-
-The optional benchmark script compares stored labels with a temporary
-three-window MAEST report:
-
-```powershell
-python scripts\benchmark_maest_multiwindow.py `
-  --db "D:\DJDatabases\library.sqlite" `
-  --limit 125 `
-  --device auto `
-  --top-k 8 `
-  --output "outputs\maest_multiwindow_125.json"
-```
-
-This is a calibration/reporting tool. It does not call `save_genres` and does
-not write its report labels into SQLite.
 
 `--fake` is only for smoke tests without loading ML models.
 

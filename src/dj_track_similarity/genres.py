@@ -67,13 +67,13 @@ class MaestGenreAdapter:
         if sample_rate != 16000:
             audio = torchaudio.transforms.Resample(sample_rate, 16000)(audio)
         audio = audio.squeeze(0)
-        target_samples = int(16000 * _input_seconds(self.model_name))
+        target_samples = int(16000 * maest_input_seconds(self.model_name))
         if audio.numel() < target_samples:
             return [torch.nn.functional.pad(audio, (0, target_samples - audio.numel()))]
 
         starts = _analysis_window_starts(
             audio.numel() / 16000,
-            _input_seconds(self.model_name),
+            maest_input_seconds(self.model_name),
             self.analysis_offset_seconds,
             self.analysis_window_ratios,
         )
@@ -122,7 +122,7 @@ def _move_maest_runtime_modules(model: object, device: str) -> None:
             move(device)
 
 
-def _input_seconds(model_name: str) -> float:
+def maest_input_seconds(model_name: str) -> float:
     match = re.search(r"-(5|10|20|30)s-", model_name)
     return float(match.group(1)) if match else 30.0
 

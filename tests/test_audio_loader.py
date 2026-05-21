@@ -75,17 +75,34 @@ def test_load_audio_mono_reads_normal_wav_with_native_backend(tmp_path: Path) ->
     assert "native" in detail
 
 
-def test_load_audio_mono_recovers_malformed_wav_with_shifted_data_marker(tmp_path: Path) -> None:
+def test_load_audio_mono_uses_ffmpeg_when_native_wav_decode_fails(monkeypatch, tmp_path: Path) -> None:
     audio_path = tmp_path / "malformed.wav"
     _make_malformed_wave(audio_path)
+    decoded = np.array([0.1, -0.2, 0.3], dtype=np.float32)
 
-    audio, sample_rate, detail = load_audio_mono(audio_path)
+    def fake_run(command, *, check, stdout, stderr):
+        assert command[:2] == ["ffmpeg", "-v"]
+        assert "-f" in command
+        assert command[command.index("-f") + 1] == "f32le"
+        assert command[-1] == "-"
+        return subprocess.CompletedProcess(command, 0, stdout=decoded.tobytes(), stderr=b"")
 
-    assert sample_rate == 44_100
+    monkeypatch.setattr(
+        audio_loader,
+        "shutil",
+        SimpleNamespace(which=lambda name: "ffmpeg" if name == "ffmpeg" else None),
+        raising=False,
+    )
+    monkeypatch.setattr(audio_loader, "subprocess", SimpleNamespace(run=fake_run, PIPE=subprocess.PIPE), raising=False)
+
+    audio, sample_rate, detail = load_audio_mono(audio_path, target_sample_rate=22_050)
+
+    assert sample_rate == 22_050
     assert audio.dtype == np.float32
-    assert audio.shape == (3,)
-    assert np.allclose(audio, np.array([2000, 0, 1500], dtype=np.float32) / 32768.0)
-    assert "recovered malformed WAV" in detail
+    assert np.allclose(audio, decoded)
+    assert "ffmpeg decode" in detail
+    assert "wave:" in detail
+    assert "recovered malformed WAV" not in detail
 
 
 def test_load_audio_mono_rejects_unknown_malformed_wav(tmp_path: Path) -> None:

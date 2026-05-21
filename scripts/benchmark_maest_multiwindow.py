@@ -11,7 +11,7 @@ from typing import Any
 
 from dj_track_similarity.audio_loader import load_audio_mono
 from dj_track_similarity.database import SYNCOPATED_RHYTHM_GENRES
-from dj_track_similarity.genres import MaestGenreAdapter, _input_seconds
+from dj_track_similarity.genres import MaestGenreAdapter, maest_input_seconds
 
 
 TARGET_SAMPLE_RATE = 16000
@@ -115,7 +115,7 @@ def _run_multiwindow(
     assert torch is not None and torchaudio is not None and model is not None
 
     device_name = adapter._device()
-    input_seconds = _input_seconds(adapter.model_name)
+    input_seconds = maest_input_seconds(adapter.model_name)
     target_samples = int(TARGET_SAMPLE_RATE * input_seconds)
     labels = [_clean_label(str(label)) for label in getattr(model, "labels")]
 

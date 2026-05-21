@@ -7,6 +7,7 @@ from typing import Iterable
 from mutagen import File as MutagenFile
 
 from .database import LibraryDatabase
+from .metadata_payload import optional_float, string_or_none
 from .models import ScanStats
 
 
@@ -63,7 +64,7 @@ def scan_library(db: LibraryDatabase, root: str | Path) -> ScanStats:
         raise NotADirectoryError(root_path)
 
     stats = ScanStats()
-    for path in _iter_audio_files(root_path):
+    for path in iter_audio_files(root_path):
         existing = db.get_track_by_path(path)
         size = path.stat().st_size
         mtime = path.stat().st_mtime
@@ -77,9 +78,9 @@ def scan_library(db: LibraryDatabase, root: str | Path) -> ScanStats:
             size=size,
             mtime=mtime,
             metadata=metadata,
-            bpm=_as_float(metadata.get("bpm")),
-            musical_key=_as_string(metadata.get("key") or metadata.get("initialkey")),
-            duration=_as_float(metadata.get("duration")),
+            bpm=optional_float(metadata.get("bpm")),
+            musical_key=string_or_none(metadata.get("key") or metadata.get("initialkey")),
+            duration=optional_float(metadata.get("duration")),
         )
         if existing:
             stats = replace(stats, updated=stats.updated + 1)
@@ -88,7 +89,7 @@ def scan_library(db: LibraryDatabase, root: str | Path) -> ScanStats:
     return stats
 
 
-def _iter_audio_files(root: Path) -> Iterable[Path]:
+def iter_audio_files(root: Path) -> Iterable[Path]:
     for path in sorted(root.rglob("*")):
         if path.is_file() and path.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS:
             yield path
@@ -185,23 +186,7 @@ def _audio_codec(audio: object, info: object | None) -> str | None:
                     value = value()
                 except Exception:
                     continue
-            text = _as_string(value)
+            text = string_or_none(value)
             if text:
                 return text
     return None
-
-
-def _as_float(value: object) -> float | None:
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _as_string(value: object) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None

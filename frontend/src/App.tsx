@@ -7,7 +7,7 @@ import { appendVisibleTracksToPlaylist, LibraryPreset } from "./libraryView";
 import { SearchPlaylistPanel } from "./SearchPlaylistPanel";
 import { TrackMetadataDialog } from "./TrackMetadataDialog";
 import { TrackPanel } from "./TrackPanel";
-import { displayTrack, trackCountLabel, trackHasAnalysis } from "./trackDisplay";
+import { displayTrack, trackCountLabel } from "./trackDisplay";
 
 type Notice = { kind: "ok" | "error" | "idle"; text: string };
 type DeviceMode = "auto" | "cpu" | "cuda";
@@ -48,11 +48,6 @@ const helpText = {
   textPrompt: "CLAP search. Лучше писать на английском одно связное описание звучания: genre/scene, rhythm/drums, bass, texture, instruments, mood/space, vocals/no vocals. Не полагайся только на абстрактное настроение без слышимых признаков.",
   lookback: "Сколько последних треков сета добавить в контекст поиска. Тип: целое число 0-12.",
   limit: "Максимум результатов поиска. Тип: целое число 1-500.",
-  disabledBpm: "Отключено. BPM-фильтр по метаданным. Тип был бы число, например 128 или 128.5; сейчас не участвует в MERT-only проверке.",
-  disabledKey: "Отключено. Key-фильтр по метаданным. Формат был бы Camelot 1A-12B или обычная строка key; сейчас не участвует в MERT-only проверке.",
-  disabledEnergy: "Отключено. Energy пока не вычисляется. Будущий формат: число с точкой 0.00-1.00.",
-  disabledEpsilon: "Отключено до калибровки. Будущий формат: число с точкой 0.00-1.00, обычно малое значение вроде 0.01-0.05.",
-  disabledNoise: "Отключено до калибровки. Будущий формат: число с точкой 0.00-1.00, но безопасный диапазон еще не выбран.",
   playlistName: "Название сохраняемого сета. Формат: текст. Используется как имя плейлиста и файла экспорта.",
   outputDir: "Папка экспорта. Формат: путь Windows или POSIX, например D:/Exports. Если папки нет, она будет создана.",
 } as const;
@@ -95,14 +90,7 @@ export function App() {
   ]);
   const [busy, setBusy] = useState(false);
   const [filters, setFilters] = useState({
-    bpmTolerance: 4,
-    keyCompatibility: false,
-    energyEnabled: false,
-    energyMin: 0,
-    energyMax: 1,
     minSimilarity: 0,
-    epsilon: 0,
-    noise: 0,
     lookback: 2,
     limit: 5,
     sonaraMixer: {
@@ -759,7 +747,6 @@ export function App() {
           tracks={tracks}
           total={libraryTotal}
           offset={libraryOffset}
-          pageSize={libraryPageSize}
           loading={libraryLoading}
           canGoBack={canGoBack}
           canGoForward={canGoForward}

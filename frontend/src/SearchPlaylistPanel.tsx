@@ -5,14 +5,7 @@ import { ResultRow } from "./TrackRows";
 import { displayTrack, trackInfo } from "./trackDisplay";
 
 export type SearchFiltersState = {
-  bpmTolerance: number;
-  keyCompatibility: boolean;
-  energyEnabled: boolean;
-  energyMin: number;
-  energyMax: number;
   minSimilarity: number;
-  epsilon: number;
-  noise: number;
   lookback: number;
   limit: number;
   sonaraMixer: SonaraMixerWeights;

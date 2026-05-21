@@ -14,13 +14,16 @@ MAX_JOB_EVENTS = 200
 class JobStore(Generic[JobStatus]):
     def __init__(self, copy_status: Callable[[JobStatus], JobStatus], *, unknown_label: str) -> None:
         self._jobs: dict[str, JobStatus] = {}
+        self._payloads: dict[str, object] = {}
         self._lock = threading.Lock()
         self._copy_status = copy_status
         self._unknown_label = unknown_label
 
-    def add(self, job_id: str, status: JobStatus) -> None:
+    def add(self, job_id: str, status: JobStatus, *, payload: object | None = None) -> None:
         with self._lock:
             self._jobs[job_id] = status
+            if payload is not None:
+                self._payloads[job_id] = payload
 
     def get(self, job_id: str) -> JobStatus:
         with self._lock:
@@ -33,6 +36,12 @@ class JobStore(Generic[JobStatus]):
             if not self._jobs:
                 return None
             return self._copy_status(next(reversed(self._jobs.values())))
+
+    def payload(self, job_id: str) -> object:
+        with self._lock:
+            if job_id not in self._jobs:
+                raise KeyError(f"Unknown {self._unknown_label}: {job_id}")
+            return self._payloads.get(job_id)
 
     def update(self, job_id: str, **changes: object) -> None:
         with self._lock:

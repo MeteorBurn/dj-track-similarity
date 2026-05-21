@@ -5,7 +5,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Callable, cast
 
 import numpy as np
 
@@ -100,8 +100,7 @@ class AnalysisJobManager:
             workers=effective_batch_size,
             batch_size=effective_batch_size,
         )
-        status._tracks = tracks  # type: ignore[attr-defined]
-        self._store.add(job_id, status)
+        self._store.add(job_id, status, payload=tracks)
         self._append_event(job_id, "info", "Analysis queued")
         return job_id
 
@@ -145,7 +144,7 @@ class AnalysisJobManager:
 
     def run_job(self, job_id: str) -> AnalysisJobStatus:
         status = self.get(job_id)
-        tracks: list[Track] = getattr(status, "_tracks", [])
+        tracks = cast(list[Track], self._store.payload(job_id) or [])
         if status.cancel_requested:
             self._update(job_id, state="cancelled", finished_at=time.time())
             self._append_event(job_id, "warn", "Analysis cancelled")
@@ -323,6 +322,4 @@ class AnalysisJobManager:
             workers=status.workers,
             batch_size=status.batch_size,
         )
-        if hasattr(status, "_tracks"):
-            copy._tracks = getattr(status, "_tracks")  # type: ignore[attr-defined]
         return copy

@@ -5,7 +5,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Callable, Protocol
+from typing import Callable, Protocol, cast
 
 from .database import LibraryDatabase
 from .genres import MaestGenreAdapter, genre_adapter_factories as default_genre_adapter_factories
@@ -94,8 +94,7 @@ class GenreAnalysisJobManager:
             batch_size=effective_batch_size,
             workers=effective_batch_size,
         )
-        status._tracks = tracks  # type: ignore[attr-defined]
-        self._store.add(job_id, status)
+        self._store.add(job_id, status, payload=tracks)
         self._append_event(job_id, "info", "MAEST genre analysis queued")
         return job_id
 
@@ -111,7 +110,7 @@ class GenreAnalysisJobManager:
 
     def run_job(self, job_id: str) -> GenreJobStatus:
         status = self.get(job_id)
-        tracks: list[Track] = getattr(status, "_tracks", [])
+        tracks = cast(list[Track], self._store.payload(job_id) or [])
         if status.cancel_requested:
             self._update(job_id, state="cancelled", finished_at=time.time())
             self._append_event(job_id, "warn", "MAEST genre analysis cancelled")
@@ -283,6 +282,4 @@ class GenreAnalysisJobManager:
             batch_size=status.batch_size,
             workers=status.workers,
         )
-        if hasattr(status, "_tracks"):
-            copy._tracks = getattr(status, "_tracks")  # type: ignore[attr-defined]
         return copy

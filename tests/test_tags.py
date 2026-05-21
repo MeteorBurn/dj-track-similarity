@@ -8,7 +8,7 @@ import wave
 import pytest
 
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity import tags
+from dj_track_similarity import tags, wave_tags
 from dj_track_similarity.api import create_app
 from dj_track_similarity.tags import GenreTagJobManager, apply_genre_tags, build_genre_tag_preview, build_tag_preview, genre_tag_apply_summary
 from fastapi.testclient import TestClient
@@ -392,7 +392,7 @@ def test_write_genre_tag_uses_wave_loader_when_generic_mutagen_detects_no_tags(m
         handle.writeframes(b"\x00\x00" * 44_100)
     fake_wave = FakeWave(audio_path)
     monkeypatch.setattr(tags, "MutagenFile", lambda path: None)
-    monkeypatch.setattr(tags, "WAVE", lambda path: fake_wave)
+    monkeypatch.setattr(wave_tags, "WAVE", lambda path: fake_wave)
 
     tags._write_genre_tag(audio_path, "Minimal")
 
@@ -489,7 +489,7 @@ def test_apply_genre_tags_skips_malformed_wave_and_continues(tmp_path: Path, cap
     assert "Skipping genre tag write for unsupported WAV container" in caplog.text
 
 
-def test_apply_genre_tags_repairs_oversized_wave_data_chunk_before_writing(tmp_path: Path) -> None:
+def test_apply_genre_tags_skips_oversized_wave_data_chunk_without_rewriting(tmp_path: Path) -> None:
     audio_path = tmp_path / "oversized-data.wav"
     with wave.open(str(audio_path), "wb") as handle:
         handle.setnchannels(1)
@@ -499,9 +499,9 @@ def test_apply_genre_tags_repairs_oversized_wave_data_chunk_before_writing(tmp_p
     data = bytearray(audio_path.read_bytes())
     data_offset = data.index(b"data")
     actual_size = len(data) - data_offset - 8
-    audio_payload_before = bytes(data[data_offset + 8 :])
     data[data_offset + 4 : data_offset + 8] = (actual_size + 4096).to_bytes(4, "little")
     audio_path.write_bytes(data)
+    before = audio_path.read_bytes()
 
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_id = db.upsert_track(
@@ -512,19 +512,16 @@ def test_apply_genre_tags_repairs_oversized_wave_data_chunk_before_writing(tmp_p
     )
     db.save_genres(track_id, [{"label": "Minimal", "score": 0.8}], model_name="maest")
 
-    apply_genre_tags(db, [track_id])
+    result = apply_genre_tags(db, [track_id])
 
-    saved = MutagenFile(audio_path)
     track = db.get_track(track_id)
-    assert saved.tags["TCON"].text == ["Minimal"]
-    assert track.metadata["genre"] == "Minimal"
-    repaired = audio_path.read_bytes()
-    assert int.from_bytes(repaired[data_offset + 4 : data_offset + 8], "little") == actual_size
-    assert _riff_size_delta(audio_path) == 0
-    assert _wave_chunk_payload(audio_path) == audio_payload_before
+    assert result[0].status == "skipped"
+    assert result[0].message == "Unsupported WAV container"
+    assert audio_path.read_bytes() == before
+    assert "genre" not in track.metadata
 
 
-def test_apply_genre_tags_repairs_wave_with_data_chunk_two_bytes_too_long(tmp_path: Path) -> None:
+def test_apply_genre_tags_skips_shifted_wave_id3_chunk_without_rewriting(tmp_path: Path) -> None:
     audio_path = tmp_path / "shifted-id3.wav"
     with wave.open(str(audio_path), "wb") as handle:
         handle.setnchannels(1)
@@ -535,7 +532,6 @@ def test_apply_genre_tags_repairs_wave_with_data_chunk_two_bytes_too_long(tmp_pa
     audio.add_tags()
     audio.tags.add(TIT2(encoding=3, text=["Existing Title"]))
     audio.save()
-    audio_payload_before = _wave_chunk_payload(audio_path)
 
     data = bytearray(audio_path.read_bytes())
     data_offset = data.index(b"data")
@@ -544,6 +540,7 @@ def test_apply_genre_tags_repairs_wave_with_data_chunk_two_bytes_too_long(tmp_pa
     data[data_size_offset : data_size_offset + 4] = (int.from_bytes(data[data_size_offset : data_size_offset + 4], "little") + 2).to_bytes(4, "little")
     data[riff_size_offset : riff_size_offset + 4] = (int.from_bytes(data[riff_size_offset : riff_size_offset + 4], "little") + 2).to_bytes(4, "little")
     audio_path.write_bytes(data)
+    before = audio_path.read_bytes()
 
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_id = db.upsert_track(
@@ -554,20 +551,16 @@ def test_apply_genre_tags_repairs_wave_with_data_chunk_two_bytes_too_long(tmp_pa
     )
     db.save_genres(track_id, [{"label": "Electronic---Minimal Techno", "score": 0.8}], model_name="maest")
 
-    apply_genre_tags(db, [track_id])
+    result = apply_genre_tags(db, [track_id])
 
-    saved = MutagenFile(audio_path)
     track = db.get_track(track_id)
-    repaired = audio_path.read_bytes()
-    assert int.from_bytes(repaired[4:8], "little") == len(repaired) - 8
-    assert _riff_size_delta(audio_path) == 0
-    assert _wave_chunk_payload(audio_path) == audio_payload_before
-    assert saved.tags["TCON"].text == ["Minimal Techno"]
-    assert saved.tags["TIT2"].text == ["Existing Title"]
-    assert track.metadata["genre"] == "Minimal Techno"
+    assert result[0].status == "skipped"
+    assert result[0].message == "Unsupported WAV container"
+    assert audio_path.read_bytes() == before
+    assert "genre" not in track.metadata
 
 
-def test_write_genre_tag_removes_duplicate_wave_id3_chunks_without_touching_audio(tmp_path: Path) -> None:
+def test_write_genre_tag_rejects_duplicate_wave_id3_chunks_without_rewriting(tmp_path: Path) -> None:
     audio_path = tmp_path / "duplicate-id3.wav"
     with wave.open(str(audio_path), "wb") as handle:
         handle.setnchannels(1)
@@ -588,19 +581,16 @@ def test_write_genre_tag_removes_duplicate_wave_id3_chunks_without_touching_audi
     data.extend(duplicate)
     data[4:8] = (len(data) - 8).to_bytes(4, "little")
     audio_path.write_bytes(data)
+    before = audio_path.read_bytes()
     assert len(_wave_chunk_spans(audio_path, b"id3 ")) == 2
     assert audio_path.read_bytes().count(b"TCON") == 2
 
-    tags._write_genre_tag(audio_path, "Tech House; Minimal")
+    with pytest.raises(ValueError, match="duplicate ID3 chunks"):
+        tags._write_genre_tag(audio_path, "Tech House; Minimal")
 
-    saved = MutagenFile(audio_path)
-    repaired = audio_path.read_bytes()
-    assert _riff_size_delta(audio_path) == 0
+    assert audio_path.read_bytes() == before
     assert _wave_chunk_payload(audio_path) == audio_payload_before
-    assert len(_wave_chunk_spans(audio_path, b"id3 ")) == 1
-    assert repaired.count(b"TCON") == 1
-    assert saved.tags["TCON"].text == ["Tech House; Minimal"]
-    assert saved.tags["TIT2"].text == ["Existing Title"]
+    assert len(_wave_chunk_spans(audio_path, b"id3 ")) == 2
 
 
 @pytest.mark.parametrize("old_genres", [[], ["Old Genre"], ["One", "Two", "Three", "Four", "Five"]])

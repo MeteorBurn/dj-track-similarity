@@ -27,8 +27,8 @@ else who collects, tags, or plays music will find the approach useful too.
 - Extracts a focused Sonara playlist feature set, including analyzed BPM,
   raw Sonara key data, rhythm/loudness values, perceptual scores, tonal
   descriptors, and compact spectral summaries, then stores those summaries in SQLite.
-- Uses a native-first audio loader with tolerant WAV recovery for playable files
-  that strict RIFF parsers reject.
+- Uses a native-first audio loader with standard decoders: torchaudio when
+  available, Python's WAV reader for WAV files, and ffmpeg fallback.
 - Keeps analyzed Sonara key data in its original form for display and storage.
 - Builds audio embeddings with MERT for audio-to-audio similarity search.
 - Builds CLAP audio embeddings for text-to-audio search.
@@ -362,7 +362,7 @@ The writer uses `TCON` for MP3/WAV/AIFF, `GENRE` for FLAC/Vorbis-style tags,
 and `©gen` for MP4/M4A/ALAC. MAEST prefixes such as `Electronic---` are removed
 before writing. WAV genre updates use Mutagen's WAVE writer, validate the
 container before and after saving, skip unsupported malformed WAV containers,
-and can repair an oversized `data` chunk size before writing tags.
+and do not repair malformed RIFF/WAVE chunk structures automatically.
 
 Runtime logs are written to `dj-track-similarity.log` in the current working
 directory by default. Set `DJ_TRACK_SIMILARITY_LOG` to choose another path.

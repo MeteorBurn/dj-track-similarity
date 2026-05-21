@@ -47,11 +47,3 @@ export function formatEta(seconds: number) {
   const hours = Math.floor(minutes / 60);
   return `${hours}h ${minutes % 60}m`;
 }
-
-export function formatTime(timestamp: number) {
-  return new Date(timestamp * 1000).toLocaleTimeString("ru-RU", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  });
-}

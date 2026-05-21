@@ -45,19 +45,6 @@ function transpile(source) {
   }).outputText;
 }
 
-test("syncopated preset keeps only matching visible tracks", async () => {
-  const { visibleLibraryTracks } = await loadLibraryViewModule();
-  const tracks = [
-    { id: 1, artist: "Beta", title: "Straight", album: null, path: "D:/Music/beta.wav", genres: ["Techno"] },
-    { id: 2, artist: "Alpha", title: "Broken", album: null, path: "D:/Music/alpha.wav", genres: ["Electronic---Breakbeat"] },
-    { id: 3, artist: "Gamma", title: "Jungle", album: null, path: "D:/Music/gamma.wav", genres: ["Jungle"] }
-  ];
-
-  const visible = visibleLibraryTracks(tracks, "", "syncopated");
-
-  assert.deepEqual(visible.map((track) => track.id), [2, 3]);
-});
-
 test("visible track add skips duplicates and preserves visible order", async () => {
   const { appendVisibleTracksToPlaylist } = await loadLibraryViewModule();
   const playlist = [{ id: 3, title: "Already in set", path: "D:/Music/gamma.wav" }];

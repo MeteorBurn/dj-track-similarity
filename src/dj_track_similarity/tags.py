@@ -6,6 +6,7 @@ import uuid
 from dataclasses import dataclass, field
 import logging
 from pathlib import Path
+from typing import cast
 
 from mutagen import File as MutagenFile
 from mutagen.aiff import AIFF
@@ -19,6 +20,7 @@ from .job_runtime import JobStore
 from .logging_config import exception_summary
 from .models import GenreTagApplyResult, TagPreview, Track
 from .scanner import MUTAGEN_METADATA_KEYS, read_audio_metadata
+from .wave_tags import set_audio_id3_genre, should_skip_wave_genre_tag_write, write_wave_genre_tag
 
 
 CUSTOM_TAG_PREFIX = "DJ_SIM"
@@ -68,8 +70,7 @@ class GenreTagJobManager:
         tracks = self.db.list_tracks_with_maest_genres() if track_ids is None else _tracks(db=self.db, track_ids=track_ids)
         job_id = str(uuid.uuid4())
         status = GenreTagJobStatus(job_id=job_id, state="queued", total=len(tracks))
-        status._tracks = tracks  # type: ignore[attr-defined]
-        self._store.add(job_id, status)
+        self._store.add(job_id, status, payload=tracks)
         self._append_event(job_id, "info", "Genre tag apply queued")
         return job_id
 
@@ -85,7 +86,7 @@ class GenreTagJobManager:
 
     def run_job(self, job_id: str) -> GenreTagJobStatus:
         status = self.get(job_id)
-        tracks: list[Track] = getattr(status, "_tracks", [])
+        tracks = cast(list[Track], self._store.payload(job_id) or [])
         if status.cancel_requested:
             self._update(job_id, state="cancelled", finished_at=time.time())
             self._append_event(job_id, "warn", "Genre tag apply cancelled")
@@ -173,8 +174,6 @@ class GenreTagJobManager:
             events=list(status.events),
             cancel_requested=status.cancel_requested,
         )
-        if hasattr(status, "_tracks"):
-            copy._tracks = list(getattr(status, "_tracks"))  # type: ignore[attr-defined]
         return copy
 
 
@@ -290,13 +289,7 @@ def genre_tag_apply_summary(results: list[GenreTagApplyResult]) -> str:
 
 
 def _should_skip_genre_tag_write(path: Path) -> bool:
-    if path.suffix.lower() not in {".wav", ".wave"}:
-        return False
-    try:
-        _validate_wave_container(path)
-    except ValueError:
-        return True
-    return False
+    return should_skip_wave_genre_tag_write(path)
 
 
 def _tracks(db: LibraryDatabase, track_ids: list[int]) -> list[Track]:
@@ -364,16 +357,7 @@ def _write_genre_tag(path: Path, genre: str) -> None:
         return
 
     if suffix in {".wav", ".wave"}:
-        _validate_wave_container(path)
-        _repair_shifted_wave_id3_chunk(path)
-        _repair_oversized_wave_data_chunk(path)
-        _remove_duplicate_wave_id3_chunks(path)
-        audio = WAVE(path)
-        _set_audio_id3_genre(audio, genre_text)
-        audio.save()
-        _validate_wave_container(path)
-        _remove_duplicate_wave_id3_chunks(path)
-        _verify_wave_genre_tag(path, genre_text)
+        write_wave_genre_tag(path, genre_text)
         return
 
     audio = MutagenFile(path)
@@ -384,12 +368,12 @@ def _write_genre_tag(path: Path, genre: str) -> None:
     elif isinstance(audio, FLAC):
         audio["GENRE"] = genre_text
     elif isinstance(audio, (WAVE, AIFF)) or suffix in {".aif", ".aiff", ".dsf", ".dff"}:
-        _set_audio_id3_genre(audio, genre_text)
+        set_audio_id3_genre(audio, genre_text)
     else:
         if not hasattr(audio, "tags") or audio.tags is None:
             audio.add_tags()
         if hasattr(audio.tags, "add"):
-            _set_audio_id3_genre(audio, genre_text)
+            set_audio_id3_genre(audio, genre_text)
         else:
             audio["Genre"] = genre_text
     audio.save()
@@ -405,123 +389,3 @@ def _load_id3(path: Path) -> ID3:
         return ID3(path)
     except ID3NoHeaderError:
         return ID3()
-
-
-def _set_audio_id3_genre(audio: object, genre_text: str) -> None:
-    if not hasattr(audio, "tags") or audio.tags is None:
-        audio.add_tags()
-    if audio.tags is None:
-        raise RuntimeError("Unable to create or access ID3 tags")
-    if "TCON" in audio.tags:
-        del audio.tags["TCON"]
-    audio.tags.add(TCON(encoding=3, text=[genre_text]))
-
-
-def _validate_wave_container(path: Path) -> None:
-    data = path.read_bytes()
-    if len(data) < 12 or data[:4] != b"RIFF" or data[8:12] != b"WAVE":
-        raise ValueError(f"Unsupported WAV file: {path}")
-    if _find_wave_data_chunk_start(data) is None:
-        raise ValueError(f"Unsupported WAV file without readable data chunk: {path}")
-
-
-def _repair_oversized_wave_data_chunk(path: Path) -> None:
-    data = bytearray(path.read_bytes())
-    bounds = _find_wave_data_chunk_bounds(data)
-    if bounds is None:
-        return
-    data_start, declared_size = bounds
-    actual_size = len(data) - data_start
-    if declared_size <= actual_size:
-        return
-    chunk_size_offset = data_start - 4
-    data[chunk_size_offset : chunk_size_offset + 4] = actual_size.to_bytes(4, "little")
-    data[4:8] = (len(data) - 8).to_bytes(4, "little")
-    path.write_bytes(data)
-    LOGGER.warning("Repaired oversized WAV data chunk before tag write path=%s", path)
-
-
-def _repair_shifted_wave_id3_chunk(path: Path) -> None:
-    data = bytearray(path.read_bytes())
-    bounds = _find_wave_data_chunk_bounds(data)
-    if bounds is None:
-        return
-    data_start, declared_size = bounds
-    declared_end = data_start + declared_size
-    shifted_chunk_start = declared_end - 2
-    if shifted_chunk_start < data_start or shifted_chunk_start + 8 > len(data):
-        return
-    if data[shifted_chunk_start : shifted_chunk_start + 4] != b"id3 ":
-        return
-    data_size_offset = data_start - 4
-    data[data_size_offset : data_size_offset + 4] = (declared_size - 2).to_bytes(4, "little")
-    data[4:8] = (len(data) - 8).to_bytes(4, "little")
-    path.write_bytes(data)
-    LOGGER.warning("Repaired WAV data/id3 chunk boundary before tag write path=%s", path)
-
-
-def _verify_wave_genre_tag(path: Path, genre_text: str) -> None:
-    audio = WAVE(path)
-    if audio.tags is None or "TCON" not in audio.tags:
-        raise RuntimeError(f"Genre tag was not readable after WAV save: {path}")
-    if list(audio.tags["TCON"].text) != [genre_text]:
-        raise RuntimeError(f"Genre tag readback mismatch after WAV save: {path}")
-
-
-def _remove_duplicate_wave_id3_chunks(path: Path) -> None:
-    data = path.read_bytes()
-    pos = 12
-    chunks: list[tuple[int, int, bytes]] = []
-    while pos + 8 <= len(data):
-        chunk_id = data[pos : pos + 4]
-        chunk_size = int.from_bytes(data[pos + 4 : pos + 8], "little")
-        chunk_end = pos + 8 + chunk_size + (chunk_size % 2)
-        if chunk_end <= pos or chunk_end > len(data) + 1:
-            return
-        chunks.append((pos, chunk_end, chunk_id))
-        pos = chunk_end
-
-    seen_id3 = False
-    rebuilt = bytearray(data[:12])
-    removed = 0
-    for start, end, chunk_id in chunks:
-        if chunk_id in {b"id3 ", b"ID3 "}:
-            if seen_id3:
-                removed += 1
-                continue
-            seen_id3 = True
-        rebuilt.extend(data[start:end])
-
-    if not removed:
-        return
-    rebuilt[4:8] = (len(rebuilt) - 8).to_bytes(4, "little")
-    path.write_bytes(rebuilt)
-    LOGGER.warning("Removed duplicate WAV id3 chunks before tag write path=%s count=%s", path, removed)
-
-
-def _find_wave_data_chunk_bounds(data: bytes) -> tuple[int, int] | None:
-    pos = 12
-    while pos + 8 <= len(data):
-        chunk_id = data[pos : pos + 4]
-        chunk_size = int.from_bytes(data[pos + 4 : pos + 8], "little")
-        if chunk_id == b"data":
-            return pos + 8, chunk_size
-        chunk_end = pos + 8 + chunk_size + (chunk_size % 2)
-        if chunk_end <= pos or chunk_end > len(data):
-            return None
-        pos = chunk_end
-    return None
-
-
-def _find_wave_data_chunk_start(data: bytes) -> int | None:
-    pos = 12
-    while pos + 8 <= len(data):
-        chunk_id = data[pos : pos + 4]
-        chunk_size = int.from_bytes(data[pos + 4 : pos + 8], "little")
-        if chunk_id == b"data":
-            return pos
-        chunk_end = pos + 8 + chunk_size + (chunk_size % 2)
-        if chunk_end <= pos or chunk_end > len(data):
-            return None
-        pos = chunk_end
-    return None

@@ -6,6 +6,7 @@ import time
 import uuid
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
+from typing import cast
 
 from .database import LibraryDatabase
 from .job_runtime import JobStore
@@ -69,8 +70,7 @@ class SonaraFeatureJobManager:
         job_id = str(uuid.uuid4())
         workers = max(1, batch_size)
         status = SonaraJobStatus(job_id=job_id, state="queued", total=len(tracks), workers=workers, batch_size=workers)
-        status._tracks = tracks  # type: ignore[attr-defined]
-        self._store.add(job_id, status)
+        self._store.add(job_id, status, payload=tracks)
         self._append_event(job_id, "info", "Sonara feature analysis queued")
         return job_id
 
@@ -86,7 +86,7 @@ class SonaraFeatureJobManager:
 
     def run_job(self, job_id: str) -> SonaraJobStatus:
         status = self.get(job_id)
-        tracks: list[Track] = getattr(status, "_tracks", [])
+        tracks = cast(list[Track], self._store.payload(job_id) or [])
         if status.cancel_requested:
             self._update(job_id, state="cancelled", finished_at=time.time())
             self._append_event(job_id, "warn", "Sonara feature analysis cancelled")
@@ -241,6 +241,4 @@ class SonaraFeatureJobManager:
             workers=status.workers,
             batch_size=status.batch_size,
         )
-        if hasattr(status, "_tracks"):
-            copy._tracks = getattr(status, "_tracks")  # type: ignore[attr-defined]
         return copy

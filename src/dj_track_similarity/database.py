@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from contextlib import nullcontext as _nullcontext
-import json
-import math
 import sqlite3
 import threading
 from pathlib import Path
@@ -10,11 +8,20 @@ from typing import ClassVar, Iterable
 
 import numpy as np
 
+from .db_schema import SQLITE_BUSY_TIMEOUT_SECONDS, TRACK_SELECT_FIELDS, TRACK_SELECT_FIELDS_WITH_VECTOR, ensure_schema
+from .metadata_payload import (
+    analyses_from_row,
+    clean_maest_genre_label,
+    genres_from_metadata,
+    metadata_from_json,
+    metadata_to_json,
+    optional_float,
+    string_or_none,
+)
 from .models import Track
 
 
 DEFAULT_EMBEDDING_KEY = "mert"
-SQLITE_BUSY_TIMEOUT_SECONDS = 30
 SYNCOPATED_RHYTHM_GENRES = (
     "Breakbeat",
     "Breakcore",
@@ -30,45 +37,10 @@ SYNCOPATED_RHYTHM_GENRES = (
     "Bassline",
     "Electro",
 )
-TRACK_SELECT_FIELDS = """
-t.*, e.model_name AS embedding_model, e.dim AS embedding_dim,
-    (
-        SELECT json_group_array(embedding_key)
-        FROM embeddings
-        WHERE track_id = t.id
-    ) AS embedding_keys_json
-"""
-TRACK_SELECT_FIELDS_WITH_VECTOR = """
-t.*, e.model_name AS embedding_model, e.dim AS embedding_dim, e.vector,
-    (
-        SELECT json_group_array(embedding_key)
-        FROM embeddings
-        WHERE track_id = t.id
-    ) AS embedding_keys_json
-"""
 
 
 def normalize_path(path: str | Path) -> str:
     return Path(path).as_posix()
-
-
-def _optional_float(value: object) -> float | None:
-    if value is None or value == "":
-        return None
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return None
-    return result if math.isfinite(result) else None
-
-
-def _clean_maest_genre_label(label: str | None) -> str | None:
-    if not label:
-        return None
-    text = label.replace("_", " ").strip()
-    if "---" in text:
-        text = text.rsplit("---", 1)[-1].strip()
-    return text or None
 
 
 class LibraryDatabase:
@@ -99,104 +71,7 @@ class LibraryDatabase:
 
     def _ensure_schema(self) -> None:
         with self._write_lock, self.connect() as connection:
-            connection.execute("PRAGMA journal_mode = WAL")
-            connection.execute("PRAGMA synchronous = NORMAL")
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS tracks (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    path TEXT NOT NULL UNIQUE,
-                    size INTEGER NOT NULL,
-                    mtime REAL NOT NULL,
-                    artist TEXT,
-                    title TEXT,
-                    album TEXT,
-                    bpm REAL,
-                    musical_key TEXT,
-                    energy REAL,
-                    duration REAL,
-                    metadata_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata_json)),
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );
-
-                CREATE TABLE IF NOT EXISTS embeddings (
-                    track_id INTEGER NOT NULL,
-                    embedding_key TEXT NOT NULL DEFAULT 'mert',
-                    model_name TEXT NOT NULL,
-                    dim INTEGER NOT NULL,
-                    vector BLOB NOT NULL,
-                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY(track_id, embedding_key),
-                    FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
-                );
-
-                CREATE TABLE IF NOT EXISTS playlists (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL,
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );
-
-                CREATE TABLE IF NOT EXISTS playlist_tracks (
-                    playlist_id INTEGER NOT NULL,
-                    track_id INTEGER NOT NULL,
-                    position INTEGER NOT NULL,
-                    PRIMARY KEY(playlist_id, position),
-                    FOREIGN KEY(playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
-                    FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
-                );
-                """
-            )
-            self._migrate_embedding_schema(connection)
-            self._ensure_track_metadata_json_guards(connection)
-
-    def _migrate_embedding_schema(self, connection: sqlite3.Connection) -> None:
-        columns = connection.execute("PRAGMA table_info(embeddings)").fetchall()
-        if any(str(column["name"]) == "embedding_key" for column in columns):
-            return
-        connection.executescript(
-            """
-            ALTER TABLE embeddings RENAME TO embeddings_legacy;
-
-            CREATE TABLE embeddings (
-                track_id INTEGER NOT NULL,
-                embedding_key TEXT NOT NULL DEFAULT 'mert',
-                model_name TEXT NOT NULL,
-                dim INTEGER NOT NULL,
-                vector BLOB NOT NULL,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY(track_id, embedding_key),
-                FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
-            );
-
-            INSERT INTO embeddings (track_id, embedding_key, model_name, dim, vector, updated_at)
-            SELECT track_id, 'mert', model_name, dim, vector, updated_at
-            FROM embeddings_legacy;
-
-            DROP TABLE embeddings_legacy;
-            """
-        )
-
-    def _ensure_track_metadata_json_guards(self, connection: sqlite3.Connection) -> None:
-        connection.executescript(
-            """
-            CREATE TRIGGER IF NOT EXISTS tracks_metadata_json_insert_valid
-            BEFORE INSERT ON tracks
-            FOR EACH ROW
-            WHEN NOT json_valid(NEW.metadata_json)
-            BEGIN
-                SELECT RAISE(ABORT, 'tracks.metadata_json must be valid JSON');
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS tracks_metadata_json_update_valid
-            BEFORE UPDATE OF metadata_json ON tracks
-            FOR EACH ROW
-            WHEN NOT json_valid(NEW.metadata_json)
-            BEGIN
-                SELECT RAISE(ABORT, 'tracks.metadata_json must be valid JSON');
-            END;
-            """
-        )
+            ensure_schema(connection)
 
     def get_track_by_path(self, path: str | Path) -> Track | None:
         with self.connect() as connection:
@@ -240,14 +115,14 @@ class LibraryDatabase:
     ) -> int:
         metadata = metadata or {}
         normalized = normalize_path(path)
-        artist = _string_or_none(metadata.get("artist"))
-        title = _string_or_none(metadata.get("title")) or Path(path).stem
-        album = _string_or_none(metadata.get("album"))
-        bpm = _optional_float(bpm) if bpm is not None else _optional_float(metadata.get("bpm"))
-        musical_key = musical_key or _string_or_none(metadata.get("key")) or _string_or_none(metadata.get("initialkey"))
-        energy = _optional_float(energy)
-        duration = _optional_float(duration) if duration is not None else _optional_float(metadata.get("duration"))
-        metadata_json = _metadata_to_json(metadata)
+        artist = string_or_none(metadata.get("artist"))
+        title = string_or_none(metadata.get("title")) or Path(path).stem
+        album = string_or_none(metadata.get("album"))
+        bpm = optional_float(bpm) if bpm is not None else optional_float(metadata.get("bpm"))
+        musical_key = musical_key or string_or_none(metadata.get("key")) or string_or_none(metadata.get("initialkey"))
+        energy = optional_float(energy)
+        duration = optional_float(duration) if duration is not None else optional_float(metadata.get("duration"))
+        metadata_json = metadata_to_json(metadata)
 
         with self._write_lock, self.connect() as connection:
             connection.execute(
@@ -429,10 +304,10 @@ class LibraryDatabase:
     def save_genres(self, track_id: int, genres: list[dict[str, object]], *, model_name: str) -> None:
         cleaned = []
         for genre in genres:
-            label = _clean_maest_genre_label(_string_or_none(genre.get("label")))
+            label = clean_maest_genre_label(string_or_none(genre.get("label")))
             if not label:
                 continue
-            score = _optional_float(genre.get("score"))
+            score = optional_float(genre.get("score"))
             cleaned.append({"label": label, "score": float(score or 0.0)})
         with self._write_lock, self.connect() as connection:
             metadata = self._metadata_for_track_update(connection, track_id)
@@ -440,7 +315,7 @@ class LibraryDatabase:
             metadata["maest_model"] = model_name
             connection.execute(
                 "UPDATE tracks SET metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (_metadata_to_json(metadata), track_id),
+                (metadata_to_json(metadata), track_id),
             )
 
     def save_sonara_features(
@@ -470,11 +345,11 @@ class LibraryDatabase:
                 WHERE id = ?
                 """,
                 (
-                    _optional_float(bpm),
+                    optional_float(bpm),
                     musical_key,
-                    _optional_float(energy),
-                    _optional_float(duration),
-                    _metadata_to_json(metadata, sort_keys=False),
+                    optional_float(energy),
+                    optional_float(duration),
+                    metadata_to_json(metadata, sort_keys=False),
                     track_id,
                 ),
             )
@@ -494,9 +369,9 @@ class LibraryDatabase:
                 existing_metadata.pop(key, None)
             existing_metadata.update(metadata)
             has_sonara = bool(existing_metadata.get("sonara_features"))
-            bpm = _optional_float(metadata.get("bpm"))
-            musical_key = _string_or_none(metadata.get("key")) or _string_or_none(metadata.get("initialkey"))
-            duration = _optional_float(metadata.get("duration"))
+            bpm = optional_float(metadata.get("bpm"))
+            musical_key = string_or_none(metadata.get("key")) or string_or_none(metadata.get("initialkey"))
+            duration = optional_float(metadata.get("duration"))
             connection.execute(
                 """
                 UPDATE tracks
@@ -515,16 +390,16 @@ class LibraryDatabase:
                 (
                     int(size),
                     float(mtime),
-                    _string_or_none(metadata.get("artist")),
-                    _string_or_none(metadata.get("title")) or Path(_string_or_none(existing_metadata.get("path")) or "").stem,
-                    _string_or_none(metadata.get("album")),
+                    string_or_none(metadata.get("artist")),
+                    string_or_none(metadata.get("title")) or Path(string_or_none(existing_metadata.get("path")) or "").stem,
+                    string_or_none(metadata.get("album")),
                     1 if has_sonara else 0,
                     bpm,
                     1 if has_sonara else 0,
                     musical_key,
                     1 if has_sonara else 0,
                     duration,
-                    _metadata_to_json(existing_metadata),
+                    metadata_to_json(existing_metadata),
                     track_id,
                 ),
             )
@@ -533,7 +408,7 @@ class LibraryDatabase:
         row = connection.execute("SELECT metadata_json FROM tracks WHERE id = ?", (track_id,)).fetchone()
         if row is None:
             raise KeyError(f"Unknown track id: {track_id}")
-        return _metadata_from_json(row["metadata_json"])
+        return metadata_from_json(row["metadata_json"])
 
     def reset_analysis(self, adapter: str) -> dict[str, object]:
         adapter = adapter.strip().lower()
@@ -635,14 +510,14 @@ class LibraryDatabase:
         with self._write_lock, self.connect() as connection:
             rows = connection.execute("SELECT id, metadata_json FROM tracks").fetchall()
             for row in rows:
-                metadata = _metadata_from_json(row["metadata_json"])
+                metadata = metadata_from_json(row["metadata_json"])
                 if not any(key in metadata for key in keys):
                     continue
                 for key in keys:
                     metadata.pop(key, None)
                 connection.execute(
                     "UPDATE tracks SET metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                    (_metadata_to_json(metadata), row["id"]),
+                    (metadata_to_json(metadata), row["id"]),
                 )
                 updated += 1
         return {"adapter": adapter, "tracks_updated": updated, "embeddings_deleted": 0}
@@ -653,7 +528,7 @@ class LibraryDatabase:
         with self._write_lock, self.connect() as connection:
             rows = connection.execute("SELECT id, metadata_json FROM tracks").fetchall()
             for row in rows:
-                metadata = _metadata_from_json(row["metadata_json"])
+                metadata = metadata_from_json(row["metadata_json"])
                 if not any(key in metadata for key in keys):
                     continue
                 for key in keys:
@@ -670,11 +545,11 @@ class LibraryDatabase:
                     WHERE id = ?
                     """,
                     (
-                        _optional_float(metadata.get("bpm")),
-                        _string_or_none(metadata.get("key")) or _string_or_none(metadata.get("initialkey")),
-                        _optional_float(metadata.get("energy")),
-                        _optional_float(metadata.get("duration")),
-                        _metadata_to_json(metadata),
+                        optional_float(metadata.get("bpm")),
+                        string_or_none(metadata.get("key")) or string_or_none(metadata.get("initialkey")),
+                        optional_float(metadata.get("energy")),
+                        optional_float(metadata.get("duration")),
+                        metadata_to_json(metadata),
                         row["id"],
                     ),
                 )
@@ -736,9 +611,9 @@ class LibraryDatabase:
 
     @staticmethod
     def _row_to_track(row: sqlite3.Row, *, include_metadata: bool = True) -> Track:
-        metadata = _metadata_from_json(row["metadata_json"] if "metadata_json" in row.keys() else "{}")
-        genres, genre_scores = _genres_from_metadata(metadata)
-        analyses = _analyses_from_row(row, metadata)
+        metadata = metadata_from_json(row["metadata_json"] if "metadata_json" in row.keys() else "{}")
+        genres, genre_scores = genres_from_metadata(metadata)
+        analyses = analyses_from_row(row, metadata)
         return Track(
             id=int(row["id"]),
             path=str(row["path"]),
@@ -758,47 +633,6 @@ class LibraryDatabase:
             embedding_model=row["embedding_model"] if "embedding_model" in row.keys() else None,
             embedding_dim=row["embedding_dim"] if "embedding_dim" in row.keys() else None,
         )
-
-
-def _string_or_none(value: object) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, (list, tuple)):
-        value = value[0] if value else None
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
-
-
-def _metadata_from_json(metadata_json: object) -> dict[str, object]:
-    try:
-        metadata = json.loads(str(metadata_json or "{}"))
-    except json.JSONDecodeError:
-        return {}
-    if not isinstance(metadata, dict):
-        return {}
-    sanitized = _json_safe_value(metadata)
-    return sanitized if isinstance(sanitized, dict) else {}
-
-
-def _metadata_to_json(metadata: dict[str, object], *, sort_keys: bool = True) -> str:
-    sanitized = _json_safe_value(metadata)
-    return json.dumps(sanitized, ensure_ascii=False, sort_keys=sort_keys, allow_nan=False)
-
-
-def _json_safe_value(value: object) -> object:
-    if isinstance(value, dict):
-        return {str(key): _json_safe_value(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_safe_value(item) for item in value]
-    if isinstance(value, np.ndarray):
-        return _json_safe_value(value.tolist())
-    if isinstance(value, np.generic):
-        return _json_safe_value(value.item())
-    if isinstance(value, float):
-        return value if math.isfinite(value) else None
-    return value
 
 
 def _track_filter_sql(*, query: str, preset: str) -> tuple[list[str], list[object]]:
@@ -854,43 +688,3 @@ def _relocate_path(path: str, old_root: str, new_root: str) -> str | None:
         return None
     relative = path[len(old_root) :].lstrip("/")
     return f"{new_root}/{relative}" if relative else new_root
-
-
-def _genres_from_metadata(metadata: dict[str, object]) -> tuple[list[str] | None, dict[str, float] | None]:
-    raw_genres = metadata.get("maest_genres")
-    if not isinstance(raw_genres, list):
-        return None, None
-    labels: list[str] = []
-    scores: dict[str, float] = {}
-    for item in raw_genres:
-        if not isinstance(item, dict):
-            continue
-        label = _string_or_none(item.get("label"))
-        score = _optional_float(item.get("score"))
-        if label is None:
-            continue
-        labels.append(label)
-        scores[label] = float(score or 0.0)
-    return (labels or None), (scores or None)
-
-
-def _analyses_from_row(row: sqlite3.Row, metadata: dict[str, object]) -> list[str] | None:
-    analyses_set: set[str] = set()
-    if metadata.get("maest_genres"):
-        analyses_set.add("maest")
-    if metadata.get("sonara_features"):
-        analyses_set.add("sonara")
-    keys_json = row["embedding_keys_json"] if "embedding_keys_json" in row.keys() else None
-    try:
-        keys = json.loads(str(keys_json or "[]"))
-    except json.JSONDecodeError:
-        keys = []
-    if isinstance(keys, list):
-        for key in keys:
-            text = _string_or_none(key)
-            if text:
-                analyses_set.add(text)
-    ordered = [name for name in ("sonara", "maest", "mert", "clap") if name in analyses_set]
-    extras = sorted(name for name in analyses_set if name not in {"maest", "sonara", "mert", "clap"})
-    analyses = ordered + extras
-    return analyses or None

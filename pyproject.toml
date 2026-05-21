@@ -30,7 +30,11 @@ ml = [
 ]
 dev = [
   "pytest>=7.4",
+  "ruff>=0.8",
 ]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
 
 [project.scripts]
 dj-sim = "dj_track_similarity.cli:app"

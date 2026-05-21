@@ -13,7 +13,6 @@ export function TrackPanel({
   tracks,
   total,
   offset,
-  pageSize,
   loading,
   canGoBack,
   canGoForward,
@@ -40,7 +39,6 @@ export function TrackPanel({
   tracks: Track[];
   total: number;
   offset: number;
-  pageSize: number;
   loading: boolean;
   canGoBack: boolean;
   canGoForward: boolean;

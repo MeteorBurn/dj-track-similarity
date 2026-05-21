@@ -7,11 +7,13 @@ import uuid
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable, cast
 
 from .database import LibraryDatabase
 from .job_runtime import JobStore
 from .logging_config import event_log_level, exception_summary
-from .scanner import MUTAGEN_METADATA_KEYS, SUPPORTED_AUDIO_EXTENSIONS, read_audio_metadata
+from .metadata_payload import optional_float, string_or_none
+from .scanner import MUTAGEN_METADATA_KEYS, iter_audio_files, read_audio_metadata
 
 
 LOGGER = logging.getLogger(__name__)
@@ -46,6 +48,12 @@ class ScanJobStatus:
     workers: int = 1
 
 
+@dataclass(frozen=True)
+class ScanJobPayload:
+    paths: list[Path]
+    track_ids: dict[str, int] = field(default_factory=dict)
+
+
 class ScanJobManager:
     def __init__(self, db: LibraryDatabase) -> None:
         self.db = db
@@ -57,11 +65,10 @@ class ScanJobManager:
             raise FileNotFoundError(root_path)
         if not root_path.is_dir():
             raise NotADirectoryError(root_path)
-        paths = list(_iter_audio_files(root_path))
+        paths = list(iter_audio_files(root_path))
         job_id = str(uuid.uuid4())
         status = ScanJobStatus(job_id=job_id, state="queued", root=str(root_path), total=len(paths), workers=max(1, workers))
-        status._paths = paths  # type: ignore[attr-defined]
-        self._store.add(job_id, status)
+        self._store.add(job_id, status, payload=ScanJobPayload(paths=paths))
         self._append_event(job_id, "info", "Scan queued", path=str(root_path))
         return job_id
 
@@ -81,10 +88,7 @@ class ScanJobManager:
         track_ids = {track.path: track.id for track in tracks}
         job_id = str(uuid.uuid4())
         status = ScanJobStatus(job_id=job_id, state="queued", root="metadata refresh", total=len(paths), workers=max(1, workers))
-        status._paths = paths  # type: ignore[attr-defined]
-        status._track_ids = track_ids  # type: ignore[attr-defined]
-        status._refresh_tags = True  # type: ignore[attr-defined]
-        self._store.add(job_id, status)
+        self._store.add(job_id, status, payload=ScanJobPayload(paths=paths, track_ids=track_ids))
         self._append_event(job_id, "info", "Tag refresh queued")
         return job_id
 
@@ -96,7 +100,8 @@ class ScanJobManager:
 
     def run_tag_refresh_job(self, job_id: str) -> ScanJobStatus:
         status = self.get(job_id)
-        paths: list[Path] = getattr(status, "_paths", [])
+        payload = cast(ScanJobPayload, self._store.payload(job_id))
+        paths = payload.paths
         if status.cancel_requested:
             self._update(job_id, state="cancelled", finished_at=time.time())
             self._append_event(job_id, "warn", "Tag refresh cancelled")
@@ -134,7 +139,8 @@ class ScanJobManager:
 
     def run_job(self, job_id: str) -> ScanJobStatus:
         status = self.get(job_id)
-        paths: list[Path] = getattr(status, "_paths", [])
+        payload = cast(ScanJobPayload, self._store.payload(job_id))
+        paths = payload.paths
         if status.cancel_requested:
             self._update(job_id, state="cancelled", finished_at=time.time())
             self._append_event(job_id, "warn", "Scan cancelled")
@@ -170,7 +176,7 @@ class ScanJobManager:
         self._append_event(job_id, "info", "Scan completed")
         return self.get(job_id)
 
-    def _run_parallel(self, job_id: str, paths: list[Path], workers: int, action) -> None:
+    def _run_parallel(self, job_id: str, paths: list[Path], workers: int, action: Callable[[str, Path], None]) -> None:
         pending_paths = iter(paths)
         futures = {}
         with ThreadPoolExecutor(max_workers=workers) as executor:
@@ -191,12 +197,6 @@ class ScanJobManager:
                 for future in done:
                     futures.pop(future, None)
                     future.result()
-
-    def _run_sequential(self, job_id: str, paths: list[Path]) -> None:
-        for path in paths:
-            if self.get(job_id).cancel_requested:
-                return
-            self._scan_one(job_id, path)
 
     def get(self, job_id: str) -> ScanJobStatus:
         return self._store.get(job_id)
@@ -223,9 +223,9 @@ class ScanJobManager:
                 size=size,
                 mtime=mtime,
                 metadata=metadata,
-                bpm=_as_float(metadata.get("bpm")),
-                musical_key=_as_string(metadata.get("key") or metadata.get("initialkey")),
-                duration=_as_float(metadata.get("duration")),
+                bpm=optional_float(metadata.get("bpm")),
+                musical_key=string_or_none(metadata.get("key") or metadata.get("initialkey")),
+                duration=optional_float(metadata.get("duration")),
             )
             if existing:
                 self._increment(job_id, updated=1, message="Track updated", level="ok", path=str(path))
@@ -239,8 +239,8 @@ class ScanJobManager:
     def _refresh_tags_one(self, job_id: str, path: Path) -> None:
         self._update(job_id, current_path=str(path))
         try:
-            status = self.get(job_id)
-            track_ids: dict[str, int] = getattr(status, "_track_ids", {})
+            payload = cast(ScanJobPayload, self._store.payload(job_id))
+            track_ids = payload.track_ids
             track_id = track_ids.get(path.as_posix()) or track_ids.get(str(path))
             if track_id is None:
                 self._increment(job_id, skipped=1, message="Track id missing for path", level="warn", path=str(path))
@@ -314,32 +314,4 @@ class ScanJobManager:
             cancel_requested=status.cancel_requested,
             workers=status.workers,
         )
-        if hasattr(status, "_paths"):
-            copy._paths = getattr(status, "_paths")  # type: ignore[attr-defined]
-        if hasattr(status, "_track_ids"):
-            copy._track_ids = getattr(status, "_track_ids")  # type: ignore[attr-defined]
-        if hasattr(status, "_refresh_tags"):
-            copy._refresh_tags = getattr(status, "_refresh_tags")  # type: ignore[attr-defined]
         return copy
-
-
-def _iter_audio_files(root: Path):
-    for path in sorted(root.rglob("*")):
-        if path.is_file() and path.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS:
-            yield path
-
-
-def _as_float(value: object) -> float | None:
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _as_string(value: object) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None

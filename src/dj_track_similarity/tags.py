@@ -17,10 +17,10 @@ from mutagen.wave import WAVE
 
 from .database import LibraryDatabase
 from .job_runtime import JobStore
-from .logging_config import exception_summary
+from .logging_config import exception_summary, log_failure, log_job_event
 from .models import GenreTagApplyResult, TagPreview, Track
 from .scanner import MUTAGEN_METADATA_KEYS, read_audio_metadata
-from .wave_tags import set_audio_id3_genre, should_skip_wave_genre_tag_write, write_wave_genre_tag
+from .wave_tags import set_audio_id3_genre, write_wave_genre_tag
 
 
 CUSTOM_TAG_PREFIX = "DJ_SIM"
@@ -154,6 +154,16 @@ class GenreTagJobManager:
         path: str | None = None,
         track_id: int | None = None,
     ) -> None:
+        log_job_event(
+            LOGGER,
+            level,
+            "%s job_id=%s track_id=%s path=%s",
+            message,
+            job_id,
+            track_id,
+            path,
+            track_event=path is not None,
+        )
         self._store.append_event(job_id, GenreTagLogEvent(time.time(), level, message, path, track_id))
 
     @staticmethod
@@ -186,9 +196,18 @@ def apply_custom_tags(db: LibraryDatabase, track_ids: list[int]) -> list[TagPrev
     for preview in previews:
         try:
             _write_tags(Path(preview.path), preview.tags)
-            LOGGER.info("Custom tags applied track_id=%s path=%s keys=%s", preview.track_id, preview.path, sorted(preview.tags))
+            log_job_event(
+                LOGGER,
+                "ok",
+                "Custom tags applied track_id=%s path=%s keys=%s",
+                preview.track_id,
+                preview.path,
+                sorted(preview.tags),
+                track_event=True,
+            )
         except Exception as error:
-            LOGGER.exception(
+            log_failure(
+                LOGGER,
                 "Custom tag apply failed track_id=%s path=%s error=%s",
                 preview.track_id,
                 preview.path,
@@ -225,25 +244,18 @@ def _apply_genre_tag_to_track(db: LibraryDatabase, track: Track) -> GenreTagAppl
             status="skipped",
             message="No MAEST genres to write",
         )
-        LOGGER.info("Genre tag write skipped track_id=%s path=%s reason=%s", preview.track_id, preview.path, result.message)
+        log_job_event(
+            LOGGER,
+            "info",
+            "Genre tag write skipped track_id=%s path=%s reason=%s",
+            preview.track_id,
+            preview.path,
+            result.message,
+            track_event=True,
+        )
         return result
 
     path = Path(preview.path)
-    if _should_skip_genre_tag_write(path):
-        result = GenreTagApplyResult(
-            track_id=preview.track_id,
-            path=preview.path,
-            tags=preview.tags,
-            status="skipped",
-            message="Unsupported WAV container",
-        )
-        LOGGER.warning(
-            "Skipping genre tag write for unsupported WAV container track_id=%s path=%s",
-            preview.track_id,
-            preview.path,
-        )
-        return result
-
     try:
         _write_genre_tag(path, list(preview.tags.values())[0])
         db.refresh_track_file_metadata(
@@ -260,7 +272,15 @@ def _apply_genre_tag_to_track(db: LibraryDatabase, track: Track) -> GenreTagAppl
             status="applied",
             message="Genre tag written",
         )
-        LOGGER.info("Genre tags applied track_id=%s path=%s tags=%s", preview.track_id, preview.path, preview.tags)
+        log_job_event(
+            LOGGER,
+            "ok",
+            "Genre tags applied track_id=%s path=%s tags=%s",
+            preview.track_id,
+            preview.path,
+            preview.tags,
+            track_event=True,
+        )
         return result
     except Exception as error:
         summary = exception_summary(error)
@@ -272,7 +292,8 @@ def _apply_genre_tag_to_track(db: LibraryDatabase, track: Track) -> GenreTagAppl
             message="Genre tag write failed",
             error=summary,
         )
-        LOGGER.exception(
+        log_failure(
+            LOGGER,
             "Genre tag apply failed track_id=%s path=%s error=%s",
             preview.track_id,
             preview.path,
@@ -286,10 +307,6 @@ def genre_tag_apply_summary(results: list[GenreTagApplyResult]) -> str:
     skipped = sum(1 for result in results if result.status == "skipped")
     failed = sum(1 for result in results if result.status == "failed")
     return f"applied={applied} skipped={skipped} failed={failed} total={len(results)}"
-
-
-def _should_skip_genre_tag_write(path: Path) -> bool:
-    return should_skip_wave_genre_tag_write(path)
 
 
 def _tracks(db: LibraryDatabase, track_ids: list[int]) -> list[Track]:

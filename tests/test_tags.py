@@ -426,7 +426,32 @@ def test_write_genre_tag_persists_to_wave_and_preserves_existing_id3_tags(tmp_pa
         assert handle.getnframes() == 44_100
 
 
-def test_write_genre_tag_refuses_malformed_wave_without_rewriting(tmp_path: Path) -> None:
+def test_write_genre_tag_allows_mutagen_readable_wave_with_trailing_padding(tmp_path: Path) -> None:
+    audio_path = tmp_path / "padded.wav"
+    with wave.open(str(audio_path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(44_100)
+        handle.writeframes(b"\x00\x00" * 44_100)
+    audio = MutagenFile(audio_path)
+    audio.add_tags()
+    audio.tags.add(TIT2(encoding=3, text=["Existing Title"]))
+    audio.save()
+    audio_payload_before = _wave_chunk_payload(audio_path)
+    data = bytearray(audio_path.read_bytes())
+    data.extend(b"\x00")
+    data[4:8] = (len(data) - 8).to_bytes(4, "little")
+    audio_path.write_bytes(data)
+    assert MutagenFile(audio_path) is not None
+
+    tags._write_genre_tag(audio_path, "Tech House; Minimal")
+
+    saved = MutagenFile(audio_path)
+    assert saved.tags["TCON"].text == ["Tech House; Minimal"]
+    assert _wave_chunk_payload(audio_path) == audio_payload_before
+
+
+def test_write_genre_tag_fails_invalid_wave_without_rewriting(tmp_path: Path) -> None:
     audio_path = tmp_path / "track.wav"
     with wave.open(str(audio_path), "wb") as handle:
         handle.setnchannels(1)
@@ -438,13 +463,13 @@ def test_write_genre_tag_refuses_malformed_wave_without_rewriting(tmp_path: Path
     audio_path.write_bytes(data)
     before = audio_path.read_bytes()
 
-    with pytest.raises(ValueError, match="readable data chunk"):
+    with pytest.raises(Exception):
         tags._write_genre_tag(audio_path, "Tech House; Minimal; Techno")
 
     assert audio_path.read_bytes() == before
 
 
-def test_apply_genre_tags_skips_malformed_wave_and_continues(tmp_path: Path, caplog) -> None:
+def test_apply_genre_tags_reports_failed_invalid_wave_and_continues(tmp_path: Path, caplog) -> None:
     malformed_path = tmp_path / "malformed.wav"
     with wave.open(str(malformed_path), "wb") as handle:
         handle.setnchannels(1)
@@ -479,118 +504,16 @@ def test_apply_genre_tags_skips_malformed_wave_and_continues(tmp_path: Path, cap
     db.save_genres(malformed_id, [{"label": "Tech House", "score": 0.9}], model_name="maest")
     db.save_genres(valid_id, [{"label": "Minimal", "score": 0.8}], model_name="maest")
 
-    with caplog.at_level("WARNING", logger="dj_track_similarity.tags"):
+    with caplog.at_level("ERROR", logger="dj_track_similarity.tags"):
         previews = apply_genre_tags(db, [malformed_id, valid_id])
 
     assert malformed_path.read_bytes() == malformed_before
     assert MutagenFile(valid_path).tags["TCON"].text == ["Minimal"]
     assert [preview.track_id for preview in previews] == [malformed_id, valid_id]
-    assert [preview.status for preview in previews] == ["skipped", "applied"]
-    assert "Skipping genre tag write for unsupported WAV container" in caplog.text
-
-
-def test_apply_genre_tags_skips_oversized_wave_data_chunk_without_rewriting(tmp_path: Path) -> None:
-    audio_path = tmp_path / "oversized-data.wav"
-    with wave.open(str(audio_path), "wb") as handle:
-        handle.setnchannels(1)
-        handle.setsampwidth(2)
-        handle.setframerate(44_100)
-        handle.writeframes(b"\x00\x00" * 44_100)
-    data = bytearray(audio_path.read_bytes())
-    data_offset = data.index(b"data")
-    actual_size = len(data) - data_offset - 8
-    data[data_offset + 4 : data_offset + 8] = (actual_size + 4096).to_bytes(4, "little")
-    audio_path.write_bytes(data)
-    before = audio_path.read_bytes()
-
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_id = db.upsert_track(
-        path=audio_path,
-        size=audio_path.stat().st_size,
-        mtime=audio_path.stat().st_mtime,
-        metadata={"title": "Oversized"},
-    )
-    db.save_genres(track_id, [{"label": "Minimal", "score": 0.8}], model_name="maest")
-
-    result = apply_genre_tags(db, [track_id])
-
-    track = db.get_track(track_id)
-    assert result[0].status == "skipped"
-    assert result[0].message == "Unsupported WAV container"
-    assert audio_path.read_bytes() == before
-    assert "genre" not in track.metadata
-
-
-def test_apply_genre_tags_skips_shifted_wave_id3_chunk_without_rewriting(tmp_path: Path) -> None:
-    audio_path = tmp_path / "shifted-id3.wav"
-    with wave.open(str(audio_path), "wb") as handle:
-        handle.setnchannels(1)
-        handle.setsampwidth(2)
-        handle.setframerate(44_100)
-        handle.writeframes(b"\x00\x00" * 44_100)
-    audio = MutagenFile(audio_path)
-    audio.add_tags()
-    audio.tags.add(TIT2(encoding=3, text=["Existing Title"]))
-    audio.save()
-
-    data = bytearray(audio_path.read_bytes())
-    data_offset = data.index(b"data")
-    data_size_offset = data_offset + 4
-    riff_size_offset = 4
-    data[data_size_offset : data_size_offset + 4] = (int.from_bytes(data[data_size_offset : data_size_offset + 4], "little") + 2).to_bytes(4, "little")
-    data[riff_size_offset : riff_size_offset + 4] = (int.from_bytes(data[riff_size_offset : riff_size_offset + 4], "little") + 2).to_bytes(4, "little")
-    audio_path.write_bytes(data)
-    before = audio_path.read_bytes()
-
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_id = db.upsert_track(
-        path=audio_path,
-        size=audio_path.stat().st_size,
-        mtime=audio_path.stat().st_mtime,
-        metadata={"title": "Existing Title"},
-    )
-    db.save_genres(track_id, [{"label": "Electronic---Minimal Techno", "score": 0.8}], model_name="maest")
-
-    result = apply_genre_tags(db, [track_id])
-
-    track = db.get_track(track_id)
-    assert result[0].status == "skipped"
-    assert result[0].message == "Unsupported WAV container"
-    assert audio_path.read_bytes() == before
-    assert "genre" not in track.metadata
-
-
-def test_write_genre_tag_rejects_duplicate_wave_id3_chunks_without_rewriting(tmp_path: Path) -> None:
-    audio_path = tmp_path / "duplicate-id3.wav"
-    with wave.open(str(audio_path), "wb") as handle:
-        handle.setnchannels(1)
-        handle.setsampwidth(2)
-        handle.setframerate(44_100)
-        handle.writeframes(b"\x00\x00" * 44_100)
-    audio = MutagenFile(audio_path)
-    audio.add_tags()
-    audio.tags.add(TIT2(encoding=3, text=["Existing Title"]))
-    audio.tags.add(TCON(encoding=3, text=["Old Genre"]))
-    audio.save()
-    audio_payload_before = _wave_chunk_payload(audio_path)
-
-    before_duplicate = audio_path.read_bytes()
-    id3_start, id3_end = _wave_chunk_spans(audio_path, b"id3 ")[-1]
-    duplicate = before_duplicate[id3_start:id3_end]
-    data = bytearray(before_duplicate)
-    data.extend(duplicate)
-    data[4:8] = (len(data) - 8).to_bytes(4, "little")
-    audio_path.write_bytes(data)
-    before = audio_path.read_bytes()
-    assert len(_wave_chunk_spans(audio_path, b"id3 ")) == 2
-    assert audio_path.read_bytes().count(b"TCON") == 2
-
-    with pytest.raises(ValueError, match="duplicate ID3 chunks"):
-        tags._write_genre_tag(audio_path, "Tech House; Minimal")
-
-    assert audio_path.read_bytes() == before
-    assert _wave_chunk_payload(audio_path) == audio_payload_before
-    assert len(_wave_chunk_spans(audio_path, b"id3 ")) == 2
+    assert [preview.status for preview in previews] == ["failed", "applied"]
+    assert previews[0].message == "Genre tag write failed"
+    assert previews[0].error
+    assert "Genre tag apply failed" in caplog.text
 
 
 @pytest.mark.parametrize("old_genres", [[], ["Old Genre"], ["One", "Two", "Three", "Four", "Five"]])

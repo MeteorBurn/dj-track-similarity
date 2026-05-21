@@ -195,18 +195,31 @@ def serve(
     host: str = typer.Option("127.0.0.1", "--host"),
     port: int = typer.Option(8765, "--port"),
     db_path: Optional[Path] = typer.Option(None, "--db"),
-    log_level: str = typer.Option("warning", "--log-level", help="File log level: debug, info, warning, error, critical."),
+    log_level: str = typer.Option("info", "--log-level", help="File log level: debug, info, warning, error, critical."),
+    log_track_events: bool = typer.Option(
+        False,
+        "--log-track-events",
+        help="Write successful per-track events to the file log.",
+    ),
 ) -> None:
     import uvicorn
 
     from .api import create_app
 
     try:
-        log_path = configure_logging(level=log_level)
+        log_path = configure_logging(level=log_level, log_track_events=log_track_events)
         ffmpeg_path = require_ffmpeg()
     except (RuntimeError, ValueError) as error:
         typer.secho(str(error), err=True, fg=typer.colors.RED)
         raise typer.Exit(1) from error
     LOGGER.info("Server starting host=%s port=%s db_path=%s log_path=%s", host, port, db_path, log_path)
     LOGGER.debug("ffmpeg available path=%s", ffmpeg_path)
-    uvicorn.run(create_app(db_path or Path("dj-track-similarity.sqlite"), log_level=log_level), host=host, port=port)
+    uvicorn.run(
+        create_app(
+            db_path or Path("dj-track-similarity.sqlite"),
+            log_level=log_level,
+            log_track_events=log_track_events,
+        ),
+        host=host,
+        port=port,
+    )

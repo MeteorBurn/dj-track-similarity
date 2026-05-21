@@ -10,7 +10,7 @@ from typing import cast
 
 from .database import LibraryDatabase
 from .job_runtime import JobStore
-from .logging_config import event_log_level, exception_summary
+from .logging_config import exception_summary, log_failure, log_job_event
 from .models import Track
 from .sonara_features import SONARA_MODEL_NAME, analyze_and_store_sonara_features
 
@@ -166,7 +166,14 @@ class SonaraFeatureJobManager:
 
     def _save_failure(self, job_id: str, track: Track, error: Exception) -> None:
         error_text = exception_summary(error)
-        LOGGER.exception("Sonara track failed job_id=%s track_id=%s path=%s", job_id, track.id, track.path)
+        log_failure(
+            LOGGER,
+            "Sonara track failed job_id=%s track_id=%s path=%s error=%s",
+            job_id,
+            track.id,
+            track.path,
+            error_text,
+        )
         with self._store.locked(job_id) as status:
             status.current_path = track.path
             status.processed += 1
@@ -207,13 +214,15 @@ class SonaraFeatureJobManager:
         path: str | None = None,
         track_id: int | None = None,
     ) -> None:
-        LOGGER.log(
-            event_log_level(level),
+        log_job_event(
+            LOGGER,
+            level,
             "%s job_id=%s track_id=%s path=%s",
             message,
             job_id,
             track_id,
             path,
+            track_event=level == "ok",
         )
         self._store.append_event(job_id, SonaraLogEvent(time.time(), level, message, path, track_id))
 

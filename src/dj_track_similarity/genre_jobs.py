@@ -10,7 +10,7 @@ from typing import Callable, Protocol, cast
 from .database import LibraryDatabase
 from .genres import MaestGenreAdapter, genre_adapter_factories as default_genre_adapter_factories
 from .job_runtime import JobStore, chunks
-from .logging_config import event_log_level, exception_summary
+from .logging_config import exception_summary, log_failure, log_job_event
 from .models import Track
 
 
@@ -210,7 +210,14 @@ class GenreAnalysisJobManager:
 
     def _save_failure(self, job_id: str, track: Track, error: Exception) -> None:
         error_text = exception_summary(error)
-        LOGGER.exception("MAEST genre track failed job_id=%s track_id=%s path=%s", job_id, track.id, track.path)
+        log_failure(
+            LOGGER,
+            "MAEST genre track failed job_id=%s track_id=%s path=%s error=%s",
+            job_id,
+            track.id,
+            track.path,
+            error_text,
+        )
         status = self.get(job_id)
         errors = list(status.errors)
         errors.append(GenreTrackError(track_id=track.id, path=track.path, error=error_text))
@@ -248,13 +255,15 @@ class GenreAnalysisJobManager:
         path: str | None = None,
         track_id: int | None = None,
     ) -> None:
-        LOGGER.log(
-            event_log_level(level),
+        log_job_event(
+            LOGGER,
+            level,
             "%s job_id=%s track_id=%s path=%s",
             message,
             job_id,
             track_id,
             path,
+            track_event=level == "ok",
         )
         self._store.append_event(job_id, GenreLogEvent(time.time(), level, message, path, track_id))
 

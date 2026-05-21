@@ -27,13 +27,13 @@ This workspace may not be a Git repository. Do not assume Git history, branches,
 - `/api/tags/genres/apply` is the explicit exception for standard metadata writes: it overwrites only the standard genre tag from stored MAEST labels. It must preserve existing artist, title, album, BPM, key, and other normal tags.
 - Standard genre tag writing should use player-compatible fields: `TCON` for MP3/WAV/AIFF ID3 tags, `GENRE` for FLAC/Vorbis-style tags, and `©gen` for MP4/M4A/ALAC. Multiple MAEST labels should be written as one string separated by `;`, for example `Tech House; Minimal; Techno`.
 - Standard genre writes must be an upsert of the genre field only. If no genre tag exists, create it; if one or many genre values already exist, replace them with the single normalized `;`-separated MAEST genre string. Do not append duplicate genre frames or preserve stale genre values.
-- WAV genre writing should use `mutagen.wave.WAVE` for WAV files, validate the RIFF/WAVE chunk table before and after saving, and verify that the saved `TCON` value is readable afterward. It must preserve PCM audio payload and avoid repeated file growth when the same genre string is written again.
-- WAV genre writing must not repair malformed containers. Skip unsupported WAV files, inconsistent RIFF sizes, invalid chunk bounds, and duplicate WAV `id3 `/`ID3 ` chunks instead of failing the whole genre-save batch or rewriting container structure.
+- WAV genre writing should use `mutagen.wave.WAVE` for WAV files, rely on Mutagen for WAV metadata parsing and saving, and verify that the saved `TCON` value is readable afterward. It must preserve PCM audio payload and avoid repeated file growth when the same genre string is written again.
+- WAV genre writing must not use a custom RIFF chunk validator or repair malformed containers. If Mutagen cannot read audio data, save the tag, or read the saved `TCON` back, report that track as failed while continuing the genre-save batch.
 - Treat `dj-track-similarity.sqlite` as local user state. Tests should use temporary databases via `tmp_path` or explicit `--db` paths.
 - SQLite writes must be safe for parallel jobs across the whole project, not just one analysis family. Keep all database mutations routed through `LibraryDatabase`, preserve the path-scoped write lock shared by `LibraryDatabase` instances for the same SQLite file, and keep connection pragmas such as `busy_timeout` plus WAL enabled so scan/RefreshTags/Sonara/MAEST/MERT/CLAP/reset/playlist writes queue cleanly while read-heavy work can continue.
 - Do not commit or preserve generated local artifacts unless explicitly asked: `*.sqlite`, `*.log`, `__pycache__/`, `.pytest_cache/`, `frontend/node_modules/`, and transient temp folders.
-- Runtime file logging defaults to `dj-track-similarity.log`; agents may inspect it when debugging, but must not commit log files.
-- Runtime file logging defaults to warnings and errors only. Use `DJ_TRACK_SIMILARITY_LOG_LEVEL` or `dj-sim serve --log-level info|debug` when detailed track-level file logs are needed. Do not confuse this with UI job event logs, which remain separate.
+- Runtime file logging defaults to `dj-track-similarity.log`, rotates daily at midnight, and keeps one rotated day; agents may inspect it when debugging, but must not commit log files.
+- Runtime file logging defaults to INFO. Successful per-track job events are aggregated out of the file log by default; warnings, errors, and job start/finish summaries still log. Use `DJ_TRACK_SIMILARITY_LOG_TRACK_EVENTS=1` or `dj-sim serve --log-track-events` when detailed successful per-track file logs are needed. Do not confuse this with UI job event logs, which remain separate.
 - Server startup requires `ffmpeg` to be available on `PATH` or through `DJ_TRACK_SIMILARITY_FFMPEG`. Keep the startup error clear and actionable if ffmpeg is missing.
 - Mutagen scanning and `RefreshTags` read only a fixed whitelist of human-relevant file tags. They update SQLite metadata only and must not modify audio files.
 - Mutagen metadata written to SQLite must be JSON-safe. Convert Mutagen-specific objects such as ID3 timestamps to strings before saving.
@@ -98,10 +98,10 @@ Run the app:
 dj-sim serve --host 127.0.0.1 --port 8765
 ```
 
-Detailed file logging, when needed:
+Successful per-track file logging, when needed:
 
 ```powershell
-dj-sim serve --host 127.0.0.1 --port 8765 --log-level info
+dj-sim serve --host 127.0.0.1 --port 8765 --log-track-events
 ```
 
 or:
@@ -193,7 +193,7 @@ dj-sim tag-preview 1 2 3
 - If changing SQLite connection handling, write paths, job batching, or worker concurrency, keep project-wide database-write safety in mind. Add or update focused tests that cover mixed parallel writes across analysis families and across separate `LibraryDatabase` instances pointing at the same SQLite file.
 - If changing UI controls, preserve tooltip coverage for format/type/range guidance. Keep destructive controls such as database clear behind action-time confirmation.
 - If touching custom tag writing, keep tests strict about preview being read-only and `tag-apply` writing only custom tags.
-- If touching standard genre writing, keep tests strict that only genre fields are overwritten, existing normal tags are preserved, missing and pre-existing one-or-many genre values are both handled as upserts, MAEST category prefixes such as `Electronic---` are stripped, multiple labels are joined with `;`, malformed WAV containers are skipped without stopping the batch, WAV header/chunk repair is not performed, duplicate WAV ID3 chunks are rejected without rewriting, audio payload or decoded audio stays unchanged, repeated writes do not grow the file, and real temporary audio files are reread through Mutagen after saving.
+- If touching standard genre writing, keep tests strict that only genre fields are overwritten, existing normal tags are preserved, missing and pre-existing one-or-many genre values are both handled as upserts, MAEST category prefixes such as `Electronic---` are stripped, multiple labels are joined with `;`, WAV header/chunk repair is not performed, Mutagen-readable WAV files are not blocked by custom RIFF validation, failed WAV writes do not stop the batch, audio payload or decoded audio stays unchanged, repeated writes do not grow the file, and real temporary audio files are reread through Mutagen after saving.
 - Prefer deterministic test data and fake adapters over real audio analysis in automated tests.
 - Avoid broad refactors in `frontend/src/App.tsx` unless the task is specifically about frontend structure; it is currently the main UI surface.
 

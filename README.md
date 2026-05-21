@@ -164,17 +164,21 @@ scripts\run_server.cmd
 | `--host` | `127.0.0.1` | Bind address for the local FastAPI server. |
 | `--port` | `8765` | Local HTTP port. |
 | `--db` | `dj-track-similarity.sqlite` | SQLite database path. |
-| `--log-level` | `warning` | File log level: `debug`, `info`, `warning`, `error`, or `critical`. |
+| `--log-level` | `info` | File log level: `debug`, `info`, `warning`, `error`, or `critical`. |
+| `--log-track-events` | off | Also write successful per-track job events to the file log. |
 | `DJ_TRACK_SIMILARITY_LOG` | `dj-track-similarity.log` | File log path. |
-| `DJ_TRACK_SIMILARITY_LOG_LEVEL` | `warning` | Alternative way to set the file log level. |
+| `DJ_TRACK_SIMILARITY_LOG_LEVEL` | `info` | Alternative way to set the file log level. |
+| `DJ_TRACK_SIMILARITY_LOG_TRACK_EVENTS` | off | Set to `1`, `true`, `yes`, or `on` to write successful per-track job events. |
 | `DJ_TRACK_SIMILARITY_FFMPEG` | auto-detected from `PATH` | Full path to `ffmpeg.exe` when ffmpeg is not on `PATH`. |
 
 `ffmpeg` is required for robust audio decoding. The server checks it on startup
 and exits with a clear error if it is missing. MERT, CLAP, MAEST, and Sonara
 fallback decoding use the shared audio loader: it tries the native library path
 first and then falls back to `ffmpeg` without writing decoded temporary audio
-into the project. File logging defaults to warnings and errors only; use
-`--log-level info` when debugging detailed track behavior.
+into the project. File logging defaults to `info`, but successful per-track job
+events are aggregated out by default so large jobs do not write one success line
+per file. Use `--log-track-events` when debugging detailed track behavior. The
+file log rotates daily at midnight and keeps one rotated day.
 
 ### Multiple Databases
 
@@ -361,11 +365,15 @@ semicolon-separated genre string, for example `Tech House; Minimal; Techno`.
 The writer uses `TCON` for MP3/WAV/AIFF, `GENRE` for FLAC/Vorbis-style tags,
 and `©gen` for MP4/M4A/ALAC. MAEST prefixes such as `Electronic---` are removed
 before writing. WAV genre updates use Mutagen's WAVE writer, validate the
-container before and after saving, skip unsupported malformed WAV containers,
-and do not repair malformed RIFF/WAVE chunk structures automatically.
+saved genre by reading the file back, and do not repair malformed RIFF/WAVE
+chunk structures automatically.
 
 Runtime logs are written to `dj-track-similarity.log` in the current working
 directory by default. Set `DJ_TRACK_SIMILARITY_LOG` to choose another path.
+The log rotates daily at midnight and keeps one rotated day. INFO-level startup,
+completion, warning, and error messages are written by default; successful
+per-track job events are skipped unless `--log-track-events` or
+`DJ_TRACK_SIMILARITY_LOG_TRACK_EVENTS` is enabled.
 
 The Sonara feature table is deliberately limited to fields produced by the
 playlist workflow. It currently keeps these groups in order:

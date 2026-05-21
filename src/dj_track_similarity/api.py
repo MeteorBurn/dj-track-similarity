@@ -151,8 +151,13 @@ def open_folder_dialog() -> Path | None:
     return Path(selected) if selected else None
 
 
-def create_app(db_path: str | Path = "dj-track-similarity.sqlite", *, log_level: int | str | None = None) -> FastAPI:
-    log_path = configure_logging(level=log_level)
+def create_app(
+    db_path: str | Path = "dj-track-similarity.sqlite",
+    *,
+    log_level: int | str | None = None,
+    log_track_events: bool | None = None,
+) -> FastAPI:
+    log_path = configure_logging(level=log_level, log_track_events=log_track_events)
     ffmpeg_path = require_ffmpeg()
     LOGGER.info("API app created db_path=%s log_path=%s", db_path, log_path)
     LOGGER.debug("ffmpeg available path=%s", ffmpeg_path)

@@ -2,20 +2,31 @@ from __future__ import annotations
 
 import logging
 import os
-from logging.handlers import RotatingFileHandler
+from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
 
 LOG_ENV_VAR = "DJ_TRACK_SIMILARITY_LOG"
 LOG_LEVEL_ENV_VAR = "DJ_TRACK_SIMILARITY_LOG_LEVEL"
+LOG_TRACK_EVENTS_ENV_VAR = "DJ_TRACK_SIMILARITY_LOG_TRACK_EVENTS"
 DEFAULT_LOG_PATH = Path("dj-track-similarity.log")
 FILE_HANDLER_NAME = "dj_track_similarity_file"
+_LOG_TRACK_EVENTS: bool | None = None
 
 
-def configure_logging(log_path: str | Path | None = None, *, level: int | str | None = None) -> Path:
+def configure_logging(
+    log_path: str | Path | None = None,
+    *,
+    level: int | str | None = None,
+    log_track_events: bool | None = None,
+) -> Path:
+    global _LOG_TRACK_EVENTS
+    if log_track_events is not None:
+        _LOG_TRACK_EVENTS = bool(log_track_events)
+
     path = Path(log_path or os.environ.get(LOG_ENV_VAR) or DEFAULT_LOG_PATH).resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
-    numeric_level = parse_log_level(level or os.environ.get(LOG_LEVEL_ENV_VAR) or "warning")
+    numeric_level = parse_log_level(level or os.environ.get(LOG_LEVEL_ENV_VAR) or "info")
 
     logger = logging.getLogger("dj_track_similarity")
     logger.setLevel(numeric_level)
@@ -30,7 +41,7 @@ def configure_logging(log_path: str | Path | None = None, *, level: int | str | 
         logger.removeHandler(handler)
         handler.close()
 
-    handler = RotatingFileHandler(path, maxBytes=5_000_000, backupCount=3, encoding="utf-8")
+    handler = TimedRotatingFileHandler(path, when="midnight", interval=1, backupCount=1, encoding="utf-8")
     handler.name = FILE_HANDLER_NAME
     handler.setLevel(numeric_level)
     handler.setFormatter(
@@ -68,6 +79,33 @@ def event_log_level(level: str) -> int:
     return logging.INFO
 
 
+def track_event_logging_enabled() -> bool:
+    if _LOG_TRACK_EVENTS is not None:
+        return _LOG_TRACK_EVENTS
+    value = os.environ.get(LOG_TRACK_EVENTS_ENV_VAR)
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def log_job_event(
+    logger: logging.Logger,
+    level: str,
+    message: str,
+    *args: object,
+    track_event: bool = False,
+    **kwargs: object,
+) -> None:
+    if track_event and event_log_level(level) < logging.WARNING and not track_event_logging_enabled():
+        return
+    logger.log(event_log_level(level), message, *args, **kwargs)
+
+
 def exception_summary(error: Exception) -> str:
     message = str(error).strip()
     return message or type(error).__name__
+
+
+def log_failure(logger: logging.Logger, message: str, *args: object, **kwargs: object) -> None:
+    logger.error(message, *args, **kwargs)
+    logger.debug(message, *args, exc_info=True, **kwargs)

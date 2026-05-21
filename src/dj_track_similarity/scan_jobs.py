@@ -11,7 +11,7 @@ from typing import Callable, cast
 
 from .database import LibraryDatabase
 from .job_runtime import JobStore
-from .logging_config import event_log_level, exception_summary
+from .logging_config import exception_summary, log_failure, log_job_event
 from .metadata_payload import optional_float, string_or_none
 from .scanner import MUTAGEN_METADATA_KEYS, iter_audio_files, read_audio_metadata
 
@@ -233,7 +233,7 @@ class ScanJobManager:
                 self._increment(job_id, added=1, message="Track added", level="ok", path=str(path))
         except Exception as error:
             error_text = exception_summary(error)
-            LOGGER.exception("Scan track failed job_id=%s path=%s", job_id, path)
+            log_failure(LOGGER, "Scan track failed job_id=%s path=%s error=%s", job_id, path, error_text)
             self._increment(job_id, failed=1, message=f"Track failed: {error_text}", level="error", path=str(path))
 
     def _refresh_tags_one(self, job_id: str, path: Path) -> None:
@@ -259,7 +259,7 @@ class ScanJobManager:
             self._increment(job_id, updated=1, message="Tags refreshed", level="ok", path=str(path))
         except Exception as error:
             error_text = exception_summary(error)
-            LOGGER.exception("Tag refresh failed job_id=%s path=%s", job_id, path)
+            log_failure(LOGGER, "Tag refresh failed job_id=%s path=%s error=%s", job_id, path, error_text)
             self._increment(job_id, failed=1, message=f"Tag refresh failed: {error_text}", level="error", path=str(path))
 
     def _increment(
@@ -284,13 +284,21 @@ class ScanJobManager:
             status.failed += failed
             if status.started_at and status.processed:
                 status.avg_seconds_per_track = (time.time() - status.started_at) / status.processed
-        self._append_event(job_id, level, message, path=path)
+        self._append_event(job_id, level, message, path=path, track_event=True)
 
     def _update(self, job_id: str, **changes: object) -> None:
         self._store.update(job_id, **changes)
 
-    def _append_event(self, job_id: str, level: str, message: str, *, path: str | None = None) -> None:
-        LOGGER.log(event_log_level(level), "%s job_id=%s path=%s", message, job_id, path)
+    def _append_event(
+        self,
+        job_id: str,
+        level: str,
+        message: str,
+        *,
+        path: str | None = None,
+        track_event: bool = False,
+    ) -> None:
+        log_job_event(LOGGER, level, "%s job_id=%s path=%s", message, job_id, path, track_event=track_event)
         self._store.append_event(job_id, ScanLogEvent(timestamp=time.time(), level=level, message=message, path=path))
 
     @staticmethod

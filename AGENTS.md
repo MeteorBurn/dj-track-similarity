@@ -4,7 +4,7 @@
 
 dj-track-similarity is a public personal/enthusiast project for exploring music-library analysis and track similarity for DJ-set preparation. The README should sound honest, practical, and modest: this is not a polished commercial product or a research benchmark. The user is building something useful for their own music collection, tagging workflow, and DJ sets, and it may also be useful to other music collectors.
 
-Technically, it is a local tool that scans an audio library, stores metadata in SQLite, refreshes selected Mutagen file tags, relocates stored track paths after a library folder is moved, extracts Sonara playlist features, generates track embeddings, extracts MAEST genre labels, searches for compatible tracks, builds playlists, exports M3U/CSV files, can write custom `DJ_SIM_*` tags on explicit request, and can explicitly save MAEST genres into standard audio genre tags.
+Technically, it is a local tool that scans an audio library, stores metadata in SQLite, refreshes selected Mutagen file tags, relocates stored track paths after a library folder is moved, extracts Sonara playlist features, generates track embeddings, extracts MAEST genre labels, searches for compatible tracks, assembles a temporary UI set, exports M3U/CSV files, can write custom `DJ_SIM_*` tags on explicit request, and can explicitly save MAEST genres into standard audio genre tags.
 
 Keep user-facing project documentation in English unless the user asks otherwise.
 
@@ -22,7 +22,7 @@ This workspace may not be a Git repository. Do not assume Git history, branches,
 - Treat real audio files as user data. Scanning, analysis, search, preview, RefreshTags, reset, clear, and export should not modify audio files.
 - Library path relocation updates only stored `tracks.path` values in SQLite. It must not move, copy, delete, rewrite, retag, or reanalyze audio files.
 - Library path relocation must be previewable before applying. Dry-run output should report matched tracks, missing target files, and path conflicts. Apply must reject missing target files and conflicts instead of partially updating the database.
-- Library path relocation must preserve track IDs and all dependent local state, including embeddings, Sonara features, MAEST genres, playlists, and tag metadata.
+- Library path relocation must preserve track IDs and all dependent local state, including embeddings, Sonara features, MAEST genres, and tag metadata.
 - `tag-apply` and `/api/tags/apply` write only custom `DJ_SIM_*` tags. They must not overwrite standard BPM, key, title, artist, album, mood, genre, or other normal tags.
 - `/api/tags/genres/apply` is the explicit exception for standard metadata writes: it overwrites only the standard genre tag from stored MAEST labels. It must preserve existing artist, title, album, BPM, key, and other normal tags.
 - Standard genre tag writing should use player-compatible fields: `TCON` for MP3/WAV/AIFF ID3 tags, `GENRE` for FLAC/Vorbis-style tags, and `©gen` for MP4/M4A/ALAC. Multiple MAEST labels should be written as one string separated by `;`, for example `Tech House; Minimal; Techno`.
@@ -30,7 +30,7 @@ This workspace may not be a Git repository. Do not assume Git history, branches,
 - WAV genre writing should use `mutagen.wave.WAVE` for WAV files, rely on Mutagen for WAV metadata parsing and saving, and verify that the saved `TCON` value is readable afterward. It must preserve PCM audio payload and avoid repeated file growth when the same genre string is written again.
 - WAV genre writing must not use a custom RIFF chunk validator or repair malformed containers. If Mutagen cannot read audio data, save the tag, or read the saved `TCON` back, report that track as failed while continuing the genre-save batch.
 - Treat `dj-track-similarity.sqlite` as local user state. Tests should use temporary databases via `tmp_path` or explicit `--db` paths.
-- SQLite writes must be safe for parallel jobs across the whole project, not just one analysis family. Keep all database mutations routed through `LibraryDatabase`, preserve the path-scoped write lock shared by `LibraryDatabase` instances for the same SQLite file, and keep connection pragmas such as `busy_timeout` plus WAL enabled so scan/RefreshTags/Sonara/MAEST/MERT/CLAP/reset/playlist writes queue cleanly while read-heavy work can continue.
+- SQLite writes must be safe for parallel jobs across the whole project, not just one analysis family. Keep all database mutations routed through `LibraryDatabase`, preserve the path-scoped write lock shared by `LibraryDatabase` instances for the same SQLite file, and keep connection pragmas such as `busy_timeout` plus WAL enabled so scan/RefreshTags/Sonara/MAEST/MERT/CLAP/reset writes queue cleanly while read-heavy work can continue.
 - Do not commit or preserve generated local artifacts unless explicitly asked: `*.sqlite`, `*.log`, `__pycache__/`, `.pytest_cache/`, `frontend/node_modules/`, and transient temp folders.
 - Runtime file logging defaults to `dj-track-similarity.log`, rotates daily at midnight, and keeps one rotated day; agents may inspect it when debugging, but must not commit log files.
 - Runtime file logging defaults to INFO. Successful per-track job events are aggregated out of the file log by default; warnings, errors, and job start/finish summaries still log. Use `DJ_TRACK_SIMILARITY_LOG_TRACK_EVENTS=1` or `dj-sim serve --log-track-events` when detailed successful per-track file logs are needed. Do not confuse this with UI job event logs, which remain separate.
@@ -39,12 +39,12 @@ This workspace may not be a Git repository. Do not assume Git history, branches,
 - Mutagen metadata written to SQLite must be JSON-safe. Convert Mutagen-specific objects such as ID3 timestamps to strings before saving.
 - Sonara feature analysis writes only SQLite track metadata (`sonara_features` and `sonara_model`) plus working BPM/key/duration/energy fields derived from analysis. BPM and key from Sonara must be analyzed values, not copied from file tags.
 - Sonara key data should stay in the original analyzed Sonara fields. Do not derive or display Camelot notation from Sonara key data until that conversion is explicitly redesigned.
-- Sonara `playlist` storage should stay focused on the current grouped UI contract instead of dumping every possible Sonara or helper field. Keep these groups and order aligned between SQLite JSON and the metadata dialog: Core features (`bpm`, `beats`, `onset_frames`, `onset_density`, `n_beats`, `rms_mean`, `rms_max`, `loudness_lufs`, `dynamic_range_db`, `spectral_centroid_mean`, `zero_crossing_rate`, `duration_sec`), Perceptual features (`energy`, `danceability`, `valence`, `acousticness`), Musical key (`key`, `key_confidence`), Tonal analysis (`chord_sequence`, `predominant_chord`, `chord_change_rate`, `dissonance`), and Spectral features (`spectral_bandwidth_mean`, `spectral_rolloff_mean`, `spectral_flatness_mean`, `spectral_contrast_mean`, `mfcc_mean`, `chroma_mean`).
+- Sonara `playlist` storage should stay focused on the current grouped UI contract instead of dumping every possible Sonara or helper field. Keep these groups and order aligned between SQLite JSON and the metadata dialog: Core features (`bpm`, `beats`, `onset_frames`, `onset_density`, `n_beats`, `rms_mean`, `rms_max`, `loudness_lufs`, `dynamic_range_db`, `spectral_centroid_mean`, `zero_crossing_rate`, `duration_sec`), Perceptual features (`energy`, `danceability`, `valence`, `acousticness`), Musical key (`key`, `key_confidence`), Tonal analysis (`predominant_chord`, `chord_change_rate`, `dissonance`), and Spectral features (`spectral_bandwidth_mean`, `spectral_rolloff_mean`, `spectral_flatness_mean`, `spectral_contrast_mean`, `mfcc_mean`, `chroma_mean`).
 - Do not store or show `unavailable` placeholder rows for Sonara fields that the playlist workflow cannot produce. Do not persist helper-only diagnostics such as `requested_feature_count` or `decode_path` inside `sonara_features`.
 - Audio analysis uses a native-first shared loader: Sonara starts with `sonara.analyze_file`, while MAEST/MERT/CLAP use decoded waveform input. The shared loader should use standard decoders only: `torchaudio` when provided, Python's native `wave` reader for WAV, then `ffmpeg`. If those decoders cannot read a file, surface a clear decode failure instead of using a custom WAV reader.
 - Sonara fallback should call `sonara.analyze_signal` with decoded audio. MAEST/MERT/CLAP should keep using the shared loader rather than direct `torchaudio.load` so standard decoder behavior stays consistent across all analysis families.
 - MAEST genre analysis itself writes only SQLite track metadata (`maest_genres` and `maest_model`). It must not modify audio files. The separate genre-save action may later write those stored labels into standard audio genre tags.
-- Full MERT/CLAP/MAEST analysis can be slow and may download Hugging Face/PyTorch/MAEST model weights on first use. Sonara is lighter but still decodes audio. Prefer `--fake` for embedding smoke checks unless the user asks for real ML analysis.
+- Full MERT/CLAP/MAEST analysis can be slow and may download Hugging Face/PyTorch/MAEST model weights on first use. Sonara is lighter but still decodes audio.
 - In the UI, `Analyze limit = 0` means analyzing the whole library and is the default. Positive limits count missing results for the selected analysis family, not the first N tracks overall: Sonara skips tracks with `sonara_features`, MAEST skips tracks with stored genres, and MERT/CLAP skip tracks with embeddings in their own embedding space. Avoid triggering whole-library analysis unless the user clearly wants it or is operating the UI themselves.
 - The UI `Embedding batch size` control is shared deliberately: Sonara uses it as parallel track workers; MAEST, MERT, and CLAP use it as inference batch size.
 - MERT/CLAP analysis should be accelerated with a single selected device plus inference batching, not multiple parallel model workers. Use `device=auto|cpu|cuda` and `batch_size`; keep legacy `workers` only as a compatibility alias for analysis batch size.
@@ -55,7 +55,7 @@ This workspace may not be a Git repository. Do not assume Git history, branches,
 - For CUDA systems, PyTorch and Torchaudio should usually be installed separately with the official CUDA wheel index before installing remaining ML dependencies. Do not assume plain `pip install -e ".[ml]"` will pick the correct CUDA build.
 - Search UI is split into SONARA, MERT, and CLAP tabs inside the same search/listening panel. SONARA is the primary seed-search path and sends the custom mixer, modifiers, `Similarity`, `Lookback`, and `Limit` to `/api/search/sonara`. MERT keeps its own seed-search tab and sends only `Similarity`, `Lookback`, and `Limit` to `/api/search`. CLAP text search keeps the prompt field in its own tab and requires `clap` embeddings.
 - The library browser must stay usable with tens of thousands of tracks. Do not make the frontend load the full library or full `metadata_json` blobs into React state. Keep `/api/tracks` as a server-side paginated/searchable endpoint with lightweight track rows, keep `/api/library/summary` as the source for header analysis counters, and load full metadata for one track through `/api/tracks/{id}` only when the metadata dialog opens.
-- Algorithm reset controls are database-only. Reset Sonara, MAEST, MERT, CLAP, or fake independently without touching unrelated analysis families or audio files.
+- Algorithm reset controls are database-only. Reset Sonara, MAEST, MERT, or CLAP independently without touching unrelated analysis families or audio files.
 - The database clear control deletes local SQLite records only and must require an explicit UI confirmation. It must not delete audio files.
 - The track metadata dialog should keep sources visually separate: the unnamed top table first, Sonara computed features next, and MAEST genre labels separately. The top table must always show `Title`, `Audio Length`, `Audio Format`, `File Size`, and `File Path`; then show Mutagen tags only when present in this order: `Artist`, `Album`, `Genre`, `Year`, `Country`, `Label`, `Catalog`, `Track no.`, `Disc no.`, `BPM tag`, `Key tag`, `Comment`, `ISRC`.
 - Keep hover help on user-editable parameters. Tooltips should explain purpose, accepted format, value type, and range.
@@ -124,7 +124,7 @@ cd frontend
 npm run dev
 ```
 
-Useful CLI smoke commands:
+Useful CLI commands:
 
 ```powershell
 dj-sim scan "D:\Music"
@@ -137,22 +137,19 @@ dj-sim analyze-genres --device cuda --batch-size 4 --limit 3
 dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 5
 dj-sim relocate-library "E:\MusicFast" "D:\MusicArchive"
 dj-sim relocate-library "E:\MusicFast" "D:\MusicArchive" --apply
-dj-sim analyze --fake
 dj-sim doctor
-dj-sim export 1 --format m3u --output-dir "D:\Exports"
-dj-sim export 1 --format csv --output-dir "D:\Exports"
 dj-sim tag-preview 1 2 3
 ```
 
 ## Backend Map
 
 - `src/dj_track_similarity/models.py`: dataclasses for tracks, scan/analyze stats, search results, and tag previews.
-- `src/dj_track_similarity/database.py`: SQLite schema, connection handling, path-scoped write serialization for parallel jobs, track upserts, paginated library row queries, summary counters, embeddings, Sonara and MAEST metadata, library path relocation, analysis resets, database clearing, playlists, and row mapping.
+- `src/dj_track_similarity/database.py`: SQLite schema, connection handling, path-scoped write serialization for parallel jobs, track upserts, paginated library row queries, summary counters, embeddings, Sonara and MAEST metadata, library path relocation, analysis resets, database clearing, and row mapping.
 - `src/dj_track_similarity/scanner.py`: synchronous library scan and fixed-whitelist audio metadata extraction with `mutagen`. Keep extracted values JSON-safe.
 - `src/dj_track_similarity/scan_jobs.py`: scan and tag-refresh job manager with progress, cancellation, event logs, and optional parallel workers.
 - `src/dj_track_similarity/audio_loader.py`: shared native-first audio loading through standard decoders used by Sonara fallback, MAEST, MERT, and CLAP paths.
 - `src/dj_track_similarity/dependencies.py`: runtime dependency checks such as required `ffmpeg` discovery.
-- `src/dj_track_similarity/embedding.py`: embedding adapter protocol, deterministic fake adapter, MERT adapter, CLAP adapter, and adapter registry.
+- `src/dj_track_similarity/embedding.py`: embedding adapter protocol, MERT adapter, CLAP adapter, and adapter registry.
 - `src/dj_track_similarity/runtime.py`: shared PyTorch runtime helpers for `auto|cpu|cuda`, CUDA diagnostics, and install hints.
 - `src/dj_track_similarity/logging_config.py`: file logging setup, event log levels, and concise exception summaries.
 - `src/dj_track_similarity/sonara_features.py`: Sonara playlist feature extraction, signal fallback through the shared audio loader, grouped feature summaries, and SQLite storage preparation.
@@ -164,7 +161,7 @@ dj-sim tag-preview 1 2 3
 - `src/dj_track_similarity/genre_jobs.py`: MAEST genre analysis job manager with batching, progress, cancellation, errors, and SQLite metadata saves.
 - `src/dj_track_similarity/search.py`: embedding-space centroid similarity search plus arbitrary query-vector search for CLAP text mode.
 - In the frontend, SONARA, MERT, and CLAP search controls should stay separated by tabs so each model shows only its own parameters.
-- `src/dj_track_similarity/exporter.py`: playlist export to M3U or CSV.
+- `src/dj_track_similarity/exporter.py`: current set export to M3U or CSV.
 - `src/dj_track_similarity/tags.py`: custom `DJ_SIM_*` tag preview/apply logic plus explicit MAEST-to-standard-genre tag writing, including guarded WAV genre writes.
 - `src/dj_track_similarity/api.py`: FastAPI factory, request models, REST endpoints including paged `/api/tracks`, `/api/tracks/{id}`, `/api/library/summary`, `/api/library/relocate`, static frontend mount, and media serving.
 - `src/dj_track_similarity/cli.py`: Typer CLI entrypoint exposed as `dj-sim`, including `relocate-library` for previewing and applying stored path updates after moving a library folder.
@@ -194,7 +191,7 @@ dj-sim tag-preview 1 2 3
 - If changing UI controls, preserve tooltip coverage for format/type/range guidance. Keep destructive controls such as database clear behind action-time confirmation.
 - If touching custom tag writing, keep tests strict about preview being read-only and `tag-apply` writing only custom tags.
 - If touching standard genre writing, keep tests strict that only genre fields are overwritten, existing normal tags are preserved, missing and pre-existing one-or-many genre values are both handled as upserts, MAEST category prefixes such as `Electronic---` are stripped, multiple labels are joined with `;`, WAV header/chunk repair is not performed, Mutagen-readable WAV files are not blocked by custom RIFF validation, failed WAV writes do not stop the batch, audio payload or decoded audio stays unchanged, repeated writes do not grow the file, and real temporary audio files are reread through Mutagen after saving.
-- Prefer deterministic test data and fake adapters over real audio analysis in automated tests.
+- Prefer deterministic test data and test-local stub adapters over real audio analysis in automated tests.
 - Avoid broad refactors in `frontend/src/App.tsx` unless the task is specifically about frontend structure; it is currently the main UI surface.
 
 ## Verification Expectations
@@ -202,6 +199,6 @@ dj-sim tag-preview 1 2 3
 - Run `pytest` for backend changes.
 - Run `npm run build` in `frontend/` for frontend changes and when backend static serving depends on current built assets.
 - For API contract changes, exercise the affected endpoint through tests or a local server.
-- For CLI behavior changes, run the specific `dj-sim ...` command with a temporary database or fake adapter when possible.
+- For CLI behavior changes, run the specific `dj-sim ...` command with a temporary database when possible.
 - For library path relocation changes, verify dry-run does not modify paths, apply preserves track IDs and analysis state, and conflicts or missing target files block apply.
-- For Sonara changes, prefer tests with fakes or small temp WAV fixtures; avoid requiring a full user music library in automated tests.
+- For Sonara changes, prefer stubbed test helpers or small temp WAV fixtures; avoid requiring a full user music library in automated tests.

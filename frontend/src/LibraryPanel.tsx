@@ -135,9 +135,8 @@ export function LibraryPanel({
           <Play size={15} />
           Загрузить треки в базу
         </button>
-        <button className="secondary-mini refresh-tags-button" disabled={busy || stageRunning || !hasTracks} title={helpText.refreshTags} onClick={onRefreshTags}>
-          <Tags size={14} />
-          Обновить теги
+        <button className="icon-button refresh-tags-button" disabled={busy || stageRunning || !hasTracks} title={helpText.refreshTags} aria-label="Обновить теги" onClick={onRefreshTags}>
+          <RefreshCcw size={15} />
         </button>
         <button className="icon-button stop-button database-clear-button" disabled={busy || stageRunning || !hasTracks} title={helpText.clearDatabase} aria-label="Удалить все данные из базы" onClick={onClearDatabase}>
           <Trash2 size={15} />

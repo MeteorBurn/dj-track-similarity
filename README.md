@@ -44,9 +44,8 @@ else who collects, tags, or plays music will find the approach useful too.
   Sonara playlist features, and MAEST genre confidence scores.
 - Lets you choose seed tracks, search for similar tracks with SONARA mixer
   controls or embedding/text models, preview results, and assemble a small set
-  or playlist.
-- Exports playlists as M3U or CSV.
-- Can preview and write custom `DJ_SIM_*` tags when explicitly requested.
+  for export.
+- Exports the current set as M3U or CSV without storing playlists in SQLite.
 - Can reset one analysis family at a time, or clear the local SQLite database
   after confirmation. These actions do not delete audio files.
 
@@ -194,8 +193,7 @@ dj-sim analyze-genres --device cuda --batch-size 4 --limit 25 --db "D:\DJDatabas
 dj-sim analyze --adapter clap --device cuda --batch-size 4 --db "D:\DJDatabases\breaks.sqlite"
 ```
 
-Each database keeps its own tracks, analysis results, playlists, and stored
-paths.
+Each database keeps its own tracks, analysis results, and stored paths.
 
 ## CLI Examples
 
@@ -213,17 +211,11 @@ dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 50
 
 dj-sim analyze-genres --device cuda --batch-size 4 --limit 25
 
-dj-sim analyze --fake
 dj-sim doctor
-
-dj-sim export 1 --format m3u --output-dir "D:\Exports"
-dj-sim export 1 --format csv --output-dir "D:\Exports"
 
 dj-sim relocate-library "E:\MusicFast" "D:\MusicArchive"
 dj-sim relocate-library "E:\MusicFast" "D:\MusicArchive" --apply
 
-dj-sim tag-preview 1 2 3
-dj-sim tag-apply 1 2 3
 ```
 
 `dj-sim analyze` uses `m-a-p/MERT-v1-95M` by default through
@@ -257,8 +249,6 @@ decode, the job retries that batch one track at a time so the bad file is
 reported directly and the other tracks can still be analyzed. It does not modify
 audio files by itself.
 
-`--fake` is only for smoke tests without loading ML models.
-
 `doctor` reports the Python executable, installed PyTorch build, CUDA build,
 whether `torch.cuda.is_available()` is true, and the device that `auto` will
 choose. Use it when CUDA behavior looks suspicious.
@@ -281,7 +271,7 @@ dj-sim relocate-library "E:\MusicFast" "D:\MusicArchive" --apply
 ```
 
 This updates only `tracks.path` in SQLite. It keeps track IDs, Sonara features,
-MAEST genres, MERT/CLAP embeddings, playlists, and other analysis results. It
+MAEST genres, MERT/CLAP embeddings, and other analysis results. It
 does not move, edit, or delete audio files.
 
 In the UI, `Analyze limit = 0` means the whole library. If you only want to test
@@ -371,7 +361,7 @@ The small trash buttons next to analysis names reset only that analysis family:
 - Sonara reset removes `sonara_features` and restores BPM/key/duration from
   file tags where possible.
 - MAEST reset removes stored genre labels.
-- MERT, CLAP, and fake reset remove only their embedding rows.
+- MERT and CLAP reset remove only their embedding rows.
 
 The database clear button removes local SQLite records after confirmation. It
 does not remove or edit audio files.
@@ -458,9 +448,6 @@ python -m pip install transformers maest-infer --no-deps
 - Analysis reset buttons delete only local SQLite analysis outputs.
 - Database clear deletes local SQLite records only; it does not delete music
   files.
-- `tag-preview` is read-only.
-- `tag-apply` writes only custom `DJ_SIM_*` tags and should not overwrite normal
-  title, artist, album, BPM, key, or mood fields.
 - The UI genre save action is the explicit exception: it writes MAEST genres
   into the standard audio genre tag and should overwrite only that genre field.
 

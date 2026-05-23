@@ -239,26 +239,99 @@ def test_database_resets_embedding_analysis_independently(tmp_path: Path) -> Non
     assert db.get_track(track_id).analyses == ["clap"]
 
 
-def test_database_clear_library_removes_tracks_embeddings_and_playlists(tmp_path: Path) -> None:
+def test_database_reset_rejects_removed_fake_adapter(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+
+    with pytest.raises(ValueError, match="Unsupported analysis adapter reset: fake"):
+        db.reset_analysis("fake")
+
+
+def test_database_clear_library_removes_tracks_and_embeddings(tmp_path: Path) -> None:
     import numpy as np
 
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_id = db.upsert_track(path=tmp_path / "track.wav", size=10, mtime=1, metadata={"title": "Track"})
     db.save_embedding(track_id, np.array([1, 0, 0], dtype=np.float32), "mert-model", 3, embedding_key="mert")
-    playlist_id = db.create_playlist("Set", [track_id])
 
     result = db.clear_library()
 
     assert result == {
         "tracks_deleted": 1,
         "embeddings_deleted": 1,
-        "playlists_deleted": 1,
-        "playlist_tracks_deleted": 1,
     }
     assert db.list_tracks() == []
     assert db.load_embedding_matrix("mert")[0] == []
-    with pytest.raises(KeyError):
-        db.get_playlist_name(playlist_id)
+
+
+def test_database_drops_legacy_playlist_tables(tmp_path: Path) -> None:
+    import sqlite3
+
+    db_path = tmp_path / "library.sqlite"
+    with sqlite3.connect(db_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE playlists (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL);
+            CREATE TABLE playlist_tracks (playlist_id INTEGER NOT NULL, track_id INTEGER NOT NULL, position INTEGER NOT NULL);
+            INSERT INTO playlists (name) VALUES ('old set');
+            INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (1, 1, 0);
+            """
+        )
+
+    db = LibraryDatabase(db_path)
+
+    with db.connect() as connection:
+        tables = {row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    assert "playlists" not in tables
+    assert "playlist_tracks" not in tables
+
+
+def test_database_drops_legacy_fake_embeddings(tmp_path: Path) -> None:
+    import sqlite3
+
+    db_path = tmp_path / "library.sqlite"
+    with sqlite3.connect(db_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE tracks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT NOT NULL UNIQUE,
+                size INTEGER NOT NULL,
+                mtime REAL NOT NULL,
+                artist TEXT,
+                title TEXT,
+                album TEXT,
+                bpm REAL,
+                musical_key TEXT,
+                energy REAL,
+                duration REAL,
+                metadata_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata_json)),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE embeddings (
+                track_id INTEGER NOT NULL,
+                embedding_key TEXT NOT NULL DEFAULT 'mert',
+                model_name TEXT NOT NULL,
+                dim INTEGER NOT NULL,
+                vector BLOB NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(track_id, embedding_key),
+                FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
+            );
+            INSERT INTO tracks (path, size, mtime, title, metadata_json)
+            VALUES ('track.wav', 10, 1, 'Track', '{}');
+            INSERT INTO embeddings (track_id, embedding_key, model_name, dim, vector)
+            VALUES (1, 'fake', 'fake-model', 3, x'00000000');
+            INSERT INTO embeddings (track_id, embedding_key, model_name, dim, vector)
+            VALUES (1, 'mert', 'mert-model', 3, x'00000000');
+            """
+        )
+
+    db = LibraryDatabase(db_path)
+
+    with db.connect() as connection:
+        keys = [row["embedding_key"] for row in connection.execute("SELECT embedding_key FROM embeddings ORDER BY embedding_key")]
+    assert keys == ["mert"]
 
 
 def test_database_stores_maest_genres_in_track_metadata(tmp_path: Path) -> None:
@@ -277,13 +350,30 @@ def test_database_stores_maest_genres_in_track_metadata(tmp_path: Path) -> None:
     )
 
     track = db.get_track(track_id)
+    with db.connect() as connection:
+        metadata_json = connection.execute("SELECT metadata_json FROM tracks WHERE id = ?", (track_id,)).fetchone()["metadata_json"]
+    metadata_keys = list(json.loads(metadata_json).keys())
 
     assert track.metadata["title"] == "Track"
     assert track.metadata["artist"] == "Artist"
+    assert metadata_keys[-3:] == ["maest_model", "maest_genres", "maest_syncopated_rhythm"]
     assert track.analyses == ["maest"]
     assert track.genres == ["Techno", "Dub Techno"]
     assert track.genre_scores == {"Techno": 0.91, "Dub Techno": 0.72}
+    assert track.metadata["maest_syncopated_rhythm"] is False
     assert track.artist == "Artist"
+
+
+def test_database_marks_maest_syncopated_rhythm_from_saved_genres(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    breaks_id = db.upsert_track(path=tmp_path / "breaks.wav", size=10, mtime=1, metadata={"title": "Breaks"})
+    house_id = db.upsert_track(path=tmp_path / "house.wav", size=10, mtime=1, metadata={"title": "House"})
+
+    db.save_genres(breaks_id, [{"label": "Electronic---Breakbeat", "score": 0.91}], model_name="maest")
+    db.save_genres(house_id, [{"label": "Electronic---Tech House", "score": 0.82}], model_name="maest")
+
+    assert db.get_track(breaks_id).metadata["maest_syncopated_rhythm"] is True
+    assert db.get_track(house_id).metadata["maest_syncopated_rhythm"] is False
 
 
 def test_database_stores_metadata_json_without_non_finite_numbers(tmp_path: Path) -> None:
@@ -344,6 +434,7 @@ def test_database_resets_metadata_backed_analyses(tmp_path: Path) -> None:
     assert after_sonara.analyses == ["maest"]
     assert maest_result["tracks_updated"] == 1
     assert "maest_genres" not in after_maest.metadata
+    assert "maest_syncopated_rhythm" not in after_maest.metadata
     assert after_maest.analyses is None
 
 

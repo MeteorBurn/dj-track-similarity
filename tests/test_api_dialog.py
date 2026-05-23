@@ -61,3 +61,19 @@ def test_relocate_library_endpoint_returns_dry_run_preview(monkeypatch, tmp_path
     assert response.json()["dry_run"] is True
     assert response.json()["tracks_matched"] == 1
     assert api.LibraryDatabase(db_path).get_track(track_id).path == old_file.as_posix()
+
+
+def test_analyze_endpoint_rejects_removed_fake_adapter(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path / "library.sqlite"))
+
+    response = client.post("/api/analyze", json={"adapter": "fake"})
+
+    assert response.status_code == 422
+
+
+def test_analysis_reset_endpoint_rejects_removed_fake_adapter(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path / "library.sqlite"))
+
+    response = client.post("/api/analysis/reset", json={"adapter": "fake"})
+
+    assert response.status_code == 422

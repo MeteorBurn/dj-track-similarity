@@ -140,8 +140,6 @@ export type AnalysisResetResult = {
 export type DatabaseClearResult = {
   tracks_deleted: number;
   embeddings_deleted: number;
-  playlists_deleted: number;
-  playlist_tracks_deleted: number;
 };
 
 export type DatabaseSelection = {
@@ -193,6 +191,11 @@ export const api = {
     search.set("include_metadata", params.includeMetadata ? "true" : "false");
     return request<TrackPage>(`/api/tracks?${search.toString()}`);
   },
+  filteredTracks: (payload: { query?: string; preset?: string }) =>
+    request<{ items: Track[]; total: number }>("/api/tracks/filtered", {
+      method: "POST",
+      body: JSON.stringify({ query: payload.query || "", preset: payload.preset || "all" })
+    }),
   track: (trackId: number) => request<Track>(`/api/tracks/${trackId}`),
   librarySummary: () => request<LibrarySummary>("/api/library/summary"),
   resetAnalysis: (adapter: "sonara" | "maest" | "mert" | "clap") =>
@@ -302,35 +305,20 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
-  createPlaylist: (name: string, track_ids: number[]) =>
-    request<{ id: number; name: string; track_ids: number[] }>("/api/playlists", {
-      method: "POST",
-      body: JSON.stringify({ name, track_ids })
-    }),
-  exportPlaylist: (playlist_id: number, output_dir: string, format: "m3u" | "csv") =>
+  exportPlaylist: (name: string, track_ids: number[], output_dir: string, format: "m3u" | "csv") =>
     request<{ path: string }>("/api/export", {
       method: "POST",
-      body: JSON.stringify({ playlist_id, output_dir, format })
+      body: JSON.stringify({ name, track_ids, output_dir, format })
     }),
-  tagPreview: (track_ids: number[]) =>
-    request<TagPreview[]>("/api/tags/preview", {
-      method: "POST",
-      body: JSON.stringify({ track_ids })
-    }),
-  tagApply: (track_ids: number[]) =>
-    request<TagPreview[]>("/api/tags/apply", {
-      method: "POST",
-      body: JSON.stringify({ track_ids })
-    }),
-  genreTagApply: (track_ids?: number[]) =>
+  genreTagApply: () =>
     request<GenreTagApplyResult[]>("/api/tags/genres/apply", {
       method: "POST",
-      body: JSON.stringify(track_ids == null ? {} : { track_ids })
+      body: JSON.stringify({})
     }),
-  genreTagJobStart: (track_ids?: number[]) =>
+  genreTagJobStart: () =>
     request<GenreTagJobStatus>("/api/tags/genres/jobs", {
       method: "POST",
-      body: JSON.stringify(track_ids == null ? {} : { track_ids })
+      body: JSON.stringify({})
     }),
   genreTagJobLatest: () => request<GenreTagJobStatus | null>("/api/tags/genres/jobs/latest"),
   genreTagJob: (jobId: string) => request<GenreTagJobStatus>(`/api/tags/genres/jobs/${jobId}`),

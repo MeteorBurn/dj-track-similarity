@@ -218,7 +218,6 @@ export function stageIndicatorLabel(scanJob: ScanStats | null, analysisJob: Anal
 
 function analysisRuntimeLabel(job: AnalysisJobStatus) {
   const model = job.model_name || job.adapter_name;
-  if (job.adapter_name === "fake") return model;
   return `${model} · ${job.device || `${job.device_requested} pending`}`;
 }
 

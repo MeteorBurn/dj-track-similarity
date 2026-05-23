@@ -4,16 +4,13 @@ import csv
 import re
 from pathlib import Path
 
-from .database import LibraryDatabase
 from .models import Track
 
 
-def export_playlist(db: LibraryDatabase, playlist_id: int, output_dir: str | Path, format: str) -> Path:
+def export_tracks(name: str, tracks: list[Track], output_dir: str | Path, format: str) -> Path:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    playlist_name = db.get_playlist_name(playlist_id)
-    tracks = db.get_playlist_tracks(playlist_id)
-    safe_name = _safe_filename(playlist_name)
+    safe_name = _safe_filename(name)
 
     if format == "m3u":
         path = output_path / f"{safe_name}.m3u"

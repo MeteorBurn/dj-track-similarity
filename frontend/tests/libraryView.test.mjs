@@ -31,6 +31,29 @@ function loadExportViewModule() {
   return import(pathToFileURL(modulePath).href);
 }
 
+function loadPlaylistViewModule() {
+  const sourcePath = new URL("../src/playlistView.ts", import.meta.url);
+  if (!existsSync(sourcePath)) {
+    throw new Error("frontend/src/playlistView.ts does not exist yet");
+  }
+  const tempDir = mkdtempSync(join(tmpdir(), "playlist-view-test-"));
+  const modulePath = join(tempDir, "playlistView.cjs");
+  writeFileSync(modulePath, transpile(readFileSync(sourcePath, "utf8")), "utf8");
+  return import(pathToFileURL(modulePath).href);
+}
+
+function loadSyncopatedRhythmModule() {
+  const sourcePath = new URL("../src/syncopatedRhythm.ts", import.meta.url);
+  if (!existsSync(sourcePath)) {
+    throw new Error("frontend/src/syncopatedRhythm.ts does not exist yet");
+  }
+  const tempDir = mkdtempSync(join(tmpdir(), "syncopated-rhythm-test-"));
+  writeTranspiledModule(new URL("../src/maestGenres.ts", import.meta.url), join(tempDir, "maestGenres.js"));
+  const modulePath = join(tempDir, "syncopatedRhythm.cjs");
+  writeFileSync(modulePath, transpile(readFileSync(sourcePath, "utf8")), "utf8");
+  return import(pathToFileURL(modulePath).href);
+}
+
 function writeTranspiledModule(sourcePath, outputPath) {
   writeFileSync(outputPath, transpile(readFileSync(sourcePath, "utf8")), "utf8");
 }
@@ -65,4 +88,33 @@ test("export directory validation rejects blank paths", async () => {
   assert.equal(exportDirectoryError(""), "Укажите папку экспорта");
   assert.equal(exportDirectoryError("   "), "Укажите папку экспорта");
   assert.equal(exportDirectoryError("D:/Exports"), null);
+});
+
+test("playlist pagination slices pages and clamps stale offsets", async () => {
+  const { playlistPage } = await loadPlaylistViewModule();
+  const tracks = Array.from({ length: 405 }, (_, index) => ({ id: index + 1, title: `Track ${index + 1}` }));
+
+  const first = playlistPage(tracks, 0, 200);
+  const third = playlistPage(tracks, 400, 200);
+  const clamped = playlistPage(tracks.slice(0, 120), 400, 200);
+
+  assert.deepEqual(first.items.map((track) => track.id).slice(0, 3), [1, 2, 3]);
+  assert.equal(first.pageStart, 1);
+  assert.equal(first.pageEnd, 200);
+  assert.equal(first.canGoForward, true);
+  assert.deepEqual(third.items.map((track) => track.id), [401, 402, 403, 404, 405]);
+  assert.equal(third.pageStart, 401);
+  assert.equal(third.pageEnd, 405);
+  assert.equal(third.canGoForward, false);
+  assert.equal(clamped.offset, 0);
+  assert.equal(clamped.pageStart, 1);
+  assert.equal(clamped.pageEnd, 120);
+});
+
+test("syncopated rhythm label uses stored MAEST flag", async () => {
+  const { hasMaestSyncopatedRhythm } = await loadSyncopatedRhythmModule();
+
+  assert.equal(hasMaestSyncopatedRhythm({ maest_syncopated_rhythm: true }), true);
+  assert.equal(hasMaestSyncopatedRhythm({ maest_syncopated_rhythm: false }), false);
+  assert.equal(hasMaestSyncopatedRhythm({ maest_genres: [{ label: "Breakbeat", score: 0.9 }] }), false);
 });

@@ -21,20 +21,6 @@ class EmbeddingAdapter(Protocol):
         ...
 
 
-class FakeEmbeddingAdapter:
-    embedding_key = "mert"
-    model_name = "fake-model"
-    dim = 3
-
-    def embed(self, path: str | Path) -> np.ndarray:
-        digest = sum(bytearray(Path(path).as_posix().encode("utf-8")))
-        vector = np.array([(digest % 17) + 1, (digest % 31) + 1, (digest % 43) + 1], dtype=np.float32)
-        return vector / np.linalg.norm(vector)
-
-    def embed_batch(self, paths: list[str | Path]) -> list[np.ndarray]:
-        return [self.embed(path) for path in paths]
-
-
 class MertEmbeddingAdapter:
     embedding_key = "mert"
     model_name = "m-a-p/MERT-v1-95M"
@@ -236,7 +222,6 @@ def adapter_factories():
     return {
         "mert": MertEmbeddingAdapter,
         "clap": ClapEmbeddingAdapter,
-        "fake": FakeEmbeddingAdapter,
     }
 
 

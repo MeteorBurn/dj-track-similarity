@@ -13,14 +13,14 @@ from .analysis_jobs import AnalysisJobManager
 from .database import LibraryDatabase
 from .dependencies import require_ffmpeg
 from .embedding import ClapEmbeddingAdapter
-from .exporter import export_playlist
+from .exporter import export_tracks
 from .genre_jobs import GenreAnalysisJobManager
 from .logging_config import configure_logging
 from .scan_jobs import ScanJobManager
 from .search import SearchFilters, SimilaritySearch
 from .sonara_similarity import SonaraSimilaritySearch
 from .sonara_jobs import SonaraFeatureJobManager
-from .tags import GenreTagJobManager, apply_custom_tags, apply_genre_tags, apply_genre_tags_to_tracks, build_tag_preview
+from .tags import GenreTagJobManager, apply_genre_tags_to_tracks
 
 
 LOGGER = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ class DatabaseSwitchRequest(BaseModel):
 
 class AnalyzeRequest(BaseModel):
     limit: int | None = None
-    adapter: str = Field(default="mert", pattern="^(mert|clap|fake)$")
+    adapter: str = Field(default="mert", pattern="^(mert|clap)$")
     device: str = Field(default="auto", pattern="^(auto|cpu|cuda)$")
     batch_size: int = Field(default=4, ge=1, le=64)
     workers: int | None = Field(default=None, ge=1, le=64)
@@ -66,7 +66,7 @@ class SonaraAnalyzeRequest(BaseModel):
 
 
 class AnalysisResetRequest(BaseModel):
-    adapter: str = Field(pattern="^(sonara|maest|mert|clap|fake)$")
+    adapter: str = Field(pattern="^(sonara|maest|mert|clap)$")
 
 
 class SearchRequest(BaseModel):
@@ -119,19 +119,16 @@ class TextSearchRequest(BaseModel):
     device: str = Field(default="auto", pattern="^(auto|cpu|cuda)$")
 
 
-class PlaylistRequest(BaseModel):
-    name: str
-    track_ids: list[int]
+class FilteredTracksRequest(BaseModel):
+    query: str = ""
+    preset: str = Field(default="all", pattern="^(all|syncopated)$")
 
 
 class ExportRequest(BaseModel):
-    playlist_id: int
+    name: str
+    track_ids: list[int]
     output_dir: str
     format: str = Field(default="m3u", pattern="^(m3u|csv)$")
-
-
-class TagRequest(BaseModel):
-    track_ids: list[int]
 
 
 class GenreTagRequest(BaseModel):
@@ -377,6 +374,10 @@ def create_app(
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
+    @app.post("/api/tracks/filtered")
+    def filtered_tracks(request: FilteredTracksRequest):
+        return state.require_db().list_filtered_tracks(query=request.query, preset=request.preset)
+
     @app.get("/api/library/summary")
     def library_summary():
         return state.require_db().library_summary()
@@ -518,33 +519,27 @@ def create_app(
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
-    @app.post("/api/playlists")
-    def playlists(request: PlaylistRequest):
-        playlist_id = state.require_db().create_playlist(request.name, request.track_ids)
-        return {"id": playlist_id, "name": request.name, "track_ids": request.track_ids}
-
     @app.post("/api/export")
     def export(request: ExportRequest):
-        path = export_playlist(state.require_db(), request.playlist_id, request.output_dir, request.format)
+        db = state.require_db()
+        try:
+            tracks = [db.get_track(track_id) for track_id in request.track_ids]
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        path = export_tracks(request.name, tracks, request.output_dir, request.format)
         return {"path": str(path)}
-
-    @app.post("/api/tags/preview")
-    def tags_preview(request: TagRequest):
-        return build_tag_preview(state.require_db(), request.track_ids)
-
-    @app.post("/api/tags/apply")
-    def tags_apply(request: TagRequest):
-        return apply_custom_tags(state.require_db(), request.track_ids)
 
     @app.post("/api/tags/genres/apply")
     def genre_tags_apply(request: GenreTagRequest):
         db = state.require_db()
-        if request.track_ids is None:
-            return apply_genre_tags_to_tracks(db, db.list_tracks_with_maest_genres())
-        return apply_genre_tags(db, request.track_ids)
+        if request.track_ids is not None:
+            raise HTTPException(status_code=400, detail="Writing MAEST genres to specific tracks is no longer supported")
+        return apply_genre_tags_to_tracks(db, db.list_tracks_with_maest_genres())
 
     @app.post("/api/tags/genres/jobs")
     def genre_tags_job_start(request: GenreTagRequest):
+        if request.track_ids is not None:
+            raise HTTPException(status_code=400, detail="Writing MAEST genres to specific tracks is no longer supported")
         return state.require_genre_tag_jobs().start(request.track_ids)
 
     @app.get("/api/tags/genres/jobs/latest")

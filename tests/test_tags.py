@@ -10,7 +10,7 @@ import pytest
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity import tags, wave_tags
 from dj_track_similarity.api import create_app
-from dj_track_similarity.tags import GenreTagJobManager, apply_genre_tags, build_genre_tag_preview, build_tag_preview, genre_tag_apply_summary
+from dj_track_similarity.tags import GenreTagJobManager, apply_genre_tags, build_genre_tag_preview, genre_tag_apply_summary
 from fastapi.testclient import TestClient
 from mutagen import File as MutagenFile
 from mutagen.id3 import ID3, TALB, TCON, TIT2, TPE1
@@ -107,14 +107,14 @@ def _decoded_audio_md5(path: Path) -> str:
     return hashlib.md5(result.stdout).hexdigest()
 
 
-def test_tag_preview_reports_custom_tags_without_touching_audio_file(tmp_path: Path) -> None:
+def test_custom_tag_api_is_not_available(tmp_path: Path) -> None:
     audio_path = tmp_path / "track.flac"
     audio_path.write_bytes(b"fake audio")
-    before = audio_path.read_bytes()
-    db = LibraryDatabase(tmp_path / "library.sqlite")
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
     track_id = db.upsert_track(
         path=audio_path,
-        size=len(before),
+        size=audio_path.stat().st_size,
         mtime=audio_path.stat().st_mtime,
         metadata={"artist": "A", "title": "T"},
         bpm=128,
@@ -122,16 +122,10 @@ def test_tag_preview_reports_custom_tags_without_touching_audio_file(tmp_path: P
         energy=0.73,
     )
 
-    preview = build_tag_preview(db, [track_id])
+    client = TestClient(create_app(db_path))
 
-    assert audio_path.read_bytes() == before
-    assert preview[0].track_id == track_id
-    assert preview[0].path == audio_path.as_posix()
-    assert preview[0].tags == {
-        "DJ_SIM_BPM": "128.0",
-        "DJ_SIM_KEY": "8A",
-        "DJ_SIM_ENERGY": "0.730",
-    }
+    assert client.post("/api/tags/preview", json={"track_ids": [track_id]}).status_code in {404, 405}
+    assert client.post("/api/tags/apply", json={"track_ids": [track_id]}).status_code in {404, 405}
 
 
 def test_genre_tag_preview_uses_maest_genres_without_touching_audio_file(tmp_path: Path) -> None:
@@ -226,29 +220,38 @@ def test_apply_genre_tags_reports_failures_and_continues(monkeypatch, tmp_path: 
     assert "Genre tag apply finished applied=1 skipped=0 failed=1 total=2" in caplog.text
 
 
-def test_genre_tags_apply_api_returns_per_track_status(monkeypatch, tmp_path: Path) -> None:
+def test_genre_tags_apply_api_rejects_specific_track_ids(monkeypatch, tmp_path: Path) -> None:
     audio_path = tmp_path / "track.flac"
     audio_path.write_bytes(b"fake audio")
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
     track_id = db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": "Track"})
     db.save_genres(track_id, [{"label": "House", "score": 0.9}], model_name="maest")
-    monkeypatch.setattr(tags, "_write_genre_tag", lambda path, genre: None)
+    written: list[Path] = []
+    monkeypatch.setattr(tags, "_write_genre_tag", lambda path, genre: written.append(path))
 
     response = TestClient(create_app(db_path)).post("/api/tags/genres/apply", json={"track_ids": [track_id]})
 
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload == [
-        {
-            "track_id": track_id,
-            "path": audio_path.as_posix(),
-            "tags": {"GENRE": "House"},
-            "status": "applied",
-            "message": "Genre tag written",
-            "error": None,
-        }
-    ]
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Writing MAEST genres to specific tracks is no longer supported"
+    assert written == []
+
+
+def test_genre_tag_job_api_rejects_specific_track_ids(monkeypatch, tmp_path: Path) -> None:
+    audio_path = tmp_path / "track.flac"
+    audio_path.write_bytes(b"fake audio")
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    track_id = db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": "Track"})
+    db.save_genres(track_id, [{"label": "House", "score": 0.9}], model_name="maest")
+    written: list[Path] = []
+    monkeypatch.setattr(tags, "_write_genre_tag", lambda path, genre: written.append(path))
+
+    response = TestClient(create_app(db_path)).post("/api/tags/genres/jobs", json={"track_ids": [track_id]})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Writing MAEST genres to specific tracks is no longer supported"
+    assert written == []
 
 
 def test_genre_tags_apply_api_can_apply_all_maest_tracks(monkeypatch, tmp_path: Path) -> None:

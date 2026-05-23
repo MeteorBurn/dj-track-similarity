@@ -340,7 +340,7 @@ h2 {
   align-items: stretch;
   display: grid;
   gap: 8px;
-  grid-template-columns: minmax(0, 1fr) auto 42px;
+  grid-template-columns: minmax(0, 1fr) 42px 42px;
   margin-bottom: 8px;
 }
 
@@ -381,9 +381,17 @@ h2 {
   width: 100%;
 }
 
-.refresh-tags-button {
-  align-self: stretch;
+.scan-action-row .refresh-tags-button {
+  background: #e7f3ed;
+  border-color: #9ccfbd;
+  color: #176c5a;
   min-height: 34px;
+  width: 42px;
+}
+
+.scan-action-row .refresh-tags-button:hover:not(:disabled) {
+  border-color: #4f9a87;
+  color: #116858;
 }
 
 .scan-action-row .database-clear-button {
@@ -890,6 +898,17 @@ h2 {
 
 .save-state.dirty {
   color: #a36b18;
+}
+
+.playlist-page-controls {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+
+.playlist-page-controls .library-page-status {
+  margin-right: auto;
 }
 
 .track-row,

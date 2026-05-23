@@ -36,3 +36,10 @@ def test_relocate_library_cli_applies_path_updates(tmp_path):
     assert "dry_run=False" in result.output
     assert "tracks_updated=1" in result.output
     assert LibraryDatabase(db_path).get_track(track_id).path == new_file.as_posix()
+
+
+def test_analyze_cli_does_not_expose_removed_fake_option():
+    result = CliRunner().invoke(cli.app, ["analyze", "--fake"])
+
+    assert result.exit_code != 0
+    assert "No such option" in result.output

@@ -44,6 +44,26 @@ def test_tracks_endpoint_filters_by_query_and_syncopated_preset(tmp_path: Path) 
     assert preset_payload["items"][0]["id"] == breaks_id
 
 
+def test_filtered_tracks_endpoint_returns_all_matching_tracks_without_pagination(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    house_id = _add_track(db, tmp_path, "house.wav", "DJ One", "Deep House", {})
+    breaks_id = _add_track(db, tmp_path, "breaks.wav", "DJ Two", "Broken Rhythm", {})
+    garage_id = _add_track(db, tmp_path, "garage.wav", "DJ Three", "Broken Garage", {})
+    db.save_genres(house_id, [{"label": "House", "score": 0.8}], model_name="maest")
+    db.save_genres(breaks_id, [{"label": "Breakbeat", "score": 0.9}], model_name="maest")
+    db.save_genres(garage_id, [{"label": "UK Garage", "score": 0.9}], model_name="maest")
+    client = TestClient(create_app(db_path))
+
+    response = client.post("/api/tracks/filtered", json={"query": "broken", "preset": "syncopated"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 2
+    assert [item["id"] for item in payload["items"]] == [garage_id, breaks_id]
+    assert all(item["metadata"] is None for item in payload["items"])
+
+
 def test_syncopated_preset_ignores_non_genre_metadata_text(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
@@ -62,6 +82,34 @@ def test_syncopated_preset_ignores_non_genre_metadata_text(tmp_path: Path) -> No
 
     assert preset_payload["total"] == 0
     assert preset_payload["items"] == []
+
+
+def test_syncopated_preset_uses_stored_maest_syncopated_flag(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    legacy_breaks_id = _add_track(
+        db,
+        tmp_path,
+        "legacy-breaks.wav",
+        "DJ One",
+        "Legacy Breaks",
+        {"maest_genres": [{"label": "Breakbeat", "score": 0.9}], "maest_model": "legacy-maest"},
+    )
+    flagged_house_id = _add_track(
+        db,
+        tmp_path,
+        "flagged-house.wav",
+        "DJ Two",
+        "Flagged House",
+        {"maest_genres": [{"label": "House", "score": 0.8}], "maest_model": "maest", "maest_syncopated_rhythm": True},
+    )
+    client = TestClient(create_app(db_path))
+
+    preset_payload = client.get("/api/tracks?preset=syncopated").json()
+
+    assert preset_payload["total"] == 1
+    assert preset_payload["items"][0]["id"] == flagged_house_id
+    assert legacy_breaks_id != flagged_house_id
 
 
 def test_track_detail_endpoint_returns_full_metadata(tmp_path: Path) -> None:

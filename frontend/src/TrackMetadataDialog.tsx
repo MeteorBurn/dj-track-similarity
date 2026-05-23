@@ -1,7 +1,7 @@
-import { Save, X } from "lucide-react";
+import { X } from "lucide-react";
 import { Fragment } from "react";
 import { Track } from "./api";
-import { formatMaestGenreLabel, hasSyncopatedRhythm, SYNCOPATED_RHYTHM_LABEL } from "./syncopatedRhythm";
+import { formatMaestGenreLabel, hasMaestSyncopatedRhythm, SYNCOPATED_RHYTHM_LABEL } from "./syncopatedRhythm";
 import { basename, displayTrack } from "./trackDisplay";
 
 const trackTagLabels: Record<string, string> = {
@@ -62,18 +62,14 @@ function readableTrackTags(raw: Track["metadata"]) {
 
 export function TrackMetadataDialog({
   track,
-  busy,
-  onWriteGenres,
   onClose
 }: {
   track: Track;
-  busy: boolean;
-  onWriteGenres: (track: Track) => void;
   onClose: () => void;
 }) {
   const genres = track.genres || [];
   const scores = track.genre_scores || {};
-  const trackHasSyncopatedRhythm = hasSyncopatedRhythm(genres);
+  const trackHasSyncopatedRhythm = hasMaestSyncopatedRhythm(track.metadata);
   const sonaraFeatureGroups = readableSonaraFeatureGroups(track.metadata?.sonara_features);
   const sonaraFeatureCount = sonaraFeatureGroups.reduce((total, group) => total + group.features.length, 0);
   const primaryEntries = readablePrimaryTrackInfo(track);
@@ -121,10 +117,6 @@ export function TrackMetadataDialog({
         <div className="genre-block">
           <div className="genre-block-title">
             <strong>MAEST genres</strong>
-            <button className="secondary-mini" disabled={busy || !genres.length} title="Перезаписать стандартный Genre тег этого файла жанрами MAEST" onClick={() => onWriteGenres(track)}>
-              <Save size={13} />
-              Save
-            </button>
           </div>
           {genres.length ? (
             <div className="genre-list">
@@ -168,7 +160,6 @@ const sonaraFeatureLabels: Record<string, string> = {
   zero_crossing_rate: "ZCR",
   mfcc_mean: "MFCC mean",
   chroma_mean: "Chroma mean",
-  chord_sequence: "Chord sequence"
 };
 
 const sonaraPlaylistFeatureGroups = [
@@ -186,7 +177,7 @@ const sonaraPlaylistFeatureGroups = [
   },
   {
     title: "Tonal analysis",
-    keys: ["chord_sequence", "predominant_chord", "chord_change_rate", "dissonance"]
+    keys: ["predominant_chord", "chord_change_rate", "dissonance"]
   },
   {
     title: "Spectral features",

@@ -54,7 +54,6 @@ PLAYLIST_FEATURE_GROUPS = (
     (
         "Tonal analysis",
         (
-            "chord_sequence",
             "predominant_chord",
             "chord_change_rate",
             "dissonance",
@@ -94,7 +93,6 @@ FEATURE_DESCRIPTIONS = {
     "acousticness": "Acoustic versus electronic character estimate.",
     "key": "Analyzed musical key, independent of file tags.",
     "key_confidence": "Confidence of analyzed musical key.",
-    "chord_sequence": "Beat-synchronous chord labels.",
     "predominant_chord": "Most frequent chord in the analyzed track.",
     "chord_change_rate": "Chord changes per second; a harmonic complexity proxy.",
     "dissonance": "Sensory dissonance estimate from harmonic roughness.",
@@ -233,7 +231,6 @@ def _feature_payload(value: object, name: str) -> dict[str, object]:
     payload = {
         "value": serialized["value"],
         "type": serialized["type"],
-        "description": FEATURE_DESCRIPTIONS.get(name, "Sonara analysis feature."),
     }
     for key in ("shape", "size", "dtype", "summary", "storage", "length", "fields"):
         if key in serialized:

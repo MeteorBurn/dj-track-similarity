@@ -57,14 +57,11 @@ export function TrackPanel({
   onPreview: (track: Track) => void;
   onDetails: (track: Track) => void;
 }) {
-  const newVisibleTracks = tracks.filter((track) => !playlistSet.has(track.id)).length;
   const pageStart = total && tracks.length ? offset + 1 : 0;
   const pageEnd = Math.min(offset + tracks.length, total);
-  const addVisibleTitle = tracks.length === 0
-    ? "Нет видимых треков для добавления"
-    : newVisibleTracks === 0
-      ? "Все видимые треки уже в сете"
-      : "Добавить все видимые треки в сет. Уже добавленные треки будут пропущены.";
+  const addVisibleTitle = total === 0
+    ? "Нет отфильтрованных треков для добавления"
+    : "Добавить все отфильтрованные треки в сет с учетом поиска, preset-фильтра и всех страниц. Уже добавленные треки будут пропущены.";
   return (
     <section className="panel track-panel">
       <div className="panel-title">
@@ -74,8 +71,8 @@ export function TrackPanel({
           <button
             className="icon-button intent-add"
             title={addVisibleTitle}
-            aria-label="Добавить все видимые треки в сет"
-            disabled={!newVisibleTracks}
+            aria-label="Добавить все отфильтрованные треки в сет"
+            disabled={busy || total === 0}
             onClick={onAddVisibleTracks}
             type="button"
           >
@@ -100,8 +97,8 @@ export function TrackPanel({
         </button>
         <button
           className={`icon-button library-preset-button ${libraryPreset === "syncopated" ? "active" : ""}`}
-          title="Показать только треки с syncopated rhythm по MAEST-жанрам"
-          aria-label="Показать только треки с syncopated rhythm по MAEST-жанрам"
+          title="Показать только треки с сохранённым MAEST-флагом syncopated rhythm"
+          aria-label="Показать только треки с сохранённым MAEST-флагом syncopated rhythm"
           aria-pressed={libraryPreset === "syncopated"}
           onClick={() => onToggleLibraryPreset("syncopated")}
           type="button"

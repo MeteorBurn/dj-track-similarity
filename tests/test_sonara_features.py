@@ -114,9 +114,8 @@ def test_analyze_and_store_sonara_features_writes_metadata_and_json_dump(tmp_pat
     assert "camelot_key" not in track.metadata["sonara_features"]
     assert track.metadata["sonara_features"]["key"]["value"] == "A minor"
     assert track.metadata["sonara_features"]["danceability"]["value"] == 0.68
-    assert track.metadata["sonara_features"]["onset_density"]["description"] == (
-        "Onset density measured as value/sec; a proxy for rhythmic activity."
-    )
+    assert "description" not in track.metadata["sonara_features"]["onset_density"]
+    assert "chord_sequence" not in track.metadata["sonara_features"]
     assert track.metadata["sonara_features"]["mfcc_mean"]["summary"]["mean"] == 2.0
     assert list(track.metadata["sonara_features"]) == [
         "bpm",
@@ -137,7 +136,6 @@ def test_analyze_and_store_sonara_features_writes_metadata_and_json_dump(tmp_pat
         "acousticness",
         "key",
         "key_confidence",
-        "chord_sequence",
         "predominant_chord",
         "chord_change_rate",
         "dissonance",
@@ -231,7 +229,7 @@ def test_api_runs_sonara_analysis_and_returns_track_features(monkeypatch, tmp_pa
     assert tracks[0]["musical_key"] == "A minor"
     assert tracks[0]["analyses"] == ["sonara"]
     assert "camelot_key" not in tracks[0]["metadata"]["sonara_features"]
-    assert tracks[0]["metadata"]["sonara_features"]["key"]["description"] == "Analyzed musical key, independent of file tags."
+    assert "description" not in tracks[0]["metadata"]["sonara_features"]["key"]
 
 
 def test_analyze_sonara_falls_back_to_signal_for_truncated_wav(tmp_path: Path) -> None:

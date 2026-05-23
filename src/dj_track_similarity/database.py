@@ -223,6 +223,30 @@ class LibraryDatabase:
             "offset": bounded_offset,
         }
 
+    def list_filtered_tracks(
+        self,
+        *,
+        query: str = "",
+        preset: str = "all",
+        include_metadata: bool = False,
+        embedding_key: str = DEFAULT_EMBEDDING_KEY,
+    ) -> dict[str, object]:
+        where_parts, params = _track_filter_sql(query=query, preset=preset)
+        where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+        with self.connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT {TRACK_SELECT_FIELDS}
+                FROM tracks t
+                LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
+                {where_sql}
+                ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
+                """,
+                (embedding_key, *params),
+            ).fetchall()
+        tracks = [self._row_to_track(row, include_metadata=include_metadata) for row in rows]
+        return {"items": tracks, "total": len(tracks)}
+
     def list_track_ids_with_maest_genres(self) -> list[int]:
         with self.connect() as connection:
             rows = connection.execute(
@@ -311,11 +335,10 @@ class LibraryDatabase:
             cleaned.append({"label": label, "score": float(score or 0.0)})
         with self._write_lock, self.connect() as connection:
             metadata = self._metadata_for_track_update(connection, track_id)
-            metadata["maest_genres"] = cleaned
-            metadata["maest_model"] = model_name
+            _set_maest_metadata(metadata, model_name=model_name, genres=cleaned)
             connection.execute(
                 "UPDATE tracks SET metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (metadata_to_json(metadata), track_id),
+                (metadata_to_json(metadata, sort_keys=False), track_id),
             )
 
     def save_sonara_features(
@@ -412,12 +435,12 @@ class LibraryDatabase:
 
     def reset_analysis(self, adapter: str) -> dict[str, object]:
         adapter = adapter.strip().lower()
-        if adapter in {"mert", "clap", "fake"}:
+        if adapter in {"mert", "clap"}:
             with self._write_lock, self.connect() as connection:
                 cursor = connection.execute("DELETE FROM embeddings WHERE embedding_key = ?", (adapter,))
                 return {"adapter": adapter, "tracks_updated": 0, "embeddings_deleted": cursor.rowcount}
         if adapter == "maest":
-            return self._reset_metadata_analysis(adapter, ("maest_genres", "maest_model"))
+            return self._reset_metadata_analysis(adapter, ("maest_genres", "maest_model", "maest_syncopated_rhythm"))
         if adapter == "sonara":
             return self._reset_sonara_analysis()
         raise ValueError(f"Unsupported analysis adapter reset: {adapter}")
@@ -427,11 +450,7 @@ class LibraryDatabase:
             counts = {
                 "tracks_deleted": int(connection.execute("SELECT COUNT(*) FROM tracks").fetchone()[0]),
                 "embeddings_deleted": int(connection.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]),
-                "playlists_deleted": int(connection.execute("SELECT COUNT(*) FROM playlists").fetchone()[0]),
-                "playlist_tracks_deleted": int(connection.execute("SELECT COUNT(*) FROM playlist_tracks").fetchone()[0]),
             }
-            connection.execute("DELETE FROM playlist_tracks")
-            connection.execute("DELETE FROM playlists")
             connection.execute("DELETE FROM embeddings")
             connection.execute("DELETE FROM tracks")
         return counts
@@ -574,41 +593,6 @@ class LibraryDatabase:
         vectors = [np.frombuffer(row["vector"], dtype=np.float32).copy() for row in rows]
         return tracks, np.vstack(vectors).astype(np.float32)
 
-    def create_playlist(self, name: str, track_ids: Iterable[int]) -> int:
-        ordered_ids = list(track_ids)
-        with self._write_lock, self.connect() as connection:
-            cursor = connection.execute("INSERT INTO playlists (name) VALUES (?)", (name,))
-            playlist_id = int(cursor.lastrowid)
-            connection.executemany(
-                "INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (?, ?, ?)",
-                [(playlist_id, track_id, index) for index, track_id in enumerate(ordered_ids)],
-            )
-        return playlist_id
-
-    def get_playlist_name(self, playlist_id: int) -> str:
-        with self.connect() as connection:
-            row = connection.execute("SELECT name FROM playlists WHERE id = ?", (playlist_id,)).fetchone()
-        if row is None:
-            raise KeyError(f"Unknown playlist id: {playlist_id}")
-        return str(row["name"])
-
-    def get_playlist_tracks(self, playlist_id: int) -> list[Track]:
-        with self.connect() as connection:
-            rows = connection.execute(
-                f"""
-                SELECT {TRACK_SELECT_FIELDS}
-                FROM playlist_tracks pt
-                JOIN tracks t ON t.id = pt.track_id
-                LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
-                WHERE pt.playlist_id = ?
-                ORDER BY pt.position
-                """,
-                (DEFAULT_EMBEDDING_KEY, playlist_id),
-            ).fetchall()
-        if not rows and self.get_playlist_name(playlist_id) is None:
-            raise KeyError(f"Unknown playlist id: {playlist_id}")
-        return [self._row_to_track(row) for row in rows]
-
     @staticmethod
     def _row_to_track(row: sqlite3.Row, *, include_metadata: bool = True) -> Track:
         metadata = metadata_from_json(row["metadata_json"] if "metadata_json" in row.keys() else "{}")
@@ -651,24 +635,27 @@ def _track_filter_sql(*, query: str, preset: str) -> tuple[list[str], list[objec
         where_parts.append("(" + " OR ".join(f"{column} LIKE ?" for column in searchable_columns) + ")")
         params.extend([like] * len(searchable_columns))
     if preset == "syncopated":
-        labels = [genre.lower() for genre in SYNCOPATED_RHYTHM_GENRES]
-        where_parts.append(
-            """
-            EXISTS (
-                SELECT 1
-                FROM json_each(t.metadata_json, '$.maest_genres') AS genre
-                WHERE LOWER(COALESCE(json_extract(genre.value, '$.label'), '')) IN (
-                    """
-            + ", ".join("?" for _ in labels)
-            + """
-                )
-            )
-            """
-        )
-        params.extend(labels)
+        where_parts.append("json_extract(t.metadata_json, '$.maest_syncopated_rhythm') = 1")
     elif preset != "all":
         raise ValueError(f"Unknown library preset: {preset}")
     return where_parts, params
+
+
+def _set_maest_metadata(metadata: dict[str, object], *, model_name: str, genres: list[dict[str, object]]) -> None:
+    for key in ("maest_model", "maest_genres", "maest_syncopated_rhythm"):
+        metadata.pop(key, None)
+    metadata["maest_model"] = model_name
+    metadata["maest_genres"] = genres
+    metadata["maest_syncopated_rhythm"] = _has_syncopated_rhythm_genre(genres)
+
+
+def _has_syncopated_rhythm_genre(genres: list[dict[str, object]]) -> bool:
+    syncopated = {genre.lower() for genre in SYNCOPATED_RHYTHM_GENRES}
+    for genre in genres:
+        label = string_or_none(genre.get("label"))
+        if label and label.lower() in syncopated:
+            return True
+    return False
 
 
 def _normalize_root(path: str | Path) -> str:

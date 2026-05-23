@@ -1,8 +1,11 @@
-import { Dispatch, SetStateAction, useState } from "react";
-import { Download, FolderOpen, ListMusic, Play, Save, Search, Tags, Trash2, X } from "lucide-react";
+import { Dispatch, SetStateAction, useEffect, useState } from "react";
+import { Download, FolderOpen, ListMusic, Play, Search, Tags, Trash2, X } from "lucide-react";
 import { SearchResult, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
+import { playlistPage } from "./playlistView";
 import { ResultRow } from "./TrackRows";
 import { displayTrack, trackInfo } from "./trackDisplay";
+
+const playlistPageSize = 200;
 
 export type SearchFiltersState = {
   minSimilarity: number;
@@ -47,7 +50,6 @@ export function SearchPlaylistPanel({
   playlist,
   playlistName,
   onPlaylistNameChange,
-  playlistId,
   outputDir,
   onOutputDirChange,
   onChooseOutputFolder,
@@ -61,9 +63,7 @@ export function SearchPlaylistPanel({
   setPreview,
   setMetadataTrack,
   removeFromPlaylist,
-  handleCreatePlaylist,
-  handleExport,
-  handleTags
+  handleExport
 }: {
   seedTracks: Track[];
   textQuery: string;
@@ -78,7 +78,6 @@ export function SearchPlaylistPanel({
   playlist: Track[];
   playlistName: string;
   onPlaylistNameChange: (value: string) => void;
-  playlistId: number | null;
   outputDir: string;
   onOutputDirChange: (value: string) => void;
   onChooseOutputFolder: () => void;
@@ -92,11 +91,16 @@ export function SearchPlaylistPanel({
   setPreview: (track: Track) => void;
   setMetadataTrack: (track: Track) => void;
   removeFromPlaylist: (trackId: number) => void;
-  handleCreatePlaylist: () => void;
   handleExport: (format: "m3u" | "csv") => void;
-  handleTags: (apply: boolean) => void;
 }) {
   const [activeSearchTab, setActiveSearchTab] = useState<"sonara" | "mert" | "clap">("sonara");
+  const [playlistOffset, setPlaylistOffset] = useState(0);
+  const playlistPageState = playlistPage(playlist, playlistOffset, playlistPageSize);
+  useEffect(() => {
+    if (playlistPageState.offset !== playlistOffset) {
+      setPlaylistOffset(playlistPageState.offset);
+    }
+  }, [playlistOffset, playlistPageState.offset]);
   const mixerControls: Array<{ key: keyof SonaraMixerWeights; label: string; title: string }> = [
     { key: "timbre", label: "Timbre", title: helpText.sonaraMixerTimbre },
     { key: "rhythm", label: "Rhythm", title: helpText.sonaraMixerRhythm },
@@ -276,18 +280,27 @@ export function SearchPlaylistPanel({
           <span className="panel-counter">{playlist.length}</span>
         </div>
         <input value={playlistName} onChange={(event) => onPlaylistNameChange(event.target.value)} title={helpText.playlistName} />
-        <span className={`save-state ${playlistId ? "saved" : "dirty"}`}>
-          {playlistId ? `Сохранен #${playlistId}` : playlist.length ? "Есть несохраненные изменения" : "Сет пуст"}
+        <span className={`save-state ${playlist.length ? "dirty" : ""}`}>
+          {playlist.length ? "Экспорт сохранит текущий сет" : "Сет пуст"}
         </span>
+        {playlist.length > playlistPageSize ? (
+          <div className="playlist-page-controls">
+            <span className="library-page-status">
+              {playlistPageState.pageStart}-{playlistPageState.pageEnd} из {playlistPageState.total}
+            </span>
+            <button className="secondary-mini" disabled={!playlistPageState.canGoBack} onClick={() => setPlaylistOffset((current) => Math.max(0, current - playlistPageSize))} type="button">Prev</button>
+            <button className="secondary-mini" disabled={!playlistPageState.canGoForward} onClick={() => setPlaylistOffset((current) => current + playlistPageSize)} type="button">Next</button>
+          </div>
+        ) : null}
         <div className="playlist-list">
           {playlist.length === 0 ? (
             <div className="empty-state">
               Сет пуст
             </div>
           ) : (
-            playlist.map((track, index) => (
+            playlistPageState.items.map((track, index) => (
               <div className="playlist-row" key={track.id}>
-                <span className="row-index">{index + 1}</span>
+                <span className="row-index">{playlistPageState.offset + index + 1}</span>
                 <button className="icon-button" title="Preview" aria-label={`Preview ${displayTrack(track)}`} onClick={() => setPreview(track)}><Play size={15} /></button>
                 <div className="track-copy">
                   <strong>{displayTrack(track)}</strong>
@@ -299,10 +312,6 @@ export function SearchPlaylistPanel({
             ))
           )}
         </div>
-        <button className="primary" disabled={busy || !playlist.length} onClick={handleCreatePlaylist}>
-          <Save size={17} />
-          Сохранить
-        </button>
         <div className="path-row output-row">
           <input value={outputDir} onChange={(event) => onOutputDirChange(event.target.value)} placeholder="D:/Exports" title={helpText.outputDir} />
           <button className="icon-button folder-picker" title="Выбрать папку экспорта" aria-label="Выбрать папку экспорта" disabled={busy} onClick={onChooseOutputFolder} type="button">
@@ -310,12 +319,8 @@ export function SearchPlaylistPanel({
           </button>
         </div>
         <div className="action-row">
-          <button disabled={busy || !playlistId} onClick={() => handleExport("m3u")}><Download size={16} />M3U</button>
-          <button disabled={busy || !playlistId} onClick={() => handleExport("csv")}><Download size={16} />CSV</button>
-        </div>
-        <div className="action-row">
-          <button disabled={busy} onClick={() => handleTags(false)}><Tags size={16} />Preview</button>
-          <button disabled={busy} onClick={() => handleTags(true)}><Tags size={16} />Write</button>
+          <button disabled={busy || !playlist.length} onClick={() => handleExport("m3u")}><Download size={16} />M3U</button>
+          <button disabled={busy || !playlist.length} onClick={() => handleExport("csv")}><Download size={16} />CSV</button>
         </div>
       </section>
     </aside>

@@ -55,24 +55,11 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
             PRIMARY KEY(track_id, embedding_key),
             FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
         );
-
-        CREATE TABLE IF NOT EXISTS playlists (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS playlist_tracks (
-            playlist_id INTEGER NOT NULL,
-            track_id INTEGER NOT NULL,
-            position INTEGER NOT NULL,
-            PRIMARY KEY(playlist_id, position),
-            FOREIGN KEY(playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
-            FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
-        );
         """
     )
     migrate_embedding_schema(connection)
+    purge_legacy_fake_embeddings(connection)
+    drop_legacy_playlist_schema(connection)
     ensure_track_metadata_json_guards(connection)
 
 
@@ -100,6 +87,19 @@ def migrate_embedding_schema(connection: sqlite3.Connection) -> None:
         FROM embeddings_legacy;
 
         DROP TABLE embeddings_legacy;
+        """
+    )
+
+
+def purge_legacy_fake_embeddings(connection: sqlite3.Connection) -> None:
+    connection.execute("DELETE FROM embeddings WHERE embedding_key = 'fake'")
+
+
+def drop_legacy_playlist_schema(connection: sqlite3.Connection) -> None:
+    connection.executescript(
+        """
+        DROP TABLE IF EXISTS playlist_tracks;
+        DROP TABLE IF EXISTS playlists;
         """
     )
 

@@ -24,7 +24,7 @@ const helpText = {
   analyzeLimit: "Сколько треков анализировать. Тип: целое число 0-100000. 0 = вся библиотека.",
   scanWorkers: "Параллельное чтение метаданных при сканировании. Тип: целое число. Диапазон зависит от CPU, обычно 1-8.",
   refreshTags: "Перечитать только file tags через Mutagen для уже найденных треков. Пути, Sonara, MAEST, MERT и CLAP не трогаются.",
-  clearDatabase: "Удалить все записи из SQLite: треки, эмбеддинги, анализы, плейлисты и сет. Аудиофайлы на диске не трогаются.",
+  clearDatabase: "Удалить все записи из SQLite: треки, эмбеддинги и анализы. Текущий сет в интерфейсе будет очищен. Аудиофайлы на диске не трогаются.",
   analysisDevice: "Устройство для MERT/CLAP. Значения: AUTO, CPU, CUDA. AUTO выберет CUDA, если PyTorch видит GPU, иначе CPU.",
   sonaraAnalyze: "SONARA считает BPM, key и музыкальные признаки. Нужна для базового описания трека и будущих DJ-фильтров. Параллельность берется из Embedding batch size.",
   maestAnalyze: "MAEST определяет жанровые метки. Нужна для жанровой навигации и проверки характера библиотеки. Batch берется из Embedding batch size.",
@@ -49,7 +49,7 @@ const helpText = {
   textPrompt: "CLAP search. Лучше писать на английском одно связное описание звучания: genre/scene, rhythm/drums, bass, texture, instruments, mood/space, vocals/no vocals. Не полагайся только на абстрактное настроение без слышимых признаков.",
   lookback: "Сколько последних треков сета добавить в контекст поиска. Тип: целое число 0-12.",
   limit: "Максимум результатов поиска. Тип: целое число 1-500.",
-  playlistName: "Название сохраняемого сета. Формат: текст. Используется как имя плейлиста и файла экспорта.",
+  playlistName: "Название текущего сета. Формат: текст. Используется как имя файла экспорта.",
   outputDir: "Папка экспорта. Формат: путь Windows или POSIX, например D:/Exports. Если папки нет, она будет создана.",
 } as const;
 
@@ -74,7 +74,6 @@ export function App() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [playlist, setPlaylist] = useState<Track[]>([]);
   const [playlistName, setPlaylistName] = useState("seamless-set");
-  const [playlistId, setPlaylistId] = useState<number | null>(null);
   const [preview, setPreview] = useState<Track | null>(null);
   const [metadataTrack, setMetadataTrack] = useState<Track | null>(null);
   const [seedTrackMap, setSeedTrackMap] = useState<Record<number, Track>>({});
@@ -258,7 +257,6 @@ export function App() {
     setSeeds([]);
     setResults([]);
     setPlaylist([]);
-    setPlaylistId(null);
     setPreview(null);
     setMetadataTrack(null);
     setSeedTrackMap({});
@@ -349,7 +347,6 @@ export function App() {
     if (!playlistSet.has(track.id)) {
       appendActivity("ok", "Добавлен в сет", displayTrack(track));
     }
-    setPlaylistId(null);
     setPlaylist((current) => (current.some((item) => item.id === track.id) ? current : [...current, track]));
   }
 
@@ -358,7 +355,6 @@ export function App() {
     if (removed) {
       appendActivity("warn", "Убран из сета", displayTrack(removed));
     }
-    setPlaylistId(null);
     setPlaylist((current) => current.filter((track) => track.id !== trackId));
   }
 
@@ -374,17 +370,28 @@ export function App() {
     setLibraryPreset((current) => (current === preset ? "all" : preset));
   }
 
-  function addVisibleTracksToPlaylist() {
-    const nextPlaylist = appendVisibleTracksToPlaylist(playlist, tracks);
-    const added = nextPlaylist.length - playlist.length;
-    if (!added) {
-      setNotice({ kind: "idle", text: "Все видимые треки уже в сете" });
-      return;
+  async function addVisibleTracksToPlaylist() {
+    if (!databasePath || libraryLoading) return;
+    setBusy(true);
+    try {
+      const filtered = await api.filteredTracks({ query, preset: libraryPreset });
+      const matchingTracks = filtered.items;
+      const nextPlaylist = appendVisibleTracksToPlaylist(playlist, matchingTracks);
+      const added = nextPlaylist.length - playlist.length;
+      if (!added) {
+        setNotice({ kind: "idle", text: "Все отфильтрованные треки уже в сете" });
+        return;
+      }
+      setPlaylist(nextPlaylist);
+      appendActivity("ok", "Отфильтрованная библиотека добавлена в сет", `${added} новых · всего найдено ${filtered.total}`);
+      setNotice({ kind: "ok", text: `Добавлено в сет: ${added}` });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setNotice({ kind: "error", text: message });
+      appendActivity("error", "Не удалось добавить треки в сет", message);
+    } finally {
+      setBusy(false);
     }
-    setPlaylistId(null);
-    setPlaylist(nextPlaylist);
-    appendActivity("ok", "Текущая страница добавлена в сет", `${added} новых · на странице ${tracks.length}`);
-    setNotice({ kind: "ok", text: `Добавлено в сет: ${added}` });
   }
 
   async function handleSonaraSearch() {
@@ -523,21 +530,6 @@ export function App() {
     );
   }
 
-  async function handleCreatePlaylist() {
-    if (!playlist.length) {
-      setNotice({ kind: "error", text: "Плейлист пуст" });
-      return;
-    }
-    await run(
-      () => api.createPlaylist(playlistName || "seamless-set", playlist.map((track) => track.id)),
-      (value) => {
-        setPlaylistId(value.id);
-        appendActivity("ok", "Плейлист сохранен", `#${value.id} · ${value.track_ids.length} треков`);
-        return `Плейлист #${value.id}`;
-      }
-    );
-  }
-
   async function handleAnalyze(adapter: AnalysisAdapter) {
     const limit = analysisLimit > 0 ? analysisLimit : undefined;
     const detail = `${analysisDevice.toUpperCase()} · batch ${analysisBatchSize} · ${limit ? `limit ${limit}` : "вся библиотека"}`;
@@ -571,7 +563,7 @@ export function App() {
 
   async function handleClearDatabase() {
     const accepted = window.confirm(
-      "Удалить все данные из SQLite базы: треки, анализы, эмбеддинги, плейлисты и текущий сет? Аудиофайлы на диске останутся."
+      "Удалить все данные из SQLite базы: треки, анализы, эмбеддинги и текущий сет? Аудиофайлы на диске останутся."
     );
     if (!accepted) return;
     appendActivity("warn", "Очистка базы запущена", "Удаляем только данные SQLite, аудиофайлы не трогаем");
@@ -582,12 +574,11 @@ export function App() {
         setSeeds([]);
         setResults([]);
         setPlaylist([]);
-        setPlaylistId(null);
         setPreview(null);
         setMetadataTrack(null);
         setScanJob(null);
         setAnalysisJob(null);
-        const detail = `${value.tracks_deleted} треков · ${value.embeddings_deleted} эмбеддингов · ${value.playlists_deleted} плейлистов`;
+        const detail = `${value.tracks_deleted} треков · ${value.embeddings_deleted} эмбеддингов`;
         appendActivity("ok", "База очищена", detail);
         return detail;
       }
@@ -703,8 +694,8 @@ export function App() {
   }
 
   async function handleExport(format: "m3u" | "csv") {
-    if (!playlistId) {
-      setNotice({ kind: "error", text: "Сначала сохраните плейлист" });
+    if (!playlist.length) {
+      setNotice({ kind: "error", text: "Сет пуст" });
       return;
     }
     const pathError = exportDirectoryError(outputDir);
@@ -713,21 +704,9 @@ export function App() {
       appendActivity("error", "Экспорт не запущен", pathError);
       return;
     }
-    await run(() => api.exportPlaylist(playlistId, outputDir.trim(), format), (value) => {
+    await run(() => api.exportPlaylist(playlistName || "seamless-set", playlist.map((track) => track.id), outputDir.trim(), format), (value) => {
       appendActivity("ok", `Экспорт ${format.toUpperCase()}`, value.path);
       return value.path;
-    });
-  }
-
-  async function handleTags(apply: boolean) {
-    const ids = playlist.length ? playlist.map((track) => track.id) : seeds;
-    if (!ids.length) {
-      setNotice({ kind: "error", text: "Выберите треки" });
-      return;
-    }
-    await run(() => (apply ? api.tagApply(ids) : api.tagPreview(ids)), (value) => {
-      appendActivity(apply ? "ok" : "info", apply ? "Теги записаны" : "Tag preview", `${value.length} треков`);
-      return `${apply ? "Записано" : "Preview"}: ${value.length}`;
     });
   }
 
@@ -735,20 +714,16 @@ export function App() {
     setScanWorkers((current) => Math.min(maxScanWorkers, Math.max(1, current + delta)));
   }
 
-  async function handleGenreTagsApply(trackIds?: number[]) {
-    if (trackIds && !trackIds.length) {
+  async function handleGenreTagsApply() {
+    if (!librarySummary.maest) {
       setNotice({ kind: "error", text: "Нет MAEST жанров для записи" });
       return;
     }
-    if (!trackIds && !librarySummary.maest) {
-      setNotice({ kind: "error", text: "Нет MAEST жанров для записи" });
-      return;
-    }
-    const targetText = trackIds ? `${trackIds.length} треков` : `${librarySummary.maest} MAEST треков`;
+    const targetText = `${librarySummary.maest} MAEST треков`;
     appendActivity("warn", "Запись жанров в теги файлов запущена", `${targetText} · standard Genre`);
     setProcessLogKind("genre_tags");
     setGenreTagJob(null);
-    await run(() => api.genreTagJobStart(trackIds), (job) => {
+    await run(() => api.genreTagJobStart(), (job) => {
       setGenreTagJob(job);
       appendActivity("ok", "Genre tag job создан", `${job.job_id.slice(0, 8)} · ${job.total} треков`);
       return `Genre tag job ${job.job_id.slice(0, 8)}: ${job.total} треков`;
@@ -835,7 +810,7 @@ export function App() {
           seedSet={seedSet}
           playlistSet={playlistSet}
           librarySearchHelp={helpText.librarySearch}
-          onAddVisibleTracks={addVisibleTracksToPlaylist}
+          onAddVisibleTracks={() => void addVisibleTracksToPlaylist()}
           onSeed={addSeed}
           onTogglePlaylist={togglePlaylist}
           onPreview={setPreview}
@@ -856,7 +831,6 @@ export function App() {
           playlist={playlist}
           playlistName={playlistName}
           onPlaylistNameChange={setPlaylistName}
-          playlistId={playlistId}
           outputDir={outputDir}
           onOutputDirChange={setOutputDir}
           onChooseOutputFolder={() => void handleChooseOutputFolder()}
@@ -870,12 +844,10 @@ export function App() {
           setPreview={setPreview}
           setMetadataTrack={(track) => void handleTrackDetails(track)}
           removeFromPlaylist={removeFromPlaylist}
-          handleCreatePlaylist={() => void handleCreatePlaylist()}
           handleExport={(format) => void handleExport(format)}
-          handleTags={(apply) => void handleTags(apply)}
         />
       </section>
-      {metadataTrack && <TrackMetadataDialog track={metadataTrack} busy={busy || stageRunning} onWriteGenres={(track) => void handleGenreTagsApply([track.id])} onClose={() => setMetadataTrack(null)} />}
+      {metadataTrack && <TrackMetadataDialog track={metadataTrack} onClose={() => setMetadataTrack(null)} />}
     </main>
   );
 }

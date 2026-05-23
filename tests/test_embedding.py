@@ -3,7 +3,7 @@ import types
 
 import numpy as np
 
-from dj_track_similarity.embedding import ClapEmbeddingAdapter, _array_output_to_numpy, _pad_or_trim_audio_window
+from dj_track_similarity.embedding import ClapEmbeddingAdapter, _array_output_to_numpy, _pad_or_trim_audio_window, adapter_factories
 
 
 def test_clap_adapter_uses_music_checkpoint() -> None:
@@ -11,6 +11,10 @@ def test_clap_adapter_uses_music_checkpoint() -> None:
     assert ClapEmbeddingAdapter.checkpoint_repo == "lukewys/laion_clap"
     assert ClapEmbeddingAdapter.checkpoint_filename == "music_audioset_epoch_15_esc_90.14.pt"
     assert ClapEmbeddingAdapter.model_name == "lukewys/laion_clap/music_audioset_epoch_15_esc_90.14.pt"
+
+
+def test_product_embedding_adapters_do_not_expose_removed_fake_adapter() -> None:
+    assert set(adapter_factories()) == {"mert", "clap"}
 
 
 def test_clap_text_embedding_loads_laion_music_checkpoint(monkeypatch) -> None:

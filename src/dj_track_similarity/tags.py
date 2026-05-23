@@ -11,7 +11,7 @@ from typing import cast
 from mutagen import File as MutagenFile
 from mutagen.aiff import AIFF
 from mutagen.flac import FLAC
-from mutagen.id3 import ID3, ID3NoHeaderError, TCON, TXXX
+from mutagen.id3 import ID3, ID3NoHeaderError, TCON
 from mutagen.mp4 import MP4
 from mutagen.wave import WAVE
 
@@ -23,7 +23,6 @@ from .scanner import MUTAGEN_METADATA_KEYS, read_audio_metadata
 from .wave_tags import set_audio_id3_genre, write_wave_genre_tag
 
 
-CUSTOM_TAG_PREFIX = "DJ_SIM"
 LOGGER = logging.getLogger(__name__)
 
 
@@ -187,36 +186,6 @@ class GenreTagJobManager:
         return copy
 
 
-def build_tag_preview(db: LibraryDatabase, track_ids: list[int]) -> list[TagPreview]:
-    return [TagPreview(track_id=track.id, path=track.path, tags=_custom_tags_for_track(track)) for track in _tracks(db, track_ids)]
-
-
-def apply_custom_tags(db: LibraryDatabase, track_ids: list[int]) -> list[TagPreview]:
-    previews = build_tag_preview(db, track_ids)
-    for preview in previews:
-        try:
-            _write_tags(Path(preview.path), preview.tags)
-            log_job_event(
-                LOGGER,
-                "ok",
-                "Custom tags applied track_id=%s path=%s keys=%s",
-                preview.track_id,
-                preview.path,
-                sorted(preview.tags),
-                track_event=True,
-            )
-        except Exception as error:
-            log_failure(
-                LOGGER,
-                "Custom tag apply failed track_id=%s path=%s error=%s",
-                preview.track_id,
-                preview.path,
-                exception_summary(error),
-            )
-            raise
-    return previews
-
-
 def build_genre_tag_preview(db: LibraryDatabase, track_ids: list[int]) -> list[TagPreview]:
     return [TagPreview(track_id=track.id, path=track.path, tags=_genre_tags_for_track(track)) for track in _tracks(db, track_ids)]
 
@@ -313,19 +282,6 @@ def _tracks(db: LibraryDatabase, track_ids: list[int]) -> list[Track]:
     return [db.get_track(track_id) for track_id in track_ids]
 
 
-def _custom_tags_for_track(track: Track) -> dict[str, str]:
-    tags: dict[str, str] = {}
-    if track.bpm is not None:
-        tags[f"{CUSTOM_TAG_PREFIX}_BPM"] = f"{track.bpm:.1f}"
-    if track.musical_key:
-        tags[f"{CUSTOM_TAG_PREFIX}_KEY"] = track.musical_key
-    if track.energy is not None:
-        tags[f"{CUSTOM_TAG_PREFIX}_ENERGY"] = f"{track.energy:.3f}"
-    if track.embedding_model:
-        tags[f"{CUSTOM_TAG_PREFIX}_EMBEDDING_MODEL"] = track.embedding_model
-    return tags
-
-
 def _genre_tags_for_track(track: Track) -> dict[str, str]:
     if not track.genres:
         return {}
@@ -339,26 +295,6 @@ def _clean_genre_label(genre: str) -> str:
     if "---" in text:
         text = text.rsplit("---", 1)[-1].strip()
     return text
-
-
-def _write_tags(path: Path, tags: dict[str, str]) -> None:
-    suffix = path.suffix.lower()
-    if suffix == ".mp3":
-        id3 = ID3(path) if path.exists() else ID3()
-        for key, value in tags.items():
-            id3.delall(f"TXXX:{key}")
-            id3.add(TXXX(encoding=3, desc=key, text=value))
-        id3.save(path)
-        return
-
-    audio = MutagenFile(path)
-    if audio is None:
-        raise ValueError(f"Unsupported audio tag format: {path}")
-    if audio.tags is None:
-        audio.add_tags()
-    for key, value in tags.items():
-        audio.tags[key] = [value]
-    audio.save()
 
 
 def _write_genre_tag(path: Path, genre: str) -> None:

@@ -161,7 +161,12 @@ class AppDatabaseState:
 
     def current(self) -> dict[str, object]:
         with self._lock:
-            return {"path": str(self.db_path) if self.db_path is not None else None, "selected": self.db is not None}
+            music_root = self.db.get_library_root() if self.db is not None else None
+            return {
+                "path": str(self.db_path) if self.db_path is not None else None,
+                "selected": self.db is not None,
+                "music_root": music_root,
+            }
 
     def switch(self, path: str | Path) -> dict[str, object]:
         selected = Path(path).expanduser()
@@ -316,7 +321,12 @@ def create_app(
 
     @app.post("/api/library/scan")
     def scan(request: ScanRequest):
-        return state.require_scan_jobs().start(request.root, workers=request.workers)
+        try:
+            job = state.require_scan_jobs().start(request.root, workers=request.workers)
+        except (FileNotFoundError, NotADirectoryError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        state.require_db().set_library_root(request.root)
+        return job
 
     @app.post("/api/library/tags/refresh")
     def refresh_tags(request: TagRefreshRequest):

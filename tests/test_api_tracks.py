@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 import numpy as np
 
+import dj_track_similarity.database as database_module
 from dj_track_similarity.api import create_app
 from dj_track_similarity.database import LibraryDatabase
 
@@ -24,6 +25,27 @@ def test_tracks_endpoint_returns_paginated_slim_items_and_total(tmp_path: Path) 
     assert payload["offset"] == 1
     assert [item["title"] for item in payload["items"]] == ["Beta", "Gamma"]
     assert all(item["metadata"] is None for item in payload["items"])
+
+
+def test_tracks_endpoint_does_not_parse_metadata_for_slim_items(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    track_id = _add_track(db, tmp_path, "analyzed.wav", "Artist", "Analyzed", {"comment": "large metadata"})
+    db.save_sonara_features(track_id, {"energy": 0.7}, energy=0.7, model_name="sonara-test")
+    db.save_genres(track_id, [{"label": "Breakbeat", "score": 0.9}], model_name="maest-test")
+    db.save_embedding(track_id, np.asarray([1.0, 0.0], dtype=np.float32), model_name="mert-test", embedding_key="mert")
+
+    def fail_if_metadata_parsed(_metadata_json: object) -> dict[str, object]:
+        raise AssertionError("slim track rows must not parse metadata_json")
+
+    monkeypatch.setattr(database_module, "metadata_from_json", fail_if_metadata_parsed)
+
+    response = TestClient(create_app(db_path)).get("/api/tracks?limit=1&include_metadata=false")
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["metadata"] is None
+    assert item["analyses"] == ["sonara", "maest", "mert"]
 
 
 def test_tracks_endpoint_filters_by_query_and_syncopated_preset(tmp_path: Path) -> None:

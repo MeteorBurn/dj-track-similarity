@@ -64,9 +64,7 @@ class SonaraFeatureJobManager:
         self._store = JobStore(self._copy_status, unknown_label="sonara job")
 
     def create_job(self, *, limit: int | None = None, batch_size: int = 1) -> str:
-        tracks = [track for track in self.db.list_tracks() if "sonara_features" not in track.metadata]
-        if limit is not None:
-            tracks = tracks[:limit]
+        tracks = self.db.list_tracks_missing_sonara(limit=limit)
         job_id = str(uuid.uuid4())
         workers = max(1, batch_size)
         status = SonaraJobStatus(job_id=job_id, state="queued", total=len(tracks), workers=workers, batch_size=workers)

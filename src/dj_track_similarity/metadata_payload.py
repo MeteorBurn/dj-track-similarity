@@ -87,11 +87,16 @@ def genres_from_metadata(metadata: dict[str, object]) -> tuple[list[str] | None,
 
 def analyses_from_row(row: Any, metadata: dict[str, object]) -> list[str] | None:
     analyses_set: set[str] = set()
-    if metadata.get("maest_genres"):
+    row_keys = set(row.keys())
+    if "has_maest" in row_keys and row["has_maest"]:
         analyses_set.add("maest")
-    if metadata.get("sonara_features"):
+    elif metadata.get("maest_genres"):
+        analyses_set.add("maest")
+    if "has_sonara" in row_keys and row["has_sonara"]:
         analyses_set.add("sonara")
-    keys_json = row["embedding_keys_json"] if "embedding_keys_json" in row.keys() else None
+    elif metadata.get("sonara_features"):
+        analyses_set.add("sonara")
+    keys_json = row["embedding_keys_json"] if "embedding_keys_json" in row_keys else None
     try:
         keys = json.loads(str(keys_json or "[]"))
     except json.JSONDecodeError:

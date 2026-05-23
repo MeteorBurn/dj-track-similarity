@@ -85,9 +85,7 @@ class AnalysisJobManager:
         if adapter_name not in self.adapter_factories:
             raise ValueError(f"Unknown analysis adapter: {adapter_name}")
         embedding_key = self._adapter_embedding_key(adapter_name)
-        tracks = self.db.list_tracks(with_embeddings=False, embedding_key=embedding_key)
-        if limit is not None:
-            tracks = tracks[:limit]
+        tracks = self.db.list_tracks_missing_embedding(embedding_key, limit=limit)
         job_id = str(uuid.uuid4())
         effective_batch_size = max(1, int(batch_size or workers or self.batch_size))
         status = AnalysisJobStatus(

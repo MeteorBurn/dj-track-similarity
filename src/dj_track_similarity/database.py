@@ -8,7 +8,15 @@ from typing import ClassVar, Iterable
 
 import numpy as np
 
-from .db_schema import SQLITE_BUSY_TIMEOUT_SECONDS, TRACK_SELECT_FIELDS, TRACK_SELECT_FIELDS_WITH_VECTOR, ensure_schema
+from .db_schema import (
+    MAEST_HAS_GENRES_SQL,
+    MAEST_MISSING_GENRES_SQL,
+    SQLITE_BUSY_TIMEOUT_SECONDS,
+    TRACK_SELECT_FIELDS,
+    TRACK_SLIM_SELECT_FIELDS,
+    TRACK_SLIM_SELECT_FIELDS_WITH_VECTOR,
+    ensure_schema,
+)
 from .metadata_payload import (
     analyses_from_row,
     clean_maest_genre_label,
@@ -22,6 +30,7 @@ from .models import Track
 
 
 DEFAULT_EMBEDDING_KEY = "mert"
+LIBRARY_ROOT_SETTING_KEY = "library_root"
 SYNCOPATED_RHYTHM_GENRES = (
     "Breakbeat",
     "Breakcore",
@@ -51,6 +60,8 @@ class LibraryDatabase:
         self.path = Path(path).expanduser().resolve(strict=False)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._write_lock = self._write_lock_for_path(self.path)
+        self._cache_lock = threading.Lock()
+        self._embedding_matrix_cache: dict[str, tuple[list[Track], np.ndarray]] = {}
         self._ensure_schema()
 
     @classmethod
@@ -67,11 +78,21 @@ class LibraryDatabase:
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_SECONDS * 1000}")
+        connection.execute("PRAGMA synchronous = NORMAL")
+        connection.execute("PRAGMA temp_store = MEMORY")
+        connection.execute("PRAGMA cache_size = -32768")
         return connection
 
     def _ensure_schema(self) -> None:
         with self._write_lock, self.connect() as connection:
             ensure_schema(connection)
+
+    def _invalidate_embedding_cache(self, embedding_key: str | None = None) -> None:
+        with self._cache_lock:
+            if embedding_key is None:
+                self._embedding_matrix_cache.clear()
+            else:
+                self._embedding_matrix_cache.pop(embedding_key, None)
 
     def get_track_by_path(self, path: str | Path) -> Track | None:
         with self.connect() as connection:
@@ -85,6 +106,29 @@ class LibraryDatabase:
                 (DEFAULT_EMBEDDING_KEY, normalize_path(path)),
             ).fetchone()
         return self._row_to_track(row) if row else None
+
+    def get_library_root(self) -> str | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT value FROM library_settings WHERE key = ?",
+                (LIBRARY_ROOT_SETTING_KEY,),
+            ).fetchone()
+        return str(row["value"]) if row is not None else None
+
+    def set_library_root(self, root: str | Path) -> str:
+        normalized = normalize_path(root)
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO library_settings (key, value)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (LIBRARY_ROOT_SETTING_KEY, normalized),
+            )
+        return normalized
 
     def get_track(self, track_id: int) -> Track:
         with self.connect() as connection:
@@ -160,6 +204,7 @@ class LibraryDatabase:
                 ),
             )
             row = connection.execute("SELECT id FROM tracks WHERE path = ?", (normalized,)).fetchone()
+        self._invalidate_embedding_cache()
         if row is None:
             raise RuntimeError(f"Failed to upsert track: {normalized}")
         return int(row["id"])
@@ -171,6 +216,7 @@ class LibraryDatabase:
         embedding_key: str = DEFAULT_EMBEDDING_KEY,
         include_metadata: bool = True,
     ) -> list[Track]:
+        fields = TRACK_SELECT_FIELDS if include_metadata else TRACK_SLIM_SELECT_FIELDS
         where = ""
         if with_embeddings is True:
             where = "WHERE e.track_id IS NOT NULL"
@@ -179,7 +225,7 @@ class LibraryDatabase:
         with self.connect() as connection:
             rows = connection.execute(
                 f"""
-                SELECT {TRACK_SELECT_FIELDS}
+                SELECT {fields}
                 FROM tracks t
                 LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                 {where}
@@ -199,6 +245,7 @@ class LibraryDatabase:
         include_metadata: bool = False,
         embedding_key: str = DEFAULT_EMBEDDING_KEY,
     ) -> dict[str, object]:
+        fields = TRACK_SELECT_FIELDS if include_metadata else TRACK_SLIM_SELECT_FIELDS
         where_parts, params = _track_filter_sql(query=query, preset=preset)
         where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
         bounded_limit = max(1, min(500, int(limit)))
@@ -207,7 +254,7 @@ class LibraryDatabase:
             total = int(connection.execute(f"SELECT COUNT(*) FROM tracks t {where_sql}", params).fetchone()[0])
             rows = connection.execute(
                 f"""
-                SELECT {TRACK_SELECT_FIELDS}
+                SELECT {fields}
                 FROM tracks t
                 LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                 {where_sql}
@@ -231,12 +278,13 @@ class LibraryDatabase:
         include_metadata: bool = False,
         embedding_key: str = DEFAULT_EMBEDDING_KEY,
     ) -> dict[str, object]:
+        fields = TRACK_SELECT_FIELDS if include_metadata else TRACK_SLIM_SELECT_FIELDS
         where_parts, params = _track_filter_sql(query=query, preset=preset)
         where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
         with self.connect() as connection:
             rows = connection.execute(
                 f"""
-                SELECT {TRACK_SELECT_FIELDS}
+                SELECT {fields}
                 FROM tracks t
                 LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                 {where_sql}
@@ -247,15 +295,82 @@ class LibraryDatabase:
         tracks = [self._row_to_track(row, include_metadata=include_metadata) for row in rows]
         return {"items": tracks, "total": len(tracks)}
 
-    def list_track_ids_with_maest_genres(self) -> list[int]:
+    def list_tracks_missing_sonara(self, *, limit: int | None = None) -> list[Track]:
+        limit_sql, params = _limit_sql(limit)
+        with self.connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT {TRACK_SLIM_SELECT_FIELDS}
+                FROM tracks t
+                LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
+                WHERE json_type(t.metadata_json, '$.sonara_features') IS NULL
+                ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
+                {limit_sql}
+                """,
+                (DEFAULT_EMBEDDING_KEY, *params),
+            ).fetchall()
+        return [self._row_to_track(row, include_metadata=False) for row in rows]
+
+    def list_tracks_missing_maest(self, *, limit: int | None = None) -> list[Track]:
+        limit_sql, params = _limit_sql(limit)
+        with self.connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT {TRACK_SLIM_SELECT_FIELDS}
+                FROM tracks t
+                LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
+                WHERE {MAEST_MISSING_GENRES_SQL.replace('metadata_json', 't.metadata_json')}
+                ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
+                {limit_sql}
+                """,
+                (DEFAULT_EMBEDDING_KEY, *params),
+            ).fetchall()
+        return [self._row_to_track(row, include_metadata=False) for row in rows]
+
+    def list_tracks_missing_embedding(self, embedding_key: str, *, limit: int | None = None) -> list[Track]:
+        limit_sql, params = _limit_sql(limit)
+        with self.connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT {TRACK_SLIM_SELECT_FIELDS}
+                FROM tracks t
+                LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
+                WHERE e.track_id IS NULL
+                ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
+                {limit_sql}
+                """,
+                (embedding_key, *params),
+            ).fetchall()
+        return [self._row_to_track(row, include_metadata=False) for row in rows]
+
+    def list_track_paths(self) -> list[tuple[int, str]]:
         with self.connect() as connection:
             rows = connection.execute(
                 """
+                SELECT id, path
+                FROM tracks
+                ORDER BY COALESCE(artist, ''), COALESCE(title, ''), path
+                """
+            ).fetchall()
+        return [(int(row["id"]), str(row["path"])) for row in rows]
+
+    def get_track_file_stat_by_path(self, path: str | Path) -> tuple[int, int, float] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT id, size, mtime FROM tracks WHERE path = ?",
+                (normalize_path(path),),
+            ).fetchone()
+        if row is None:
+            return None
+        return int(row["id"]), int(row["size"]), float(row["mtime"])
+
+    def list_track_ids_with_maest_genres(self) -> list[int]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                f"""
                 SELECT t.id
                 FROM tracks t
-                WHERE json_valid(t.metadata_json)
-                  AND json_type(t.metadata_json, '$.maest_genres') = 'array'
-                  AND json_array_length(json_extract(t.metadata_json, '$.maest_genres')) > 0
+                WHERE {MAEST_HAS_GENRES_SQL.replace('metadata_json', 't.metadata_json')}
                 ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
                 """
             ).fetchall()
@@ -268,9 +383,7 @@ class LibraryDatabase:
                 SELECT {TRACK_SELECT_FIELDS}
                 FROM tracks t
                 LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
-                WHERE json_valid(t.metadata_json)
-                  AND json_type(t.metadata_json, '$.maest_genres') = 'array'
-                  AND json_array_length(json_extract(t.metadata_json, '$.maest_genres')) > 0
+                WHERE {MAEST_HAS_GENRES_SQL.replace('metadata_json', 't.metadata_json')}
                 ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
                 """,
                 (DEFAULT_EMBEDDING_KEY,),
@@ -281,10 +394,22 @@ class LibraryDatabase:
         with self.connect() as connection:
             tracks = int(connection.execute("SELECT COUNT(*) FROM tracks").fetchone()[0])
             sonara = int(
-                connection.execute("SELECT COUNT(*) FROM tracks WHERE metadata_json LIKE ?", ('%"sonara_features"%',)).fetchone()[0]
+                connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM tracks INDEXED BY idx_tracks_sonara_present
+                    WHERE json_type(metadata_json, '$.sonara_features') IS NOT NULL
+                    """
+                ).fetchone()[0]
             )
             maest = int(
-                connection.execute("SELECT COUNT(*) FROM tracks WHERE metadata_json LIKE ?", ('%"maest_genres"%',)).fetchone()[0]
+                connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM tracks INDEXED BY idx_tracks_maest_present
+                    WHERE json_type(metadata_json, '$.maest_genres') IS NOT NULL
+                    """
+                ).fetchone()[0]
             )
             mert = int(
                 connection.execute("SELECT COUNT(DISTINCT track_id) FROM embeddings WHERE embedding_key = ?", ("mert",)).fetchone()[0]
@@ -324,6 +449,7 @@ class LibraryDatabase:
                 """,
                 (track_id, embedding_key, model_name, actual_dim, normalized.astype(np.float32).tobytes()),
             )
+        self._invalidate_embedding_cache(embedding_key)
 
     def save_genres(self, track_id: int, genres: list[dict[str, object]], *, model_name: str) -> None:
         cleaned = []
@@ -340,6 +466,7 @@ class LibraryDatabase:
                 "UPDATE tracks SET metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (metadata_to_json(metadata, sort_keys=False), track_id),
             )
+        self._invalidate_embedding_cache()
 
     def save_sonara_features(
         self,
@@ -376,6 +503,7 @@ class LibraryDatabase:
                     track_id,
                 ),
             )
+        self._invalidate_embedding_cache()
 
     def refresh_track_file_metadata(
         self,
@@ -426,6 +554,7 @@ class LibraryDatabase:
                     track_id,
                 ),
             )
+        self._invalidate_embedding_cache()
 
     def _metadata_for_track_update(self, connection: sqlite3.Connection, track_id: int) -> dict[str, object]:
         row = connection.execute("SELECT metadata_json FROM tracks WHERE id = ?", (track_id,)).fetchone()
@@ -438,7 +567,9 @@ class LibraryDatabase:
         if adapter in {"mert", "clap"}:
             with self._write_lock, self.connect() as connection:
                 cursor = connection.execute("DELETE FROM embeddings WHERE embedding_key = ?", (adapter,))
-                return {"adapter": adapter, "tracks_updated": 0, "embeddings_deleted": cursor.rowcount}
+                deleted = cursor.rowcount
+            self._invalidate_embedding_cache(adapter)
+            return {"adapter": adapter, "tracks_updated": 0, "embeddings_deleted": deleted}
         if adapter == "maest":
             return self._reset_metadata_analysis(adapter, ("maest_genres", "maest_model", "maest_syncopated_rhythm"))
         if adapter == "sonara":
@@ -453,6 +584,7 @@ class LibraryDatabase:
             }
             connection.execute("DELETE FROM embeddings")
             connection.execute("DELETE FROM tracks")
+        self._invalidate_embedding_cache()
         return counts
 
     def relocate_library(self, old_root: str | Path, new_root: str | Path, *, apply: bool = False) -> dict[str, object]:
@@ -512,6 +644,8 @@ class LibraryDatabase:
                         "UPDATE tracks SET path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                         (change["new_path"], change["track_id"]),
                     )
+        if apply and changes:
+            self._invalidate_embedding_cache()
 
         return {
             "old_root": old_root_text,
@@ -539,6 +673,8 @@ class LibraryDatabase:
                     (metadata_to_json(metadata), row["id"]),
                 )
                 updated += 1
+        if updated:
+            self._invalidate_embedding_cache()
         return {"adapter": adapter, "tracks_updated": updated, "embeddings_deleted": 0}
 
     def _reset_sonara_analysis(self) -> dict[str, object]:
@@ -573,30 +709,43 @@ class LibraryDatabase:
                     ),
                 )
                 updated += 1
+        if updated:
+            self._invalidate_embedding_cache()
         return {"adapter": "sonara", "tracks_updated": updated, "embeddings_deleted": 0}
 
     def load_embedding_matrix(self, embedding_key: str = DEFAULT_EMBEDDING_KEY) -> tuple[list[Track], np.ndarray]:
+        with self._cache_lock:
+            cached = self._embedding_matrix_cache.get(embedding_key)
+            if cached is not None:
+                return cached
         with self.connect() as connection:
             rows = connection.execute(
                 f"""
-                SELECT {TRACK_SELECT_FIELDS_WITH_VECTOR}
+                SELECT {TRACK_SLIM_SELECT_FIELDS_WITH_VECTOR}
                 FROM tracks t
                 JOIN embeddings e ON e.track_id = t.id
                 WHERE e.embedding_key = ?
-                ORDER BY t.id
+                ORDER BY e.track_id
                 """,
                 (embedding_key,),
             ).fetchall()
         if not rows:
-            return [], np.zeros((0, 0), dtype=np.float32)
-        tracks = [self._row_to_track(row) for row in rows]
+            result = ([], np.zeros((0, 0), dtype=np.float32))
+            with self._cache_lock:
+                self._embedding_matrix_cache[embedding_key] = result
+            return result
+        tracks = [self._row_to_track(row, include_metadata=False) for row in rows]
         vectors = [np.frombuffer(row["vector"], dtype=np.float32).copy() for row in rows]
-        return tracks, np.vstack(vectors).astype(np.float32)
+        result = (tracks, np.vstack(vectors).astype(np.float32))
+        with self._cache_lock:
+            self._embedding_matrix_cache[embedding_key] = result
+        return result
 
     @staticmethod
     def _row_to_track(row: sqlite3.Row, *, include_metadata: bool = True) -> Track:
-        metadata = metadata_from_json(row["metadata_json"] if "metadata_json" in row.keys() else "{}")
-        genres, genre_scores = genres_from_metadata(metadata)
+        row_keys = set(row.keys())
+        metadata = metadata_from_json(row["metadata_json"]) if include_metadata and "metadata_json" in row_keys else {}
+        genres, genre_scores = genres_from_metadata(metadata) if include_metadata else (None, None)
         analyses = analyses_from_row(row, metadata)
         return Track(
             id=int(row["id"]),
@@ -617,6 +766,12 @@ class LibraryDatabase:
             embedding_model=row["embedding_model"] if "embedding_model" in row.keys() else None,
             embedding_dim=row["embedding_dim"] if "embedding_dim" in row.keys() else None,
         )
+
+
+def _limit_sql(limit: int | None) -> tuple[str, tuple[int, ...]]:
+    if limit is None:
+        return "", ()
+    return "LIMIT ?", (max(0, int(limit)),)
 
 
 def _track_filter_sql(*, query: str, preset: str) -> tuple[list[str], list[object]]:

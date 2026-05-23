@@ -66,3 +66,21 @@ def test_scan_job_can_be_cancelled_and_rerun_continues_with_unchanged_tracks(tmp
     assert resumed.state == "completed"
     assert resumed.added == 2
     assert len(db.list_tracks()) == 2
+
+
+def test_tag_refresh_job_uses_lightweight_track_paths(monkeypatch, tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    audio_path = _audio(tmp_path, "stored.wav")
+    track_id = db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": "Stored"})
+    manager = ScanJobManager(db)
+
+    def fail_if_full_track_scan(**_kwargs):
+        raise AssertionError("tag refresh job creation must use lightweight path selection")
+
+    monkeypatch.setattr(db, "list_tracks", fail_if_full_track_scan)
+
+    job_id = manager.create_tag_refresh_job()
+    payload = manager._store.payload(job_id)
+
+    assert payload.paths == [audio_path]
+    assert payload.track_ids == {audio_path.as_posix(): track_id}

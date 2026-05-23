@@ -80,7 +80,7 @@ def test_genre_job_saves_maest_genres_without_creating_embeddings(tmp_path: Path
     assert len(db.list_tracks(with_embeddings=True)) == 0
 
 
-def test_genre_limit_counts_tracks_without_maest_genres(tmp_path: Path) -> None:
+def test_genre_limit_counts_tracks_without_maest_genres(monkeypatch, tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     analyzed_id = _track(db, tmp_path, "a.wav")
     _track(db, tmp_path, "b.wav")
@@ -89,6 +89,11 @@ def test_genre_limit_counts_tracks_without_maest_genres(tmp_path: Path) -> None:
     db.save_genres(analyzed_id, [{"label": "House", "score": 0.8}], model_name="fake-maest")
     adapter = FakeGenreAdapter()
     manager = GenreAnalysisJobManager(db, {"maest": lambda device=None, top_k=3: adapter})
+
+    def fail_if_full_track_scan(**_kwargs):
+        raise AssertionError("genre job creation must use SQL-level missing MAEST selection")
+
+    monkeypatch.setattr(db, "list_tracks", fail_if_full_track_scan)
 
     status = manager.run_sync(limit=2, device="cpu", top_k=1)
 

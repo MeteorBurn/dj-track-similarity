@@ -65,10 +65,10 @@ def scan_library(db: LibraryDatabase, root: str | Path) -> ScanStats:
 
     stats = ScanStats()
     for path in iter_audio_files(root_path):
-        existing = db.get_track_by_path(path)
+        existing = db.get_track_file_stat_by_path(path)
         size = path.stat().st_size
         mtime = path.stat().st_mtime
-        if existing and existing.size == size and abs(existing.mtime - mtime) < 0.0001:
+        if existing and existing[1] == size and abs(existing[2] - mtime) < 0.0001:
             stats = replace(stats, unchanged=stats.unchanged + 1)
             continue
 

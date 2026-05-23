@@ -7,6 +7,7 @@ import sqlite3
 import pytest
 
 import dj_track_similarity.scanner as scanner
+from dj_track_similarity.db_schema import CURRENT_SCHEMA_VERSION
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.scanner import read_audio_metadata, scan_library
 
@@ -17,9 +18,48 @@ def test_database_uses_wal_and_busy_timeout_for_concurrent_jobs(tmp_path: Path) 
     with db.connect() as connection:
         journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
         busy_timeout = connection.execute("PRAGMA busy_timeout").fetchone()[0]
+        synchronous = connection.execute("PRAGMA synchronous").fetchone()[0]
+        temp_store = connection.execute("PRAGMA temp_store").fetchone()[0]
 
     assert str(journal_mode).lower() == "wal"
     assert busy_timeout >= 30_000
+    assert synchronous == 1
+    assert temp_store == 2
+
+
+def test_new_database_uses_current_schema_version_and_indexes(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+
+    with db.connect() as connection:
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        tables = {row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        track_indexes = {row["name"] for row in connection.execute("PRAGMA index_list(tracks)").fetchall()}
+        embedding_indexes = {row["name"] for row in connection.execute("PRAGMA index_list(embeddings)").fetchall()}
+
+    assert version == CURRENT_SCHEMA_VERSION
+    assert "library_settings" in tables
+    assert {
+        "idx_tracks_sort_artist_title_path",
+        "idx_tracks_sonara_present",
+        "idx_tracks_maest_present",
+        "idx_tracks_syncopated_sort",
+        "idx_tracks_sonara_missing_sort",
+        "idx_tracks_maest_missing_sort",
+    }.issubset(track_indexes)
+    assert "idx_embeddings_key_track" in embedding_indexes
+
+
+def test_database_persists_library_root_setting(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    music_root = tmp_path / "music"
+    music_root.mkdir()
+    db = LibraryDatabase(db_path)
+
+    assert db.get_library_root() is None
+    db.set_library_root(music_root)
+
+    assert db.get_library_root() == music_root.as_posix()
+    assert LibraryDatabase(db_path).get_library_root() == music_root.as_posix()
 
 
 def test_database_instances_for_same_file_share_write_lock(tmp_path: Path) -> None:
@@ -263,31 +303,7 @@ def test_database_clear_library_removes_tracks_and_embeddings(tmp_path: Path) ->
     assert db.load_embedding_matrix("mert")[0] == []
 
 
-def test_database_drops_legacy_playlist_tables(tmp_path: Path) -> None:
-    import sqlite3
-
-    db_path = tmp_path / "library.sqlite"
-    with sqlite3.connect(db_path) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE playlists (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL);
-            CREATE TABLE playlist_tracks (playlist_id INTEGER NOT NULL, track_id INTEGER NOT NULL, position INTEGER NOT NULL);
-            INSERT INTO playlists (name) VALUES ('old set');
-            INSERT INTO playlist_tracks (playlist_id, track_id, position) VALUES (1, 1, 0);
-            """
-        )
-
-    db = LibraryDatabase(db_path)
-
-    with db.connect() as connection:
-        tables = {row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-    assert "playlists" not in tables
-    assert "playlist_tracks" not in tables
-
-
-def test_database_drops_legacy_fake_embeddings(tmp_path: Path) -> None:
-    import sqlite3
-
+def test_existing_database_with_old_user_version_requires_migration_script(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     with sqlite3.connect(db_path) as connection:
         connection.executescript(
@@ -320,18 +336,11 @@ def test_database_drops_legacy_fake_embeddings(tmp_path: Path) -> None:
             );
             INSERT INTO tracks (path, size, mtime, title, metadata_json)
             VALUES ('track.wav', 10, 1, 'Track', '{}');
-            INSERT INTO embeddings (track_id, embedding_key, model_name, dim, vector)
-            VALUES (1, 'fake', 'fake-model', 3, x'00000000');
-            INSERT INTO embeddings (track_id, embedding_key, model_name, dim, vector)
-            VALUES (1, 'mert', 'mert-model', 3, x'00000000');
             """
         )
 
-    db = LibraryDatabase(db_path)
-
-    with db.connect() as connection:
-        keys = [row["embedding_key"] for row in connection.execute("SELECT embedding_key FROM embeddings ORDER BY embedding_key")]
-    assert keys == ["mert"]
+    with pytest.raises(RuntimeError, match="scripts/optimize_database.py"):
+        LibraryDatabase(db_path)
 
 
 def test_database_stores_maest_genres_in_track_metadata(tmp_path: Path) -> None:
@@ -499,52 +508,6 @@ def test_refresh_track_file_metadata_preserves_analysis_outputs(tmp_path: Path) 
     assert track.analyses == ["sonara"]
 
 
-def test_database_migrates_legacy_embedding_table(tmp_path: Path) -> None:
-    import numpy as np
-
-    db_path = tmp_path / "legacy.sqlite"
-    with sqlite3.connect(db_path) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE tracks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                path TEXT NOT NULL UNIQUE,
-                size INTEGER NOT NULL,
-                mtime REAL NOT NULL,
-                artist TEXT,
-                title TEXT,
-                album TEXT,
-                bpm REAL,
-                musical_key TEXT,
-                energy REAL,
-                duration REAL,
-                metadata_json TEXT NOT NULL DEFAULT '{}',
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE embeddings (
-                track_id INTEGER PRIMARY KEY,
-                model_name TEXT NOT NULL,
-                dim INTEGER NOT NULL,
-                vector BLOB NOT NULL,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-            INSERT INTO tracks (path, size, mtime, title) VALUES ('C:/music/a.wav', 10, 1, 'A');
-            """
-        )
-        connection.execute(
-            "INSERT INTO embeddings (track_id, model_name, dim, vector) VALUES (1, 'legacy-mert', 3, ?)",
-            (np.array([1, 0, 0], dtype=np.float32).tobytes(),),
-        )
-
-    db = LibraryDatabase(db_path)
-    tracks, matrix = db.load_embedding_matrix("mert")
-
-    assert [track.id for track in tracks] == [1]
-    assert tracks[0].embedding_model == "legacy-mert"
-    assert matrix.shape == (1, 3)
-
-
 def test_database_blocks_new_invalid_metadata_json_values(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
@@ -555,52 +518,6 @@ def test_database_blocks_new_invalid_metadata_json_values(tmp_path: Path) -> Non
             connection.execute(
                 "UPDATE tracks SET metadata_json = ? WHERE id = ?",
                 ("{", track_id),
-            )
-
-
-def test_database_adds_metadata_json_guards_to_legacy_schema(tmp_path: Path) -> None:
-    db_path = tmp_path / "legacy.sqlite"
-    with sqlite3.connect(db_path) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE tracks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                path TEXT NOT NULL UNIQUE,
-                size INTEGER NOT NULL,
-                mtime REAL NOT NULL,
-                artist TEXT,
-                title TEXT,
-                album TEXT,
-                bpm REAL,
-                musical_key TEXT,
-                energy REAL,
-                duration REAL,
-                metadata_json TEXT NOT NULL DEFAULT '{}',
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE embeddings (
-                track_id INTEGER NOT NULL,
-                embedding_key TEXT NOT NULL DEFAULT 'mert',
-                model_name TEXT NOT NULL,
-                dim INTEGER NOT NULL,
-                vector BLOB NOT NULL,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY(track_id, embedding_key),
-                FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
-            );
-            INSERT INTO tracks (path, size, mtime, title, metadata_json)
-            VALUES ('C:/music/track.wav', 10, 1, 'Track', '{}');
-            """
-        )
-
-    db = LibraryDatabase(db_path)
-
-    with db.connect() as connection:
-        with pytest.raises(sqlite3.DatabaseError):
-            connection.execute(
-                "UPDATE tracks SET metadata_json = ? WHERE path = ?",
-                ("{", "C:/music/track.wav"),
             )
 
 

@@ -200,6 +200,7 @@ export function App() {
     try {
       const current = await api.currentDatabase();
       setDatabasePath(current.path);
+      setMusicRoot(current.music_root || "");
       if (!current.selected) {
         resetDatabaseScopedState();
         setNotice({ kind: "idle", text: "Выберите SQLite базу данных" });
@@ -254,6 +255,7 @@ export function App() {
     setLibraryTotal(0);
     setLibraryOffset(0);
     setLibrarySummary(emptySummary);
+    setMusicRoot("");
     setSeeds([]);
     setResults([]);
     setPlaylist([]);
@@ -490,6 +492,7 @@ export function App() {
       }
       setDatabasePath(value.path);
       resetDatabaseScopedState();
+      setMusicRoot(value.music_root || "");
       await refreshLibrary(0, true);
       await loadLatestJobs();
       appendActivity("ok", "База выбрана", value.path);

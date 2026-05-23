@@ -193,7 +193,7 @@ def test_analysis_job_targets_missing_embeddings_per_space(tmp_path: Path) -> No
     assert len(db.list_tracks(with_embeddings=True, embedding_key="clap")) == 1
 
 
-def test_analysis_limit_counts_missing_embeddings_not_all_tracks(tmp_path: Path) -> None:
+def test_analysis_limit_counts_missing_embeddings_not_all_tracks(monkeypatch, tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     analyzed_id = _track(db, tmp_path, "a.wav")
     _track(db, tmp_path, "b.wav")
@@ -202,6 +202,11 @@ def test_analysis_limit_counts_missing_embeddings_not_all_tracks(tmp_path: Path)
     db.save_embedding(analyzed_id, np.array([1, 0, 0], dtype=np.float32), "batch-model", 3, embedding_key="mert")
     adapter = BatchAdapter()
     manager = AnalysisJobManager(db, {"batch": lambda: adapter}, batch_size=2)
+
+    def fail_if_full_track_scan(**_kwargs):
+        raise AssertionError("analysis job creation must use SQL-level missing embedding selection")
+
+    monkeypatch.setattr(db, "list_tracks", fail_if_full_track_scan)
 
     status = manager.run_sync(adapter_name="batch", limit=2)
 

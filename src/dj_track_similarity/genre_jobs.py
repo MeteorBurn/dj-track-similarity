@@ -80,9 +80,7 @@ class GenreAnalysisJobManager:
         self._store = JobStore(self._copy_status, unknown_label="MAEST genre job")
 
     def create_job(self, *, limit: int | None = None, device: str = "auto", top_k: int = 3, batch_size: int = 4) -> str:
-        tracks = [track for track in self.db.list_tracks() if not track.genres]
-        if limit is not None:
-            tracks = tracks[:limit]
+        tracks = self.db.list_tracks_missing_maest(limit=limit)
         job_id = str(uuid.uuid4())
         effective_batch_size = max(1, int(batch_size))
         status = GenreJobStatus(

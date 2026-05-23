@@ -145,6 +145,7 @@ export type DatabaseClearResult = {
 export type DatabaseSelection = {
   path: string | null;
   selected: boolean;
+  music_root?: string | null;
 };
 
 export type LibraryRelocationResult = {

@@ -83,9 +83,9 @@ class ScanJobManager:
         return self.run_job(job_id)
 
     def create_tag_refresh_job(self, *, workers: int = 1) -> str:
-        tracks = self.db.list_tracks()
-        paths = [Path(track.path) for track in tracks]
-        track_ids = {track.path: track.id for track in tracks}
+        track_paths = self.db.list_track_paths()
+        paths = [Path(path) for _track_id, path in track_paths]
+        track_ids = {path: track_id for track_id, path in track_paths}
         job_id = str(uuid.uuid4())
         status = ScanJobStatus(job_id=job_id, state="queued", root="metadata refresh", total=len(paths), workers=max(1, workers))
         self._store.add(job_id, status, payload=ScanJobPayload(paths=paths, track_ids=track_ids))
@@ -211,10 +211,10 @@ class ScanJobManager:
     def _scan_one(self, job_id: str, path: Path) -> None:
         self._update(job_id, current_path=str(path))
         try:
-            existing = self.db.get_track_by_path(path)
+            existing = self.db.get_track_file_stat_by_path(path)
             size = path.stat().st_size
             mtime = path.stat().st_mtime
-            if existing and existing.size == size and abs(existing.mtime - mtime) < 0.0001:
+            if existing and existing[1] == size and abs(existing[2] - mtime) < 0.0001:
                 self._increment(job_id, unchanged=1, message="Track unchanged", level="info", path=str(path))
                 return
             metadata = read_audio_metadata(path)

@@ -272,6 +272,11 @@ def test_sonara_limit_counts_tracks_without_sonara_features(monkeypatch, tmp_pat
 
     monkeypatch.setattr("dj_track_similarity.sonara_jobs.analyze_and_store_sonara_features", fake_analyze)
 
+    def fail_if_full_track_scan(**_kwargs):
+        raise AssertionError("sonara job creation must use SQL-level missing SONARA selection")
+
+    monkeypatch.setattr(db, "list_tracks", fail_if_full_track_scan)
+
     status = SonaraFeatureJobManager(db).run_sync(limit=2)
 
     assert status.total == 2

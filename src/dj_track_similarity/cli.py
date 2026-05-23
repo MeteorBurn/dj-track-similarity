@@ -216,7 +216,7 @@ def serve(
     LOGGER.debug("ffmpeg available path=%s", ffmpeg_path)
     uvicorn.run(
         create_app(
-            db_path or Path("dj-track-similarity.sqlite"),
+            db_path,
             log_level=log_level,
             log_track_events=log_track_events,
         ),

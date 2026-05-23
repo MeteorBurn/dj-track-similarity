@@ -19,6 +19,7 @@ const libraryPageSize = 200;
 const emptySummary: LibrarySummary = { tracks: 0, sonara: 0, maest: 0, mert: 0, clap: 0 };
 
 const helpText = {
+  databasePath: "SQLite база проекта. Формат: путь к .sqlite файлу. Выбери существующую базу или укажи новый .sqlite файл для создания.",
   musicRoot: "Папка с музыкой. Формат: путь Windows или POSIX, например D:/Music. Тип: строка. Папка должна существовать.",
   analyzeLimit: "Сколько треков анализировать. Тип: целое число 0-100000. 0 = вся библиотека.",
   scanWorkers: "Параллельное чтение метаданных при сканировании. Тип: целое число. Диапазон зависит от CPU, обычно 1-8.",
@@ -65,6 +66,7 @@ export function App() {
   const [librarySummary, setLibrarySummary] = useState<LibrarySummary>(emptySummary);
   const [query, setQuery] = useState("");
   const [libraryPreset, setLibraryPreset] = useState<LibraryPreset>("all");
+  const [databasePath, setDatabasePath] = useState<string | null>(null);
   const [musicRoot, setMusicRoot] = useState("");
   const [textQuery, setTextQuery] = useState("");
   const [outputDir, setOutputDir] = useState("");
@@ -121,50 +123,21 @@ export function App() {
   const hasTracks = librarySummary.tracks > 0;
   const canGoBack = libraryOffset > 0 && !libraryLoading;
   const canGoForward = libraryOffset + tracks.length < libraryTotal && !libraryLoading;
-  const canStartScan = Boolean(musicRoot);
+  const canStartScan = Boolean(databasePath && musicRoot);
   const maxScanWorkers = useMemo(() => optimalWorkerLimit(), []);
   const maxAnalysisBatchSize = 16;
 
   useEffect(() => {
-    void refreshLibrary(0);
-    void api.latestScanJob().then((job) => {
-      if (job) {
-        setScanJob(job);
-        setProcessLogKind("scan");
-      }
-    }).catch(() => undefined);
-    void api.latestAnalyzeJob().then((job) => {
-      if (job) {
-        setAnalysisJob(job);
-        if (["queued", "running"].includes(job.state)) setProcessLogKind("analysis");
-      }
-    }).catch(() => undefined);
-    void api.latestSonaraJob().then((job) => {
-      if (job) {
-        setAnalysisJob((current) => (current && ["queued", "running"].includes(current.state) ? current : job));
-        if (["queued", "running"].includes(job.state)) setProcessLogKind("analysis");
-      }
-    }).catch(() => undefined);
-    void api.latestGenreJob().then((job) => {
-      if (job) {
-        setAnalysisJob((current) => (current && ["queued", "running"].includes(current.state) ? current : job));
-        if (["queued", "running"].includes(job.state)) setProcessLogKind("analysis");
-      }
-    }).catch(() => undefined);
-    void api.genreTagJobLatest().then((job) => {
-      if (job) {
-        setGenreTagJob(job);
-        if (["queued", "running"].includes(job.state)) setProcessLogKind("genre_tags");
-      }
-    }).catch(() => undefined);
+    void initializeDatabase();
   }, []);
 
   useEffect(() => {
+    if (!databasePath) return;
     const timer = window.setTimeout(() => {
       void refreshLibrary(0);
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [query, libraryPreset]);
+  }, [query, libraryPreset, databasePath]);
 
   useEffect(() => {
     if (!scanJob?.job_id || !["queued", "running"].includes(scanJob.state || "")) return;
@@ -224,6 +197,76 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [genreTagJob?.job_id, genreTagJob?.state]);
 
+  async function initializeDatabase() {
+    try {
+      const current = await api.currentDatabase();
+      setDatabasePath(current.path);
+      if (!current.selected) {
+        resetDatabaseScopedState();
+        setNotice({ kind: "idle", text: "Выберите SQLite базу данных" });
+        return;
+      }
+      await refreshLibrary(0, true);
+      await loadLatestJobs();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setNotice({ kind: "error", text: message });
+      appendActivity("error", "Не удалось прочитать текущую базу", message);
+    }
+  }
+
+  async function loadLatestJobs() {
+    await Promise.all([
+      api.latestScanJob().then((job) => {
+        if (job) {
+          setScanJob(job);
+          setProcessLogKind("scan");
+        }
+      }).catch(() => undefined),
+      api.latestAnalyzeJob().then((job) => {
+        if (job) {
+          setAnalysisJob(job);
+          if (["queued", "running"].includes(job.state)) setProcessLogKind("analysis");
+        }
+      }).catch(() => undefined),
+      api.latestSonaraJob().then((job) => {
+        if (job) {
+          setAnalysisJob((current) => (current && ["queued", "running"].includes(current.state) ? current : job));
+          if (["queued", "running"].includes(job.state)) setProcessLogKind("analysis");
+        }
+      }).catch(() => undefined),
+      api.latestGenreJob().then((job) => {
+        if (job) {
+          setAnalysisJob((current) => (current && ["queued", "running"].includes(current.state) ? current : job));
+          if (["queued", "running"].includes(job.state)) setProcessLogKind("analysis");
+        }
+      }).catch(() => undefined),
+      api.genreTagJobLatest().then((job) => {
+        if (job) {
+          setGenreTagJob(job);
+          if (["queued", "running"].includes(job.state)) setProcessLogKind("genre_tags");
+        }
+      }).catch(() => undefined)
+    ]);
+  }
+
+  function resetDatabaseScopedState() {
+    setTracks([]);
+    setLibraryTotal(0);
+    setLibraryOffset(0);
+    setLibrarySummary(emptySummary);
+    setSeeds([]);
+    setResults([]);
+    setPlaylist([]);
+    setPlaylistId(null);
+    setPreview(null);
+    setMetadataTrack(null);
+    setSeedTrackMap({});
+    setScanJob(null);
+    setAnalysisJob(null);
+    setGenreTagJob(null);
+  }
+
   async function run<T>(action: () => Promise<T>, ok: (value: T) => string | void) {
     setBusy(true);
     try {
@@ -248,7 +291,14 @@ export function App() {
     ].slice(0, 80));
   }
 
-  async function refreshLibrary(nextOffset = libraryOffset) {
+  async function refreshLibrary(nextOffset = libraryOffset, databaseSelected = Boolean(databasePath)) {
+    if (!databaseSelected) {
+      setTracks([]);
+      setLibraryTotal(0);
+      setLibraryOffset(0);
+      setLibrarySummary(emptySummary);
+      return;
+    }
     setLibraryLoading(true);
     try {
       const [page, summary] = await Promise.all([
@@ -420,6 +470,30 @@ export function App() {
         return value.path;
       }
     );
+  }
+
+  async function handleChooseDatabase() {
+    setBusy(true);
+    try {
+      const value = await api.chooseDatabase();
+      if (!value.selected || !value.path) {
+        appendActivity("info", "Выбор базы отменен");
+        setNotice({ kind: "idle", text: "Выбор базы отменен" });
+        return;
+      }
+      setDatabasePath(value.path);
+      resetDatabaseScopedState();
+      await refreshLibrary(0, true);
+      await loadLatestJobs();
+      appendActivity("ok", "База выбрана", value.path);
+      setNotice({ kind: "ok", text: value.path });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setNotice({ kind: "error", text: message });
+      appendActivity("error", "Не удалось переключить базу", message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleChooseOutputFolder() {
@@ -703,6 +777,8 @@ export function App() {
 
       <section className="workspace">
         <LibraryPanel
+          databasePath={databasePath}
+          onChooseDatabase={() => void handleChooseDatabase()}
           musicRoot={musicRoot}
           onMusicRootChange={setMusicRoot}
           busy={busy}
@@ -752,7 +828,7 @@ export function App() {
           canGoForward={canGoForward}
           onPreviousPage={() => changeLibraryPage(-1)}
           onNextPage={() => changeLibraryPage(1)}
-          busy={busy || stageRunning}
+          busy={busy || stageRunning || !databasePath}
           maestGenreTrackCount={librarySummary.maest}
           writeMaestGenresHelp={helpText.writeMaestGenres}
           onWriteMaestGenres={() => void handleGenreTagsApply()}
@@ -770,7 +846,7 @@ export function App() {
           seedTracks={seedTracks}
           textQuery={textQuery}
           onTextQueryChange={setTextQuery}
-          busy={busy}
+          busy={busy || !databasePath}
           filters={filters}
           setFilters={setFilters}
           seeds={seeds}

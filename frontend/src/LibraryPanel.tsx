@@ -1,4 +1,4 @@
-import { Cpu, FolderOpen, Gauge, Minus, Play, Plus, RefreshCcw, Search, Square, Tags, Trash2, Wand2 } from "lucide-react";
+import { Cpu, Database, FolderOpen, Gauge, Minus, Play, Plus, RefreshCcw, Search, Square, Tags, Trash2, Wand2 } from "lucide-react";
 import { AnalysisJobStatus, GenreTagJobStatus, ScanStats } from "./api";
 import { ActivityEvent, AnalysisButton, stageIndicatorLabel, UnifiedLog } from "./jobUi";
 
@@ -7,6 +7,7 @@ type AnalysisAdapter = "mert" | "clap";
 type ResetAdapter = "sonara" | "maest" | "mert" | "clap";
 
 type LibraryHelpText = {
+  databasePath: string;
   musicRoot: string;
   scanWorkers: string;
   refreshTags: string;
@@ -22,6 +23,8 @@ type LibraryHelpText = {
 };
 
 export function LibraryPanel({
+  databasePath,
+  onChooseDatabase,
   musicRoot,
   onMusicRootChange,
   busy,
@@ -56,6 +59,8 @@ export function LibraryPanel({
   onAnalyze,
   onResetAnalysis
 }: {
+  databasePath: string | null;
+  onChooseDatabase: () => void;
   musicRoot: string;
   onMusicRootChange: (value: string) => void;
   busy: boolean;
@@ -103,6 +108,12 @@ export function LibraryPanel({
             <RefreshCcw size={17} />
           </span>
         </div>
+      </div>
+      <div className="path-row database-path-row">
+        <input value={databasePath || ""} readOnly placeholder="Выберите SQLite базу" title={helpText.databasePath} />
+        <button className="icon-button folder-picker" title="Выбрать SQLite базу" aria-label="Выбрать SQLite базу" disabled={busy || stageRunning} onClick={onChooseDatabase}>
+          <Database size={17} />
+        </button>
       </div>
       <div className="path-row library-path-row">
         <input value={musicRoot} onChange={(event) => onMusicRootChange(event.target.value)} placeholder="D:/Music" title={helpText.musicRoot} />

@@ -155,7 +155,7 @@ scripts\run_server.cmd
 | --- | --- | --- |
 | `--host` | `127.0.0.1` | Bind address for the local FastAPI server. |
 | `--port` | `8765` | Local HTTP port. |
-| `--db` | `dj-track-similarity.sqlite` | SQLite database path. |
+| `--db` | none | Optional SQLite database path. Without it, choose or create a `.sqlite` database in the UI. |
 | `--log-level` | `info` | File log level: `debug`, `info`, `warning`, `error`, or `critical`. |
 | `--log-track-events` | off | Also write successful per-track job events to the file log. |
 | `DJ_TRACK_SIMILARITY_LOG` | `dj-track-similarity.log` | File log path. |
@@ -174,16 +174,18 @@ file log rotates daily at midnight and keeps one rotated day.
 
 ### Multiple Databases
 
-The app uses `dj-track-similarity.sqlite` by default. To keep separate music
-folders isolated from each other, start the server with a different SQLite
-database path:
+The web app can start without a selected database. Use the database picker in
+the first panel to open an existing `.sqlite` file or create a new one. If you
+already know which database to use, start the server with `--db` and the UI will
+open that database immediately:
 
 ```powershell
 dj-sim serve --host 127.0.0.1 --port 8765 --db "D:\DJDatabases\breaks.sqlite"
 ```
 
-Then scan the matching music folder in the UI, or use the CLI with the same
-`--db` path:
+You can switch databases from the UI later as long as no scan, analysis, or tag
+write job is active. CLI commands that read or write a database should still use
+the matching `--db` path:
 
 ```powershell
 dj-sim scan "D:\Music\Breaks" --db "D:\DJDatabases\breaks.sqlite"
@@ -192,9 +194,8 @@ dj-sim analyze-genres --device cuda --batch-size 4 --limit 25 --db "D:\DJDatabas
 dj-sim analyze --adapter clap --device cuda --batch-size 4 --db "D:\DJDatabases\breaks.sqlite"
 ```
 
-The UI does not switch databases while the server is running. Stop the server
-and start it again with another `--db` value to work with another library. Each
-database keeps its own tracks, analysis results, playlists, and stored paths.
+Each database keeps its own tracks, analysis results, playlists, and stored
+paths.
 
 ## CLI Examples
 

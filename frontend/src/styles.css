@@ -323,12 +323,14 @@ h2 {
   width: fit-content;
 }
 
+.database-path-row,
 .library-path-row,
 .output-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 42px;
 }
 
+.database-path-row .icon-button,
 .library-path-row .icon-button,
 .output-row .icon-button {
   width: 42px;

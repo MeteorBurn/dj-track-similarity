@@ -144,6 +144,11 @@ export type DatabaseClearResult = {
   playlist_tracks_deleted: number;
 };
 
+export type DatabaseSelection = {
+  path: string | null;
+  selected: boolean;
+};
+
 export type LibraryRelocationResult = {
   old_root: string;
   new_root: string;
@@ -168,6 +173,17 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  currentDatabase: () => request<DatabaseSelection>("/api/database/current"),
+  switchDatabase: (path: string) =>
+    request<DatabaseSelection>("/api/database/switch", {
+      method: "POST",
+      body: JSON.stringify({ path })
+    }),
+  chooseDatabase: () =>
+    request<DatabaseSelection>("/api/database/dialog", {
+      method: "POST",
+      body: JSON.stringify({})
+    }),
   tracks: (params: { query?: string; preset?: string; limit?: number; offset?: number; includeMetadata?: boolean } = {}) => {
     const search = new URLSearchParams();
     if (params.query) search.set("q", params.query);

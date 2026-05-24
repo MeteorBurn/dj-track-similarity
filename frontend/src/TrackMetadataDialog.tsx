@@ -14,8 +14,8 @@ const trackTagLabels: Record<string, string> = {
   catalog_number: "Catalog",
   track_number: "Track no.",
   disc_number: "Disc no.",
-  bpm: "BPM tag",
-  key: "Key tag",
+  bpm: "BPM",
+  key: "Key",
   comment: "Comment",
   isrc: "ISRC"
 };

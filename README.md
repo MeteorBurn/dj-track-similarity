@@ -117,7 +117,7 @@ The metadata popup is intentionally split by source:
   audio length, audio format, file size, and file path;
 - the same `Mutagen tags` block then shows Mutagen file tags only when present:
   artist, album, genre, year, country, label, catalog, track number, disc
-  number, BPM tag, key tag, comment, and ISRC;
+  number, BPM, key, comment, and ISRC;
 - `SONARA features` are computed playlist analysis values grouped as Core
   features, Perceptual features, Musical key, Tonal analysis, and Spectral
   features. The UI keeps compact labels and exposes short field explanations as
@@ -393,7 +393,7 @@ possible tag blob:
 - title, audio length, audio format, file size, and file path are always shown
   in the metadata popup's top table;
 - artist, album, genre, year, country, label, catalog number, track number,
-  disc number, BPM tag, key tag, comment, and ISRC are shown there when Mutagen
+  disc number, BPM, key, comment, and ISRC are shown there when Mutagen
   has those values.
 
 Values are normalized before writing to SQLite metadata so odd Mutagen objects

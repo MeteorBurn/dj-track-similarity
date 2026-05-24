@@ -91,3 +91,12 @@ test("metadata dialog names the mutagen tag block", () => {
   assert.match(mutagenBlock, /<strong>Mutagen tags<\/strong>/);
   assert.match(mutagenBlock, /metadata-grid mutagen-grid/);
 });
+
+test("mutagen bpm and key labels omit tag suffix", () => {
+  const source = readFileSync(dialogPath, "utf8");
+
+  assert.match(source, /bpm:\s*"BPM"/);
+  assert.match(source, /key:\s*"Key"/);
+  assert.doesNotMatch(source, /"BPM tag"/);
+  assert.doesNotMatch(source, /"Key tag"/);
+});

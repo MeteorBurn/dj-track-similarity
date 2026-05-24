@@ -1,9 +1,11 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 import numpy as np
 
+import dj_track_similarity.api as api_module
 import dj_track_similarity.database as database_module
 from dj_track_similarity.api import create_app
 from dj_track_similarity.database import LibraryDatabase
@@ -161,6 +163,56 @@ def test_library_summary_counts_tracks_and_analysis_families(tmp_path: Path) -> 
 
     assert response.status_code == 200
     assert response.json() == {"tracks": 3, "sonara": 1, "maest": 1, "mert": 1, "clap": 0}
+
+
+def test_media_endpoint_transcodes_aiff_preview_to_browser_playable_wav(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    track_id = _add_track(db, tmp_path, "preview.aiff", "Artist", "Preview", {})
+    calls: list[list[str]] = []
+
+    class FakeStdout:
+        def __init__(self) -> None:
+            self._chunks = [b"RIFF....WAVE", b""]
+
+        def read(self, _size: int) -> bytes:
+            return self._chunks.pop(0)
+
+    class FakeProcess:
+        def __init__(self, command: list[str], **_kwargs: object) -> None:
+            calls.append(command)
+            self.stdout = FakeStdout()
+
+        def wait(self) -> int:
+            return 0
+
+        def poll(self) -> int:
+            return 0
+
+        def kill(self) -> None:
+            raise AssertionError("completed transcode should not be killed")
+
+    monkeypatch.setattr(api_module, "require_ffmpeg", lambda: "ffmpeg-test")
+    monkeypatch.setattr(api_module, "subprocess", SimpleNamespace(Popen=FakeProcess, PIPE=-1, DEVNULL=-3), raising=False)
+
+    response = TestClient(create_app(db_path)).get(f"/media/{track_id}")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("audio/wav")
+    assert response.content == b"RIFF....WAVE"
+    assert calls == [[
+        "ffmpeg-test",
+        "-v",
+        "error",
+        "-i",
+        str(tmp_path / "preview.aiff"),
+        "-vn",
+        "-f",
+        "wav",
+        "-codec:a",
+        "pcm_s16le",
+        "pipe:1",
+    ]]
 
 
 def _add_track(

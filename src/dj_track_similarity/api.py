@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import logging
+import subprocess
 import threading
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -144,6 +145,7 @@ class DatabaseBusy(RuntimeError):
 
 
 ACTIVE_JOB_STATES = {"queued", "running"}
+AIFF_PREVIEW_SUFFIXES = {".aif", ".aiff"}
 
 
 class AppDatabaseState:
@@ -584,6 +586,8 @@ def create_app(
         path = Path(track.path)
         if not path.exists():
             raise HTTPException(status_code=404, detail="Audio file is missing")
+        if path.suffix.lower() in AIFF_PREVIEW_SUFFIXES:
+            return _transcoded_wav_response(path, ffmpeg_path)
         return FileResponse(path)
 
     package_path = Path(__file__).resolve()
@@ -596,3 +600,38 @@ def create_app(
         app.mount("/", StaticFiles(directory=static_dir, html=True), name="frontend")
 
     return app
+
+
+def _transcoded_wav_response(path: Path, ffmpeg_path: str) -> StreamingResponse:
+    command = [
+        ffmpeg_path,
+        "-v",
+        "error",
+        "-i",
+        str(path),
+        "-vn",
+        "-f",
+        "wav",
+        "-codec:a",
+        "pcm_s16le",
+        "pipe:1",
+    ]
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+    def iter_wav_chunks():
+        try:
+            if process.stdout is None:
+                return
+            while True:
+                chunk = process.stdout.read(64 * 1024)
+                if not chunk:
+                    break
+                yield chunk
+            return_code = process.wait()
+            if return_code != 0:
+                LOGGER.warning("ffmpeg preview transcode failed path=%s return_code=%s", path, return_code)
+        finally:
+            if process.poll() is None:
+                process.kill()
+
+    return StreamingResponse(iter_wav_chunks(), media_type="audio/wav")

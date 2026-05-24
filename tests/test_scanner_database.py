@@ -4,6 +4,7 @@ import json
 import math
 import sqlite3
 
+import numpy as np
 import pytest
 
 import dj_track_similarity.scanner as scanner
@@ -366,11 +367,19 @@ def test_database_stores_maest_genres_in_track_metadata(tmp_path: Path) -> None:
     assert track.metadata["title"] == "Track"
     assert track.metadata["artist"] == "Artist"
     assert metadata_keys[-3:] == ["maest_model", "maest_genres", "maest_syncopated_rhythm"]
-    assert track.analyses == ["maest"]
+    assert track.analyses is None
     assert track.genres == ["Techno", "Dub Techno"]
     assert track.genre_scores == {"Techno": 0.91, "Dub Techno": 0.72}
     assert track.metadata["maest_syncopated_rhythm"] is False
     assert track.artist == "Artist"
+
+    db.save_embedding(
+        track_id,
+        np.asarray([1.0, 0.0, 0.0], dtype=np.float32),
+        "discogs-maest-30s-pw-129e-519l",
+        embedding_key="maest",
+    )
+    assert db.get_track(track_id).analyses == ["maest"]
 
 
 def test_database_marks_maest_syncopated_rhythm_from_saved_genres(tmp_path: Path) -> None:
@@ -419,6 +428,12 @@ def test_database_resets_metadata_backed_analyses(tmp_path: Path) -> None:
         metadata={"title": "Track", "bpm": 120, "initialkey": "A minor", "duration": 90},
     )
     db.save_genres(track_id, [{"label": "Techno", "score": 0.91}], model_name="maest")
+    db.save_embedding(
+        track_id,
+        np.asarray([1.0, 0.0, 0.0], dtype=np.float32),
+        "maest",
+        embedding_key="maest",
+    )
     db.save_sonara_features(
         track_id,
         {"bpm": {"value": 128}},
@@ -435,6 +450,7 @@ def test_database_resets_metadata_backed_analyses(tmp_path: Path) -> None:
     after_maest = db.get_track(track_id)
 
     assert sonara_result["tracks_updated"] == 1
+    assert maest_result["embeddings_deleted"] == 1
     assert after_sonara.bpm == 120
     assert after_sonara.musical_key == "A minor"
     assert after_sonara.energy is None
@@ -443,6 +459,7 @@ def test_database_resets_metadata_backed_analyses(tmp_path: Path) -> None:
     assert after_sonara.analyses == ["maest"]
     assert maest_result["tracks_updated"] == 1
     assert "maest_genres" not in after_maest.metadata
+    assert db.load_embedding_matrix("maest")[0] == []
     assert "maest_syncopated_rhythm" not in after_maest.metadata
     assert after_maest.analyses is None
 

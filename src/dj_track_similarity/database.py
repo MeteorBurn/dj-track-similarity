@@ -10,7 +10,6 @@ import numpy as np
 
 from .db_schema import (
     MAEST_HAS_GENRES_SQL,
-    MAEST_MISSING_GENRES_SQL,
     SQLITE_BUSY_TIMEOUT_SECONDS,
     TRACK_SELECT_FIELDS,
     TRACK_SLIM_SELECT_FIELDS,
@@ -30,6 +29,7 @@ from .models import Track
 
 
 DEFAULT_EMBEDDING_KEY = "mert"
+MAEST_EMBEDDING_KEY = "maest"
 LIBRARY_ROOT_SETTING_KEY = "library_root"
 SYNCOPATED_RHYTHM_GENRES = (
     "Breakbeat",
@@ -319,11 +319,11 @@ class LibraryDatabase:
                 SELECT {TRACK_SLIM_SELECT_FIELDS}
                 FROM tracks t
                 LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
-                WHERE {MAEST_MISSING_GENRES_SQL.replace('metadata_json', 't.metadata_json')}
+                WHERE e.track_id IS NULL
                 ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
                 {limit_sql}
                 """,
-                (DEFAULT_EMBEDDING_KEY, *params),
+                (MAEST_EMBEDDING_KEY, *params),
             ).fetchall()
         return [self._row_to_track(row, include_metadata=False) for row in rows]
 
@@ -404,11 +404,8 @@ class LibraryDatabase:
             )
             maest = int(
                 connection.execute(
-                    """
-                    SELECT COUNT(*)
-                    FROM tracks INDEXED BY idx_tracks_maest_present
-                    WHERE json_type(metadata_json, '$.maest_genres') IS NOT NULL
-                    """
+                    "SELECT COUNT(DISTINCT track_id) FROM embeddings WHERE embedding_key = ?",
+                    (MAEST_EMBEDDING_KEY,),
                 ).fetchone()[0]
             )
             mert = int(
@@ -571,7 +568,11 @@ class LibraryDatabase:
             self._invalidate_embedding_cache(adapter)
             return {"adapter": adapter, "tracks_updated": 0, "embeddings_deleted": deleted}
         if adapter == "maest":
-            return self._reset_metadata_analysis(adapter, ("maest_genres", "maest_model", "maest_syncopated_rhythm"))
+            return self._reset_metadata_and_embedding_analysis(
+                adapter,
+                ("maest_genres", "maest_model", "maest_syncopated_rhythm"),
+                embedding_key=MAEST_EMBEDDING_KEY,
+            )
         if adapter == "sonara":
             return self._reset_sonara_analysis()
         raise ValueError(f"Unsupported analysis adapter reset: {adapter}")
@@ -676,6 +677,33 @@ class LibraryDatabase:
         if updated:
             self._invalidate_embedding_cache()
         return {"adapter": adapter, "tracks_updated": updated, "embeddings_deleted": 0}
+
+    def _reset_metadata_and_embedding_analysis(
+        self,
+        adapter: str,
+        keys: tuple[str, ...],
+        *,
+        embedding_key: str,
+    ) -> dict[str, object]:
+        updated = 0
+        with self._write_lock, self.connect() as connection:
+            rows = connection.execute("SELECT id, metadata_json FROM tracks").fetchall()
+            for row in rows:
+                metadata = metadata_from_json(row["metadata_json"])
+                if not any(key in metadata for key in keys):
+                    continue
+                for key in keys:
+                    metadata.pop(key, None)
+                connection.execute(
+                    "UPDATE tracks SET metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (metadata_to_json(metadata), row["id"]),
+                )
+                updated += 1
+            cursor = connection.execute("DELETE FROM embeddings WHERE embedding_key = ?", (embedding_key,))
+            deleted = cursor.rowcount
+        if updated or deleted:
+            self._invalidate_embedding_cache()
+        return {"adapter": adapter, "tracks_updated": updated, "embeddings_deleted": deleted}
 
     def _reset_sonara_analysis(self) -> dict[str, object]:
         updated = 0

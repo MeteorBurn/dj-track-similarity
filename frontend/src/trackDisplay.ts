@@ -31,7 +31,6 @@ export function analysisStatusLabel(track: Track) {
 export function trackHasAnalysis(track: Track, adapter: "sonara" | "maest" | "mert" | "clap") {
   const analyses = new Set(track.analyses || []);
   if (track.metadata?.sonara_features) analyses.add("sonara");
-  if (track.genres?.length) analyses.add("maest");
   if (track.embedding_model) analyses.add("mert");
   return analyses.has(adapter);
 }

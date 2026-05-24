@@ -35,6 +35,7 @@ def test_tracks_endpoint_does_not_parse_metadata_for_slim_items(monkeypatch, tmp
     track_id = _add_track(db, tmp_path, "analyzed.wav", "Artist", "Analyzed", {"comment": "large metadata"})
     db.save_sonara_features(track_id, {"energy": 0.7}, energy=0.7, model_name="sonara-test")
     db.save_genres(track_id, [{"label": "Breakbeat", "score": 0.9}], model_name="maest-test")
+    db.save_embedding(track_id, np.asarray([0.0, 1.0], dtype=np.float32), model_name="maest-test", embedding_key="maest")
     db.save_embedding(track_id, np.asarray([1.0, 0.0], dtype=np.float32), model_name="mert-test", embedding_key="mert")
 
     def fail_if_metadata_parsed(_metadata_json: object) -> dict[str, object]:
@@ -154,15 +155,18 @@ def test_library_summary_counts_tracks_and_analysis_families(tmp_path: Path) -> 
     db = LibraryDatabase(db_path)
     sonara_id = _add_track(db, tmp_path, "sonara.wav", "Artist", "Sonara", {})
     maest_id = _add_track(db, tmp_path, "maest.wav", "Artist", "Maest", {})
+    maest_genres_only_id = _add_track(db, tmp_path, "maest-genres-only.wav", "Artist", "Maest Genres Only", {})
     mert_id = _add_track(db, tmp_path, "mert.wav", "Artist", "Mert", {})
     db.save_sonara_features(sonara_id, {"energy": 0.7}, energy=0.7, model_name="sonara-test")
     db.save_genres(maest_id, [{"label": "Breakbeat", "score": 0.9}], model_name="maest-test")
+    db.save_embedding(maest_id, np.asarray([0.0, 1.0], dtype=np.float32), model_name="maest-test", embedding_key="maest")
+    db.save_genres(maest_genres_only_id, [{"label": "House", "score": 0.8}], model_name="maest-test")
     db.save_embedding(mert_id, np.asarray([1.0, 0.0], dtype=np.float32), model_name="mert-test", embedding_key="mert")
 
     response = TestClient(create_app(db_path)).get("/api/library/summary")
 
     assert response.status_code == 200
-    assert response.json() == {"tracks": 3, "sonara": 1, "maest": 1, "mert": 1, "clap": 0}
+    assert response.json() == {"tracks": 4, "sonara": 1, "maest": 1, "mert": 1, "clap": 0}
 
 
 def test_media_endpoint_transcodes_aiff_preview_to_browser_playable_wav(monkeypatch, tmp_path: Path) -> None:

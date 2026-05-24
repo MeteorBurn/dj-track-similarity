@@ -2,6 +2,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+import numpy as np
+
 import dj_track_similarity.api as api
 from dj_track_similarity.database import LibraryDatabase
 
@@ -19,10 +21,17 @@ class SynchronousGenreManager:
             tracks = tracks[:limit]
         for track in tracks:
             self.db.save_genres(track.id, [{"label": "Techno", "score": 0.95}], model_name="fake-maest")
+            self.db.save_embedding(
+                track.id,
+                np.asarray([1.0, 0.0, 0.0], dtype=np.float32),
+                "fake-maest",
+                embedding_key="maest",
+            )
         return {
             "job_id": "job-1",
             "state": "completed",
             "adapter_name": "maest",
+            "embedding_key": "maest",
             "model_name": "fake-maest",
             "device": device,
             "device_requested": device,

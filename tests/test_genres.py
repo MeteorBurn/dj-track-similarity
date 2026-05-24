@@ -55,7 +55,15 @@ class BatchMaestModel:
             [2.0, 1.0, 0.0],
             [1.0, 1.0, 0.0],
         ]
-        return torch.tensor(rows[: audio.shape[0]]), None
+        embedding_rows = [
+            [1.0, 10.0],
+            [2.0, 20.0],
+            [3.0, 30.0],
+            [4.0, 40.0],
+            [5.0, 50.0],
+            [6.0, 60.0],
+        ]
+        return torch.tensor(rows[: audio.shape[0]]), torch.tensor(embedding_rows[: audio.shape[0]])
 
     def predict_labels(self, audio):
         raise AssertionError("MAEST batch inference must not use predict_labels")
@@ -93,6 +101,8 @@ def test_maest_predict_batch_uses_model_logits_per_track(monkeypatch) -> None:
     assert batches[1][1]["label"] == "B"
     assert batches[1][1]["score"] == pytest.approx(torch.sigmoid(torch.tensor([1.0, 1.0, 1.0])).mean().item())
     assert [[item["label"] for item in row] for row in batches] == [["B", "C"], ["A", "B"]]
+    np.testing.assert_allclose(adapter.embedding_for_path("a.wav"), np.asarray([2.0, 20.0], dtype=np.float32))
+    np.testing.assert_allclose(adapter.embedding_for_path("b.wav"), np.asarray([5.0, 50.0], dtype=np.float32))
 
 
 def test_maest_prepares_three_30_second_windows(monkeypatch) -> None:

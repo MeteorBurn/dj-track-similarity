@@ -88,10 +88,6 @@ def genres_from_metadata(metadata: dict[str, object]) -> tuple[list[str] | None,
 def analyses_from_row(row: Any, metadata: dict[str, object]) -> list[str] | None:
     analyses_set: set[str] = set()
     row_keys = set(row.keys())
-    if "has_maest" in row_keys and row["has_maest"]:
-        analyses_set.add("maest")
-    elif metadata.get("maest_genres"):
-        analyses_set.add("maest")
     if "has_sonara" in row_keys and row["has_sonara"]:
         analyses_set.add("sonara")
     elif metadata.get("sonara_features"):

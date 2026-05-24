@@ -7,7 +7,9 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Callable, Protocol, cast
 
-from .database import LibraryDatabase
+import numpy as np
+
+from .database import MAEST_EMBEDDING_KEY, LibraryDatabase
 from .genres import MaestGenreAdapter, genre_adapter_factories as default_genre_adapter_factories
 from .job_runtime import JobStore, chunks
 from .logging_config import exception_summary, log_failure, log_job_event
@@ -50,6 +52,7 @@ class GenreJobStatus:
     job_id: str
     state: str
     adapter_name: str = "maest"
+    embedding_key: str = MAEST_EMBEDDING_KEY
     model_name: str | None = None
     device: str | None = None
     device_requested: str = "auto"
@@ -202,7 +205,17 @@ class GenreAnalysisJobManager:
                 self._save_failure(job_id, track, error)
 
     def _save_success(self, job_id: str, adapter: GenreAdapter, track: Track, genres: list[dict[str, object]]) -> None:
+        embedding = _embedding_for_path(adapter, track.path)
         self.db.save_genres(track.id, genres, model_name=adapter.model_name)
+        if embedding is not None:
+            embedding_key = str(getattr(adapter, "embedding_key", MAEST_EMBEDDING_KEY))
+            self.db.save_embedding(
+                track.id,
+                embedding,
+                adapter.model_name,
+                getattr(adapter, "dim", None),
+                embedding_key=embedding_key,
+            )
         self._update_progress(job_id, track.path, analyzed_delta=1)
         self._append_event(job_id, "ok", "Genres analyzed", path=track.path, track_id=track.id)
 
@@ -271,6 +284,7 @@ class GenreAnalysisJobManager:
             job_id=status.job_id,
             state=status.state,
             adapter_name=status.adapter_name,
+            embedding_key=status.embedding_key,
             model_name=status.model_name,
             device=status.device,
             device_requested=status.device_requested,
@@ -290,3 +304,13 @@ class GenreAnalysisJobManager:
             workers=status.workers,
         )
         return copy
+
+
+def _embedding_for_path(adapter: GenreAdapter, path: str) -> np.ndarray | None:
+    getter = getattr(adapter, "embedding_for_path", None)
+    if not callable(getter):
+        return None
+    vector = getter(path)
+    if vector is None:
+        return None
+    return np.asarray(vector, dtype=np.float32)

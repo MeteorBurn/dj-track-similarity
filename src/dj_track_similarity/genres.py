@@ -4,12 +4,16 @@ from collections import defaultdict
 import re
 from pathlib import Path
 
+import numpy as np
+
 from .audio_loader import load_audio_mono, torch_compatible_audio
 from .runtime import select_torch_device
 
 
 class MaestGenreAdapter:
+    embedding_key = "maest"
     model_name = "discogs-maest-30s-pw-129e-519l"
+    dim: int | None = None
     analysis_offset_seconds = 60.0
     analysis_window_ratios = (0.38, 0.72)
 
@@ -21,6 +25,7 @@ class MaestGenreAdapter:
         self._torch = None
         self._torchaudio = None
         self.device: str | None = None
+        self._embeddings_by_path: dict[str, np.ndarray] = {}
 
     def predict(self, path: str | Path) -> list[dict[str, float | str]]:
         return self.predict_batch([path])[0]
@@ -42,13 +47,18 @@ class MaestGenreAdapter:
         _move_maest_runtime_modules(self._model, device)
 
         with torch.inference_mode():
-            logits, _embeddings = self._model(audio_batch, melspectrogram_input=False)
+            logits, embeddings = self._model(audio_batch, melspectrogram_input=False)
 
         activations = torch.sigmoid(logits)
         rows = _to_score_rows(activations, expected_rows=len(prepared))
+        embedding_rows = _embedding_rows(embeddings, expected_rows=len(prepared))
+        self._embeddings_by_path = self._average_embeddings_by_path(paths, embedding_rows, window_track_indexes)
         averaged_rows = _average_window_rows(rows, window_track_indexes, expected_tracks=len(paths))
         label_values = [str(label) for label in getattr(self._model, "labels")]
         return [_rank_genres(label_values, scores, self.top_k) for scores in averaged_rows]
+
+    def embedding_for_path(self, path: str | Path) -> np.ndarray | None:
+        return self._embeddings_by_path.get(str(path))
 
     def _prepare_audio(self, path: str | Path):
         return self._prepare_audio_windows(path)[0]
@@ -105,6 +115,27 @@ class MaestGenreAdapter:
         if self.device:
             return self.device
         return select_torch_device(self._torch, self.requested_device)
+
+    def _average_embeddings_by_path(
+        self,
+        paths: list[str | Path],
+        rows: list[np.ndarray],
+        window_track_indexes: list[int],
+    ) -> dict[str, np.ndarray]:
+        grouped: dict[int, list[np.ndarray]] = defaultdict(list)
+        for row, track_index in zip(rows, window_track_indexes):
+            grouped[track_index].append(row)
+        embeddings_by_path: dict[str, np.ndarray] = {}
+        for track_index, path in enumerate(paths):
+            track_rows = grouped.get(track_index, [])
+            if not track_rows:
+                continue
+            vector = np.mean(np.vstack(track_rows), axis=0).astype(np.float32)
+            if not np.isfinite(vector).all():
+                raise ValueError(f"MAEST model produced non-finite embeddings: {path}")
+            self.dim = int(vector.shape[0])
+            embeddings_by_path[str(path)] = vector
+        return embeddings_by_path
 
 
 def genre_adapter_factories():
@@ -202,6 +233,28 @@ def _to_score_rows(values: object, *, expected_rows: int) -> list[list[float]]:
     if expected_rows == 1:
         return [flat]
     raise ValueError("MAEST batch output shape does not include per-track rows")
+
+
+def _embedding_rows(values: object, *, expected_rows: int) -> list[np.ndarray]:
+    if values is None:
+        raise ValueError("MAEST model did not return embeddings")
+    detach = getattr(values, "detach", None)
+    if callable(detach):
+        values = detach()
+    cpu = getattr(values, "cpu", None)
+    if callable(cpu):
+        values = cpu()
+    numpy = getattr(values, "numpy", None)
+    if callable(numpy):
+        values = numpy()
+    array = np.asarray(values, dtype=np.float32)
+    if array.ndim == 3:
+        array = array.mean(axis=1)
+    if array.ndim != 2:
+        raise ValueError(f"Unsupported MAEST embedding shape: {array.shape}")
+    if array.shape[0] != expected_rows:
+        raise ValueError("MAEST embedding row count does not match audio window count")
+    return [array[index].astype(np.float32, copy=True) for index in range(array.shape[0])]
 
 
 def _rank_genres(labels: list[str], scores: list[float], top_k: int) -> list[dict[str, float | str]]:

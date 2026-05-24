@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import numpy as np
+
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.genre_jobs import GenreAnalysisJobManager
 
@@ -26,6 +28,10 @@ class FakeGenreAdapter:
             {"label": "Dub Techno", "score": 0.7},
         ][: self.top_k]
 
+    def embedding_for_path(self, path):
+        value = float(len(Path(path).name))
+        return np.asarray([value, 1.0, 0.5], dtype=np.float32)
+
 
 class BatchGenreAdapter:
     model_name = "batch-maest"
@@ -45,6 +51,10 @@ class BatchGenreAdapter:
         self.predict_calls.append(Path(path).name)
         raise AssertionError("MAEST batch job should call predict_batch")
 
+    def embedding_for_path(self, path):
+        value = float(len(Path(path).name))
+        return np.asarray([value, 1.0, 0.5], dtype=np.float32)
+
 
 class PartlyFailingBatchGenreAdapter:
     model_name = "batch-maest"
@@ -60,8 +70,12 @@ class PartlyFailingBatchGenreAdapter:
             raise RuntimeError(f"Unable to decode audio: {paths[names.index('bad.wav')]}")
         return [[{"label": f"Genre {name}", "score": 0.9}] for name in names]
 
+    def embedding_for_path(self, path):
+        value = float(len(Path(path).name))
+        return np.asarray([value, 1.0, 0.5], dtype=np.float32)
 
-def test_genre_job_saves_maest_genres_without_creating_embeddings(tmp_path: Path) -> None:
+
+def test_genre_job_saves_maest_genres_and_embeddings(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_id = _track(db, tmp_path, "one.wav")
     manager = GenreAnalysisJobManager(db, {"maest": FakeGenreAdapter})
@@ -74,19 +88,28 @@ def test_genre_job_saves_maest_genres_without_creating_embeddings(tmp_path: Path
     assert status.processed == 1
     assert status.analyzed == 1
     assert status.failed == 0
+    assert status.embedding_key == "maest"
     assert status.model_name == "fake-maest"
     assert status.device == "cpu"
     assert track.genres == ["Techno", "Dub Techno"]
-    assert len(db.list_tracks(with_embeddings=True)) == 0
+    tracks, matrix = db.load_embedding_matrix("maest")
+    assert [track.id for track in tracks] == [track_id]
+    assert matrix.shape == (1, 3)
 
 
-def test_genre_limit_counts_tracks_without_maest_genres(monkeypatch, tmp_path: Path) -> None:
+def test_genre_limit_counts_tracks_without_maest_embeddings(monkeypatch, tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    analyzed_id = _track(db, tmp_path, "a.wav")
-    _track(db, tmp_path, "b.wav")
+    genre_only_id = _track(db, tmp_path, "a.wav")
+    embedding_only_id = _track(db, tmp_path, "b.wav")
     _track(db, tmp_path, "c.wav")
     _track(db, tmp_path, "d.wav")
-    db.save_genres(analyzed_id, [{"label": "House", "score": 0.8}], model_name="fake-maest")
+    db.save_genres(genre_only_id, [{"label": "House", "score": 0.8}], model_name="fake-maest")
+    db.save_embedding(
+        embedding_only_id,
+        np.asarray([1.0, 0.0, 0.0], dtype=np.float32),
+        "fake-maest",
+        embedding_key="maest",
+    )
     adapter = FakeGenreAdapter()
     manager = GenreAnalysisJobManager(db, {"maest": lambda device=None, top_k=3: adapter})
 
@@ -99,7 +122,7 @@ def test_genre_limit_counts_tracks_without_maest_genres(monkeypatch, tmp_path: P
 
     assert status.total == 2
     assert status.analyzed == 2
-    assert adapter.paths == ["b.wav", "c.wav"]
+    assert adapter.paths == ["a.wav", "c.wav"]
 
 
 def test_genre_job_runs_maest_in_batches_and_records_progress(tmp_path: Path) -> None:

@@ -98,8 +98,8 @@ def analyze_genres(
     )
     typer.echo(
         f"state={status.state} total={status.total} processed={status.processed} "
-        f"analyzed={status.analyzed} failed={status.failed} device={status.device} "
-        f"top_k={status.top_k} batch_size={status.batch_size}"
+        f"analyzed={status.analyzed} failed={status.failed} embedding_key={status.embedding_key} "
+        f"device={status.device} top_k={status.top_k} batch_size={status.batch_size}"
     )
 
 

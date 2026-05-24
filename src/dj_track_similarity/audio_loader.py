@@ -45,6 +45,13 @@ def load_audio_mono(
     raise RuntimeError(f"Unable to decode audio: {audio_path} ({detail})")
 
 
+def torch_compatible_audio(audio: np.ndarray) -> np.ndarray:
+    prepared = np.asarray(audio, dtype=np.float32)
+    if not prepared.flags.writeable:
+        return prepared.copy()
+    return prepared
+
+
 def _load_with_torchaudio(path: Path, torchaudio_module: object) -> tuple[np.ndarray, int, str]:
     waveform, sample_rate = torchaudio_module.load(str(path))
     audio = _tensor_to_numpy(waveform)

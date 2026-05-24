@@ -4,7 +4,7 @@ from collections import defaultdict
 import re
 from pathlib import Path
 
-from .audio_loader import load_audio_mono
+from .audio_loader import load_audio_mono, torch_compatible_audio
 from .runtime import select_torch_device
 
 
@@ -63,7 +63,7 @@ class MaestGenreAdapter:
             torchaudio_module=torchaudio,
             target_sample_rate=16000,
         )
-        audio = torch.from_numpy(audio_values).unsqueeze(0)
+        audio = torch.from_numpy(torch_compatible_audio(audio_values)).unsqueeze(0)
         if sample_rate != 16000:
             audio = torchaudio.transforms.Resample(sample_rate, 16000)(audio)
         audio = audio.squeeze(0)

@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 import dj_track_similarity.audio_loader as audio_loader
-from dj_track_similarity.audio_loader import load_audio_mono
+from dj_track_similarity.audio_loader import load_audio_mono, torch_compatible_audio
 
 
 def _write_pcm_wav(path: Path, *, sample_rate: int = 44_100) -> bytes:
@@ -73,6 +73,17 @@ def test_load_audio_mono_reads_normal_wav_with_native_backend(tmp_path: Path) ->
     assert audio.dtype == np.float32
     assert audio.shape == (4,)
     assert "native" in detail
+
+
+def test_torch_compatible_audio_copies_readonly_float32_buffers() -> None:
+    readonly = np.frombuffer(np.asarray([0.1, -0.2, 0.3], dtype=np.float32).tobytes(), dtype=np.float32)
+
+    prepared = torch_compatible_audio(readonly)
+
+    assert prepared.dtype == np.float32
+    assert prepared.flags.writeable
+    assert np.allclose(prepared, readonly)
+    assert not np.shares_memory(prepared, readonly)
 
 
 def test_load_audio_mono_uses_ffmpeg_when_native_wav_decode_fails(monkeypatch, tmp_path: Path) -> None:

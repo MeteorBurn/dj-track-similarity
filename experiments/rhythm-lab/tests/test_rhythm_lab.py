@@ -5,6 +5,7 @@ import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+import csv
 
 import numpy as np
 
@@ -123,6 +124,54 @@ def test_web_app_reads_source_database_and_writes_labels_database_only(tmp_path:
         assert connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='rhythm_labels'"
         ).fetchone() is None
+
+
+def test_web_app_predictions_endpoint_lists_candidates_by_broken_probability(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    source_path = tmp_path / "source.sqlite"
+    source = LibraryDatabase(source_path)
+    low_id = _track(source, tmp_path, "low.wav", title="Low")
+    high_id = _track(source, tmp_path, "high.wav", title="High")
+    source.save_genres(high_id, [{"label": "Tech House", "score": 0.9}], model_name="maest-test")
+    source.save_sonara_features(high_id, {"onset_density": {"type": "float", "value": 4.2}}, model_name="sonara-test")
+    source.save_embedding(high_id, np.asarray([1, 0, 0], dtype=np.float32), "maest-test", embedding_key="maest")
+    source.save_embedding(high_id, np.asarray([0, 1, 0], dtype=np.float32), "mert-test", embedding_key="mert")
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    labels.save_prediction(
+        source.get_track(low_id),
+        feature_set="combined",
+        model_artifact="model.joblib",
+        label="straight",
+        confidence=0.8,
+        probabilities={"broken": 0.2, "straight": 0.8},
+    )
+    labels.save_prediction(
+        source.get_track(high_id),
+        feature_set="combined",
+        model_artifact="model.joblib",
+        label="broken",
+        confidence=0.7,
+        probabilities={"broken": 0.7, "straight": 0.3},
+    )
+    labels.set_label(source.get_track(high_id), "broken")
+    client = TestClient(create_app(source_path, labels_db_path=labels.path))
+
+    all_candidates = client.get("/api/predictions", params={"label": "all"}).json()
+    unlabeled = client.get("/api/predictions", params={"label": "unlabeled"}).json()
+    filtered = client.get("/api/predictions", params={"label": "all", "min_broken": 0.5}).json()
+
+    assert all_candidates["total"] == 2
+    assert [item["id"] for item in all_candidates["items"]] == [high_id, low_id]
+    assert all_candidates["items"][0]["broken_probability"] == 0.7
+    assert all_candidates["items"][0]["label"] == "broken"
+    assert all_candidates["items"][0]["genres"] == ["Tech House"]
+    assert all_candidates["items"][0]["maest_syncopated_rhythm"] is False
+    assert all_candidates["items"][0]["feature_status"] == {"sonara": True, "mert": True, "maest": True}
+    assert unlabeled["total"] == 1
+    assert unlabeled["items"][0]["id"] == low_id
+    assert filtered["total"] == 1
+    assert filtered["items"][0]["id"] == high_id
 
 
 def test_web_app_tracks_endpoint_uses_source_sql_pagination(monkeypatch, tmp_path: Path) -> None:
@@ -247,6 +296,33 @@ def test_web_app_html_contains_source_database_controls(tmp_path: Path) -> None:
     assert "`${data.tracks} tracks | MAEST ${data.maest} | MERT ${data.mert} – Labels: ${formatLabelCounts(data.labels)}`" in html
 
 
+def test_web_app_serves_favicon(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
+    html = client.get("/").text
+    response = client.get("/favicon.svg")
+
+    assert '<link rel="icon" type="image/svg+xml" href="/favicon.svg" />' in html
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/svg+xml")
+    assert "<svg" in response.text
+
+
+def test_web_app_html_contains_candidates_tab(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    html = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite")).get("/").text
+
+    assert 'id="libraryTab"' in html
+    assert 'id="candidatesTab"' in html
+    assert 'id="candidateMinBroken"' in html
+    assert 'fetch(`/api/predictions?' in html
+    assert "broken_probability" in html
+    assert 'SONARA ${mark(track.feature_status.sonara)} · MERT ${mark(track.feature_status.mert)} · MAEST ${mark(track.feature_status.maest)} · label <b>${track.label || "none"}</b>' in html
+    assert '<div class="genres-line"><span class="genres">${(track.genres || []).map(escapeHtml).join(" · ")}</span>${badgeRow(track)}</div>' in html
+
+
 def test_web_app_html_colors_manual_labels_by_label_value(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
@@ -369,6 +445,99 @@ def test_apply_model_to_lab_saves_predictions_and_exports_csv(tmp_path: Path) ->
     assert summary["predicted"] == 6
     assert len(labels.predictions()) == 6
     assert csv_path.read_text(encoding="utf-8").splitlines()[0].startswith("source_track_id,")
+
+
+def test_train_feature_set_writes_broken_discovery_metrics(tmp_path: Path) -> None:
+    matrix = np.asarray(
+        [[float(index), 0.0] for index in range(8)]
+        + [[float(index + 20), 1.0] for index in range(8)],
+        dtype=np.float32,
+    )
+    labels = ["broken"] * 8 + ["straight"] * 8
+
+    result = train_feature_set(
+        matrix,
+        labels,
+        feature_names=["axis", "marker"],
+        feature_set="test",
+        artifact_dir=tmp_path / "artifacts",
+    )
+
+    metrics = json.loads(result.metrics_path.read_text(encoding="utf-8"))
+    discovery = metrics["broken_discovery"]
+    thresholds = discovery["thresholds"]
+    top_n = discovery["top_n"]
+    cross_validation = metrics["cross_validation"]
+
+    assert discovery["positive_label"] == "broken"
+    assert {row["threshold"] for row in thresholds} >= {0.25, 0.5}
+    assert all("broken_recall" in row for row in thresholds)
+    assert all("candidate_count" in row for row in thresholds)
+    assert top_n[0]["n"] == 1
+    assert "broken_recall_mean" in cross_validation
+    assert cross_validation["fold_count"] >= 2
+
+
+def test_export_predictions_csv_orders_by_broken_probability(tmp_path: Path) -> None:
+    source = LibraryDatabase(tmp_path / "source.sqlite")
+    lower_id = _track(source, tmp_path, "lower.wav", title="Lower")
+    higher_id = _track(source, tmp_path, "higher.wav", title="Higher")
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    labels.save_prediction(
+        source.get_track(lower_id),
+        feature_set="combined",
+        model_artifact="model.joblib",
+        label="straight",
+        confidence=0.8,
+        probabilities={"broken": 0.2, "straight": 0.8},
+    )
+    labels.save_prediction(
+        source.get_track(higher_id),
+        feature_set="combined",
+        model_artifact="model.joblib",
+        label="broken",
+        confidence=0.7,
+        probabilities={"broken": 0.7, "straight": 0.3},
+    )
+
+    csv_path = export_predictions_csv(labels.path, tmp_path / "predictions.csv")
+
+    with csv_path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert rows[0]["source_track_id"] == str(higher_id)
+    assert rows[0]["broken_probability"] == "0.7"
+    assert rows[0]["straight_probability"] == "0.3"
+
+
+def test_export_predictions_csv_uses_latest_prediction_per_track(tmp_path: Path) -> None:
+    source = LibraryDatabase(tmp_path / "source.sqlite")
+    track_id = _track(source, tmp_path, "track.wav", title="Track")
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    track = source.get_track(track_id)
+    labels.save_prediction(
+        track,
+        feature_set="combined",
+        model_artifact="old.joblib",
+        label="broken",
+        confidence=0.9,
+        probabilities={"broken": 0.9, "straight": 0.1},
+    )
+    labels.save_prediction(
+        track,
+        feature_set="combined",
+        model_artifact="new.joblib",
+        label="straight",
+        confidence=0.8,
+        probabilities={"broken": 0.2, "straight": 0.8},
+    )
+
+    csv_path = export_predictions_csv(labels.path, tmp_path / "predictions.csv")
+
+    with csv_path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 1
+    assert rows[0]["model_artifact"] == "new.joblib"
+    assert rows[0]["broken_probability"] == "0.2"
 
 
 def test_cli_train_accepts_separate_source_and_labels_databases(tmp_path: Path) -> None:

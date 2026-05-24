@@ -59,6 +59,7 @@ database. The selected source DB is opened read-only.
 
 The UI includes:
 
+- Library and Candidates tabs
 - text search by path/title/artist
 - source database picker and load control
 - syncopated rhythm filter: all, syncopated rhythm, no syncopated rhythm
@@ -83,6 +84,19 @@ Keyboard shortcuts on a focused row:
 AIFF/AIF previews are transcoded to WAV on the fly for browser playback. This is
 read-only streaming and does not rewrite or cache the source audio file.
 Starting a preview stops and rewinds the previously playing preview.
+
+The Candidates tab reads saved `rhythm_predictions` from the labels DB. It is
+intended for controlled post-training review:
+
+- candidates are ordered by `P(broken)` descending
+- the default view is unlabeled candidates with `P(broken) >= 0.3`
+- each row shows SONARA/MERT/MAEST availability, current manual label,
+  predicted probabilities, MAEST genres, rhythm badges, and audio preview
+- labeling uses the same `Broken`, `Straight`, `Ambiguous`, and `Clear` actions
+
+Predictions are de-duplicated by source track ID for UI/CSV review. If several
+model artifacts have predictions for the same track, the latest saved prediction
+is used.
 
 ## Label Meanings
 
@@ -116,6 +130,14 @@ The baseline is a scaled logistic regression model using `scikit-learn` and
 `joblib`. Features are read from the source DB. Labels are read from the labels
 DB.
 
+Training is tuned as a practical broken-rhythm discovery workflow, not as a
+final automatic tagger. Metrics include:
+
+- normal train/test classification report and confusion matrix
+- 5-fold stratified cross-validation summary when enough labels are available
+- broken-discovery threshold table for `P(broken)`
+- top-N broken yield/recall table
+
 Artifacts and metrics are written to:
 
 ```text
@@ -128,6 +150,37 @@ Apply a trained model:
 .\.venv\Scripts\python.exe experiments\rhythm-lab\rhythm_lab_cli.py predict experiments\rhythm-lab\artifacts\<model>.joblib --source C:\db\abstracted.sqlite --labels experiments\rhythm-lab\data\rhythm_lab.sqlite
 .\.venv\Scripts\python.exe experiments\rhythm-lab\rhythm_lab_cli.py export-predictions --labels experiments\rhythm-lab\data\rhythm_lab.sqlite
 ```
+
+The recommended loop is:
+
+1. Label a balanced batch of confident `broken`, confident `straight`, and
+   `ambiguous` cases when the decision is not quick.
+2. Run `train` and compare `combined`, `maest`, `mert`, and `sonara` metrics.
+3. Apply the best artifact with `predict`.
+4. Use the Candidates tab to review new unlabeled candidates.
+5. Repeat after another focused labeling batch.
+
+The current strongest path is usually `combined`, but it only covers tracks that
+have SONARA features plus both MERT and MAEST embeddings. Use `sonara` only as a
+broader, lower-quality fallback while waiting for embeddings to finish.
+
+## Future Improvement Ideas
+
+- Add a Candidates sort mode for uncertain tracks near `P(broken) = 0.5`; these
+  are often better training examples than more obvious `P(broken) = 1.0` rows.
+- Add min/max `P(broken)` filters so review can target high-confidence broken,
+  borderline cases, and likely false positives separately.
+- Add model-artifact filtering and a visible "latest model" marker in the UI.
+- Add an endpoint/command to clear older predictions after a new model is
+  accepted, while keeping manual labels untouched.
+- Compare regularization strengths for logistic regression and a calibrated
+  linear SVM before trying heavier models.
+- Add a small label-audit view for old labels where the current model strongly
+  disagrees with the manual label.
+- Track per-genre and per-folder candidate yield to find styles where the model
+  is under-trained.
+- Once all library tracks have MERT/MAEST embeddings, rerun `combined` over the
+  full database and use Candidates as the main review queue.
 
 ## Useful Checks
 

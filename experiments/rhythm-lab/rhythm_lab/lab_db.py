@@ -170,8 +170,8 @@ class RhythmLabDatabase:
         with self.connect() as connection:
             rows = connection.execute(
                 """
-                SELECT source_track_id, feature_set, model_artifact, label, confidence,
-                       probabilities_json, path, artist, title
+                SELECT rowid AS prediction_rowid, source_track_id, feature_set, model_artifact, label, confidence,
+                       probabilities_json, path, artist, title, updated_at
                 FROM rhythm_predictions
                 ORDER BY confidence ASC, path
                 """
@@ -185,6 +185,7 @@ class RhythmLabDatabase:
             result.append(
                 {
                     "source_track_id": int(row["source_track_id"]),
+                    "prediction_rowid": int(row["prediction_rowid"]),
                     "track_id": int(row["source_track_id"]),
                     "feature_set": str(row["feature_set"]),
                     "model_artifact": str(row["model_artifact"]),
@@ -194,6 +195,7 @@ class RhythmLabDatabase:
                     "path": str(row["path"]),
                     "artist": row["artist"],
                     "title": row["title"],
+                    "updated_at": row["updated_at"],
                 }
             )
         return result

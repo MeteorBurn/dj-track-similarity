@@ -48,13 +48,22 @@ def apply_model_to_lab(source_db_path: str | Path, labels_db_path: str | Path, a
 
 def export_predictions_csv(db_path: str | Path, output_path: str | Path) -> Path:
     lab = RhythmLabDatabase(db_path)
-    rows = lab.predictions()
+    rows = sorted(
+        latest_predictions_by_track(lab.predictions()),
+        key=lambda row: (
+            -_probability(row, "broken"),
+            -float(row["confidence"]),
+            str(row["path"]),
+        ),
+    )
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
     fields = [
         "source_track_id",
         "label",
         "confidence",
+        "broken_probability",
+        "straight_probability",
         "feature_set",
         "artist",
         "title",
@@ -71,6 +80,8 @@ def export_predictions_csv(db_path: str | Path, output_path: str | Path) -> Path
                     "source_track_id": row["source_track_id"],
                     "label": row["label"],
                     "confidence": row["confidence"],
+                    "broken_probability": _probability(row, "broken"),
+                    "straight_probability": _probability(row, "straight"),
                     "feature_set": row["feature_set"],
                     "artist": row["artist"],
                     "title": row["title"],
@@ -80,6 +91,34 @@ def export_predictions_csv(db_path: str | Path, output_path: str | Path) -> Path
                 }
             )
     return target
+
+
+def latest_predictions_by_track(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    latest: dict[int, dict[str, object]] = {}
+    for row in rows:
+        track_id = int(row["source_track_id"])
+        current = latest.get(track_id)
+        if current is None or _prediction_sort_key(row) > _prediction_sort_key(current):
+            latest[track_id] = row
+    return list(latest.values())
+
+
+def _prediction_sort_key(row: dict[str, object]) -> tuple[str, int, str]:
+    return (
+        str(row.get("updated_at") or ""),
+        int(row.get("prediction_rowid") or 0),
+        str(row.get("model_artifact") or ""),
+    )
+
+
+def _probability(row: dict[str, object], label: str) -> float:
+    probabilities = row.get("probabilities")
+    if not isinstance(probabilities, dict):
+        return 0.0
+    try:
+        return float(probabilities.get(label, 0.0))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _predict_probabilities(model: object, matrix: np.ndarray, label_order: list[str]) -> list[dict[str, float]]:

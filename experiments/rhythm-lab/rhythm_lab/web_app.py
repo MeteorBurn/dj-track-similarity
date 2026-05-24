@@ -12,11 +12,13 @@ from pydantic import BaseModel
 from dj_track_similarity.dependencies import require_ffmpeg
 
 from .lab_db import RHYTHM_LABELS, RhythmLabDatabase
+from .predictions import latest_predictions_by_track
 from .source_db import SourceDatabase
 
 
 LOGGER = logging.getLogger(__name__)
 AIFF_PREVIEW_SUFFIXES = {".aif", ".aiff"}
+FAVICON_PATH = Path(__file__).with_name("static") / "favicon.svg"
 
 
 class LabelRequest(BaseModel):
@@ -88,6 +90,10 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
     def index():
         return HTMLResponse(_index_html())
 
+    @app.get("/favicon.svg")
+    def favicon():
+        return FileResponse(FAVICON_PATH, media_type="image/svg+xml")
+
     @app.get("/api/source/current")
     def current_source():
         return source_state.current()
@@ -145,6 +151,51 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
+    @app.get("/api/predictions")
+    def predictions(
+        label: str = Query(default="unlabeled", pattern="^(all|unlabeled|broken|straight|ambiguous)$"),
+        predicted: str = Query(default="all", pattern="^(all|broken|straight)$"),
+        min_broken: float = Query(default=0.0, ge=0.0, le=1.0),
+        limit: int = Query(default=100, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
+    ):
+        source = source_state.source
+        if source is None:
+            return {"items": [], "total": 0, "limit": limit, "offset": offset}
+        labels_by_track = labels_db.labels_by_track()
+        rows = []
+        for row in latest_predictions_by_track(labels_db.predictions()):
+            manual_label = labels_by_track.get(int(row["source_track_id"]))
+            manual_label_value = manual_label.label if manual_label is not None else None
+            broken_probability = _prediction_probability(row, "broken")
+            if broken_probability < min_broken:
+                continue
+            if predicted != "all" and row["label"] != predicted:
+                continue
+            if label == "unlabeled" and manual_label_value is not None:
+                continue
+            if label not in {"all", "unlabeled"} and manual_label_value != label:
+                continue
+            rows.append(_prediction_item(row, manual_label_value, broken_probability))
+        rows.sort(key=lambda item: (-float(item["broken_probability"]), -float(item["confidence"]), str(item["path"])))
+        bounded_limit = max(1, min(500, int(limit)))
+        bounded_offset = max(0, int(offset))
+        page_items = rows[bounded_offset : bounded_offset + bounded_limit]
+        mert_track_ids = source.embedding_track_ids("mert")
+        maest_track_ids = source.embedding_track_ids("maest")
+        for item in page_items:
+            try:
+                track = source.get_track(int(item["id"]))
+            except KeyError:
+                continue
+            item.update(_candidate_source_fields(track, mert_track_ids=mert_track_ids, maest_track_ids=maest_track_ids))
+        return {
+            "items": page_items,
+            "total": len(rows),
+            "limit": bounded_limit,
+            "offset": bounded_offset,
+        }
+
     @app.post("/api/tracks/{track_id}/label")
     def set_label(track_id: int, request: LabelRequest):
         try:
@@ -171,6 +222,53 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
         return FileResponse(path)
 
     return app
+
+
+def _prediction_probability(row: dict[str, object], label: str) -> float:
+    probabilities = row.get("probabilities")
+    if not isinstance(probabilities, dict):
+        return 0.0
+    try:
+        return float(probabilities.get(label, 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _prediction_item(row: dict[str, object], manual_label: str | None, broken_probability: float) -> dict[str, object]:
+    return {
+        "id": int(row["source_track_id"]),
+        "source_track_id": int(row["source_track_id"]),
+        "path": row["path"],
+        "artist": row["artist"],
+        "title": row["title"],
+        "label": manual_label,
+        "predicted_label": row["label"],
+        "confidence": float(row["confidence"]),
+        "broken_probability": float(broken_probability),
+        "straight_probability": _prediction_probability(row, "straight"),
+        "feature_set": row["feature_set"],
+        "model_artifact": row["model_artifact"],
+        "genres": [],
+        "maest_syncopated_rhythm": False,
+        "feature_status": {"sonara": False, "mert": False, "maest": False},
+    }
+
+
+def _candidate_source_fields(track, *, mert_track_ids: set[int], maest_track_ids: set[int]) -> dict[str, object]:
+    metadata = track.metadata or {}
+    return {
+        "artist": track.artist,
+        "title": track.title,
+        "path": track.path,
+        "genres": track.genres,
+        "genre_scores": track.genre_scores,
+        "maest_syncopated_rhythm": metadata.get("maest_syncopated_rhythm") is True,
+        "feature_status": {
+            "sonara": isinstance(metadata.get("sonara_features"), dict),
+            "mert": track.id in mert_track_ids,
+            "maest": track.id in maest_track_ids,
+        },
+    }
 
 
 def _transcoded_wav_response(path: Path, ffmpeg_path: str) -> StreamingResponse:
@@ -215,6 +313,7 @@ def _index_html() -> str:
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <title>Rhythm Lab</title>
   <style>
     body {{ font-family: system-ui, sans-serif; margin: 0; background: #111; color: #eee; }}
@@ -226,6 +325,8 @@ def _index_html() -> str:
     button:hover {{ border-color: #888; }}
     button:disabled {{ cursor: default; opacity: 0.45; }}
     .active {{ outline: 2px solid #e0b84b; }}
+    .tabs {{ display: flex; gap: 6px; flex: 1 1 100%; }}
+    .tabs button.active {{ background: #e0b84b; color: #141414; outline: none; }}
     .source-row {{ display: flex; gap: 6px; align-items: center; flex: 1 1 100%; }}
     .source-status {{ color: #aaa; font-size: 13px; min-width: 160px; }}
     .source-status.error {{ color: #ff8f8f; }}
@@ -260,6 +361,10 @@ def _index_html() -> str:
       <button id="loadSource" title="Load selected source database">Load database</button>
       <span id="sourceStatus" class="source-status"></span>
     </div>
+    <div class="tabs">
+      <button id="libraryTab" class="active">Library</button>
+      <button id="candidatesTab">Candidates</button>
+    </div>
     <input id="query" placeholder="search path/title/artist" />
     <select id="syncopated">
       <option value="all">all rhythm</option>
@@ -272,6 +377,20 @@ def _index_html() -> str:
       <option value="broken">broken</option>
       <option value="straight">straight</option>
       <option value="ambiguous">ambiguous</option>
+    </select>
+    <select id="candidateLabel">
+      <option value="unlabeled" selected>unlabeled candidates</option>
+      <option value="all">all candidates</option>
+      <option value="broken">manual broken</option>
+      <option value="straight">manual straight</option>
+      <option value="ambiguous">manual ambiguous</option>
+    </select>
+    <select id="candidateMinBroken">
+      <option value="0">P(broken) >= 0.0</option>
+      <option value="0.3" selected>P(broken) >= 0.3</option>
+      <option value="0.5">P(broken) >= 0.5</option>
+      <option value="0.7">P(broken) >= 0.7</option>
+      <option value="0.9">P(broken) >= 0.9</option>
     </select>
     <button id="load">Load</button>
     <div class="pager">
@@ -296,8 +415,12 @@ def _index_html() -> str:
     const queryEl = document.getElementById("query");
     const sourcePathEl = document.getElementById("sourcePath");
     const sourceStatusEl = document.getElementById("sourceStatus");
+    const libraryTabEl = document.getElementById("libraryTab");
+    const candidatesTabEl = document.getElementById("candidatesTab");
     const syncopatedEl = document.getElementById("syncopated");
     const labelEl = document.getElementById("label");
+    const candidateLabelEl = document.getElementById("candidateLabel");
+    const candidateMinBrokenEl = document.getElementById("candidateMinBroken");
     const summaryEl = document.getElementById("summary");
     const pageSizeEl = document.getElementById("pageSize");
     const prevPageEl = document.getElementById("prevPage");
@@ -306,22 +429,40 @@ def _index_html() -> str:
     let offset = 0;
     let total = 0;
     let activeAudio = null;
-    document.getElementById("load").addEventListener("click", () => loadTracks({{ reset: true }}));
+    let activeView = "library";
+    document.getElementById("load").addEventListener("click", () => loadActive({{ reset: true }}));
+    libraryTabEl.addEventListener("click", () => switchView("library"));
+    candidatesTabEl.addEventListener("click", () => switchView("candidates"));
     document.getElementById("chooseSource").addEventListener("click", () => chooseSource().catch(console.error));
     document.getElementById("loadSource").addEventListener("click", () => switchSource(sourcePathEl.value).catch(console.error));
     sourcePathEl.addEventListener("keydown", event => {{ if (event.key === "Enter") switchSource(sourcePathEl.value).catch(console.error); }});
-    queryEl.addEventListener("keydown", event => {{ if (event.key === "Enter") loadTracks({{ reset: true }}); }});
+    queryEl.addEventListener("keydown", event => {{ if (event.key === "Enter") loadActive({{ reset: true }}); }});
     syncopatedEl.addEventListener("change", () => loadTracks({{ reset: true }}));
     labelEl.addEventListener("change", () => loadTracks({{ reset: true }}));
-    pageSizeEl.addEventListener("change", () => loadTracks({{ reset: true }}));
+    candidateLabelEl.addEventListener("change", () => loadCandidates({{ reset: true }}));
+    candidateMinBrokenEl.addEventListener("change", () => loadCandidates({{ reset: true }}));
+    pageSizeEl.addEventListener("change", () => loadActive({{ reset: true }}));
     prevPageEl.addEventListener("click", () => {{
       offset = Math.max(0, offset - pageLimit());
-      loadTracks();
+      loadActive();
     }});
     nextPageEl.addEventListener("click", () => {{
       offset = Math.min(Math.max(0, total - 1), offset + pageLimit());
-      loadTracks();
+      loadActive();
     }});
+
+    async function switchView(view) {{
+      activeView = view;
+      offset = 0;
+      libraryTabEl.classList.toggle("active", view === "library");
+      candidatesTabEl.classList.toggle("active", view === "candidates");
+      await loadActive({{ reset: true }});
+    }}
+
+    async function loadActive(options = {{}}) {{
+      if (activeView === "candidates") return loadCandidates(options);
+      return loadTracks(options);
+    }}
 
     async function loadSourceState() {{
       const data = await fetch("/api/source/current").then(r => r.json());
@@ -348,7 +489,7 @@ def _index_html() -> str:
       }});
       const data = await parseJsonResponse(response);
       applySourceState(data);
-      await loadTracks({{ reset: true }});
+      await loadActive({{ reset: true }});
     }}
 
     function applySourceState(data) {{
@@ -407,6 +548,27 @@ def _index_html() -> str:
       await loadSummary();
     }}
 
+    async function loadCandidates(options = {{}}) {{
+      if (options.reset) offset = 0;
+      const limit = pageLimit();
+      const params = new URLSearchParams({{
+        label: candidateLabelEl.value,
+        min_broken: candidateMinBrokenEl.value,
+        limit: String(limit),
+        offset: String(offset)
+      }});
+      const data = await fetch(`/api/predictions?${{params}}`).then(r => r.json());
+      total = data.total;
+      offset = data.offset;
+      tracksEl.innerHTML = "";
+      data.items.forEach((track, index) => {{
+        track.rowNumber = data.offset + index + 1;
+        tracksEl.appendChild(renderCandidate(track));
+      }});
+      updatePager(data);
+      await loadSummary();
+    }}
+
     function pageLimit() {{
       return Number(pageSizeEl.value || 100);
     }}
@@ -456,6 +618,43 @@ def _index_html() -> str:
       return row;
     }}
 
+    function renderCandidate(track) {{
+      const row = document.createElement("section");
+      row.className = "track";
+      row.tabIndex = 0;
+      row.innerHTML = `
+        <div>
+          <div class="track-main">
+            <strong><span class="track-number">#${{track.rowNumber}}</span>${{escapeHtml(displayTrackTitle(track))}}</strong>
+            <div class="meta track-path">${{escapeHtml(track.path)}}</div>
+            <div class="meta feature-line">SONARA ${{mark(track.feature_status.sonara)}} · MERT ${{mark(track.feature_status.mert)}} · MAEST ${{mark(track.feature_status.maest)}} · label <b>${{track.label || "none"}}</b></div>
+            <div class="meta feature-line">P(broken) ${{formatProbability(track.broken_probability)}} · P(straight) ${{formatProbability(track.straight_probability)}} · predicted <b>${{escapeHtml(track.predicted_label)}}</b> · ${{escapeHtml(track.feature_set)}}</div>
+          </div>
+          <div class="rhythm-media-block">
+            <div class="genres-line"><span class="genres">${{(track.genres || []).map(escapeHtml).join(" · ")}}</span>${{badgeRow(track)}}</div>
+            <audio controls preload="none" src="/media/${{track.id}}"></audio>
+          </div>
+        </div>
+        <div class="actions">
+          <button data-label="broken">Broken</button>
+          <button data-label="straight">Straight</button>
+          <button data-label="ambiguous">Ambiguous</button>
+          <button data-label="">Clear</button>
+        </div>`;
+      row.querySelectorAll("button").forEach(button => {{
+        button.addEventListener("click", () => setLabel(track.id, button.dataset.label));
+        if ((button.dataset.label || null) === track.label) {{
+          button.classList.add("active");
+        }}
+      }});
+      row.addEventListener("keydown", event => {{
+        const keys = {{ "1": "broken", "2": "straight", "3": "ambiguous", "0": "" }};
+        if (keys[event.key] !== undefined) setLabel(track.id, keys[event.key]);
+      }});
+      wireAudioPreview(row.querySelector("audio"));
+      return row;
+    }}
+
     function wireAudioPreview(audio) {{
       if (!audio) return;
       audio.addEventListener("play", () => {{
@@ -479,9 +678,10 @@ def _index_html() -> str:
         headers: {{ "Content-Type": "application/json" }},
         body: JSON.stringify({{ label }})
       }});
-      await loadTracks();
+      await loadActive();
     }}
 
+    function formatProbability(value) {{ return Number(value || 0).toFixed(3); }}
     function mark(value) {{ return value ? "yes" : "no"; }}
     function badgeRow(track) {{
       const badges = [syncopatedBadge(track), rhythmLabelBadge(track)].filter(Boolean);
@@ -496,7 +696,7 @@ def _index_html() -> str:
     function escapeHtml(value) {{
       return String(value).replace(/[&<>"']/g, ch => ({{ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }}[ch]));
     }}
-    loadSourceState().then(() => loadTracks());
+    loadSourceState().then(() => loadActive({{ reset: true }}));
   </script>
 </body>
 </html>"""

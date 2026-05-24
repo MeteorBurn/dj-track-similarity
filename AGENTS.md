@@ -47,7 +47,46 @@ This workspace may not be a Git repository. Do not assume Git history, branches,
 - Sonara key data should stay in the original analyzed Sonara fields. Do not derive or display Camelot notation from Sonara key data until that conversion is explicitly redesigned.
 - Sonara `playlist` storage should stay focused on the current grouped UI contract instead of dumping every possible Sonara or helper field. Keep these groups and order aligned between SQLite JSON and the metadata dialog: Core features (`bpm`, `beats`, `onset_frames`, `onset_density`, `n_beats`, `rms_mean`, `rms_max`, `loudness_lufs`, `dynamic_range_db`, `spectral_centroid_mean`, `zero_crossing_rate`, `duration_sec`), Perceptual features (`energy`, `danceability`, `valence`, `acousticness`), Musical key (`key`, `key_confidence`), Tonal analysis (`predominant_chord`, `chord_change_rate`, `dissonance`), and Spectral features (`spectral_bandwidth_mean`, `spectral_rolloff_mean`, `spectral_flatness_mean`, `spectral_contrast_mean`, `mfcc_mean`, `chroma_mean`).
 - Keep Sonara database keys canonical even when UI labels are friendlier. Do not rename `*_mean` keys in SQLite metadata. In the metadata dialog, omit the word `mean` from display labels such as `RMS`, `Spectral Centroid`, `MFCC`, and `Chroma`; `spectral_centroid_mean` must not be shown as `Brightness`.
+- Use these meanings for displayed Sonara playlist features:
+
+  Core features:
+  `bpm` # Tempo (BPM)
+  `beats` # Beat frame positions
+  `onset_frames` # Onset positions
+  `onset_density` # Onsets per second
+  `n_beats` # Number of detected beats
+  `rms_mean` # Average loudness (RMS)
+  `rms_max` # Peak loudness (RMS)
+  `loudness_lufs` # Integrated loudness (LUFS, ITU-R BS.1770-4)
+  `dynamic_range_db` # Loudness range (p95 - p5, dB)
+  `spectral_centroid_mean` # Brightness (Hz)
+  `zero_crossing_rate` # Percussiveness proxy
+  `duration_sec` # Track length
+
+  Perceptual features (0.0 - 1.0):
+  `energy` # Perceived intensity (loudness + brightness + activity)
+  `danceability` # Beat regularity + tempo sweet spot + rhythm
+  `valence` # Mood (0 = sad/dark, 1 = happy/bright)
+  `acousticness` # Acoustic vs electronic character
+
+  Musical key:
+  `key` # Musical key, for example `C major` or `A minor`
+  `key_confidence` # Key detection confidence (0.0 - 1.0)
+
+  Tonal analysis:
+  `predominant_chord` # Most frequent chord
+  `chord_change_rate` # Chord changes per second (harmonic complexity)
+  `dissonance` # Sensory dissonance (0 = consonant, 1 = rough)
+
+  Spectral features:
+  `spectral_bandwidth_mean` # Frequency spread
+  `spectral_rolloff_mean` # Frequency below which 85% of energy sits
+  `spectral_flatness_mean` # Tonal (0) vs noise-like (1)
+  `spectral_contrast_mean` # Peak-valley ratio per band (7 values)
+  `mfcc_mean` # Timbre fingerprint (13 coefficients)
+  `chroma_mean` # Pitch class distribution (12 values)
 - Do not store or show `unavailable` placeholder rows for Sonara fields that the playlist workflow cannot produce. Do not persist helper-only diagnostics such as `requested_feature_count` or `decode_path` inside `sonara_features`.
+- Do not display or persist `chord_sequence` in the metadata dialog's focused Sonara playlist contract unless the UI contract is explicitly expanded; keep the displayed tonal group limited to `predominant_chord`, `chord_change_rate`, and `dissonance`.
 - Audio analysis uses a native-first shared loader: Sonara starts with `sonara.analyze_file`, while MAEST/MERT/CLAP use decoded waveform input. The shared loader should use standard decoders only: `torchaudio` when provided, Python's native `wave` reader for WAV, then `ffmpeg`. If those decoders cannot read a file, surface a clear decode failure instead of using a custom WAV reader.
 - Sonara fallback should call `sonara.analyze_signal` with decoded audio. MAEST/MERT/CLAP should keep using the shared loader rather than direct `torchaudio.load` so standard decoder behavior stays consistent across all analysis families.
 - MAEST genre analysis itself writes only SQLite track metadata (`maest_genres` and `maest_model`). It must not modify audio files. The separate genre-save action may later write those stored labels into standard audio genre tags.
@@ -64,7 +103,7 @@ This workspace may not be a Git repository. Do not assume Git history, branches,
 - The library browser must stay usable with tens of thousands of tracks. Do not make the frontend load the full library or full `metadata_json` blobs into React state. Keep `/api/tracks` as a server-side paginated/searchable endpoint with lightweight track rows, keep `/api/library/summary` as the source for header analysis counters, and load full metadata for one track through `/api/tracks/{id}` only when the metadata dialog opens.
 - Algorithm reset controls are database-only. Reset Sonara, MAEST, MERT, or CLAP independently without touching unrelated analysis families or audio files.
 - The database clear control deletes local SQLite records only and must require an explicit UI confirmation. It must not delete audio files.
-- The track metadata dialog should keep sources visually separate: the unnamed top table first, Sonara computed features next, and MAEST genre labels separately. The top table must always show `Title`, `Audio Length`, `Audio Format`, `File Size`, and `File Path`; then show Mutagen tags only when present in this order: `Artist`, `Album`, `Genre`, `Year`, `Country`, `Label`, `Catalog`, `Track no.`, `Disc no.`, `BPM tag`, `Key tag`, `Comment`, `ISRC`.
+- The track metadata dialog should keep sources visually separate. The dialog title should be the app's normal track display fallback (`artist - title`, then title, then filename/path fallback) and should not also show a separate static `Теги и жанры` title or duplicate basename line. The `Mutagen tags` block must then show `Title`, `Audio Length`, `Audio Format`, `File Size`, and `File Path`; then show Mutagen tags only when present in this order: `Artist`, `Album`, `Genre`, `Year`, `Country`, `Label`, `Catalog`, `Track no.`, `Disc no.`, `BPM tag`, `Key tag`, `Comment`, `ISRC`. Keep `SONARA features` and `MAEST genres` as separate titled blocks.
 - Keep hover help on user-editable parameters. Tooltips should explain purpose, accepted format, value type, and range.
 
 ## Common Commands

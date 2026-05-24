@@ -79,13 +79,12 @@ export function TrackMetadataDialog({
       <section className="metadata-dialog" role="dialog" aria-modal="true" aria-label="Теги трека" onClick={(event) => event.stopPropagation()}>
         <div className="dialog-title">
           <div>
-            <h2>Теги и жанры</h2>
-            <span>{basename(track.path)}</span>
+            <h2 className="metadata-track-title">{displayTrack(track)}</h2>
           </div>
           <button className="icon-button close-metadata-dialog-button" title="Закрыть" aria-label="Закрыть" onClick={onClose}><X size={15} /></button>
         </div>
-        <strong className="metadata-track-title">{displayTrack(track)}</strong>
         <div className="mutagen-block">
+          <strong>Mutagen tags</strong>
           <dl className="metadata-grid mutagen-grid">
             {primaryEntries.map(([key, value]) => (
               <Fragment key={key}><dt>{key}</dt><dd>{value}</dd></Fragment>
@@ -150,6 +149,7 @@ const sonaraFeatureLabels: Record<string, string> = {
   dissonance: "Dissonance",
   onset_density: "Onset density",
   rms_mean: "RMS",
+  rms_max: "RMS max",
   beats: "Beats",
   n_beats: "Beat count",
   onset_frames: "Onsets",
@@ -161,6 +161,36 @@ const sonaraFeatureLabels: Record<string, string> = {
   zero_crossing_rate: "ZCR",
   mfcc_mean: "MFCC",
   chroma_mean: "Chroma",
+};
+
+const sonaraFeatureDescriptions: Record<string, string> = {
+  bpm: "Tempo (BPM)",
+  beats: "Beat frame positions",
+  onset_frames: "Onset positions",
+  onset_density: "Onsets per second",
+  n_beats: "Number of detected beats",
+  rms_mean: "Average loudness (RMS)",
+  rms_max: "Peak loudness (RMS)",
+  loudness_lufs: "Integrated loudness (LUFS, ITU-R BS.1770-4)",
+  dynamic_range_db: "Loudness range (p95 - p5, dB)",
+  spectral_centroid_mean: "Brightness (Hz)",
+  zero_crossing_rate: "Percussiveness proxy",
+  duration_sec: "Track length",
+  energy: "Perceived intensity (loudness + brightness + activity)",
+  danceability: "Beat regularity + tempo sweet spot + rhythm",
+  valence: "Mood (0 = sad/dark, 1 = happy/bright)",
+  acousticness: "Acoustic vs electronic character",
+  key: "Musical key, for example C major or A minor",
+  key_confidence: "Key detection confidence (0.0 - 1.0)",
+  predominant_chord: "Most frequent chord",
+  chord_change_rate: "Chord changes per second (harmonic complexity)",
+  dissonance: "Sensory dissonance (0 = consonant, 1 = rough)",
+  spectral_bandwidth_mean: "Frequency spread",
+  spectral_rolloff_mean: "Frequency below which 85% of energy sits",
+  spectral_flatness_mean: "Tonal (0) vs noise-like (1)",
+  spectral_contrast_mean: "Peak-valley ratio per band (7 values)",
+  mfcc_mean: "Timbre fingerprint (13 coefficients)",
+  chroma_mean: "Pitch class distribution (12 values)",
 };
 
 const sonaraPlaylistFeatureGroups = [
@@ -203,7 +233,7 @@ function readableSonaraFeatureGroups(raw: unknown) {
             key,
             label: sonaraFeatureLabels[key] || formatFeatureLabel(key),
             value: formatSonaraValue(featureRecord, key),
-            description: typeof featureRecord.description === "string" ? featureRecord.description : ""
+            description: sonaraFeatureDescriptions[key] || ""
           };
         })
         .filter((feature) => feature != null)

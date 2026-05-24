@@ -111,14 +111,17 @@ how many Sonara track workers run concurrently.
 
 The metadata popup is intentionally split by source:
 
-- the top unnamed table starts with always-present local track/file facts:
-  title, audio length, audio format, file size, and file path;
-- the same top table then shows Mutagen file tags only when present: artist,
-  album, genre, year, country, label, catalog, track number, disc number, BPM
-  tag, key tag, comment, and ISRC;
+- the dialog header uses the app's normal track display fallback: artist and
+  title when available, then title, then the filename/path fallback;
+- `Mutagen tags` starts with always-present local track/file facts: title,
+  audio length, audio format, file size, and file path;
+- the same `Mutagen tags` block then shows Mutagen file tags only when present:
+  artist, album, genre, year, country, label, catalog, track number, disc
+  number, BPM tag, key tag, comment, and ISRC;
 - `SONARA features` are computed playlist analysis values grouped as Core
   features, Perceptual features, Musical key, Tonal analysis, and Spectral
-  features;
+  features. The UI keeps compact labels and exposes short field explanations as
+  hover text;
 - `MAEST genres` are model genre labels and confidence scores.
 
 This separation is important because file tags and model-derived values can

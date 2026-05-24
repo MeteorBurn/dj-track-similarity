@@ -253,9 +253,9 @@ def test_main_output_groups_problem_summary(monkeypatch, tmp_path: Path, capsys)
     output = capsys.readouterr().out
     assert exit_code == 0
     assert "Problem summary:" in output
-    assert "repairable[oversized_data]: WAV oversized data chunk before ID3 chunk: 1" in output
-    assert "suspicious[extension_mismatch]: extension mismatch: .flac detected as mp3: 1" in output
-    assert "tag-error[tag_error]: mutagen error: ID3v2.32 not supported: 1" in output
+    assert "repairable[OVERSIZED_DATA]: WAV oversized data chunk before ID3 chunk: 1" in output
+    assert "suspicious[EXTENSION_MISMATCH]: extension mismatch: .flac detected as mp3: 1" in output
+    assert "tag-error[TAG_ERROR]: mutagen error: ID3v2.32 not supported: 1" in output
 
 
 def test_format_result_uses_compact_one_line_layout(tmp_path: Path) -> None:
@@ -460,7 +460,7 @@ def test_state_stores_reason_and_apply_can_filter_by_reason(monkeypatch, tmp_pat
     aiff_path.write_bytes(b"FORM\x00\x00\x00\x04AIFF")
     state_path = tmp_path / "state.json"
     calls: list[tuple[Path, bool]] = []
-    wanted_reason = "oversized_data"
+    wanted_reason = "OVERSIZED_DATA"
     monkeypatch.setattr(repair.time, "time", lambda: 1234.9)
 
     def fake_repair_file(path: Path, *, apply_changes: bool, **_kwargs):
@@ -491,7 +491,7 @@ def test_state_stores_reason_and_apply_can_filter_by_reason(monkeypatch, tmp_pat
             "--no-file-log",
             "--apply",
             "--reason",
-            wanted_reason,
+            "oversized_data",
         ]
     )
 
@@ -505,19 +505,21 @@ def test_state_stores_reason_and_apply_can_filter_by_reason(monkeypatch, tmp_pat
         "title",
         "path",
         "size",
+        "checked_at",
+        "modified_at",
         "mode",
         "message",
         "status",
         "reason",
-        "checked_at",
-        "modified_at",
     ]
     assert isinstance(entries["broken.wav"]["checked_at"], int)
     assert isinstance(entries["broken.wav"]["modified_at"], int)
     assert entries["broken.wav"]["reason"] == wanted_reason
     assert entries["broken.wav"]["mode"] == "apply"
     assert entries["broken.wav"]["message"] == "repair_applied"
-    assert entries["broken.aiff"]["reason"] == "empty_id3"
+    assert entries["broken.wav"]["status"] == "REPAIRED"
+    assert entries["broken.aiff"]["reason"] == "EMPTY_ID3"
+    assert entries["broken.aiff"]["status"] == "REPAIRABLE"
     assert entries["broken.aiff"]["mode"] == "dry-run"
     assert entries["broken.aiff"]["message"] == "repair_available"
     assert calls == [(aiff_path, False), (wav_path, False), (wav_path, True)]

@@ -216,12 +216,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.reasons and not folder_mode:
         print("--reason can only be used with --folder state.", file=sys.stderr)
         return 2
+    reason_filters = {normalize_reason_filter(reason) for reason in args.reasons}
     if folder_mode:
         state_path = resolve_state_path(args.state, args.folders)
         state = load_state(state_path, args.folders)
         pending_paths: list[Path] = []
         for path in all_paths:
-            if args.reasons and not state_entry_reason_matches(state, path, set(args.reasons)):
+            if reason_filters and not state_entry_reason_matches(state, path, reason_filters):
                 skipped_by_reason += 1
                 continue
             if state_entry_current(state, path, apply_changes=apply_changes):
@@ -589,7 +590,8 @@ def state_entry_reason_matches(state: dict[str, object], path: Path, reasons: se
         return False
     if entry.get("size") != stat.st_size or state_modified_at(entry) != int(stat.st_mtime):
         return False
-    return entry.get("reason") in reasons
+    reason = entry.get("reason")
+    return isinstance(reason, str) and normalize_reason_filter(reason) in reasons
 
 
 def state_modified_at(entry: dict[str, object]) -> int | None:
@@ -611,12 +613,12 @@ def update_state_entry(state: dict[str, object], path: Path, result: FileRepairR
         "title": path.name,
         "path": str(path),
         "size": stat.st_size,
-        "mode": "apply" if apply_changes else "dry-run",
-        "message": result_message(result),
-        "status": result.status,
-        "reason": result_reason(result),
         "checked_at": int(time.time()),
         "modified_at": int(stat.st_mtime),
+        "mode": "apply" if apply_changes else "dry-run",
+        "message": result_message(result),
+        "status": result.status.upper(),
+        "reason": result_reason(result),
     }
     state["updated_at"] = int(time.time())
 
@@ -1450,26 +1452,36 @@ def result_reason(result: FileRepairResult) -> str | None:
     if result.status == "ok":
         return None
     if result.status in {"repairable", "repaired"}:
-        return repairable_reason(result)
+        return uppercase_reason(repairable_reason(result))
     if result.status == "notice":
-        return "notice"
+        return "NOTICE"
     if result.status == "suspicious":
         extension_match = re.search(r"extension=(\.[^\s]+) detected=([^\s]+)", result.message)
         if extension_match:
-            return "extension_mismatch"
+            return "EXTENSION_MISMATCH"
         codec_match = re.search(r"extension=(\.[^\s]+) detected_codec=([^\s]+)", result.message)
         if codec_match:
-            return "codec_mismatch"
-        return "suspicious"
+            return "CODEC_MISMATCH"
+        return "SUSPICIOUS"
     if result.status == "tag-error":
-        return "tag_error"
+        return "TAG_ERROR"
     if result.status == "failed":
-        return "failed"
+        return "FAILED"
     if result.status == "broken":
-        return "broken"
+        return "BROKEN"
     if result.status == "unsupported":
-        return "unsupported"
-    return result.status.replace("-", "_")
+        return "UNSUPPORTED"
+    return result.status.replace("-", "_").upper()
+
+
+def uppercase_reason(reason: str | None) -> str | None:
+    if reason is None:
+        return None
+    return reason.upper()
+
+
+def normalize_reason_filter(reason: str) -> str:
+    return reason.strip().upper()
 
 
 def repairable_reason(result: FileRepairResult) -> str | None:
@@ -1484,9 +1496,9 @@ def repairable_reason(result: FileRepairResult) -> str | None:
     if suffix in {".aif", ".aiff", ".aifc"} and "removed empty ID3 chunk" in joined_actions:
         return "empty_id3"
     if suffix in {".wav", ".wave"}:
-        return "container"
+        return "container_normalization"
     if suffix in {".aif", ".aiff", ".aifc"}:
-        return "container"
+        return "container_normalization"
     return "repairable"
 
 
@@ -1516,6 +1528,7 @@ def result_problem_summary(result: FileRepairResult) -> str | None:
 
 
 def repairable_reason_description(reason: str, result: FileRepairResult) -> str:
+    reason = reason.lower()
     suffix = result.path.suffix.lower()
     if reason == "oversized_data":
         return "WAV oversized data chunk before ID3 chunk"
@@ -1523,9 +1536,9 @@ def repairable_reason_description(reason: str, result: FileRepairResult) -> str:
         return "WAV duplicate/unselected ID3 chunks"
     if reason == "empty_id3":
         return "AIFF empty ID3 chunks"
-    if reason == "container" and suffix in {".wav", ".wave"}:
+    if reason == "container_normalization" and suffix in {".wav", ".wave"}:
         return "WAV container/tag chunk normalization"
-    if reason == "container" and suffix in {".aif", ".aiff", ".aifc"}:
+    if reason == "container_normalization" and suffix in {".aif", ".aiff", ".aifc"}:
         return "AIFF container/tag chunk normalization"
     return result.message
 

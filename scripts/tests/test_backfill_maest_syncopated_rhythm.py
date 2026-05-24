@@ -56,7 +56,7 @@ def test_backfill_maest_syncopated_rhythm_updates_existing_metadata(tmp_path: Pa
 
 
 def _load_script():
-    path = Path(__file__).resolve().parents[1] / "scripts" / "backfill_maest_syncopated_rhythm.py"
+    path = Path(__file__).resolve().parents[1] / "backfill_maest_syncopated_rhythm.py"
     spec = importlib.util.spec_from_file_location("backfill_maest_syncopated_rhythm", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)

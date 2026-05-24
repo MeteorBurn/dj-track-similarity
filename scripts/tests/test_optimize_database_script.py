@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 
 
-SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "optimize_database.py"
+SCRIPT_PATH = Path(__file__).resolve().parents[1] / "optimize_database.py"
 
 
 def _load_script():

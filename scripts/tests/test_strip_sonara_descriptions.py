@@ -51,7 +51,7 @@ def test_strip_sonara_descriptions_dry_run_and_apply_removes_descriptions_and_ch
 
 
 def _load_script():
-    path = Path(__file__).resolve().parents[1] / "scripts" / "strip_sonara_descriptions.py"
+    path = Path(__file__).resolve().parents[1] / "strip_sonara_descriptions.py"
     spec = importlib.util.spec_from_file_location("strip_sonara_descriptions", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)

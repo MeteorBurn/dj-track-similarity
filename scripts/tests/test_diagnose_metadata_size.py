@@ -36,7 +36,7 @@ def test_diagnose_metadata_size_reports_top_level_and_sonara_feature_bytes(tmp_p
 
 
 def _load_script():
-    path = Path(__file__).resolve().parents[1] / "scripts" / "diagnose_metadata_size.py"
+    path = Path(__file__).resolve().parents[1] / "diagnose_metadata_size.py"
     spec = importlib.util.spec_from_file_location("diagnose_metadata_size", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)

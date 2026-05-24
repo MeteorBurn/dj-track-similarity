@@ -218,6 +218,54 @@ dj-sim relocate-library "E:\MusicFast" "D:\MusicArchive" --apply
 
 ```
 
+## Audio Metadata Repair Script
+
+`scripts\repair_audio_metadata.py` is a standalone diagnostic and repair helper
+for audio files whose container or tag metadata cannot be read reliably after a
+Mutagen tag write. It is separate from the main app because it can inspect real
+audio files directly and, only with `--apply`, write repaired copies back.
+
+Folder checks are dry-run by default:
+
+```powershell
+python scripts\repair_audio_metadata.py --folder "M:\Volumes\Abstracted" --workers 4
+```
+
+Dry-run does not write audio files and does not copy each track. It recursively
+checks supported audio extensions, reports `OK`, `NOTICE`, `SUSPICIOUS`,
+`TAG-ERROR`, `REPAIRABLE`, or `FAILED`, and stores progress so repeated runs of
+the same folder continue from already checked files. The default state file is
+derived from the resolved `--folder` path and stored under:
+
+```text
+scripts/audio_repair/state.<folder_hash>.json
+```
+
+The default file log is overwritten on every run:
+
+```text
+scripts/audio_repair/repair_audio_metadata.log
+```
+
+Use `--apply` only after reviewing the dry-run report and only when there are
+real `REPAIRABLE` entries:
+
+```powershell
+python scripts\repair_audio_metadata.py --folder "M:\Volumes\Abstracted" --apply
+```
+
+Apply mode is intentionally sequential even if `--workers` is provided. Before
+rewriting a repaired file, the script creates a full-file backup under:
+
+```text
+scripts/audio_repair/backups/
+```
+
+`OK` files are not changed. `NOTICE` entries are non-required cleanup such as
+cosmetic trailing padding. `SUSPICIOUS` reports format/container or codec
+mismatches and is not auto-repaired. `TAG-ERROR` reports tag-read failures for
+formats where there is not yet a safe repair path.
+
 `dj-sim analyze` uses `m-a-p/MERT-v1-95M` by default through
 PyTorch/Hugging Face and may download model weights on first run.
 

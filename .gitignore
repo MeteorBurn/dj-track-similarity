@@ -17,6 +17,9 @@ venv/
 *.db
 *.log
 *.log.*
+*.state.json
+scripts/audio_repair/*
+!scripts/audio_repair/.gitkeep
 
 # Local audio libraries and temp data
 tmp_*/

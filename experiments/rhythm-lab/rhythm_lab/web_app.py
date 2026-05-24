@@ -12,13 +12,18 @@ from pydantic import BaseModel
 from dj_track_similarity.dependencies import require_ffmpeg
 
 from .lab_db import RHYTHM_LABELS, RhythmLabDatabase
-from .predictions import latest_predictions_by_track
+from .predictions import apply_model_to_lab, latest_predictions_by_track
 from .source_db import SourceDatabase
+from .training import benchmark_lab_database
 
 
 LOGGER = logging.getLogger(__name__)
 AIFF_PREVIEW_SUFFIXES = {".aif", ".aiff"}
 FAVICON_PATH = Path(__file__).with_name("static") / "favicon.svg"
+ARTIFACT_DIR = Path(__file__).resolve().parents[1] / "artifacts"
+TRAIN_REFRESH_MIN_ADDED = 100
+KEEP_JOBLIB_PER_FEATURE = 3
+KEEP_METRICS_PER_FEATURE = 10
 
 
 class LabelRequest(BaseModel):
@@ -157,6 +162,7 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
         syncopated: str = Query(default="all", pattern="^(all|yes|no)$"),
         label: str = Query(default="unlabeled", pattern="^(all|unlabeled|broken|straight|ambiguous)$"),
         predicted: str = Query(default="all", pattern="^(all|broken|straight)$"),
+        probability_focus: str = Query(default="broken_highest", pattern="^(broken_highest|straight_highest|balanced)$"),
         min_broken: float = Query(default=0.0, ge=0.0, le=1.0),
         limit: int = Query(default=100, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
@@ -191,7 +197,7 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
             ):
                 continue
             items.append(_prediction_item(row, manual_label_value, broken_probability))
-        items.sort(key=lambda item: (-float(item["broken_probability"]), -float(item["confidence"]), str(item["path"])))
+        items.sort(key=lambda item: _candidate_sort_key(item, probability_focus=probability_focus))
         bounded_limit = max(1, min(500, int(limit)))
         bounded_offset = max(0, int(offset))
         page_items = items[bounded_offset : bounded_offset + bounded_limit]
@@ -208,6 +214,68 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
             "total": len(items),
             "limit": bounded_limit,
             "offset": bounded_offset,
+        }
+
+    @app.post("/api/predictions/refresh")
+    def refresh_predictions():
+        source = source_state.source
+        if source is None or source_state.path is None:
+            raise HTTPException(status_code=400, detail="Source database is not selected")
+        artifact = _latest_combined_artifact(ARTIFACT_DIR)
+        if artifact is None:
+            raise HTTPException(status_code=404, detail=f"No combined rhythm model artifact found in {ARTIFACT_DIR}")
+        try:
+            result = apply_model_to_lab(source_state.path, labels_db.path, artifact)
+            deleted = labels_db.prune_predictions(
+                feature_set=str(result["feature_set"]),
+                keep_model_artifact=artifact,
+            )
+        except Exception as error:
+            LOGGER.exception("Rhythm predictions refresh failed")
+            raise HTTPException(status_code=500, detail=str(error)) from error
+        return {**result, "artifact": str(artifact), "deleted_old_predictions": deleted}
+
+    @app.get("/api/training/readiness")
+    def training_readiness():
+        return _training_readiness(labels_db, artifact_dir=ARTIFACT_DIR)
+
+    @app.post("/api/training/train-refresh")
+    def train_refresh():
+        source = source_state.source
+        if source is None or source_state.path is None:
+            raise HTTPException(status_code=400, detail="Source database is not selected")
+        readiness = _training_readiness(labels_db, artifact_dir=ARTIFACT_DIR)
+        if readiness["ready"] is not True:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Need 100 new broken and 100 new straight labels since the last training checkpoint. "
+                    f"Added: broken {readiness['added']['broken']}, straight {readiness['added']['straight']}."
+                ),
+            )
+        counts = dict(readiness["current"])
+        try:
+            training = benchmark_lab_database(source_state.path, labels_db.path, ARTIFACT_DIR)
+            artifact = _latest_combined_artifact(ARTIFACT_DIR)
+            if artifact is None:
+                raise RuntimeError(f"No combined rhythm model artifact found in {ARTIFACT_DIR}")
+            result = apply_model_to_lab(source_state.path, labels_db.path, artifact)
+            deleted = labels_db.prune_predictions(
+                feature_set=str(result["feature_set"]),
+                keep_model_artifact=artifact,
+            )
+            labels_db.record_training_checkpoint(counts, model_artifact=artifact)
+            cleanup = cleanup_training_artifacts(ARTIFACT_DIR, protected_artifact=artifact)
+        except Exception as error:
+            LOGGER.exception("Rhythm train + refresh failed")
+            raise HTTPException(status_code=500, detail=str(error)) from error
+        return {
+            "training": training,
+            "artifact": str(artifact),
+            "training_counts": counts,
+            **result,
+            "deleted_old_predictions": deleted,
+            "artifact_cleanup": cleanup,
         }
 
     @app.post("/api/tracks/{track_id}/label")
@@ -248,6 +316,89 @@ def _prediction_probability(row: dict[str, object], label: str) -> float:
         return 0.0
 
 
+def _latest_combined_artifact(artifact_dir: Path) -> Path | None:
+    artifacts = list(artifact_dir.glob("rhythm-combined-*.joblib"))
+    if not artifacts:
+        return None
+    return max(artifacts, key=lambda path: (path.stat().st_mtime, path.name))
+
+
+def cleanup_training_artifacts(
+    artifact_dir: Path,
+    *,
+    protected_artifact: Path,
+    keep_joblib_per_feature: int = KEEP_JOBLIB_PER_FEATURE,
+    keep_metrics_per_feature: int = KEEP_METRICS_PER_FEATURE,
+) -> dict[str, int]:
+    protected = protected_artifact.resolve(strict=False)
+    deleted = {"deleted_joblib": 0, "deleted_metrics": 0}
+    for suffix, keep_count, key in (
+        (".joblib", keep_joblib_per_feature, "deleted_joblib"),
+        (".metrics.json", keep_metrics_per_feature, "deleted_metrics"),
+    ):
+        for files in _artifact_groups(artifact_dir, suffix=suffix).values():
+            for path in files[keep_count:]:
+                if path.resolve(strict=False) == protected:
+                    continue
+                path.unlink()
+                deleted[key] += 1
+    return deleted
+
+
+def _artifact_groups(artifact_dir: Path, *, suffix: str) -> dict[str, list[Path]]:
+    groups: dict[str, list[Path]] = {}
+    for path in artifact_dir.glob(f"rhythm-*{suffix}"):
+        feature = _artifact_feature(path.name, suffix=suffix)
+        if feature is None:
+            continue
+        groups.setdefault(feature, []).append(path)
+    for files in groups.values():
+        files.sort(key=lambda path: (path.stat().st_mtime, path.name), reverse=True)
+    return groups
+
+
+def _artifact_feature(name: str, *, suffix: str) -> str | None:
+    if not name.startswith("rhythm-") or not name.endswith(suffix):
+        return None
+    stem = name[: -len(suffix)]
+    parts = stem.split("-")
+    if len(parts) < 3:
+        return None
+    return parts[1]
+
+
+def _training_readiness(labels_db: RhythmLabDatabase, *, artifact_dir: Path) -> dict[str, object]:
+    counts = _training_label_counts(labels_db.label_counts())
+    checkpoint = labels_db.training_checkpoint()
+    checkpoint_counts = dict(checkpoint["counts"])
+    checkpoint_artifact = checkpoint["model_artifact"]
+    latest_artifact = _latest_combined_artifact(artifact_dir)
+    if checkpoint_artifact is None and latest_artifact is not None:
+        labels_db.record_training_checkpoint(counts, model_artifact=latest_artifact)
+        checkpoint_counts = dict(counts)
+        checkpoint_artifact = str(latest_artifact)
+    added = {
+        "broken": max(0, counts["broken"] - int(checkpoint_counts.get("broken", 0))),
+        "straight": max(0, counts["straight"] - int(checkpoint_counts.get("straight", 0))),
+    }
+    ready = added["broken"] >= TRAIN_REFRESH_MIN_ADDED and added["straight"] >= TRAIN_REFRESH_MIN_ADDED
+    return {
+        "ready": ready,
+        "current": counts,
+        "last_trained": {
+            "broken": int(checkpoint_counts.get("broken", 0)),
+            "straight": int(checkpoint_counts.get("straight", 0)),
+        },
+        "added": added,
+        "required_added": {"broken": TRAIN_REFRESH_MIN_ADDED, "straight": TRAIN_REFRESH_MIN_ADDED},
+        "model_artifact": checkpoint_artifact,
+    }
+
+
+def _training_label_counts(counts: dict[str, int]) -> dict[str, int]:
+    return {"broken": int(counts.get("broken", 0)), "straight": int(counts.get("straight", 0))}
+
+
 def _prediction_item(row: dict[str, object], manual_label: str | None, broken_probability: float) -> dict[str, object]:
     return {
         "id": int(row["source_track_id"]),
@@ -266,6 +417,18 @@ def _prediction_item(row: dict[str, object], manual_label: str | None, broken_pr
         "maest_syncopated_rhythm": False,
         "feature_status": {"sonara": False, "mert": False, "maest": False},
     }
+
+
+def _candidate_sort_key(item: dict[str, object], *, probability_focus: str) -> tuple[float, float, str]:
+    broken_probability = float(item["broken_probability"])
+    straight_probability = float(item["straight_probability"])
+    confidence = float(item["confidence"])
+    path = str(item["path"])
+    if probability_focus == "straight_highest":
+        return (-straight_probability, -confidence, path)
+    if probability_focus == "balanced":
+        return (abs(broken_probability - straight_probability), -confidence, path)
+    return (-broken_probability, -confidence, path)
 
 
 def _candidate_source_fields(track, *, mert_track_ids: set[int], maest_track_ids: set[int]) -> dict[str, object]:
@@ -366,6 +529,10 @@ def _index_html() -> str:
     .active {{ outline: 2px solid #e0b84b; }}
     .tabs {{ display: flex; gap: 6px; flex: 1 1 100%; }}
     .tabs button.active {{ background: #e0b84b; color: #141414; outline: none; }}
+    .refresh-candidates {{ padding: 5px 9px; font-size: 12px; border-color: #5f8dd3; background: #17345f; color: #eaf2ff; }}
+    .refresh-candidates:hover {{ border-color: #8eb8f4; background: #214674; }}
+    .train-refresh {{ padding: 5px 9px; font-size: 12px; border-color: #9a7a39; background: #342715; color: #ffe6ad; }}
+    .train-refresh:hover:not(:disabled) {{ border-color: #e0b84b; background: #47371d; }}
     .filters {{ display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }}
     .filters[hidden] {{ display: none; }}
     .source-row {{ display: flex; gap: 6px; align-items: center; flex: 1 1 100%; }}
@@ -405,6 +572,9 @@ def _index_html() -> str:
     <div class="tabs">
       <button id="libraryTab" class="active">Library</button>
       <button id="candidatesTab">Candidates</button>
+      <button id="refreshCandidates" class="refresh-candidates" title="Recompute candidates from the latest combined Rhythm Lab model">Refresh candidates</button>
+      <button id="trainRefresh" class="train-refresh" title="Train a new model only after 100 new broken and 100 new straight labels, then refresh candidates">Train + refresh</button>
+      <span id="refreshCandidatesStatus" class="meta"></span>
     </div>
     <div id="commonFilters" class="filters">
       <input id="query" placeholder="search path/title/artist" />
@@ -428,11 +598,9 @@ def _index_html() -> str:
         <option value="straight">predicted straight</option>
       </select>
       <select id="candidateMinBroken">
-        <option value="0">P(broken) >= 0.0</option>
-        <option value="0.3" selected>P(broken) >= 0.3</option>
-        <option value="0.5">P(broken) >= 0.5</option>
-        <option value="0.7">P(broken) >= 0.7</option>
-        <option value="0.9">P(broken) >= 0.9</option>
+        <option value="broken_highest" selected>highest P(broken)</option>
+        <option value="straight_highest">highest P(straight)</option>
+        <option value="balanced">P(broken) near P(straight)</option>
       </select>
     </div>
     <button id="load">Load</button>
@@ -465,6 +633,9 @@ def _index_html() -> str:
     const labelEl = document.getElementById("label");
     const candidatePredictedEl = document.getElementById("candidatePredicted");
     const candidateMinBrokenEl = document.getElementById("candidateMinBroken");
+    const refreshCandidatesEl = document.getElementById("refreshCandidates");
+    const trainRefreshEl = document.getElementById("trainRefresh");
+    const refreshCandidatesStatusEl = document.getElementById("refreshCandidatesStatus");
     const summaryEl = document.getElementById("summary");
     const pageSizeEl = document.getElementById("pageSize");
     const prevPageEl = document.getElementById("prevPage");
@@ -487,6 +658,8 @@ def _index_html() -> str:
     labelEl.addEventListener("change", () => loadActive({{ reset: true }}));
     candidatePredictedEl.addEventListener("change", () => loadActive({{ reset: true }}));
     candidateMinBrokenEl.addEventListener("change", () => loadActive({{ reset: true }}));
+    refreshCandidatesEl.addEventListener("click", () => refreshCandidates().catch(console.error));
+    trainRefreshEl.addEventListener("click", () => trainRefresh().catch(console.error));
     pageSizeEl.addEventListener("change", () => loadActive({{ reset: true }}));
     prevPageEl.addEventListener("click", () => {{
       offset = Math.max(0, offset - pageLimit());
@@ -599,6 +772,7 @@ def _index_html() -> str:
       }});
       updatePager(data);
       await loadSummary(sequence);
+      await loadTrainingReadiness();
     }}
 
     async function loadCandidates(options = {{}}) {{
@@ -611,7 +785,7 @@ def _index_html() -> str:
         syncopated: syncopatedEl.value,
         label: labelEl.value,
         predicted: candidatePredictedEl.value,
-        min_broken: candidateMinBrokenEl.value,
+        probability_focus: candidateMinBrokenEl.value,
         limit: String(limit),
         offset: String(offset)
       }});
@@ -627,6 +801,59 @@ def _index_html() -> str:
       }});
       updatePager(data);
       await loadSummary(sequence);
+      await loadTrainingReadiness();
+    }}
+
+    async function refreshCandidates() {{
+      refreshCandidatesEl.disabled = true;
+      refreshCandidatesStatusEl.textContent = "refreshing...";
+      try {{
+        const response = await fetch("/api/predictions/refresh", {{ method: "POST" }});
+        const data = await parseRefreshResponse(response);
+        refreshCandidatesStatusEl.textContent = `updated ${{data.predicted}} · skipped ${{data.skipped}} · removed old ${{data.deleted_old_predictions}}`;
+        await loadCandidates({{ reset: true }});
+      }} finally {{
+        refreshCandidatesEl.disabled = false;
+      }}
+    }}
+
+    async function trainRefresh() {{
+      if (trainRefreshEl.disabled) return;
+      if (!window.confirm("Train a new Rhythm Lab model from current broken/straight labels, then refresh candidates?")) return;
+      trainRefreshEl.disabled = true;
+      refreshCandidatesEl.disabled = true;
+      refreshCandidatesStatusEl.textContent = "training...";
+      try {{
+        const response = await fetch("/api/training/train-refresh", {{ method: "POST" }});
+        const data = await parseRefreshResponse(response);
+        refreshCandidatesStatusEl.textContent = `trained ${{data.training_counts.broken}}/${{data.training_counts.straight}} · updated ${{data.predicted}} · skipped ${{data.skipped}}`;
+        await loadCandidates({{ reset: true }});
+      }} finally {{
+        refreshCandidatesEl.disabled = false;
+        await loadTrainingReadiness();
+      }}
+    }}
+
+    async function loadTrainingReadiness() {{
+      const response = await fetch("/api/training/readiness");
+      const data = await response.json();
+      if (!response.ok) {{
+        trainRefreshEl.disabled = true;
+        return;
+      }}
+      trainRefreshEl.disabled = !data.ready;
+      trainRefreshEl.title = data.ready
+        ? "Train a new model, then refresh candidates"
+        : `Need +${{data.required_added.broken}} broken and +${{data.required_added.straight}} straight since last train. Added: broken ${{data.added.broken}}, straight ${{data.added.straight}}.`;
+    }}
+
+    async function parseRefreshResponse(response) {{
+      const data = await response.json();
+      if (!response.ok) {{
+        refreshCandidatesStatusEl.textContent = data.detail || response.statusText;
+        throw new Error(data.detail || response.statusText);
+      }}
+      return data;
     }}
 
     function pageLimit() {{

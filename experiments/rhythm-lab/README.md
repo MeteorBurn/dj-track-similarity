@@ -88,11 +88,22 @@ Starting a preview stops and rewinds the previously playing preview.
 The Candidates tab reads saved `rhythm_predictions` from the labels DB. It is
 intended for controlled post-training review:
 
-- candidates are ordered by `P(broken)` descending
-- the default view is unlabeled candidates with `P(broken) >= 0.3`
+- candidates can be ordered by highest `P(broken)`, highest `P(straight)`, or
+  near-equal `P(broken)`/`P(straight)`
 - each row shows SONARA/MERT/MAEST availability, current manual label,
   predicted probabilities, MAEST genres, rhythm badges, and audio preview
 - labeling uses the same `Broken`, `Straight`, `Ambiguous`, and `Clear` actions
+- `Refresh candidates` reruns the latest `rhythm-combined-*.joblib` model
+  against the currently loaded source DB and removes older predictions for that
+  feature set after the refresh succeeds
+- `Train + refresh` trains new models only after at least 100 new `broken` and
+  100 new `straight` labels have been added since the last training checkpoint,
+  then refreshes candidates with the new latest combined model. If a combined
+  model already exists before checkpoints were introduced, the current label
+  counts become the baseline so older labels are not treated as newly added.
+- After a successful `Train + refresh`, artifact cleanup keeps the latest 3
+  `.joblib` files per feature set and the latest 10 `.metrics.json` files per
+  feature set. The current checkpoint model is always protected from deletion.
 
 Predictions are de-duplicated by source track ID for UI/CSV review. If several
 model artifacts have predictions for the same track, the latest saved prediction

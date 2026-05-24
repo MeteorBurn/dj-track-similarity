@@ -126,13 +126,14 @@ def test_web_app_reads_source_database_and_writes_labels_database_only(tmp_path:
         ).fetchone() is None
 
 
-def test_web_app_predictions_endpoint_lists_candidates_by_broken_probability(monkeypatch, tmp_path: Path) -> None:
+def test_web_app_predictions_endpoint_filters_candidates_by_probability_focus(monkeypatch, tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
     source_path = tmp_path / "source.sqlite"
     source = LibraryDatabase(source_path)
     low_id = _track(source, tmp_path, "low.wav", title="Low")
     high_id = _track(source, tmp_path, "high.wav", title="High")
+    balanced_id = _track(source, tmp_path, "balanced.wav", title="Balanced")
     source.save_genres(high_id, [{"label": "Breakbeat", "score": 0.9}], model_name="maest-test")
     source.save_sonara_features(high_id, {"onset_density": {"type": "float", "value": 4.2}}, model_name="sonara-test")
     source.save_embedding(high_id, np.asarray([1, 0, 0], dtype=np.float32), "maest-test", embedding_key="maest")
@@ -154,6 +155,14 @@ def test_web_app_predictions_endpoint_lists_candidates_by_broken_probability(mon
         confidence=0.7,
         probabilities={"broken": 0.7, "straight": 0.3},
     )
+    labels.save_prediction(
+        source.get_track(balanced_id),
+        feature_set="combined",
+        model_artifact="model.joblib",
+        label="broken",
+        confidence=0.51,
+        probabilities={"broken": 0.51, "straight": 0.49},
+    )
     labels.set_label(source.get_track(high_id), "broken")
     import rhythm_lab.source_db as source_db
 
@@ -166,6 +175,14 @@ def test_web_app_predictions_endpoint_lists_candidates_by_broken_probability(mon
     all_candidates = client.get("/api/predictions", params={"label": "all"}).json()
     unlabeled = client.get("/api/predictions", params={"label": "unlabeled"}).json()
     filtered = client.get("/api/predictions", params={"label": "all", "min_broken": 0.5}).json()
+    straight_focus = client.get(
+        "/api/predictions",
+        params={"label": "all", "probability_focus": "straight_highest"},
+    ).json()
+    balanced_focus = client.get(
+        "/api/predictions",
+        params={"label": "all", "probability_focus": "balanced"},
+    ).json()
     combined = client.get(
         "/api/predictions",
         params={"label": "broken", "min_broken": 0.5, "q": "high", "syncopated": "yes"},
@@ -175,20 +192,188 @@ def test_web_app_predictions_endpoint_lists_candidates_by_broken_probability(mon
         params={"label": "broken", "min_broken": 0.5, "q": "low", "syncopated": "yes"},
     ).json()
 
-    assert all_candidates["total"] == 2
-    assert [item["id"] for item in all_candidates["items"]] == [high_id, low_id]
+    assert all_candidates["total"] == 3
+    assert [item["id"] for item in all_candidates["items"]] == [high_id, balanced_id, low_id]
     assert all_candidates["items"][0]["broken_probability"] == 0.7
     assert all_candidates["items"][0]["label"] == "broken"
     assert all_candidates["items"][0]["genres"] == ["Breakbeat"]
     assert all_candidates["items"][0]["maest_syncopated_rhythm"] is True
     assert all_candidates["items"][0]["feature_status"] == {"sonara": True, "mert": True, "maest": True}
-    assert unlabeled["total"] == 1
-    assert unlabeled["items"][0]["id"] == low_id
-    assert filtered["total"] == 1
-    assert filtered["items"][0]["id"] == high_id
+    assert unlabeled["total"] == 2
+    assert unlabeled["items"][0]["id"] == balanced_id
+    assert filtered["total"] == 2
+    assert [item["id"] for item in filtered["items"]] == [high_id, balanced_id]
+    assert [item["id"] for item in straight_focus["items"]] == [low_id, balanced_id, high_id]
+    assert [item["id"] for item in balanced_focus["items"]] == [balanced_id, high_id, low_id]
     assert combined["total"] == 1
     assert combined["items"][0]["id"] == high_id
     assert mismatched["total"] == 0
+
+
+def test_web_app_refresh_candidates_uses_latest_combined_artifact_and_prunes_old_predictions(monkeypatch, tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    source_path = tmp_path / "source.sqlite"
+    LibraryDatabase(source_path)
+    labels_path = tmp_path / "labels.sqlite"
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    older = artifacts / "rhythm-combined-20260524T100000Z.joblib"
+    newer = artifacts / "rhythm-combined-20260524T110000Z.joblib"
+    maest = artifacts / "rhythm-maest-20260524T120000Z.joblib"
+    older.write_bytes(b"old")
+    newer.write_bytes(b"new")
+    maest.write_bytes(b"maest")
+    import rhythm_lab.web_app as web_app
+
+    calls = []
+
+    def fake_apply_model_to_lab(source_db_path: Path, labels_db_path: Path, artifact_path: Path):
+        calls.append((source_db_path, labels_db_path, artifact_path))
+        labels = RhythmLabDatabase(labels_db_path)
+        source = LibraryDatabase(source_db_path)
+        track_id = _track(source, tmp_path, "predicted.wav", title="Predicted")
+        labels.save_prediction(
+            source.get_track(track_id),
+            feature_set="combined",
+            model_artifact=artifact_path,
+            label="broken",
+            confidence=0.9,
+            probabilities={"broken": 0.9, "straight": 0.1},
+        )
+        labels.save_prediction(
+            source.get_track(track_id),
+            feature_set="combined",
+            model_artifact=older,
+            label="straight",
+            confidence=0.8,
+            probabilities={"broken": 0.2, "straight": 0.8},
+        )
+        return {"feature_set": "combined", "predicted": 1, "skipped": 2}
+
+    monkeypatch.setattr(web_app, "ARTIFACT_DIR", artifacts)
+    monkeypatch.setattr(web_app, "apply_model_to_lab", fake_apply_model_to_lab)
+    client = TestClient(create_app(source_path, labels_db_path=labels_path))
+
+    response = client.post("/api/predictions/refresh")
+
+    assert response.status_code == 200
+    assert response.json()["artifact"] == str(newer)
+    assert response.json()["predicted"] == 1
+    assert response.json()["skipped"] == 2
+    assert calls == [(source_path.resolve(), labels_path.resolve(), newer)]
+    predictions = RhythmLabDatabase(labels_path).predictions()
+    assert len(predictions) == 1
+    assert predictions[0]["model_artifact"] == str(newer)
+
+
+def test_web_app_train_refresh_requires_100_new_broken_and_straight_labels(monkeypatch, tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    source_path = tmp_path / "source.sqlite"
+    LibraryDatabase(source_path)
+    labels_path = tmp_path / "labels.sqlite"
+    labels = RhythmLabDatabase(labels_path)
+    for index in range(100):
+        labels.set_label(10_000 + index, "broken")
+        labels.set_label(20_000 + index, "straight")
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    artifact = artifacts / "rhythm-combined-20260524T130000Z.joblib"
+    import rhythm_lab.web_app as web_app
+
+    calls = []
+
+    def fake_benchmark_lab_database(source_db_path: Path, labels_db_path: Path, artifact_dir: Path):
+        calls.append(("train", source_db_path, labels_db_path, artifact_dir))
+        artifact.write_bytes(b"combined")
+        return {"combined": {"status": "trained", "artifact_path": str(artifact)}}
+
+    def fake_apply_model_to_lab(source_db_path: Path, labels_db_path: Path, artifact_path: Path):
+        calls.append(("predict", source_db_path, labels_db_path, artifact_path))
+        return {"feature_set": "combined", "predicted": 0, "skipped": 0}
+
+    monkeypatch.setattr(web_app, "ARTIFACT_DIR", artifacts)
+    monkeypatch.setattr(web_app, "benchmark_lab_database", fake_benchmark_lab_database)
+    monkeypatch.setattr(web_app, "apply_model_to_lab", fake_apply_model_to_lab)
+    client = TestClient(create_app(source_path, labels_db_path=labels_path))
+
+    ready = client.get("/api/training/readiness").json()
+    trained = client.post("/api/training/train-refresh")
+    blocked = client.post("/api/training/train-refresh")
+
+    assert ready["ready"] is True
+    assert ready["added"] == {"broken": 100, "straight": 100}
+    assert trained.status_code == 200
+    assert trained.json()["training_counts"] == {"broken": 100, "straight": 100}
+    assert trained.json()["artifact"] == str(artifact)
+    assert trained.json()["artifact_cleanup"] == {"deleted_joblib": 0, "deleted_metrics": 0}
+    assert calls == [
+        ("train", source_path.resolve(), labels_path.resolve(), artifacts),
+        ("predict", source_path.resolve(), labels_path.resolve(), artifact),
+    ]
+    assert RhythmLabDatabase(labels_path).training_checkpoint()["counts"] == {"broken": 100, "straight": 100}
+    assert blocked.status_code == 400
+    assert "Need 100 new broken and 100 new straight labels" in blocked.json()["detail"]
+
+
+def test_web_app_training_readiness_initializes_checkpoint_from_existing_combined_artifact(monkeypatch, tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    source_path = tmp_path / "source.sqlite"
+    LibraryDatabase(source_path)
+    labels_path = tmp_path / "labels.sqlite"
+    labels = RhythmLabDatabase(labels_path)
+    for index in range(500):
+        labels.set_label(10_000 + index, "broken")
+        labels.set_label(20_000 + index, "straight")
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    artifact = artifacts / "rhythm-combined-20260524T130000Z.joblib"
+    artifact.write_bytes(b"combined")
+    import rhythm_lab.web_app as web_app
+
+    monkeypatch.setattr(web_app, "ARTIFACT_DIR", artifacts)
+    client = TestClient(create_app(source_path, labels_db_path=labels_path))
+
+    ready = client.get("/api/training/readiness").json()
+    blocked = client.post("/api/training/train-refresh")
+
+    assert ready["ready"] is False
+    assert ready["current"] == {"broken": 500, "straight": 500}
+    assert ready["last_trained"] == {"broken": 500, "straight": 500}
+    assert ready["added"] == {"broken": 0, "straight": 0}
+    assert RhythmLabDatabase(labels_path).training_checkpoint()["counts"] == {"broken": 500, "straight": 500}
+    assert blocked.status_code == 400
+
+
+def test_artifact_cleanup_keeps_recent_files_per_feature_and_protected_artifact(tmp_path: Path) -> None:
+    from rhythm_lab.web_app import cleanup_training_artifacts
+
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    for index in range(5):
+        (artifacts / f"rhythm-combined-20260524T10000{index}Z.joblib").write_bytes(b"model")
+        (artifacts / f"rhythm-mert-20260524T10000{index}Z.joblib").write_bytes(b"model")
+    for index in range(12):
+        (artifacts / f"rhythm-combined-20260524T1100{index:02d}Z.metrics.json").write_text("{}", encoding="utf-8")
+    protected = artifacts / "rhythm-combined-20260524T100000Z.joblib"
+    unrelated = artifacts / "broken-candidates.csv"
+    unrelated.write_text("source_track_id\n", encoding="utf-8")
+
+    result = cleanup_training_artifacts(artifacts, protected_artifact=protected)
+
+    remaining = {path.name for path in artifacts.iterdir()}
+    assert protected.name in remaining
+    assert unrelated.name in remaining
+    assert "rhythm-combined-20260524T100001Z.joblib" not in remaining
+    assert "rhythm-mert-20260524T100000Z.joblib" not in remaining
+    assert "rhythm-combined-20260524T110001Z.metrics.json" not in remaining
+    assert len([name for name in remaining if name.startswith("rhythm-combined-") and name.endswith(".joblib")]) == 4
+    assert len([name for name in remaining if name.startswith("rhythm-mert-") and name.endswith(".joblib")]) == 3
+    assert len([name for name in remaining if name.startswith("rhythm-combined-") and name.endswith(".metrics.json")]) == 10
+    assert result["deleted_joblib"] == 3
+    assert result["deleted_metrics"] == 2
 
 
 def test_web_app_tracks_endpoint_uses_source_sql_pagination(monkeypatch, tmp_path: Path) -> None:
@@ -334,6 +519,9 @@ def test_web_app_html_contains_candidates_tab(tmp_path: Path) -> None:
     assert 'id="libraryTab"' in html
     assert 'id="candidatesTab"' in html
     assert 'id="candidateMinBroken"' in html
+    assert '<option value="broken_highest" selected>highest P(broken)</option>' in html
+    assert '<option value="straight_highest">highest P(straight)</option>' in html
+    assert '<option value="balanced">P(broken) near P(straight)</option>' in html
     assert 'fetch(`/api/predictions?' in html
     assert "broken_probability" in html
     assert 'SONARA ${mark(track.feature_status.sonara)} · MERT ${mark(track.feature_status.mert)} · MAEST ${mark(track.feature_status.maest)} · label <b>${track.label || "none"}</b>' in html
@@ -353,6 +541,22 @@ def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path
     assert 'candidateMinBrokenEl.addEventListener("change", () => loadActive({ reset: true }));' in html
     assert ".filters[hidden] { display: none; }" in html
     assert 'candidateFiltersEl.hidden = view !== "candidates";' in html
+    assert 'id="refreshCandidates"' in html
+    assert 'id="trainRefresh"' in html
+    assert '<button id="candidatesTab">Candidates</button>\n      <button id="refreshCandidates"' in html
+    assert '<button id="trainRefresh" class="train-refresh"' in html
+    assert '<select id="candidateMinBroken">\n        <option value="broken_highest" selected>highest P(broken)</option>' in html
+    assert '<span id="refreshCandidatesStatus" class="meta"></span>\n    </div>\n    <div id="commonFilters"' in html
+    assert '<select id="candidateMinBroken">\n        <option value="broken_highest" selected>highest P(broken)</option>\n        <option value="straight_highest">highest P(straight)</option>\n        <option value="balanced">P(broken) near P(straight)</option>\n      </select>\n    </div>' in html
+    assert 'fetch("/api/predictions/refresh", { method: "POST" })' in html
+    assert 'fetch("/api/training/readiness")' in html
+    assert 'fetch("/api/training/train-refresh", { method: "POST" })' in html
+    assert 'refreshCandidatesEl.disabled = true;' in html
+    assert 'trainRefreshEl.disabled = true;' in html
+    assert "async function parseRefreshResponse(response)" in html
+    assert "async function loadTrainingReadiness()" in html
+    assert ".refresh-candidates" in html
+    assert ".train-refresh" in html
     assert "const viewOffsets = { library: 0, candidates: 0 };" in html
     assert "let loadSequence = 0;" in html
     assert "const sequence = ++loadSequence;" in html
@@ -364,6 +568,7 @@ def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path
     assert "syncopated: syncopatedEl.value," in html
     assert "label: labelEl.value," in html
     assert "predicted: candidatePredictedEl.value," in html
+    assert "probability_focus: candidateMinBrokenEl.value," in html
 
 
 def test_web_app_html_colors_manual_labels_by_label_value(tmp_path: Path) -> None:
@@ -581,6 +786,58 @@ def test_export_predictions_csv_uses_latest_prediction_per_track(tmp_path: Path)
     assert len(rows) == 1
     assert rows[0]["model_artifact"] == "new.joblib"
     assert rows[0]["broken_probability"] == "0.2"
+
+
+def test_lab_database_prunes_old_predictions_for_feature_set_only(tmp_path: Path) -> None:
+    source = LibraryDatabase(tmp_path / "source.sqlite")
+    track_id = _track(source, tmp_path, "track.wav", title="Track")
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    track = source.get_track(track_id)
+    labels.save_prediction(
+        track,
+        feature_set="combined",
+        model_artifact="old-combined.joblib",
+        label="broken",
+        confidence=0.9,
+        probabilities={"broken": 0.9, "straight": 0.1},
+    )
+    labels.save_prediction(
+        track,
+        feature_set="combined",
+        model_artifact="new-combined.joblib",
+        label="straight",
+        confidence=0.8,
+        probabilities={"broken": 0.2, "straight": 0.8},
+    )
+    labels.save_prediction(
+        track,
+        feature_set="maest",
+        model_artifact="old-maest.joblib",
+        label="broken",
+        confidence=0.7,
+        probabilities={"broken": 0.7, "straight": 0.3},
+    )
+
+    deleted = labels.prune_predictions(feature_set="combined", keep_model_artifact="new-combined.joblib")
+
+    predictions = labels.predictions()
+    assert deleted == 1
+    assert {(row["feature_set"], row["model_artifact"]) for row in predictions} == {
+        ("combined", "new-combined.joblib"),
+        ("maest", "old-maest.joblib"),
+    }
+
+
+def test_lab_database_records_training_checkpoint_counts(tmp_path: Path) -> None:
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+
+    assert labels.training_checkpoint()["counts"] == {"broken": 0, "straight": 0}
+
+    labels.record_training_checkpoint({"broken": 100, "straight": 120}, model_artifact="model.joblib")
+
+    checkpoint = labels.training_checkpoint()
+    assert checkpoint["counts"] == {"broken": 100, "straight": 120}
+    assert checkpoint["model_artifact"] == "model.joblib"
 
 
 def test_cli_train_accepts_separate_source_and_labels_databases(tmp_path: Path) -> None:

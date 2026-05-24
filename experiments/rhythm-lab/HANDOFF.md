@@ -105,8 +105,9 @@ The UI now has two tabs:
 - `Library`: the original searchable source-library labeling view.
 - `Candidates`: a post-training review queue built from `rhythm_predictions`.
 
-The Candidates tab defaults to unlabeled candidates with `P(broken) >= 0.3`.
-Rows are ordered by broken probability descending and show:
+The Candidates tab defaults to unlabeled candidates. Rows can be ordered by
+highest `P(broken)`, highest `P(straight)`, or near-equal
+`P(broken)`/`P(straight)`, and show:
 
 - SONARA/MERT/MAEST availability
 - current manual label
@@ -114,6 +115,20 @@ Rows are ordered by broken probability descending and show:
 - predicted label and feature set
 - MAEST genres plus rhythm badges
 - audio preview and the same manual labeling controls
+
+The Candidates tab has a `Refresh candidates` button. It reruns the latest
+`rhythm-combined-*.joblib` artifact against the currently loaded source DB,
+stores fresh predictions in the labels DB, and after a successful refresh prunes
+older prediction rows for that feature set. Manual labels are not changed.
+
+`Train + refresh` is guarded by a training checkpoint in the labels DB. It is
+enabled only after at least 100 new `broken` and 100 new `straight` labels have
+been added since the last checkpoint. If the labels DB has no checkpoint yet but
+a combined model artifact already exists, the current label counts are recorded
+as the baseline so the existing 500/500 labels are not counted as newly added.
+After a successful run, artifact cleanup keeps the latest 3 `.joblib` files and
+latest 10 `.metrics.json` files per feature set, while always protecting the
+checkpoint model artifact.
 
 Predictions are de-duplicated by `source_track_id`; the latest saved prediction
 for a track is what the UI and CSV export show. This avoids duplicate candidates

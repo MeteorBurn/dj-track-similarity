@@ -44,6 +44,7 @@ class RhythmLabDatabase:
         with self.connect() as connection:
             _ensure_rhythm_labels_table(connection)
             _ensure_rhythm_predictions_table(connection)
+            _ensure_rhythm_training_checkpoint_table(connection)
             connection.executescript(
                 """
                 CREATE INDEX IF NOT EXISTS idx_rhythm_labels_label
@@ -200,6 +201,54 @@ class RhythmLabDatabase:
             )
         return result
 
+    def prune_predictions(self, *, feature_set: str, keep_model_artifact: str | Path) -> int:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                DELETE FROM rhythm_predictions
+                WHERE feature_set = ?
+                  AND model_artifact != ?
+                """,
+                (feature_set, str(keep_model_artifact)),
+            )
+            return int(cursor.rowcount)
+
+    def training_checkpoint(self) -> dict[str, object]:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT broken_count, straight_count, model_artifact, updated_at
+                FROM rhythm_training_checkpoint
+                WHERE id = 1
+                """
+            ).fetchone()
+        if row is None:
+            return {
+                "counts": {"broken": 0, "straight": 0},
+                "model_artifact": None,
+                "updated_at": None,
+            }
+        return {
+            "counts": {"broken": int(row["broken_count"]), "straight": int(row["straight_count"])},
+            "model_artifact": row["model_artifact"],
+            "updated_at": row["updated_at"],
+        }
+
+    def record_training_checkpoint(self, counts: dict[str, int], *, model_artifact: str | Path) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO rhythm_training_checkpoint(id, broken_count, straight_count, model_artifact)
+                VALUES (1, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    broken_count = excluded.broken_count,
+                    straight_count = excluded.straight_count,
+                    model_artifact = excluded.model_artifact,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (int(counts.get("broken", 0)), int(counts.get("straight", 0)), str(model_artifact)),
+            )
+
 
 def _track_snapshot(track: Track | int) -> tuple[int, str | None, int | None, float | None]:
     if isinstance(track, Track):
@@ -301,6 +350,20 @@ def _ensure_rhythm_predictions_table(connection: sqlite3.Connection) -> None:
         )
     connection.execute("DROP TABLE rhythm_predictions")
     connection.execute("ALTER TABLE rhythm_predictions_new RENAME TO rhythm_predictions")
+
+
+def _ensure_rhythm_training_checkpoint_table(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS rhythm_training_checkpoint (
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            broken_count INTEGER NOT NULL,
+            straight_count INTEGER NOT NULL,
+            model_artifact TEXT,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
 
 
 def _source_track_id_for_old_track(connection: sqlite3.Connection, track_id: int) -> int:

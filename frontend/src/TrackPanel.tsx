@@ -113,7 +113,7 @@ export function TrackPanel({
       </div>
       <div className="player library-player">
         <span>{preview ? displayTrack(preview) : "Preview"}</span>
-        {preview && <audio controls src={`/media/${preview.id}`} />}
+        {preview && <audio controls autoPlay src={`/media/${preview.id}`} />}
       </div>
       <TrackList
         tracks={tracks}

@@ -6,8 +6,8 @@ from pathlib import Path
 import sqlite3
 from typing import Literal
 
-from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.metadata_payload import metadata_to_json
+from dj_track_similarity.models import Track
 
 
 OLD_STRAIGHT_LABEL = "straight_four_on_the_floor"
@@ -19,33 +19,29 @@ TRAINING_LABELS: tuple[str, ...] = ("broken", STRAIGHT_LABEL)
 
 @dataclass(frozen=True)
 class RhythmLabel:
-    track_id: int
+    source_track_id: int
     label: str
     note: str | None = None
     updated_at: str | None = None
 
 
 class RhythmLabDatabase:
+    """Writable rhythm-lab user data, separate from the read-only source library."""
+
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path).expanduser().resolve(strict=False)
-        self.library = LibraryDatabase(self.path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
         self._ensure_lab_schema()
 
     def connect(self) -> sqlite3.Connection:
-        return self.library.connect()
+        connection = sqlite3.connect(self.path, timeout=30)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA busy_timeout = 30000")
+        return connection
 
     def _ensure_lab_schema(self) -> None:
-        with self.library._write_lock, self.connect() as connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS rhythm_lab_tracks (
-                    track_id INTEGER PRIMARY KEY,
-                    source_track_id INTEGER NOT NULL UNIQUE,
-                    imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
-                );
-                """
-            )
+        with self.connect() as connection:
             _ensure_rhythm_labels_table(connection)
             _ensure_rhythm_predictions_table(connection)
             connection.executescript(
@@ -58,69 +54,55 @@ class RhythmLabDatabase:
                 """
             )
 
-    def record_source_track(self, track_id: int, source_track_id: int) -> None:
-        with self.library._write_lock, self.connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO rhythm_lab_tracks(track_id, source_track_id)
-                VALUES (?, ?)
-                ON CONFLICT(track_id) DO UPDATE SET
-                    source_track_id = excluded.source_track_id
-                """,
-                (track_id, source_track_id),
-            )
-
-    def source_track_id(self, track_id: int) -> int | None:
-        with self.connect() as connection:
-            row = connection.execute(
-                "SELECT source_track_id FROM rhythm_lab_tracks WHERE track_id = ?",
-                (track_id,),
-            ).fetchone()
-        return int(row["source_track_id"]) if row else None
-
-    def source_track_ids(self) -> set[int]:
-        with self.connect() as connection:
-            rows = connection.execute("SELECT source_track_id FROM rhythm_lab_tracks").fetchall()
-        return {int(row["source_track_id"]) for row in rows}
-
-    def set_label(self, track_id: int, label: str | None, *, note: str | None = None) -> RhythmLabel | None:
+    def set_label(self, track: Track | int, label: str | None, *, note: str | None = None) -> RhythmLabel | None:
+        source_track_id, path, size, mtime = _track_snapshot(track)
         if label is None or not label.strip():
-            with self.library._write_lock, self.connect() as connection:
-                connection.execute("DELETE FROM rhythm_labels WHERE track_id = ?", (track_id,))
+            with self.connect() as connection:
+                connection.execute("DELETE FROM rhythm_labels WHERE source_track_id = ?", (source_track_id,))
             return None
         label = _canonical_label(label.strip())
         if label not in RHYTHM_LABELS:
             raise ValueError(f"Unsupported rhythm label: {label}")
-        self.library.get_track(track_id)
-        with self.library._write_lock, self.connect() as connection:
+        with self.connect() as connection:
             connection.execute(
                 """
-                INSERT INTO rhythm_labels(track_id, label, note)
-                VALUES (?, ?, ?)
-                ON CONFLICT(track_id) DO UPDATE SET
+                INSERT INTO rhythm_labels(source_track_id, path, size, mtime, label, note)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source_track_id) DO UPDATE SET
+                    path = excluded.path,
+                    size = excluded.size,
+                    mtime = excluded.mtime,
                     label = excluded.label,
                     note = excluded.note,
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (track_id, label, note),
+                (source_track_id, path, size, mtime, label, note),
             )
-        return self.label_for_track(track_id)
+        return self.label_for_track(source_track_id)
 
-    def label_for_track(self, track_id: int) -> RhythmLabel | None:
+    def label_for_track(self, source_track_id: int) -> RhythmLabel | None:
         with self.connect() as connection:
             row = connection.execute(
-                "SELECT track_id, label, note, updated_at FROM rhythm_labels WHERE track_id = ?",
-                (track_id,),
+                """
+                SELECT source_track_id, label, note, updated_at
+                FROM rhythm_labels
+                WHERE source_track_id = ?
+                """,
+                (source_track_id,),
             ).fetchone()
         if row is None:
             return None
-        return RhythmLabel(int(row["track_id"]), str(row["label"]), row["note"], row["updated_at"])
+        return RhythmLabel(int(row["source_track_id"]), str(row["label"]), row["note"], row["updated_at"])
 
     def labels_by_track(self) -> dict[int, RhythmLabel]:
         with self.connect() as connection:
-            rows = connection.execute("SELECT track_id, label, note, updated_at FROM rhythm_labels").fetchall()
+            rows = connection.execute(
+                "SELECT source_track_id, label, note, updated_at FROM rhythm_labels"
+            ).fetchall()
         return {
-            int(row["track_id"]): RhythmLabel(int(row["track_id"]), str(row["label"]), row["note"], row["updated_at"])
+            int(row["source_track_id"]): RhythmLabel(
+                int(row["source_track_id"]), str(row["label"]), row["note"], row["updated_at"]
+            )
             for row in rows
         }
 
@@ -133,25 +115,17 @@ class RhythmLabDatabase:
         with self.connect() as connection:
             rows = connection.execute(
                 """
-                SELECT track_id, label
+                SELECT source_track_id, label
                 FROM rhythm_labels
                 WHERE label IN ('broken', 'straight')
-                ORDER BY track_id
+                ORDER BY source_track_id
                 """
             ).fetchall()
-        return {int(row["track_id"]): str(row["label"]) for row in rows}
-
-    def embedding_track_ids(self, embedding_key: str) -> set[int]:
-        with self.connect() as connection:
-            rows = connection.execute(
-                "SELECT track_id FROM embeddings WHERE embedding_key = ?",
-                (embedding_key,),
-            ).fetchall()
-        return {int(row["track_id"]) for row in rows}
+        return {int(row["source_track_id"]): str(row["label"]) for row in rows}
 
     def save_prediction(
         self,
-        track_id: int,
+        track: Track,
         *,
         feature_set: str,
         model_artifact: str | Path,
@@ -162,31 +136,44 @@ class RhythmLabDatabase:
         if label not in TRAINING_LABELS:
             raise ValueError(f"Unsupported predicted rhythm label: {label}")
         payload = metadata_to_json(probabilities)
-        with self.library._write_lock, self.connect() as connection:
+        with self.connect() as connection:
             connection.execute(
                 """
                 INSERT INTO rhythm_predictions(
-                    track_id, feature_set, model_artifact, label, confidence, probabilities_json
+                    source_track_id, path, artist, title, feature_set, model_artifact,
+                    label, confidence, probabilities_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(track_id, feature_set, model_artifact) DO UPDATE SET
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source_track_id, feature_set, model_artifact) DO UPDATE SET
+                    path = excluded.path,
+                    artist = excluded.artist,
+                    title = excluded.title,
                     label = excluded.label,
                     confidence = excluded.confidence,
                     probabilities_json = excluded.probabilities_json,
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (track_id, feature_set, str(model_artifact), label, float(confidence), payload),
+                (
+                    track.id,
+                    track.path,
+                    track.artist,
+                    track.title,
+                    feature_set,
+                    str(model_artifact),
+                    label,
+                    float(confidence),
+                    payload,
+                ),
             )
 
     def predictions(self) -> list[dict[str, object]]:
         with self.connect() as connection:
             rows = connection.execute(
                 """
-                SELECT p.track_id, p.feature_set, p.model_artifact, p.label, p.confidence,
-                       p.probabilities_json, t.path, t.artist, t.title
-                FROM rhythm_predictions p
-                JOIN tracks t ON t.id = p.track_id
-                ORDER BY p.confidence ASC, t.path
+                SELECT source_track_id, feature_set, model_artifact, label, confidence,
+                       probabilities_json, path, artist, title
+                FROM rhythm_predictions
+                ORDER BY confidence ASC, path
                 """
             ).fetchall()
         result: list[dict[str, object]] = []
@@ -197,7 +184,8 @@ class RhythmLabDatabase:
                 probabilities = {}
             result.append(
                 {
-                    "track_id": int(row["track_id"]),
+                    "source_track_id": int(row["source_track_id"]),
+                    "track_id": int(row["source_track_id"]),
                     "feature_set": str(row["feature_set"]),
                     "model_artifact": str(row["model_artifact"]),
                     "label": str(row["label"]),
@@ -211,22 +199,53 @@ class RhythmLabDatabase:
         return result
 
 
+def _track_snapshot(track: Track | int) -> tuple[int, str | None, int | None, float | None]:
+    if isinstance(track, Track):
+        return track.id, track.path, track.size, track.mtime
+    return int(track), None, None, None
+
+
 def _canonical_label(label: str) -> str:
     return STRAIGHT_LABEL if label == OLD_STRAIGHT_LABEL else label
 
 
 def _ensure_rhythm_labels_table(connection: sqlite3.Connection) -> None:
-    sql = _table_sql(connection, "rhythm_labels")
-    if sql is None:
+    columns = _columns(connection, "rhythm_labels")
+    if not columns:
         connection.execute(_rhythm_labels_table_sql("rhythm_labels"))
         return
-    if OLD_STRAIGHT_LABEL not in sql:
+    if "source_track_id" in columns:
         return
     connection.execute(_rhythm_labels_table_sql("rhythm_labels_new"))
+    if _columns(connection, "rhythm_lab_tracks"):
+        source_expr = (
+            "COALESCE((SELECT source_track_id FROM rhythm_lab_tracks "
+            "WHERE rhythm_lab_tracks.track_id = rhythm_labels.track_id), rhythm_labels.track_id)"
+        )
+    else:
+        source_expr = "rhythm_labels.track_id"
+    path_expr = (
+        "(SELECT path FROM tracks WHERE tracks.id = rhythm_labels.track_id)"
+        if _columns(connection, "tracks")
+        else "NULL"
+    )
+    size_expr = (
+        "(SELECT size FROM tracks WHERE tracks.id = rhythm_labels.track_id)"
+        if _columns(connection, "tracks")
+        else "NULL"
+    )
+    mtime_expr = (
+        "(SELECT mtime FROM tracks WHERE tracks.id = rhythm_labels.track_id)"
+        if _columns(connection, "tracks")
+        else "NULL"
+    )
     connection.execute(
-        """
-        INSERT OR REPLACE INTO rhythm_labels_new(track_id, label, note, updated_at)
-        SELECT track_id,
+        f"""
+        INSERT OR REPLACE INTO rhythm_labels_new(source_track_id, path, size, mtime, label, note, updated_at)
+        SELECT {source_expr},
+               {path_expr},
+               {size_expr},
+               {mtime_expr},
                CASE label WHEN 'straight_four_on_the_floor' THEN 'straight' ELSE label END,
                note,
                updated_at
@@ -239,11 +258,11 @@ def _ensure_rhythm_labels_table(connection: sqlite3.Connection) -> None:
 
 
 def _ensure_rhythm_predictions_table(connection: sqlite3.Connection) -> None:
-    sql = _table_sql(connection, "rhythm_predictions")
-    if sql is None:
+    columns = _columns(connection, "rhythm_predictions")
+    if not columns:
         connection.execute(_rhythm_predictions_table_sql("rhythm_predictions"))
         return
-    if OLD_STRAIGHT_LABEL not in sql:
+    if "source_track_id" in columns:
         return
     rows = connection.execute(
         """
@@ -256,15 +275,20 @@ def _ensure_rhythm_predictions_table(connection: sqlite3.Connection) -> None:
         label = _canonical_label(str(row["label"]))
         if label not in TRAINING_LABELS:
             continue
+        source_track_id = _source_track_id_for_old_track(connection, int(row["track_id"]))
         connection.execute(
             """
             INSERT OR REPLACE INTO rhythm_predictions_new(
-                track_id, feature_set, model_artifact, label, confidence, probabilities_json, updated_at
+                source_track_id, path, artist, title, feature_set, model_artifact,
+                label, confidence, probabilities_json, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                int(row["track_id"]),
+                source_track_id,
+                _old_track_value(connection, int(row["track_id"]), "path"),
+                _old_track_value(connection, int(row["track_id"]), "artist"),
+                _old_track_value(connection, int(row["track_id"]), "title"),
                 str(row["feature_set"]),
                 str(row["model_artifact"]),
                 label,
@@ -275,6 +299,24 @@ def _ensure_rhythm_predictions_table(connection: sqlite3.Connection) -> None:
         )
     connection.execute("DROP TABLE rhythm_predictions")
     connection.execute("ALTER TABLE rhythm_predictions_new RENAME TO rhythm_predictions")
+
+
+def _source_track_id_for_old_track(connection: sqlite3.Connection, track_id: int) -> int:
+    if _columns(connection, "rhythm_lab_tracks"):
+        row = connection.execute(
+            "SELECT source_track_id FROM rhythm_lab_tracks WHERE track_id = ?",
+            (track_id,),
+        ).fetchone()
+        if row is not None:
+            return int(row["source_track_id"])
+    return track_id
+
+
+def _old_track_value(connection: sqlite3.Connection, track_id: int, column: str) -> object | None:
+    if not _columns(connection, "tracks"):
+        return None
+    row = connection.execute(f"SELECT {column} FROM tracks WHERE id = ?", (track_id,)).fetchone()
+    return row[column] if row is not None else None
 
 
 def _canonical_probabilities_json(payload: str) -> str:
@@ -288,22 +330,26 @@ def _canonical_probabilities_json(payload: str) -> str:
     return metadata_to_json(probabilities) if isinstance(probabilities, dict) else payload
 
 
-def _table_sql(connection: sqlite3.Connection, table: str) -> str | None:
+def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
     row = connection.execute(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
         (table,),
     ).fetchone()
-    return str(row["sql"]) if row and row["sql"] else None
+    if row is None:
+        return set()
+    return {str(info["name"]) for info in connection.execute(f"PRAGMA table_info({table})").fetchall()}
 
 
 def _rhythm_labels_table_sql(table: str) -> str:
     return f"""
         CREATE TABLE {table} (
-            track_id INTEGER PRIMARY KEY,
+            source_track_id INTEGER PRIMARY KEY,
+            path TEXT,
+            size INTEGER,
+            mtime REAL,
             label TEXT NOT NULL CHECK(label IN ('broken', 'straight', 'ambiguous')),
             note TEXT,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     """
 
@@ -311,14 +357,16 @@ def _rhythm_labels_table_sql(table: str) -> str:
 def _rhythm_predictions_table_sql(table: str) -> str:
     return f"""
         CREATE TABLE {table} (
-            track_id INTEGER NOT NULL,
+            source_track_id INTEGER NOT NULL,
+            path TEXT NOT NULL,
+            artist TEXT,
+            title TEXT,
             feature_set TEXT NOT NULL,
             model_artifact TEXT NOT NULL,
             label TEXT NOT NULL CHECK(label IN ('broken', 'straight')),
             confidence REAL NOT NULL,
             probabilities_json TEXT NOT NULL CHECK(json_valid(probabilities_json)),
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY(track_id, feature_set, model_artifact),
-            FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
+            PRIMARY KEY(source_track_id, feature_set, model_artifact)
         )
     """

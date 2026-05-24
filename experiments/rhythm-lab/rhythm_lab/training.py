@@ -87,7 +87,8 @@ def train_feature_set(
 
 
 def benchmark_lab_database(
-    db_path: str | Path,
+    source_db_path: str | Path,
+    labels_db_path: str | Path,
     artifact_dir: str | Path,
     *,
     feature_sets: tuple[str, ...] = FEATURE_SETS,
@@ -95,7 +96,7 @@ def benchmark_lab_database(
 ) -> dict[str, dict[str, object]]:
     results: dict[str, dict[str, object]] = {}
     for feature_set in feature_sets:
-        features = build_labeled_feature_matrix(db_path, feature_set)
+        features = build_labeled_feature_matrix(source_db_path, labels_db_path, feature_set)
         try:
             result = train_feature_set(
                 features.matrix,

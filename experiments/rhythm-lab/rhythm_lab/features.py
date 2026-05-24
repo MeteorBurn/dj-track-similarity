@@ -9,6 +9,7 @@ from dj_track_similarity.models import Track
 from dj_track_similarity.sonara_similarity_scoring import optional_float, unwrap_feature_value
 
 from .lab_db import RhythmLabDatabase
+from .source_db import SourceDatabase
 
 
 FEATURE_SETS = ("sonara", "mert", "maest", "combined")
@@ -50,29 +51,30 @@ class FeatureMatrix:
     skipped_track_ids: list[int]
 
 
-def build_labeled_feature_matrix(db_path: str | Path, feature_set: str) -> FeatureMatrix:
-    lab = RhythmLabDatabase(db_path)
-    labels_by_track = lab.training_labels()
-    return build_feature_matrix(lab, feature_set, labels_by_track=labels_by_track)
+def build_labeled_feature_matrix(source_db_path: str | Path, labels_db_path: str | Path, feature_set: str) -> FeatureMatrix:
+    source = SourceDatabase(source_db_path)
+    labels = RhythmLabDatabase(labels_db_path)
+    labels_by_track = labels.training_labels()
+    return build_feature_matrix(source, feature_set, labels_by_track=labels_by_track)
 
 
-def build_unlabeled_feature_matrix(db_path: str | Path, feature_set: str) -> FeatureMatrix:
-    lab = RhythmLabDatabase(db_path)
-    labels_by_track = {track.id: "" for track in lab.library.list_tracks()}
-    return build_feature_matrix(lab, feature_set, labels_by_track=labels_by_track)
+def build_unlabeled_feature_matrix(source_db_path: str | Path, feature_set: str) -> FeatureMatrix:
+    source = SourceDatabase(source_db_path)
+    labels_by_track = {track.id: "" for track in source.list_tracks()}
+    return build_feature_matrix(source, feature_set, labels_by_track=labels_by_track)
 
 
 def build_feature_matrix(
-    lab: RhythmLabDatabase,
+    source: SourceDatabase,
     feature_set: str,
     *,
     labels_by_track: dict[int, str],
 ) -> FeatureMatrix:
     if feature_set not in FEATURE_SETS:
         raise ValueError(f"Unsupported feature set: {feature_set}")
-    tracks_by_id = {track.id: track for track in lab.library.list_tracks()}
-    mert_vectors = _embedding_vectors(lab, "mert") if feature_set in {"mert", "combined"} else {}
-    maest_vectors = _embedding_vectors(lab, "maest") if feature_set in {"maest", "combined"} else {}
+    tracks_by_id = {track.id: track for track in source.list_tracks()}
+    mert_vectors = _embedding_vectors(source, "mert") if feature_set in {"mert", "combined"} else {}
+    maest_vectors = _embedding_vectors(source, "maest") if feature_set in {"maest", "combined"} else {}
 
     rows: list[np.ndarray] = []
     labels: list[str] = []
@@ -151,8 +153,8 @@ def _numeric_vector(value: object, length: int) -> list[float]:
     return result
 
 
-def _embedding_vectors(lab: RhythmLabDatabase, embedding_key: str) -> dict[int, np.ndarray]:
-    tracks, matrix = lab.library.load_embedding_matrix(embedding_key)
+def _embedding_vectors(source: SourceDatabase, embedding_key: str) -> dict[int, np.ndarray]:
+    tracks, matrix = source.load_embedding_matrix(embedding_key)
     return {track.id: matrix[index].astype(np.float32, copy=True) for index, track in enumerate(tracks)}
 
 

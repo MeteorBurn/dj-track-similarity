@@ -132,11 +132,11 @@ export function AnalysisButton({
 }) {
   return (
     <div className="analysis-button-pair">
-      <button className="primary" disabled={disabled} title={title} onClick={onRun}>
+      <button className="primary analysis-run-button" disabled={disabled} title={title} onClick={onRun}>
         {icon}
         {label}
       </button>
-      <button className="analysis-reset" disabled={disabled} title={`Reset ${label}`} aria-label={`Reset ${label}`} onClick={onReset}>
+      <button className="analysis-reset-button" disabled={disabled} title={`Reset ${label}`} aria-label={`Reset ${label}`} onClick={onReset}>
         Reset
         <Trash2 size={14} />
       </button>

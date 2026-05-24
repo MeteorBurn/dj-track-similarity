@@ -143,20 +143,20 @@ export function SearchPlaylistPanel({
         </div>
         <div className="seed-strip">
           {seedTracks.map((track) => (
-            <button className="seed-chip" key={track.id} onClick={() => removeSeed(track.id)}>
+            <button className="seed-remove-chip" key={track.id} onClick={() => removeSeed(track.id)}>
               {displayTrack(track)}
               <X size={14} />
             </button>
           ))}
         </div>
         <div className="search-tabs" role="tablist" aria-label="Search model">
-          <button className={activeSearchTab === "sonara" ? "active" : ""} onClick={() => setActiveSearchTab("sonara")} role="tab" aria-selected={activeSearchTab === "sonara"} type="button">
+          <button className={`model-search-tab ${activeSearchTab === "sonara" ? "active" : ""}`} onClick={() => setActiveSearchTab("sonara")} role="tab" aria-selected={activeSearchTab === "sonara"} type="button">
             SONARA
           </button>
-          <button className={activeSearchTab === "mert" ? "active" : ""} onClick={() => setActiveSearchTab("mert")} role="tab" aria-selected={activeSearchTab === "mert"} type="button">
+          <button className={`model-search-tab ${activeSearchTab === "mert" ? "active" : ""}`} onClick={() => setActiveSearchTab("mert")} role="tab" aria-selected={activeSearchTab === "mert"} type="button">
             MERT
           </button>
-          <button className={activeSearchTab === "clap" ? "active" : ""} onClick={() => setActiveSearchTab("clap")} role="tab" aria-selected={activeSearchTab === "clap"} type="button">
+          <button className={`model-search-tab ${activeSearchTab === "clap" ? "active" : ""}`} onClick={() => setActiveSearchTab("clap")} role="tab" aria-selected={activeSearchTab === "clap"} type="button">
             CLAP
           </button>
         </div>
@@ -165,7 +165,7 @@ export function SearchPlaylistPanel({
             <div className="sonara-custom-controls">
               <div className="custom-control-header">
                 <span>Mixer</span>
-                <button type="button" onClick={resetCustomSonara}>Reset</button>
+                <button className="sonara-mixer-reset-button" type="button" onClick={resetCustomSonara}>Reset</button>
               </div>
               <div className="range-grid mixer-grid">
                 {mixerControls.map((control) => (
@@ -214,7 +214,7 @@ export function SearchPlaylistPanel({
               <label title={helpText.lookback}>Lookback<input type="number" value={filters.lookback} min={0} max={12} title={helpText.lookback} onChange={(event) => setFilters({ ...filters, lookback: Number(event.target.value) })} /></label>
               <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => setFilters({ ...filters, limit: Number(event.target.value) })} /></label>
             </div>
-            <button className="primary" disabled={busy || !seeds.length} onClick={handleSonaraSearch}>
+            <button className="primary sonara-search-button" disabled={busy || !seeds.length} onClick={handleSonaraSearch}>
               <Search size={17} />
               SONARA search
             </button>
@@ -227,7 +227,7 @@ export function SearchPlaylistPanel({
               <label title={helpText.lookback}>Lookback<input type="number" value={filters.lookback} min={0} max={12} title={helpText.lookback} onChange={(event) => setFilters({ ...filters, lookback: Number(event.target.value) })} /></label>
               <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => setFilters({ ...filters, limit: Number(event.target.value) })} /></label>
             </div>
-            <button className="primary" disabled={busy || !seeds.length} onClick={handleMertSearch}>
+            <button className="primary mert-search-button" disabled={busy || !seeds.length} onClick={handleMertSearch}>
               <Search size={17} />
               MERT search
             </button>
@@ -250,7 +250,7 @@ export function SearchPlaylistPanel({
               <label title={helpText.similarity}>Similarity<input type="number" value={filters.minSimilarity} min={0} max={1} step={0.01} title={helpText.similarity} onChange={(event) => setFilters({ ...filters, minSimilarity: Number(event.target.value) })} /></label>
               <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => setFilters({ ...filters, limit: Number(event.target.value) })} /></label>
             </div>
-            <button className="primary" disabled={busy || !textQuery.trim()} onClick={handleTextSearch}>
+            <button className="primary clap-text-search-button" disabled={busy || !textQuery.trim()} onClick={handleTextSearch}>
               <Search size={17} />
               CLAP search
             </button>
@@ -288,8 +288,8 @@ export function SearchPlaylistPanel({
             <span className="library-page-status">
               {playlistPageState.pageStart}-{playlistPageState.pageEnd} из {playlistPageState.total}
             </span>
-            <button className="secondary-mini" disabled={!playlistPageState.canGoBack} onClick={() => setPlaylistOffset((current) => Math.max(0, current - playlistPageSize))} type="button">Prev</button>
-            <button className="secondary-mini" disabled={!playlistPageState.canGoForward} onClick={() => setPlaylistOffset((current) => current + playlistPageSize)} type="button">Next</button>
+            <button className="secondary-mini playlist-page-previous-button" disabled={!playlistPageState.canGoBack} onClick={() => setPlaylistOffset((current) => Math.max(0, current - playlistPageSize))} type="button">Prev</button>
+            <button className="secondary-mini playlist-page-next-button" disabled={!playlistPageState.canGoForward} onClick={() => setPlaylistOffset((current) => current + playlistPageSize)} type="button">Next</button>
           </div>
         ) : null}
         <div className="playlist-list">
@@ -301,26 +301,26 @@ export function SearchPlaylistPanel({
             playlistPageState.items.map((track, index) => (
               <div className="playlist-row" key={track.id}>
                 <span className="row-index">{playlistPageState.offset + index + 1}</span>
-                <button className="icon-button" title="Preview" aria-label={`Preview ${displayTrack(track)}`} onClick={() => setPreview(track)}><Play size={15} /></button>
+                <button className="icon-button playlist-preview-button" title="Preview" aria-label={`Preview ${displayTrack(track)}`} onClick={() => setPreview(track)}><Play size={15} /></button>
                 <div className="track-copy">
                   <strong>{displayTrack(track)}</strong>
                   <span>{trackInfo(track)}</span>
                 </div>
-                <button className="icon-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={() => setMetadataTrack(track)}><Tags size={15} /></button>
-                <button className="icon-button intent-remove" title="Убрать из сета" aria-label={`Убрать ${displayTrack(track)} из сета`} onClick={() => removeFromPlaylist(track.id)}><Trash2 size={15} /></button>
+                <button className="icon-button playlist-metadata-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={() => setMetadataTrack(track)}><Tags size={15} /></button>
+                <button className="icon-button intent-remove playlist-remove-button" title="Убрать из сета" aria-label={`Убрать ${displayTrack(track)} из сета`} onClick={() => removeFromPlaylist(track.id)}><Trash2 size={15} /></button>
               </div>
             ))
           )}
         </div>
         <div className="path-row output-row">
           <input value={outputDir} onChange={(event) => onOutputDirChange(event.target.value)} placeholder="D:/Exports" title={helpText.outputDir} />
-          <button className="icon-button folder-picker" title="Выбрать папку экспорта" aria-label="Выбрать папку экспорта" disabled={busy} onClick={onChooseOutputFolder} type="button">
+          <button className="icon-button folder-picker export-folder-picker-button" title="Выбрать папку экспорта" aria-label="Выбрать папку экспорта" disabled={busy} onClick={onChooseOutputFolder} type="button">
             <FolderOpen size={17} />
           </button>
         </div>
         <div className="action-row">
-          <button disabled={busy || !playlist.length} onClick={() => handleExport("m3u")}><Download size={16} />M3U</button>
-          <button disabled={busy || !playlist.length} onClick={() => handleExport("csv")}><Download size={16} />CSV</button>
+          <button className="export-m3u-button" disabled={busy || !playlist.length} onClick={() => handleExport("m3u")}><Download size={16} />M3U</button>
+          <button className="export-csv-button" disabled={busy || !playlist.length} onClick={() => handleExport("csv")}><Download size={16} />CSV</button>
         </div>
       </section>
     </aside>

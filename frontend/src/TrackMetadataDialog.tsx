@@ -82,7 +82,7 @@ export function TrackMetadataDialog({
             <h2>Теги и жанры</h2>
             <span>{basename(track.path)}</span>
           </div>
-          <button className="icon-button" title="Закрыть" aria-label="Закрыть" onClick={onClose}><X size={15} /></button>
+          <button className="icon-button close-metadata-dialog-button" title="Закрыть" aria-label="Закрыть" onClick={onClose}><X size={15} /></button>
         </div>
         <strong className="metadata-track-title">{displayTrack(track)}</strong>
         <div className="mutagen-block">
@@ -149,17 +149,18 @@ const sonaraFeatureLabels: Record<string, string> = {
   chord_change_rate: "Chord changes",
   dissonance: "Dissonance",
   onset_density: "Onset density",
+  rms_mean: "RMS",
   beats: "Beats",
   n_beats: "Beat count",
   onset_frames: "Onsets",
-  spectral_centroid_mean: "Brightness",
+  spectral_centroid_mean: "Spectral Centroid",
   spectral_bandwidth_mean: "Bandwidth",
   spectral_rolloff_mean: "Rolloff",
   spectral_flatness_mean: "Flatness",
   spectral_contrast_mean: "Contrast",
   zero_crossing_rate: "ZCR",
-  mfcc_mean: "MFCC mean",
-  chroma_mean: "Chroma mean",
+  mfcc_mean: "MFCC",
+  chroma_mean: "Chroma",
 };
 
 const sonaraPlaylistFeatureGroups = [

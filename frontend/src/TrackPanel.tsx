@@ -69,7 +69,7 @@ export function TrackPanel({
         <h2>2. Библиотека и прослушивание</h2>
         <div className="panel-title-actions track-panel-actions">
           <button
-            className="icon-button intent-add"
+            className="icon-button intent-add add-visible-tracks-button"
             title={addVisibleTitle}
             aria-label="Добавить все отфильтрованные треки в сет"
             disabled={busy || total === 0}
@@ -108,8 +108,8 @@ export function TrackPanel({
         <span className="library-page-status">
           {loading ? "Загрузка..." : `${pageStart}-${pageEnd} из ${total}`}
         </span>
-        <button className="secondary-mini" disabled={!canGoBack} onClick={onPreviousPage} type="button">Prev</button>
-        <button className="secondary-mini" disabled={!canGoForward} onClick={onNextPage} type="button">Next</button>
+        <button className="secondary-mini library-page-previous-button" disabled={!canGoBack} onClick={onPreviousPage} type="button">Prev</button>
+        <button className="secondary-mini library-page-next-button" disabled={!canGoForward} onClick={onNextPage} type="button">Next</button>
       </div>
       <div className="player library-player">
         <span>{preview ? displayTrack(preview) : "Preview"}</span>

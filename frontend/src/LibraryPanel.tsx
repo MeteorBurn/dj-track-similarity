@@ -101,7 +101,7 @@ export function LibraryPanel({
         <FolderOpen size={18} />
         <h2>1. База и анализ</h2>
         <div className="panel-title-actions process-controls">
-          <button className="icon-button stop-button" title="Остановить текущий scan или анализ" aria-label="Остановить текущий scan или анализ" disabled={busy || !stageRunning} onClick={onStopActiveStage}>
+          <button className="icon-button stop-button stop-active-stage-button" title="Остановить текущий scan или анализ" aria-label="Остановить текущий scan или анализ" disabled={busy || !stageRunning} onClick={onStopActiveStage}>
             <Square size={15} />
           </button>
           <span className={`process-indicator ${stageRunning ? "running" : ""}`} title={stageIndicatorLabel(scanJob, analysisJob)} aria-label={stageIndicatorLabel(scanJob, analysisJob)}>
@@ -111,22 +111,22 @@ export function LibraryPanel({
       </div>
       <div className="path-row database-path-row">
         <input value={databasePath || ""} readOnly placeholder="Выберите SQLite базу" title={helpText.databasePath} />
-        <button className="icon-button folder-picker" title="Выбрать SQLite базу" aria-label="Выбрать SQLite базу" disabled={busy || stageRunning} onClick={onChooseDatabase}>
+        <button className="icon-button folder-picker database-picker-button" title="Выбрать SQLite базу" aria-label="Выбрать SQLite базу" disabled={busy || stageRunning} onClick={onChooseDatabase}>
           <Database size={17} />
         </button>
       </div>
       <div className="path-row library-path-row">
         <input value={musicRoot} onChange={(event) => onMusicRootChange(event.target.value)} placeholder="D:/Music" title={helpText.musicRoot} />
-        <button className="icon-button folder-picker" title="Выбрать папку" aria-label="Выбрать папку" disabled={busy || stageRunning} onClick={onChooseFolder}>
+        <button className="icon-button folder-picker library-folder-picker-button" title="Выбрать папку" aria-label="Выбрать папку" disabled={busy || stageRunning} onClick={onChooseFolder}>
           <FolderOpen size={17} />
         </button>
       </div>
       <div className="worker-control" title={helpText.scanWorkers}>
         <span>Scan workers</span>
         <div className="stepper">
-          <button className="icon-button" disabled={busy || scanWorkers <= 1} onClick={() => adjustScanWorkers(-1)} aria-label="Уменьшить количество потоков сканирования"><Minus size={15} /></button>
+          <button className="icon-button scan-workers-decrement-button" disabled={busy || scanWorkers <= 1} onClick={() => adjustScanWorkers(-1)} aria-label="Уменьшить количество потоков сканирования"><Minus size={15} /></button>
           <input type="number" min={1} max={maxScanWorkers} value={scanWorkers} title={helpText.scanWorkers} onChange={(event) => onScanWorkersChange(Math.min(maxScanWorkers, Math.max(1, Number(event.target.value) || 1)))} />
-          <button className="icon-button" disabled={busy || scanWorkers >= maxScanWorkers} onClick={() => adjustScanWorkers(1)} aria-label="Увеличить количество потоков сканирования"><Plus size={15} /></button>
+          <button className="icon-button scan-workers-increment-button" disabled={busy || scanWorkers >= maxScanWorkers} onClick={() => adjustScanWorkers(1)} aria-label="Увеличить количество потоков сканирования"><Plus size={15} /></button>
         </div>
         <small>Для чтения метаданных: 1-{maxScanWorkers}</small>
       </div>
@@ -163,7 +163,7 @@ export function LibraryPanel({
           {(["auto", "cpu", "cuda"] as DeviceMode[]).map((device) => (
             <button
               key={device}
-              className={analysisDevice === device ? "active" : ""}
+              className={`analysis-device-button ${analysisDevice === device ? "active" : ""}`}
               disabled={busy || stageRunning}
               title={helpText.analysisDevice}
               onClick={() => onAnalysisDeviceChange(device)}
@@ -177,9 +177,9 @@ export function LibraryPanel({
       <div className="worker-control" title={helpText.analysisBatchSize}>
         <span>Embedding batch size</span>
         <div className="stepper">
-          <button className="icon-button" disabled={busy || analysisBatchSize <= 1} onClick={() => adjustAnalysisBatchSize(-1)} aria-label="Уменьшить batch size"><Minus size={15} /></button>
+          <button className="icon-button analysis-batch-decrement-button" disabled={busy || analysisBatchSize <= 1} onClick={() => adjustAnalysisBatchSize(-1)} aria-label="Уменьшить batch size"><Minus size={15} /></button>
           <input type="number" min={1} max={maxAnalysisBatchSize} value={analysisBatchSize} title={helpText.analysisBatchSize} onChange={(event) => onAnalysisBatchSizeChange(Math.min(maxAnalysisBatchSize, Math.max(1, Number(event.target.value) || 1)))} />
-          <button className="icon-button" disabled={busy || analysisBatchSize >= maxAnalysisBatchSize} onClick={() => adjustAnalysisBatchSize(1)} aria-label="Увеличить batch size"><Plus size={15} /></button>
+          <button className="icon-button analysis-batch-increment-button" disabled={busy || analysisBatchSize >= maxAnalysisBatchSize} onClick={() => adjustAnalysisBatchSize(1)} aria-label="Увеличить batch size"><Plus size={15} /></button>
         </div>
         <small>SONARA: параллельные треки. MAEST/MERT/CLAP: inference batch; CPU 1-4, CUDA начни с 4-8.</small>
       </div>

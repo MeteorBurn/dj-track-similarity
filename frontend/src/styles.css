@@ -292,7 +292,7 @@ h2 {
   padding-inline: 8px;
 }
 
-.analysis-reset {
+.analysis-reset-button {
   color: #9a3d25;
   font-size: 12px;
   gap: 4px;
@@ -301,7 +301,7 @@ h2 {
   width: 100%;
 }
 
-.analysis-reset:hover:not(:disabled) {
+.analysis-reset-button:hover:not(:disabled) {
   background: #fff3ee;
   border-color: #d48a72;
   color: #8a2e19;
@@ -1101,7 +1101,7 @@ h2 {
   height: 37px;
 }
 
-.seed-chip {
+.seed-remove-chip {
   background: #fff6dc;
   border-color: #d9b65d;
   max-width: 100%;

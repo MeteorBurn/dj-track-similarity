@@ -80,8 +80,17 @@ Start the lab UI:
 
 The UI starts with no source DB loaded unless `--source` is provided explicitly.
 Choose an existing source DB via the source database field, Browse button, and
-Load database button. Source DB selection validates that the file already exists
-and has the main project schema. It is opened read-only.
+Load database button. Browse only fills the path field; Load database validates
+that the file already exists and has the main project schema, then opens it
+read-only.
+
+Track rows keep the compact Rhythm Lab layout:
+
+- MAEST genres, the automatic `syncopated rhythm` badge, and the manual rhythm
+  label badge share one row.
+- Manual label badges are color-coded: `broken` red, `straight` blue,
+  `ambiguous` violet.
+- Starting one audio preview stops and rewinds any previously playing preview.
 
 ## Useful Commands
 

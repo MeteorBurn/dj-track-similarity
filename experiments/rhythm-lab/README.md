@@ -51,8 +51,9 @@ http://127.0.0.1:8777/
 
 No source database is loaded at startup unless `--source` is provided
 explicitly. The UI includes a source database path field, a file picker button,
-and a Load database button. The picker opens only an existing SQLite file. The
-selected source DB is opened read-only.
+and a Load database button. The picker opens only an existing SQLite file and
+only fills the path field; the database is loaded only after pressing Load
+database. The selected source DB is opened read-only.
 
 ## Labeling UI
 
@@ -66,6 +67,12 @@ The UI includes:
 - audio preview from source paths
 - MAEST genres and SONARA/MERT/MAEST feature availability from the source DB
 
+Manual rhythm label badges are color-coded in the track row:
+
+- `broken`: red
+- `straight`: blue
+- `ambiguous`: violet
+
 Keyboard shortcuts on a focused row:
 
 - `1` = `broken`
@@ -75,6 +82,7 @@ Keyboard shortcuts on a focused row:
 
 AIFF/AIF previews are transcoded to WAV on the fly for browser playback. This is
 read-only streaming and does not rewrite or cache the source audio file.
+Starting a preview stops and rewinds the previously playing preview.
 
 ## Label Meanings
 

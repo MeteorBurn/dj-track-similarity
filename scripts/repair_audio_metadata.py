@@ -211,12 +211,19 @@ def main(argv: list[str] | None = None) -> int:
     state: dict[str, object] | None = None
     state_path: Path | None = None
     skipped_from_state = 0
+    skipped_by_reason = 0
     paths = list(all_paths)
+    if args.reasons and not folder_mode:
+        print("--reason can only be used with --folder state.", file=sys.stderr)
+        return 2
     if folder_mode:
         state_path = resolve_state_path(args.state, args.folders)
         state = load_state(state_path, args.folders)
         pending_paths: list[Path] = []
         for path in all_paths:
+            if args.reasons and not state_entry_reason_matches(state, path, set(args.reasons)):
+                skipped_by_reason += 1
+                continue
             if state_entry_current(state, path, apply_changes=apply_changes):
                 skipped_from_state += 1
             else:
@@ -242,6 +249,7 @@ def main(argv: list[str] | None = None) -> int:
             folder_mode=folder_mode,
             summary_only=args.summary_only,
             workers=args.workers,
+            skipped_by_reason=skipped_by_reason,
         )
     finally:
         reporter.close()
@@ -263,12 +271,15 @@ def run_paths(
     folder_mode: bool,
     summary_only: bool,
     workers: int,
+    skipped_by_reason: int,
 ) -> int:
     if folder_mode:
         reporter.line(f"Total tracks: {len(all_paths)}")
         if state_path is not None:
             reporter.line(f"State file: {state_path}")
         reporter.line(f"Already checked from state: {skipped_from_state}")
+        if skipped_by_reason:
+            reporter.line(f"Skipped by reason filter: {skipped_by_reason}")
         reporter.line(f"Pending tracks: {len(paths)}")
     else:
         reporter.line(f"Total tracks: {len(paths)}")
@@ -310,6 +321,8 @@ def run_paths(
     )
     if folder_mode:
         summary += f" skipped-state={skipped_from_state}"
+        if skipped_by_reason:
+            summary += f" skipped-reason={skipped_by_reason}"
     reporter.line(summary)
     if problem_counts:
         reporter.line("Problem summary:")
@@ -446,6 +459,16 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         default=1,
         help="Parallel dry-run workers. --apply always runs sequentially.",
     )
+    parser.add_argument(
+        "--reason",
+        dest="reasons",
+        action="append",
+        default=[],
+        help=(
+            "Folder-mode state reason to process. Use after a dry-run with --apply to repair only "
+            "one stored reason. Can be repeated. Match the exact reason from the state file."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -475,12 +498,25 @@ def resolve_state_path(state_path: Path | None, folders: list[Path]) -> Path:
         return state_path
     signature = folder_signature(folders)
     digest = hashlib.sha1(signature.encode("utf-8", errors="replace")).hexdigest()[:12]
-    return DEFAULT_RUN_DIR / f"state.{digest}.json"
+    return DEFAULT_RUN_DIR / f"state.{folder_state_label(folders)}.{digest}.json"
 
 
 def folder_signature(folders: list[Path]) -> str:
     resolved = [str(folder.resolve()) for folder in folders]
     return "\n".join(sorted(os.path.normcase(path) for path in resolved))
+
+
+def folder_state_label(folders: list[Path]) -> str:
+    if len(folders) == 1:
+        return safe_filename_part(folders[0].resolve().name or folders[0].resolve().anchor.rstrip(":\\"))
+    digest = hashlib.sha1(folder_signature(folders).encode("utf-8", errors="replace")).hexdigest()[:8]
+    return f"multiple_{digest}"
+
+
+def safe_filename_part(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip())
+    cleaned = cleaned.strip("._-")
+    return cleaned or "folder"
 
 
 def load_state(state_path: Path, folders: list[Path]) -> dict[str, object]:
@@ -495,14 +531,14 @@ def load_state(state_path: Path, folders: list[Path]) -> dict[str, object]:
     files = raw.get("files")
     if not isinstance(files, dict):
         raw["files"] = {}
-    raw.setdefault("version", 1)
+    raw.setdefault("version", 2)
     raw["folders"] = [str(folder.resolve()) for folder in folders]
     return raw
 
 
 def new_state(folders: list[Path]) -> dict[str, object]:
     return {
-        "version": 1,
+        "version": 2,
         "folders": [str(folder.resolve()) for folder in folders],
         "updated_at": None,
         "files": {},
@@ -510,25 +546,59 @@ def new_state(folders: list[Path]) -> dict[str, object]:
 
 
 def state_key(path: Path) -> str:
-    return os.path.normcase(str(path.resolve()))
+    return hashlib.sha1(state_key_source(path).encode("utf-8", errors="replace")).hexdigest()
+
+
+def state_key_source(path: Path) -> str:
+    resolved = path.resolve()
+    return os.path.normcase(str(resolved.parent / resolved.name))
+
+
+def state_entry_for_path(state: dict[str, object], path: Path) -> dict[str, object] | None:
+    files = state.get("files")
+    if not isinstance(files, dict):
+        return None
+    entry = files.get(state_key(path))
+    if isinstance(entry, dict):
+        return entry
+    return None
 
 
 def state_entry_current(state: dict[str, object], path: Path, *, apply_changes: bool) -> bool:
-    files = state.get("files")
-    if not isinstance(files, dict):
-        return False
-    entry = files.get(state_key(path))
-    if not isinstance(entry, dict):
+    entry = state_entry_for_path(state, path)
+    if entry is None:
         return False
     try:
         stat = path.stat()
     except OSError:
         return False
-    if entry.get("size") != stat.st_size or entry.get("mtime") != stat.st_mtime:
+    if entry.get("size") != stat.st_size or state_modified_at(entry) != int(stat.st_mtime):
         return False
     if apply_changes:
         return entry.get("mode") == "apply"
     return True
+
+
+def state_entry_reason_matches(state: dict[str, object], path: Path, reasons: set[str]) -> bool:
+    entry = state_entry_for_path(state, path)
+    if entry is None:
+        return False
+    try:
+        stat = path.stat()
+    except OSError:
+        return False
+    if entry.get("size") != stat.st_size or state_modified_at(entry) != int(stat.st_mtime):
+        return False
+    return entry.get("reason") in reasons
+
+
+def state_modified_at(entry: dict[str, object]) -> int | None:
+    value = entry.get("modified_at")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    return None
 
 
 def update_state_entry(state: dict[str, object], path: Path, result: FileRepairResult, *, apply_changes: bool) -> None:
@@ -538,22 +608,34 @@ def update_state_entry(state: dict[str, object], path: Path, result: FileRepairR
         state["files"] = files
     stat = path.stat()
     files[state_key(path)] = {
+        "title": path.name,
         "path": str(path),
         "size": stat.st_size,
-        "mtime": stat.st_mtime,
-        "status": result.status,
-        "message": result.message,
         "mode": "apply" if apply_changes else "dry-run",
-        "checked_at": time.time(),
+        "message": result_message(result),
+        "status": result.status,
+        "reason": result_reason(result),
+        "checked_at": int(time.time()),
+        "modified_at": int(stat.st_mtime),
     }
-    state["updated_at"] = time.time()
+    state["updated_at"] = int(time.time())
+
+
+def result_message(result: FileRepairResult) -> str:
+    if result.status == "ok" and result.message == "ok":
+        return "checked"
+    if result.status == "repairable" and result.message == "ok":
+        return "repair_available"
+    if result.status == "repaired" and result.message == "ok":
+        return "repair_applied"
+    return result.message
 
 
 def save_state(state_path: Path, state: dict[str, object]) -> None:
     state_path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = state_path.with_name(f"{state_path.name}.{os.getpid()}.tmp")
     try:
-        temp_path.write_text(json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+        temp_path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
         os.replace(temp_path, state_path)
     finally:
         if temp_path.exists():
@@ -1357,55 +1439,95 @@ def should_use_color(mode: str) -> bool:
 def summarize_problem_types(results: list[FileRepairResult]) -> list[tuple[str, int]]:
     counts: dict[str, int] = {}
     for result in results:
-        problem = problem_type(result)
+        problem = result_problem_summary(result)
         if problem is None:
             continue
         counts[problem] = counts.get(problem, 0) + 1
     return sorted(counts.items())
 
 
-def problem_type(result: FileRepairResult) -> str | None:
-    if result.status in {"ok", "repaired"}:
+def result_reason(result: FileRepairResult) -> str | None:
+    if result.status == "ok":
         return None
+    if result.status in {"repairable", "repaired"}:
+        return repairable_reason(result)
     if result.status == "notice":
-        return f"notice: {result.message}"
-    if result.status == "repairable":
-        joined_actions = " | ".join(result.actions)
-        suffix = result.path.suffix.lower()
-        if suffix in {".wav", ".wave"} and "shrunk oversized data chunk" in joined_actions:
-            return "repairable: WAV oversized data chunk before ID3 chunk"
-        if suffix in {".wav", ".wave"} and "removed duplicate/unselected ID3 chunks" in joined_actions:
-            return "repairable: WAV duplicate/unselected ID3 chunks"
-        if suffix in {".aif", ".aiff", ".aifc"} and "removed empty ID3 chunks" in joined_actions:
-            return "repairable: AIFF empty ID3 chunks"
-        if suffix in {".wav", ".wave"}:
-            return "repairable: WAV container/tag chunk normalization"
-        if suffix in {".aif", ".aiff", ".aifc"}:
-            return "repairable: AIFF container/tag chunk normalization"
-        return f"repairable: {result.message}"
+        return "notice"
+    if result.status == "suspicious":
+        extension_match = re.search(r"extension=(\.[^\s]+) detected=([^\s]+)", result.message)
+        if extension_match:
+            return "extension_mismatch"
+        codec_match = re.search(r"extension=(\.[^\s]+) detected_codec=([^\s]+)", result.message)
+        if codec_match:
+            return "codec_mismatch"
+        return "suspicious"
+    if result.status == "tag-error":
+        return "tag_error"
+    if result.status == "failed":
+        return "failed"
+    if result.status == "broken":
+        return "broken"
+    if result.status == "unsupported":
+        return "unsupported"
+    return result.status.replace("-", "_")
+
+
+def repairable_reason(result: FileRepairResult) -> str | None:
+    if result.status not in {"repairable", "repaired"}:
+        return None
+    joined_actions = " | ".join(result.actions)
+    suffix = result.path.suffix.lower()
+    if suffix in {".wav", ".wave"} and "shrunk oversized data chunk" in joined_actions:
+        return "oversized_data"
+    if suffix in {".wav", ".wave"} and "removed duplicate/unselected ID3 chunks" in joined_actions:
+        return "duplicate_id3"
+    if suffix in {".aif", ".aiff", ".aifc"} and "removed empty ID3 chunk" in joined_actions:
+        return "empty_id3"
+    if suffix in {".wav", ".wave"}:
+        return "container"
+    if suffix in {".aif", ".aiff", ".aifc"}:
+        return "container"
+    return "repairable"
+
+
+def result_problem_summary(result: FileRepairResult) -> str | None:
+    reason = result_reason(result)
+    if reason is None:
+        return None
+    if result.status in {"repairable", "repaired"}:
+        return f"repairable[{reason}]: {repairable_reason_description(reason, result)}"
+    if result.status == "notice":
+        return f"notice[{reason}]: {result.message}"
     if result.status == "suspicious":
         extension_match = re.search(r"extension=(\.[^\s]+) detected=([^\s]+)", result.message)
         if extension_match:
             return (
-                f"suspicious: extension mismatch: {extension_match.group(1)} "
+                f"suspicious[{reason}]: extension mismatch: {extension_match.group(1)} "
                 f"detected as {extension_match.group(2)}"
             )
         codec_match = re.search(r"extension=(\.[^\s]+) detected_codec=([^\s]+)", result.message)
         if codec_match:
             return (
-                f"suspicious: codec mismatch: {codec_match.group(1)} "
+                f"suspicious[{reason}]: codec mismatch: {codec_match.group(1)} "
                 f"codec {codec_match.group(2)}"
             )
-        return f"suspicious: {result.message}"
-    if result.status == "tag-error":
-        return f"tag-error: {result.message}"
-    if result.status == "failed":
-        return f"failed: {result.message}"
-    if result.status == "broken":
-        return f"broken: {result.message}"
-    if result.status == "unsupported":
-        return f"unsupported: {result.message}"
-    return f"{result.status}: {result.message}"
+        return f"suspicious[{reason}]: {result.message}"
+    return f"{result.status}[{reason}]: {result.message}"
+
+
+def repairable_reason_description(reason: str, result: FileRepairResult) -> str:
+    suffix = result.path.suffix.lower()
+    if reason == "oversized_data":
+        return "WAV oversized data chunk before ID3 chunk"
+    if reason == "duplicate_id3":
+        return "WAV duplicate/unselected ID3 chunks"
+    if reason == "empty_id3":
+        return "AIFF empty ID3 chunks"
+    if reason == "container" and suffix in {".wav", ".wave"}:
+        return "WAV container/tag chunk normalization"
+    if reason == "container" and suffix in {".aif", ".aiff", ".aifc"}:
+        return "AIFF container/tag chunk normalization"
+    return result.message
 
 
 def dedupe(values: list[str]) -> list[str]:

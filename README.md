@@ -234,11 +234,15 @@ python scripts\repair_audio_metadata.py --folder "M:\Volumes\Abstracted" --worke
 Dry-run does not write audio files and does not copy each track. It recursively
 checks supported audio extensions, reports `OK`, `NOTICE`, `SUSPICIOUS`,
 `TAG-ERROR`, `REPAIRABLE`, or `FAILED`, and stores progress so repeated runs of
-the same folder continue from already checked files. The default state file is
-derived from the resolved `--folder` path and stored under:
+the same folder continue from already checked files. Each state entry also
+stores a short machine-friendly `reason`, for example `oversized_data`,
+`duplicate_id3`, `empty_id3`, `container`, `extension_mismatch`, or
+`codec_mismatch`, so repair can later be limited to one exact problem type. The
+default state file is derived from the resolved `--folder` path and stored
+under:
 
 ```text
-scripts/audio_repair/state.<folder_hash>.json
+scripts/audio_repair/state.<folder_name>.<folder_hash>.json
 ```
 
 The default file log is overwritten on every run:
@@ -259,6 +263,13 @@ rewriting a repaired file, the script creates a full-file backup under:
 
 ```text
 scripts/audio_repair/backups/
+```
+
+To apply only one repair reason from a previous dry-run state file, pass the
+exact `reason` value:
+
+```powershell
+python scripts\repair_audio_metadata.py --folder "M:\Volumes\Abstracted" --apply --reason oversized_data
 ```
 
 `OK` files are not changed. `NOTICE` entries are non-required cleanup such as

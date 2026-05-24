@@ -18,6 +18,7 @@ venv/
 *.log
 *.log.*
 *.state.json
+state.*.json
 scripts/audio_repair/*
 !scripts/audio_repair/.gitkeep
 

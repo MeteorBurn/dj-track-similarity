@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
-import time
+import json
 import sys
+import time
 from pathlib import Path
 
 
@@ -252,9 +253,9 @@ def test_main_output_groups_problem_summary(monkeypatch, tmp_path: Path, capsys)
     output = capsys.readouterr().out
     assert exit_code == 0
     assert "Problem summary:" in output
-    assert "repairable: WAV oversized data chunk before ID3 chunk: 1" in output
-    assert "suspicious: extension mismatch: .flac detected as mp3: 1" in output
-    assert "tag-error: mutagen error: ID3v2.32 not supported: 1" in output
+    assert "repairable[oversized_data]: WAV oversized data chunk before ID3 chunk: 1" in output
+    assert "suspicious[extension_mismatch]: extension mismatch: .flac detected as mp3: 1" in output
+    assert "tag-error[tag_error]: mutagen error: ID3v2.32 not supported: 1" in output
 
 
 def test_format_result_uses_compact_one_line_layout(tmp_path: Path) -> None:
@@ -379,11 +380,28 @@ def test_default_folder_state_path_is_folder_dependent_and_reused(monkeypatch, t
     assert first_state == repair.resolve_state_path(None, [first_folder])
     assert second_state == repair.resolve_state_path(None, [second_folder])
     assert first_state != second_state
+    assert first_state.name.startswith("state.library-a.")
+    assert second_state.name.startswith("state.library-b.")
+    assert first_state.name.endswith(".json")
     assert first_state.exists()
     assert second_state.exists()
     assert processed == [first_track, second_track]
     assert f"State file: {first_state}" in output
     assert "Already checked from state: 1" in output
+
+
+def test_default_state_path_uses_safe_folder_label(monkeypatch, tmp_path: Path) -> None:
+    repair = _load_repair_module()
+    run_dir = tmp_path / "audio_repair"
+    monkeypatch.setattr(repair, "DEFAULT_RUN_DIR", run_dir)
+    folder = tmp_path / "Library Name #1"
+    folder.mkdir()
+
+    state_path = repair.resolve_state_path(None, [folder])
+
+    assert state_path.parent == run_dir
+    assert state_path.name.startswith("state.Library_Name_1.")
+    assert state_path.name.endswith(".json")
 
 
 def test_default_backup_dir_is_under_script_work_dir(monkeypatch, tmp_path: Path) -> None:
@@ -430,6 +448,79 @@ def test_folder_state_dry_run_does_not_skip_later_apply(monkeypatch, tmp_path: P
     assert apply_exit == 0
     assert second_apply_exit == 0
     assert calls == [False, True]
+
+
+def test_state_stores_reason_and_apply_can_filter_by_reason(monkeypatch, tmp_path: Path) -> None:
+    repair = _load_repair_module()
+    folder = tmp_path / "library"
+    folder.mkdir()
+    wav_path = folder / "broken.wav"
+    aiff_path = folder / "broken.aiff"
+    wav_path.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
+    aiff_path.write_bytes(b"FORM\x00\x00\x00\x04AIFF")
+    state_path = tmp_path / "state.json"
+    calls: list[tuple[Path, bool]] = []
+    wanted_reason = "oversized_data"
+    monkeypatch.setattr(repair.time, "time", lambda: 1234.9)
+
+    def fake_repair_file(path: Path, *, apply_changes: bool, **_kwargs):
+        calls.append((path, apply_changes))
+        if path == wav_path:
+            return repair.FileRepairResult(
+                path=path,
+                status="repaired" if apply_changes else "repairable",
+                message="ok",
+                actions=["shrunk oversized data chunk at offset 36 from declared size 100 to 80"],
+            )
+        return repair.FileRepairResult(
+            path=path,
+            status="repairable",
+            message="ok",
+            actions=["removed empty ID3 chunk at offset 128"],
+        )
+
+    monkeypatch.setattr(repair, "repair_file", fake_repair_file)
+
+    dry_run_exit = repair.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log"])
+    apply_exit = repair.main(
+        [
+            "--folder",
+            str(folder),
+            "--state",
+            str(state_path),
+            "--no-file-log",
+            "--apply",
+            "--reason",
+            wanted_reason,
+        ]
+    )
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    entries = {entry["title"]: entry for entry in state["files"].values()}
+    assert dry_run_exit == 0
+    assert apply_exit == 0
+    assert repair.state_key(wav_path) in state["files"]
+    assert str(wav_path.resolve()) not in state["files"]
+    assert list(entries["broken.wav"].keys()) == [
+        "title",
+        "path",
+        "size",
+        "mode",
+        "message",
+        "status",
+        "reason",
+        "checked_at",
+        "modified_at",
+    ]
+    assert isinstance(entries["broken.wav"]["checked_at"], int)
+    assert isinstance(entries["broken.wav"]["modified_at"], int)
+    assert entries["broken.wav"]["reason"] == wanted_reason
+    assert entries["broken.wav"]["mode"] == "apply"
+    assert entries["broken.wav"]["message"] == "repair_applied"
+    assert entries["broken.aiff"]["reason"] == "empty_id3"
+    assert entries["broken.aiff"]["mode"] == "dry-run"
+    assert entries["broken.aiff"]["message"] == "repair_available"
+    assert calls == [(aiff_path, False), (wav_path, False), (wav_path, True)]
 
 
 def test_folder_dry_run_workers_process_multiple_files(monkeypatch, tmp_path: Path) -> None:

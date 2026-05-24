@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 import threading
 import time
@@ -9,6 +10,7 @@ from fastapi.testclient import TestClient
 
 import dj_track_similarity.api as api
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.logging_config import set_analysis_diagnostics_enabled
 from dj_track_similarity.sonara_features import analyze_and_store_sonara_features
 from dj_track_similarity.sonara_jobs import SonaraFeatureJobManager
 
@@ -314,3 +316,45 @@ def test_sonara_batch_size_runs_tracks_in_parallel(monkeypatch, tmp_path: Path) 
     assert status.workers == 2
     assert status.batch_size == 2
     assert max_active == 2
+
+
+def test_sonara_job_logs_track_timing_when_diagnostics_enabled(monkeypatch, tmp_path: Path, caplog) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    audio_path = tmp_path / "a.wav"
+    _write_wav(audio_path)
+    db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": "a.wav"})
+
+    def fake_analyze(db, track):
+        db.save_sonara_features(track.id, {"bpm": {"value": 121}}, model_name="sonara-test")
+
+    monkeypatch.setattr("dj_track_similarity.sonara_jobs.analyze_and_store_sonara_features", fake_analyze)
+    manager = SonaraFeatureJobManager(db)
+
+    set_analysis_diagnostics_enabled(True)
+    try:
+        with caplog.at_level(logging.INFO, logger="dj_track_similarity.sonara_jobs"):
+            manager.run_sync()
+    finally:
+        set_analysis_diagnostics_enabled(None)
+
+    assert "Sonara track timing" in caplog.text
+    assert "track_id=" in caplog.text
+    assert "total_seconds=" in caplog.text
+    assert "tracks_per_second=" in caplog.text
+
+
+def test_sonara_job_suppresses_track_timing_by_default(monkeypatch, tmp_path: Path, caplog) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    audio_path = tmp_path / "a.wav"
+    _write_wav(audio_path)
+    db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": "a.wav"})
+
+    def fake_analyze(db, track):
+        db.save_sonara_features(track.id, {"bpm": {"value": 121}}, model_name="sonara-test")
+
+    monkeypatch.setattr("dj_track_similarity.sonara_jobs.analyze_and_store_sonara_features", fake_analyze)
+
+    with caplog.at_level(logging.INFO, logger="dj_track_similarity.sonara_jobs"):
+        SonaraFeatureJobManager(db).run_sync()
+
+    assert "Sonara track timing" not in caplog.text

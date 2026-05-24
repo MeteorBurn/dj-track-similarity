@@ -1,9 +1,11 @@
 from pathlib import Path
+import logging
 
 import numpy as np
 
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.genre_jobs import GenreAnalysisJobManager
+from dj_track_similarity.logging_config import set_analysis_diagnostics_enabled
 
 
 def _track(db: LibraryDatabase, tmp_path: Path, name: str) -> int:
@@ -45,6 +47,12 @@ class BatchGenreAdapter:
 
     def predict_batch(self, paths):
         self.batches.append([Path(path).name for path in paths])
+        self.last_batch_timing = {
+            "prepare_seconds": 1.5,
+            "decode_seconds": 0.7,
+            "inference_seconds": 2.5,
+            "windows": len(paths) * 3,
+        }
         return [[{"label": f"Genre {index}", "score": 0.9}] for index, _path in enumerate(paths)]
 
     def predict(self, path):
@@ -151,6 +159,41 @@ def test_genre_job_runs_maest_in_batches_and_records_progress(tmp_path: Path) ->
     assert tracks[0].genres == ["Genre 0"]
     assert tracks[1].genres == ["Genre 1"]
     assert tracks[2].genres == ["Genre 0"]
+
+
+def test_genre_job_logs_batch_stage_timing_when_diagnostics_enabled(tmp_path: Path, caplog) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    _track(db, tmp_path, "a.wav")
+    _track(db, tmp_path, "b.wav")
+    adapter = BatchGenreAdapter()
+    manager = GenreAnalysisJobManager(db, {"maest": lambda **kwargs: adapter})
+
+    set_analysis_diagnostics_enabled(True)
+    try:
+        with caplog.at_level(logging.INFO, logger="dj_track_similarity.genre_jobs"):
+            manager.run_sync(batch_size=2)
+    finally:
+        set_analysis_diagnostics_enabled(None)
+
+    assert "MAEST batch timing" in caplog.text
+    assert "prepare_seconds=1.500" in caplog.text
+    assert "decode_seconds=0.700" in caplog.text
+    assert "inference_seconds=2.500" in caplog.text
+    assert "save_seconds=" in caplog.text
+    assert "tracks_per_second=" in caplog.text
+
+
+def test_genre_job_suppresses_batch_stage_timing_by_default(tmp_path: Path, caplog) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    _track(db, tmp_path, "a.wav")
+    _track(db, tmp_path, "b.wav")
+    adapter = BatchGenreAdapter()
+    manager = GenreAnalysisJobManager(db, {"maest": lambda **kwargs: adapter})
+
+    with caplog.at_level(logging.INFO, logger="dj_track_similarity.genre_jobs"):
+        manager.run_sync(batch_size=2)
+
+    assert "MAEST batch timing" not in caplog.text
 
 
 def test_genre_job_retries_failed_maest_batch_per_track(tmp_path: Path) -> None:

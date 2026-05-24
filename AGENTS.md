@@ -55,6 +55,13 @@ branches, or history are available.
   generated `scripts/audio_repair/` contents.
 - Server startup requires `ffmpeg` on `PATH` or `DJ_TRACK_SIMILARITY_FFMPEG`;
   keep missing-ffmpeg errors clear and actionable.
+- The verified Windows CUDA ML stack is PyTorch `2.11.0`, Torchaudio
+  `2.11.0`, Torchvision `0.26.0`, TorchCodec `0.13.0`, CUDA wheel index
+  `cu130`, and `numpy>=1.26,<2.0`. Keep these synchronized unless a deliberate
+  dependency upgrade is being tested.
+- TorchCodec-backed Torchaudio decoding on Windows requires an FFmpeg shared
+  build with DLLs on `PATH`; the verified portable build is GyanD
+  `ffmpeg 8.1.1-full_build-shared` under `C:\Utils\tools\ffmpeg\bin`.
 
 ## Analysis And UI Contracts
 
@@ -69,7 +76,8 @@ branches, or history are available.
   labels may omit `mean`, but do not rename stored keys or derive Camelot data.
 - Shared audio loading is native-first standard decoding: Sonara starts with
   `sonara.analyze_file`; Sonara fallback, MAEST, MERT, and CLAP use the shared
-  loader (`torchaudio` when provided, Python `wave` for WAV, then `ffmpeg`).
+  loader (`torchaudio` with TorchCodec when provided, Python `wave` for WAV,
+  then `ffmpeg`).
 - MAEST analysis writes only SQLite metadata and must use the three-window
   30-second policy with direct `model(audio_batch, melspectrogram_input=False)`
   logits, not `predict_labels()` for batch work.

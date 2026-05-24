@@ -10,7 +10,7 @@ from typing import cast
 
 from .database import LibraryDatabase
 from .job_runtime import JobStore
-from .logging_config import exception_summary, log_failure, log_job_event
+from .logging_config import analysis_diagnostics_enabled, exception_summary, log_failure, log_job_event
 from .models import Track
 from .sonara_features import SONARA_MODEL_NAME, analyze_and_store_sonara_features
 
@@ -145,10 +145,12 @@ class SonaraFeatureJobManager:
 
     def _analyze_one(self, job_id: str, track: Track) -> None:
         self._update(job_id, current_path=track.path)
+        started = time.perf_counter()
         try:
             analyze_and_store_sonara_features(self.db, track)
             self._update_progress(job_id, track.path, analyzed_delta=1)
             self._append_event(job_id, "ok", "Sonara features saved to database", path=track.path, track_id=track.id)
+            self._log_track_timing(job_id, track, started=started)
         except Exception as error:
             self._save_failure(job_id, track, error)
 
@@ -180,6 +182,20 @@ class SonaraFeatureJobManager:
             if status.started_at and status.processed:
                 status.avg_seconds_per_track = (time.time() - status.started_at) / status.processed
         self._append_event(job_id, "error", f"Track failed: {error_text}", path=track.path, track_id=track.id)
+
+    def _log_track_timing(self, job_id: str, track: Track, *, started: float) -> None:
+        if not analysis_diagnostics_enabled():
+            return
+        total_seconds = time.perf_counter() - started
+        tracks_per_second = 1.0 / total_seconds if total_seconds > 0 else 0.0
+        LOGGER.info(
+            "Sonara track timing job_id=%s track_id=%s path=%s total_seconds=%.3f tracks_per_second=%.3f",
+            job_id,
+            track.id,
+            track.path,
+            total_seconds,
+            tracks_per_second,
+        )
 
     def _update_progress(
         self,

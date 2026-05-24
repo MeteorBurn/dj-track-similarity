@@ -12,7 +12,7 @@ import numpy as np
 from .database import DEFAULT_EMBEDDING_KEY, LibraryDatabase
 from .embedding import EmbeddingAdapter, adapter_factories as default_adapter_factories
 from .job_runtime import JobStore, chunks
-from .logging_config import exception_summary, log_failure, log_job_event
+from .logging_config import analysis_diagnostics_enabled, exception_summary, log_failure, log_job_event
 from .models import Track
 
 
@@ -205,13 +205,18 @@ class AnalysisJobManager:
 
     def _process_batch(self, job_id: str, adapter: EmbeddingAdapter, batch: list[Track]) -> None:
         paths = [track.path for track in batch]
+        batch_started = time.perf_counter()
+        save_seconds = 0.0
         try:
             if hasattr(adapter, "embed_batch"):
                 vectors = adapter.embed_batch(paths)  # type: ignore[attr-defined]
             else:
                 vectors = [adapter.embed(path) for path in paths]
             for track, vector in zip(batch, vectors):
+                save_started = time.perf_counter()
                 self._save_success(job_id, adapter, track, vector)
+                save_seconds += time.perf_counter() - save_started
+            self._log_batch_timing(job_id, adapter, batch, batch_started=batch_started, save_seconds=save_seconds)
         except Exception:
             for track in batch:
                 try:
@@ -219,6 +224,38 @@ class AnalysisJobManager:
                     self._save_success(job_id, adapter, track, vector)
                 except Exception as error:
                     self._save_failure(job_id, track, error)
+
+    def _log_batch_timing(
+        self,
+        job_id: str,
+        adapter: EmbeddingAdapter,
+        batch: list[Track],
+        *,
+        batch_started: float,
+        save_seconds: float,
+    ) -> None:
+        if not analysis_diagnostics_enabled():
+            return
+        total_seconds = time.perf_counter() - batch_started
+        tracks = len(batch)
+        timing = getattr(adapter, "last_batch_timing", {}) or {}
+        tracks_per_second = tracks / total_seconds if total_seconds > 0 else 0.0
+        LOGGER.info(
+            "Analysis batch timing job_id=%s adapter=%s embedding_key=%s tracks=%s windows=%s "
+            "prepare_seconds=%.3f decode_seconds=%.3f inference_seconds=%.3f save_seconds=%.3f "
+            "total_seconds=%.3f tracks_per_second=%.3f",
+            job_id,
+            getattr(adapter, "embedding_key", DEFAULT_EMBEDDING_KEY),
+            getattr(adapter, "embedding_key", DEFAULT_EMBEDDING_KEY),
+            tracks,
+            int(timing.get("windows", 0) or 0),
+            float(timing.get("prepare_seconds", 0.0) or 0.0),
+            float(timing.get("decode_seconds", 0.0) or 0.0),
+            float(timing.get("inference_seconds", 0.0) or 0.0),
+            save_seconds,
+            total_seconds,
+            tracks_per_second,
+        )
 
     def _refresh_adapter_runtime_metadata(self, job_id: str, adapter: EmbeddingAdapter) -> None:
         device = getattr(adapter, "device", None) or getattr(adapter, "device_name", None)

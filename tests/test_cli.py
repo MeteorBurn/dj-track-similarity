@@ -1,7 +1,41 @@
 from typer.testing import CliRunner
+import pytest
 
 import dj_track_similarity.cli as cli
 from dj_track_similarity.database import LibraryDatabase
+
+
+class _FakeStatus:
+    state = "completed"
+    total = 3
+    processed = 3
+    analyzed = 2
+    failed = 1
+    embedding_key = "mert"
+    device = "cpu"
+    batch_size = 4
+    top_k = 3
+    avg_seconds_per_track = 0.5
+
+
+class _FakeAnalysisManager:
+    def __init__(self, db):
+        self.status = _FakeStatus()
+
+    def create_job(self, **_kwargs):
+        return "job-1"
+
+    def run_job(self, _job_id):
+        return self.status
+
+    def get(self, _job_id):
+        return self.status
+
+
+class _FakeGenreManager(_FakeAnalysisManager):
+    def __init__(self, db):
+        self.status = _FakeStatus()
+        self.status.embedding_key = "maest"
 
 
 def test_serve_reports_missing_ffmpeg_without_traceback(monkeypatch):
@@ -43,3 +77,76 @@ def test_analyze_cli_does_not_expose_removed_fake_option():
 
     assert result.exit_code != 0
     assert "No such option" in result.output
+
+
+@pytest.mark.parametrize("adapter", ["mert", "clap"])
+def test_analyze_cli_prints_live_progress(monkeypatch, tmp_path, adapter):
+    monkeypatch.setattr(cli, "AnalysisJobManager", _FakeAnalysisManager)
+    db_path = tmp_path / "library.sqlite"
+
+    result = CliRunner().invoke(cli.app, ["analyze", "--adapter", adapter, "--db", str(db_path)])
+
+    assert result.exit_code == 0
+    assert f"Starting {adapter} analysis" in result.output
+    assert "processed=3/3" in result.output
+    assert "tracks/s" in result.output
+    assert "eta=" in result.output
+    assert "state=completed" in result.output
+
+
+def test_analyze_cli_accepts_diagnostics_flag(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "AnalysisJobManager", _FakeAnalysisManager)
+    db_path = tmp_path / "library.sqlite"
+
+    result = CliRunner().invoke(cli.app, ["analyze", "--adapter", "mert", "--diagnostics", "--db", str(db_path)])
+
+    assert result.exit_code == 0
+    assert "Starting mert analysis" in result.output
+
+
+def test_analyze_genres_cli_accepts_diagnostics_flag(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "GenreAnalysisJobManager", _FakeGenreManager)
+    db_path = tmp_path / "library.sqlite"
+
+    result = CliRunner().invoke(cli.app, ["analyze-genres", "--diagnostics", "--db", str(db_path)])
+
+    assert result.exit_code == 0
+    assert "Starting maest analysis" in result.output
+
+
+def test_analyze_sonara_cli_accepts_diagnostics_flag(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SonaraFeatureJobManager", _FakeAnalysisManager)
+    db_path = tmp_path / "library.sqlite"
+
+    result = CliRunner().invoke(cli.app, ["analyze-sonara", "--diagnostics", "--db", str(db_path)])
+
+    assert result.exit_code == 0
+    assert "Starting sonara analysis" in result.output
+
+
+def test_analyze_genres_cli_prints_live_progress(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "GenreAnalysisJobManager", _FakeGenreManager)
+    db_path = tmp_path / "library.sqlite"
+
+    result = CliRunner().invoke(cli.app, ["analyze-genres", "--db", str(db_path)])
+
+    assert result.exit_code == 0
+    assert "Starting maest analysis" in result.output
+    assert "processed=3/3" in result.output
+    assert "tracks/s" in result.output
+    assert "eta=" in result.output
+    assert "embedding_key=maest" in result.output
+
+
+def test_analyze_sonara_cli_prints_live_progress(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "SonaraFeatureJobManager", _FakeAnalysisManager)
+    db_path = tmp_path / "library.sqlite"
+
+    result = CliRunner().invoke(cli.app, ["analyze-sonara", "--db", str(db_path)])
+
+    assert result.exit_code == 0
+    assert "Starting sonara analysis" in result.output
+    assert "processed=3/3" in result.output
+    assert "tracks/s" in result.output
+    assert "eta=" in result.output
+    assert "state=completed" in result.output

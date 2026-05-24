@@ -1,4 +1,5 @@
 from pathlib import Path
+import logging
 import subprocess
 from types import SimpleNamespace
 import wave
@@ -8,6 +9,7 @@ import pytest
 
 import dj_track_similarity.audio_loader as audio_loader
 from dj_track_similarity.audio_loader import load_audio_mono, torch_compatible_audio
+from dj_track_similarity.logging_config import set_analysis_diagnostics_enabled
 
 
 def _write_pcm_wav(path: Path, *, sample_rate: int = 44_100) -> bytes:
@@ -116,6 +118,48 @@ def test_load_audio_mono_uses_ffmpeg_when_native_wav_decode_fails(monkeypatch, t
     assert "recovered malformed WAV" not in detail
 
 
+def test_load_audio_mono_suppresses_decoder_diagnostics_by_default(tmp_path: Path, caplog) -> None:
+    audio_path = tmp_path / "track.wav"
+    _write_pcm_wav(audio_path)
+
+    class FailingTorchaudio:
+        @staticmethod
+        def load(path: str):
+            raise RuntimeError("TorchCodec is required for load_with_torchcodec")
+
+    with caplog.at_level(logging.WARNING, logger="dj_track_similarity.audio_loader"):
+        audio, sample_rate, detail = load_audio_mono(audio_path, torchaudio_module=FailingTorchaudio)
+
+    assert sample_rate == 44_100
+    assert audio.dtype == np.float32
+    assert "native wave decode" in detail
+    assert "Audio decoder failed" not in caplog.text
+    assert "Audio decode fallback succeeded" not in caplog.text
+
+
+def test_load_audio_mono_logs_wave_fallback_when_diagnostics_enabled(tmp_path: Path, caplog) -> None:
+    audio_path = tmp_path / "track.wav"
+    _write_pcm_wav(audio_path)
+
+    class FailingTorchaudio:
+        @staticmethod
+        def load(path: str):
+            raise RuntimeError("TorchCodec is required for load_with_torchcodec")
+
+    set_analysis_diagnostics_enabled(True)
+    try:
+        with caplog.at_level(logging.WARNING, logger="dj_track_similarity.audio_loader"):
+            audio, sample_rate, detail = load_audio_mono(audio_path, torchaudio_module=FailingTorchaudio)
+    finally:
+        set_analysis_diagnostics_enabled(None)
+
+    assert sample_rate == 44_100
+    assert audio.dtype == np.float32
+    assert "native wave decode" in detail
+    assert "Audio decoder failed decoder=torchaudio" in caplog.text
+    assert "Audio decode fallback succeeded decoder=wave" in caplog.text
+
+
 def test_load_audio_mono_rejects_unknown_malformed_wav(tmp_path: Path) -> None:
     audio_path = tmp_path / "broken.wav"
     audio_path.write_bytes(b"RIFF\x10\x00\x00\x00WAVEfmt ")
@@ -124,7 +168,7 @@ def test_load_audio_mono_rejects_unknown_malformed_wav(tmp_path: Path) -> None:
         load_audio_mono(audio_path)
 
 
-def test_load_audio_mono_falls_back_to_ffmpeg_when_torchaudio_decode_fails(monkeypatch, tmp_path: Path) -> None:
+def test_load_audio_mono_logs_decoder_fallback_errors(monkeypatch, tmp_path: Path, caplog) -> None:
     audio_path = tmp_path / "track.mp3"
     audio_path.write_bytes(b"not real mp3 bytes")
     decoded = np.array([0.25, -0.5, 0.75], dtype=np.float32)
@@ -151,10 +195,18 @@ def test_load_audio_mono_falls_back_to_ffmpeg_when_torchaudio_decode_fails(monke
     )
     monkeypatch.setattr(audio_loader, "subprocess", SimpleNamespace(run=fake_run, PIPE=subprocess.PIPE), raising=False)
 
-    audio, sample_rate, detail = load_audio_mono(audio_path, torchaudio_module=FailingTorchaudio, target_sample_rate=22_050)
+    set_analysis_diagnostics_enabled(True)
+    try:
+        with caplog.at_level(logging.WARNING, logger="dj_track_similarity.audio_loader"):
+            audio, sample_rate, detail = load_audio_mono(audio_path, torchaudio_module=FailingTorchaudio, target_sample_rate=22_050)
+    finally:
+        set_analysis_diagnostics_enabled(None)
 
     assert sample_rate == 22_050
     assert audio.dtype == np.float32
     assert np.allclose(audio, decoded)
     assert "ffmpeg decode" in detail
     assert "TorchCodec is required" in detail
+    assert "Audio decoder failed decoder=torchaudio" in caplog.text
+    assert "Audio decode fallback succeeded decoder=ffmpeg" in caplog.text
+    assert str(audio_path) in caplog.text

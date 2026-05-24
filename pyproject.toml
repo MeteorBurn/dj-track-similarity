@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Local DJ track similarity utility for seamless set preparation."
 requires-python = ">=3.10"
 dependencies = [
-  "numpy>=1.26",
+  "numpy>=1.26,<2.0",
   "mutagen>=1.47",
   "pydantic>=2",
   "typer>=0.12",
@@ -21,8 +21,10 @@ sonara = [
   "sonara",
 ]
 ml = [
-  "torch",
-  "torchaudio",
+  "torch==2.11.0",
+  "torchaudio==2.11.0",
+  "torchvision==0.26.0",
+  "torchcodec==0.13.0",
   "transformers",
   "huggingface-hub",
   "laion-clap>=1.1.7",

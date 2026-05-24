@@ -12,7 +12,7 @@ import numpy as np
 from .database import MAEST_EMBEDDING_KEY, LibraryDatabase
 from .genres import MaestGenreAdapter, genre_adapter_factories as default_genre_adapter_factories
 from .job_runtime import JobStore, chunks
-from .logging_config import exception_summary, log_failure, log_job_event
+from .logging_config import analysis_diagnostics_enabled, exception_summary, log_failure, log_job_event
 from .models import Track
 
 
@@ -171,13 +171,18 @@ class GenreAnalysisJobManager:
             return factory()
 
     def _process_batch(self, job_id: str, adapter: GenreAdapter, batch: list[Track]) -> None:
+        batch_started = time.perf_counter()
+        save_seconds = 0.0
         if hasattr(adapter, "predict_batch"):
             try:
                 genre_batches = adapter.predict_batch([track.path for track in batch])  # type: ignore[attr-defined]
                 if len(genre_batches) != len(batch):
                     raise ValueError("MAEST batch result count does not match track count")
                 for track, genres in zip(batch, genre_batches):
+                    save_started = time.perf_counter()
                     self._save_success(job_id, adapter, track, genres)
+                    save_seconds += time.perf_counter() - save_started
+                self._log_batch_timing(job_id, adapter, batch, batch_started=batch_started, save_seconds=save_seconds)
             except Exception as error:
                 if len(batch) <= 1:
                     self._save_failure(job_id, batch[0], error)
@@ -200,9 +205,43 @@ class GenreAnalysisJobManager:
         for track in batch:
             try:
                 genres = adapter.predict(track.path)
+                save_started = time.perf_counter()
                 self._save_success(job_id, adapter, track, genres)
+                save_seconds += time.perf_counter() - save_started
+                self._log_batch_timing(job_id, adapter, [track], batch_started=batch_started, save_seconds=save_seconds)
             except Exception as error:
                 self._save_failure(job_id, track, error)
+
+    def _log_batch_timing(
+        self,
+        job_id: str,
+        adapter: GenreAdapter,
+        batch: list[Track],
+        *,
+        batch_started: float,
+        save_seconds: float,
+    ) -> None:
+        if not analysis_diagnostics_enabled():
+            return
+        total_seconds = time.perf_counter() - batch_started
+        tracks = len(batch)
+        timing = getattr(adapter, "last_batch_timing", {}) or {}
+        tracks_per_second = tracks / total_seconds if total_seconds > 0 else 0.0
+        LOGGER.info(
+            "MAEST batch timing job_id=%s adapter=maest embedding_key=%s tracks=%s windows=%s "
+            "prepare_seconds=%.3f decode_seconds=%.3f inference_seconds=%.3f save_seconds=%.3f "
+            "total_seconds=%.3f tracks_per_second=%.3f",
+            job_id,
+            getattr(adapter, "embedding_key", MAEST_EMBEDDING_KEY),
+            tracks,
+            int(timing.get("windows", 0) or 0),
+            float(timing.get("prepare_seconds", 0.0) or 0.0),
+            float(timing.get("decode_seconds", 0.0) or 0.0),
+            float(timing.get("inference_seconds", 0.0) or 0.0),
+            save_seconds,
+            total_seconds,
+            tracks_per_second,
+        )
 
     def _save_success(self, job_id: str, adapter: GenreAdapter, track: Track, genres: list[dict[str, object]]) -> None:
         embedding = _embedding_for_path(adapter, track.path)

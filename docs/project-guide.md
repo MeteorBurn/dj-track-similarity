@@ -44,10 +44,12 @@ The current workflow is:
 - Builds MERT audio embeddings for seed-track similarity search.
 - Builds CLAP audio embeddings and CLAP text vectors for text-to-audio search.
 - Extracts MAEST genre labels and confidence scores.
+- Stores MAEST embeddings during genre analysis.
 - Stores analysis status per track for `sonara`, `maest`, `mert`, and `clap`.
 - Keeps the library browser server-side paginated for large local collections.
 - Loads full metadata for one track only when the metadata dialog opens.
-- Streams browser previews and transcodes AIFF/AIF to WAV on the fly.
+- Streams browser previews, starts playback from the preview button, and
+  transcodes AIFF/AIF to WAV on the fly.
 - Exports the current temporary set as `.m3u` or `.csv`.
 - Resets analysis families independently in SQLite.
 - Clears the local database after explicit confirmation.
@@ -155,14 +157,14 @@ JSON on insert or update.
 Stores model vectors by track and embedding space:
 
 - `track_id`: references `tracks.id`.
-- `embedding_key`: currently `mert` or `clap`.
+- `embedding_key`: currently `mert`, `clap`, or `maest`.
 - `model_name`: model or checkpoint identifier.
 - `dim`: vector dimension.
 - `vector`: binary float32 vector payload.
 - `updated_at`: local row timestamp.
 
-The primary key is `(track_id, embedding_key)`, so the same track can have both
-MERT and CLAP vectors without mixing those spaces.
+The primary key is `(track_id, embedding_key)`, so the same track can have MERT,
+CLAP, and MAEST vectors without mixing those spaces.
 
 ### `library_settings`
 
@@ -227,11 +229,12 @@ neural-network inference batch.
 
 ### MAEST
 
-MAEST writes genre metadata only to SQLite during analysis:
+MAEST writes genre metadata and embeddings only to SQLite during analysis:
 
 - `metadata_json.maest_model`
 - `metadata_json.maest_genres`
 - `metadata_json.maest_syncopated_rhythm`
+- `embeddings.embedding_key = "maest"`
 
 The adapter uses `maest-infer` with `discogs-maest-30s-pw-129e-519l`. It
 analyzes up to three 30-second windows per track:
@@ -241,10 +244,14 @@ analyzes up to three 30-second windows per track:
 - a window near 72 percent of duration.
 
 Impossible or duplicate windows are clamped and deduplicated. Per-label
-activations are averaged across windows, then the top labels are stored.
+activations are averaged across windows, then the top labels are stored. MAEST
+embedding rows are averaged across the same windows and stored under embedding
+key `maest`.
 
 MAEST analysis itself does not modify audio files. The separate genre-save
 action can later write stored MAEST labels into standard audio genre tags.
+The `maest_syncopated_rhythm` flag is derived from saved MAEST genres and is
+used by the library `syncopated` preset.
 
 ### MERT
 
@@ -275,6 +282,10 @@ Text search requires CLAP audio embeddings produced by the same CLAP checkpoint.
 ## Search Modes
 
 The search panel has separate tabs.
+
+The library browser also has a `syncopated` preset filter. It selects tracks
+whose stored MAEST metadata has `maest_syncopated_rhythm = true` and can be
+combined with normal library text search and the add-filtered-tracks workflow.
 
 ### SONARA Search
 
@@ -353,7 +364,7 @@ failed while the batch continues.
 
 Core runtime dependencies are declared in `pyproject.toml`:
 
-- `numpy`
+- `numpy>=1.26,<2.0`
 - `mutagen`
 - `pydantic`
 - `typer`
@@ -363,19 +374,45 @@ Core runtime dependencies are declared in `pyproject.toml`:
 Optional groups:
 
 - `sonara`: installs Sonara support.
-- `ml`: installs PyTorch, Torchaudio, Transformers, Hugging Face Hub,
-  LAION-CLAP, and MAEST support.
+- `ml`: installs the synchronized PyTorch/Torchaudio/Torchvision/TorchCodec
+  stack, Transformers, Hugging Face Hub, LAION-CLAP, and MAEST support.
 - `dev`: installs pytest and Ruff.
 
-`ffmpeg` is required for robust server startup and audio decode fallback. It can
-be found from `PATH` or configured with:
+`ffmpeg` is required for robust server startup and audio decoding. It can be
+found from `PATH` or configured with:
 
 ```text
 DJ_TRACK_SIMILARITY_FFMPEG
 ```
 
-For CUDA work, install a matching PyTorch and Torchaudio build from the official
-PyTorch wheel index before installing the remaining ML dependencies.
+The verified Windows CUDA stack is:
+
+- PyTorch `2.11.0`
+- Torchaudio `2.11.0`
+- Torchvision `0.26.0`
+- TorchCodec `0.13.0`
+- NumPy `>=1.26,<2.0`
+- PyTorch wheel index `https://download.pytorch.org/whl/cu130`
+
+Install the matching CUDA wheels from the official PyTorch wheel index before
+installing the remaining ML dependencies:
+
+```powershell
+python -m pip install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/cu130
+python -m pip install torchcodec==0.13.0 --index-url https://download.pytorch.org/whl/cu130
+python -m pip install -e ".[sonara,ml,dev]"
+```
+
+On Windows, TorchCodec-backed Torchaudio decoding needs an FFmpeg shared build
+with DLLs available on `PATH`, not only a static `ffmpeg.exe`. The portable tools
+setup should use GyanD `ffmpeg 8.1.1-full_build-shared` or a compatible
+`full_build-shared` FFmpeg layout such as:
+
+```text
+C:\Utils\tools\ffmpeg\bin\ffmpeg.exe
+C:\Utils\tools\ffmpeg\bin\avcodec-*.dll
+C:\Utils\tools\ffmpeg\bin\avformat-*.dll
+```
 
 ## Logging
 
@@ -399,6 +436,25 @@ Environment variables:
   write successful per-track job events.
 
 The server also exposes `--log-level` and `--log-track-events`.
+
+CLI analysis commands print a live one-line progress display while they run.
+The line is redrawn in place and includes a progress bar, percentage,
+`processed/total`, `analyzed`, `failed`, approximate `tracks/s`, and an
+estimated remaining time. This is console-only progress for the CLI process that
+started the job; it does not attach to jobs started by the web UI/server
+process.
+
+CLI analysis commands can also write diagnostic timing lines to the file log
+when `--diagnostics` is passed on the command or
+`DJ_TRACK_SIMILARITY_ANALYSIS_DIAGNOSTICS=1` is set. These include batch-level
+`prepare_seconds`, `decode_seconds`, `inference_seconds`, `save_seconds`,
+`total_seconds`, `tracks_per_second`, track count, and window count for
+MERT/CLAP and MAEST. Sonara diagnostics log per-track `total_seconds` and
+`tracks_per_second`, because its internal decode and feature extraction are
+handled inside Sonara. Audio loading also logs decoder fallback details by path:
+failed decoders such as `torchaudio`, `wave`, or `ffmpeg`, their error text, and
+the fallback decoder that eventually succeeded when one does. This diagnostic
+logging is off by default.
 
 ## CLI Reference
 
@@ -540,6 +596,7 @@ Options:
 | `--adapter` | text | `mert` | Embedding adapter: `mert` or `clap`. |
 | `--device` | text | `auto` | Embedding device: `auto`, `cpu`, or `cuda`. |
 | `--batch-size` | integer `1..64` | `4` | Embedding inference batch size. |
+| `--diagnostics` | flag | off | Write decoder fallback and batch timing diagnostics to the file log. |
 | `--help` | flag | off | Show help. |
 
 Examples:
@@ -552,6 +609,7 @@ dj-sim analyze --adapter clap --device cuda --batch-size 8 --db .\data\library.s
 Output:
 
 ```text
+[########################] 100.0% processed=<n>/<n> analyzed=<n> failed=<n> <rate> tracks/s eta=<time>
 state=<state> total=<n> processed=<n> analyzed=<n> failed=<n> embedding_key=<key> device=<device> batch_size=<n>
 ```
 
@@ -579,11 +637,13 @@ Options:
 | `--db` | path | `dj-track-similarity.sqlite` | SQLite database path. |
 | `--limit` | integer | none | Maximum number of tracks missing Sonara features to analyze. |
 | `--batch-size` | integer `1..64` | `1` | Parallel Sonara track workers. |
+| `--diagnostics` | flag | off | Write analysis timing diagnostics to the file log. |
 | `--help` | flag | off | Show help. |
 
 Output:
 
 ```text
+[########################] 100.0% processed=<n>/<n> analyzed=<n> failed=<n> <rate> tracks/s eta=<time>
 state=<state> total=<n> processed=<n> analyzed=<n> failed=<n> batch_size=<n>
 ```
 
@@ -612,15 +672,17 @@ Options:
 | `--device` | text | `auto` | MAEST device: `auto`, `cpu`, or `cuda`. |
 | `--top-k` | integer `1..10` | `3` | Number of MAEST genre labels to store per track. |
 | `--batch-size` | integer `1..64` | `4` | MAEST inference batch size. |
+| `--diagnostics` | flag | off | Write decoder fallback and batch timing diagnostics to the file log. |
 | `--help` | flag | off | Show help. |
 
 Output:
 
 ```text
-state=<state> total=<n> processed=<n> analyzed=<n> failed=<n> device=<device> top_k=<n> batch_size=<n>
+[########################] 100.0% processed=<n>/<n> analyzed=<n> failed=<n> <rate> tracks/s eta=<time>
+state=<state> total=<n> processed=<n> analyzed=<n> failed=<n> embedding_key=maest device=<device> top_k=<n> batch_size=<n>
 ```
 
-MAEST analysis writes only SQLite metadata.
+MAEST analysis writes SQLite genre metadata and a MAEST embedding vector.
 
 ### `dj-sim text-search`
 
@@ -760,6 +822,9 @@ The frontend uses these endpoints through `frontend/src/api.ts`.
 | `GET` | `/api/tracks/{track_id}` | Return one full track payload. |
 | `POST` | `/api/tracks/filtered` | Return filtered track rows for selection workflows. |
 
+`/api/tracks` and `/api/tracks/filtered` accept `preset=syncopated` to filter on
+the stored MAEST syncopated-rhythm flag.
+
 ### Jobs
 
 | Method | Path | Purpose |
@@ -801,6 +866,10 @@ The frontend uses these endpoints through `frontend/src/api.ts`.
 | `POST` | `/api/tags/genres/jobs` | Start cancellable MAEST genre tag write job. |
 | `POST` | `/api/dialog/folder` | Open a folder chooser dialog. |
 | `GET` | `/media/{track_id}` | Stream browser-playable audio for one track. |
+
+The frontend preview player uses `/media/{track_id}` and starts playback after a
+preview button click. AIFF/AIF responses are transcoded to WAV for browser
+compatibility without rewriting or caching source audio.
 
 ## Maintenance Scripts
 

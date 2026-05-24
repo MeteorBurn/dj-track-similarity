@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -9,8 +10,10 @@ import wave
 import numpy as np
 
 from .dependencies import FFMPEG_ENV_VAR
+from .logging_config import analysis_diagnostics_enabled
 
 DEFAULT_FFMPEG_SAMPLE_RATE = 16_000
+LOGGER = logging.getLogger(__name__)
 
 
 def load_audio_mono(
@@ -26,23 +29,46 @@ def load_audio_mono(
             return _load_with_torchaudio(audio_path, torchaudio_module)
         except Exception as error:
             errors.append(f"torchaudio: {error}")
+            _log_decoder_failure("torchaudio", audio_path, error)
 
     if audio_path.suffix.lower() in {".wav", ".wave"}:
         try:
-            return _load_with_wave(audio_path)
+            audio, sample_rate, detail = _load_with_wave(audio_path)
+            if errors:
+                _log_decoder_fallback_success("wave", audio_path, sample_rate, errors)
+            return audio, sample_rate, detail
         except Exception as error:
             errors.append(f"wave: {error}")
+            _log_decoder_failure("wave", audio_path, error)
 
     try:
         audio, sample_rate, detail = _load_with_ffmpeg(audio_path, target_sample_rate=target_sample_rate)
         if errors:
             detail = f"{detail}; native decoders failed ({'; '.join(errors)})"
+            _log_decoder_fallback_success("ffmpeg", audio_path, sample_rate, errors)
         return audio, sample_rate, detail
     except Exception as error:
         errors.append(f"ffmpeg: {error}")
+        _log_decoder_failure("ffmpeg", audio_path, error)
 
     detail = "; ".join(errors) if errors else "no decoder available"
     raise RuntimeError(f"Unable to decode audio: {audio_path} ({detail})")
+
+
+def _log_decoder_failure(decoder: str, path: Path, error: Exception) -> None:
+    if analysis_diagnostics_enabled():
+        LOGGER.warning("Audio decoder failed decoder=%s path=%s error=%s", decoder, path, error)
+
+
+def _log_decoder_fallback_success(decoder: str, path: Path, sample_rate: int, errors: list[str]) -> None:
+    if analysis_diagnostics_enabled():
+        LOGGER.warning(
+            "Audio decode fallback succeeded decoder=%s path=%s sample_rate=%s failed_decoders=%s",
+            decoder,
+            path,
+            sample_rate,
+            "; ".join(errors),
+        )
 
 
 def torch_compatible_audio(audio: np.ndarray) -> np.ndarray:

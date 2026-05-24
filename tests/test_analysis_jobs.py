@@ -1,9 +1,11 @@
 from pathlib import Path
+import logging
 
 import numpy as np
 
 from dj_track_similarity.analysis_jobs import AnalysisJobManager
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.logging_config import set_analysis_diagnostics_enabled
 
 
 def _track(db: LibraryDatabase, tmp_path: Path, name: str) -> int:
@@ -22,6 +24,12 @@ class BatchAdapter:
 
     def embed_batch(self, paths):
         self.batches.append([Path(path).name for path in paths])
+        self.last_batch_timing = {
+            "prepare_seconds": 1.0,
+            "decode_seconds": 0.5,
+            "inference_seconds": 2.0,
+            "windows": len(paths),
+        }
         return [np.array([index + 1, 1, 1], dtype=np.float32) for index, _ in enumerate(paths)]
 
     def embed(self, path):
@@ -102,6 +110,42 @@ def test_analysis_job_runs_in_batches_and_records_progress(tmp_path: Path) -> No
     assert status.events[-1].message == "Analysis completed"
     assert adapter.batches == [["a.wav", "b.wav"], ["c.wav"]]
     assert len(db.list_tracks(with_embeddings=True)) == 3
+
+
+def test_mert_analysis_job_logs_batch_stage_timing(tmp_path: Path, caplog) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    _track(db, tmp_path, "a.wav")
+    _track(db, tmp_path, "b.wav")
+    adapter = BatchAdapter()
+    manager = AnalysisJobManager(db, {"mert": lambda: adapter}, batch_size=2)
+
+    set_analysis_diagnostics_enabled(True)
+    try:
+        with caplog.at_level(logging.INFO, logger="dj_track_similarity.analysis_jobs"):
+            manager.run_sync(adapter_name="mert")
+    finally:
+        set_analysis_diagnostics_enabled(None)
+
+    assert "Analysis batch timing" in caplog.text
+    assert "adapter=mert" in caplog.text
+    assert "prepare_seconds=1.000" in caplog.text
+    assert "decode_seconds=0.500" in caplog.text
+    assert "inference_seconds=2.000" in caplog.text
+    assert "save_seconds=" in caplog.text
+    assert "tracks_per_second=" in caplog.text
+
+
+def test_mert_analysis_job_suppresses_batch_stage_timing_by_default(tmp_path: Path, caplog) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    _track(db, tmp_path, "a.wav")
+    _track(db, tmp_path, "b.wav")
+    adapter = BatchAdapter()
+    manager = AnalysisJobManager(db, {"mert": lambda: adapter}, batch_size=2)
+
+    with caplog.at_level(logging.INFO, logger="dj_track_similarity.analysis_jobs"):
+        manager.run_sync(adapter_name="mert")
+
+    assert "Analysis batch timing" not in caplog.text
 
 
 def test_analysis_job_uses_requested_worker_count_as_batch_size(tmp_path: Path) -> None:

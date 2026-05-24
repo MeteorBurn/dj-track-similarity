@@ -9,9 +9,11 @@ from pathlib import Path
 LOG_ENV_VAR = "DJ_TRACK_SIMILARITY_LOG"
 LOG_LEVEL_ENV_VAR = "DJ_TRACK_SIMILARITY_LOG_LEVEL"
 LOG_TRACK_EVENTS_ENV_VAR = "DJ_TRACK_SIMILARITY_LOG_TRACK_EVENTS"
+ANALYSIS_DIAGNOSTICS_ENV_VAR = "DJ_TRACK_SIMILARITY_ANALYSIS_DIAGNOSTICS"
 DEFAULT_LOG_PATH = Path("dj-track-similarity.log")
 FILE_HANDLER_NAME = "dj_track_similarity_file"
 _LOG_TRACK_EVENTS: bool | None = None
+_ANALYSIS_DIAGNOSTICS: bool | None = None
 
 
 def configure_logging(
@@ -83,6 +85,20 @@ def track_event_logging_enabled() -> bool:
     if _LOG_TRACK_EVENTS is not None:
         return _LOG_TRACK_EVENTS
     value = os.environ.get(LOG_TRACK_EVENTS_ENV_VAR)
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def set_analysis_diagnostics_enabled(enabled: bool | None) -> None:
+    global _ANALYSIS_DIAGNOSTICS
+    _ANALYSIS_DIAGNOSTICS = None if enabled is None else bool(enabled)
+
+
+def analysis_diagnostics_enabled() -> bool:
+    if _ANALYSIS_DIAGNOSTICS is not None:
+        return _ANALYSIS_DIAGNOSTICS
+    value = os.environ.get(ANALYSIS_DIAGNOSTICS_ENV_VAR)
     if value is None:
         return False
     return value.strip().lower() in {"1", "true", "yes", "on"}

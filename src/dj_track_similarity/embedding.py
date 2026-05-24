@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 from typing import Protocol
 
 import numpy as np
@@ -43,6 +44,7 @@ class MertEmbeddingAdapter:
         self._torch = None
         self._torchaudio = None
         self.device: str | None = None
+        self.last_batch_timing: dict[str, float | int] = {}
 
     def embed(self, path: str | Path) -> np.ndarray:
         return self.embed_batch([path])[0]
@@ -56,12 +58,16 @@ class MertEmbeddingAdapter:
         target_rate = int(self._processor.sampling_rate)
         track_windows: list[list[int]] = []
         all_windows = []
+        decode_seconds = 0.0
+        prepare_started = time.perf_counter()
         for path in paths:
+            decode_started = time.perf_counter()
             audio, sample_rate, _decode_detail = load_audio_mono(
                 path,
                 torchaudio_module=torchaudio,
                 target_sample_rate=target_rate,
             )
+            decode_seconds += time.perf_counter() - decode_started
             waveform = torch.from_numpy(torch_compatible_audio(audio)).unsqueeze(0)
             if sample_rate != target_rate:
                 waveform = torchaudio.transforms.Resample(sample_rate, target_rate)(waveform)
@@ -74,8 +80,10 @@ class MertEmbeddingAdapter:
                 window_indices.append(len(all_windows))
                 all_windows.append(window.cpu().numpy())
             track_windows.append(window_indices)
+        prepare_seconds = time.perf_counter() - prepare_started
 
         pooled_windows: list[np.ndarray] = []
+        inference_started = time.perf_counter()
         for start in range(0, len(all_windows), self.inference_batch_size):
             window_batch = all_windows[start : start + self.inference_batch_size]
             inputs = self._processor(window_batch, sampling_rate=target_rate, padding=True, return_tensors="pt")
@@ -85,6 +93,14 @@ class MertEmbeddingAdapter:
             hidden = torch.stack(outputs.hidden_states[-4:]).mean(dim=0)
             pooled = hidden.mean(dim=1).detach().cpu().numpy().astype(np.float32)
             pooled_windows.extend([pooled[index] for index in range(pooled.shape[0])])
+        inference_seconds = time.perf_counter() - inference_started
+        self.last_batch_timing = {
+            "prepare_seconds": prepare_seconds,
+            "decode_seconds": decode_seconds,
+            "inference_seconds": inference_seconds,
+            "tracks": len(paths),
+            "windows": len(all_windows),
+        }
 
         vectors = []
         for path, indices in zip(paths, track_windows):
@@ -139,6 +155,7 @@ class ClapEmbeddingAdapter:
         self._torch = None
         self._torchaudio = None
         self.device: str | None = None
+        self.last_batch_timing: dict[str, float | int] = {}
 
     def embed(self, path: str | Path) -> np.ndarray:
         return self.embed_batch([path])[0]
@@ -153,12 +170,16 @@ class ClapEmbeddingAdapter:
         window_size = max(1, int(target_rate * self.window_seconds))
         track_windows: list[list[int]] = []
         all_windows = []
+        decode_seconds = 0.0
+        prepare_started = time.perf_counter()
         for path in paths:
+            decode_started = time.perf_counter()
             audio, sample_rate, _decode_detail = load_audio_mono(
                 path,
                 torchaudio_module=torchaudio,
                 target_sample_rate=target_rate,
             )
+            decode_seconds += time.perf_counter() - decode_started
             waveform = torch.from_numpy(torch_compatible_audio(audio)).unsqueeze(0)
             if sample_rate != target_rate:
                 waveform = torchaudio.transforms.Resample(sample_rate, target_rate)(waveform)
@@ -171,13 +192,23 @@ class ClapEmbeddingAdapter:
                 window_indices.append(len(all_windows))
                 all_windows.append(_pad_or_trim_audio_window(window.cpu().numpy(), window_size))
             track_windows.append(window_indices)
+        prepare_seconds = time.perf_counter() - prepare_started
 
         pooled_windows: list[np.ndarray] = []
+        inference_started = time.perf_counter()
         for start in range(0, len(all_windows), self.inference_batch_size):
             batch = np.stack(all_windows[start : start + self.inference_batch_size]).astype(np.float32)
             with torch.inference_mode():
                 features = self._model.get_audio_embedding_from_data(x=batch, use_tensor=False)
             pooled_windows.extend(_normalize_rows(_array_output_to_numpy(features)))
+        inference_seconds = time.perf_counter() - inference_started
+        self.last_batch_timing = {
+            "prepare_seconds": prepare_seconds,
+            "decode_seconds": decode_seconds,
+            "inference_seconds": inference_seconds,
+            "tracks": len(paths),
+            "windows": len(all_windows),
+        }
 
         vectors: list[np.ndarray] = []
         for indices in track_windows:

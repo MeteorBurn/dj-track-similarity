@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 import re
 from pathlib import Path
+import time
 
 import numpy as np
 
@@ -26,6 +27,7 @@ class MaestGenreAdapter:
         self._torchaudio = None
         self.device: str | None = None
         self._embeddings_by_path: dict[str, np.ndarray] = {}
+        self.last_batch_timing: dict[str, float | int] = {}
 
     def predict(self, path: str | Path) -> list[dict[str, float | str]]:
         return self.predict_batch([path])[0]
@@ -38,16 +40,29 @@ class MaestGenreAdapter:
 
         prepared = []
         window_track_indexes: list[int] = []
+        decode_seconds = 0.0
+        prepare_started = time.perf_counter()
         for track_index, path in enumerate(paths):
-            windows = self._prepare_audio_windows(path)
+            windows, window_decode_seconds = self._prepare_audio_windows_with_timing(path)
+            decode_seconds += window_decode_seconds
             prepared.extend(windows)
             window_track_indexes.extend([track_index] * len(windows))
+        prepare_seconds = time.perf_counter() - prepare_started
         device = self._device()
         audio_batch = torch.stack(prepared, dim=0).to(device)
         _move_maest_runtime_modules(self._model, device)
 
+        inference_started = time.perf_counter()
         with torch.inference_mode():
             logits, embeddings = self._model(audio_batch, melspectrogram_input=False)
+        inference_seconds = time.perf_counter() - inference_started
+        self.last_batch_timing = {
+            "prepare_seconds": prepare_seconds,
+            "decode_seconds": decode_seconds,
+            "inference_seconds": inference_seconds,
+            "tracks": len(paths),
+            "windows": len(prepared),
+        }
 
         activations = torch.sigmoid(logits)
         rows = _to_score_rows(activations, expected_rows=len(prepared))
@@ -64,22 +79,27 @@ class MaestGenreAdapter:
         return self._prepare_audio_windows(path)[0]
 
     def _prepare_audio_windows(self, path: str | Path):
+        return self._prepare_audio_windows_with_timing(path)[0]
+
+    def _prepare_audio_windows_with_timing(self, path: str | Path):
         torch = self._torch
         torchaudio = self._torchaudio
         assert torch is not None and torchaudio is not None
 
+        decode_started = time.perf_counter()
         audio_values, sample_rate, _decode_detail = load_audio_mono(
             path,
             torchaudio_module=torchaudio,
             target_sample_rate=16000,
         )
+        decode_seconds = time.perf_counter() - decode_started
         audio = torch.from_numpy(torch_compatible_audio(audio_values)).unsqueeze(0)
         if sample_rate != 16000:
             audio = torchaudio.transforms.Resample(sample_rate, 16000)(audio)
         audio = audio.squeeze(0)
         target_samples = int(16000 * maest_input_seconds(self.model_name))
         if audio.numel() < target_samples:
-            return [torch.nn.functional.pad(audio, (0, target_samples - audio.numel()))]
+            return [torch.nn.functional.pad(audio, (0, target_samples - audio.numel()))], decode_seconds
 
         starts = _analysis_window_starts(
             audio.numel() / 16000,
@@ -94,7 +114,7 @@ class MaestGenreAdapter:
             if segment.numel() < target_samples:
                 segment = torch.nn.functional.pad(segment, (0, target_samples - segment.numel()))
             windows.append(segment)
-        return windows or [audio[:target_samples]]
+        return windows or [audio[:target_samples]], decode_seconds
 
     def _load_model(self) -> None:
         if self._model is not None:

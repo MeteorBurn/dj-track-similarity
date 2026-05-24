@@ -72,6 +72,15 @@ Install optional Sonara and ML dependencies when you need analysis features:
 python -m pip install -e ".[sonara,ml,dev]"
 ```
 
+For CUDA analysis on Windows, use the synchronized PyTorch stack that has been
+tested with this project:
+
+```powershell
+python -m pip install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/cu130
+python -m pip install torchcodec==0.13.0 --index-url https://download.pytorch.org/whl/cu130
+python -m pip install -e ".[sonara,ml,dev]"
+```
+
 Start the server:
 
 ```powershell
@@ -91,7 +100,10 @@ scripts\run_server.cmd
 ```
 
 `ffmpeg` must be available on `PATH` or through `DJ_TRACK_SIMILARITY_FFMPEG`
-for server startup and robust audio decoding.
+for server startup and robust audio decoding. On Windows, TorchCodec-backed
+Torchaudio decoding needs a shared FFmpeg build with DLLs on `PATH`; the
+verified setup is GyanD `ffmpeg 8.1.1-full_build-shared`, for example
+`C:\Utils\tools\ffmpeg\bin`.
 
 ## Full Guide
 
@@ -147,6 +159,10 @@ Install everything used by the full local lab:
 ```powershell
 python -m pip install -e ".[sonara,ml,dev]"
 ```
+
+The current ML dependency set is pinned to PyTorch `2.11.0`, Torchaudio
+`2.11.0`, Torchvision `0.26.0`, TorchCodec `0.13.0`, and `numpy>=1.26,<2.0`.
+Use `dj-sim doctor` to confirm CUDA visibility before long analysis runs.
 
 Run backend tests:
 

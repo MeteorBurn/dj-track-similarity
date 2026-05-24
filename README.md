@@ -45,6 +45,8 @@ else who collects, tags, or plays music will find the approach useful too.
 - Lets you choose seed tracks, search for similar tracks with SONARA mixer
   controls or embedding/text models, preview results, and assemble a small set
   for export.
+- Streams AIFF/AIF previews as browser-playable WAV audio through ffmpeg while
+  leaving the original audio files untouched.
 - Exports the current set as M3U or CSV without storing playlists in SQLite.
 - Can reset one analysis family at a time, or clear the local SQLite database
   after confirmation. These actions do not delete audio files.
@@ -99,10 +101,13 @@ Sonara is currently used in `playlist` mode as a fast, practical feature pass.
 It writes a focused set of analyzed playlist features into SQLite metadata:
 core rhythm/loudness fields, perceptual scores, musical key, tonal analysis,
 and compact spectral summaries. The UI displays Sonara values in those groups,
-starting with analyzed BPM and raw Sonara key data. Large unavailable or non-playlist
-fields are not represented as placeholder rows; the current goal is inspection
-and calibration, not a final data format. In the UI, `Embedding batch size`
-controls how many Sonara track workers run concurrently.
+starting with analyzed BPM and raw Sonara key data. Database keys keep Sonara's
+canonical names such as `spectral_centroid_mean`, `mfcc_mean`, and
+`chroma_mean`; the metadata dialog uses shorter display labels such as
+Spectral Centroid, MFCC, and Chroma. Large unavailable or non-playlist fields
+are not represented as placeholder rows; the current goal is inspection and
+calibration, not a final data format. In the UI, `Embedding batch size` controls
+how many Sonara track workers run concurrently.
 
 The metadata popup is intentionally split by source:
 
@@ -216,7 +221,15 @@ dj-sim doctor
 dj-sim relocate-library "E:\MusicFast" "D:\MusicArchive"
 dj-sim relocate-library "E:\MusicFast" "D:\MusicArchive" --apply
 
+python scripts\migrate_sonara_brightness.py --db "C:\db\abstracted.sqlite"
+python scripts\migrate_sonara_brightness.py --db "C:\db\abstracted.sqlite" --apply
 ```
+
+`scripts\migrate_sonara_brightness.py` is a small dry-run-first migration
+helper for old databases that may still contain
+`metadata_json.sonara_features.brightness`. It renames that legacy key to the
+canonical `spectral_centroid_mean` key without touching audio files and without
+overwriting rows where `spectral_centroid_mean` already exists.
 
 ## Audio Metadata Repair Script
 

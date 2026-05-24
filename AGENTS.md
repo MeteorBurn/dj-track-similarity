@@ -22,6 +22,7 @@ This workspace may not be a Git repository. Do not assume Git history, branches,
 ## Safety Rules
 
 - Treat real audio files as user data. Scanning, analysis, search, preview, RefreshTags, reset, clear, and export should not modify audio files.
+- Browser preview may transcode `.aif`/`.aiff` files to WAV on the fly through `ffmpeg` for the `/media/{track_id}` response. This is read-only streaming and must not rewrite, retag, copy, or cache the source audio file.
 - Library path relocation updates only stored `tracks.path` values in SQLite. It must not move, copy, delete, rewrite, retag, or reanalyze audio files.
 - Library path relocation must be previewable before applying. Dry-run output should report matched tracks, missing target files, and path conflicts. Apply must reject missing target files and conflicts instead of partially updating the database.
 - Library path relocation must preserve track IDs and all dependent local state, including embeddings, Sonara features, MAEST genres, and tag metadata.
@@ -45,6 +46,7 @@ This workspace may not be a Git repository. Do not assume Git history, branches,
 - Sonara feature analysis writes only SQLite track metadata (`sonara_features` and `sonara_model`) plus working BPM/key/duration/energy fields derived from analysis. BPM and key from Sonara must be analyzed values, not copied from file tags.
 - Sonara key data should stay in the original analyzed Sonara fields. Do not derive or display Camelot notation from Sonara key data until that conversion is explicitly redesigned.
 - Sonara `playlist` storage should stay focused on the current grouped UI contract instead of dumping every possible Sonara or helper field. Keep these groups and order aligned between SQLite JSON and the metadata dialog: Core features (`bpm`, `beats`, `onset_frames`, `onset_density`, `n_beats`, `rms_mean`, `rms_max`, `loudness_lufs`, `dynamic_range_db`, `spectral_centroid_mean`, `zero_crossing_rate`, `duration_sec`), Perceptual features (`energy`, `danceability`, `valence`, `acousticness`), Musical key (`key`, `key_confidence`), Tonal analysis (`predominant_chord`, `chord_change_rate`, `dissonance`), and Spectral features (`spectral_bandwidth_mean`, `spectral_rolloff_mean`, `spectral_flatness_mean`, `spectral_contrast_mean`, `mfcc_mean`, `chroma_mean`).
+- Keep Sonara database keys canonical even when UI labels are friendlier. Do not rename `*_mean` keys in SQLite metadata. In the metadata dialog, omit the word `mean` from display labels such as `RMS`, `Spectral Centroid`, `MFCC`, and `Chroma`; `spectral_centroid_mean` must not be shown as `Brightness`.
 - Do not store or show `unavailable` placeholder rows for Sonara fields that the playlist workflow cannot produce. Do not persist helper-only diagnostics such as `requested_feature_count` or `decode_path` inside `sonara_features`.
 - Audio analysis uses a native-first shared loader: Sonara starts with `sonara.analyze_file`, while MAEST/MERT/CLAP use decoded waveform input. The shared loader should use standard decoders only: `torchaudio` when provided, Python's native `wave` reader for WAV, then `ffmpeg`. If those decoders cannot read a file, surface a clear decode failure instead of using a custom WAV reader.
 - Sonara fallback should call `sonara.analyze_signal` with decoded audio. MAEST/MERT/CLAP should keep using the shared loader rather than direct `torchaudio.load` so standard decoder behavior stays consistent across all analysis families.
@@ -146,6 +148,8 @@ dj-sim doctor
 dj-sim tag-preview 1 2 3
 python scripts\repair_audio_metadata.py --folder "M:\Volumes\Abstracted" --workers 4
 python scripts\repair_audio_metadata.py --folder "M:\Volumes\Abstracted" --apply
+python scripts\migrate_sonara_brightness.py --db "C:\db\abstracted.sqlite"
+python scripts\migrate_sonara_brightness.py --db "C:\db\abstracted.sqlite" --apply
 ```
 
 ## Backend Map
@@ -172,6 +176,7 @@ python scripts\repair_audio_metadata.py --folder "M:\Volumes\Abstracted" --apply
 - `src/dj_track_similarity/tags.py`: custom `DJ_SIM_*` tag preview/apply logic plus explicit MAEST-to-standard-genre tag writing, including guarded WAV genre writes.
 - `src/dj_track_similarity/api.py`: FastAPI factory, request models, REST endpoints including paged `/api/tracks`, `/api/tracks/{id}`, `/api/library/summary`, `/api/library/relocate`, static frontend mount, and media serving.
 - `src/dj_track_similarity/cli.py`: Typer CLI entrypoint exposed as `dj-sim`, including `relocate-library` for previewing and applying stored path updates after moving a library folder.
+- `scripts/migrate_sonara_brightness.py`: dry-run-first SQLite metadata helper for renaming legacy `sonara_features.brightness` to canonical `sonara_features.spectral_centroid_mean` without touching audio files.
 
 ## Frontend Map
 

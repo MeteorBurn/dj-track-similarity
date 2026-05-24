@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 import sqlite3
 
@@ -75,6 +76,29 @@ class SourceDatabase:
         if row is None:
             raise KeyError(f"Unknown track id: {track_id}")
         return LibraryDatabase._row_to_track(row)
+
+    def tracks_by_ids(self, track_ids: Iterable[int]) -> dict[int, Track]:
+        unique_ids = list(dict.fromkeys(int(track_id) for track_id in track_ids))
+        if not unique_ids:
+            return {}
+        result: dict[int, Track] = {}
+        with self.connect() as connection:
+            for start in range(0, len(unique_ids), 900):
+                chunk = unique_ids[start : start + 900]
+                placeholders = ",".join("?" for _ in chunk)
+                rows = connection.execute(
+                    f"""
+                    SELECT {TRACK_SELECT_FIELDS}
+                    FROM tracks t
+                    LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
+                    WHERE t.id IN ({placeholders})
+                    """,
+                    (DEFAULT_EMBEDDING_KEY, *chunk),
+                ).fetchall()
+                for row in rows:
+                    track = LibraryDatabase._row_to_track(row)
+                    result[int(track.id)] = track
+        return result
 
     def list_tracks(self) -> list[Track]:
         with self.connect() as connection:

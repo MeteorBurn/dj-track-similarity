@@ -153,6 +153,8 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
 
     @app.get("/api/predictions")
     def predictions(
+        q: str = "",
+        syncopated: str = Query(default="all", pattern="^(all|yes|no)$"),
         label: str = Query(default="unlabeled", pattern="^(all|unlabeled|broken|straight|ambiguous)$"),
         predicted: str = Query(default="all", pattern="^(all|broken|straight)$"),
         min_broken: float = Query(default=0.0, ge=0.0, le=1.0),
@@ -163,7 +165,7 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
         if source is None:
             return {"items": [], "total": 0, "limit": limit, "offset": offset}
         labels_by_track = labels_db.labels_by_track()
-        rows = []
+        rows: list[tuple[dict[str, object], str | None, float]] = []
         for row in latest_predictions_by_track(labels_db.predictions()):
             manual_label = labels_by_track.get(int(row["source_track_id"]))
             manual_label_value = manual_label.label if manual_label is not None else None
@@ -176,22 +178,34 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
                 continue
             if label not in {"all", "unlabeled"} and manual_label_value != label:
                 continue
-            rows.append(_prediction_item(row, manual_label_value, broken_probability))
-        rows.sort(key=lambda item: (-float(item["broken_probability"]), -float(item["confidence"]), str(item["path"])))
+            rows.append((row, manual_label_value, broken_probability))
+        common_filters_active = bool(q.strip()) or syncopated != "all"
+        source_tracks = (
+            source.tracks_by_ids(int(row["source_track_id"]) for row, _, _ in rows) if common_filters_active else {}
+        )
+        items = []
+        for row, manual_label_value, broken_probability in rows:
+            track = source_tracks.get(int(row["source_track_id"]))
+            if common_filters_active and (
+                track is None or not _candidate_matches_common_filters(track, query=q, syncopated=syncopated)
+            ):
+                continue
+            items.append(_prediction_item(row, manual_label_value, broken_probability))
+        items.sort(key=lambda item: (-float(item["broken_probability"]), -float(item["confidence"]), str(item["path"])))
         bounded_limit = max(1, min(500, int(limit)))
         bounded_offset = max(0, int(offset))
-        page_items = rows[bounded_offset : bounded_offset + bounded_limit]
-        mert_track_ids = source.embedding_track_ids("mert")
-        maest_track_ids = source.embedding_track_ids("maest")
-        for item in page_items:
-            try:
-                track = source.get_track(int(item["id"]))
-            except KeyError:
-                continue
-            item.update(_candidate_source_fields(track, mert_track_ids=mert_track_ids, maest_track_ids=maest_track_ids))
+        page_items = items[bounded_offset : bounded_offset + bounded_limit]
+        if page_items:
+            page_tracks = source_tracks if common_filters_active else source.tracks_by_ids(int(item["id"]) for item in page_items)
+            mert_track_ids = source.embedding_track_ids("mert")
+            maest_track_ids = source.embedding_track_ids("maest")
+            for item in page_items:
+                track = page_tracks.get(int(item["id"]))
+                if track is not None:
+                    item.update(_candidate_source_fields(track, mert_track_ids=mert_track_ids, maest_track_ids=maest_track_ids))
         return {
             "items": page_items,
-            "total": len(rows),
+            "total": len(items),
             "limit": bounded_limit,
             "offset": bounded_offset,
         }
@@ -271,6 +285,31 @@ def _candidate_source_fields(track, *, mert_track_ids: set[int], maest_track_ids
     }
 
 
+def _candidate_matches_common_filters(track, *, query: str, syncopated: str) -> bool:
+    metadata = track.metadata or {}
+    is_syncopated = metadata.get("maest_syncopated_rhythm") is True
+    if syncopated == "yes" and not is_syncopated:
+        return False
+    if syncopated == "no" and is_syncopated:
+        return False
+    if syncopated != "all" and syncopated not in {"yes", "no"}:
+        raise ValueError(f"Unknown syncopated filter: {syncopated}")
+    needle = query.strip().casefold()
+    if not needle:
+        return True
+    haystack = " ".join(
+        str(value or "")
+        for value in (
+            track.artist,
+            track.title,
+            track.album,
+            track.path,
+            metadata,
+        )
+    ).casefold()
+    return needle in haystack
+
+
 def _transcoded_wav_response(path: Path, ffmpeg_path: str) -> StreamingResponse:
     command = [
         ffmpeg_path,
@@ -327,6 +366,8 @@ def _index_html() -> str:
     .active {{ outline: 2px solid #e0b84b; }}
     .tabs {{ display: flex; gap: 6px; flex: 1 1 100%; }}
     .tabs button.active {{ background: #e0b84b; color: #141414; outline: none; }}
+    .filters {{ display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }}
+    .filters[hidden] {{ display: none; }}
     .source-row {{ display: flex; gap: 6px; align-items: center; flex: 1 1 100%; }}
     .source-status {{ color: #aaa; font-size: 13px; min-width: 160px; }}
     .source-status.error {{ color: #ff8f8f; }}
@@ -365,33 +406,35 @@ def _index_html() -> str:
       <button id="libraryTab" class="active">Library</button>
       <button id="candidatesTab">Candidates</button>
     </div>
-    <input id="query" placeholder="search path/title/artist" />
-    <select id="syncopated">
-      <option value="all">all rhythm</option>
-      <option value="yes">syncopated rhythm</option>
-      <option value="no">no syncopated rhythm</option>
-    </select>
-    <select id="label">
-      <option value="all">all</option>
-      <option value="unlabeled">unlabeled</option>
-      <option value="broken">broken</option>
-      <option value="straight">straight</option>
-      <option value="ambiguous">ambiguous</option>
-    </select>
-    <select id="candidateLabel">
-      <option value="unlabeled" selected>unlabeled candidates</option>
-      <option value="all">all candidates</option>
-      <option value="broken">manual broken</option>
-      <option value="straight">manual straight</option>
-      <option value="ambiguous">manual ambiguous</option>
-    </select>
-    <select id="candidateMinBroken">
-      <option value="0">P(broken) >= 0.0</option>
-      <option value="0.3" selected>P(broken) >= 0.3</option>
-      <option value="0.5">P(broken) >= 0.5</option>
-      <option value="0.7">P(broken) >= 0.7</option>
-      <option value="0.9">P(broken) >= 0.9</option>
-    </select>
+    <div id="commonFilters" class="filters">
+      <input id="query" placeholder="search path/title/artist" />
+      <select id="syncopated">
+        <option value="all">all rhythm</option>
+        <option value="yes">syncopated rhythm</option>
+        <option value="no">no syncopated rhythm</option>
+      </select>
+      <select id="label">
+        <option value="all">all</option>
+        <option value="unlabeled">unlabeled</option>
+        <option value="broken">broken</option>
+        <option value="straight">straight</option>
+        <option value="ambiguous">ambiguous</option>
+      </select>
+    </div>
+    <div id="candidateFilters" class="filters" hidden>
+      <select id="candidatePredicted">
+        <option value="all" selected>all predictions</option>
+        <option value="broken">predicted broken</option>
+        <option value="straight">predicted straight</option>
+      </select>
+      <select id="candidateMinBroken">
+        <option value="0">P(broken) >= 0.0</option>
+        <option value="0.3" selected>P(broken) >= 0.3</option>
+        <option value="0.5">P(broken) >= 0.5</option>
+        <option value="0.7">P(broken) >= 0.7</option>
+        <option value="0.9">P(broken) >= 0.9</option>
+      </select>
+    </div>
     <button id="load">Load</button>
     <div class="pager">
       <button id="prevPage">Prev</button>
@@ -417,9 +460,10 @@ def _index_html() -> str:
     const sourceStatusEl = document.getElementById("sourceStatus");
     const libraryTabEl = document.getElementById("libraryTab");
     const candidatesTabEl = document.getElementById("candidatesTab");
+    const candidateFiltersEl = document.getElementById("candidateFilters");
     const syncopatedEl = document.getElementById("syncopated");
     const labelEl = document.getElementById("label");
-    const candidateLabelEl = document.getElementById("candidateLabel");
+    const candidatePredictedEl = document.getElementById("candidatePredicted");
     const candidateMinBrokenEl = document.getElementById("candidateMinBroken");
     const summaryEl = document.getElementById("summary");
     const pageSizeEl = document.getElementById("pageSize");
@@ -430,6 +474,8 @@ def _index_html() -> str:
     let total = 0;
     let activeAudio = null;
     let activeView = "library";
+    const viewOffsets = {{ library: 0, candidates: 0 }};
+    let loadSequence = 0;
     document.getElementById("load").addEventListener("click", () => loadActive({{ reset: true }}));
     libraryTabEl.addEventListener("click", () => switchView("library"));
     candidatesTabEl.addEventListener("click", () => switchView("candidates"));
@@ -437,10 +483,10 @@ def _index_html() -> str:
     document.getElementById("loadSource").addEventListener("click", () => switchSource(sourcePathEl.value).catch(console.error));
     sourcePathEl.addEventListener("keydown", event => {{ if (event.key === "Enter") switchSource(sourcePathEl.value).catch(console.error); }});
     queryEl.addEventListener("keydown", event => {{ if (event.key === "Enter") loadActive({{ reset: true }}); }});
-    syncopatedEl.addEventListener("change", () => loadTracks({{ reset: true }}));
-    labelEl.addEventListener("change", () => loadTracks({{ reset: true }}));
-    candidateLabelEl.addEventListener("change", () => loadCandidates({{ reset: true }}));
-    candidateMinBrokenEl.addEventListener("change", () => loadCandidates({{ reset: true }}));
+    syncopatedEl.addEventListener("change", () => loadActive({{ reset: true }}));
+    labelEl.addEventListener("change", () => loadActive({{ reset: true }}));
+    candidatePredictedEl.addEventListener("change", () => loadActive({{ reset: true }}));
+    candidateMinBrokenEl.addEventListener("change", () => loadActive({{ reset: true }}));
     pageSizeEl.addEventListener("change", () => loadActive({{ reset: true }}));
     prevPageEl.addEventListener("click", () => {{
       offset = Math.max(0, offset - pageLimit());
@@ -452,11 +498,13 @@ def _index_html() -> str:
     }});
 
     async function switchView(view) {{
+      viewOffsets[activeView] = offset;
       activeView = view;
-      offset = 0;
+      offset = viewOffsets[view] || 0;
       libraryTabEl.classList.toggle("active", view === "library");
       candidatesTabEl.classList.toggle("active", view === "candidates");
-      await loadActive({{ reset: true }});
+      candidateFiltersEl.hidden = view !== "candidates";
+      await loadActive();
     }}
 
     async function loadActive(options = {{}}) {{
@@ -512,8 +560,9 @@ def _index_html() -> str:
       return data;
     }}
 
-    async function loadSummary() {{
+    async function loadSummary(sequence = loadSequence) {{
       const data = await fetch("/api/summary").then(r => r.json());
+      if (sequence !== loadSequence) return;
       summaryEl.textContent = `${{data.tracks}} tracks | MAEST ${{data.maest}} | MERT ${{data.mert}} – Labels: ${{formatLabelCounts(data.labels)}}`;
     }}
 
@@ -527,7 +576,9 @@ def _index_html() -> str:
     }}
 
     async function loadTracks(options = {{}}) {{
+      const sequence = ++loadSequence;
       if (options.reset) offset = 0;
+      viewOffsets.library = offset;
       const limit = pageLimit();
       const params = new URLSearchParams({{
         q: queryEl.value,
@@ -537,36 +588,45 @@ def _index_html() -> str:
         offset: String(offset)
       }});
       const data = await fetch(`/api/tracks?${{params}}`).then(r => r.json());
+      if (sequence !== loadSequence || activeView !== "library") return;
       total = data.total;
       offset = data.offset;
+      viewOffsets.library = offset;
       tracksEl.innerHTML = "";
       data.items.forEach((track, index) => {{
         track.rowNumber = data.offset + index + 1;
         tracksEl.appendChild(renderTrack(track));
       }});
       updatePager(data);
-      await loadSummary();
+      await loadSummary(sequence);
     }}
 
     async function loadCandidates(options = {{}}) {{
+      const sequence = ++loadSequence;
       if (options.reset) offset = 0;
+      viewOffsets.candidates = offset;
       const limit = pageLimit();
       const params = new URLSearchParams({{
-        label: candidateLabelEl.value,
+        q: queryEl.value,
+        syncopated: syncopatedEl.value,
+        label: labelEl.value,
+        predicted: candidatePredictedEl.value,
         min_broken: candidateMinBrokenEl.value,
         limit: String(limit),
         offset: String(offset)
       }});
       const data = await fetch(`/api/predictions?${{params}}`).then(r => r.json());
+      if (sequence !== loadSequence || activeView !== "candidates") return;
       total = data.total;
       offset = data.offset;
+      viewOffsets.candidates = offset;
       tracksEl.innerHTML = "";
       data.items.forEach((track, index) => {{
         track.rowNumber = data.offset + index + 1;
         tracksEl.appendChild(renderCandidate(track));
       }});
       updatePager(data);
-      await loadSummary();
+      await loadSummary(sequence);
     }}
 
     function pageLimit() {{

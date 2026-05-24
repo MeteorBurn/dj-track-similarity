@@ -126,14 +126,14 @@ def test_web_app_reads_source_database_and_writes_labels_database_only(tmp_path:
         ).fetchone() is None
 
 
-def test_web_app_predictions_endpoint_lists_candidates_by_broken_probability(tmp_path: Path) -> None:
+def test_web_app_predictions_endpoint_lists_candidates_by_broken_probability(monkeypatch, tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
     source_path = tmp_path / "source.sqlite"
     source = LibraryDatabase(source_path)
     low_id = _track(source, tmp_path, "low.wav", title="Low")
     high_id = _track(source, tmp_path, "high.wav", title="High")
-    source.save_genres(high_id, [{"label": "Tech House", "score": 0.9}], model_name="maest-test")
+    source.save_genres(high_id, [{"label": "Breakbeat", "score": 0.9}], model_name="maest-test")
     source.save_sonara_features(high_id, {"onset_density": {"type": "float", "value": 4.2}}, model_name="sonara-test")
     source.save_embedding(high_id, np.asarray([1, 0, 0], dtype=np.float32), "maest-test", embedding_key="maest")
     source.save_embedding(high_id, np.asarray([0, 1, 0], dtype=np.float32), "mert-test", embedding_key="mert")
@@ -155,23 +155,40 @@ def test_web_app_predictions_endpoint_lists_candidates_by_broken_probability(tmp
         probabilities={"broken": 0.7, "straight": 0.3},
     )
     labels.set_label(source.get_track(high_id), "broken")
+    import rhythm_lab.source_db as source_db
+
+    def fail_single_track_load(self, track_id: int):
+        raise AssertionError("predictions endpoint must not fetch source tracks one at a time")
+
+    monkeypatch.setattr(source_db.SourceDatabase, "get_track", fail_single_track_load)
     client = TestClient(create_app(source_path, labels_db_path=labels.path))
 
     all_candidates = client.get("/api/predictions", params={"label": "all"}).json()
     unlabeled = client.get("/api/predictions", params={"label": "unlabeled"}).json()
     filtered = client.get("/api/predictions", params={"label": "all", "min_broken": 0.5}).json()
+    combined = client.get(
+        "/api/predictions",
+        params={"label": "broken", "min_broken": 0.5, "q": "high", "syncopated": "yes"},
+    ).json()
+    mismatched = client.get(
+        "/api/predictions",
+        params={"label": "broken", "min_broken": 0.5, "q": "low", "syncopated": "yes"},
+    ).json()
 
     assert all_candidates["total"] == 2
     assert [item["id"] for item in all_candidates["items"]] == [high_id, low_id]
     assert all_candidates["items"][0]["broken_probability"] == 0.7
     assert all_candidates["items"][0]["label"] == "broken"
-    assert all_candidates["items"][0]["genres"] == ["Tech House"]
-    assert all_candidates["items"][0]["maest_syncopated_rhythm"] is False
+    assert all_candidates["items"][0]["genres"] == ["Breakbeat"]
+    assert all_candidates["items"][0]["maest_syncopated_rhythm"] is True
     assert all_candidates["items"][0]["feature_status"] == {"sonara": True, "mert": True, "maest": True}
     assert unlabeled["total"] == 1
     assert unlabeled["items"][0]["id"] == low_id
     assert filtered["total"] == 1
     assert filtered["items"][0]["id"] == high_id
+    assert combined["total"] == 1
+    assert combined["items"][0]["id"] == high_id
+    assert mismatched["total"] == 0
 
 
 def test_web_app_tracks_endpoint_uses_source_sql_pagination(monkeypatch, tmp_path: Path) -> None:
@@ -321,6 +338,32 @@ def test_web_app_html_contains_candidates_tab(tmp_path: Path) -> None:
     assert "broken_probability" in html
     assert 'SONARA ${mark(track.feature_status.sonara)} · MERT ${mark(track.feature_status.mert)} · MAEST ${mark(track.feature_status.maest)} · label <b>${track.label || "none"}</b>' in html
     assert '<div class="genres-line"><span class="genres">${(track.genres || []).map(escapeHtml).join(" · ")}</span>${badgeRow(track)}</div>' in html
+
+
+def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    html = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite")).get("/").text
+
+    assert 'id="commonFilters"' in html
+    assert 'id="candidateFilters"' in html
+    assert 'syncopatedEl.addEventListener("change", () => loadActive({ reset: true }));' in html
+    assert 'labelEl.addEventListener("change", () => loadActive({ reset: true }));' in html
+    assert 'candidatePredictedEl.addEventListener("change", () => loadActive({ reset: true }));' in html
+    assert 'candidateMinBrokenEl.addEventListener("change", () => loadActive({ reset: true }));' in html
+    assert ".filters[hidden] { display: none; }" in html
+    assert 'candidateFiltersEl.hidden = view !== "candidates";' in html
+    assert "const viewOffsets = { library: 0, candidates: 0 };" in html
+    assert "let loadSequence = 0;" in html
+    assert "const sequence = ++loadSequence;" in html
+    assert 'if (sequence !== loadSequence || activeView !== "library") return;' in html
+    assert 'if (sequence !== loadSequence || activeView !== "candidates") return;' in html
+    assert "viewOffsets[activeView] = offset;" in html
+    assert "offset = viewOffsets[view] || 0;" in html
+    assert "q: queryEl.value," in html
+    assert "syncopated: syncopatedEl.value," in html
+    assert "label: labelEl.value," in html
+    assert "predicted: candidatePredictedEl.value," in html
 
 
 def test_web_app_html_colors_manual_labels_by_label_value(tmp_path: Path) -> None:

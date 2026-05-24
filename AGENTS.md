@@ -2,255 +2,177 @@
 
 ## Project Snapshot
 
-dj-track-similarity is a public personal/enthusiast project for exploring music-library analysis and track similarity for DJ-set preparation. The README should sound honest, practical, and modest: this is not a polished commercial product or a research benchmark. The user is building something useful for their own music collection, tagging workflow, and DJ sets, and it may also be useful to other music collectors.
+`dj-track-similarity` is a public personal/enthusiast project for local DJ
+music-library analysis and track similarity. Keep public docs honest, practical,
+and modest: this is not a polished commercial product or a research benchmark.
 
-Technically, it is a local tool that scans an audio library, stores metadata in SQLite, refreshes selected Mutagen file tags, relocates stored track paths after a library folder is moved, extracts Sonara playlist features, generates track embeddings, extracts MAEST genre labels, searches for compatible tracks, assembles a temporary UI set, exports M3U/CSV files, can write custom `DJ_SIM_*` tags on explicit request, and can explicitly save MAEST genres into standard audio genre tags.
+User-facing project documentation should be English unless the user asks
+otherwise. The detailed user/developer guide is `docs/project-guide.md`; use it
+for full CLI/API/script details instead of duplicating long references here.
 
-Keep user-facing project documentation in English unless the user asks otherwise.
+The project is a Python backend/CLI plus a React/Vite frontend:
 
-The project is a Python backend/CLI with a React/Vite frontend:
-
-- `src/dj_track_similarity/`: Python package for database access, scanning, analysis, search, export, tags, API, and CLI.
+- `src/dj_track_similarity/`: database, scanning, analysis, search, export,
+  tags, API, and CLI.
 - `frontend/`: React UI built with Vite and TypeScript.
-- `tests/`: pytest coverage for scanner/database, search, export, API dialog behavior, scan jobs, analysis jobs, and tags.
-- `scripts/repair_audio_metadata.py`: standalone audio metadata/container diagnostic and repair helper, with focused tests in `scripts/tests/test_repair_audio_metadata.py`.
-- `scripts/audio_repair/`: runtime workspace for the repair script's state, log, reports, and backups. Keep only `.gitkeep`; do not commit generated contents.
-- `scripts/run_server.cmd`: Windows shortcut for running the FastAPI app on `127.0.0.1:8765`.
+- `tests/`: pytest coverage for backend/API/search/jobs/tags.
+- `scripts/repair_audio_metadata.py`: standalone dry-run-first audio metadata
+  diagnostic/repair helper.
+- `scripts/audio_repair/`: runtime state/log/report/backup workspace; commit
+  only `.gitkeep`.
 
-This workspace may not be a Git repository. Do not assume Git history, branches, or commits are available.
+This workspace may not always be a Git repository. Do not assume commits,
+branches, or history are available.
 
-## Safety Rules
+## Safety Invariants
 
-- Treat real audio files as user data. Scanning, analysis, search, preview, RefreshTags, reset, clear, and export should not modify audio files.
-- Browser preview may transcode `.aif`/`.aiff` files to WAV on the fly through `ffmpeg` for the `/media/{track_id}` response. This is read-only streaming and must not rewrite, retag, copy, or cache the source audio file.
-- Library path relocation updates only stored `tracks.path` values in SQLite. It must not move, copy, delete, rewrite, retag, or reanalyze audio files.
-- Library path relocation must be previewable before applying. Dry-run output should report matched tracks, missing target files, and path conflicts. Apply must reject missing target files and conflicts instead of partially updating the database.
-- Library path relocation must preserve track IDs and all dependent local state, including embeddings, Sonara features, MAEST genres, and tag metadata.
-- `tag-apply` and `/api/tags/apply` write only custom `DJ_SIM_*` tags. They must not overwrite standard BPM, key, title, artist, album, mood, genre, or other normal tags.
-- `/api/tags/genres/apply` is the explicit exception for standard metadata writes: it overwrites only the standard genre tag from stored MAEST labels. It must preserve existing artist, title, album, BPM, key, and other normal tags.
-- Standard genre tag writing should use player-compatible fields: `TCON` for MP3/WAV/AIFF ID3 tags, `GENRE` for FLAC/Vorbis-style tags, and `©gen` for MP4/M4A/ALAC. Multiple MAEST labels should be written as one string separated by `;`, for example `Tech House; Minimal; Techno`.
-- Standard genre writes must be an upsert of the genre field only. If no genre tag exists, create it; if one or many genre values already exist, replace them with the single normalized `;`-separated MAEST genre string. Do not append duplicate genre frames or preserve stale genre values.
-- WAV genre writing should use `mutagen.wave.WAVE` for WAV files, rely on Mutagen for WAV metadata parsing and saving, and verify that the saved `TCON` value is readable afterward. It must preserve PCM audio payload and avoid repeated file growth when the same genre string is written again.
-- WAV genre writing must not use a custom RIFF chunk validator or repair malformed containers. If Mutagen cannot read audio data, save the tag, or read the saved `TCON` back, report that track as failed while continuing the genre-save batch.
-- Treat `dj-track-similarity.sqlite` as local user state. Tests should use temporary databases via `tmp_path` or explicit `--db` paths.
-- SQLite writes must be safe for parallel jobs across the whole project, not just one analysis family. Keep all database mutations routed through `LibraryDatabase`, preserve the path-scoped write lock shared by `LibraryDatabase` instances for the same SQLite file, and keep connection pragmas such as `busy_timeout` plus WAL enabled so scan/RefreshTags/Sonara/MAEST/MERT/CLAP/reset writes queue cleanly while read-heavy work can continue.
-- Do not commit or preserve generated local artifacts unless explicitly asked: `*.sqlite`, `*.log`, `__pycache__/`, `.pytest_cache/`, `frontend/node_modules/`, and transient temp folders.
-- Runtime file logging defaults to `dj-track-similarity.log`, rotates daily at midnight, and keeps one rotated day; agents may inspect it when debugging, but must not commit log files.
-- Runtime file logging defaults to INFO. Successful per-track job events are aggregated out of the file log by default; warnings, errors, and job start/finish summaries still log. Use `DJ_TRACK_SIMILARITY_LOG_TRACK_EVENTS=1` or `dj-sim serve --log-track-events` when detailed successful per-track file logs are needed. Do not confuse this with UI job event logs, which remain separate.
-- `scripts/repair_audio_metadata.py` dry-run must not write or copy audio files. Folder-mode state is per resolved `--folder` path and stored by default in `scripts/audio_repair/state.<folder_name>.<folder_hash>.json`. Each state entry should include an uppercase, short machine-friendly `reason` for filtering later apply runs with `--reason`; prefer one word, or at most two words joined with `_` such as `OVERSIZED_DATA`, `DUPLICATE_ID3`, `EMPTY_ID3`, or `CONTAINER_NORMALIZATION`. Its default file log is `scripts/audio_repair/repair_audio_metadata.log`.
-- `scripts/repair_audio_metadata.py --apply` is the explicit exception for this standalone helper: it may rewrite only files that the script reports as `REPAIRABLE`, must run repairs sequentially, and must create a full-file backup under `scripts/audio_repair/backups/` by default before replacing an audio file.
-- Repair-script statuses should stay meaningful: `OK` for no repair needed, `NOTICE` for non-required cleanup, `SUSPICIOUS` for format/container or codec mismatch, `TAG-ERROR` for tag-read failures without a safe repair path, `REPAIRABLE` only when safe repair logic exists, and `REPAIRED` only after apply succeeds.
-- Server startup requires `ffmpeg` to be available on `PATH` or through `DJ_TRACK_SIMILARITY_FFMPEG`. Keep the startup error clear and actionable if ffmpeg is missing.
-- Mutagen scanning and `RefreshTags` read only a fixed whitelist of human-relevant file tags. They update SQLite metadata only and must not modify audio files.
-- Mutagen metadata written to SQLite must be JSON-safe. Convert Mutagen-specific objects such as ID3 timestamps to strings before saving.
-- Sonara feature analysis writes only SQLite track metadata (`sonara_features` and `sonara_model`) plus working BPM/key/duration/energy fields derived from analysis. BPM and key from Sonara must be analyzed values, not copied from file tags.
-- Sonara key data should stay in the original analyzed Sonara fields. Do not derive or display Camelot notation from Sonara key data until that conversion is explicitly redesigned.
-- Sonara `playlist` storage should stay focused on the current grouped UI contract instead of dumping every possible Sonara or helper field. Keep these groups and order aligned between SQLite JSON and the metadata dialog: Core features (`bpm`, `beats`, `onset_frames`, `onset_density`, `n_beats`, `rms_mean`, `rms_max`, `loudness_lufs`, `dynamic_range_db`, `spectral_centroid_mean`, `zero_crossing_rate`, `duration_sec`), Perceptual features (`energy`, `danceability`, `valence`, `acousticness`), Musical key (`key`, `key_confidence`), Tonal analysis (`predominant_chord`, `chord_change_rate`, `dissonance`), and Spectral features (`spectral_bandwidth_mean`, `spectral_rolloff_mean`, `spectral_flatness_mean`, `spectral_contrast_mean`, `mfcc_mean`, `chroma_mean`).
-- Keep Sonara database keys canonical even when UI labels are friendlier. Do not rename `*_mean` keys in SQLite metadata. In the metadata dialog, omit the word `mean` from display labels such as `RMS`, `Spectral Centroid`, `MFCC`, and `Chroma`; `spectral_centroid_mean` must not be shown as `Brightness`.
-- Use these meanings for displayed Sonara playlist features:
+- Treat real audio files as user data. Scanning, RefreshTags, analysis, search,
+  preview, reset, clear, relocation preview, and export must not modify audio.
+- Browser preview may transcode `.aif`/`.aiff` to WAV for `/media/{track_id}`;
+  this is read-only streaming and must not rewrite/cache source audio.
+- Library relocation updates only stored `tracks.path` values in SQLite. It must
+  be previewable, reject missing target files/conflicts on apply, preserve track
+  IDs and all analysis/tag metadata, and never move/copy/delete/retag audio.
+- `/api/tags/genres/apply` is the explicit app-level standard-tag write path:
+  overwrite only the standard genre field from stored MAEST labels, preserving
+  title/artist/album/BPM/key and other normal tags.
+- Genre writes are upserts: replace any existing genre values with one normalized
+  `;`-separated MAEST genre string. Use `TCON` for MP3/WAV/AIFF ID3, `GENRE`
+  for FLAC/Vorbis-style tags, and `\xa9gen` for MP4/M4A/ALAC.
+- WAV genre writing must use Mutagen WAVE/ID3 handling and read back `TCON`.
+  Do not add custom RIFF repair/validation to the app path; failed WAV writes
+  should fail that track and let the batch continue.
+- `scripts/repair_audio_metadata.py --apply` is separate and may rewrite only
+  files it reports as `REPAIRABLE`; dry-run must not write/copy audio, apply is
+  sequential, and full-file backups are created by default.
+- Keep SQLite writes routed through `LibraryDatabase`, with the shared
+  path-scoped write lock, WAL, and busy timeout so scan/RefreshTags/Sonara/
+  MAEST/MERT/CLAP/reset writes queue safely.
+- Treat `dj-track-similarity.sqlite` as local user state. Tests must use
+  temporary databases (`tmp_path` or explicit `--db`).
+- Do not commit generated local artifacts: `*.sqlite`, `*.log`, `__pycache__/`,
+  `.pytest_cache/`, `frontend/node_modules/`, transient temp folders, or
+  generated `scripts/audio_repair/` contents.
+- Server startup requires `ffmpeg` on `PATH` or `DJ_TRACK_SIMILARITY_FFMPEG`;
+  keep missing-ffmpeg errors clear and actionable.
 
-  Core features:
-  `bpm` # Tempo (BPM)
-  `beats` # Beat frame positions
-  `onset_frames` # Onset positions
-  `onset_density` # Onsets per second
-  `n_beats` # Number of detected beats
-  `rms_mean` # Average loudness (RMS)
-  `rms_max` # Peak loudness (RMS)
-  `loudness_lufs` # Integrated loudness (LUFS, ITU-R BS.1770-4)
-  `dynamic_range_db` # Loudness range (p95 - p5, dB)
-  `spectral_centroid_mean` # Brightness (Hz)
-  `zero_crossing_rate` # Percussiveness proxy
-  `duration_sec` # Track length
+## Analysis And UI Contracts
 
-  Perceptual features (0.0 - 1.0):
-  `energy` # Perceived intensity (loudness + brightness + activity)
-  `danceability` # Beat regularity + tempo sweet spot + rhythm
-  `valence` # Mood (0 = sad/dark, 1 = happy/bright)
-  `acousticness` # Acoustic vs electronic character
-
-  Musical key:
-  `key` # Musical key, for example `C major` or `A minor`
-  `key_confidence` # Key detection confidence (0.0 - 1.0)
-
-  Tonal analysis:
-  `predominant_chord` # Most frequent chord
-  `chord_change_rate` # Chord changes per second (harmonic complexity)
-  `dissonance` # Sensory dissonance (0 = consonant, 1 = rough)
-
-  Spectral features:
-  `spectral_bandwidth_mean` # Frequency spread
-  `spectral_rolloff_mean` # Frequency below which 85% of energy sits
-  `spectral_flatness_mean` # Tonal (0) vs noise-like (1)
-  `spectral_contrast_mean` # Peak-valley ratio per band (7 values)
-  `mfcc_mean` # Timbre fingerprint (13 coefficients)
-  `chroma_mean` # Pitch class distribution (12 values)
-- Do not store or show `unavailable` placeholder rows for Sonara fields that the playlist workflow cannot produce. Do not persist helper-only diagnostics such as `requested_feature_count` or `decode_path` inside `sonara_features`.
-- Do not display or persist `chord_sequence` in the metadata dialog's focused Sonara playlist contract unless the UI contract is explicitly expanded; keep the displayed tonal group limited to `predominant_chord`, `chord_change_rate`, and `dissonance`.
-- Audio analysis uses a native-first shared loader: Sonara starts with `sonara.analyze_file`, while MAEST/MERT/CLAP use decoded waveform input. The shared loader should use standard decoders only: `torchaudio` when provided, Python's native `wave` reader for WAV, then `ffmpeg`. If those decoders cannot read a file, surface a clear decode failure instead of using a custom WAV reader.
-- Sonara fallback should call `sonara.analyze_signal` with decoded audio. MAEST/MERT/CLAP should keep using the shared loader rather than direct `torchaudio.load` so standard decoder behavior stays consistent across all analysis families.
-- MAEST genre analysis itself writes only SQLite track metadata (`maest_genres` and `maest_model`). It must not modify audio files. The separate genre-save action may later write those stored labels into standard audio genre tags.
-- Full MERT/CLAP/MAEST analysis can be slow and may download Hugging Face/PyTorch/MAEST model weights on first use. Sonara is lighter but still decodes audio.
-- In the UI, `Analyze limit = 0` means analyzing the whole library and is the default. Positive limits count missing results for the selected analysis family, not the first N tracks overall: Sonara skips tracks with `sonara_features`, MAEST skips tracks with stored genres, and MERT/CLAP skip tracks with embeddings in their own embedding space. Avoid triggering whole-library analysis unless the user clearly wants it or is operating the UI themselves.
-- The UI `Embedding batch size` control is shared deliberately: Sonara uses it as parallel track workers; MAEST, MERT, and CLAP use it as inference batch size.
-- MERT/CLAP analysis should be accelerated with a single selected device plus inference batching, not multiple parallel model workers. Use `device=auto|cpu|cuda` and `batch_size`; keep legacy `workers` only as a compatibility alias for analysis batch size.
-- MAEST uses the same `device=auto|cpu|cuda` selection model and supports inference batching through `batch_size`. Its adapter must analyze up to three 30-second windows per track: the 60-second offset, about 38% of duration, and about 72% of duration. Clamp and deduplicate impossible windows for shorter tracks, average per-label activations across the windows, and store only the final top 3 labels in the existing `maest_genres` shape. It must call `model(audio_batch, melspectrogram_input=False)` and rank per-row/window logits; do not use `model.predict_labels()` for batch work because that helper averages activations into one label vector.
-- Sonara batch size is not ML inference batching. It controls concurrent Sonara track workers in one job.
-- `auto` chooses CUDA when PyTorch sees a GPU, otherwise CPU.
-- If CUDA is explicitly requested and unavailable, surface an error instead of silently falling back to CPU. Use `auto` for fallback behavior.
-- For CUDA systems, PyTorch and Torchaudio should usually be installed separately with the official CUDA wheel index before installing remaining ML dependencies. Do not assume plain `pip install -e ".[ml]"` will pick the correct CUDA build.
-- Search UI is split into SONARA, MERT, and CLAP tabs inside the same search/listening panel. SONARA is the primary seed-search path and sends the custom mixer, modifiers, `Similarity`, `Lookback`, and `Limit` to `/api/search/sonara`. MERT keeps its own seed-search tab and sends only `Similarity`, `Lookback`, and `Limit` to `/api/search`. CLAP text search keeps the prompt field in its own tab and requires `clap` embeddings.
-- The library browser must stay usable with tens of thousands of tracks. Do not make the frontend load the full library or full `metadata_json` blobs into React state. Keep `/api/tracks` as a server-side paginated/searchable endpoint with lightweight track rows, keep `/api/library/summary` as the source for header analysis counters, and load full metadata for one track through `/api/tracks/{id}` only when the metadata dialog opens.
-- Algorithm reset controls are database-only. Reset Sonara, MAEST, MERT, or CLAP independently without touching unrelated analysis families or audio files.
-- The database clear control deletes local SQLite records only and must require an explicit UI confirmation. It must not delete audio files.
-- The track metadata dialog should keep sources visually separate. The dialog title should be the app's normal track display fallback (`artist - title`, then title, then filename/path fallback) and should not also show a separate static `Теги и жанры` title or duplicate basename line. The `Mutagen tags` block must then show `Title`, `Audio Length`, `Audio Format`, `File Size`, and `File Path`; then show Mutagen tags only when present in this order: `Artist`, `Album`, `Genre`, `Year`, `Country`, `Label`, `Catalog`, `Track no.`, `Disc no.`, `BPM`, `Key`, `Comment`, `ISRC`. Keep `SONARA features` and `MAEST genres` as separate titled blocks.
-- Keep hover help on user-editable parameters. Tooltips should explain purpose, accepted format, value type, and range.
+- Mutagen scan/RefreshTags read only the fixed human-relevant whitelist and
+  update SQLite only. Stored metadata must be JSON-safe.
+- Sonara writes only SQLite metadata (`sonara_features`, `sonara_model`) plus
+  derived working BPM/key/duration/energy fields. Sonara BPM/key are analyzed
+  values, not copied file tags.
+- Keep Sonara playlist storage focused on the grouped UI contract. Do not store
+  placeholder `unavailable` rows, helper diagnostics, or `chord_sequence`.
+- Keep Sonara database keys canonical (`*_mean` stays in SQLite). Friendly UI
+  labels may omit `mean`, but do not rename stored keys or derive Camelot data.
+- Shared audio loading is native-first standard decoding: Sonara starts with
+  `sonara.analyze_file`; Sonara fallback, MAEST, MERT, and CLAP use the shared
+  loader (`torchaudio` when provided, Python `wave` for WAV, then `ffmpeg`).
+- MAEST analysis writes only SQLite metadata and must use the three-window
+  30-second policy with direct `model(audio_batch, melspectrogram_input=False)`
+  logits, not `predict_labels()` for batch work.
+- MERT/CLAP/MAEST use one selected device plus inference batching. `auto` picks
+  CUDA when PyTorch sees a GPU, otherwise CPU; explicit `cuda` must error if
+  unavailable.
+- In the UI, `Analyze limit = 0` means whole library. Positive limits count
+  missing results for the selected analysis family.
+- Search UI stays split into SONARA, MERT, and CLAP tabs. SONARA sends custom
+  mixer/modifiers to `/api/search/sonara`; MERT seed search uses `/api/search`;
+  CLAP text search uses `/api/search/text` and requires `clap` embeddings.
+- Keep library browsing scalable: `/api/tracks` remains server-side
+  paginated/searchable with lightweight rows, `/api/library/summary` provides
+  counters, and full metadata loads via `/api/tracks/{id}` only on dialog open.
+- Reset controls are database-only per analysis family. Database clear deletes
+  SQLite records only and must require explicit UI confirmation.
+- Metadata dialog must keep Mutagen tags, SONARA features, and MAEST genres
+  visually separate; preserve the current display order and source boundaries.
+- Keep hover help on user-editable controls with purpose, type/format, and range.
 
 ## Common Commands
 
-Install for development:
+For the complete CLI, API, and maintenance script reference, see
+`docs/project-guide.md`.
 
 ```powershell
 python -m pip install -e ".[dev]"
-```
-
-Install optional ML dependencies:
-
-```powershell
-python -m pip install -e ".[ml,dev]"
-```
-
-Install Sonara support:
-
-```powershell
-python -m pip install -e ".[sonara,dev]"
-```
-
-Install the full local lab dependency set:
-
-```powershell
 python -m pip install -e ".[sonara,ml,dev]"
-```
-
-Run tests:
-
-```powershell
 pytest
-```
-
-Run the app:
-
-```powershell
 dj-sim serve --host 127.0.0.1 --port 8765
-```
-
-Successful per-track file logging, when needed:
-
-```powershell
 dj-sim serve --host 127.0.0.1 --port 8765 --log-track-events
-```
-
-or:
-
-```powershell
 scripts\run_server.cmd
-```
-
-Build the frontend after UI changes:
-
-```powershell
 cd frontend
 npm run build
-```
-
-Frontend development server:
-
-```powershell
-cd frontend
 npm run dev
 ```
 
-Useful CLI commands:
+Useful focused CLI examples:
 
 ```powershell
-dj-sim scan "D:\Music"
-dj-sim analyze-sonara --batch-size 4 --limit 3
-dj-sim analyze --device cpu --batch-size 2 --limit 3
-dj-sim analyze --device cuda --batch-size 8 --limit 3
-dj-sim analyze --adapter clap --device cpu --batch-size 2 --limit 3
-dj-sim analyze-genres --device cpu --batch-size 2 --limit 3
-dj-sim analyze-genres --device cuda --batch-size 4 --limit 3
-dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 5
-dj-sim relocate-library "E:\MusicFast" "D:\MusicArchive"
-dj-sim relocate-library "E:\MusicFast" "D:\MusicArchive" --apply
+dj-sim scan <path-to-music> --db .\data\library.sqlite
+dj-sim analyze-sonara --limit 3 --batch-size 4 --db .\data\library.sqlite
+dj-sim analyze --adapter mert --device cpu --batch-size 2 --limit 3 --db .\data\library.sqlite
+dj-sim analyze --adapter clap --device cpu --batch-size 2 --limit 3 --db .\data\library.sqlite
+dj-sim analyze-genres --device cpu --batch-size 2 --limit 3 --db .\data\library.sqlite
+dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 5 --db .\data\library.sqlite
+dj-sim relocate-library .\music-old .\music-new --db .\data\library.sqlite
+dj-sim relocate-library .\music-old .\music-new --apply --db .\data\library.sqlite
 dj-sim doctor
-dj-sim tag-preview 1 2 3
-python scripts\repair_audio_metadata.py --folder "M:\Volumes\Abstracted" --workers 4
-python scripts\repair_audio_metadata.py --folder "M:\Volumes\Abstracted" --apply
-python scripts\migrate_sonara_brightness.py --db "C:\db\abstracted.sqlite"
-python scripts\migrate_sonara_brightness.py --db "C:\db\abstracted.sqlite" --apply
 ```
 
-## Backend Map
+Focused repair-script test when only `scripts/repair_audio_metadata.py` changes:
 
-- `src/dj_track_similarity/models.py`: dataclasses for tracks, scan/analyze stats, search results, and tag previews.
-- `src/dj_track_similarity/database.py`: SQLite schema, connection handling, path-scoped write serialization for parallel jobs, track upserts, paginated library row queries, summary counters, embeddings, Sonara and MAEST metadata, library path relocation, analysis resets, database clearing, and row mapping.
-- `src/dj_track_similarity/scanner.py`: synchronous library scan and fixed-whitelist audio metadata extraction with `mutagen`. Keep extracted values JSON-safe.
-- `src/dj_track_similarity/scan_jobs.py`: scan and tag-refresh job manager with progress, cancellation, event logs, and optional parallel workers.
-- `src/dj_track_similarity/audio_loader.py`: shared native-first audio loading through standard decoders used by Sonara fallback, MAEST, MERT, and CLAP paths.
-- `src/dj_track_similarity/dependencies.py`: runtime dependency checks such as required `ffmpeg` discovery.
-- `src/dj_track_similarity/embedding.py`: embedding adapter protocol, MERT adapter, CLAP adapter, and adapter registry.
-- `src/dj_track_similarity/runtime.py`: shared PyTorch runtime helpers for `auto|cpu|cuda`, CUDA diagnostics, and install hints.
-- `src/dj_track_similarity/logging_config.py`: file logging setup, event log levels, and concise exception summaries.
-- `src/dj_track_similarity/sonara_features.py`: Sonara playlist feature extraction, signal fallback through the shared audio loader, grouped feature summaries, and SQLite storage preparation.
-- `src/dj_track_similarity/sonara_jobs.py`: Sonara feature analysis job manager with progress, cancellation, errors, and SQLite metadata saves.
-- `src/dj_track_similarity/sonara_similarity.py`: SONARA-only feature similarity search for balanced, vibe, sound, and DJ-transition seed matching. It must ignore `camelot_key` even if stale metadata contains it.
-- `src/dj_track_similarity/genres.py`: MAEST genre adapter using `maest-infer` with `discogs-maest-30s-pw-129e-519l`; batch inference must use the three-window 30-second MAEST policy and direct model logits, not `predict_labels()`.
-- `src/dj_track_similarity/analysis.py`: simple analyze-missing flow.
-- `src/dj_track_similarity/analysis_jobs.py`: analysis job manager with batching, progress, cancellation, errors, adapter metadata, and embedding saves.
-- `src/dj_track_similarity/genre_jobs.py`: MAEST genre analysis job manager with batching, progress, cancellation, errors, and SQLite metadata saves.
-- `src/dj_track_similarity/search.py`: embedding-space centroid similarity search plus arbitrary query-vector search for CLAP text mode.
-- In the frontend, SONARA, MERT, and CLAP search controls should stay separated by tabs so each model shows only its own parameters.
-- `src/dj_track_similarity/exporter.py`: current set export to M3U or CSV.
-- `src/dj_track_similarity/tags.py`: custom `DJ_SIM_*` tag preview/apply logic plus explicit MAEST-to-standard-genre tag writing, including guarded WAV genre writes.
-- `src/dj_track_similarity/api.py`: FastAPI factory, request models, REST endpoints including paged `/api/tracks`, `/api/tracks/{id}`, `/api/library/summary`, `/api/library/relocate`, static frontend mount, and media serving.
-- `src/dj_track_similarity/cli.py`: Typer CLI entrypoint exposed as `dj-sim`, including `relocate-library` for previewing and applying stored path updates after moving a library folder.
-- `scripts/migrate_sonara_brightness.py`: dry-run-first SQLite metadata helper for renaming legacy `sonara_features.brightness` to canonical `sonara_features.spectral_centroid_mean` without touching audio files.
+```powershell
+python -m pytest scripts\tests\test_repair_audio_metadata.py --override-ini addopts=
+```
 
-## Frontend Map
+## Code Map
 
-- `frontend/src/api.ts`: typed fetch wrapper and API contract mirror for the FastAPI endpoints, including paged track responses and library summary counters.
-- `frontend/src/App.tsx`: single-page React app for scanning, RefreshTags, Sonara/MAEST/MERT/CLAP analysis, paged library browsing, analysis counters in the header, algorithm resets, database clearing, track metadata popups, search, playlist assembly, export, and tagging workflows.
-- `frontend/src/styles.css`: app styling.
-- `frontend/dist/`: built static frontend served by FastAPI. Regenerate it with `npm run build` after UI changes instead of editing built assets by hand.
+- `src/dj_track_similarity/database.py`: SQLite schema access, path-scoped write
+  serialization, track rows, summaries, embeddings, analysis metadata,
+  relocation, resets, and clear.
+- `src/dj_track_similarity/scanner.py`: supported audio discovery and Mutagen
+  metadata extraction.
+- `src/dj_track_similarity/audio_loader.py`: shared standard decoder path.
+- `src/dj_track_similarity/sonara_features.py` / `sonara_jobs.py`: Sonara
+  feature extraction and jobs.
+- `src/dj_track_similarity/genres.py` / `genre_jobs.py`: MAEST genre analysis.
+- `src/dj_track_similarity/embedding.py` / `analysis_jobs.py`: MERT/CLAP
+  embeddings and jobs.
+- `src/dj_track_similarity/search.py`, `sonara_similarity.py`: embedding and
+  Sonara search.
+- `src/dj_track_similarity/tags.py`, `wave_tags.py`: MAEST-to-standard-genre
+  writes and guarded WAV handling.
+- `src/dj_track_similarity/api.py`, `cli.py`: FastAPI and Typer entrypoints.
+- `frontend/src/api.ts`: frontend API contract mirror.
+- `frontend/src/App.tsx` and panels/dialogs: main UI surface. Avoid broad
+  refactors unless the task is specifically frontend-structure work.
 
 ## Development Conventions
 
-- Keep Python code compatible with Python 3.10+.
-- Prefer small, focused changes in the existing modules instead of introducing new architecture.
-- Keep FastAPI request/response shapes in sync with `frontend/src/api.ts` types.
-- If adding or changing scan or analysis job state, update both backend tests and frontend polling/display logic as needed.
-- If adding or changing Mutagen tag extraction, keep the fixed whitelist intentional, keep values JSON-safe, and update focused scanner/database tests.
-- If adding or changing Sonara feature extraction, update `src/dj_track_similarity/sonara_features.py`, `src/dj_track_similarity/sonara_jobs.py`, `src/dj_track_similarity/database.py`, `src/dj_track_similarity/api.py`, `src/dj_track_similarity/cli.py`, `frontend/src/api.ts`, `frontend/src/App.tsx`, docs, and focused Sonara tests as needed. Keep the SQLite feature order and the UI group order in sync.
-- If adding or changing MAEST genre job state, update `frontend/src/api.ts`, `frontend/src/App.tsx`, and focused genre job/API tests.
-- If changing audio decode behavior, keep `src/dj_track_similarity/audio_loader.py`, Sonara fallback, MAEST/MERT/CLAP adapters, and focused malformed-WAV tests aligned.
-- If changing search behavior, add or update focused tests in `tests/test_search.py`, `tests/test_sonara_similarity.py`, or API tests as appropriate.
-- If changing library browsing, keep backend pagination/search, `/api/library/summary`, `/api/tracks/{id}`, `frontend/src/api.ts`, `frontend/src/App.tsx`, `frontend/src/TrackPanel.tsx`, and `tests/test_api_tracks.py` aligned. Avoid reverting to client-side full-library filtering for large databases.
-- If changing library path relocation, keep `src/dj_track_similarity/database.py`, `src/dj_track_similarity/api.py`, `src/dj_track_similarity/cli.py`, `frontend/src/api.ts`, and focused database/API/CLI tests aligned.
-- If changing analysis performance controls, keep `frontend/src/api.ts`, `src/dj_track_similarity/api.py`, `src/dj_track_similarity/analysis_jobs.py`, `src/dj_track_similarity/genre_jobs.py`, `src/dj_track_similarity/embedding.py`, `src/dj_track_similarity/genres.py`, and `src/dj_track_similarity/runtime.py` aligned.
-- If changing SQLite connection handling, write paths, job batching, or worker concurrency, keep project-wide database-write safety in mind. Add or update focused tests that cover mixed parallel writes across analysis families and across separate `LibraryDatabase` instances pointing at the same SQLite file.
-- If changing UI controls, preserve tooltip coverage for format/type/range guidance. Keep destructive controls such as database clear behind action-time confirmation.
-- If touching custom tag writing, keep tests strict about preview being read-only and `tag-apply` writing only custom tags.
-- If touching standard genre writing, keep tests strict that only genre fields are overwritten, existing normal tags are preserved, missing and pre-existing one-or-many genre values are both handled as upserts, MAEST category prefixes such as `Electronic---` are stripped, multiple labels are joined with `;`, WAV header/chunk repair is not performed, Mutagen-readable WAV files are not blocked by custom RIFF validation, failed WAV writes do not stop the batch, audio payload or decoded audio stays unchanged, repeated writes do not grow the file, and real temporary audio files are reread through Mutagen after saving.
-- If touching `scripts/repair_audio_metadata.py`, run only its focused script tests when project behavior is not affected: `python -m pytest scripts\tests\test_repair_audio_metadata.py --override-ini addopts=`. Keep these tests in `scripts/tests/`, not the project-level `tests/` suite.
-- Prefer deterministic test data and test-local stub adapters over real audio analysis in automated tests.
-- Avoid broad refactors in `frontend/src/App.tsx` unless the task is specifically about frontend structure; it is currently the main UI surface.
+- Keep Python compatible with 3.10+.
+- Prefer small, scoped edits that follow existing module patterns.
+- Keep FastAPI request/response shapes aligned with `frontend/src/api.ts`.
+- If changing scan/analysis job state, update backend tests and frontend
+  polling/display logic.
+- If changing Mutagen tags, Sonara features, MAEST job state, audio decoding,
+  search, library browsing, relocation, analysis controls, SQLite writes, UI
+  controls, custom tags, or standard genre writes, update the corresponding
+  focused tests and frontend/API/docs surfaces.
+- Prefer deterministic test data and test-local stub adapters over real audio
+  analysis in automated tests.
 
 ## Verification Expectations
 
-- Run `pytest` for backend changes.
-- Run `npm run build` in `frontend/` for frontend changes and when backend static serving depends on current built assets.
-- For API contract changes, exercise the affected endpoint through tests or a local server.
-- For CLI behavior changes, run the specific `dj-sim ...` command with a temporary database when possible.
-- For library path relocation changes, verify dry-run does not modify paths, apply preserves track IDs and analysis state, and conflicts or missing target files block apply.
-- For Sonara changes, prefer stubbed test helpers or small temp WAV fixtures; avoid requiring a full user music library in automated tests.
+- Backend changes: run focused pytest for the touched behavior; use full
+  `pytest` for broad/shared changes.
+- Frontend changes: run `npm run build` in `frontend/`.
+- API contract changes: exercise the affected endpoint through tests or a local
+  server.
+- CLI behavior changes: run the specific `dj-sim ...` command with a temporary
+  database when practical.
+- Relocation changes: verify dry-run does not modify paths, apply preserves IDs
+  and analysis state, and conflicts/missing files block apply.
+- Sonara changes: prefer stubbed helpers or small temp WAV fixtures; never rely
+  on a real user music library in automated tests.

@@ -84,7 +84,7 @@ export function App() {
   const [genreTagJob, setGenreTagJob] = useState<GenreTagJobStatus | null>(null);
   const [processLogKind, setProcessLogKind] = useState<"scan" | "analysis" | "genre_tags">("scan");
   const [analysisLimit, setAnalysisLimit] = useState(0);
-  const [scanWorkers, setScanWorkers] = useState(1);
+  const [scanWorkers, setScanWorkers] = useState(4);
   const [analysisBatchSize, setAnalysisBatchSize] = useState(4);
   const [analysisDevice, setAnalysisDevice] = useState<DeviceMode>("auto");
   const [notice, setNotice] = useState<Notice>(defaultNotice);

@@ -103,8 +103,9 @@ Keyboard shortcuts on a focused row use the active profile's label order:
 - `1`..`9` = profile labels in display order
 - `0` = clear label
 
-AIFF/AIF previews are transcoded to WAV on the fly for browser playback. This is
-read-only streaming and does not rewrite or cache the source audio file.
+AIFF/AIF previews are transcoded to temporary WAV files for browser playback.
+This is read-only for the source audio file and lets the browser load a
+seekable codec with duration and scrubbing support.
 
 ## Training
 

@@ -901,6 +901,42 @@ def test_web_app_stops_previous_audio_preview_when_another_starts(tmp_path: Path
     assert "activeAudio.currentTime = 0;" in script
 
 
+def test_web_app_serves_aiff_preview_as_seekable_browser_audio(monkeypatch, tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    import rhythm_lab.web_app as web_app
+
+    source_path = tmp_path / "source.sqlite"
+    source = LibraryDatabase(source_path)
+    track_id = _track(source, tmp_path, "preview.aiff", title="Preview")
+    labels_path = tmp_path / "labels.sqlite"
+    calls = []
+
+    def fail_streaming_process(*args, **kwargs):
+        raise AssertionError("AIFF preview should not use streaming ffmpeg stdout")
+
+    def fake_run(command, *, stderr, check):
+        calls.append(command)
+        Path(command[-1]).write_bytes(b"RIFFbrowser-compatible-wav")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(web_app, "require_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(web_app.subprocess, "Popen", fail_streaming_process)
+    monkeypatch.setattr(web_app.subprocess, "run", fake_run)
+    client = TestClient(create_app(source_path, labels_db_path=labels_path))
+
+    response = client.get(f"/media/{track_id}")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("audio/wav")
+    assert response.headers["accept-ranges"] == "bytes"
+    assert response.headers["content-disposition"].startswith("inline;")
+    assert response.headers["content-length"] == str(len(b"RIFFbrowser-compatible-wav"))
+    assert response.content == b"RIFFbrowser-compatible-wav"
+    assert calls
+    assert calls[0][-2:] == ["-y", calls[0][-1]]
+
+
 def test_web_app_audio_preview_is_compact(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 

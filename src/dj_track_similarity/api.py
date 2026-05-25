@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import tempfile
 import threading
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.background import BackgroundTask
 
 from .analysis_jobs import AnalysisJobManager
 from .classifier_jobs import ClassifierJobManager
@@ -635,7 +637,7 @@ def create_app(
         if not path.exists():
             raise HTTPException(status_code=404, detail="Audio file is missing")
         if path.suffix.lower() in AIFF_PREVIEW_SUFFIXES:
-            return _transcoded_wav_response(path, ffmpeg_path)
+            return _transcoded_wav_file_response(path, ffmpeg_path)
         return FileResponse(path)
 
     package_path = Path(__file__).resolve()
@@ -650,7 +652,9 @@ def create_app(
     return app
 
 
-def _transcoded_wav_response(path: Path, ffmpeg_path: str) -> StreamingResponse:
+def _transcoded_wav_file_response(path: Path, ffmpeg_path: str) -> FileResponse:
+    with tempfile.NamedTemporaryFile(prefix="dj-sim-preview-", suffix=".wav", delete=False) as temp_file:
+        temp_path = Path(temp_file.name)
     command = [
         ffmpeg_path,
         "-v",
@@ -662,24 +666,26 @@ def _transcoded_wav_response(path: Path, ffmpeg_path: str) -> StreamingResponse:
         "wav",
         "-codec:a",
         "pcm_s16le",
-        "pipe:1",
+        "-y",
+        str(temp_path),
     ]
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    try:
+        subprocess.run(command, stderr=subprocess.PIPE, check=True)
+    except (OSError, subprocess.CalledProcessError) as error:
+        _delete_temp_file(temp_path)
+        LOGGER.warning("ffmpeg preview transcode failed path=%s error=%s", path, error)
+        raise RuntimeError("AIFF preview transcode failed") from error
+    return FileResponse(
+        temp_path,
+        media_type="audio/wav",
+        filename=f"{path.stem}.wav",
+        content_disposition_type="inline",
+        background=BackgroundTask(_delete_temp_file, temp_path),
+    )
 
-    def iter_wav_chunks():
-        try:
-            if process.stdout is None:
-                return
-            while True:
-                chunk = process.stdout.read(64 * 1024)
-                if not chunk:
-                    break
-                yield chunk
-            return_code = process.wait()
-            if return_code != 0:
-                LOGGER.warning("ffmpeg preview transcode failed path=%s return_code=%s", path, return_code)
-        finally:
-            if process.poll() is None:
-                process.kill()
 
-    return StreamingResponse(iter_wav_chunks(), media_type="audio/wav")
+def _delete_temp_file(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        LOGGER.warning("Failed to delete temporary preview file: %s", path)

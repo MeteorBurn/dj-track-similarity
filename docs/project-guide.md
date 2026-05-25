@@ -52,8 +52,8 @@ The current workflow is:
 - Stores classifier scores separately from file tags and model metadata.
 - Keeps the library browser server-side paginated for large local collections.
 - Loads full metadata for one track only when the metadata dialog opens.
-- Streams browser previews, starts playback from the preview button, and
-  transcodes AIFF/AIF to WAV on the fly.
+- Serves browser previews, starts playback from the preview button, and
+  transcodes AIFF/AIF to temporary seekable WAV files.
 - Exports the current temporary set as `.m3u` or `.csv`.
 - Resets analysis families independently in SQLite.
 - Clears the local database after explicit confirmation.
@@ -72,8 +72,9 @@ files.
 - Break Energy classifier scoring reads existing SQLite analysis data and writes
   SQLite classifier rows only. It does not decode or modify audio.
 - Search reads SQLite data and does not change audio or the database.
-- Browser preview streams audio; AIFF/AIF previews may be transcoded through
-  `ffmpeg` for the HTTP response, but source files are not rewritten.
+- Browser preview serves audio for the player; AIFF/AIF previews may be
+  transcoded through `ffmpeg` to temporary seekable WAV files, but source files
+  are not rewritten.
 - Export writes playlist/export files only.
 - Analysis reset deletes only selected local SQLite analysis outputs.
 - Database clear deletes local SQLite records only.
@@ -997,11 +998,11 @@ the stored MAEST syncopated-rhythm flag. They also accept
 | `POST` | `/api/tags/genres/apply` | Apply MAEST genres immediately. |
 | `POST` | `/api/tags/genres/jobs` | Start cancellable MAEST genre tag write job. |
 | `POST` | `/api/dialog/folder` | Open a folder chooser dialog. |
-| `GET` | `/media/{track_id}` | Stream browser-playable audio for one track. |
+| `GET` | `/media/{track_id}` | Serve browser-playable audio for one track. |
 
 The frontend preview player uses `/media/{track_id}` and starts playback after a
-preview button click. AIFF/AIF responses are transcoded to WAV for browser
-compatibility without rewriting or caching source audio.
+preview button click. AIFF/AIF responses are transcoded to temporary WAV files
+for browser compatibility and scrubbing support without rewriting source audio.
 
 ## Maintenance Scripts
 

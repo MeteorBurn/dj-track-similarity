@@ -72,7 +72,7 @@ export function TrackMetadataDialog({
   const trackHasSyncopatedRhythm = hasMaestSyncopatedRhythm(track.metadata);
   const sonaraFeatureGroups = readableSonaraFeatureGroups(track.metadata?.sonara_features);
   const sonaraFeatureCount = sonaraFeatureGroups.reduce((total, group) => total + group.features.length, 0);
-  const breakEnergy = readableBreakEnergyScore(track);
+  const classifierScores = readableClassifierScores(track);
   const primaryEntries = readablePrimaryTrackInfo(track);
   const metadataEntries = readableTrackTags(track.metadata);
   return (
@@ -115,17 +115,15 @@ export function TrackMetadataDialog({
           )}
         </div>
         <div className="classifier-score-block">
-          <strong>Break Energy</strong>
-          {breakEnergy ? (
+          <strong>Classifier scores</strong>
+          {classifierScores.length ? (
             <dl className="metadata-grid classifier-score-grid">
-              <Fragment><dt>Score</dt><dd>{breakEnergy.score}</dd></Fragment>
-              <Fragment><dt>Confidence</dt><dd>{breakEnergy.confidence}</dd></Fragment>
-              <Fragment><dt>Label</dt><dd>{breakEnergy.label}</dd></Fragment>
-              <Fragment><dt>Feature set</dt><dd>{breakEnergy.featureSet}</dd></Fragment>
-              <Fragment><dt>Model</dt><dd title={breakEnergy.modelId}>{breakEnergy.modelName}</dd></Fragment>
+              {classifierScores.map((score) => (
+                <Fragment key={score.key}><dt>{score.label}</dt><dd>{score.value}</dd></Fragment>
+              ))}
             </dl>
           ) : (
-            <span className="empty-genres">Break Energy ещё не рассчитан</span>
+            <span className="empty-genres">Classifier scores ещё не рассчитаны</span>
           )}
         </div>
         <div className="genre-block">
@@ -148,22 +146,23 @@ export function TrackMetadataDialog({
   );
 }
 
-function readableBreakEnergyScore(track: Track) {
-  const payload = track.classifier_scores?.break_energy;
-  if (!payload) return null;
-  const modelId = payload.model_id || "-";
-  return {
-    score: formatClassifierScore(payload.score),
-    confidence: formatClassifierScore(payload.confidence),
-    label: payload.label || "-",
-    featureSet: payload.feature_set || "-",
-    modelId,
-    modelName: modelId.split(/[\\/]/).pop() || modelId
-  };
+function readableClassifierScores(track: Track) {
+  const result: Array<{ key: string; label: string; value: string }> = [];
+  const breakEnergy = track.classifier_scores?.break_energy;
+  if (breakEnergy) {
+    result.push({
+      key: "break_energy",
+      label: "Break Energy",
+      value: formatClassifierScore(breakEnergy.score)
+    });
+  }
+  return result;
 }
 
 function formatClassifierScore(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(4) : "-";
+  if (typeof value !== "number" || !Number.isFinite(value)) return "-";
+  if (value < 1 && value.toFixed(4) === "1.0000") return value.toPrecision(8);
+  return value.toFixed(4);
 }
 
 const sonaraFeatureLabels: Record<string, string> = {

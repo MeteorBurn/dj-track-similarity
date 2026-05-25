@@ -142,6 +142,7 @@ function clearActiveProfile() {
   document.getElementById("profileDescriptionInput").value = "";
   document.getElementById("profileArtifactDirInput").value = "";
   document.getElementById("profileArtifactPrefixInput").value = "";
+  document.getElementById("profileTrainingMinAddedInput").value = "50";
   document.getElementById("renameLabelSelect").innerHTML = "";
   archiveProfileEl.disabled = true;
   refreshCandidatesEl.disabled = true;
@@ -180,6 +181,7 @@ function renderProfileControls() {
   document.getElementById("profileDescriptionInput").value = activeProfile.description || "";
   document.getElementById("profileArtifactDirInput").value = activeProfile.artifact_dir || "";
   document.getElementById("profileArtifactPrefixInput").value = activeProfile.artifact_prefix || "";
+  document.getElementById("profileTrainingMinAddedInput").value = activeProfile.training_min_added || 50;
 
   const renameSelect = document.getElementById("renameLabelSelect");
   renameSelect.innerHTML = "";
@@ -253,7 +255,8 @@ async function switchView(view) {
   trainingTabEl.classList.toggle("active", view === "training");
   settingsTabEl.classList.toggle("active", view === "settings");
   commonFiltersEl.hidden = view === "training" || view === "settings";
-  candidateFiltersEl.hidden = view !== "candidates";
+  candidateFiltersEl.hidden = view === "training" || view === "settings";
+  candidateFiltersEl.classList.toggle("candidate-filters-placeholder", view !== "candidates");
   trainingPanelEl.hidden = view !== "training";
   settingsPanelEl.hidden = view !== "settings";
   tracksEl.hidden = view === "training" || view === "settings";
@@ -317,17 +320,18 @@ function renderGuidance(summary) {
 }
 
 function nextStepText(counts) {
+  const minAdded = activeProfile.training_min_added || 50;
   if (isMulticlassProfile()) {
     const lowClass = trainingLabels().find(label => (counts[label.key] || 0) < 20);
     if (lowClass) return "Label examples for every class before trusting metrics.";
-    const lowRefreshClass = trainingLabels().find(label => (counts[label.key] || 0) < 100);
-    if (lowRefreshClass) return "Keep labeling each class; train-refresh unlocks after 100 new examples per class.";
+    const lowRefreshClass = trainingLabels().find(label => (counts[label.key] || 0) < minAdded);
+    if (lowRefreshClass) return `Keep labeling each class; train-refresh unlocks after ${minAdded} new examples per class.`;
     return "Refresh candidates, review low-confidence predictions, then retrain after another balanced batch.";
   }
   const positiveCount = counts[activeProfile.positive_label] || 0;
   const negativeCount = counts[activeProfile.negative_label] || 0;
   if (positiveCount < 20 || negativeCount < 20) return "Label balanced positive and negative examples before trusting metrics.";
-  if (positiveCount < 100 || negativeCount < 100) return "Keep labeling edge cases; train-refresh unlocks after 100 new examples per training label.";
+  if (positiveCount < minAdded || negativeCount < minAdded) return `Keep labeling edge cases; train-refresh unlocks after ${minAdded} new examples per training label.`;
   return "Refresh candidates, review uncertain predictions, then retrain after another balanced batch.";
 }
 
@@ -444,6 +448,7 @@ async function loadTrainingView() {
     <div class="guidance-card"><b>Readiness</b><span class="meta">${data?.ready ? "Ready to train" : "Not ready yet"}</span></div>
     <div class="guidance-card"><b>Current labels</b><span class="meta">${formatLabelCounts(data?.current || {})}</span></div>
     <div class="guidance-card"><b>New since last train</b><span class="meta">${formatLabelCounts(data?.added || {})}</span></div>
+    <div class="guidance-card"><b>Required new labels</b><span class="meta">${formatLabelCounts(data?.required_added || {})}</span></div>
     <div class="guidance-card"><b>Training plan</b><span class="meta">${planText}</span></div>`;
 }
 
@@ -456,7 +461,7 @@ function renderTrack(track) {
   const row = document.createElement("section");
   row.className = "track";
   row.tabIndex = 0;
-  row.innerHTML = trackMarkup(track, "");
+  row.innerHTML = trackMarkup(track);
   wireTrackRow(row, track);
   return row;
 }
@@ -465,32 +470,44 @@ function renderCandidate(track) {
   const row = document.createElement("section");
   row.className = "track";
   row.tabIndex = 0;
-  const predictionLine = isMulticlassProfile()
-    ? `${multiclassProbabilitiesLine(track)} · predicted <b>${escapeHtml(displayLabel(track.predicted_label))}</b> · confidence ${formatProbability(track.confidence)} · ${escapeHtml(track.feature_set)}`
-    : `P(${escapeHtml(labelByKey(activeProfile.positive_label).name)}) ${formatProbability(track.positive_probability)} · P(${escapeHtml(labelByKey(activeProfile.negative_label).name)}) ${formatProbability(track.negative_probability)} · predicted <b>${escapeHtml(displayLabel(track.predicted_label))}</b> · ${escapeHtml(track.feature_set)}`;
-  row.innerHTML = trackMarkup(track, `<div class="meta feature-line">${predictionLine}</div>`);
+  row.innerHTML = trackMarkup(track);
   wireTrackRow(row, track);
   return row;
 }
 
-function multiclassProbabilitiesLine(track) {
-  const probabilities = track.probabilities || {};
-  return trainingLabels()
-    .map(label => `P(${escapeHtml(label.name)}) ${formatProbability(probabilities[label.key])}`)
-    .join(" · ");
+function predictionBadge(track) {
+  const label = track.predicted_label || "";
+  return `<span class="profile-label-badge label-${escapeHtml(label)}">${escapeHtml(displayLabel(label))}</span>`;
 }
 
-function trackMarkup(track, predictionLine) {
+function predictedScore(track) {
+  if (isMulticlassProfile()) return track.confidence;
+  if (track.predicted_label === activeProfile.positive_label) {
+    return binaryPredictedScore(track.positive_probability, track.negative_probability);
+  }
+  if (track.predicted_label === activeProfile.negative_label) {
+    return binaryPredictedScore(track.negative_probability, track.positive_probability);
+  }
+  return track.confidence;
+}
+
+function binaryPredictedScore(score, oppositeScore) {
+  const number = Number(score || 0);
+  const opposite = Number(oppositeScore || 0);
+  if (number === 1 && opposite > 0 && opposite < 1) return 1 - opposite;
+  return number;
+}
+
+function trackMarkup(track) {
   return `
     <div>
       <div class="track-main">
-        <strong><span class="track-number">#${track.rowNumber}</span>${escapeHtml(displayTrackTitle(track))}</strong>
+        <strong class="track-heading"><span class="track-title-main"><span class="track-number">#${track.rowNumber}</span>${escapeHtml(displayTrackTitle(track))}</span>${featuresIndicator(track)}</strong>
         <div class="meta track-path">${escapeHtml(track.path)}</div>
-        <div class="meta feature-line">SONARA ${mark(track.feature_status.sonara)} · MERT ${mark(track.feature_status.mert)} · MAEST ${mark(track.feature_status.maest)} · label <b>${escapeHtml(displayLabel(track.label || "none"))}</b></div>
-        ${predictionLine}
+        <div class="meta feature-line">${trackStatusLine(track)}</div>
       </div>
       <div class="rhythm-media-block">
-        <div class="genres-line"><span class="genres">${(track.genres || []).map(escapeHtml).join(" · ")}</span>${badgeRow(track)}</div>
+        <div class="meta genres-line"><span class="status-item"><b>GENRES</b></span><span class="genres">${(track.genres || []).map(escapeHtml).join(" · ")}</span>${badgeRow(track)}</div>
         <audio controls preload="none" src="/media/${track.id}"></audio>
       </div>
     </div>
@@ -558,6 +575,7 @@ async function createProfile(event) {
       name: document.getElementById("newProfileName").value,
       description: document.getElementById("newProfileDescription").value,
       artifact_dir: document.getElementById("newProfileArtifactDir").value || null,
+      training_min_added: Number(document.getElementById("newProfileTrainingMinAdded").value || 50),
       labels: collectNewProfileLabels()
     })
   });
@@ -633,7 +651,8 @@ async function updateProfile(event) {
       name: document.getElementById("profileNameInput").value,
       description: document.getElementById("profileDescriptionInput").value,
       artifact_dir: document.getElementById("profileArtifactDirInput").value,
-      artifact_prefix: document.getElementById("profileArtifactPrefixInput").value
+      artifact_prefix: document.getElementById("profileArtifactPrefixInput").value,
+      training_min_added: Number(document.getElementById("profileTrainingMinAddedInput").value || 50)
     })
   });
   const profile = await parseJsonResponse(response);
@@ -660,7 +679,7 @@ async function renameLabel(event) {
 }
 
 async function archiveActiveProfile() {
-  if (!activeProfile || activeProfile.classifier_key === "break_energy") return;
+  if (!activeProfile) return;
   if (!window.confirm(`Archive ${activeProfile.name}? Labels and predictions stay in the lab database.`)) return;
   const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/archive`, { method: "POST" });
   await parseJsonResponse(response);
@@ -701,16 +720,12 @@ function updatePager(data) {
 }
 
 function badgeRow(track) {
-  const badges = [syncopatedBadge(track), labelBadge(track)].filter(Boolean);
+  const badges = [syncopatedBadge(track)].filter(Boolean);
   return badges.length ? `<div class="badge-row">${badges.join('<span class="badge-separator">·</span>')}</div>` : "";
 }
 
 function syncopatedBadge(track) {
   return track.maest_syncopated_rhythm === true ? '<span class="syncopated-badge">syncopated rhythm</span>' : "";
-}
-
-function labelBadge(track) {
-  return track.label ? `<span class="profile-label-badge label-${escapeHtml(track.label)}">${escapeHtml(displayLabel(track.label))}</span>` : "";
 }
 
 function displayLabel(key) {
@@ -724,11 +739,63 @@ function displayTrackTitle(track) {
 }
 
 function formatProbability(value) {
-  return Number(value || 0).toFixed(3);
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) return "-";
+  return formatScore(number);
+}
+
+function formatScore(number) {
+  if (number < 1 && number.toFixed(6) === "1.000000") return "0.999999";
+  return number.toFixed(6);
 }
 
 function mark(value) {
-  return value ? "yes" : "no";
+  return value ? "YES" : "NO";
+}
+
+function trackStatusLine(track) {
+  return [
+    trainedStatus(track),
+    predictionStatus(track),
+    predictionScoreStatus(track),
+    predictionTypeStatus(track),
+  ].filter(Boolean).join(" ");
+}
+
+function featuresReady(track) {
+  return Boolean(track.feature_status.sonara && track.feature_status.mert && track.feature_status.maest);
+}
+
+function missingFeatures(track) {
+  return ["sonara", "mert", "maest"]
+    .filter(key => !track.feature_status[key])
+    .map(key => key.toUpperCase());
+}
+
+function featuresIndicator(track) {
+  const ready = featuresReady(track);
+  const label = ready ? "Features ready: SONARA, MERT, MAEST" : `Missing features: ${missingFeatures(track).join(", ")}`;
+  return `<span class="features-indicator ${ready ? "ready" : "missing"}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}">${ready ? "✓" : "!"}</span>`;
+}
+
+function trainedStatus(track) {
+  return featureStatusBadge("TRAINED", track.label_trained);
+}
+
+function predictionStatus(track) {
+  return track.predicted_label ? `<span class="status-item"><b>PREDICTED</b>${predictionBadge(track)}</span>` : "";
+}
+
+function predictionScoreStatus(track) {
+  return track.predicted_label ? `<span class="status-item"><b>SCORE</b><span class="status-detail">${formatProbability(predictedScore(track))}</span></span>` : "";
+}
+
+function predictionTypeStatus(track) {
+  return track.predicted_label ? `<span class="status-item"><b>TYPE</b><span class="status-detail">${escapeHtml(track.feature_set)}</span></span>` : "";
+}
+
+function featureStatusBadge(name, value) {
+  return `<span class="status-item"><b>${name}</b><span class="analysis-status-badge ${value ? "status-yes" : "status-no"}">${mark(value)}</span></span>`;
 }
 
 function showError(error) {

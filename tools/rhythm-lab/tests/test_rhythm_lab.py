@@ -18,7 +18,7 @@ from dj_track_similarity.database import LibraryDatabase
 
 from rhythm_lab.features import build_labeled_feature_matrix
 from rhythm_lab.lab_db import RhythmLabDatabase
-from rhythm_lab.predictions import apply_model_to_lab, export_predictions_csv
+from rhythm_lab.predictions import _predict_probabilities, apply_model_to_lab, export_predictions_csv
 from rhythm_lab.source_db import SourceDatabase
 from rhythm_lab.training import train_feature_set
 from rhythm_lab.web_app import create_app
@@ -120,6 +120,7 @@ def test_labels_database_creates_default_break_energy_profile(tmp_path: Path) ->
     assert [label.key for label in profile.labels] == ["broken", "straight", "ambiguous"]
     assert [label.role for label in profile.labels] == ["positive", "negative", "review"]
     assert profile.artifact_prefix == "break-energy"
+    assert profile.training_min_added == 50
 
 
 def test_profile_creation_archive_and_current_track_label_replacement(tmp_path: Path) -> None:
@@ -149,6 +150,26 @@ def test_profile_creation_archive_and_current_track_label_replacement(tmp_path: 
     assert scoped.training_labels() == {101: "instrumental"}
     assert [profile.classifier_key for profile in labels.list_profiles()] == ["break_energy"]
     assert "vocal_presence" in [profile.classifier_key for profile in labels.list_profiles(include_archived=True)]
+
+
+def test_profile_training_min_added_can_be_created_and_updated(tmp_path: Path) -> None:
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    profile = labels.create_profile(
+        classifier_key="vocal_presence",
+        name="Vocal Presence",
+        artifact_dir=tmp_path / "artifacts" / "vocal-presence",
+        training_min_added=12,
+        labels=[
+            {"key": "vocal", "name": "Vocal", "role": "positive"},
+            {"key": "instrumental", "name": "Instrumental", "role": "negative"},
+        ],
+    )
+
+    updated = labels.update_profile("vocal_presence", training_min_added=8)
+
+    assert profile.training_min_added == 12
+    assert updated.training_min_added == 8
+    assert labels.get_profile("vocal_presence").training_min_added == 8
 
 
 def test_multiclass_profile_creation_uses_custom_single_label_per_track(tmp_path: Path) -> None:
@@ -314,6 +335,7 @@ def test_web_app_creates_multiclass_profile_from_request(tmp_path: Path) -> None
             "name": "Mood",
             "description": "User-defined mood classes.",
             "artifact_dir": str(tmp_path / "artifacts" / "mood"),
+            "training_min_added": 9,
             "labels": [
                 {"key": "euphoric", "name": "Euphoric", "description": "Uplifting peak-time mood.", "role": "class"},
                 {"key": "dark", "name": "Dark", "description": "Tense low-light mood.", "role": "class"},
@@ -325,10 +347,14 @@ def test_web_app_creates_multiclass_profile_from_request(tmp_path: Path) -> None
     payload = response.json()
     assert response.status_code == 200
     assert payload["profile_type"] == "multiclass"
+    assert payload["training_min_added"] == 9
     assert payload["positive_label"] == "euphoric"
     assert payload["negative_label"] == "dark"
     assert [label["role"] for label in payload["labels"]] == ["class", "class", "class"]
     assert payload["labels"][0]["description"] == "Uplifting peak-time mood."
+
+    patched = client.patch("/api/profiles/mood", json={"training_min_added": 6}).json()
+    assert patched["training_min_added"] == 6
 
 
 def test_web_app_profile_refresh_candidates_uses_profile_artifact_dir(monkeypatch, tmp_path: Path) -> None:
@@ -401,7 +427,7 @@ def test_web_app_reads_source_database_and_writes_labels_database_only(tmp_path:
     client = TestClient(create_app(source_path, labels_db_path=labels_path))
 
     summary = client.get("/api/profiles/break_energy/summary").json()
-    tracks = client.get("/api/tracks").json()
+    tracks = client.get("/api/profiles/break_energy/tracks").json()
     assert summary["tracks"] == 2
     assert summary["sonara"] == 1
     assert summary["maest"] == 1
@@ -415,7 +441,7 @@ def test_web_app_reads_source_database_and_writes_labels_database_only(tmp_path:
     assert first["genres"] == ["Breakbeat"]
     assert next(item for item in tracks["items"] if item["id"] == straight_id)["maest_syncopated_rhythm"] is False
 
-    response = client.post(f"/api/tracks/{broken_id}/label", json={"label": "broken"})
+    response = client.post(f"/api/profiles/break_energy/tracks/{broken_id}/label", json={"label": "broken"})
 
     assert response.status_code == 200
     assert response.json()["label"] == "broken"
@@ -472,29 +498,29 @@ def test_web_app_predictions_endpoint_filters_candidates_by_probability_focus(mo
     monkeypatch.setattr(source_db.SourceDatabase, "get_track", fail_single_track_load)
     client = TestClient(create_app(source_path, labels_db_path=labels.path))
 
-    all_candidates = client.get("/api/predictions", params={"label": "all"}).json()
-    unlabeled = client.get("/api/predictions", params={"label": "unlabeled"}).json()
-    filtered = client.get("/api/predictions", params={"label": "all", "min_broken": 0.5}).json()
+    all_candidates = client.get("/api/profiles/break_energy/predictions", params={"label": "all"}).json()
+    unlabeled = client.get("/api/profiles/break_energy/predictions", params={"label": "unlabeled"}).json()
+    filtered = client.get("/api/profiles/break_energy/predictions", params={"label": "all", "min_positive": 0.5}).json()
     straight_focus = client.get(
-        "/api/predictions",
-        params={"label": "all", "probability_focus": "straight_highest"},
+        "/api/profiles/break_energy/predictions",
+        params={"label": "all", "probability_focus": "negative_highest"},
     ).json()
     balanced_focus = client.get(
-        "/api/predictions",
+        "/api/profiles/break_energy/predictions",
         params={"label": "all", "probability_focus": "balanced"},
     ).json()
     combined = client.get(
-        "/api/predictions",
-        params={"label": "broken", "min_broken": 0.5, "q": "high", "syncopated": "yes"},
+        "/api/profiles/break_energy/predictions",
+        params={"label": "broken", "min_positive": 0.5, "q": "high", "syncopated": "yes"},
     ).json()
     mismatched = client.get(
-        "/api/predictions",
-        params={"label": "broken", "min_broken": 0.5, "q": "low", "syncopated": "yes"},
+        "/api/profiles/break_energy/predictions",
+        params={"label": "broken", "min_positive": 0.5, "q": "low", "syncopated": "yes"},
     ).json()
 
     assert all_candidates["total"] == 3
     assert [item["id"] for item in all_candidates["items"]] == [high_id, balanced_id, low_id]
-    assert all_candidates["items"][0]["broken_probability"] == 0.7
+    assert all_candidates["items"][0]["positive_probability"] == 0.7
     assert all_candidates["items"][0]["label"] == "broken"
     assert all_candidates["items"][0]["genres"] == ["Breakbeat"]
     assert all_candidates["items"][0]["maest_syncopated_rhythm"] is True
@@ -524,13 +550,14 @@ def test_web_app_refresh_candidates_uses_latest_combined_artifact_and_prunes_old
     older.write_bytes(b"old")
     newer.write_bytes(b"new")
     maest.write_bytes(b"maest")
+    RhythmLabDatabase(labels_path).update_profile("break_energy", artifact_dir=artifacts)
     import rhythm_lab.web_app as web_app
 
     calls = []
 
-    def fake_apply_model_to_lab(source_db_path: Path, labels_db_path: Path, artifact_path: Path):
-        calls.append((source_db_path, labels_db_path, artifact_path))
-        labels = RhythmLabDatabase(labels_db_path)
+    def fake_apply_model_to_lab(source_db_path: Path, labels_db_path: Path, artifact_path: Path, *, classifier_key: str):
+        calls.append((source_db_path, labels_db_path, artifact_path, classifier_key))
+        labels = RhythmLabDatabase(labels_db_path, classifier_key=classifier_key)
         source = LibraryDatabase(source_db_path)
         track_id = _track(source, tmp_path, "predicted.wav", title="Predicted")
         labels.save_prediction(
@@ -551,70 +578,116 @@ def test_web_app_refresh_candidates_uses_latest_combined_artifact_and_prunes_old
         )
         return {"feature_set": "combined", "predicted": 1, "skipped": 2}
 
-    monkeypatch.setattr(web_app, "ARTIFACT_DIR", artifacts)
     monkeypatch.setattr(web_app, "apply_model_to_lab", fake_apply_model_to_lab)
     client = TestClient(create_app(source_path, labels_db_path=labels_path))
 
-    response = client.post("/api/predictions/refresh")
+    response = client.post("/api/profiles/break_energy/predictions/refresh")
 
     assert response.status_code == 200
     assert response.json()["artifact"] == str(newer)
     assert response.json()["predicted"] == 1
     assert response.json()["skipped"] == 2
-    assert calls == [(source_path.resolve(), labels_path.resolve(), newer)]
+    assert calls == [(source_path.resolve(), labels_path.resolve(), newer, "break_energy")]
     predictions = RhythmLabDatabase(labels_path).predictions()
     assert len(predictions) == 1
     assert predictions[0]["model_artifact"] == str(newer)
 
 
-def test_web_app_train_refresh_requires_100_new_broken_and_straight_labels(monkeypatch, tmp_path: Path) -> None:
+def test_predict_probabilities_preserves_high_confidence_precision() -> None:
+    class AlmostCertainModel:
+        classes_ = np.asarray(["broken", "straight"])
+
+        def predict_proba(self, matrix: np.ndarray) -> np.ndarray:
+            return np.asarray([[0.99999999, 0.00000001]], dtype=np.float64)
+
+    probabilities = _predict_probabilities(AlmostCertainModel(), np.zeros((1, 2)), ["broken", "straight"])
+
+    assert probabilities == [{"broken": 0.99999999, "straight": 0.00000001}]
+
+
+def test_web_app_train_refresh_requires_50_new_broken_and_straight_labels(monkeypatch, tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
     source_path = tmp_path / "source.sqlite"
     LibraryDatabase(source_path)
     labels_path = tmp_path / "labels.sqlite"
     labels = RhythmLabDatabase(labels_path)
-    for index in range(100):
+    for index in range(50):
         labels.set_label(10_000 + index, "broken")
         labels.set_label(20_000 + index, "straight")
     artifacts = tmp_path / "artifacts" / "break-energy"
     artifacts.mkdir(parents=True)
+    labels.update_profile("break_energy", artifact_dir=artifacts)
     artifact = artifacts / "break-energy-combined-20260524T130000Z.joblib"
     import rhythm_lab.web_app as web_app
 
     calls = []
 
-    def fake_benchmark_lab_database(source_db_path: Path, labels_db_path: Path, artifact_dir: Path):
-        calls.append(("train", source_db_path, labels_db_path, artifact_dir))
+    def fake_benchmark_lab_database(source_db_path: Path, labels_db_path: Path, artifact_dir: Path, *, classifier_key: str):
+        calls.append(("train", source_db_path, labels_db_path, artifact_dir, classifier_key))
         artifact.write_bytes(b"combined")
         return {"combined": {"status": "trained", "artifact_path": str(artifact)}}
 
-    def fake_apply_model_to_lab(source_db_path: Path, labels_db_path: Path, artifact_path: Path):
-        calls.append(("predict", source_db_path, labels_db_path, artifact_path))
+    def fake_apply_model_to_lab(source_db_path: Path, labels_db_path: Path, artifact_path: Path, *, classifier_key: str):
+        calls.append(("predict", source_db_path, labels_db_path, artifact_path, classifier_key))
         return {"feature_set": "combined", "predicted": 0, "skipped": 0}
 
-    monkeypatch.setattr(web_app, "ARTIFACT_DIR", artifacts)
     monkeypatch.setattr(web_app, "benchmark_lab_database", fake_benchmark_lab_database)
     monkeypatch.setattr(web_app, "apply_model_to_lab", fake_apply_model_to_lab)
     client = TestClient(create_app(source_path, labels_db_path=labels_path))
 
-    ready = client.get("/api/training/readiness").json()
-    trained = client.post("/api/training/train-refresh")
-    blocked = client.post("/api/training/train-refresh")
+    ready = client.get("/api/profiles/break_energy/training/readiness").json()
+    trained = client.post("/api/profiles/break_energy/training/train-refresh")
+    blocked = client.post("/api/profiles/break_energy/training/train-refresh")
 
     assert ready["ready"] is True
-    assert ready["added"] == {"broken": 100, "straight": 100}
+    assert ready["added"] == {"broken": 50, "straight": 50}
     assert trained.status_code == 200
-    assert trained.json()["training_counts"] == {"broken": 100, "straight": 100}
+    assert trained.json()["training_counts"] == {"broken": 50, "straight": 50}
     assert trained.json()["artifact"] == str(artifact)
     assert trained.json()["artifact_cleanup"] == {"deleted_joblib": 0, "deleted_metrics": 0}
     assert calls == [
-        ("train", source_path.resolve(), labels_path.resolve(), artifacts),
-        ("predict", source_path.resolve(), labels_path.resolve(), artifact),
+        ("train", source_path.resolve(), labels_path.resolve(), artifacts, "break_energy"),
+        ("predict", source_path.resolve(), labels_path.resolve(), artifact, "break_energy"),
     ]
-    assert RhythmLabDatabase(labels_path).training_checkpoint()["counts"] == {"broken": 100, "straight": 100}
+    assert RhythmLabDatabase(labels_path).training_checkpoint()["counts"] == {"broken": 50, "straight": 50}
     assert blocked.status_code == 400
-    assert "Need 100 new broken and 100 new straight Break Energy labels" in blocked.json()["detail"]
+    assert "Need 50 new broken and 50 new straight labels" in blocked.json()["detail"]
+
+
+def test_profile_training_readiness_uses_profile_training_min_added(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    source_path = tmp_path / "source.sqlite"
+    LibraryDatabase(source_path)
+    labels_path = tmp_path / "labels.sqlite"
+    labels = RhythmLabDatabase(labels_path)
+    labels.create_profile(
+        classifier_key="vocal_presence",
+        name="Vocal Presence",
+        artifact_dir=tmp_path / "artifacts" / "vocal-presence",
+        training_min_added=3,
+        labels=[
+            {"key": "vocal", "name": "Vocal", "role": "positive"},
+            {"key": "instrumental", "name": "Instrumental", "role": "negative"},
+        ],
+    )
+    scoped = RhythmLabDatabase(labels_path, classifier_key="vocal_presence")
+    for index in range(3):
+        scoped.set_label(10_000 + index, "vocal")
+        scoped.set_label(20_000 + index, "instrumental")
+    client = TestClient(create_app(source_path, labels_db_path=labels_path))
+
+    ready = client.get("/api/profiles/vocal_presence/training/readiness").json()
+    patched = client.patch("/api/profiles/vocal_presence", json={"training_min_added": 4}).json()
+    not_ready = client.get("/api/profiles/vocal_presence/training/readiness").json()
+
+    assert ready["ready"] is True
+    assert ready["required_added"] == {"vocal": 3, "instrumental": 3}
+    assert patched["training_min_added"] == 4
+    assert not_ready["ready"] is False
+    assert not_ready["required_added"] == {"vocal": 4, "instrumental": 4}
+    assert not_ready["added"] == {"vocal": 3, "instrumental": 3}
 
 
 def test_web_app_training_readiness_initializes_checkpoint_from_existing_combined_artifact(monkeypatch, tmp_path: Path) -> None:
@@ -631,13 +704,11 @@ def test_web_app_training_readiness_initializes_checkpoint_from_existing_combine
     artifacts.mkdir(parents=True)
     artifact = artifacts / "break-energy-combined-20260524T130000Z.joblib"
     artifact.write_bytes(b"combined")
-    import rhythm_lab.web_app as web_app
-
-    monkeypatch.setattr(web_app, "ARTIFACT_DIR", artifacts)
+    labels.update_profile("break_energy", artifact_dir=artifacts)
     client = TestClient(create_app(source_path, labels_db_path=labels_path))
 
-    ready = client.get("/api/training/readiness").json()
-    blocked = client.post("/api/training/train-refresh")
+    ready = client.get("/api/profiles/break_energy/training/readiness").json()
+    blocked = client.post("/api/profiles/break_energy/training/train-refresh")
 
     assert ready["ready"] is False
     assert ready["current"] == {"broken": 500, "straight": 500}
@@ -661,7 +732,7 @@ def test_artifact_cleanup_keeps_recent_files_per_feature_and_protected_artifact(
     unrelated = artifacts / "broken-candidates.csv"
     unrelated.write_text("source_track_id\n", encoding="utf-8")
 
-    result = cleanup_training_artifacts(artifacts, protected_artifact=protected)
+    result = cleanup_training_artifacts(artifacts, protected_artifact=protected, artifact_prefix="break-energy")
 
     remaining = {path.name for path in artifacts.iterdir()}
     assert protected.name in remaining
@@ -685,9 +756,36 @@ def test_cli_promote_break_energy_copies_latest_combined_model_to_classifier_ass
     old = artifacts / "break-energy-combined-20260524T100000Z.joblib"
     latest = artifacts / "break-energy-combined-20260524T110000Z.joblib"
     maest = artifacts / "break-energy-maest-20260524T120000Z.joblib"
-    joblib.dump({"feature_set": "combined", "label_order": ["broken", "straight"], "model": object()}, old)
-    joblib.dump({"feature_set": "combined", "label_order": ["broken", "straight"], "model": object()}, latest)
-    joblib.dump({"feature_set": "maest", "label_order": ["broken", "straight"], "model": object()}, maest)
+    joblib.dump(
+        {
+            "classifier_key": "break_energy",
+            "feature_set": "combined",
+            "label_order": ["broken", "straight"],
+            "positive_label": "broken",
+            "model": object(),
+        },
+        old,
+    )
+    joblib.dump(
+        {
+            "classifier_key": "break_energy",
+            "feature_set": "combined",
+            "label_order": ["broken", "straight"],
+            "positive_label": "broken",
+            "model": object(),
+        },
+        latest,
+    )
+    joblib.dump(
+        {
+            "classifier_key": "break_energy",
+            "feature_set": "maest",
+            "label_order": ["broken", "straight"],
+            "positive_label": "broken",
+            "model": object(),
+        },
+        maest,
+    )
 
     args = build_parser().parse_args([
         "promote-break-energy",
@@ -705,8 +803,12 @@ def test_cli_promote_break_energy_copies_latest_combined_model_to_classifier_ass
     assert promoted.exists()
     assert joblib.load(promoted)["feature_set"] == "combined"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    assert metadata["classifier"] == "break_energy"
-    assert metadata["score_name"] == "Break Energy"
+    assert metadata["classifier_key"] == "break_energy"
+    assert metadata["profile_name"] == "Break Energy"
+    assert metadata["positive_label"] == "broken"
+    assert metadata["negative_label"] == "straight"
+    assert "classifier" not in metadata
+    assert "score_name" not in metadata
     assert metadata["source_artifact"] == str(latest)
 
 
@@ -727,8 +829,8 @@ def test_web_app_tracks_endpoint_uses_source_sql_pagination(monkeypatch, tmp_pat
     monkeypatch.setattr(source_db.SourceDatabase, "list_tracks", fail_full_scan)
     client = TestClient(create_app(source_path, labels_db_path=labels.path))
 
-    page = client.get("/api/tracks", params={"limit": 1, "offset": 1}).json()
-    labeled = client.get("/api/tracks", params={"label": "straight"}).json()
+    page = client.get("/api/profiles/break_energy/tracks", params={"limit": 1, "offset": 1}).json()
+    labeled = client.get("/api/profiles/break_energy/tracks", params={"label": "straight"}).json()
 
     assert page["total"] == 2
     assert len(page["items"]) == 1
@@ -737,6 +839,50 @@ def test_web_app_tracks_endpoint_uses_source_sql_pagination(monkeypatch, tmp_pat
     assert labeled["items"][0]["label"] == "straight"
     assert labeled["items"][0]["id"] == second_id
     assert first_id != second_id
+
+
+def test_web_app_marks_labels_used_in_previous_training_checkpoint(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    source_path = tmp_path / "source.sqlite"
+    source = LibraryDatabase(source_path)
+    trained_id = _track(source, tmp_path, "trained.wav", title="Trained")
+    new_id = _track(source, tmp_path, "new.wav", title="New")
+    review_id = _track(source, tmp_path, "review.wav", title="Review")
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    labels.set_label(source.get_track(trained_id), "broken")
+    labels.set_label(source.get_track(new_id), "straight")
+    labels.set_label(source.get_track(review_id), "ambiguous")
+    labels.record_training_checkpoint({"broken": 1, "straight": 0}, model_artifact="model.joblib")
+    with labels.connect() as connection:
+        connection.execute(
+            """
+            UPDATE classifier_labels
+            SET updated_at = CASE source_track_id
+                WHEN ? THEN '2026-01-01 00:00:00'
+                WHEN ? THEN '2026-01-03 00:00:00'
+                WHEN ? THEN '2026-01-01 00:00:00'
+            END
+            WHERE classifier_key = 'break_energy'
+            """,
+            (trained_id, new_id, review_id),
+        )
+        connection.execute(
+            """
+            UPDATE classifier_training_checkpoints
+            SET updated_at = '2026-01-02 00:00:00'
+            WHERE classifier_key = 'break_energy'
+            """
+        )
+    client = TestClient(create_app(source_path, labels_db_path=labels.path))
+
+    page = client.get("/api/profiles/break_energy/tracks", params={"label": "all"}).json()
+
+    by_id = {item["id"]: item for item in page["items"]}
+    assert by_id[trained_id]["label_trained"] is True
+    assert by_id[new_id]["label_trained"] is False
+    assert by_id[review_id]["label_trained"] is False
+    assert "label_updated_at" not in by_id[trained_id]
 
 
 def test_web_app_summary_uses_embedding_counts_without_loading_id_sets(monkeypatch, tmp_path: Path) -> None:
@@ -754,7 +900,7 @@ def test_web_app_summary_uses_embedding_counts_without_loading_id_sets(monkeypat
     monkeypatch.setattr(source_db.SourceDatabase, "embedding_track_ids", fail_id_set)
     client = TestClient(create_app(source_path, labels_db_path=tmp_path / "labels.sqlite"))
 
-    summary = client.get("/api/summary").json()
+    summary = client.get("/api/profiles/break_energy/summary").json()
 
     assert summary["tracks"] == 1
     assert summary["mert"] == 1
@@ -860,13 +1006,16 @@ def test_web_app_serves_static_profile_ui_without_hardcoded_label_buttons(tmp_pa
     script = client.get("/static/app.js").text
     styles = client.get("/static/styles.css").text
 
-    assert '<link rel="stylesheet" href="/static/styles.css?v=summary-badges-1" />' in html
-    assert '<script src="/static/app.js?v=summary-badges-1" defer></script>' in html
+    assert '<link rel="stylesheet" href="/static/styles.css?v=track-status-1" />' in html
+    assert '<script src="/static/app.js?v=track-status-1" defer></script>' in html
     assert 'id="profileSelect"' in html
     assert "/api/profiles" in script
     assert "function renderLabelButtons" in script
     assert '<button data-label="broken">Broken</button>' not in html
     assert "classifier-gradient" in styles
+    assert 'featureStatusBadge("TRAINED", track.label_trained)' in script
+    assert ".features-indicator.ready" in styles
+    assert ".features-indicator.missing" in styles
 
 
 def test_profile_dialog_cancel_closes_without_form_validation(tmp_path: Path) -> None:
@@ -890,6 +1039,8 @@ def test_profile_dialog_exposes_multiclass_type_and_custom_labels(tmp_path: Path
 
     assert '<h2>New classifier profile</h2>' in html
     assert 'id="newProfileType"' in html
+    assert 'id="newProfileTrainingMinAdded"' in html
+    assert 'id="profileTrainingMinAddedInput"' in html
     assert '<option value="binary" selected>Binary</option>' in html
     assert '<option value="multiclass">Multiclass</option>' in html
     assert 'id="multiclassLabelRows"' in html
@@ -897,6 +1048,8 @@ def test_profile_dialog_exposes_multiclass_type_and_custom_labels(tmp_path: Path
     assert 'class="multiclass-label-description"' in html
     assert 'function collectNewProfileLabels' in script
     assert 'profile_type: document.getElementById("newProfileType").value' in script
+    assert 'training_min_added: Number(document.getElementById("newProfileTrainingMinAdded").value || 50)' in script
+    assert 'training_min_added: Number(document.getElementById("profileTrainingMinAddedInput").value || 50)' in script
     assert 'role: "class"' in script
     assert 'description: row.querySelector(".multiclass-label-description").value' in script
     assert 'document.getElementById("newProfileType").addEventListener("change", updateNewProfileTypeControls);' in script
@@ -949,6 +1102,7 @@ def test_web_app_html_contains_candidates_tab(tmp_path: Path) -> None:
     client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
     html = client.get("/").text
     script = client.get("/static/app.js").text
+    styles = client.get("/static/styles.css").text
 
     assert 'id="libraryTab"' in html
     assert 'id="candidatesTab"' in html
@@ -958,8 +1112,31 @@ def test_web_app_html_contains_candidates_tab(tmp_path: Path) -> None:
     assert '<option value="balanced">uncertain / balanced</option>' in html
     assert 'fetch(`/api/profiles/${activeProfile.classifier_key}/predictions?' in script
     assert "positive_probability" in script
-    assert 'SONARA ${mark(track.feature_status.sonara)} · MERT ${mark(track.feature_status.mert)} · MAEST ${mark(track.feature_status.maest)}' in script
-    assert '<div class="genres-line"><span class="genres">${(track.genres || []).map(escapeHtml).join(" · ")}</span>${badgeRow(track)}</div>' in script
+    assert '<span class="status-item"><b>SCORE</b><span class="status-detail">${formatProbability(predictedScore(track))}</span></span>' in script
+    assert "function binaryPredictedScore(score, oppositeScore)" in script
+    assert "if (number === 1 && opposite > 0 && opposite < 1) return 1 - opposite;" in script
+    assert '<span class="status-item"><b>TYPE</b><span class="status-detail">${escapeHtml(track.feature_set)}</span></span>' in script
+    assert "function predictionBadge(track)" in script
+    assert 'number.toFixed(6)' in script
+    assert 'if (number < 1 && number.toFixed(6) === "1.000000") return "0.999999";' in script
+    assert "candidate-prediction-line" not in script
+    assert "candidate-prediction-line" not in styles
+    assert "multiclassProbabilitiesLine" not in script
+    assert '${trackStatusLine(track)}' in script
+    assert 'function trainedStatus(track)' in script
+    assert 'return featureStatusBadge("TRAINED", track.label_trained);' in script
+    assert 'function predictionStatus(track)' in script
+    assert '<span class="status-item"><b>PREDICTED</b>${predictionBadge(track)}</span>' in script
+    assert '<b>LABEL</b>' not in script
+    assert "<b>ANALYZED</b>" not in script
+    assert "status-separator" not in script
+    assert "track.feature_status.sonara && track.feature_status.mert && track.feature_status.maest" in script
+    assert "function featuresIndicator(track)" in script
+    assert 'function featureStatusBadge(name, value)' in script
+    assert '<span class="status-item"><b>${name}</b><span class="analysis-status-badge ${value ? "status-yes" : "status-no"}">${mark(value)}</span></span>' in script
+    assert '<strong class="track-heading"><span class="track-title-main"><span class="track-number">#${track.rowNumber}</span>${escapeHtml(displayTrackTitle(track))}</span>${featuresIndicator(track)}</strong>' in script
+    assert '<div class="meta feature-line">${trackStatusLine(track)}</div>' in script
+    assert '<div class="meta genres-line"><span class="status-item"><b>GENRES</b></span><span class="genres">${(track.genres || []).map(escapeHtml).join(" · ")}</span>${badgeRow(track)}</div>' in script
 
 
 def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path) -> None:
@@ -971,13 +1148,16 @@ def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path
     styles = client.get("/static/styles.css").text
 
     assert 'id="commonFilters"' in html
-    assert 'id="candidateFilters"' in html
+    assert '<section id="candidateFilters" class="filters candidate-filters-placeholder">' in html
+    assert html.index('id="candidateFilters"') < html.index('<section class="pager">')
     assert 'syncopatedEl.addEventListener("change", () => loadActive({ reset: true }));' in script
     assert 'labelEl.addEventListener("change", () => loadActive({ reset: true }));' in script
     assert 'candidatePredictedEl.addEventListener("change", () => loadActive({ reset: true }));' in script
     assert 'candidateMinBrokenEl.addEventListener("change", () => loadActive({ reset: true }));' in script
+    assert ".candidate-filters-placeholder > *" in styles
     assert ".filters[hidden]," in styles
-    assert 'candidateFiltersEl.hidden = view !== "candidates";' in script
+    assert 'candidateFiltersEl.hidden = view === "training" || view === "settings";' in script
+    assert 'candidateFiltersEl.classList.toggle("candidate-filters-placeholder", view !== "candidates");' in script
     assert 'id="refreshCandidates"' in html
     assert 'id="trainRefresh"' in html
     assert '<button id="trainRefresh" type="button" class="icon-button train-refresh"' in html
@@ -1064,7 +1244,8 @@ def test_web_app_html_colors_manual_labels_by_label_value(tmp_path: Path) -> Non
     styles = client.get("/static/styles.css").text
 
     assert ".profile-label-badge" in styles
-    assert "label-${escapeHtml(track.label)}" in script
+    assert ".analysis-status-badge" in styles
+    assert "label-${escapeHtml(label)}" in script
     assert "button.classList.add(button.dataset.label)" not in script
     assert "button.active.broken" not in styles
     assert "button.active.straight" not in styles
@@ -1115,7 +1296,7 @@ def test_web_app_places_rhythm_badges_on_genres_line(tmp_path: Path) -> None:
 
     script = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite")).get("/static/app.js").text
 
-    assert '<div class="genres-line"><span class="genres">${(track.genres || []).map(escapeHtml).join(" · ")}</span>${badgeRow(track)}</div>' in script
+    assert '<div class="meta genres-line"><span class="status-item"><b>GENRES</b></span><span class="genres">${(track.genres || []).map(escapeHtml).join(" · ")}</span>${badgeRow(track)}</div>' in script
     assert '${badgeRow(track)}\n          <audio controls' not in script
 
 
@@ -1321,7 +1502,7 @@ def test_custom_profile_training_and_prediction_use_profile_labels(tmp_path: Pat
     assert all(set(row["probabilities"]) == {"vocal", "instrumental"} for row in predictions)
 
 
-def test_train_feature_set_writes_broken_discovery_metrics(tmp_path: Path) -> None:
+def test_train_feature_set_writes_generic_positive_discovery_metrics(tmp_path: Path) -> None:
     matrix = np.asarray(
         [[float(index), 0.0] for index in range(8)]
         + [[float(index + 20), 1.0] for index in range(8)],
@@ -1338,21 +1519,25 @@ def test_train_feature_set_writes_broken_discovery_metrics(tmp_path: Path) -> No
     )
 
     metrics = json.loads(result.metrics_path.read_text(encoding="utf-8"))
-    discovery = metrics["broken_discovery"]
+    discovery = metrics["positive_discovery"]
     thresholds = discovery["thresholds"]
     top_n = discovery["top_n"]
     cross_validation = metrics["cross_validation"]
 
     assert discovery["positive_label"] == "broken"
+    assert "broken_discovery" not in metrics
     assert {row["threshold"] for row in thresholds} >= {0.25, 0.5}
-    assert all("broken_recall" in row for row in thresholds)
+    assert all("positive_recall" in row for row in thresholds)
+    assert all("broken_recall" not in row for row in thresholds)
+    assert all("straight_candidates" not in row for row in thresholds)
     assert all("candidate_count" in row for row in thresholds)
     assert top_n[0]["n"] == 1
-    assert "broken_recall_mean" in cross_validation
+    assert "positive_recall_mean" in cross_validation
+    assert "broken_recall_mean" not in cross_validation
     assert cross_validation["fold_count"] >= 2
 
 
-def test_export_predictions_csv_orders_by_broken_probability(tmp_path: Path) -> None:
+def test_export_predictions_csv_orders_by_profile_positive_probability(tmp_path: Path) -> None:
     source = LibraryDatabase(tmp_path / "source.sqlite")
     lower_id = _track(source, tmp_path, "lower.wav", title="Lower")
     higher_id = _track(source, tmp_path, "higher.wav", title="Higher")
@@ -1379,8 +1564,10 @@ def test_export_predictions_csv_orders_by_broken_probability(tmp_path: Path) -> 
     with csv_path.open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     assert rows[0]["source_track_id"] == str(higher_id)
-    assert rows[0]["broken_probability"] == "0.7"
-    assert rows[0]["straight_probability"] == "0.3"
+    assert "broken_probability" not in rows[0]
+    assert "straight_probability" not in rows[0]
+    assert rows[0]["probability_broken"] == "0.7"
+    assert rows[0]["probability_straight"] == "0.3"
 
 
 def test_export_predictions_csv_uses_latest_prediction_per_track(tmp_path: Path) -> None:
@@ -1411,7 +1598,38 @@ def test_export_predictions_csv_uses_latest_prediction_per_track(tmp_path: Path)
         rows = list(csv.DictReader(handle))
     assert len(rows) == 1
     assert rows[0]["model_artifact"] == "new.joblib"
-    assert rows[0]["broken_probability"] == "0.2"
+    assert rows[0]["probability_broken"] == "0.2"
+
+
+def test_export_predictions_csv_uses_custom_profile_probability_columns(tmp_path: Path) -> None:
+    source = LibraryDatabase(tmp_path / "source.sqlite")
+    track_id = _track(source, tmp_path, "track.wav", title="Track")
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    labels.create_profile(
+        classifier_key="vocal_presence",
+        name="Vocal Presence",
+        labels=[
+            {"key": "vocal", "name": "Vocal", "role": "positive"},
+            {"key": "instrumental", "name": "Instrumental", "role": "negative"},
+        ],
+    )
+    scoped = RhythmLabDatabase(labels.path, classifier_key="vocal_presence")
+    scoped.save_prediction(
+        source.get_track(track_id),
+        feature_set="combined",
+        model_artifact="model.joblib",
+        label="vocal",
+        confidence=0.8,
+        probabilities={"vocal": 0.8, "instrumental": 0.2},
+    )
+
+    csv_path = export_predictions_csv(labels.path, tmp_path / "predictions.csv", classifier_key="vocal_presence")
+
+    with csv_path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert rows[0]["probability_vocal"] == "0.8"
+    assert rows[0]["probability_instrumental"] == "0.2"
+    assert "broken_probability" not in rows[0]
 
 
 def test_lab_database_prunes_old_predictions_for_feature_set_only(tmp_path: Path) -> None:

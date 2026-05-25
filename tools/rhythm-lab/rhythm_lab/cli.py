@@ -15,7 +15,6 @@ LAB_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = LAB_ROOT.parents[1]
 DEFAULT_SOURCE_DB = Path(r"C:\db\abstracted.sqlite")
 DEFAULT_LABELS_DB = LAB_ROOT / "data" / "rhythm_lab.sqlite"
-DEFAULT_ARTIFACT_DIR = LAB_ROOT / "artifacts" / "break-energy"
 DEFAULT_BREAK_ENERGY_TARGET = PROJECT_ROOT / "models" / "classifiers" / "break-energy"
 
 
@@ -37,7 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     export_parser = subcommands.add_parser("export-predictions", help="Export saved classifier profile predictions to CSV.")
     export_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
-    export_parser.add_argument("--output", type=Path, default=DEFAULT_ARTIFACT_DIR / "predictions.csv")
+    export_parser.add_argument("--output", type=Path, default=None)
     export_parser.add_argument("--profile", default=BREAK_ENERGY_CLASSIFIER_KEY)
     export_parser.set_defaults(func=_export_predictions)
 
@@ -45,7 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
         "promote-break-energy",
         help="Copy the latest combined Break Energy model into the main project's classifier slot.",
     )
-    promote_parser.add_argument("--artifacts", type=Path, default=DEFAULT_ARTIFACT_DIR)
+    promote_parser.add_argument("--artifacts", type=Path, default=None)
     promote_parser.add_argument("--target", type=Path, default=DEFAULT_BREAK_ENERGY_TARGET)
     promote_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
     promote_parser.set_defaults(func=_promote_break_energy)
@@ -84,13 +83,23 @@ def _predict(args: argparse.Namespace) -> None:
 
 
 def _export_predictions(args: argparse.Namespace) -> None:
-    path = export_predictions_csv(args.labels, args.output, classifier_key=args.profile)
+    profile = RhythmLabDatabase(args.labels, classifier_key=args.profile).get_profile()
+    output = args.output or Path(profile.artifact_dir) / "predictions.csv"
+    path = export_predictions_csv(args.labels, output, classifier_key=args.profile)
     print(f"output={path}")
 
 
 def _promote_break_energy(args: argparse.Namespace) -> None:
-    artifact = _latest_combined_artifact(args.artifacts)
+    labels_db = RhythmLabDatabase(args.labels, classifier_key=BREAK_ENERGY_CLASSIFIER_KEY)
+    profile = labels_db.get_profile()
+    artifact_dir = args.artifacts or Path(profile.artifact_dir)
+    artifact = _latest_combined_artifact(artifact_dir, profile.artifact_prefix)
     payload = _load_artifact_payload(artifact)
+    classifier_key = str(payload.get("classifier_key") or "")
+    if classifier_key != profile.classifier_key:
+        raise SystemExit(
+            f"Expected artifact for profile {profile.classifier_key!r}, got classifier_key={classifier_key!r}"
+        )
     if str(payload.get("feature_set")) != "combined":
         raise SystemExit(f"Expected a combined artifact, got feature_set={payload.get('feature_set')!r}")
 
@@ -100,23 +109,26 @@ def _promote_break_energy(args: argparse.Namespace) -> None:
     metadata_path = target / "model.json"
     shutil.copy2(artifact, model_path)
     metadata = {
-        "classifier": "break_energy",
-        "score_name": "Break Energy",
+        "classifier_key": profile.classifier_key,
+        "profile_name": profile.name,
+        "profile_type": profile.profile_type,
         "feature_set": payload.get("feature_set"),
         "feature_count": len(payload.get("feature_names", [])),
-        "label_order": payload.get("label_order", ["broken", "straight"]),
+        "label_order": payload.get("label_order", list(profile.training_label_keys)),
+        "positive_label": payload.get("positive_label", profile.positive_label),
+        "negative_label": profile.negative_label,
         "source_artifact": str(artifact),
         "promoted_at": datetime.now(timezone.utc).isoformat(),
-        "trained_label_counts": RhythmLabDatabase(args.labels).label_counts(),
+        "trained_label_counts": labels_db.label_counts(),
     }
     metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
     print(f"model={model_path} metadata={metadata_path} source={artifact}")
 
 
-def _latest_combined_artifact(artifact_dir: str | Path) -> Path:
-    artifacts = sorted(Path(artifact_dir).glob("break-energy-combined-*.joblib"))
+def _latest_combined_artifact(artifact_dir: str | Path, artifact_prefix: str) -> Path:
+    artifacts = sorted(Path(artifact_dir).glob(f"{artifact_prefix}-combined-*.joblib"))
     if not artifacts:
-        raise SystemExit(f"No combined Break Energy model artifacts found in {artifact_dir}")
+        raise SystemExit(f"No combined model artifacts found in {artifact_dir}")
     return artifacts[-1]
 
 

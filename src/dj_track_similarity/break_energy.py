@@ -77,8 +77,8 @@ class BreakEnergyScorer:
         if row is None:
             return None
         probability = _predict_probabilities(self.model, row.reshape(1, -1), self.payload)[0]
-        score = float(np.float32(probability.get(BREAK_ENERGY_LABEL, 0.0)).item())
-        straight = float(np.float32(probability.get(STRAIGHT_LABEL, 0.0)).item())
+        score = float(probability.get(BREAK_ENERGY_LABEL, 0.0))
+        straight = float(probability.get(STRAIGHT_LABEL, 0.0))
         return {"break_energy": score, "straight_energy": straight}
 
     def save_score(self, track: Track, probabilities: dict[str, float]) -> None:
@@ -172,7 +172,7 @@ def _predict_probabilities(model: object, matrix: np.ndarray, payload: dict[str,
     label_order = [str(label) for label in payload.get("label_order", [BREAK_ENERGY_LABEL, STRAIGHT_LABEL])]
     predict_proba = getattr(model, "predict_proba", None)
     if callable(predict_proba):
-        raw = np.asarray(predict_proba(matrix), dtype=np.float32)
+        raw = np.asarray(predict_proba(matrix), dtype=np.float64)
         classes = [str(label) for label in getattr(model, "classes_", label_order)]
         return [
             {label: float(raw[row_index, classes.index(label)]) if label in classes else 0.0 for label in label_order}

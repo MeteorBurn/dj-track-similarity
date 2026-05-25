@@ -131,6 +131,7 @@ class SourceDatabase:
         labels_db_path: str | Path,
         classifier_key: str = "break_energy",
         label_keys: tuple[str, ...] = ("broken", "straight", "ambiguous"),
+        training_label_keys: tuple[str, ...] = ("broken", "straight"),
         query: str = "",
         syncopated: str = "all",
         label: str = "all",
@@ -147,6 +148,12 @@ class SourceDatabase:
         bounded_limit = max(1, min(500, int(limit)))
         bounded_offset = max(0, int(offset))
         labels_uri = f"file:{Path(labels_db_path).expanduser().resolve(strict=False).as_posix()}?mode=ro"
+        training_placeholders = ", ".join("?" for _ in training_label_keys) or "NULL"
+        label_trained_sql = (
+            f"CASE WHEN rl.label IN ({training_placeholders}) "
+            "AND cp.updated_at IS NOT NULL "
+            "AND rl.updated_at <= cp.updated_at THEN 1 ELSE 0 END"
+        )
         with self.connect() as connection:
             connection.execute("ATTACH DATABASE ? AS labels", (labels_uri,))
             total = int(
@@ -165,6 +172,7 @@ class SourceDatabase:
                 f"""
                 SELECT {TRACK_SELECT_FIELDS},
                        rl.label AS classifier_label,
+                       {label_trained_sql} AS classifier_label_trained,
                        emert.track_id IS NOT NULL AS has_mert_embedding,
                        emaest.track_id IS NOT NULL AS has_maest_embedding
                 FROM tracks t
@@ -173,11 +181,21 @@ class SourceDatabase:
                 LEFT JOIN embeddings emaest ON emaest.track_id = t.id AND emaest.embedding_key = 'maest'
                 LEFT JOIN labels.classifier_labels rl
                   ON rl.classifier_key = ? AND rl.source_track_id = t.id
+                LEFT JOIN labels.classifier_training_checkpoints cp
+                  ON cp.classifier_key = ?
                 {where_sql}
                 ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
                 LIMIT ? OFFSET ?
                 """,
-                (DEFAULT_EMBEDDING_KEY, classifier_key, *params, bounded_limit, bounded_offset),
+                (
+                    *training_label_keys,
+                    DEFAULT_EMBEDDING_KEY,
+                    classifier_key,
+                    classifier_key,
+                    *params,
+                    bounded_limit,
+                    bounded_offset,
+                ),
             ).fetchall()
         return {
             "items": [_track_page_item(row) for row in rows],
@@ -294,6 +312,7 @@ def _track_page_item(row: sqlite3.Row) -> dict[str, object]:
         "genres": track.genres,
         "genre_scores": track.genre_scores,
         "label": row["classifier_label"],
+        "label_trained": bool(row["classifier_label_trained"]),
         "maest_syncopated_rhythm": metadata.get("maest_syncopated_rhythm") is True,
         "feature_status": {
             "sonara": isinstance(metadata.get("sonara_features"), dict),

@@ -23,6 +23,7 @@ ProfileLabelRole = Literal["positive", "negative", "review", "class"]
 PROFILE_LABEL_ROLES: tuple[str, ...] = ("positive", "negative", "review", "class")
 DEFAULT_ARTIFACT_DIR = Path(__file__).resolve().parents[1] / "artifacts" / "break-energy"
 DEFAULT_ARTIFACT_PREFIX = "break-energy"
+DEFAULT_TRAINING_MIN_ADDED = 50
 DEFAULT_BREAK_ENERGY_DESCRIPTION = (
     "Positive class for syncopated, broken, break-heavy, or drum-break rhythm texture."
 )
@@ -55,6 +56,7 @@ class ClassifierProfile:
     description: str
     artifact_dir: str
     artifact_prefix: str
+    training_min_added: int
     positive_label: str
     negative_label: str
     labels: tuple[ClassifierProfileLabel, ...]
@@ -113,9 +115,8 @@ class RhythmLabDatabase:
                 SELECT classifier_key
                 FROM classifier_profiles
                 {where}
-                ORDER BY CASE WHEN classifier_key = ? THEN 0 ELSE 1 END, LOWER(name), classifier_key
-                """,
-                (BREAK_ENERGY_CLASSIFIER_KEY,),
+                ORDER BY LOWER(name), classifier_key
+                """
             ).fetchall()
         return [self.get_profile(str(row["classifier_key"])) for row in rows]
 
@@ -133,6 +134,7 @@ class RhythmLabDatabase:
         description: str = "",
         artifact_dir: str | Path | None = None,
         artifact_prefix: str | None = None,
+        training_min_added: int = DEFAULT_TRAINING_MIN_ADDED,
         labels: list[dict[str, object] | ClassifierProfileLabel],
     ) -> ClassifierProfile:
         key = _validate_profile_key(classifier_key)
@@ -146,17 +148,28 @@ class RhythmLabDatabase:
         prefix = (artifact_prefix or key.replace("_", "-")).strip()
         if not prefix:
             raise ValueError("Artifact prefix is required")
+        min_added = _validate_training_min_added(training_min_added)
         with self.connect() as connection:
             try:
                 connection.execute(
                     """
                     INSERT INTO classifier_profiles(
                         classifier_key, profile_type, name, description, artifact_dir, artifact_prefix,
-                        positive_label, negative_label
+                        training_min_added, positive_label, negative_label
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (key, clean_type, clean_name, description.strip(), artifact_path, prefix, positive_label, negative_label),
+                    (
+                        key,
+                        clean_type,
+                        clean_name,
+                        description.strip(),
+                        artifact_path,
+                        prefix,
+                        min_added,
+                        positive_label,
+                        negative_label,
+                    ),
                 )
                 _replace_profile_labels(connection, key, label_specs)
             except sqlite3.IntegrityError as error:
@@ -172,6 +185,7 @@ class RhythmLabDatabase:
         description: str | None = None,
         artifact_dir: str | Path | None = None,
         artifact_prefix: str | None = None,
+        training_min_added: int | None = None,
         labels: list[dict[str, object] | ClassifierProfileLabel] | None = None,
     ) -> ClassifierProfile:
         key = _validate_profile_key(classifier_key)
@@ -203,6 +217,9 @@ class RhythmLabDatabase:
                     raise ValueError("Artifact prefix is required")
                 assignments.append("artifact_prefix = ?")
                 params.append(prefix)
+            if training_min_added is not None:
+                assignments.append("training_min_added = ?")
+                params.append(_validate_training_min_added(training_min_added))
             if assignments:
                 assignments.append("updated_at = CURRENT_TIMESTAMP")
                 connection.execute(
@@ -558,6 +575,7 @@ def _ensure_profile_tables(connection: sqlite3.Connection) -> None:
             description TEXT NOT NULL DEFAULT '',
             artifact_dir TEXT NOT NULL,
             artifact_prefix TEXT NOT NULL,
+            training_min_added INTEGER NOT NULL DEFAULT 50 CHECK(training_min_added >= 1),
             positive_label TEXT NOT NULL,
             negative_label TEXT NOT NULL,
             archived_at TEXT,
@@ -582,6 +600,10 @@ def _ensure_profile_tables(connection: sqlite3.Connection) -> None:
     if "profile_type" not in _columns(connection, "classifier_profiles"):
         connection.execute(
             "ALTER TABLE classifier_profiles ADD COLUMN profile_type TEXT NOT NULL DEFAULT 'binary'"
+        )
+    if "training_min_added" not in _columns(connection, "classifier_profiles"):
+        connection.execute(
+            "ALTER TABLE classifier_profiles ADD COLUMN training_min_added INTEGER NOT NULL DEFAULT 50"
         )
     _recreate_profile_labels_table_if_old_role_check_exists(connection)
 
@@ -695,9 +717,9 @@ def _ensure_default_break_energy_profile(connection: sqlite3.Connection) -> None
             """
             INSERT INTO classifier_profiles(
                 classifier_key, name, description, artifact_dir, artifact_prefix,
-                positive_label, negative_label
+                training_min_added, positive_label, negative_label
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 BREAK_ENERGY_CLASSIFIER_KEY,
@@ -705,6 +727,7 @@ def _ensure_default_break_energy_profile(connection: sqlite3.Connection) -> None
                 DEFAULT_BREAK_ENERGY_DESCRIPTION,
                 _normalize_artifact_dir(DEFAULT_ARTIFACT_DIR),
                 DEFAULT_ARTIFACT_PREFIX,
+                DEFAULT_TRAINING_MIN_ADDED,
                 "broken",
                 STRAIGHT_LABEL,
             ),
@@ -883,7 +906,7 @@ def _get_profile(connection: sqlite3.Connection, classifier_key: str) -> Classif
     row = connection.execute(
         """
         SELECT classifier_key, profile_type, name, description, artifact_dir, artifact_prefix,
-               positive_label, negative_label, archived_at
+               training_min_added, positive_label, negative_label, archived_at
         FROM classifier_profiles
         WHERE classifier_key = ?
         """,
@@ -917,6 +940,7 @@ def _get_profile(connection: sqlite3.Connection, classifier_key: str) -> Classif
         description=str(row["description"] or ""),
         artifact_dir=str(row["artifact_dir"]),
         artifact_prefix=str(row["artifact_prefix"]),
+        training_min_added=int(row["training_min_added"] or DEFAULT_TRAINING_MIN_ADDED),
         positive_label=str(row["positive_label"]),
         negative_label=str(row["negative_label"]),
         labels=labels,
@@ -1088,6 +1112,16 @@ def _validate_profile_type(profile_type: str) -> str:
     if value not in PROFILE_TYPES:
         raise ValueError(f"Unsupported classifier profile type: {value}")
     return value
+
+
+def _validate_training_min_added(value: object) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError("Training refresh label threshold must be a positive integer") from error
+    if number < 1:
+        raise ValueError("Training refresh label threshold must be at least 1")
+    return number
 
 
 def _validate_profile_key(key: str) -> str:

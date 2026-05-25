@@ -16,6 +16,8 @@ Rhythm Lab is profile-based. A classifier profile defines:
   - `multiclass`: two or more user-defined class labels; every label is a
     trainable class
 - a profile-specific artifact folder and artifact filename prefix
+- a train-refresh threshold for how many new labels per training class are
+  required after the last training checkpoint before the UI enables training
 
 The default profile is Break Energy:
 
@@ -108,6 +110,7 @@ The UI includes:
 - compact app-shell coverage badges for Tracks, SONARA, MAEST, and MERT
 - compact label-count badges for the active profile
 - training readiness and guidance cards
+- per-profile train-refresh threshold editing in Profile Settings
 
 Keyboard shortcuts on a focused row use the active profile's label order:
 
@@ -143,6 +146,11 @@ The training command benchmarks these feature sets:
 `metadata_json.sonara_features`, MERT embeddings, and MAEST embeddings. Tracks
 missing any of those inputs are skipped for the combined model.
 
+The UI train-refresh button is controlled by the active profile's threshold for
+new labels per training class. The default is 50. Changing that value in Profile
+Settings immediately changes the readiness calculation and the "required new
+labels" display for the active profile.
+
 Artifacts and metrics are written to the active profile's artifact folder:
 
 ```text
@@ -155,6 +163,10 @@ Artifact names use the profile artifact prefix, for example:
 break-energy-combined-20260525T010203Z.joblib
 break-energy-combined-20260525T010203Z.metrics.json
 ```
+
+Metrics use profile-neutral names such as `positive_discovery`,
+`positive_precision`, `positive_recall`, `negative_candidates`, and
+`label_order`. New profiles do not write legacy Break Energy-only metric fields.
 
 Apply a trained model and export candidates:
 
@@ -175,8 +187,10 @@ Promote the latest combined Break Energy model into the main project:
 
 This copies the latest `break-energy-combined-*.joblib` artifact to
 `models/classifiers/break-energy/model.joblib` and writes local metadata to
-`models/classifiers/break-energy/model.json`. Those promoted files are local
-runtime artifacts and are ignored by git.
+`models/classifiers/break-energy/model.json`. The metadata is written from the
+Break Energy profile and artifact payload (`classifier_key`, profile name,
+labels, feature set, and label counts), without legacy Break Energy-only report
+fields. Those promoted files are local runtime artifacts and are ignored by git.
 
 ## Useful Checks
 

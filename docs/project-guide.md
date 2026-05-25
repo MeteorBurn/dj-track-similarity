@@ -340,17 +340,26 @@ classifier-specific lab workspace:
 tools/rhythm-lab/artifacts/break-energy/
 ```
 
+Promoted metadata is generated from the Rhythm Lab profile and model artifact:
+`classifier_key`, profile name, profile type, labels, feature set, source
+artifact, and training label counts. Rhythm Lab training metrics use the same
+profile-neutral shape for Break Energy and custom profiles (`positive_*`
+metrics and `label_order`) instead of legacy Break Energy-specific metric
+aliases.
+
 Rhythm Lab itself can manage additional classifier profiles inside its own UI.
 Those profiles are scoped to the lab database and can define a name,
-description, profile type, labels, and a profile artifact folder. Binary
+description, profile type, labels, a profile artifact folder, and a per-profile
+train-refresh threshold for required new labels per training class. Binary
 profiles use one positive training label, one negative training label, and
 optional review-only labels. Multiclass profiles use two or more user-defined
 `class` labels, and each track can have only one current label for the active
 profile. Track labels in Rhythm Lab are editable current-state annotations:
 when a label changes, the new value replaces the old one and is used by the next
-profile training run. Custom Rhythm Lab profiles do not automatically become
-main-app `dj-sim` classifier scores; Break Energy remains the promoted runtime
-classifier path in the main app.
+profile training run. Updating the train-refresh threshold immediately changes
+the readiness calculation for that profile. Custom Rhythm Lab profiles do not
+automatically become main-app `dj-sim` classifier scores; Break Energy remains
+the promoted runtime classifier path in the main app.
 
 Rhythm Lab benchmarks `sonara`, `mert`, `maest`, and `combined` feature sets.
 The `combined` feature set requires SONARA features plus MERT and MAEST

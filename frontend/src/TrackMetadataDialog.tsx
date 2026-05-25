@@ -153,16 +153,27 @@ function readableClassifierScores(track: Track) {
     result.push({
       key: "break_energy",
       label: "Break Energy",
-      value: formatClassifierScore(breakEnergy.score)
+      value: formatClassifierScore(displayBreakEnergyScore(breakEnergy))
     });
   }
   return result;
 }
 
+function displayBreakEnergyScore(score: NonNullable<Track["classifier_scores"]>[string]) {
+  const value = score.score;
+  const opposite = score.probabilities?.straight_energy;
+  if (value === 1 && typeof opposite === "number" && opposite > 0 && opposite < 1) return 1 - opposite;
+  return value;
+}
+
 function formatClassifierScore(value: unknown) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "-";
-  if (value < 1 && value.toFixed(4) === "1.0000") return value.toPrecision(8);
-  return value.toFixed(4);
+  return formatScore(value);
+}
+
+function formatScore(value: number) {
+  if (value < 1 && value.toFixed(6) === "1.000000") return "0.999999";
+  return value.toFixed(6);
 }
 
 const sonaraFeatureLabels: Record<string, string> = {

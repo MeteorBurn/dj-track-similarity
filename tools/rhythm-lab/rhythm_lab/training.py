@@ -12,9 +12,9 @@ from .lab_db import BREAK_ENERGY_CLASSIFIER_KEY, RhythmLabDatabase
 
 
 LABEL_ORDER = ["broken", "straight"]
-BROKEN_LABEL = "broken"
+DEFAULT_POSITIVE_LABEL = "broken"
 ARTIFACT_PREFIX = "break-energy"
-BROKEN_DISCOVERY_THRESHOLDS = (0.1, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+POSITIVE_DISCOVERY_THRESHOLDS = (0.1, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
 TOP_N_VALUES = (1, 5, 10, 25, 50, 100, 250, 500, 1000)
 
 
@@ -36,7 +36,7 @@ def train_feature_set(
     feature_set: str,
     artifact_dir: str | Path,
     label_order: list[str] | None = None,
-    positive_label: str = BROKEN_LABEL,
+    positive_label: str = DEFAULT_POSITIVE_LABEL,
     artifact_prefix: str = ARTIFACT_PREFIX,
     classifier_key: str = BREAK_ENERGY_CLASSIFIER_KEY,
     random_state: int = 42,
@@ -102,8 +102,6 @@ def train_feature_set(
         "positive_discovery": positive_discovery,
         "cross_validation": cross_validation,
     }
-    if positive_label == BROKEN_LABEL:
-        metrics["broken_discovery"] = positive_discovery
     metrics_path.write_text(json.dumps(metrics, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
     return TrainResult(feature_set, model, artifact_path, metrics_path, len(labels), 0)
 
@@ -211,7 +209,7 @@ def _positive_discovery_metrics(
     total_positive = sum(1 for label in label_list if label == positive_label)
     thresholds = [
         _threshold_row(label_list, scores, threshold, total_positive, positive_label=positive_label)
-        for threshold in BROKEN_DISCOVERY_THRESHOLDS
+        for threshold in POSITIVE_DISCOVERY_THRESHOLDS
     ]
     top_n = [
         _top_n_row(label_list, scores, n, total_positive, positive_label=positive_label)
@@ -245,10 +243,6 @@ def _threshold_row(
         "negative_candidates": int(negative_candidates),
         "positive_recall": _safe_ratio(positive_found, total_positive),
         "positive_precision": _safe_ratio(positive_found, candidate_count),
-        "broken_found": int(positive_found) if positive_label == BROKEN_LABEL else 0,
-        "straight_candidates": int(negative_candidates) if positive_label == BROKEN_LABEL else 0,
-        "broken_recall": _safe_ratio(positive_found, total_positive) if positive_label == BROKEN_LABEL else 0.0,
-        "broken_precision": _safe_ratio(positive_found, candidate_count) if positive_label == BROKEN_LABEL else 0.0,
     }
 
 
@@ -267,9 +261,6 @@ def _top_n_row(
         "positive_found": int(positive_found),
         "positive_recall": _safe_ratio(positive_found, total_positive),
         "positive_precision": _safe_ratio(positive_found, n),
-        "broken_found": int(positive_found) if positive_label == BROKEN_LABEL else 0,
-        "broken_recall": _safe_ratio(positive_found, total_positive) if positive_label == BROKEN_LABEL else 0.0,
-        "broken_precision": _safe_ratio(positive_found, n) if positive_label == BROKEN_LABEL else 0.0,
     }
 
 
@@ -320,15 +311,6 @@ def _cross_validation_metrics(
         "accuracy_mean": _mean(accuracies),
         "accuracy_std": _std(accuracies),
     }
-    if positive_label == BROKEN_LABEL:
-        metrics.update(
-            {
-                "broken_recall_mean": metrics["positive_recall_mean"],
-                "broken_recall_std": metrics["positive_recall_std"],
-                "broken_precision_mean": metrics["positive_precision_mean"],
-                "broken_precision_std": metrics["positive_precision_std"],
-            }
-        )
     return metrics
 
 

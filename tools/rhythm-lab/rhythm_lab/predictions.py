@@ -60,10 +60,13 @@ def export_predictions_csv(
     classifier_key: str = BREAK_ENERGY_CLASSIFIER_KEY,
 ) -> Path:
     lab = RhythmLabDatabase(db_path, classifier_key=classifier_key)
+    profile = lab.get_profile()
+    probability_labels = list(profile.training_label_keys)
+    sort_label = profile.positive_label if profile.profile_type == "binary" else None
     rows = sorted(
         latest_predictions_by_track(lab.predictions()),
         key=lambda row: (
-            -_probability(row, "broken"),
+            -(_probability(row, sort_label) if sort_label is not None else float(row["confidence"])),
             -float(row["confidence"]),
             str(row["path"]),
         ),
@@ -74,8 +77,7 @@ def export_predictions_csv(
         "source_track_id",
         "label",
         "confidence",
-        "broken_probability",
-        "straight_probability",
+        *[f"probability_{label}" for label in probability_labels],
         "feature_set",
         "artist",
         "title",
@@ -92,8 +94,7 @@ def export_predictions_csv(
                     "source_track_id": row["source_track_id"],
                     "label": row["label"],
                     "confidence": row["confidence"],
-                    "broken_probability": _probability(row, "broken"),
-                    "straight_probability": _probability(row, "straight"),
+                    **{f"probability_{label}": _probability(row, label) for label in probability_labels},
                     "feature_set": row["feature_set"],
                     "artist": row["artist"],
                     "title": row["title"],
@@ -136,7 +137,7 @@ def _probability(row: dict[str, object], label: str) -> float:
 def _predict_probabilities(model: object, matrix: np.ndarray, label_order: list[str]) -> list[dict[str, float]]:
     predict_proba = getattr(model, "predict_proba", None)
     if callable(predict_proba):
-        raw = np.asarray(predict_proba(matrix), dtype=np.float32)
+        raw = np.asarray(predict_proba(matrix), dtype=np.float64)
         classes = [str(label) for label in getattr(model, "classes_", label_order)]
         return [
             {classes[index]: float(row[index]) for index in range(len(classes))}

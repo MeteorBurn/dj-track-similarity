@@ -13,7 +13,7 @@ from starlette.background import BackgroundTask
 
 from dj_track_similarity.dependencies import require_ffmpeg
 
-from .lab_db import BREAK_ENERGY_CLASSIFIER_KEY, ClassifierProfile, RhythmLabDatabase
+from .lab_db import ClassifierProfile, RhythmLabDatabase
 from .predictions import apply_model_to_lab, latest_predictions_by_track
 from .source_db import SourceDatabase
 from .training import benchmark_lab_database
@@ -23,9 +23,7 @@ LOGGER = logging.getLogger(__name__)
 AIFF_PREVIEW_SUFFIXES = {".aif", ".aiff"}
 STATIC_DIR = Path(__file__).with_name("static")
 FAVICON_PATH = STATIC_DIR / "favicon.svg"
-ARTIFACT_DIR = Path(__file__).resolve().parents[1] / "artifacts" / "break-energy"
-ARTIFACT_PREFIX = "break-energy"
-TRAIN_REFRESH_MIN_ADDED = 100
+TRAIN_REFRESH_MIN_ADDED = 50
 KEEP_JOBLIB_PER_FEATURE = 3
 KEEP_METRICS_PER_FEATURE = 10
 
@@ -53,6 +51,7 @@ class ProfileRequest(BaseModel):
     description: str = ""
     artifact_dir: str | None = None
     artifact_prefix: str | None = None
+    training_min_added: int = TRAIN_REFRESH_MIN_ADDED
     labels: list[ProfileLabelRequest]
 
 
@@ -62,6 +61,7 @@ class ProfilePatchRequest(BaseModel):
     description: str | None = None
     artifact_dir: str | None = None
     artifact_prefix: str | None = None
+    training_min_added: int | None = None
     labels: list[ProfileLabelRequest] | None = None
 
 
@@ -128,7 +128,7 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
     source_state = SourceDatabaseState(source_db_path)
     app = FastAPI(title="Rhythm Lab")
 
-    def profile_db(profile_key: str = BREAK_ENERGY_CLASSIFIER_KEY) -> RhythmLabDatabase:
+    def profile_db(profile_key: str) -> RhythmLabDatabase:
         return RhythmLabDatabase(labels_path, classifier_key=profile_key)
 
     def profile_or_404(profile_key: str) -> ClassifierProfile:
@@ -193,6 +193,7 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
                 description=request.description,
                 artifact_dir=request.artifact_dir,
                 artifact_prefix=request.artifact_prefix,
+                training_min_added=request.training_min_added,
                 labels=[label.model_dump() for label in request.labels],
             )
         except ValueError as error:
@@ -209,6 +210,7 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
                 description=request.description,
                 artifact_dir=request.artifact_dir,
                 artifact_prefix=request.artifact_prefix,
+                training_min_added=request.training_min_added,
                 labels=[label.model_dump() for label in request.labels] if request.labels is not None else None,
             )
         except (KeyError, ValueError) as error:
@@ -278,6 +280,7 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
                 labels_db_path=labels_path,
                 classifier_key=profile.classifier_key,
                 label_keys=profile.label_keys,
+                training_label_keys=profile.training_label_keys,
                 query=q,
                 syncopated=syncopated,
                 label=label,
@@ -319,7 +322,8 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
             return {"items": [], "total": 0, "limit": limit, "offset": offset}
         scoped = profile_db(profile.classifier_key)
         labels_by_track = scoped.labels_by_track()
-        rows: list[tuple[dict[str, object], str | None, float, float]] = []
+        checkpoint_updated_at = scoped.training_checkpoint()["updated_at"]
+        rows: list[tuple[dict[str, object], str | None, float, float, bool]] = []
         for row in latest_predictions_by_track(scoped.predictions()):
             manual_label = labels_by_track.get(int(row["source_track_id"]))
             manual_label_value = manual_label.label if manual_label is not None else None
@@ -334,15 +338,23 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
                 continue
             if label not in {"all", "unlabeled"} and manual_label_value != label:
                 continue
-            rows.append((row, manual_label_value, positive_probability, negative_probability))
+            rows.append(
+                (
+                    row,
+                    manual_label_value,
+                    positive_probability,
+                    negative_probability,
+                    _label_was_trained(manual_label, profile=profile, checkpoint_updated_at=checkpoint_updated_at),
+                )
+            )
         common_filters_active = bool(q.strip()) or syncopated != "all"
         source_tracks = (
-            source.tracks_by_ids(int(row["source_track_id"]) for row, _, _, _ in rows)
+            source.tracks_by_ids(int(row["source_track_id"]) for row, _, _, _, _ in rows)
             if common_filters_active
             else {}
         )
         items = []
-        for row, manual_label_value, positive_probability, negative_probability in rows:
+        for row, manual_label_value, positive_probability, negative_probability, label_trained in rows:
             track = source_tracks.get(int(row["source_track_id"]))
             if common_filters_active and (
                 track is None or not _candidate_matches_common_filters(track, query=q, syncopated=syncopated)
@@ -354,6 +366,7 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
                     manual_label_value,
                     positive_probability,
                     negative_probability,
+                    label_trained,
                     profile=profile,
                 )
             )
@@ -462,174 +475,6 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
             "artifact_cleanup": cleanup,
         }
 
-    @app.get("/api/summary")
-    def summary():
-        source = source_state.source
-        if source is None:
-            return {"tracks": 0, "labels": labels_db.label_counts(), "sonara": 0, "mert": 0, "maest": 0, "source": source_state.current()}
-        return {
-            "tracks": source.count_tracks(),
-            "labels": labels_db.label_counts(),
-            "sonara": source.count_sonara_features(),
-            "mert": source.count_embeddings("mert"),
-            "maest": source.count_embeddings("maest"),
-            "source": source_state.current(),
-        }
-
-    @app.get("/api/tracks")
-    def tracks(
-        q: str = "",
-        syncopated: str = Query(default="all", pattern="^(all|yes|no)$"),
-        label: str = Query(default="all", pattern="^(all|unlabeled|broken|straight|ambiguous)$"),
-        limit: int = Query(default=100, ge=1, le=500),
-        offset: int = Query(default=0, ge=0),
-    ):
-        source = source_state.source
-        if source is None:
-            return {"items": [], "total": 0, "limit": limit, "offset": offset}
-        try:
-            return source.list_tracks_page(
-                labels_db_path=labels_db.path,
-                query=q,
-                syncopated=syncopated,
-                label=label,
-                limit=limit,
-                offset=offset,
-            )
-        except ValueError as error:
-            raise HTTPException(status_code=400, detail=str(error)) from error
-
-    @app.get("/api/predictions")
-    def predictions(
-        q: str = "",
-        syncopated: str = Query(default="all", pattern="^(all|yes|no)$"),
-        label: str = Query(default="unlabeled", pattern="^(all|unlabeled|broken|straight|ambiguous)$"),
-        predicted: str = Query(default="all", pattern="^(all|broken|straight)$"),
-        probability_focus: str = Query(default="broken_highest", pattern="^(broken_highest|straight_highest|balanced)$"),
-        min_broken: float = Query(default=0.0, ge=0.0, le=1.0),
-        limit: int = Query(default=100, ge=1, le=500),
-        offset: int = Query(default=0, ge=0),
-    ):
-        source = source_state.source
-        if source is None:
-            return {"items": [], "total": 0, "limit": limit, "offset": offset}
-        labels_by_track = labels_db.labels_by_track()
-        rows: list[tuple[dict[str, object], str | None, float]] = []
-        for row in latest_predictions_by_track(labels_db.predictions()):
-            manual_label = labels_by_track.get(int(row["source_track_id"]))
-            manual_label_value = manual_label.label if manual_label is not None else None
-            broken_probability = _prediction_probability(row, "broken")
-            if broken_probability < min_broken:
-                continue
-            if predicted != "all" and row["label"] != predicted:
-                continue
-            if label == "unlabeled" and manual_label_value is not None:
-                continue
-            if label not in {"all", "unlabeled"} and manual_label_value != label:
-                continue
-            rows.append((row, manual_label_value, broken_probability))
-        common_filters_active = bool(q.strip()) or syncopated != "all"
-        source_tracks = (
-            source.tracks_by_ids(int(row["source_track_id"]) for row, _, _ in rows) if common_filters_active else {}
-        )
-        items = []
-        for row, manual_label_value, broken_probability in rows:
-            track = source_tracks.get(int(row["source_track_id"]))
-            if common_filters_active and (
-                track is None or not _candidate_matches_common_filters(track, query=q, syncopated=syncopated)
-            ):
-                continue
-            items.append(_prediction_item(row, manual_label_value, broken_probability))
-        items.sort(key=lambda item: _candidate_sort_key(item, probability_focus=probability_focus))
-        bounded_limit = max(1, min(500, int(limit)))
-        bounded_offset = max(0, int(offset))
-        page_items = items[bounded_offset : bounded_offset + bounded_limit]
-        if page_items:
-            page_tracks = source_tracks if common_filters_active else source.tracks_by_ids(int(item["id"]) for item in page_items)
-            mert_track_ids = source.embedding_track_ids("mert")
-            maest_track_ids = source.embedding_track_ids("maest")
-            for item in page_items:
-                track = page_tracks.get(int(item["id"]))
-                if track is not None:
-                    item.update(_candidate_source_fields(track, mert_track_ids=mert_track_ids, maest_track_ids=maest_track_ids))
-        return {
-            "items": page_items,
-            "total": len(items),
-            "limit": bounded_limit,
-            "offset": bounded_offset,
-        }
-
-    @app.post("/api/predictions/refresh")
-    def refresh_predictions():
-        source = source_state.source
-        if source is None or source_state.path is None:
-            raise HTTPException(status_code=400, detail="Source database is not selected")
-        artifact = _latest_combined_artifact(ARTIFACT_DIR)
-        if artifact is None:
-            raise HTTPException(status_code=404, detail=f"No combined Break Energy model artifact found in {ARTIFACT_DIR}")
-        try:
-            result = apply_model_to_lab(source_state.path, labels_db.path, artifact)
-            deleted = labels_db.prune_predictions(
-                feature_set=str(result["feature_set"]),
-                keep_model_artifact=artifact,
-            )
-        except Exception as error:
-            LOGGER.exception("Break Energy predictions refresh failed")
-            raise HTTPException(status_code=500, detail=str(error)) from error
-        return {**result, "artifact": str(artifact), "deleted_old_predictions": deleted}
-
-    @app.get("/api/training/readiness")
-    def training_readiness():
-        return _training_readiness(labels_db, artifact_dir=ARTIFACT_DIR)
-
-    @app.post("/api/training/train-refresh")
-    def train_refresh():
-        source = source_state.source
-        if source is None or source_state.path is None:
-            raise HTTPException(status_code=400, detail="Source database is not selected")
-        readiness = _training_readiness(labels_db, artifact_dir=ARTIFACT_DIR)
-        if readiness["ready"] is not True:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Need 100 new broken and 100 new straight Break Energy labels since the last training checkpoint. "
-                    f"Added: broken {readiness['added']['broken']}, straight {readiness['added']['straight']}."
-                ),
-            )
-        counts = dict(readiness["current"])
-        try:
-            training = benchmark_lab_database(source_state.path, labels_db.path, ARTIFACT_DIR)
-            artifact = _latest_combined_artifact(ARTIFACT_DIR)
-            if artifact is None:
-                raise RuntimeError(f"No combined Break Energy model artifact found in {ARTIFACT_DIR}")
-            result = apply_model_to_lab(source_state.path, labels_db.path, artifact)
-            deleted = labels_db.prune_predictions(
-                feature_set=str(result["feature_set"]),
-                keep_model_artifact=artifact,
-            )
-            labels_db.record_training_checkpoint(counts, model_artifact=artifact)
-            cleanup = cleanup_training_artifacts(ARTIFACT_DIR, protected_artifact=artifact)
-        except Exception as error:
-            LOGGER.exception("Break Energy train + refresh failed")
-            raise HTTPException(status_code=500, detail=str(error)) from error
-        return {
-            "training": training,
-            "artifact": str(artifact),
-            "training_counts": counts,
-            **result,
-            "deleted_old_predictions": deleted,
-            "artifact_cleanup": cleanup,
-        }
-
-    @app.post("/api/tracks/{track_id}/label")
-    def set_label(track_id: int, request: LabelRequest):
-        try:
-            track = source_state.require_source().get_track(track_id)
-            label = labels_db.set_label(track, request.label, note=request.note)
-        except (KeyError, ValueError) as error:
-            raise HTTPException(status_code=400, detail=str(error)) from error
-        return {"track_id": track_id, "label": label.label if label else None}
-
     @app.get("/media/{track_id}")
     def media(track_id: int):
         try:
@@ -657,6 +502,7 @@ def _profile_payload(profile: ClassifierProfile) -> dict[str, object]:
         "description": profile.description,
         "artifact_dir": profile.artifact_dir,
         "artifact_prefix": profile.artifact_prefix,
+        "training_min_added": profile.training_min_added,
         "positive_label": profile.positive_label,
         "negative_label": profile.negative_label,
         "archived_at": profile.archived_at,
@@ -683,7 +529,7 @@ def _prediction_probability(row: dict[str, object], label: str) -> float:
         return 0.0
 
 
-def _latest_combined_artifact(artifact_dir: Path, artifact_prefix: str = ARTIFACT_PREFIX) -> Path | None:
+def _latest_combined_artifact(artifact_dir: Path, artifact_prefix: str) -> Path | None:
     artifacts = list(artifact_dir.glob(f"{artifact_prefix}-combined-*.joblib"))
     if not artifacts:
         return None
@@ -694,7 +540,7 @@ def cleanup_training_artifacts(
     artifact_dir: Path,
     *,
     protected_artifact: Path,
-    artifact_prefix: str = ARTIFACT_PREFIX,
+    artifact_prefix: str,
     keep_joblib_per_feature: int = KEEP_JOBLIB_PER_FEATURE,
     keep_metrics_per_feature: int = KEEP_METRICS_PER_FEATURE,
 ) -> dict[str, int]:
@@ -717,7 +563,7 @@ def _artifact_groups(
     artifact_dir: Path,
     *,
     suffix: str,
-    artifact_prefix: str = ARTIFACT_PREFIX,
+    artifact_prefix: str,
 ) -> dict[str, list[Path]]:
     groups: dict[str, list[Path]] = {}
     for path in artifact_dir.glob(f"{artifact_prefix}-*{suffix}"):
@@ -730,7 +576,7 @@ def _artifact_groups(
     return groups
 
 
-def _artifact_feature(name: str, *, suffix: str, artifact_prefix: str = ARTIFACT_PREFIX) -> str | None:
+def _artifact_feature(name: str, *, suffix: str, artifact_prefix: str) -> str | None:
     prefix = f"{artifact_prefix}-"
     if not name.startswith(prefix) or not name.endswith(suffix):
         return None
@@ -761,13 +607,13 @@ def _training_readiness(
         label: max(0, counts[label] - int(checkpoint_counts.get(label, 0)))
         for label in profile.training_label_keys
     }
-    ready = all(added[label] >= TRAIN_REFRESH_MIN_ADDED for label in profile.training_label_keys)
+    ready = all(added[label] >= profile.training_min_added for label in profile.training_label_keys)
     return {
         "ready": ready,
         "current": counts,
         "last_trained": {label: int(checkpoint_counts.get(label, 0)) for label in profile.training_label_keys},
         "added": added,
-        "required_added": {label: TRAIN_REFRESH_MIN_ADDED for label in profile.training_label_keys},
+        "required_added": {label: profile.training_min_added for label in profile.training_label_keys},
         "model_artifact": checkpoint_artifact,
     }
 
@@ -780,35 +626,21 @@ def _training_readiness_error(profile: ClassifierProfile, added: dict[str, int])
     if profile.profile_type == "multiclass":
         counts = ", ".join(f"{label} {int(added.get(label, 0))}" for label in profile.training_label_keys)
         return (
-            f"Need {TRAIN_REFRESH_MIN_ADDED} new labels for each multiclass training class since the last "
+            f"Need {profile.training_min_added} new labels for each multiclass training class since the last "
             f"training checkpoint. Added: {counts}."
         )
     return (
-        f"Need {TRAIN_REFRESH_MIN_ADDED} new {profile.positive_label} and "
-        f"{TRAIN_REFRESH_MIN_ADDED} new {profile.negative_label} labels since the last training checkpoint. "
+        f"Need {profile.training_min_added} new {profile.positive_label} and "
+        f"{profile.training_min_added} new {profile.negative_label} labels since the last training checkpoint. "
         f"Added: {profile.positive_label} {added[profile.positive_label]}, "
         f"{profile.negative_label} {added[profile.negative_label]}."
     )
 
 
-def _prediction_item(row: dict[str, object], manual_label: str | None, broken_probability: float) -> dict[str, object]:
-    return {
-        "id": int(row["source_track_id"]),
-        "source_track_id": int(row["source_track_id"]),
-        "path": row["path"],
-        "artist": row["artist"],
-        "title": row["title"],
-        "label": manual_label,
-        "predicted_label": row["label"],
-        "confidence": float(row["confidence"]),
-        "broken_probability": float(broken_probability),
-        "straight_probability": _prediction_probability(row, "straight"),
-        "feature_set": row["feature_set"],
-        "model_artifact": row["model_artifact"],
-        "genres": [],
-        "maest_syncopated_rhythm": False,
-        "feature_status": {"sonara": False, "mert": False, "maest": False},
-    }
+def _label_was_trained(label, *, profile: ClassifierProfile, checkpoint_updated_at: str | None) -> bool:
+    if label is None or checkpoint_updated_at is None:
+        return False
+    return label.label in profile.training_label_keys and str(label.updated_at or "") <= checkpoint_updated_at
 
 
 def _profile_prediction_item(
@@ -816,6 +648,7 @@ def _profile_prediction_item(
     manual_label: str | None,
     positive_probability: float,
     negative_probability: float,
+    label_trained: bool,
     *,
     profile: ClassifierProfile,
 ) -> dict[str, object]:
@@ -826,6 +659,7 @@ def _profile_prediction_item(
         "artist": row["artist"],
         "title": row["title"],
         "label": manual_label,
+        "label_trained": label_trained,
         "predicted_label": row["label"],
         "confidence": float(row["confidence"]),
         "profile_type": profile.profile_type,
@@ -840,18 +674,6 @@ def _profile_prediction_item(
         "maest_syncopated_rhythm": False,
         "feature_status": {"sonara": False, "mert": False, "maest": False},
     }
-
-
-def _candidate_sort_key(item: dict[str, object], *, probability_focus: str) -> tuple[float, float, str]:
-    broken_probability = float(item["broken_probability"])
-    straight_probability = float(item["straight_probability"])
-    confidence = float(item["confidence"])
-    path = str(item["path"])
-    if probability_focus == "straight_highest":
-        return (-straight_probability, -confidence, path)
-    if probability_focus == "balanced":
-        return (abs(broken_probability - straight_probability), -confidence, path)
-    return (-broken_probability, -confidence, path)
 
 
 def _profile_candidate_sort_key(item: dict[str, object], *, probability_focus: str) -> tuple[float, float, str]:

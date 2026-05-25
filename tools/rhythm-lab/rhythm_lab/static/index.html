@@ -4,8 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <link rel="stylesheet" href="/static/styles.css?v=summary-badges-1" />
-  <script src="/static/app.js?v=summary-badges-1" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=track-status-1" />
+  <script src="/static/app.js?v=track-status-1" defer></script>
   <title>Rhythm Lab</title>
 </head>
 <body>
@@ -68,7 +68,7 @@
       <select id="label"></select>
     </section>
 
-    <section id="candidateFilters" class="filters" hidden>
+    <section id="candidateFilters" class="filters candidate-filters-placeholder">
       <select id="candidatePredicted"></select>
       <select id="candidateMinBroken">
         <option value="positive_highest" selected>highest positive probability</option>
@@ -103,6 +103,7 @@
           <label>Description <textarea id="profileDescriptionInput"></textarea></label>
           <label>Artifact folder <input id="profileArtifactDirInput" /></label>
           <label>Artifact prefix <input id="profileArtifactPrefixInput" /></label>
+          <label>New labels to train <input id="profileTrainingMinAddedInput" type="number" min="1" step="1" value="50" /></label>
           <button type="submit">Save profile</button>
         </form>
         <form id="renameLabelForm" class="tool-panel">
@@ -131,6 +132,7 @@
       </label>
       <label>Description <textarea id="newProfileDescription" placeholder="What this classifier should detect"></textarea></label>
       <label>Artifact folder <input id="newProfileArtifactDir" placeholder="tools/rhythm-lab/artifacts/vocal-presence" /></label>
+      <label>New labels to train <input id="newProfileTrainingMinAdded" type="number" min="1" step="1" value="50" required /></label>
       <div id="binaryLabelGrid" class="label-grid">
         <label>Positive key <input id="newPositiveKey" placeholder="vocal" required /></label>
         <label>Positive name <input id="newPositiveName" placeholder="Vocal" required /></label>

@@ -345,6 +345,14 @@ main {
   margin-bottom: 4px;
 }
 
+#tracks:not(:empty) {
+  overflow: hidden;
+  border: 1px solid rgba(38, 49, 61, 0.9);
+  border-radius: 12px;
+  padding: 0 var(--panel-pad-x);
+  background: rgba(11, 13, 16, 0.32);
+}
+
 .track {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -401,6 +409,12 @@ main {
 
 .features-indicator.missing {
   background: #b4232e;
+}
+
+.liked-indicator {
+  color: #f0b429;
+  font-size: 13px;
+  line-height: 1;
 }
 
 .track-path {
@@ -535,6 +549,17 @@ main {
 .actions button.active {
   border-color: var(--green);
   background: rgba(85, 216, 138, 0.16);
+}
+
+.actions .like-button {
+  min-width: 36px;
+  color: var(--muted);
+}
+
+.actions .like-button.active {
+  border-color: #d99a16;
+  background: rgba(240, 180, 41, 0.18);
+  color: #ffd166;
 }
 
 audio {

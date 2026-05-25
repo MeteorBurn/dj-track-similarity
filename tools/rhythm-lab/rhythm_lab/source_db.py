@@ -135,6 +135,7 @@ class SourceDatabase:
         query: str = "",
         syncopated: str = "all",
         label: str = "all",
+        liked: str = "all",
         limit: int = 100,
         offset: int = 0,
     ) -> dict[str, object]:
@@ -142,6 +143,7 @@ class SourceDatabase:
             query=query,
             syncopated=syncopated,
             label=label,
+            liked=liked,
             label_keys=label_keys,
         )
         where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
@@ -163,9 +165,11 @@ class SourceDatabase:
                     FROM tracks t
                     LEFT JOIN labels.classifier_labels rl
                       ON rl.classifier_key = ? AND rl.source_track_id = t.id
+                    LEFT JOIN labels.classifier_track_likes lk
+                      ON lk.classifier_key = ? AND lk.source_track_id = t.id
                     {where_sql}
                     """,
-                    (classifier_key, *params),
+                    (classifier_key, classifier_key, *params),
                 ).fetchone()[0]
             )
             rows = connection.execute(
@@ -173,6 +177,7 @@ class SourceDatabase:
                 SELECT {TRACK_SELECT_FIELDS},
                        rl.label AS classifier_label,
                        {label_trained_sql} AS classifier_label_trained,
+                       lk.source_track_id IS NOT NULL AS classifier_liked,
                        emert.track_id IS NOT NULL AS has_mert_embedding,
                        emaest.track_id IS NOT NULL AS has_maest_embedding
                 FROM tracks t
@@ -183,6 +188,8 @@ class SourceDatabase:
                   ON rl.classifier_key = ? AND rl.source_track_id = t.id
                 LEFT JOIN labels.classifier_training_checkpoints cp
                   ON cp.classifier_key = ?
+                LEFT JOIN labels.classifier_track_likes lk
+                  ON lk.classifier_key = ? AND lk.source_track_id = t.id
                 {where_sql}
                 ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
                 LIMIT ? OFFSET ?
@@ -190,6 +197,7 @@ class SourceDatabase:
                 (
                     *training_label_keys,
                     DEFAULT_EMBEDDING_KEY,
+                    classifier_key,
                     classifier_key,
                     classifier_key,
                     *params,
@@ -266,6 +274,7 @@ def _track_page_filter_sql(
     query: str,
     syncopated: str,
     label: str,
+    liked: str,
     label_keys: tuple[str, ...],
 ) -> tuple[list[str], list[object]]:
     where_parts: list[str] = []
@@ -295,6 +304,10 @@ def _track_page_filter_sql(
         params.append(label)
     elif label != "all":
         raise ValueError(f"Unknown label filter: {label}")
+    if liked == "yes":
+        where_parts.append("lk.source_track_id IS NOT NULL")
+    elif liked != "all":
+        raise ValueError(f"Unknown liked filter: {liked}")
     return where_parts, params
 
 
@@ -313,6 +326,7 @@ def _track_page_item(row: sqlite3.Row) -> dict[str, object]:
         "genre_scores": track.genre_scores,
         "label": row["classifier_label"],
         "label_trained": bool(row["classifier_label_trained"]),
+        "liked": bool(row["classifier_liked"]),
         "maest_syncopated_rhythm": metadata.get("maest_syncopated_rhythm") is True,
         "feature_status": {
             "sonara": isinstance(metadata.get("sonara_features"), dict),

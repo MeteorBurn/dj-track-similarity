@@ -452,6 +452,45 @@ def test_web_app_reads_source_database_and_writes_labels_database_only(tmp_path:
         ).fetchone() is None
 
 
+def test_web_app_profile_likes_are_profile_scoped_and_filterable(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    source_path = tmp_path / "source.sqlite"
+    source = LibraryDatabase(source_path)
+    liked_id = _track(source, tmp_path, "liked.wav", title="Liked")
+    other_id = _track(source, tmp_path, "other.wav", title="Other")
+    labels_path = tmp_path / "labels.sqlite"
+    labels = RhythmLabDatabase(labels_path)
+    labels.create_profile(
+        classifier_key="vocal_presence",
+        name="Vocal Presence",
+        description="Detect vocal parts.",
+        labels=[
+            {"key": "vocal", "name": "Vocal", "role": "positive"},
+            {"key": "instrumental", "name": "Instrumental", "role": "negative"},
+        ],
+    )
+    client = TestClient(create_app(source_path, labels_db_path=labels_path))
+
+    liked = client.post("/api/profiles/break_energy/tracks/{}/like".format(liked_id), json={"liked": True})
+    break_tracks = client.get("/api/profiles/break_energy/tracks", params={"liked": "yes"}).json()
+    vocal_tracks = client.get("/api/profiles/vocal_presence/tracks", params={"liked": "yes"}).json()
+    summary = client.get("/api/profiles/break_energy/summary").json()
+    unliked = client.post("/api/profiles/break_energy/tracks/{}/like".format(liked_id), json={"liked": False})
+    empty = client.get("/api/profiles/break_energy/tracks", params={"liked": "yes"}).json()
+
+    assert liked.status_code == 200
+    assert liked.json() == {"track_id": liked_id, "liked": True}
+    assert break_tracks["total"] == 1
+    assert break_tracks["items"][0]["id"] == liked_id
+    assert break_tracks["items"][0]["liked"] is True
+    assert next(item for item in client.get("/api/profiles/break_energy/tracks").json()["items"] if item["id"] == other_id)["liked"] is False
+    assert vocal_tracks["total"] == 0
+    assert summary["likes"] == 1
+    assert unliked.json() == {"track_id": liked_id, "liked": False}
+    assert empty["total"] == 0
+
+
 def test_web_app_predictions_endpoint_filters_candidates_by_probability_focus(monkeypatch, tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
@@ -1006,8 +1045,8 @@ def test_web_app_serves_static_profile_ui_without_hardcoded_label_buttons(tmp_pa
     script = client.get("/static/app.js").text
     styles = client.get("/static/styles.css").text
 
-    assert '<link rel="stylesheet" href="/static/styles.css?v=track-status-1" />' in html
-    assert '<script src="/static/app.js?v=track-status-1" defer></script>' in html
+    assert '<link rel="stylesheet" href="/static/styles.css?v=profile-likes-1" />' in html
+    assert '<script src="/static/app.js?v=profile-likes-1" defer></script>' in html
     assert 'id="profileSelect"' in html
     assert "/api/profiles" in script
     assert "function renderLabelButtons" in script
@@ -1106,6 +1145,7 @@ def test_web_app_html_contains_candidates_tab(tmp_path: Path) -> None:
 
     assert 'id="libraryTab"' in html
     assert 'id="candidatesTab"' in html
+    assert 'id="likedTab"' in html
     assert 'id="candidateMinBroken"' in html
     assert '<option value="positive_highest" selected>highest positive probability</option>' in html
     assert '<option value="negative_highest">highest negative probability</option>' in html
@@ -1113,8 +1153,9 @@ def test_web_app_html_contains_candidates_tab(tmp_path: Path) -> None:
     assert 'fetch(`/api/profiles/${activeProfile.classifier_key}/predictions?' in script
     assert "positive_probability" in script
     assert '<span class="status-item"><b>SCORE</b><span class="status-detail">${formatProbability(predictedScore(track))}</span></span>' in script
-    assert "function binaryPredictedScore(score, oppositeScore)" in script
-    assert "if (number === 1 && opposite > 0 && opposite < 1) return 1 - opposite;" in script
+    assert "return positiveScore(track);" in script
+    assert "function positiveScore(track)" in script
+    assert "return binaryPredictedScore(track.negative_probability, track.positive_probability);" not in script
     assert '<span class="status-item"><b>TYPE</b><span class="status-detail">${escapeHtml(track.feature_set)}</span></span>' in script
     assert "function predictionBadge(track)" in script
     assert 'number.toFixed(6)' in script
@@ -1127,6 +1168,9 @@ def test_web_app_html_contains_candidates_tab(tmp_path: Path) -> None:
     assert 'return featureStatusBadge("TRAINED", track.label_trained);' in script
     assert 'function predictionStatus(track)' in script
     assert '<span class="status-item"><b>PREDICTED</b>${predictionBadge(track)}</span>' in script
+    assert 'toggleLike(track.id, !track.liked)' in script
+    assert 'likedIndicator(track)' in script
+    assert 'liked: "yes"' in script
     assert '<b>LABEL</b>' not in script
     assert "<b>ANALYZED</b>" not in script
     assert "status-separator" not in script
@@ -1134,7 +1178,7 @@ def test_web_app_html_contains_candidates_tab(tmp_path: Path) -> None:
     assert "function featuresIndicator(track)" in script
     assert 'function featureStatusBadge(name, value)' in script
     assert '<span class="status-item"><b>${name}</b><span class="analysis-status-badge ${value ? "status-yes" : "status-no"}">${mark(value)}</span></span>' in script
-    assert '<strong class="track-heading"><span class="track-title-main"><span class="track-number">#${track.rowNumber}</span>${escapeHtml(displayTrackTitle(track))}</span>${featuresIndicator(track)}</strong>' in script
+    assert '<strong class="track-heading"><span class="track-title-main"><span class="track-number">#${track.rowNumber}</span>${escapeHtml(displayTrackTitle(track))}</span>${likedIndicator(track)}${featuresIndicator(track)}</strong>' in script
     assert '<div class="meta feature-line">${trackStatusLine(track)}</div>' in script
     assert '<div class="meta genres-line"><span class="status-item"><b>GENRES</b></span><span class="genres">${(track.genres || []).map(escapeHtml).join(" · ")}</span>${badgeRow(track)}</div>' in script
 
@@ -1170,7 +1214,7 @@ def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path
     assert "async function loadTrainingReadiness()" in script
     assert ".refresh-candidates" in styles
     assert ".train-refresh" in styles
-    assert "const viewOffsets = { library: 0, candidates: 0, training: 0, settings: 0 };" in script
+    assert "const viewOffsets = { library: 0, candidates: 0, liked: 0, training: 0, settings: 0 };" in script
     assert "let loadSequence = 0;" in script
     assert "const sequence = ++loadSequence;" in script
     assert 'if (sequence !== loadSequence || activeView !== "library") return;' in script
@@ -1378,6 +1422,7 @@ def test_web_app_shell_has_inner_gutters(tmp_path: Path) -> None:
     assert "width: min(1440px, calc(100% - (var(--page-gutter) * 2)));" in styles
     assert "padding: 16px var(--panel-pad-x) 14px;" in styles
     assert "padding: 16px var(--panel-pad-x) 40px;" in styles
+    assert "#tracks:not(:empty) {\n  overflow: hidden;\n  border: 1px solid rgba(38, 49, 61, 0.9);\n  border-radius: 12px;\n  padding: 0 var(--panel-pad-x);" in styles
 
 
 def test_web_app_track_rows_have_more_vertical_spacing(tmp_path: Path) -> None:

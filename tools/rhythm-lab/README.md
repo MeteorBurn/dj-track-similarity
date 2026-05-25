@@ -9,9 +9,12 @@ Rhythm Lab is profile-based. A classifier profile defines:
 
 - a stable `classifier_key`
 - a display name and description
-- one positive training label
-- one negative training label
-- optional review-only labels that are stored but excluded from fitting
+- a profile type:
+  - `binary`: exactly one positive training label, exactly one negative
+    training label, and optional review-only labels that are stored but
+    excluded from fitting
+  - `multiclass`: two or more user-defined class labels; every label is a
+    trainable class
 - a profile-specific artifact folder and artifact filename prefix
 
 The default profile is Break Energy:
@@ -24,6 +27,8 @@ The default profile is Break Energy:
 Track labels are current-state annotations. If a track was labeled incorrectly
 or your judgment changes, select another label or Clear in the UI; the old value
 is replaced and only the current label is used by the next training run.
+This applies to both binary and multiclass profiles: one track can have only one
+current label for the active profile.
 
 ## Storage Layout
 
@@ -89,6 +94,8 @@ startup; choose an existing profile or create one before loading tracks.
 The UI includes:
 
 - profile creation, editing, archiving, and switching
+- profile type selection in the New classifier profile dialog
+- multiclass label creation with custom keys, display names, and descriptions
 - explicit profile selection on startup
 - profile-scoped Library, Candidates, Training, and Profile Settings views
 - text search by path/title/artist
@@ -98,6 +105,8 @@ The UI includes:
 - pagination
 - audio preview from source paths
 - MAEST genres and SONARA/MERT/MAEST feature availability from the source DB
+- compact app-shell coverage badges for Tracks, SONARA, MAEST, and MERT
+- compact label-count badges for the active profile
 - training readiness and guidance cards
 
 Keyboard shortcuts on a focused row use the active profile's label order:
@@ -129,6 +138,10 @@ The training command benchmarks these feature sets:
 - `mert`
 - `maest`
 - `combined`
+
+`combined` requires all three families: SONARA features from
+`metadata_json.sonara_features`, MERT embeddings, and MAEST embeddings. Tracks
+missing any of those inputs are skipped for the combined model.
 
 Artifacts and metrics are written to the active profile's artifact folder:
 

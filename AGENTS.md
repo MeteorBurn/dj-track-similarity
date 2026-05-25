@@ -16,9 +16,9 @@ The project is a Python backend/CLI plus a React/Vite frontend:
   search, export, tags, API, and CLI.
 - `frontend/`: React UI built with Vite and TypeScript.
 - `tests/`: pytest coverage for backend/API/search/jobs/tags.
-- `tools/rhythm-lab/`: auxiliary classifier labeling/training UI and CLI,
-  currently focused on the Break Energy classifier profile. It runs separately
-  from `dj_track_similarity`, but stays in this repository as a helper project.
+- `tools/rhythm-lab/`: auxiliary classifier labeling/training UI and CLI for
+  Break Energy and user-created classifier profiles. It runs separately from
+  `dj_track_similarity`, but stays in this repository as a helper project.
 - `scripts/repair_audio_metadata.py`: standalone dry-run-first audio metadata
   diagnostic/repair helper.
 - `scripts/audio_repair/`: runtime state/log/report/backup workspace; commit
@@ -112,9 +112,18 @@ branches, or history are available.
   `classifier_training_checkpoints`, scoped by `classifier_key`; Break Energy
   rows use `break_energy`. Do not reintroduce `rhythm_*` lab tables except in a
   one-way migration that removes them after data is copied.
+- Rhythm Lab profiles support `profile_type = "binary"` and
+  `profile_type = "multiclass"`. Binary profiles use exactly one positive and
+  one negative training label plus optional review labels. Multiclass profiles
+  use `class` labels only, can have arbitrary user-defined classes, and one
+  track can hold only one current label for the active profile.
 - Rhythm Lab training artifacts are classifier-scoped:
   `tools/rhythm-lab/artifacts/break-energy/` for Break Energy. Promoted runtime
   models for the main app stay separate under `models/classifiers/<key>/`.
+- Rhythm Lab training benchmarks `sonara`, `mert`, `maest`, and `combined`.
+  `combined` requires existing SONARA features plus MERT and MAEST embeddings;
+  do not remove SONARA from the combined classifier path. Rhythm Lab summary UI
+  should expose SONARA, MAEST, and MERT coverage counters.
 - Keep library browsing scalable: `/api/tracks` remains server-side
   paginated/searchable with lightweight rows, `/api/library/summary` provides
   counters, and full metadata loads via `/api/tracks/{id}` only on dialog open.

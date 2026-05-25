@@ -342,12 +342,20 @@ tools/rhythm-lab/artifacts/break-energy/
 
 Rhythm Lab itself can manage additional classifier profiles inside its own UI.
 Those profiles are scoped to the lab database and can define a name,
-description, two trainable labels, review-only labels, and a profile artifact
-folder. Track labels in Rhythm Lab are editable current-state annotations: when
-a label changes, the new value replaces the old one and is used by the next
+description, profile type, labels, and a profile artifact folder. Binary
+profiles use one positive training label, one negative training label, and
+optional review-only labels. Multiclass profiles use two or more user-defined
+`class` labels, and each track can have only one current label for the active
+profile. Track labels in Rhythm Lab are editable current-state annotations:
+when a label changes, the new value replaces the old one and is used by the next
 profile training run. Custom Rhythm Lab profiles do not automatically become
 main-app `dj-sim` classifier scores; Break Energy remains the promoted runtime
 classifier path in the main app.
+
+Rhythm Lab benchmarks `sonara`, `mert`, `maest`, and `combined` feature sets.
+The `combined` feature set requires SONARA features plus MERT and MAEST
+embeddings. The lab UI displays compact coverage badges for Tracks, SONARA,
+MAEST, and MERT, plus label-count badges for the active profile.
 
 The user-facing Break Energy score is the classifier probability for the
 Rhythm Lab `broken` training label. The stored probability key is

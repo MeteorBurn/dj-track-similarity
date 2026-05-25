@@ -245,6 +245,7 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
             "profile": _profile_payload(profile),
             "tracks": 0,
             "labels": scoped.label_counts(),
+            "sonara": 0,
             "mert": 0,
             "maest": 0,
             "source": source_state.current(),
@@ -254,6 +255,7 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
         return {
             **base,
             "tracks": source.count_tracks(),
+            "sonara": source.count_sonara_features(),
             "mert": source.count_embeddings("mert"),
             "maest": source.count_embeddings("maest"),
         }
@@ -464,10 +466,11 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
     def summary():
         source = source_state.source
         if source is None:
-            return {"tracks": 0, "labels": labels_db.label_counts(), "mert": 0, "maest": 0, "source": source_state.current()}
+            return {"tracks": 0, "labels": labels_db.label_counts(), "sonara": 0, "mert": 0, "maest": 0, "source": source_state.current()}
         return {
             "tracks": source.count_tracks(),
             "labels": labels_db.label_counts(),
+            "sonara": source.count_sonara_features(),
             "mert": source.count_embeddings("mert"),
             "maest": source.count_embeddings("maest"),
             "source": source_state.current(),

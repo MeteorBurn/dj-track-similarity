@@ -400,7 +400,12 @@ def test_web_app_reads_source_database_and_writes_labels_database_only(tmp_path:
     labels_path = tmp_path / "labels.sqlite"
     client = TestClient(create_app(source_path, labels_db_path=labels_path))
 
+    summary = client.get("/api/profiles/break_energy/summary").json()
     tracks = client.get("/api/tracks").json()
+    assert summary["tracks"] == 2
+    assert summary["sonara"] == 1
+    assert summary["maest"] == 1
+    assert summary["mert"] == 0
     assert tracks["total"] == 2
     first = tracks["items"][0]
     assert first["id"] == broken_id
@@ -828,7 +833,11 @@ def test_web_app_html_contains_source_database_controls(tmp_path: Path) -> None:
     assert 'id="loadSource"' in html
     assert 'fetch("/api/source/dialog"' in script
     assert 'fetch("/api/source/switch"' in script
-    assert "`${data.tracks} tracks | MAEST ${data.maest} | MERT ${data.mert} | Labels: ${formatLabelCounts(data.labels)}`" in script
+    assert 'id="summary" class="summary-strip"' in html
+    assert "function renderSummary(data)" in script
+    assert "coverageBadge(\"SONARA\", data.sonara || 0, \"sonara\")" in script
+    assert "labelCountBadges(data.labels || {})" in script
+    assert "`${data.tracks} tracks | MAEST ${data.maest} | MERT ${data.mert} | Labels: ${formatLabelCounts(data.labels)}`" not in script
 
 
 def test_web_app_requires_explicit_profile_selection_on_startup(tmp_path: Path) -> None:
@@ -851,8 +860,8 @@ def test_web_app_serves_static_profile_ui_without_hardcoded_label_buttons(tmp_pa
     script = client.get("/static/app.js").text
     styles = client.get("/static/styles.css").text
 
-    assert '<link rel="stylesheet" href="/static/styles.css?v=multiclass-grid-1" />' in html
-    assert '<script src="/static/app.js?v=multiclass-grid-1" defer></script>' in html
+    assert '<link rel="stylesheet" href="/static/styles.css?v=summary-badges-1" />' in html
+    assert '<script src="/static/app.js?v=summary-badges-1" defer></script>' in html
     assert 'id="profileSelect"' in html
     assert "/api/profiles" in script
     assert "function renderLabelButtons" in script
@@ -1076,6 +1085,19 @@ def test_web_app_multiclass_label_buttons_use_right_aligned_grid(tmp_path: Path)
     assert "@media (max-width: 760px)" in styles
     assert "@media (max-width: 420px)" in styles
     assert ".multiclass-actions {\n    grid-template-columns: 1fr;" in styles
+
+
+def test_web_app_summary_uses_compact_badges(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
+    styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
+
+    assert ".summary-strip {\n  display: flex;" in styles
+    assert ".summary-group {\n  display: inline-flex;" in styles
+    assert ".summary-badge {\n  display: inline-flex;" in styles
+    assert ".summary-labels {\n  max-width: 100%;" in styles
+    assert ".coverage-sonara" in styles
 
 
 def test_web_app_track_title_does_not_add_separator_without_artist(tmp_path: Path) -> None:

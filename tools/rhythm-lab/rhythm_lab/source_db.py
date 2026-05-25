@@ -62,6 +62,18 @@ class SourceDatabase:
                 ).fetchone()[0]
             )
 
+    def count_sonara_features(self) -> int:
+        with self.connect() as connection:
+            return int(
+                connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM tracks
+                    WHERE json_type(metadata_json, '$.sonara_features') IS NOT NULL
+                    """
+                ).fetchone()[0]
+            )
+
     def get_track(self, track_id: int) -> Track:
         with self.connect() as connection:
             row = connection.execute(

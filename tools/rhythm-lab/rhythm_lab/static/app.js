@@ -271,7 +271,7 @@ async function loadActive(options = {}) {
 async function loadSummary(sequence = loadSequence) {
   const data = await fetch(`/api/profiles/${activeProfile.classifier_key}/summary`).then(parseJsonResponse);
   if (sequence !== loadSequence) return;
-  summaryEl.textContent = `${data.tracks} tracks | MAEST ${data.maest} | MERT ${data.mert} | Labels: ${formatLabelCounts(data.labels)}`;
+  summaryEl.innerHTML = renderSummary(data);
   renderGuidance(data);
 }
 
@@ -280,13 +280,39 @@ function formatLabelCounts(labels) {
   return activeProfile.labels.map(label => `${label.name} ${counts[label.key] || 0}`).join(" · ");
 }
 
+function renderSummary(data) {
+  const coverage = [
+    coverageBadge("Tracks", data.tracks || 0, "tracks"),
+    coverageBadge("SONARA", data.sonara || 0, "sonara"),
+    coverageBadge("MAEST", data.maest || 0, "maest"),
+    coverageBadge("MERT", data.mert || 0, "mert")
+  ].join("");
+  return `
+    <span class="summary-group summary-coverage" aria-label="Feature coverage">
+      <span class="summary-group-title">Coverage</span>${coverage}
+    </span>
+    <span class="summary-group summary-labels" aria-label="Label counts">
+      <span class="summary-group-title">Labels</span>${labelCountBadges(data.labels || {})}
+    </span>`;
+}
+
+function coverageBadge(label, value, key) {
+  return `<span class="summary-badge coverage-${escapeHtml(key)}"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></span>`;
+}
+
+function labelCountBadges(labels) {
+  return activeProfile.labels
+    .map(label => `<span class="summary-badge label-count-badge"><span>${escapeHtml(label.name)}</span><b>${labels[label.key] || 0}</b></span>`)
+    .join("");
+}
+
 function renderGuidance(summary) {
   const counts = summary.labels || {};
   const trainingCountText = trainingLabels().map(label => `${escapeHtml(label.name)} ${counts[label.key] || 0}`).join(" · ");
   guidancePanelEl.innerHTML = `
     <div class="guidance-card"><b>${escapeHtml(activeProfile.name)}</b><span class="meta">${escapeHtml(activeProfile.description || "Profile ready for labeling.")}</span></div>
     <div class="guidance-card"><b>Training labels</b><span class="meta">${trainingCountText}</span></div>
-    <div class="guidance-card"><b>Feature coverage</b><span class="meta">MAEST ${summary.maest || 0} · MERT ${summary.mert || 0}</span></div>
+    <div class="guidance-card"><b>Feature coverage</b><span class="meta">SONARA ${summary.sonara || 0} · MAEST ${summary.maest || 0} · MERT ${summary.mert || 0}</span></div>
     <div class="guidance-card"><b>Next step</b><span class="meta">${nextStepText(counts)}</span></div>`;
 }
 

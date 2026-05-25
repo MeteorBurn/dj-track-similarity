@@ -339,6 +339,15 @@ classifier-specific lab workspace:
 tools/rhythm-lab/artifacts/break-energy/
 ```
 
+Rhythm Lab itself can manage additional classifier profiles inside its own UI.
+Those profiles are scoped to the lab database and can define a name,
+description, two trainable labels, review-only labels, and a profile artifact
+folder. Track labels in Rhythm Lab are editable current-state annotations: when
+a label changes, the new value replaces the old one and is used by the next
+profile training run. Custom Rhythm Lab profiles do not automatically become
+main-app `dj-sim` classifier scores; Break Energy remains the promoted runtime
+classifier path in the main app.
+
 The user-facing Break Energy score is the classifier probability for the
 Rhythm Lab `broken` training label. The stored probability key is
 `break_energy`; `straight_energy` is kept as a diagnostic complement. Because UI

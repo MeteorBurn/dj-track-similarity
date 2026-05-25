@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import shutil
 
-from .lab_db import RhythmLabDatabase
+from .lab_db import BREAK_ENERGY_CLASSIFIER_KEY, RhythmLabDatabase
 from .predictions import apply_model_to_lab, export_predictions_csv
 from .training import benchmark_lab_database
 
@@ -23,19 +23,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Auxiliary classifier labeling and training lab.")
     subcommands = parser.add_subparsers(dest="command", required=True)
 
-    train_parser = subcommands.add_parser("train", help="Benchmark the Break Energy classifier for available feature sets.")
+    train_parser = subcommands.add_parser("train", help="Benchmark a classifier profile for available feature sets.")
     _add_data_options(train_parser)
-    train_parser.add_argument("--artifacts", type=Path, default=DEFAULT_ARTIFACT_DIR)
+    train_parser.add_argument("--profile", default=BREAK_ENERGY_CLASSIFIER_KEY)
+    train_parser.add_argument("--artifacts", type=Path, default=None)
     train_parser.set_defaults(func=_train)
 
     predict_parser = subcommands.add_parser("predict", help="Apply a trained model artifact to feature-complete source tracks.")
     predict_parser.add_argument("artifact", type=Path)
     _add_data_options(predict_parser)
+    predict_parser.add_argument("--profile", default=None)
     predict_parser.set_defaults(func=_predict)
 
-    export_parser = subcommands.add_parser("export-predictions", help="Export saved Break Energy predictions to CSV.")
+    export_parser = subcommands.add_parser("export-predictions", help="Export saved classifier profile predictions to CSV.")
     export_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
     export_parser.add_argument("--output", type=Path, default=DEFAULT_ARTIFACT_DIR / "predictions.csv")
+    export_parser.add_argument("--profile", default=BREAK_ENERGY_CLASSIFIER_KEY)
     export_parser.set_defaults(func=_export_predictions)
 
     promote_parser = subcommands.add_parser(
@@ -69,17 +72,19 @@ def _add_data_options(parser: argparse.ArgumentParser) -> None:
 
 
 def _train(args: argparse.Namespace) -> None:
-    results = benchmark_lab_database(args.source, args.labels, args.artifacts)
+    profile = RhythmLabDatabase(args.labels, classifier_key=args.profile).get_profile()
+    artifact_dir = args.artifacts or Path(profile.artifact_dir)
+    results = benchmark_lab_database(args.source, args.labels, artifact_dir, classifier_key=args.profile)
     print(json.dumps(results, ensure_ascii=False, indent=2, sort_keys=True))
 
 
 def _predict(args: argparse.Namespace) -> None:
-    result = apply_model_to_lab(args.source, args.labels, args.artifact)
+    result = apply_model_to_lab(args.source, args.labels, args.artifact, classifier_key=args.profile)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
 
 
 def _export_predictions(args: argparse.Namespace) -> None:
-    path = export_predictions_csv(args.labels, args.output)
+    path = export_predictions_csv(args.labels, args.output, classifier_key=args.profile)
     print(f"output={path}")
 
 

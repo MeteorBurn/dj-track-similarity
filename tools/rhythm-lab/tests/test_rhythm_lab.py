@@ -108,6 +108,179 @@ def test_labels_database_migrates_rhythm_tables_to_break_energy_classifier_table
         assert dict(row) == {"classifier_key": "break_energy", "source_track_id": 777, "label": "straight"}
 
 
+def test_labels_database_creates_default_break_energy_profile(tmp_path: Path) -> None:
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+
+    profile = labels.get_profile("break_energy")
+
+    assert profile.classifier_key == "break_energy"
+    assert profile.name == "Break Energy"
+    assert profile.positive_label == "broken"
+    assert profile.negative_label == "straight"
+    assert [label.key for label in profile.labels] == ["broken", "straight", "ambiguous"]
+    assert [label.role for label in profile.labels] == ["positive", "negative", "review"]
+    assert profile.artifact_prefix == "break-energy"
+
+
+def test_profile_creation_archive_and_current_track_label_replacement(tmp_path: Path) -> None:
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    profile = labels.create_profile(
+        classifier_key="vocal_presence",
+        name="Vocal Presence",
+        description="Detect obvious vocal parts.",
+        artifact_dir=tmp_path / "artifacts" / "vocal-presence",
+        labels=[
+            {"key": "vocal", "name": "Vocal", "role": "positive"},
+            {"key": "instrumental", "name": "Instrumental", "role": "negative"},
+            {"key": "uncertain", "name": "Uncertain", "role": "review"},
+        ],
+    )
+    scoped = RhythmLabDatabase(labels.path, classifier_key=profile.classifier_key)
+
+    scoped.set_label(101, "vocal")
+    scoped.set_label(101, "instrumental")
+    scoped.set_label(102, "uncertain")
+    scoped.set_label(103, "vocal")
+    scoped.set_label(103, None)
+    labels.archive_profile("vocal_presence")
+
+    assert scoped.label_for_track(101).label == "instrumental"
+    assert scoped.label_for_track(103) is None
+    assert scoped.training_labels() == {101: "instrumental"}
+    assert [profile.classifier_key for profile in labels.list_profiles()] == ["break_energy"]
+    assert "vocal_presence" in [profile.classifier_key for profile in labels.list_profiles(include_archived=True)]
+
+
+def test_label_key_rename_migrates_profile_labels_predictions_and_checkpoints(tmp_path: Path) -> None:
+    source_path = tmp_path / "source.sqlite"
+    source = LibraryDatabase(source_path)
+    track_id = _track(source, tmp_path, "vocal.wav", title="Vocal")
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    labels.create_profile(
+        classifier_key="vocal_presence",
+        name="Vocal Presence",
+        description="Detect obvious vocal parts.",
+        artifact_dir=tmp_path / "artifacts" / "vocal-presence",
+        labels=[
+            {"key": "vocal", "name": "Vocal", "role": "positive"},
+            {"key": "instrumental", "name": "Instrumental", "role": "negative"},
+            {"key": "uncertain", "name": "Uncertain", "role": "review"},
+        ],
+    )
+    scoped = RhythmLabDatabase(labels.path, classifier_key="vocal_presence")
+    scoped.set_label(source.get_track(track_id), "vocal")
+    scoped.save_prediction(
+        source.get_track(track_id),
+        feature_set="combined",
+        model_artifact="model.joblib",
+        label="vocal",
+        confidence=0.8,
+        probabilities={"vocal": 0.8, "instrumental": 0.2},
+    )
+    scoped.record_training_checkpoint({"vocal": 12, "instrumental": 9}, model_artifact="model.joblib")
+
+    labels.rename_label_key("vocal_presence", "vocal", "lead_vocal", display_name="Lead Vocal")
+    renamed = RhythmLabDatabase(labels.path, classifier_key="vocal_presence")
+
+    profile = renamed.get_profile("vocal_presence")
+    assert profile.positive_label == "lead_vocal"
+    assert [label.key for label in profile.labels] == ["lead_vocal", "instrumental", "uncertain"]
+    assert renamed.label_for_track(track_id).label == "lead_vocal"
+    prediction = renamed.predictions()[0]
+    assert prediction["label"] == "lead_vocal"
+    assert prediction["probabilities"] == {"instrumental": 0.2, "lead_vocal": 0.8}
+    assert renamed.training_checkpoint()["counts"] == {"instrumental": 9, "lead_vocal": 12}
+
+
+def test_web_app_profile_scoped_track_labels_are_isolated(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    source_path = tmp_path / "source.sqlite"
+    source = LibraryDatabase(source_path)
+    track_id = _track(source, tmp_path, "voice.wav", title="Voice")
+    labels_path = tmp_path / "labels.sqlite"
+    labels = RhythmLabDatabase(labels_path)
+    labels.create_profile(
+        classifier_key="vocal_presence",
+        name="Vocal Presence",
+        description="Detect obvious vocal parts.",
+        artifact_dir=tmp_path / "artifacts" / "vocal-presence",
+        labels=[
+            {"key": "vocal", "name": "Vocal", "role": "positive"},
+            {"key": "instrumental", "name": "Instrumental", "role": "negative"},
+            {"key": "uncertain", "name": "Uncertain", "role": "review"},
+        ],
+    )
+    client = TestClient(create_app(source_path, labels_db_path=labels_path))
+
+    response = client.post(f"/api/profiles/vocal_presence/tracks/{track_id}/label", json={"label": "vocal"})
+    vocal_tracks = client.get("/api/profiles/vocal_presence/tracks", params={"label": "vocal"}).json()
+    break_tracks = client.get("/api/profiles/break_energy/tracks", params={"label": "vocal"})
+
+    assert response.status_code == 200
+    assert response.json()["label"] == "vocal"
+    assert vocal_tracks["total"] == 1
+    assert vocal_tracks["items"][0]["label"] == "vocal"
+    assert break_tracks.status_code == 400
+    assert RhythmLabDatabase(labels_path, classifier_key="break_energy").label_for_track(track_id) is None
+
+
+def test_web_app_profile_refresh_candidates_uses_profile_artifact_dir(monkeypatch, tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    source_path = tmp_path / "source.sqlite"
+    source = LibraryDatabase(source_path)
+    track_id = _track(source, tmp_path, "voice.wav", title="Voice")
+    labels_path = tmp_path / "labels.sqlite"
+    artifact_dir = tmp_path / "artifacts" / "vocal-presence"
+    artifact_dir.mkdir(parents=True)
+    artifact = artifact_dir / "vocal-presence-combined-20260524T110000Z.joblib"
+    artifact.write_bytes(b"model")
+    labels = RhythmLabDatabase(labels_path)
+    labels.create_profile(
+        classifier_key="vocal_presence",
+        name="Vocal Presence",
+        description="Detect obvious vocal parts.",
+        artifact_dir=artifact_dir,
+        artifact_prefix="vocal-presence",
+        labels=[
+            {"key": "vocal", "name": "Vocal", "role": "positive"},
+            {"key": "instrumental", "name": "Instrumental", "role": "negative"},
+            {"key": "uncertain", "name": "Uncertain", "role": "review"},
+        ],
+    )
+    import rhythm_lab.web_app as web_app
+
+    calls = []
+
+    def fake_apply_model_to_lab(source_db_path: Path, labels_db_path: Path, artifact_path: Path, *, classifier_key: str):
+        calls.append((source_db_path, labels_db_path, artifact_path, classifier_key))
+        scoped = RhythmLabDatabase(labels_db_path, classifier_key=classifier_key)
+        scoped.save_prediction(
+            source.get_track(track_id),
+            feature_set="combined",
+            model_artifact=artifact_path,
+            label="vocal",
+            confidence=0.9,
+            probabilities={"vocal": 0.9, "instrumental": 0.1},
+        )
+        return {"feature_set": "combined", "predicted": 1, "skipped": 0}
+
+    monkeypatch.setattr(web_app, "apply_model_to_lab", fake_apply_model_to_lab)
+    client = TestClient(create_app(source_path, labels_db_path=labels_path))
+
+    refreshed = client.post("/api/profiles/vocal_presence/predictions/refresh")
+    candidates = client.get("/api/profiles/vocal_presence/predictions", params={"label": "all"}).json()
+
+    assert refreshed.status_code == 200
+    assert refreshed.json()["artifact"] == str(artifact)
+    assert calls == [(source_path.resolve(), labels_path, artifact, "vocal_presence")]
+    assert candidates["total"] == 1
+    assert candidates["items"][0]["positive_probability"] == 0.9
+    assert candidates["items"][0]["negative_probability"] == 0.1
+    assert candidates["items"][0]["predicted_label"] == "vocal"
+
+
 def test_web_app_reads_source_database_and_writes_labels_database_only(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
@@ -538,16 +711,35 @@ def test_web_app_uses_existing_database_file_dialog(monkeypatch, tmp_path: Path)
 def test_web_app_html_contains_source_database_controls(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
-    html = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite")).get("/").text
+    client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
+    html = client.get("/").text
+    script = client.get("/static/app.js").text
 
     assert "<strong>Rhythm Lab</strong>" in html
-    assert '<span class="classifier-profile">Break Energy</span>' in html
+    assert 'id="activeProfileName">Break Energy</span>' in html
     assert 'id="sourcePath"' in html
     assert 'id="chooseSource"' in html
     assert 'id="loadSource"' in html
-    assert 'fetch("/api/source/dialog"' in html
-    assert 'fetch("/api/source/switch"' in html
-    assert "`${data.tracks} tracks | MAEST ${data.maest} | MERT ${data.mert} – Labels: ${formatLabelCounts(data.labels)}`" in html
+    assert 'fetch("/api/source/dialog"' in script
+    assert 'fetch("/api/source/switch"' in script
+    assert "`${data.tracks} tracks | MAEST ${data.maest} | MERT ${data.mert} | Labels: ${formatLabelCounts(data.labels)}`" in script
+
+
+def test_web_app_serves_static_profile_ui_without_hardcoded_label_buttons(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
+    html = client.get("/").text
+    script = client.get("/static/app.js").text
+    styles = client.get("/static/styles.css").text
+
+    assert '<link rel="stylesheet" href="/static/styles.css" />' in html
+    assert '<script src="/static/app.js" defer></script>' in html
+    assert 'id="profileSelect"' in html
+    assert "/api/profiles" in script
+    assert "function renderLabelButtons" in script
+    assert '<button data-label="broken">Broken</button>' not in html
+    assert "classifier-gradient" in styles
 
 
 def test_web_app_serves_favicon(tmp_path: Path) -> None:
@@ -566,125 +758,128 @@ def test_web_app_serves_favicon(tmp_path: Path) -> None:
 def test_web_app_html_contains_candidates_tab(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
-    html = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite")).get("/").text
+    client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
+    html = client.get("/").text
+    script = client.get("/static/app.js").text
 
     assert 'id="libraryTab"' in html
     assert 'id="candidatesTab"' in html
     assert 'id="candidateMinBroken"' in html
-    assert '<option value="broken_highest" selected>highest P(broken)</option>' in html
-    assert '<option value="straight_highest">highest P(straight)</option>' in html
-    assert '<option value="balanced">P(broken) near P(straight)</option>' in html
-    assert 'fetch(`/api/predictions?' in html
-    assert "broken_probability" in html
-    assert 'SONARA ${mark(track.feature_status.sonara)} · MERT ${mark(track.feature_status.mert)} · MAEST ${mark(track.feature_status.maest)} · label <b>${track.label || "none"}</b>' in html
-    assert '<div class="genres-line"><span class="genres">${(track.genres || []).map(escapeHtml).join(" · ")}</span>${badgeRow(track)}</div>' in html
+    assert '<option value="positive_highest" selected>highest positive probability</option>' in html
+    assert '<option value="negative_highest">highest negative probability</option>' in html
+    assert '<option value="balanced">uncertain / balanced</option>' in html
+    assert 'fetch(`/api/profiles/${activeProfile.classifier_key}/predictions?' in script
+    assert "positive_probability" in script
+    assert 'SONARA ${mark(track.feature_status.sonara)} · MERT ${mark(track.feature_status.mert)} · MAEST ${mark(track.feature_status.maest)}' in script
+    assert '<div class="genres-line"><span class="genres">${(track.genres || []).map(escapeHtml).join(" · ")}</span>${badgeRow(track)}</div>' in script
 
 
 def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
-    html = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite")).get("/").text
+    client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
+    html = client.get("/").text
+    script = client.get("/static/app.js").text
+    styles = client.get("/static/styles.css").text
 
     assert 'id="commonFilters"' in html
     assert 'id="candidateFilters"' in html
-    assert 'syncopatedEl.addEventListener("change", () => loadActive({ reset: true }));' in html
-    assert 'labelEl.addEventListener("change", () => loadActive({ reset: true }));' in html
-    assert 'candidatePredictedEl.addEventListener("change", () => loadActive({ reset: true }));' in html
-    assert 'candidateMinBrokenEl.addEventListener("change", () => loadActive({ reset: true }));' in html
-    assert ".filters[hidden] { display: none; }" in html
-    assert 'candidateFiltersEl.hidden = view !== "candidates";' in html
+    assert 'syncopatedEl.addEventListener("change", () => loadActive({ reset: true }));' in script
+    assert 'labelEl.addEventListener("change", () => loadActive({ reset: true }));' in script
+    assert 'candidatePredictedEl.addEventListener("change", () => loadActive({ reset: true }));' in script
+    assert 'candidateMinBrokenEl.addEventListener("change", () => loadActive({ reset: true }));' in script
+    assert ".filters[hidden]," in styles
+    assert 'candidateFiltersEl.hidden = view !== "candidates";' in script
     assert 'id="refreshCandidates"' in html
     assert 'id="trainRefresh"' in html
-    assert '<button id="candidatesTab">Candidates</button>\n      <button id="refreshCandidates"' in html
     assert '<button id="trainRefresh" class="train-refresh"' in html
-    assert '<select id="candidateMinBroken">\n        <option value="broken_highest" selected>highest P(broken)</option>' in html
-    assert '<span id="refreshCandidatesStatus" class="meta"></span>\n    </div>\n    <div id="commonFilters"' in html
-    assert '<select id="candidateMinBroken">\n        <option value="broken_highest" selected>highest P(broken)</option>\n        <option value="straight_highest">highest P(straight)</option>\n        <option value="balanced">P(broken) near P(straight)</option>\n      </select>\n    </div>' in html
-    assert 'fetch("/api/predictions/refresh", { method: "POST" })' in html
-    assert 'fetch("/api/training/readiness")' in html
-    assert 'fetch("/api/training/train-refresh", { method: "POST" })' in html
-    assert 'refreshCandidatesEl.disabled = true;' in html
-    assert 'trainRefreshEl.disabled = true;' in html
-    assert "async function parseRefreshResponse(response)" in html
-    assert "async function loadTrainingReadiness()" in html
-    assert ".refresh-candidates" in html
-    assert ".train-refresh" in html
-    assert "const viewOffsets = { library: 0, candidates: 0 };" in html
-    assert "let loadSequence = 0;" in html
-    assert "const sequence = ++loadSequence;" in html
-    assert 'if (sequence !== loadSequence || activeView !== "library") return;' in html
-    assert 'if (sequence !== loadSequence || activeView !== "candidates") return;' in html
-    assert "viewOffsets[activeView] = offset;" in html
-    assert "offset = viewOffsets[view] || 0;" in html
-    assert "q: queryEl.value," in html
-    assert "syncopated: syncopatedEl.value," in html
-    assert "label: labelEl.value," in html
-    assert "predicted: candidatePredictedEl.value," in html
-    assert "probability_focus: candidateMinBrokenEl.value," in html
+    assert 'fetch(`/api/profiles/${activeProfile.classifier_key}/predictions/refresh`, { method: "POST" })' in script
+    assert 'fetch(`/api/profiles/${activeProfile.classifier_key}/training/readiness`)' in script
+    assert 'fetch(`/api/profiles/${activeProfile.classifier_key}/training/train-refresh`, { method: "POST" })' in script
+    assert 'refreshCandidatesEl.disabled = true;' in script
+    assert 'trainRefreshEl.disabled = true;' in script
+    assert "async function parseRefreshResponse(response)" in script
+    assert "async function loadTrainingReadiness()" in script
+    assert ".refresh-candidates" in styles
+    assert ".train-refresh" in styles
+    assert "const viewOffsets = { library: 0, candidates: 0, training: 0, settings: 0 };" in script
+    assert "let loadSequence = 0;" in script
+    assert "const sequence = ++loadSequence;" in script
+    assert 'if (sequence !== loadSequence || activeView !== "library") return;' in script
+    assert 'if (sequence !== loadSequence || activeView !== "candidates") return;' in script
+    assert "viewOffsets[activeView] = offset;" in script
+    assert "offset = viewOffsets[view] || 0;" in script
+    assert "q: queryEl.value," in script
+    assert "syncopated: syncopatedEl.value," in script
+    assert "label: labelEl.value," in script
+    assert "predicted: candidatePredictedEl.value," in script
+    assert "probability_focus: candidateMinBrokenEl.value," in script
 
 
 def test_web_app_html_colors_manual_labels_by_label_value(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
-    html = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite")).get("/").text
+    client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
+    script = client.get("/static/app.js").text
+    styles = client.get("/static/styles.css").text
 
-    assert ".rhythm-label-badge.broken" in html
-    assert ".rhythm-label-badge.straight" in html
-    assert ".rhythm-label-badge.ambiguous" in html
-    assert "label-${escapeHtml(track.label)}" in html
-    assert "button.classList.add(button.dataset.label)" not in html
-    assert "button.active.broken" not in html
-    assert "button.active.straight" not in html
-    assert "button.active.ambiguous" not in html
+    assert ".profile-label-badge" in styles
+    assert "label-${escapeHtml(track.label)}" in script
+    assert "button.classList.add(button.dataset.label)" not in script
+    assert "button.active.broken" not in styles
+    assert "button.active.straight" not in styles
+    assert "button.active.ambiguous" not in styles
 
 
 def test_web_app_track_title_does_not_add_separator_without_artist(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
-    html = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite")).get("/").text
+    script = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite")).get("/static/app.js").text
 
-    assert "function displayTrackTitle(track)" in html
-    assert "${escapeHtml(displayTrackTitle(track))}" in html
-    assert "${escapeHtml(track.artist || \"\")} - ${escapeHtml(track.title || track.path)}" not in html
+    assert "function displayTrackTitle(track)" in script
+    assert "${escapeHtml(displayTrackTitle(track))}" in script
+    assert "${escapeHtml(track.artist || \"\")} - ${escapeHtml(track.title || track.path)}" not in script
 
 
 def test_web_app_places_rhythm_badges_on_genres_line(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
-    html = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite")).get("/").text
+    script = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite")).get("/static/app.js").text
 
-    assert '<div class="genres-line"><span class="genres">${(track.genres || []).map(escapeHtml).join(" · ")}</span>${badgeRow(track)}</div>' in html
-    assert '${badgeRow(track)}\n          <audio controls' not in html
+    assert '<div class="genres-line"><span class="genres">${(track.genres || []).map(escapeHtml).join(" · ")}</span>${badgeRow(track)}</div>' in script
+    assert '${badgeRow(track)}\n          <audio controls' not in script
 
 
 def test_web_app_stops_previous_audio_preview_when_another_starts(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
-    html = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite")).get("/").text
+    script = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite")).get("/static/app.js").text
 
-    assert "let activeAudio = null;" in html
-    assert "wireAudioPreview(row.querySelector(\"audio\"));" in html
-    assert "function wireAudioPreview(audio)" in html
-    assert "activeAudio.pause();" in html
-    assert "activeAudio.currentTime = 0;" in html
+    assert "let activeAudio = null;" in script
+    assert "wireAudioPreview(row.querySelector(\"audio\"));" in script
+    assert "function wireAudioPreview(audio)" in script
+    assert "activeAudio.pause();" in script
+    assert "activeAudio.currentTime = 0;" in script
 
 
 def test_web_app_audio_preview_is_compact(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
-    html = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite")).get("/").text
+    styles = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite")).get("/static/styles.css").text
 
-    assert "audio { width: min(520px, 100%); height: 34px; margin-top: 6px;" in html
+    assert "audio {\n  width: min(520px, 100%);\n  height: 34px;\n  margin-top: 6px;" in styles
 
 
 def test_web_app_track_rows_have_more_vertical_spacing(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
-    html = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite")).get("/").text
+    client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
+    styles = client.get("/static/styles.css").text
+    script = client.get("/static/app.js").text
 
-    assert ".track-main { display: flex; flex-direction: column; gap: 3px;" in html
-    assert ".rhythm-media-block { margin-top: 7px;" in html
-    assert '<div class="rhythm-media-block">' in html
+    assert ".track-main {\n  display: flex;\n  flex-direction: column;\n  gap: 4px;" in styles
+    assert ".rhythm-media-block {\n  margin-top: 8px;" in styles
+    assert '<div class="rhythm-media-block">' in script
 
 
 def test_feature_matrix_uses_source_database_features_and_external_labels(tmp_path: Path) -> None:
@@ -745,6 +940,60 @@ def test_apply_model_to_lab_saves_predictions_and_exports_csv(tmp_path: Path) ->
     assert summary["predicted"] == 6
     assert len(labels.predictions()) == 6
     assert csv_path.read_text(encoding="utf-8").splitlines()[0].startswith("source_track_id,")
+
+
+def test_custom_profile_training_and_prediction_use_profile_labels(tmp_path: Path) -> None:
+    source_path = tmp_path / "source.sqlite"
+    source = LibraryDatabase(source_path)
+    tracks = [_track(source, tmp_path, f"vocal-{index}.wav", title=f"Vocal {index}") for index in range(8)]
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    labels.create_profile(
+        classifier_key="vocal_presence",
+        name="Vocal Presence",
+        description="Detect obvious vocal parts.",
+        artifact_dir=tmp_path / "artifacts" / "vocal-presence",
+        labels=[
+            {"key": "vocal", "name": "Vocal", "role": "positive"},
+            {"key": "instrumental", "name": "Instrumental", "role": "negative"},
+            {"key": "uncertain", "name": "Uncertain", "role": "review"},
+        ],
+    )
+    scoped = RhythmLabDatabase(labels.path, classifier_key="vocal_presence")
+    for index, track_id in enumerate(tracks):
+        source.save_sonara_features(
+            track_id,
+            {
+                "onset_density": {"type": "float", "value": float(index)},
+                "mfcc_mean": {"type": "list", "value": [float(index)] * 13},
+                "chroma_mean": {"type": "list", "value": [float(index)] * 12},
+            },
+            model_name="sonara-test",
+        )
+        scoped.set_label(source.get_track(track_id), "vocal" if index < 4 else "instrumental")
+
+    features = build_labeled_feature_matrix(source.path, labels.path, "sonara", classifier_key="vocal_presence")
+    trained = train_feature_set(
+        features.matrix,
+        features.labels,
+        feature_names=features.feature_names,
+        feature_set="sonara",
+        artifact_dir=tmp_path / "artifacts" / "vocal-presence",
+        label_order=["vocal", "instrumental"],
+        positive_label="vocal",
+        artifact_prefix="vocal-presence",
+        classifier_key="vocal_presence",
+    )
+    summary = apply_model_to_lab(source.path, labels.path, trained.artifact_path, classifier_key="vocal_presence")
+
+    payload = joblib.load(trained.artifact_path)
+    predictions = scoped.predictions()
+    assert payload["classifier_key"] == "vocal_presence"
+    assert payload["label_order"] == ["vocal", "instrumental"]
+    assert trained.artifact_path.name.startswith("vocal-presence-sonara-")
+    assert summary["predicted"] == 8
+    assert len(predictions) == 8
+    assert {row["label"] for row in predictions} <= {"vocal", "instrumental"}
+    assert all(set(row["probabilities"]) == {"vocal", "instrumental"} for row in predictions)
 
 
 def test_train_feature_set_writes_broken_discovery_metrics(tmp_path: Path) -> None:

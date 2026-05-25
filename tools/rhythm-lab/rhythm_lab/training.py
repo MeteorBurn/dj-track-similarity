@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from .features import FEATURE_SETS, build_labeled_feature_matrix
+from .lab_db import BREAK_ENERGY_CLASSIFIER_KEY, RhythmLabDatabase
 
 
 LABEL_ORDER = ["broken", "straight"]
@@ -34,6 +35,10 @@ def train_feature_set(
     feature_names: list[str],
     feature_set: str,
     artifact_dir: str | Path,
+    label_order: list[str] | None = None,
+    positive_label: str = BROKEN_LABEL,
+    artifact_prefix: str = ARTIFACT_PREFIX,
+    classifier_key: str = BREAK_ENERGY_CLASSIFIER_KEY,
     random_state: int = 42,
 ) -> TrainResult:
     from joblib import dump
@@ -42,7 +47,9 @@ def train_feature_set(
 
     matrix = np.asarray(matrix, dtype=np.float32)
     labels = [str(label) for label in labels]
-    _validate_training_data(matrix, labels)
+    ordered_labels = [str(label) for label in (label_order or LABEL_ORDER)]
+    positive_label = str(positive_label)
+    _validate_training_data(matrix, labels, label_order=ordered_labels)
 
     train_x, test_x, train_y, test_y = train_test_split(
         matrix,
@@ -54,35 +61,49 @@ def train_feature_set(
     model = _make_model(random_state)
     model.fit(train_x, train_y)
     predictions = model.predict(test_x)
-    broken_probabilities = _positive_probabilities(model, test_x, positive_label=BROKEN_LABEL)
-    report = classification_report(test_y, predictions, labels=LABEL_ORDER, output_dict=True, zero_division=0)
-    confusion = confusion_matrix(test_y, predictions, labels=LABEL_ORDER).tolist()
+    positive_probabilities = _positive_probabilities(model, test_x, positive_label=positive_label)
+    report = classification_report(test_y, predictions, labels=ordered_labels, output_dict=True, zero_division=0)
+    confusion = confusion_matrix(test_y, predictions, labels=ordered_labels).tolist()
 
     artifact_root = Path(artifact_dir)
     artifact_root.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    artifact_path = artifact_root / f"{ARTIFACT_PREFIX}-{feature_set}-{stamp}.joblib"
-    metrics_path = artifact_root / f"{ARTIFACT_PREFIX}-{feature_set}-{stamp}.metrics.json"
+    artifact_path = artifact_root / f"{artifact_prefix}-{feature_set}-{stamp}.joblib"
+    metrics_path = artifact_root / f"{artifact_prefix}-{feature_set}-{stamp}.metrics.json"
     payload = {
+        "classifier_key": classifier_key,
         "model": model,
         "feature_set": feature_set,
         "feature_names": list(feature_names),
-        "label_order": LABEL_ORDER,
+        "label_order": ordered_labels,
+        "positive_label": positive_label,
         "created_at": stamp,
     }
     dump(payload, artifact_path)
+    positive_discovery = _positive_discovery_metrics(test_y, positive_probabilities, positive_label=positive_label)
+    cross_validation = _cross_validation_metrics(
+        matrix,
+        labels,
+        label_order=ordered_labels,
+        positive_label=positive_label,
+        random_state=random_state,
+    )
     metrics = {
+        "classifier_key": classifier_key,
         "feature_set": feature_set,
         "created_at": stamp,
-        "label_order": LABEL_ORDER,
+        "label_order": ordered_labels,
+        "positive_label": positive_label,
         "trained_rows": len(labels),
         "test_rows": len(test_y),
         "feature_count": int(matrix.shape[1]),
         "classification_report": report,
         "confusion_matrix": confusion,
-        "broken_discovery": _broken_discovery_metrics(test_y, broken_probabilities),
-        "cross_validation": _cross_validation_metrics(matrix, labels, random_state=random_state),
+        "positive_discovery": positive_discovery,
+        "cross_validation": cross_validation,
     }
+    if positive_label == BROKEN_LABEL:
+        metrics["broken_discovery"] = positive_discovery
     metrics_path.write_text(json.dumps(metrics, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
     return TrainResult(feature_set, model, artifact_path, metrics_path, len(labels), 0)
 
@@ -92,12 +113,20 @@ def benchmark_lab_database(
     labels_db_path: str | Path,
     artifact_dir: str | Path,
     *,
+    classifier_key: str = BREAK_ENERGY_CLASSIFIER_KEY,
     feature_sets: tuple[str, ...] = FEATURE_SETS,
     random_state: int = 42,
 ) -> dict[str, dict[str, object]]:
+    profile = RhythmLabDatabase(labels_db_path, classifier_key=classifier_key).get_profile()
+    label_order = list(profile.training_label_keys)
     results: dict[str, dict[str, object]] = {}
     for feature_set in feature_sets:
-        features = build_labeled_feature_matrix(source_db_path, labels_db_path, feature_set)
+        features = build_labeled_feature_matrix(
+            source_db_path,
+            labels_db_path,
+            feature_set,
+            classifier_key=profile.classifier_key,
+        )
         try:
             result = train_feature_set(
                 features.matrix,
@@ -105,6 +134,10 @@ def benchmark_lab_database(
                 feature_names=features.feature_names,
                 feature_set=feature_set,
                 artifact_dir=artifact_dir,
+                label_order=label_order,
+                positive_label=profile.positive_label,
+                artifact_prefix=profile.artifact_prefix,
+                classifier_key=profile.classifier_key,
                 random_state=random_state,
             )
             results[feature_set] = {
@@ -126,18 +159,18 @@ def benchmark_lab_database(
     return results
 
 
-def _validate_training_data(matrix: np.ndarray, labels: list[str]) -> None:
+def _validate_training_data(matrix: np.ndarray, labels: list[str], *, label_order: list[str]) -> None:
     if matrix.ndim != 2:
         raise ValueError("Training matrix must be two-dimensional")
     if matrix.shape[0] != len(labels):
         raise ValueError("Training matrix row count must match label count")
     if matrix.shape[0] < 4:
         raise ValueError("At least four labeled rows are required for train/test split")
-    counts = {label: labels.count(label) for label in LABEL_ORDER}
+    counts = {label: labels.count(label) for label in label_order}
     missing = [label for label, count in counts.items() if count < 2]
     if missing:
         raise ValueError(f"At least two rows are required for each training label: {', '.join(missing)}")
-    unsupported = sorted(set(labels) - set(LABEL_ORDER))
+    unsupported = sorted(set(labels) - set(label_order))
     if unsupported:
         raise ValueError(f"Unsupported labels for training: {', '.join(unsupported)}")
 
@@ -167,45 +200,76 @@ def _positive_probabilities(model: object, matrix: np.ndarray, *, positive_label
     return np.asarray([1.0 if str(label) == positive_label else 0.0 for label in model.predict(matrix)], dtype=np.float32)
 
 
-def _broken_discovery_metrics(labels: list[str] | np.ndarray, broken_probabilities: np.ndarray) -> dict[str, object]:
+def _positive_discovery_metrics(
+    labels: list[str] | np.ndarray,
+    positive_probabilities: np.ndarray,
+    *,
+    positive_label: str,
+) -> dict[str, object]:
     label_list = [str(label) for label in labels]
-    scores = np.asarray(broken_probabilities, dtype=np.float32)
-    total_broken = sum(1 for label in label_list if label == BROKEN_LABEL)
+    scores = np.asarray(positive_probabilities, dtype=np.float32)
+    total_positive = sum(1 for label in label_list if label == positive_label)
     thresholds = [
-        _threshold_row(label_list, scores, threshold, total_broken)
+        _threshold_row(label_list, scores, threshold, total_positive, positive_label=positive_label)
         for threshold in BROKEN_DISCOVERY_THRESHOLDS
     ]
-    top_n = [_top_n_row(label_list, scores, n, total_broken) for n in _bounded_top_n_values(len(label_list))]
+    top_n = [
+        _top_n_row(label_list, scores, n, total_positive, positive_label=positive_label)
+        for n in _bounded_top_n_values(len(label_list))
+    ]
     return {
-        "positive_label": BROKEN_LABEL,
+        "positive_label": positive_label,
         "thresholds": thresholds,
         "top_n": top_n,
     }
 
 
-def _threshold_row(labels: list[str], scores: np.ndarray, threshold: float, total_broken: int) -> dict[str, float | int]:
+def _threshold_row(
+    labels: list[str],
+    scores: np.ndarray,
+    threshold: float,
+    total_positive: int,
+    *,
+    positive_label: str,
+) -> dict[str, float | int]:
     selected = scores >= threshold
     candidate_count = int(np.count_nonzero(selected))
-    broken_found = sum(1 for index, selected_row in enumerate(selected) if selected_row and labels[index] == BROKEN_LABEL)
-    straight_candidates = candidate_count - broken_found
+    positive_found = sum(
+        1 for index, selected_row in enumerate(selected) if selected_row and labels[index] == positive_label
+    )
+    negative_candidates = candidate_count - positive_found
     return {
         "threshold": float(threshold),
         "candidate_count": candidate_count,
-        "broken_found": int(broken_found),
-        "straight_candidates": int(straight_candidates),
-        "broken_recall": _safe_ratio(broken_found, total_broken),
-        "broken_precision": _safe_ratio(broken_found, candidate_count),
+        "positive_found": int(positive_found),
+        "negative_candidates": int(negative_candidates),
+        "positive_recall": _safe_ratio(positive_found, total_positive),
+        "positive_precision": _safe_ratio(positive_found, candidate_count),
+        "broken_found": int(positive_found) if positive_label == BROKEN_LABEL else 0,
+        "straight_candidates": int(negative_candidates) if positive_label == BROKEN_LABEL else 0,
+        "broken_recall": _safe_ratio(positive_found, total_positive) if positive_label == BROKEN_LABEL else 0.0,
+        "broken_precision": _safe_ratio(positive_found, candidate_count) if positive_label == BROKEN_LABEL else 0.0,
     }
 
 
-def _top_n_row(labels: list[str], scores: np.ndarray, n: int, total_broken: int) -> dict[str, float | int]:
+def _top_n_row(
+    labels: list[str],
+    scores: np.ndarray,
+    n: int,
+    total_positive: int,
+    *,
+    positive_label: str,
+) -> dict[str, float | int]:
     order = np.argsort(-scores, kind="stable")[:n]
-    broken_found = sum(1 for index in order if labels[int(index)] == BROKEN_LABEL)
+    positive_found = sum(1 for index in order if labels[int(index)] == positive_label)
     return {
         "n": int(n),
-        "broken_found": int(broken_found),
-        "broken_recall": _safe_ratio(broken_found, total_broken),
-        "broken_precision": _safe_ratio(broken_found, n),
+        "positive_found": int(positive_found),
+        "positive_recall": _safe_ratio(positive_found, total_positive),
+        "positive_precision": _safe_ratio(positive_found, n),
+        "broken_found": int(positive_found) if positive_label == BROKEN_LABEL else 0,
+        "broken_recall": _safe_ratio(positive_found, total_positive) if positive_label == BROKEN_LABEL else 0.0,
+        "broken_precision": _safe_ratio(positive_found, n) if positive_label == BROKEN_LABEL else 0.0,
     }
 
 
@@ -216,15 +280,22 @@ def _bounded_top_n_values(row_count: int) -> list[int]:
     return values
 
 
-def _cross_validation_metrics(matrix: np.ndarray, labels: list[str], *, random_state: int) -> dict[str, object]:
+def _cross_validation_metrics(
+    matrix: np.ndarray,
+    labels: list[str],
+    *,
+    label_order: list[str],
+    positive_label: str,
+    random_state: int,
+) -> dict[str, object]:
     from sklearn.metrics import accuracy_score, classification_report
     from sklearn.model_selection import StratifiedKFold
 
-    class_counts = [labels.count(label) for label in LABEL_ORDER]
+    class_counts = [labels.count(label) for label in label_order]
     fold_count = min(5, min(class_counts))
     splitter = StratifiedKFold(n_splits=fold_count, shuffle=True, random_state=random_state)
-    broken_recalls: list[float] = []
-    broken_precisions: list[float] = []
+    positive_recalls: list[float] = []
+    positive_precisions: list[float] = []
     macro_f1s: list[float] = []
     accuracies: list[float] = []
     for train_index, test_index in splitter.split(matrix, labels):
@@ -233,22 +304,32 @@ def _cross_validation_metrics(matrix: np.ndarray, labels: list[str], *, random_s
         test_y = [labels[index] for index in test_index]
         model.fit(matrix[train_index], train_y)
         predictions = model.predict(matrix[test_index])
-        report = classification_report(test_y, predictions, labels=LABEL_ORDER, output_dict=True, zero_division=0)
-        broken_recalls.append(float(report[BROKEN_LABEL]["recall"]))
-        broken_precisions.append(float(report[BROKEN_LABEL]["precision"]))
+        report = classification_report(test_y, predictions, labels=label_order, output_dict=True, zero_division=0)
+        positive_recalls.append(float(report[positive_label]["recall"]))
+        positive_precisions.append(float(report[positive_label]["precision"]))
         macro_f1s.append(float(report["macro avg"]["f1-score"]))
         accuracies.append(float(accuracy_score(test_y, predictions)))
-    return {
+    metrics = {
         "fold_count": int(fold_count),
-        "broken_recall_mean": _mean(broken_recalls),
-        "broken_recall_std": _std(broken_recalls),
-        "broken_precision_mean": _mean(broken_precisions),
-        "broken_precision_std": _std(broken_precisions),
+        "positive_recall_mean": _mean(positive_recalls),
+        "positive_recall_std": _std(positive_recalls),
+        "positive_precision_mean": _mean(positive_precisions),
+        "positive_precision_std": _std(positive_precisions),
         "macro_f1_mean": _mean(macro_f1s),
         "macro_f1_std": _std(macro_f1s),
         "accuracy_mean": _mean(accuracies),
         "accuracy_std": _std(accuracies),
     }
+    if positive_label == BROKEN_LABEL:
+        metrics.update(
+            {
+                "broken_recall_mean": metrics["positive_recall_mean"],
+                "broken_recall_std": metrics["positive_recall_std"],
+                "broken_precision_mean": metrics["positive_precision_mean"],
+                "broken_precision_std": metrics["positive_precision_std"],
+            }
+        )
+    return metrics
 
 
 def _safe_ratio(numerator: int, denominator: int) -> float:

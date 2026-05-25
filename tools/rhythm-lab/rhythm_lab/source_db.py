@@ -117,13 +117,20 @@ class SourceDatabase:
         self,
         *,
         labels_db_path: str | Path,
+        classifier_key: str = "break_energy",
+        label_keys: tuple[str, ...] = ("broken", "straight", "ambiguous"),
         query: str = "",
         syncopated: str = "all",
         label: str = "all",
         limit: int = 100,
         offset: int = 0,
     ) -> dict[str, object]:
-        where_parts, params = _track_page_filter_sql(query=query, syncopated=syncopated, label=label)
+        where_parts, params = _track_page_filter_sql(
+            query=query,
+            syncopated=syncopated,
+            label=label,
+            label_keys=label_keys,
+        )
         where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
         bounded_limit = max(1, min(500, int(limit)))
         bounded_offset = max(0, int(offset))
@@ -136,10 +143,10 @@ class SourceDatabase:
                     SELECT COUNT(*)
                     FROM tracks t
                     LEFT JOIN labels.classifier_labels rl
-                      ON rl.classifier_key = 'break_energy' AND rl.source_track_id = t.id
+                      ON rl.classifier_key = ? AND rl.source_track_id = t.id
                     {where_sql}
                     """,
-                    params,
+                    (classifier_key, *params),
                 ).fetchone()[0]
             )
             rows = connection.execute(
@@ -153,12 +160,12 @@ class SourceDatabase:
                 LEFT JOIN embeddings emert ON emert.track_id = t.id AND emert.embedding_key = 'mert'
                 LEFT JOIN embeddings emaest ON emaest.track_id = t.id AND emaest.embedding_key = 'maest'
                 LEFT JOIN labels.classifier_labels rl
-                  ON rl.classifier_key = 'break_energy' AND rl.source_track_id = t.id
+                  ON rl.classifier_key = ? AND rl.source_track_id = t.id
                 {where_sql}
                 ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
                 LIMIT ? OFFSET ?
                 """,
-                (DEFAULT_EMBEDDING_KEY, *params, bounded_limit, bounded_offset),
+                (DEFAULT_EMBEDDING_KEY, classifier_key, *params, bounded_limit, bounded_offset),
             ).fetchall()
         return {
             "items": [_track_page_item(row) for row in rows],
@@ -224,7 +231,13 @@ def _clean_path_text(path: str | Path) -> str:
     return text
 
 
-def _track_page_filter_sql(*, query: str, syncopated: str, label: str) -> tuple[list[str], list[object]]:
+def _track_page_filter_sql(
+    *,
+    query: str,
+    syncopated: str,
+    label: str,
+    label_keys: tuple[str, ...],
+) -> tuple[list[str], list[object]]:
     where_parts: list[str] = []
     params: list[object] = []
     needle = query.strip().casefold()
@@ -247,7 +260,7 @@ def _track_page_filter_sql(*, query: str, syncopated: str, label: str) -> tuple[
         raise ValueError(f"Unknown syncopated filter: {syncopated}")
     if label == "unlabeled":
         where_parts.append("rl.label IS NULL")
-    elif label in {"broken", "straight", "ambiguous"}:
+    elif label in set(label_keys):
         where_parts.append("rl.label = ?")
         params.append(label)
     elif label != "all":

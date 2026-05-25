@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from dj_track_similarity.dependencies import require_ffmpeg
 
-from .lab_db import CLASSIFIER_LABELS, RhythmLabDatabase
+from .lab_db import BREAK_ENERGY_CLASSIFIER_KEY, ClassifierProfile, RhythmLabDatabase
 from .predictions import apply_model_to_lab, latest_predictions_by_track
 from .source_db import SourceDatabase
 from .training import benchmark_lab_database
@@ -19,7 +19,8 @@ from .training import benchmark_lab_database
 
 LOGGER = logging.getLogger(__name__)
 AIFF_PREVIEW_SUFFIXES = {".aif", ".aiff"}
-FAVICON_PATH = Path(__file__).with_name("static") / "favicon.svg"
+STATIC_DIR = Path(__file__).with_name("static")
+FAVICON_PATH = STATIC_DIR / "favicon.svg"
 ARTIFACT_DIR = Path(__file__).resolve().parents[1] / "artifacts" / "break-energy"
 ARTIFACT_PREFIX = "break-energy"
 TRAIN_REFRESH_MIN_ADDED = 100
@@ -34,6 +35,36 @@ class LabelRequest(BaseModel):
 
 class SourceSwitchRequest(BaseModel):
     path: str
+
+
+class ProfileLabelRequest(BaseModel):
+    key: str
+    name: str | None = None
+    description: str = ""
+    role: str
+
+
+class ProfileRequest(BaseModel):
+    classifier_key: str
+    name: str
+    description: str = ""
+    artifact_dir: str | None = None
+    artifact_prefix: str | None = None
+    labels: list[ProfileLabelRequest]
+
+
+class ProfilePatchRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    artifact_dir: str | None = None
+    artifact_prefix: str | None = None
+    labels: list[ProfileLabelRequest] | None = None
+
+
+class LabelRenameRequest(BaseModel):
+    new_key: str
+    name: str | None = None
+    description: str | None = None
 
 
 class SourceDatabaseState:
@@ -88,9 +119,19 @@ def open_existing_database_file_dialog() -> Path | None:
 
 
 def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str | Path) -> FastAPI:
-    labels_db = RhythmLabDatabase(labels_db_path)
+    labels_path = Path(labels_db_path)
+    labels_db = RhythmLabDatabase(labels_path)
     source_state = SourceDatabaseState(source_db_path)
     app = FastAPI(title="Rhythm Lab")
+
+    def profile_db(profile_key: str = BREAK_ENERGY_CLASSIFIER_KEY) -> RhythmLabDatabase:
+        return RhythmLabDatabase(labels_path, classifier_key=profile_key)
+
+    def profile_or_404(profile_key: str) -> ClassifierProfile:
+        try:
+            return profile_db(profile_key).get_profile(profile_key)
+        except (KeyError, ValueError) as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
 
     @app.get("/")
     def index():
@@ -99,6 +140,14 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
     @app.get("/favicon.svg")
     def favicon():
         return FileResponse(FAVICON_PATH, media_type="image/svg+xml")
+
+    @app.get("/static/{asset_path:path}")
+    def static_asset(asset_path: str):
+        target = (STATIC_DIR / asset_path).resolve(strict=False)
+        static_root = STATIC_DIR.resolve(strict=False)
+        if static_root not in target.parents or not target.is_file():
+            raise HTTPException(status_code=404, detail="Static asset not found")
+        return FileResponse(target)
 
     @app.get("/api/source/current")
     def current_source():
@@ -120,6 +169,294 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
         if selected is None:
             return source_state.current()
         return {"path": str(selected.resolve(strict=False)), "selected": False}
+
+    @app.get("/api/profiles")
+    def profiles(include_archived: bool = False):
+        return {
+            "items": [
+                _profile_payload(profile)
+                for profile in labels_db.list_profiles(include_archived=include_archived)
+            ]
+        }
+
+    @app.post("/api/profiles")
+    def create_profile(request: ProfileRequest):
+        try:
+            profile = labels_db.create_profile(
+                classifier_key=request.classifier_key,
+                name=request.name,
+                description=request.description,
+                artifact_dir=request.artifact_dir,
+                artifact_prefix=request.artifact_prefix,
+                labels=[label.model_dump() for label in request.labels],
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return _profile_payload(profile)
+
+    @app.patch("/api/profiles/{profile_key}")
+    def update_profile(profile_key: str, request: ProfilePatchRequest):
+        try:
+            profile = labels_db.update_profile(
+                profile_key,
+                name=request.name,
+                description=request.description,
+                artifact_dir=request.artifact_dir,
+                artifact_prefix=request.artifact_prefix,
+                labels=[label.model_dump() for label in request.labels] if request.labels is not None else None,
+            )
+        except (KeyError, ValueError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return _profile_payload(profile)
+
+    @app.post("/api/profiles/{profile_key}/archive")
+    def archive_profile(profile_key: str):
+        try:
+            return _profile_payload(labels_db.archive_profile(profile_key))
+        except (KeyError, ValueError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.post("/api/profiles/{profile_key}/labels/{old_key}/rename")
+    def rename_profile_label(profile_key: str, old_key: str, request: LabelRenameRequest):
+        try:
+            profile = labels_db.rename_label_key(
+                profile_key,
+                old_key,
+                request.new_key,
+                display_name=request.name,
+                description=request.description,
+            )
+        except (KeyError, ValueError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return _profile_payload(profile)
+
+    @app.get("/api/profiles/{profile_key}/summary")
+    def profile_summary(profile_key: str):
+        profile = profile_or_404(profile_key)
+        scoped = profile_db(profile_key)
+        source = source_state.source
+        base = {
+            "profile": _profile_payload(profile),
+            "tracks": 0,
+            "labels": scoped.label_counts(),
+            "mert": 0,
+            "maest": 0,
+            "source": source_state.current(),
+        }
+        if source is None:
+            return base
+        return {
+            **base,
+            "tracks": source.count_tracks(),
+            "mert": source.count_embeddings("mert"),
+            "maest": source.count_embeddings("maest"),
+        }
+
+    @app.get("/api/profiles/{profile_key}/tracks")
+    def profile_tracks(
+        profile_key: str,
+        q: str = "",
+        syncopated: str = Query(default="all", pattern="^(all|yes|no)$"),
+        label: str = "all",
+        limit: int = Query(default=100, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
+    ):
+        profile = profile_or_404(profile_key)
+        source = source_state.source
+        if source is None:
+            return {"items": [], "total": 0, "limit": limit, "offset": offset}
+        try:
+            return source.list_tracks_page(
+                labels_db_path=labels_path,
+                classifier_key=profile.classifier_key,
+                label_keys=profile.label_keys,
+                query=q,
+                syncopated=syncopated,
+                label=label,
+                limit=limit,
+                offset=offset,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.post("/api/profiles/{profile_key}/tracks/{track_id}/label")
+    def set_profile_label(profile_key: str, track_id: int, request: LabelRequest):
+        profile_or_404(profile_key)
+        try:
+            track = source_state.require_source().get_track(track_id)
+            label = profile_db(profile_key).set_label(track, request.label, note=request.note)
+        except (KeyError, ValueError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return {"track_id": track_id, "label": label.label if label else None}
+
+    @app.get("/api/profiles/{profile_key}/predictions")
+    def profile_predictions(
+        profile_key: str,
+        q: str = "",
+        syncopated: str = Query(default="all", pattern="^(all|yes|no)$"),
+        label: str = "unlabeled",
+        predicted: str = "all",
+        probability_focus: str = Query(default="positive_highest", pattern="^(positive_highest|negative_highest|balanced)$"),
+        min_positive: float = Query(default=0.0, ge=0.0, le=1.0),
+        limit: int = Query(default=100, ge=1, le=500),
+        offset: int = Query(default=0, ge=0),
+    ):
+        profile = profile_or_404(profile_key)
+        if label not in {"all", "unlabeled", *profile.label_keys}:
+            raise HTTPException(status_code=400, detail=f"Unknown label filter: {label}")
+        if predicted not in {"all", *profile.training_label_keys}:
+            raise HTTPException(status_code=400, detail=f"Unknown predicted label filter: {predicted}")
+        source = source_state.source
+        if source is None:
+            return {"items": [], "total": 0, "limit": limit, "offset": offset}
+        scoped = profile_db(profile.classifier_key)
+        labels_by_track = scoped.labels_by_track()
+        rows: list[tuple[dict[str, object], str | None, float, float]] = []
+        for row in latest_predictions_by_track(scoped.predictions()):
+            manual_label = labels_by_track.get(int(row["source_track_id"]))
+            manual_label_value = manual_label.label if manual_label is not None else None
+            positive_probability = _prediction_probability(row, profile.positive_label)
+            negative_probability = _prediction_probability(row, profile.negative_label)
+            if positive_probability < min_positive:
+                continue
+            if predicted != "all" and row["label"] != predicted:
+                continue
+            if label == "unlabeled" and manual_label_value is not None:
+                continue
+            if label not in {"all", "unlabeled"} and manual_label_value != label:
+                continue
+            rows.append((row, manual_label_value, positive_probability, negative_probability))
+        common_filters_active = bool(q.strip()) or syncopated != "all"
+        source_tracks = (
+            source.tracks_by_ids(int(row["source_track_id"]) for row, _, _, _ in rows)
+            if common_filters_active
+            else {}
+        )
+        items = []
+        for row, manual_label_value, positive_probability, negative_probability in rows:
+            track = source_tracks.get(int(row["source_track_id"]))
+            if common_filters_active and (
+                track is None or not _candidate_matches_common_filters(track, query=q, syncopated=syncopated)
+            ):
+                continue
+            items.append(
+                _profile_prediction_item(
+                    row,
+                    manual_label_value,
+                    positive_probability,
+                    negative_probability,
+                    profile=profile,
+                )
+            )
+        items.sort(key=lambda item: _profile_candidate_sort_key(item, probability_focus=probability_focus))
+        bounded_limit = max(1, min(500, int(limit)))
+        bounded_offset = max(0, int(offset))
+        page_items = items[bounded_offset : bounded_offset + bounded_limit]
+        if page_items:
+            page_tracks = source_tracks if common_filters_active else source.tracks_by_ids(int(item["id"]) for item in page_items)
+            mert_track_ids = source.embedding_track_ids("mert")
+            maest_track_ids = source.embedding_track_ids("maest")
+            for item in page_items:
+                track = page_tracks.get(int(item["id"]))
+                if track is not None:
+                    item.update(_candidate_source_fields(track, mert_track_ids=mert_track_ids, maest_track_ids=maest_track_ids))
+        return {
+            "items": page_items,
+            "total": len(items),
+            "limit": bounded_limit,
+            "offset": bounded_offset,
+        }
+
+    @app.post("/api/profiles/{profile_key}/predictions/refresh")
+    def refresh_profile_predictions(profile_key: str):
+        profile = profile_or_404(profile_key)
+        source = source_state.source
+        if source is None or source_state.path is None:
+            raise HTTPException(status_code=400, detail="Source database is not selected")
+        artifact_dir = Path(profile.artifact_dir)
+        artifact = _latest_combined_artifact(artifact_dir, profile.artifact_prefix)
+        if artifact is None:
+            raise HTTPException(status_code=404, detail=f"No combined {profile.name} model artifact found in {artifact_dir}")
+        scoped = profile_db(profile.classifier_key)
+        try:
+            result = apply_model_to_lab(
+                source_state.path,
+                labels_path,
+                artifact,
+                classifier_key=profile.classifier_key,
+            )
+            deleted = scoped.prune_predictions(
+                feature_set=str(result["feature_set"]),
+                keep_model_artifact=artifact,
+            )
+        except Exception as error:
+            LOGGER.exception("%s predictions refresh failed", profile.name)
+            raise HTTPException(status_code=500, detail=str(error)) from error
+        return {**result, "artifact": str(artifact), "deleted_old_predictions": deleted}
+
+    @app.get("/api/profiles/{profile_key}/training/readiness")
+    def profile_training_readiness(profile_key: str):
+        profile = profile_or_404(profile_key)
+        return _training_readiness(profile_db(profile.classifier_key), artifact_dir=Path(profile.artifact_dir), profile=profile)
+
+    @app.post("/api/profiles/{profile_key}/training/train-refresh")
+    def profile_train_refresh(profile_key: str):
+        profile = profile_or_404(profile_key)
+        source = source_state.source
+        if source is None or source_state.path is None:
+            raise HTTPException(status_code=400, detail="Source database is not selected")
+        scoped = profile_db(profile.classifier_key)
+        readiness = _training_readiness(scoped, artifact_dir=Path(profile.artifact_dir), profile=profile)
+        if readiness["ready"] is not True:
+            added = readiness["added"]
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Need {TRAIN_REFRESH_MIN_ADDED} new {profile.positive_label} and "
+                    f"{TRAIN_REFRESH_MIN_ADDED} new {profile.negative_label} labels since the last training checkpoint. "
+                    f"Added: {profile.positive_label} {added[profile.positive_label]}, "
+                    f"{profile.negative_label} {added[profile.negative_label]}."
+                ),
+            )
+        counts = dict(readiness["current"])
+        artifact_dir = Path(profile.artifact_dir)
+        try:
+            training = benchmark_lab_database(
+                source_state.path,
+                labels_path,
+                artifact_dir,
+                classifier_key=profile.classifier_key,
+            )
+            artifact = _latest_combined_artifact(artifact_dir, profile.artifact_prefix)
+            if artifact is None:
+                raise RuntimeError(f"No combined {profile.name} model artifact found in {artifact_dir}")
+            result = apply_model_to_lab(
+                source_state.path,
+                labels_path,
+                artifact,
+                classifier_key=profile.classifier_key,
+            )
+            deleted = scoped.prune_predictions(
+                feature_set=str(result["feature_set"]),
+                keep_model_artifact=artifact,
+            )
+            scoped.record_training_checkpoint(counts, model_artifact=artifact)
+            cleanup = cleanup_training_artifacts(
+                artifact_dir,
+                protected_artifact=artifact,
+                artifact_prefix=profile.artifact_prefix,
+            )
+        except Exception as error:
+            LOGGER.exception("%s train + refresh failed", profile.name)
+            raise HTTPException(status_code=500, detail=str(error)) from error
+        return {
+            "training": training,
+            "artifact": str(artifact),
+            "training_counts": counts,
+            **result,
+            "deleted_old_predictions": deleted,
+            "artifact_cleanup": cleanup,
+        }
 
     @app.get("/api/summary")
     def summary():
@@ -307,6 +644,29 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
     return app
 
 
+def _profile_payload(profile: ClassifierProfile) -> dict[str, object]:
+    return {
+        "classifier_key": profile.classifier_key,
+        "name": profile.name,
+        "description": profile.description,
+        "artifact_dir": profile.artifact_dir,
+        "artifact_prefix": profile.artifact_prefix,
+        "positive_label": profile.positive_label,
+        "negative_label": profile.negative_label,
+        "archived_at": profile.archived_at,
+        "labels": [
+            {
+                "key": label.key,
+                "name": label.name,
+                "description": label.description,
+                "role": label.role,
+                "position": label.position,
+            }
+            for label in profile.labels
+        ],
+    }
+
+
 def _prediction_probability(row: dict[str, object], label: str) -> float:
     probabilities = row.get("probabilities")
     if not isinstance(probabilities, dict):
@@ -317,8 +677,8 @@ def _prediction_probability(row: dict[str, object], label: str) -> float:
         return 0.0
 
 
-def _latest_combined_artifact(artifact_dir: Path) -> Path | None:
-    artifacts = list(artifact_dir.glob(f"{ARTIFACT_PREFIX}-combined-*.joblib"))
+def _latest_combined_artifact(artifact_dir: Path, artifact_prefix: str = ARTIFACT_PREFIX) -> Path | None:
+    artifacts = list(artifact_dir.glob(f"{artifact_prefix}-combined-*.joblib"))
     if not artifacts:
         return None
     return max(artifacts, key=lambda path: (path.stat().st_mtime, path.name))
@@ -328,6 +688,7 @@ def cleanup_training_artifacts(
     artifact_dir: Path,
     *,
     protected_artifact: Path,
+    artifact_prefix: str = ARTIFACT_PREFIX,
     keep_joblib_per_feature: int = KEEP_JOBLIB_PER_FEATURE,
     keep_metrics_per_feature: int = KEEP_METRICS_PER_FEATURE,
 ) -> dict[str, int]:
@@ -337,7 +698,7 @@ def cleanup_training_artifacts(
         (".joblib", keep_joblib_per_feature, "deleted_joblib"),
         (".metrics.json", keep_metrics_per_feature, "deleted_metrics"),
     ):
-        for files in _artifact_groups(artifact_dir, suffix=suffix).values():
+        for files in _artifact_groups(artifact_dir, suffix=suffix, artifact_prefix=artifact_prefix).values():
             for path in files[keep_count:]:
                 if path.resolve(strict=False) == protected:
                     continue
@@ -346,10 +707,15 @@ def cleanup_training_artifacts(
     return deleted
 
 
-def _artifact_groups(artifact_dir: Path, *, suffix: str) -> dict[str, list[Path]]:
+def _artifact_groups(
+    artifact_dir: Path,
+    *,
+    suffix: str,
+    artifact_prefix: str = ARTIFACT_PREFIX,
+) -> dict[str, list[Path]]:
     groups: dict[str, list[Path]] = {}
-    for path in artifact_dir.glob(f"{ARTIFACT_PREFIX}-*{suffix}"):
-        feature = _artifact_feature(path.name, suffix=suffix)
+    for path in artifact_dir.glob(f"{artifact_prefix}-*{suffix}"):
+        feature = _artifact_feature(path.name, suffix=suffix, artifact_prefix=artifact_prefix)
         if feature is None:
             continue
         groups.setdefault(feature, []).append(path)
@@ -358,47 +724,50 @@ def _artifact_groups(artifact_dir: Path, *, suffix: str) -> dict[str, list[Path]
     return groups
 
 
-def _artifact_feature(name: str, *, suffix: str) -> str | None:
-    prefix = f"{ARTIFACT_PREFIX}-"
+def _artifact_feature(name: str, *, suffix: str, artifact_prefix: str = ARTIFACT_PREFIX) -> str | None:
+    prefix = f"{artifact_prefix}-"
     if not name.startswith(prefix) or not name.endswith(suffix):
         return None
-    stem = name[: -len(suffix)]
+    stem = name[len(prefix) : -len(suffix)]
     parts = stem.split("-")
-    if len(parts) < 4:
+    if len(parts) < 2:
         return None
-    return parts[2]
+    return parts[0]
 
 
-def _training_readiness(labels_db: RhythmLabDatabase, *, artifact_dir: Path) -> dict[str, object]:
-    counts = _training_label_counts(labels_db.label_counts())
+def _training_readiness(
+    labels_db: RhythmLabDatabase,
+    *,
+    artifact_dir: Path,
+    profile: ClassifierProfile | None = None,
+) -> dict[str, object]:
+    profile = profile or labels_db.get_profile()
+    counts = _training_label_counts(labels_db.label_counts(), profile=profile)
     checkpoint = labels_db.training_checkpoint()
     checkpoint_counts = dict(checkpoint["counts"])
     checkpoint_artifact = checkpoint["model_artifact"]
-    latest_artifact = _latest_combined_artifact(artifact_dir)
+    latest_artifact = _latest_combined_artifact(artifact_dir, profile.artifact_prefix)
     if checkpoint_artifact is None and latest_artifact is not None:
         labels_db.record_training_checkpoint(counts, model_artifact=latest_artifact)
         checkpoint_counts = dict(counts)
         checkpoint_artifact = str(latest_artifact)
     added = {
-        "broken": max(0, counts["broken"] - int(checkpoint_counts.get("broken", 0))),
-        "straight": max(0, counts["straight"] - int(checkpoint_counts.get("straight", 0))),
+        label: max(0, counts[label] - int(checkpoint_counts.get(label, 0)))
+        for label in profile.training_label_keys
     }
-    ready = added["broken"] >= TRAIN_REFRESH_MIN_ADDED and added["straight"] >= TRAIN_REFRESH_MIN_ADDED
+    ready = all(added[label] >= TRAIN_REFRESH_MIN_ADDED for label in profile.training_label_keys)
     return {
         "ready": ready,
         "current": counts,
-        "last_trained": {
-            "broken": int(checkpoint_counts.get("broken", 0)),
-            "straight": int(checkpoint_counts.get("straight", 0)),
-        },
+        "last_trained": {label: int(checkpoint_counts.get(label, 0)) for label in profile.training_label_keys},
         "added": added,
-        "required_added": {"broken": TRAIN_REFRESH_MIN_ADDED, "straight": TRAIN_REFRESH_MIN_ADDED},
+        "required_added": {label: TRAIN_REFRESH_MIN_ADDED for label in profile.training_label_keys},
         "model_artifact": checkpoint_artifact,
     }
 
 
-def _training_label_counts(counts: dict[str, int]) -> dict[str, int]:
-    return {"broken": int(counts.get("broken", 0)), "straight": int(counts.get("straight", 0))}
+def _training_label_counts(counts: dict[str, int], *, profile: ClassifierProfile) -> dict[str, int]:
+    return {label: int(counts.get(label, 0)) for label in profile.training_label_keys}
 
 
 def _prediction_item(row: dict[str, object], manual_label: str | None, broken_probability: float) -> dict[str, object]:
@@ -421,6 +790,36 @@ def _prediction_item(row: dict[str, object], manual_label: str | None, broken_pr
     }
 
 
+def _profile_prediction_item(
+    row: dict[str, object],
+    manual_label: str | None,
+    positive_probability: float,
+    negative_probability: float,
+    *,
+    profile: ClassifierProfile,
+) -> dict[str, object]:
+    return {
+        "id": int(row["source_track_id"]),
+        "source_track_id": int(row["source_track_id"]),
+        "path": row["path"],
+        "artist": row["artist"],
+        "title": row["title"],
+        "label": manual_label,
+        "predicted_label": row["label"],
+        "confidence": float(row["confidence"]),
+        "positive_probability": float(positive_probability),
+        "negative_probability": float(negative_probability),
+        "positive_label": profile.positive_label,
+        "negative_label": profile.negative_label,
+        "probabilities": row.get("probabilities") if isinstance(row.get("probabilities"), dict) else {},
+        "feature_set": row["feature_set"],
+        "model_artifact": row["model_artifact"],
+        "genres": [],
+        "maest_syncopated_rhythm": False,
+        "feature_status": {"sonara": False, "mert": False, "maest": False},
+    }
+
+
 def _candidate_sort_key(item: dict[str, object], *, probability_focus: str) -> tuple[float, float, str]:
     broken_probability = float(item["broken_probability"])
     straight_probability = float(item["straight_probability"])
@@ -431,6 +830,18 @@ def _candidate_sort_key(item: dict[str, object], *, probability_focus: str) -> t
     if probability_focus == "balanced":
         return (abs(broken_probability - straight_probability), -confidence, path)
     return (-broken_probability, -confidence, path)
+
+
+def _profile_candidate_sort_key(item: dict[str, object], *, probability_focus: str) -> tuple[float, float, str]:
+    positive_probability = float(item["positive_probability"])
+    negative_probability = float(item["negative_probability"])
+    confidence = float(item["confidence"])
+    path = str(item["path"])
+    if probability_focus == "negative_highest":
+        return (-negative_probability, -confidence, path)
+    if probability_focus == "balanced":
+        return (abs(positive_probability - negative_probability), -confidence, path)
+    return (-positive_probability, -confidence, path)
 
 
 def _candidate_source_fields(track, *, mert_track_ids: set[int], maest_track_ids: set[int]) -> dict[str, object]:
@@ -511,483 +922,4 @@ def _transcoded_wav_response(path: Path, ffmpeg_path: str) -> StreamingResponse:
 
 
 def _index_html() -> str:
-    labels = ", ".join(CLASSIFIER_LABELS)
-    return f"""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <title>Rhythm Lab</title>
-  <style>
-    body {{ font-family: system-ui, sans-serif; margin: 0; background: #111; color: #eee; }}
-    header, main {{ max-width: 1200px; margin: 0 auto; padding: 16px; }}
-    header {{ display: flex; gap: 12px; align-items: center; flex-wrap: wrap; border-bottom: 1px solid #333; }}
-    input, select, button {{ background: #1e1e1e; color: #eee; border: 1px solid #444; border-radius: 6px; padding: 8px; }}
-    input.source-path {{ min-width: min(520px, 100%); flex: 1 1 360px; }}
-    button {{ cursor: pointer; }}
-    button:hover {{ border-color: #888; }}
-    button:disabled {{ cursor: default; opacity: 0.45; }}
-    .active {{ outline: 2px solid #e0b84b; }}
-    .tabs {{ display: flex; gap: 6px; flex: 1 1 100%; }}
-    .tabs button.active {{ background: #e0b84b; color: #141414; outline: none; }}
-    .refresh-candidates {{ padding: 5px 9px; font-size: 12px; border-color: #5f8dd3; background: #17345f; color: #eaf2ff; }}
-    .refresh-candidates:hover {{ border-color: #8eb8f4; background: #214674; }}
-    .train-refresh {{ padding: 5px 9px; font-size: 12px; border-color: #9a7a39; background: #342715; color: #ffe6ad; }}
-    .train-refresh:hover:not(:disabled) {{ border-color: #e0b84b; background: #47371d; }}
-    .filters {{ display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }}
-    .filters[hidden] {{ display: none; }}
-    .source-row {{ display: flex; gap: 6px; align-items: center; flex: 1 1 100%; }}
-    .source-status {{ color: #aaa; font-size: 13px; min-width: 160px; }}
-    .source-status.error {{ color: #ff8f8f; }}
-    .classifier-profile {{ border: 1px solid #5f8dd3; border-radius: 4px; color: #eaf2ff; background: #17345f; padding: 3px 7px; font-size: 12px; font-weight: 700; }}
-    .pager {{ display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }}
-    .track {{ display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 12px 0; border-bottom: 1px solid #2b2b2b; }}
-    .track-main {{ display: flex; flex-direction: column; gap: 3px; }}
-    .meta {{ color: #aaa; font-size: 13px; line-height: 1.42; }}
-    .track-number {{ color: #888; font-variant-numeric: tabular-nums; margin-right: 6px; }}
-    .feature-line {{ margin-top: 1px; }}
-    .genres-line {{ display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 5px 0 0; }}
-    .rhythm-media-block {{ margin-top: 7px; }}
-    .genres {{ color: #e0b84b; font-size: 13px; font-weight: 700; }}
-    .badge-row {{ display: inline-flex; gap: 6px; align-items: center; }}
-    .syncopated-badge,
-    .rhythm-label-badge {{ display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 12px; line-height: 1.35; font-weight: 700; }}
-    .syncopated-badge {{ background: #d7aa32; color: #141414; }}
-    .rhythm-label-badge {{ background: #7d5cff; color: #fff; }}
-    .rhythm-label-badge.broken {{ background: #dc2626; color: #fff; }}
-    .rhythm-label-badge.straight {{ background: #2563eb; color: #fff; }}
-    .rhythm-label-badge.ambiguous {{ background: #7d5cff; color: #fff; }}
-    .badge-separator {{ color: #777; font-size: 12px; }}
-    .actions {{ display: flex; gap: 6px; align-items: start; flex-wrap: wrap; justify-content: end; }}
-    audio {{ width: min(520px, 100%); height: 34px; margin-top: 6px; }}
-  </style>
-</head>
-<body>
-  <header>
-    <strong>Rhythm Lab</strong>
-    <span class="classifier-profile">Break Energy</span>
-    <div class="source-row">
-      <input id="sourcePath" class="source-path" placeholder="C:\\db\\abstracted.sqlite" title="Existing dj-track-similarity SQLite database. Opened read-only." />
-      <button id="chooseSource" title="Choose existing SQLite database">Browse</button>
-      <button id="loadSource" title="Load selected source database">Load database</button>
-      <span id="sourceStatus" class="source-status"></span>
-    </div>
-    <div class="tabs">
-      <button id="libraryTab" class="active">Library</button>
-      <button id="candidatesTab">Candidates</button>
-      <button id="refreshCandidates" class="refresh-candidates" title="Recompute candidates from the latest combined Break Energy model">Refresh candidates</button>
-      <button id="trainRefresh" class="train-refresh" title="Train a new Break Energy model only after 100 new broken and 100 new straight labels, then refresh candidates">Train + refresh</button>
-      <span id="refreshCandidatesStatus" class="meta"></span>
-    </div>
-    <div id="commonFilters" class="filters">
-      <input id="query" placeholder="search path/title/artist" />
-      <select id="syncopated">
-        <option value="all">all rhythm</option>
-        <option value="yes">syncopated rhythm</option>
-        <option value="no">no syncopated rhythm</option>
-      </select>
-      <select id="label">
-        <option value="all">all</option>
-        <option value="unlabeled">unlabeled</option>
-        <option value="broken">broken</option>
-        <option value="straight">straight</option>
-        <option value="ambiguous">ambiguous</option>
-      </select>
-    </div>
-    <div id="candidateFilters" class="filters" hidden>
-      <select id="candidatePredicted">
-        <option value="all" selected>all predictions</option>
-        <option value="broken">predicted broken</option>
-        <option value="straight">predicted straight</option>
-      </select>
-      <select id="candidateMinBroken">
-        <option value="broken_highest" selected>highest P(broken)</option>
-        <option value="straight_highest">highest P(straight)</option>
-        <option value="balanced">P(broken) near P(straight)</option>
-      </select>
-    </div>
-    <button id="load">Load</button>
-    <div class="pager">
-      <button id="prevPage">Prev</button>
-      <select id="pageSize">
-        <option value="50">50</option>
-        <option value="100" selected>100</option>
-        <option value="200">200</option>
-        <option value="500">500</option>
-      </select>
-      <button id="nextPage">Next</button>
-      <span id="pageInfo" class="meta"></span>
-    </div>
-    <span id="summary"></span>
-  </header>
-  <main>
-    <p class="meta">Labels: {labels}. Keyboard on focused row: 1 broken, 2 straight, 3 ambiguous, 0 clear.</p>
-    <div id="tracks"></div>
-  </main>
-  <script>
-    const tracksEl = document.getElementById("tracks");
-    const queryEl = document.getElementById("query");
-    const sourcePathEl = document.getElementById("sourcePath");
-    const sourceStatusEl = document.getElementById("sourceStatus");
-    const libraryTabEl = document.getElementById("libraryTab");
-    const candidatesTabEl = document.getElementById("candidatesTab");
-    const candidateFiltersEl = document.getElementById("candidateFilters");
-    const syncopatedEl = document.getElementById("syncopated");
-    const labelEl = document.getElementById("label");
-    const candidatePredictedEl = document.getElementById("candidatePredicted");
-    const candidateMinBrokenEl = document.getElementById("candidateMinBroken");
-    const refreshCandidatesEl = document.getElementById("refreshCandidates");
-    const trainRefreshEl = document.getElementById("trainRefresh");
-    const refreshCandidatesStatusEl = document.getElementById("refreshCandidatesStatus");
-    const summaryEl = document.getElementById("summary");
-    const pageSizeEl = document.getElementById("pageSize");
-    const prevPageEl = document.getElementById("prevPage");
-    const nextPageEl = document.getElementById("nextPage");
-    const pageInfoEl = document.getElementById("pageInfo");
-    let offset = 0;
-    let total = 0;
-    let activeAudio = null;
-    let activeView = "library";
-    const viewOffsets = {{ library: 0, candidates: 0 }};
-    let loadSequence = 0;
-    document.getElementById("load").addEventListener("click", () => loadActive({{ reset: true }}));
-    libraryTabEl.addEventListener("click", () => switchView("library"));
-    candidatesTabEl.addEventListener("click", () => switchView("candidates"));
-    document.getElementById("chooseSource").addEventListener("click", () => chooseSource().catch(console.error));
-    document.getElementById("loadSource").addEventListener("click", () => switchSource(sourcePathEl.value).catch(console.error));
-    sourcePathEl.addEventListener("keydown", event => {{ if (event.key === "Enter") switchSource(sourcePathEl.value).catch(console.error); }});
-    queryEl.addEventListener("keydown", event => {{ if (event.key === "Enter") loadActive({{ reset: true }}); }});
-    syncopatedEl.addEventListener("change", () => loadActive({{ reset: true }}));
-    labelEl.addEventListener("change", () => loadActive({{ reset: true }}));
-    candidatePredictedEl.addEventListener("change", () => loadActive({{ reset: true }}));
-    candidateMinBrokenEl.addEventListener("change", () => loadActive({{ reset: true }}));
-    refreshCandidatesEl.addEventListener("click", () => refreshCandidates().catch(console.error));
-    trainRefreshEl.addEventListener("click", () => trainRefresh().catch(console.error));
-    pageSizeEl.addEventListener("change", () => loadActive({{ reset: true }}));
-    prevPageEl.addEventListener("click", () => {{
-      offset = Math.max(0, offset - pageLimit());
-      loadActive();
-    }});
-    nextPageEl.addEventListener("click", () => {{
-      offset = Math.min(Math.max(0, total - 1), offset + pageLimit());
-      loadActive();
-    }});
-
-    async function switchView(view) {{
-      viewOffsets[activeView] = offset;
-      activeView = view;
-      offset = viewOffsets[view] || 0;
-      libraryTabEl.classList.toggle("active", view === "library");
-      candidatesTabEl.classList.toggle("active", view === "candidates");
-      candidateFiltersEl.hidden = view !== "candidates";
-      await loadActive();
-    }}
-
-    async function loadActive(options = {{}}) {{
-      if (activeView === "candidates") return loadCandidates(options);
-      return loadTracks(options);
-    }}
-
-    async function loadSourceState() {{
-      const data = await fetch("/api/source/current").then(r => r.json());
-      applySourceState(data);
-    }}
-
-    async function chooseSource() {{
-      clearSourceError();
-      sourceStatusEl.textContent = "opening picker...";
-      const response = await fetch("/api/source/dialog", {{ method: "POST", headers: {{ "Content-Type": "application/json" }}, body: JSON.stringify({{}}) }});
-      const data = await parseJsonResponse(response);
-      sourcePathEl.value = data.path || sourcePathEl.value || "";
-      sourceStatusEl.textContent = data.path ? "path selected" : "no source database";
-      sourceStatusEl.classList.remove("error");
-    }}
-
-    async function switchSource(path) {{
-      clearSourceError();
-      sourceStatusEl.textContent = "loading...";
-      const response = await fetch("/api/source/switch", {{
-        method: "POST",
-        headers: {{ "Content-Type": "application/json" }},
-        body: JSON.stringify({{ path }})
-      }});
-      const data = await parseJsonResponse(response);
-      applySourceState(data);
-      await loadActive({{ reset: true }});
-    }}
-
-    function applySourceState(data) {{
-      sourcePathEl.value = data.path || sourcePathEl.value || "";
-      sourceStatusEl.textContent = data.selected ? "loaded read-only" : "no source database";
-      sourceStatusEl.classList.remove("error");
-    }}
-
-    function clearSourceError() {{
-      sourceStatusEl.classList.remove("error");
-    }}
-
-    async function parseJsonResponse(response) {{
-      const data = await response.json();
-      if (!response.ok) {{
-        sourceStatusEl.textContent = data.detail || response.statusText;
-        sourceStatusEl.classList.add("error");
-        throw new Error(data.detail || response.statusText);
-      }}
-      return data;
-    }}
-
-    async function loadSummary(sequence = loadSequence) {{
-      const data = await fetch("/api/summary").then(r => r.json());
-      if (sequence !== loadSequence) return;
-      summaryEl.textContent = `${{data.tracks}} tracks | MAEST ${{data.maest}} | MERT ${{data.mert}} – Labels: ${{formatLabelCounts(data.labels)}}`;
-    }}
-
-    function formatLabelCounts(labels) {{
-      const counts = labels || {{}};
-      return [
-        `broken ${{counts.broken || 0}}`,
-        `straight ${{counts.straight || 0}}`,
-        `ambiguous ${{counts.ambiguous || 0}}`
-      ].join(" · ");
-    }}
-
-    async function loadTracks(options = {{}}) {{
-      const sequence = ++loadSequence;
-      if (options.reset) offset = 0;
-      viewOffsets.library = offset;
-      const limit = pageLimit();
-      const params = new URLSearchParams({{
-        q: queryEl.value,
-        syncopated: syncopatedEl.value,
-        label: labelEl.value,
-        limit: String(limit),
-        offset: String(offset)
-      }});
-      const data = await fetch(`/api/tracks?${{params}}`).then(r => r.json());
-      if (sequence !== loadSequence || activeView !== "library") return;
-      total = data.total;
-      offset = data.offset;
-      viewOffsets.library = offset;
-      tracksEl.innerHTML = "";
-      data.items.forEach((track, index) => {{
-        track.rowNumber = data.offset + index + 1;
-        tracksEl.appendChild(renderTrack(track));
-      }});
-      updatePager(data);
-      await loadSummary(sequence);
-      await loadTrainingReadiness();
-    }}
-
-    async function loadCandidates(options = {{}}) {{
-      const sequence = ++loadSequence;
-      if (options.reset) offset = 0;
-      viewOffsets.candidates = offset;
-      const limit = pageLimit();
-      const params = new URLSearchParams({{
-        q: queryEl.value,
-        syncopated: syncopatedEl.value,
-        label: labelEl.value,
-        predicted: candidatePredictedEl.value,
-        probability_focus: candidateMinBrokenEl.value,
-        limit: String(limit),
-        offset: String(offset)
-      }});
-      const data = await fetch(`/api/predictions?${{params}}`).then(r => r.json());
-      if (sequence !== loadSequence || activeView !== "candidates") return;
-      total = data.total;
-      offset = data.offset;
-      viewOffsets.candidates = offset;
-      tracksEl.innerHTML = "";
-      data.items.forEach((track, index) => {{
-        track.rowNumber = data.offset + index + 1;
-        tracksEl.appendChild(renderCandidate(track));
-      }});
-      updatePager(data);
-      await loadSummary(sequence);
-      await loadTrainingReadiness();
-    }}
-
-    async function refreshCandidates() {{
-      refreshCandidatesEl.disabled = true;
-      refreshCandidatesStatusEl.textContent = "refreshing...";
-      try {{
-        const response = await fetch("/api/predictions/refresh", {{ method: "POST" }});
-        const data = await parseRefreshResponse(response);
-        refreshCandidatesStatusEl.textContent = `updated ${{data.predicted}} · skipped ${{data.skipped}} · removed old ${{data.deleted_old_predictions}}`;
-        await loadCandidates({{ reset: true }});
-      }} finally {{
-        refreshCandidatesEl.disabled = false;
-      }}
-    }}
-
-    async function trainRefresh() {{
-      if (trainRefreshEl.disabled) return;
-      if (!window.confirm("Train a new Break Energy model from current broken/straight labels, then refresh candidates?")) return;
-      trainRefreshEl.disabled = true;
-      refreshCandidatesEl.disabled = true;
-      refreshCandidatesStatusEl.textContent = "training...";
-      try {{
-        const response = await fetch("/api/training/train-refresh", {{ method: "POST" }});
-        const data = await parseRefreshResponse(response);
-        refreshCandidatesStatusEl.textContent = `trained ${{data.training_counts.broken}}/${{data.training_counts.straight}} · updated ${{data.predicted}} · skipped ${{data.skipped}}`;
-        await loadCandidates({{ reset: true }});
-      }} finally {{
-        refreshCandidatesEl.disabled = false;
-        await loadTrainingReadiness();
-      }}
-    }}
-
-    async function loadTrainingReadiness() {{
-      const response = await fetch("/api/training/readiness");
-      const data = await response.json();
-      if (!response.ok) {{
-        trainRefreshEl.disabled = true;
-        return;
-      }}
-      trainRefreshEl.disabled = !data.ready;
-      trainRefreshEl.title = data.ready
-        ? "Train a new model, then refresh candidates"
-        : `Need +${{data.required_added.broken}} broken and +${{data.required_added.straight}} straight since last train. Added: broken ${{data.added.broken}}, straight ${{data.added.straight}}.`;
-    }}
-
-    async function parseRefreshResponse(response) {{
-      const data = await response.json();
-      if (!response.ok) {{
-        refreshCandidatesStatusEl.textContent = data.detail || response.statusText;
-        throw new Error(data.detail || response.statusText);
-      }}
-      return data;
-    }}
-
-    function pageLimit() {{
-      return Number(pageSizeEl.value || 100);
-    }}
-
-    function updatePager(data) {{
-      const shown = data.items.length;
-      const first = shown ? data.offset + 1 : 0;
-      const last = shown ? data.offset + shown : 0;
-      pageInfoEl.textContent = `${{first}}-${{last}} / ${{data.total}}`;
-      prevPageEl.disabled = data.offset <= 0;
-      nextPageEl.disabled = data.offset + data.limit >= data.total;
-    }}
-
-    function renderTrack(track) {{
-      const row = document.createElement("section");
-      row.className = "track";
-      row.tabIndex = 0;
-      row.innerHTML = `
-        <div>
-          <div class="track-main">
-            <strong><span class="track-number">#${{track.rowNumber}}</span>${{escapeHtml(displayTrackTitle(track))}}</strong>
-          <div class="meta track-path">${{escapeHtml(track.path)}}</div>
-          <div class="meta feature-line">SONARA ${{mark(track.feature_status.sonara)}} · MERT ${{mark(track.feature_status.mert)}} · MAEST ${{mark(track.feature_status.maest)}} · label <b>${{track.label || "none"}}</b></div>
-          </div>
-          <div class="rhythm-media-block">
-            <div class="genres-line"><span class="genres">${{(track.genres || []).map(escapeHtml).join(" · ")}}</span>${{badgeRow(track)}}</div>
-            <audio controls preload="none" src="/media/${{track.id}}"></audio>
-          </div>
-        </div>
-        <div class="actions">
-          <button data-label="broken">Broken</button>
-          <button data-label="straight">Straight</button>
-          <button data-label="ambiguous">Ambiguous</button>
-          <button data-label="">Clear</button>
-        </div>`;
-      row.querySelectorAll("button").forEach(button => {{
-        button.addEventListener("click", () => setLabel(track.id, button.dataset.label));
-        if ((button.dataset.label || null) === track.label) {{
-          button.classList.add("active");
-        }}
-      }});
-      row.addEventListener("keydown", event => {{
-        const keys = {{ "1": "broken", "2": "straight", "3": "ambiguous", "0": "" }};
-        if (keys[event.key] !== undefined) setLabel(track.id, keys[event.key]);
-      }});
-      wireAudioPreview(row.querySelector("audio"));
-      return row;
-    }}
-
-    function renderCandidate(track) {{
-      const row = document.createElement("section");
-      row.className = "track";
-      row.tabIndex = 0;
-      row.innerHTML = `
-        <div>
-          <div class="track-main">
-            <strong><span class="track-number">#${{track.rowNumber}}</span>${{escapeHtml(displayTrackTitle(track))}}</strong>
-            <div class="meta track-path">${{escapeHtml(track.path)}}</div>
-            <div class="meta feature-line">SONARA ${{mark(track.feature_status.sonara)}} · MERT ${{mark(track.feature_status.mert)}} · MAEST ${{mark(track.feature_status.maest)}} · label <b>${{track.label || "none"}}</b></div>
-            <div class="meta feature-line">P(broken) ${{formatProbability(track.broken_probability)}} · P(straight) ${{formatProbability(track.straight_probability)}} · predicted <b>${{escapeHtml(track.predicted_label)}}</b> · ${{escapeHtml(track.feature_set)}}</div>
-          </div>
-          <div class="rhythm-media-block">
-            <div class="genres-line"><span class="genres">${{(track.genres || []).map(escapeHtml).join(" · ")}}</span>${{badgeRow(track)}}</div>
-            <audio controls preload="none" src="/media/${{track.id}}"></audio>
-          </div>
-        </div>
-        <div class="actions">
-          <button data-label="broken">Broken</button>
-          <button data-label="straight">Straight</button>
-          <button data-label="ambiguous">Ambiguous</button>
-          <button data-label="">Clear</button>
-        </div>`;
-      row.querySelectorAll("button").forEach(button => {{
-        button.addEventListener("click", () => setLabel(track.id, button.dataset.label));
-        if ((button.dataset.label || null) === track.label) {{
-          button.classList.add("active");
-        }}
-      }});
-      row.addEventListener("keydown", event => {{
-        const keys = {{ "1": "broken", "2": "straight", "3": "ambiguous", "0": "" }};
-        if (keys[event.key] !== undefined) setLabel(track.id, keys[event.key]);
-      }});
-      wireAudioPreview(row.querySelector("audio"));
-      return row;
-    }}
-
-    function wireAudioPreview(audio) {{
-      if (!audio) return;
-      audio.addEventListener("play", () => {{
-        if (activeAudio && activeAudio !== audio) {{
-          activeAudio.pause();
-          activeAudio.currentTime = 0;
-        }}
-        activeAudio = audio;
-      }});
-      audio.addEventListener("ended", () => {{
-        if (activeAudio === audio) activeAudio = null;
-      }});
-      audio.addEventListener("pause", () => {{
-        if (activeAudio === audio && audio.currentTime === 0) activeAudio = null;
-      }});
-    }}
-
-    async function setLabel(trackId, label) {{
-      await fetch(`/api/tracks/${{trackId}}/label`, {{
-        method: "POST",
-        headers: {{ "Content-Type": "application/json" }},
-        body: JSON.stringify({{ label }})
-      }});
-      await loadActive();
-    }}
-
-    function formatProbability(value) {{ return Number(value || 0).toFixed(3); }}
-    function mark(value) {{ return value ? "yes" : "no"; }}
-    function badgeRow(track) {{
-      const badges = [syncopatedBadge(track), rhythmLabelBadge(track)].filter(Boolean);
-      return badges.length ? `<div class="badge-row">${{badges.join('<span class="badge-separator">·</span>')}}</div>` : "";
-    }}
-    function syncopatedBadge(track) {{ return track.maest_syncopated_rhythm === true ? '<span class="syncopated-badge">syncopated rhythm</span>' : ""; }}
-    function rhythmLabelBadge(track) {{ return track.label ? `<span class="rhythm-label-badge ${{escapeHtml(track.label)}} label-${{escapeHtml(track.label)}}">${{escapeHtml(track.label)}}</span>` : ""; }}
-    function displayTrackTitle(track) {{
-      const title = track.title || track.path;
-      return track.artist ? `${{track.artist}} - ${{title}}` : title;
-    }}
-    function escapeHtml(value) {{
-      return String(value).replace(/[&<>"']/g, ch => ({{ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }}[ch]));
-    }}
-    loadSourceState().then(() => loadActive({{ reset: true }}));
-  </script>
-</body>
-</html>"""
+    return (STATIC_DIR / "index.html").read_text(encoding="utf-8")

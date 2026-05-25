@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script src="/static/app.js" defer></script>
+  <title>Rhythm Lab</title>
+</head>
+<body>
+  <header class="app-shell">
+    <section class="top-bar">
+      <div>
+        <strong>Rhythm Lab</strong>
+        <span class="classifier-profile classifier-gradient" id="activeProfileName">Break Energy</span>
+      </div>
+      <div class="profile-controls">
+        <select id="profileSelect" title="Active classifier profile"></select>
+        <button id="newProfile" type="button">New profile</button>
+        <button id="archiveProfile" type="button">Archive</button>
+      </div>
+    </section>
+
+    <section class="source-row">
+      <input id="sourcePath" class="source-path" placeholder="C:\db\abstracted.sqlite" title="Existing dj-track-similarity SQLite database. Opened read-only." />
+      <button id="chooseSource" type="button" title="Choose existing SQLite database">Browse</button>
+      <button id="loadSource" type="button" title="Load selected source database">Load database</button>
+      <span id="sourceStatus" class="source-status"></span>
+    </section>
+
+    <nav class="tabs">
+      <button id="libraryTab" type="button" class="active">Library</button>
+      <button id="candidatesTab" type="button">Candidates</button>
+      <button id="trainingTab" type="button">Training</button>
+      <button id="settingsTab" type="button">Profile Settings</button>
+      <button id="refreshCandidates" type="button" class="refresh-candidates" title="Recompute candidates from the latest combined model">Refresh candidates</button>
+      <button id="trainRefresh" type="button" class="train-refresh" title="Train a new model when enough new labels are available, then refresh candidates">Train + refresh</button>
+      <span id="refreshCandidatesStatus" class="meta"></span>
+    </nav>
+
+    <section id="commonFilters" class="filters">
+      <input id="query" placeholder="search path/title/artist" />
+      <select id="syncopated">
+        <option value="all">all rhythm signals</option>
+        <option value="yes">syncopated rhythm</option>
+        <option value="no">no syncopated rhythm</option>
+      </select>
+      <select id="label"></select>
+    </section>
+
+    <section id="candidateFilters" class="filters" hidden>
+      <select id="candidatePredicted"></select>
+      <select id="candidateMinBroken">
+        <option value="positive_highest" selected>highest positive probability</option>
+        <option value="negative_highest">highest negative probability</option>
+        <option value="balanced">uncertain / balanced</option>
+      </select>
+      <input id="candidateMinPositive" type="number" min="0" max="1" step="0.05" value="0" title="Minimum positive probability" />
+    </section>
+
+    <section class="pager">
+      <button id="load" type="button">Load</button>
+      <button id="prevPage" type="button">Prev</button>
+      <select id="pageSize">
+        <option value="50">50</option>
+        <option value="100" selected>100</option>
+        <option value="200">200</option>
+        <option value="500">500</option>
+      </select>
+      <button id="nextPage" type="button">Next</button>
+      <span id="pageInfo" class="meta"></span>
+      <span id="summary"></span>
+    </section>
+  </header>
+
+  <main>
+    <section id="guidancePanel" class="guidance-panel"></section>
+    <section id="settingsPanel" class="settings-panel" hidden>
+      <div class="settings-grid">
+        <form id="profileForm" class="tool-panel">
+          <h2>Profile</h2>
+          <label>Name <input id="profileNameInput" /></label>
+          <label>Description <textarea id="profileDescriptionInput"></textarea></label>
+          <label>Artifact folder <input id="profileArtifactDirInput" /></label>
+          <label>Artifact prefix <input id="profileArtifactPrefixInput" /></label>
+          <button type="submit">Save profile</button>
+        </form>
+        <form id="renameLabelForm" class="tool-panel">
+          <h2>Rename label key</h2>
+          <label>Current label <select id="renameLabelSelect"></select></label>
+          <label>New key <input id="renameLabelKeyInput" placeholder="lead_vocal" /></label>
+          <label>Display name <input id="renameLabelNameInput" placeholder="Lead Vocal" /></label>
+          <button type="submit">Rename label</button>
+        </form>
+      </div>
+    </section>
+    <section id="trainingPanel" class="training-panel" hidden></section>
+    <section id="tracks"></section>
+  </main>
+
+  <dialog id="profileDialog">
+    <form id="newProfileForm" method="dialog" class="dialog-form">
+      <h2>New classifier profile</h2>
+      <label>Key <input id="newProfileKey" placeholder="vocal_presence" required /></label>
+      <label>Name <input id="newProfileName" placeholder="Vocal Presence" required /></label>
+      <label>Description <textarea id="newProfileDescription" placeholder="What this classifier should detect"></textarea></label>
+      <label>Artifact folder <input id="newProfileArtifactDir" placeholder="tools/rhythm-lab/artifacts/vocal-presence" /></label>
+      <div class="label-grid">
+        <label>Positive key <input id="newPositiveKey" placeholder="vocal" required /></label>
+        <label>Positive name <input id="newPositiveName" placeholder="Vocal" required /></label>
+        <label>Negative key <input id="newNegativeKey" placeholder="instrumental" required /></label>
+        <label>Negative name <input id="newNegativeName" placeholder="Instrumental" required /></label>
+        <label>Review key <input id="newReviewKey" placeholder="uncertain" /></label>
+        <label>Review name <input id="newReviewName" placeholder="Uncertain" /></label>
+      </div>
+      <menu>
+        <button id="cancelProfileButton" type="button" value="cancel">Cancel</button>
+        <button id="createProfileButton" type="submit" value="default">Create</button>
+      </menu>
+    </form>
+  </dialog>
+</body>
+</html>

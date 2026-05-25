@@ -6,15 +6,22 @@ from pathlib import Path
 import numpy as np
 
 from .features import build_unlabeled_feature_matrix
-from .lab_db import RhythmLabDatabase
+from .lab_db import BREAK_ENERGY_CLASSIFIER_KEY, RhythmLabDatabase
 from .source_db import SourceDatabase
 
 
-def apply_model_to_lab(source_db_path: str | Path, labels_db_path: str | Path, artifact_path: str | Path) -> dict[str, int | str]:
+def apply_model_to_lab(
+    source_db_path: str | Path,
+    labels_db_path: str | Path,
+    artifact_path: str | Path,
+    *,
+    classifier_key: str | None = None,
+) -> dict[str, int | str]:
     import joblib
 
     artifact = Path(artifact_path)
     payload = joblib.load(artifact)
+    resolved_classifier_key = str(classifier_key or payload.get("classifier_key") or BREAK_ENERGY_CLASSIFIER_KEY)
     model = payload["model"]
     feature_set = str(payload["feature_set"])
     label_order = [str(label) for label in payload.get("label_order", getattr(model, "classes_", []))]
@@ -24,7 +31,7 @@ def apply_model_to_lab(source_db_path: str | Path, labels_db_path: str | Path, a
 
     predictions = model.predict(features.matrix)
     probabilities = _predict_probabilities(model, features.matrix, label_order)
-    labels_db = RhythmLabDatabase(labels_db_path)
+    labels_db = RhythmLabDatabase(labels_db_path, classifier_key=resolved_classifier_key)
     source = SourceDatabase(source_db_path)
     for index, track_id in enumerate(features.track_ids):
         track = source.get_track(track_id)
@@ -46,8 +53,13 @@ def apply_model_to_lab(source_db_path: str | Path, labels_db_path: str | Path, a
     }
 
 
-def export_predictions_csv(db_path: str | Path, output_path: str | Path) -> Path:
-    lab = RhythmLabDatabase(db_path)
+def export_predictions_csv(
+    db_path: str | Path,
+    output_path: str | Path,
+    *,
+    classifier_key: str = BREAK_ENERGY_CLASSIFIER_KEY,
+) -> Path:
+    lab = RhythmLabDatabase(db_path, classifier_key=classifier_key)
     rows = sorted(
         latest_predictions_by_track(lab.predictions()),
         key=lambda row: (

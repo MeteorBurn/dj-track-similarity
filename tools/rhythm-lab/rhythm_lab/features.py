@@ -51,9 +51,15 @@ class FeatureMatrix:
     skipped_track_ids: list[int]
 
 
-def build_labeled_feature_matrix(source_db_path: str | Path, labels_db_path: str | Path, feature_set: str) -> FeatureMatrix:
+def build_labeled_feature_matrix(
+    source_db_path: str | Path,
+    labels_db_path: str | Path,
+    feature_set: str,
+    *,
+    classifier_key: str = "break_energy",
+) -> FeatureMatrix:
     source = SourceDatabase(source_db_path)
-    labels = RhythmLabDatabase(labels_db_path)
+    labels = RhythmLabDatabase(labels_db_path, classifier_key=classifier_key)
     labels_by_track = labels.training_labels()
     return build_feature_matrix(source, feature_set, labels_by_track=labels_by_track)
 

@@ -742,6 +742,45 @@ def test_web_app_serves_static_profile_ui_without_hardcoded_label_buttons(tmp_pa
     assert "classifier-gradient" in styles
 
 
+def test_profile_dialog_cancel_closes_without_form_validation(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
+    html = client.get("/").text
+    script = client.get("/static/app.js").text
+
+    assert '<button id="cancelProfileButton" type="button" value="cancel">Cancel</button>' in html
+    assert '<button id="createProfileButton" type="submit" value="default">Create</button>' in html
+    assert 'document.getElementById("cancelProfileButton").addEventListener("click", () => profileDialogEl.close());' in script
+
+
+def test_static_ui_non_submit_buttons_have_explicit_button_type(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
+    html = client.get("/").text
+    script = client.get("/static/app.js").text
+
+    for button_id in (
+        "newProfile",
+        "archiveProfile",
+        "chooseSource",
+        "loadSource",
+        "libraryTab",
+        "candidatesTab",
+        "trainingTab",
+        "settingsTab",
+        "refreshCandidates",
+        "trainRefresh",
+        "load",
+        "prevPage",
+        "nextPage",
+    ):
+        assert f'<button id="{button_id}" type="button"' in html
+    assert '<button type="button" class="${active}" data-label="${escapeHtml(label.key)}">' in script
+    assert 'buttons.push(\'<button type="button" data-label="">Clear</button>\');' in script
+
+
 def test_web_app_serves_favicon(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
@@ -792,7 +831,7 @@ def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path
     assert 'candidateFiltersEl.hidden = view !== "candidates";' in script
     assert 'id="refreshCandidates"' in html
     assert 'id="trainRefresh"' in html
-    assert '<button id="trainRefresh" class="train-refresh"' in html
+    assert '<button id="trainRefresh" type="button" class="train-refresh"' in html
     assert 'fetch(`/api/profiles/${activeProfile.classifier_key}/predictions/refresh`, { method: "POST" })' in script
     assert 'fetch(`/api/profiles/${activeProfile.classifier_key}/training/readiness`)' in script
     assert 'fetch(`/api/profiles/${activeProfile.classifier_key}/training/train-refresh`, { method: "POST" })' in script

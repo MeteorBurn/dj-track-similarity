@@ -42,6 +42,7 @@ document.getElementById("chooseSource").addEventListener("click", () => chooseSo
 document.getElementById("loadSource").addEventListener("click", () => switchSource(sourcePathEl.value).catch(showError));
 document.getElementById("newProfile").addEventListener("click", () => profileDialogEl.showModal());
 document.getElementById("archiveProfile").addEventListener("click", () => archiveActiveProfile().catch(showError));
+document.getElementById("cancelProfileButton").addEventListener("click", () => profileDialogEl.close());
 document.getElementById("newProfileForm").addEventListener("submit", event => createProfile(event).catch(showError));
 document.getElementById("profileForm").addEventListener("submit", event => updateProfile(event).catch(showError));
 document.getElementById("renameLabelForm").addEventListener("submit", event => renameLabel(event).catch(showError));
@@ -393,9 +394,9 @@ function trackMarkup(track, predictionLine) {
 function renderLabelButtons(track) {
   const buttons = activeProfile.labels.map(label => {
     const active = track.label === label.key ? " active" : "";
-    return `<button class="${active}" data-label="${escapeHtml(label.key)}">${escapeHtml(label.name)}</button>`;
+    return `<button type="button" class="${active}" data-label="${escapeHtml(label.key)}">${escapeHtml(label.name)}</button>`;
   });
-  buttons.push('<button data-label="">Clear</button>');
+  buttons.push('<button type="button" data-label="">Clear</button>');
   return buttons.join("");
 }
 

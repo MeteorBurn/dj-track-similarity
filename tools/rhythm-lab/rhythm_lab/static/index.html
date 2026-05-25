@@ -17,25 +17,25 @@
       </div>
       <div class="profile-controls">
         <select id="profileSelect" title="Active classifier profile"></select>
-        <button id="newProfile">New profile</button>
-        <button id="archiveProfile">Archive</button>
+        <button id="newProfile" type="button">New profile</button>
+        <button id="archiveProfile" type="button">Archive</button>
       </div>
     </section>
 
     <section class="source-row">
       <input id="sourcePath" class="source-path" placeholder="C:\db\abstracted.sqlite" title="Existing dj-track-similarity SQLite database. Opened read-only." />
-      <button id="chooseSource" title="Choose existing SQLite database">Browse</button>
-      <button id="loadSource" title="Load selected source database">Load database</button>
+      <button id="chooseSource" type="button" title="Choose existing SQLite database">Browse</button>
+      <button id="loadSource" type="button" title="Load selected source database">Load database</button>
       <span id="sourceStatus" class="source-status"></span>
     </section>
 
     <nav class="tabs">
-      <button id="libraryTab" class="active">Library</button>
-      <button id="candidatesTab">Candidates</button>
-      <button id="trainingTab">Training</button>
-      <button id="settingsTab">Profile Settings</button>
-      <button id="refreshCandidates" class="refresh-candidates" title="Recompute candidates from the latest combined model">Refresh candidates</button>
-      <button id="trainRefresh" class="train-refresh" title="Train a new model when enough new labels are available, then refresh candidates">Train + refresh</button>
+      <button id="libraryTab" type="button" class="active">Library</button>
+      <button id="candidatesTab" type="button">Candidates</button>
+      <button id="trainingTab" type="button">Training</button>
+      <button id="settingsTab" type="button">Profile Settings</button>
+      <button id="refreshCandidates" type="button" class="refresh-candidates" title="Recompute candidates from the latest combined model">Refresh candidates</button>
+      <button id="trainRefresh" type="button" class="train-refresh" title="Train a new model when enough new labels are available, then refresh candidates">Train + refresh</button>
       <span id="refreshCandidatesStatus" class="meta"></span>
     </nav>
 
@@ -60,15 +60,15 @@
     </section>
 
     <section class="pager">
-      <button id="load">Load</button>
-      <button id="prevPage">Prev</button>
+      <button id="load" type="button">Load</button>
+      <button id="prevPage" type="button">Prev</button>
       <select id="pageSize">
         <option value="50">50</option>
         <option value="100" selected>100</option>
         <option value="200">200</option>
         <option value="500">500</option>
       </select>
-      <button id="nextPage">Next</button>
+      <button id="nextPage" type="button">Next</button>
       <span id="pageInfo" class="meta"></span>
       <span id="summary"></span>
     </section>
@@ -115,8 +115,8 @@
         <label>Review name <input id="newReviewName" placeholder="Uncertain" /></label>
       </div>
       <menu>
-        <button value="cancel">Cancel</button>
-        <button id="createProfileButton" value="default">Create</button>
+        <button id="cancelProfileButton" type="button" value="cancel">Cancel</button>
+        <button id="createProfileButton" type="submit" value="default">Create</button>
       </menu>
     </form>
   </dialog>

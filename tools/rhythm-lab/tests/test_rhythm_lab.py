@@ -152,6 +152,107 @@ def test_profile_creation_archive_and_current_track_label_replacement(tmp_path: 
     assert "vocal_presence" in [profile.classifier_key for profile in labels.list_profiles(include_archived=True)]
 
 
+def test_profile_names_are_unique_case_insensitive_for_create_and_update(tmp_path: Path) -> None:
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    labels.create_profile(
+        classifier_key="vocal_presence",
+        name="Vocal Presence",
+        description="Detect obvious vocal parts.",
+        artifact_dir=tmp_path / "artifacts" / "vocal-presence",
+        labels=[
+            {"key": "vocal", "name": "Vocal", "role": "positive"},
+            {"key": "instrumental", "name": "Instrumental", "role": "negative"},
+        ],
+    )
+
+    try:
+        labels.create_profile(
+            classifier_key="duplicate_vocal",
+            name="vocal presence",
+            description="Duplicate display name.",
+            artifact_dir=tmp_path / "artifacts" / "duplicate-vocal",
+            labels=[
+                {"key": "yes", "name": "Yes", "role": "positive"},
+                {"key": "no", "name": "No", "role": "negative"},
+            ],
+        )
+    except ValueError as error:
+        assert "profile name already exists" in str(error).lower()
+    else:  # pragma: no cover - defensive guard.
+        raise AssertionError("duplicate profile name was accepted")
+
+    try:
+        labels.update_profile("break_energy", name="VOCAL PRESENCE")
+    except ValueError as error:
+        assert "profile name already exists" in str(error).lower()
+    else:  # pragma: no cover - defensive guard.
+        raise AssertionError("duplicate profile name update was accepted")
+
+
+def test_delete_profile_by_name_or_key_removes_profile_scoped_data(tmp_path: Path) -> None:
+    source_path = tmp_path / "source.sqlite"
+    source = LibraryDatabase(source_path)
+    track_id = _track(source, tmp_path, "vocal.wav", title="Vocal")
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    labels.create_profile(
+        classifier_key="vocal_presence",
+        name="Vocal Presence",
+        description="Detect obvious vocal parts.",
+        artifact_dir=tmp_path / "artifacts" / "vocal-presence",
+        labels=[
+            {"key": "vocal", "name": "Vocal", "role": "positive"},
+            {"key": "instrumental", "name": "Instrumental", "role": "negative"},
+        ],
+    )
+    scoped = RhythmLabDatabase(labels.path, classifier_key="vocal_presence")
+    scoped.set_label(source.get_track(track_id), "vocal")
+    scoped.set_like(track_id, True)
+    scoped.save_prediction(
+        source.get_track(track_id),
+        feature_set="combined",
+        model_artifact="model.joblib",
+        label="vocal",
+        confidence=0.8,
+        probabilities={"vocal": 0.8, "instrumental": 0.2},
+    )
+    scoped.record_training_checkpoint({"vocal": 1, "instrumental": 0}, model_artifact="model.joblib")
+
+    deleted = labels.delete_profile(name="Vocal Presence")
+
+    assert deleted.classifier_key == "vocal_presence"
+    try:
+        labels.get_profile("vocal_presence")
+    except KeyError:
+        pass
+    else:  # pragma: no cover - defensive guard.
+        raise AssertionError("deleted profile still exists")
+    with labels.connect() as connection:
+        for table in (
+            "classifier_profile_labels",
+            "classifier_labels",
+            "classifier_predictions",
+            "classifier_training_checkpoints",
+            "classifier_track_likes",
+        ):
+            count = connection.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE classifier_key = 'vocal_presence'"
+            ).fetchone()[0]
+            assert count == 0, table
+
+    labels.create_profile(
+        classifier_key="texture",
+        name="Texture",
+        description="Texture test.",
+        artifact_dir=tmp_path / "artifacts" / "texture",
+        labels=[
+            {"key": "rough", "name": "Rough", "role": "positive"},
+            {"key": "smooth", "name": "Smooth", "role": "negative"},
+        ],
+    )
+
+    assert labels.delete_profile(classifier_key="texture").name == "Texture"
+
+
 def test_profile_training_min_added_can_be_created_and_updated(tmp_path: Path) -> None:
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
     profile = labels.create_profile(
@@ -1793,6 +1894,72 @@ def test_cli_train_accepts_separate_source_and_labels_databases(tmp_path: Path) 
     assert result.returncode == 0, result.stderr
     assert payload["sonara"]["status"] == "trained"
     assert payload["mert"]["status"] == "skipped"
+
+
+def test_cli_delete_profile_accepts_name_or_key_with_confirmation(tmp_path: Path) -> None:
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    labels.create_profile(
+        classifier_key="vocal_presence",
+        name="Vocal Presence",
+        description="Detect obvious vocal parts.",
+        artifact_dir=tmp_path / "artifacts" / "vocal-presence",
+        labels=[
+            {"key": "vocal", "name": "Vocal", "role": "positive"},
+            {"key": "instrumental", "name": "Instrumental", "role": "negative"},
+        ],
+    )
+    labels.create_profile(
+        classifier_key="texture",
+        name="Texture",
+        description="Texture test.",
+        artifact_dir=tmp_path / "artifacts" / "texture",
+        labels=[
+            {"key": "rough", "name": "Rough", "role": "positive"},
+            {"key": "smooth", "name": "Smooth", "role": "negative"},
+        ],
+    )
+
+    by_name = subprocess.run(
+        [
+            sys.executable,
+            str(LAB_ROOT / "rhythm_lab_cli.py"),
+            "delete-profile",
+            "--labels",
+            str(labels.path),
+            "--name",
+            "Vocal Presence",
+            "--confirm",
+            "Vocal Presence",
+        ],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    assert by_name.returncode == 0, by_name.stderr
+    assert "deleted=vocal_presence" in by_name.stdout
+
+    by_key = subprocess.run(
+        [
+            sys.executable,
+            str(LAB_ROOT / "rhythm_lab_cli.py"),
+            "delete-profile",
+            "--labels",
+            str(labels.path),
+            "--profile",
+            "texture",
+            "--confirm",
+            "texture",
+        ],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    assert by_key.returncode == 0, by_key.stderr
+    assert "deleted=texture" in by_key.stdout
 
 
 def _track(db: LibraryDatabase, tmp_path: Path, name: str, *, title: str) -> int:

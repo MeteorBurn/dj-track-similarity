@@ -47,6 +47,14 @@ def build_parser() -> argparse.ArgumentParser:
     promote_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
     promote_parser.set_defaults(func=_promote_profile)
 
+    delete_parser = subcommands.add_parser("delete-profile", help="Permanently delete one classifier profile and its lab data.")
+    delete_target = delete_parser.add_mutually_exclusive_group(required=True)
+    delete_target.add_argument("--profile", default=None, help="Delete by classifier_key.")
+    delete_target.add_argument("--name", default=None, help="Delete by unique profile name.")
+    delete_parser.add_argument("--confirm", required=True, help="Must exactly match the profile key or name being deleted.")
+    delete_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
+    delete_parser.set_defaults(func=_delete_profile)
+
     serve_parser = subcommands.add_parser("serve", help="Start the minimal labeling web app.")
     serve_parser.add_argument("--source", type=Path, default=None)
     serve_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
@@ -121,6 +129,18 @@ def _promote_profile(args: argparse.Namespace) -> None:
     }
     metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
     print(f"model={model_path} metadata={metadata_path} source={artifact}")
+
+
+def _delete_profile(args: argparse.Namespace) -> None:
+    target = args.profile if args.profile is not None else args.name
+    if args.confirm != target:
+        raise SystemExit("Refusing to delete profile: --confirm must exactly match --profile or --name")
+    labels_db = RhythmLabDatabase(args.labels)
+    try:
+        profile = labels_db.delete_profile(classifier_key=args.profile, name=args.name)
+    except (KeyError, ValueError) as error:
+        raise SystemExit(str(error)) from error
+    print(f"deleted={profile.classifier_key} name={profile.name}")
 
 
 def _latest_combined_artifact(artifact_dir: str | Path, artifact_prefix: str) -> Path:

@@ -176,6 +176,9 @@ class RhythmLabDatabase:
                 )
                 _replace_profile_labels(connection, key, label_specs)
             except sqlite3.IntegrityError as error:
+                message = str(error).lower()
+                if "profile_name" in message or "index" in message:
+                    raise ValueError(f"Classifier profile name already exists: {clean_name}") from error
                 raise ValueError(f"Classifier profile already exists or is invalid: {key}") from error
         return self.get_profile(key)
 
@@ -225,10 +228,16 @@ class RhythmLabDatabase:
                 params.append(_validate_training_min_added(training_min_added))
             if assignments:
                 assignments.append("updated_at = CURRENT_TIMESTAMP")
-                connection.execute(
-                    f"UPDATE classifier_profiles SET {', '.join(assignments)} WHERE classifier_key = ?",
-                    (*params, key),
-                )
+                try:
+                    connection.execute(
+                        f"UPDATE classifier_profiles SET {', '.join(assignments)} WHERE classifier_key = ?",
+                        (*params, key),
+                    )
+                except sqlite3.IntegrityError as error:
+                    message = str(error).lower()
+                    if "profile_name" in message or "index" in message:
+                        raise ValueError(f"Classifier profile name already exists: {name.strip() if name else ''}") from error
+                    raise
             if labels is not None:
                 label_specs = _normalize_profile_labels(labels, profile_type=clean_type)
                 existing = _used_label_keys(connection, key)
@@ -249,6 +258,37 @@ class RhythmLabDatabase:
                 )
                 _replace_profile_labels(connection, key, label_specs)
         return self.get_profile(key)
+
+    def delete_profile(
+        self,
+        *,
+        classifier_key: str | None = None,
+        name: str | None = None,
+    ) -> ClassifierProfile:
+        if bool(classifier_key) == bool(name):
+            raise ValueError("Provide exactly one of classifier_key or name")
+        with self.connect() as connection:
+            profile = (
+                _get_profile(connection, _validate_profile_key(classifier_key))
+                if classifier_key is not None
+                else _get_profile_by_name(connection, name or "")
+            )
+            for table in (
+                "classifier_labels",
+                "classifier_predictions",
+                "classifier_training_checkpoints",
+                "classifier_track_likes",
+                "classifier_profile_labels",
+            ):
+                connection.execute(
+                    f"DELETE FROM {table} WHERE classifier_key = ?",
+                    (profile.classifier_key,),
+                )
+            connection.execute(
+                "DELETE FROM classifier_profiles WHERE classifier_key = ?",
+                (profile.classifier_key,),
+            )
+        return profile
 
     def archive_profile(self, classifier_key: str) -> ClassifierProfile:
         key = _validate_profile_key(classifier_key)
@@ -649,6 +689,30 @@ def _ensure_profile_tables(connection: sqlite3.Connection) -> None:
             "ALTER TABLE classifier_profiles ADD COLUMN training_min_added INTEGER NOT NULL DEFAULT 50"
         )
     _recreate_profile_labels_table_if_old_role_check_exists(connection)
+    _ensure_unique_profile_names(connection)
+
+
+def _ensure_unique_profile_names(connection: sqlite3.Connection) -> None:
+    duplicates = connection.execute(
+        """
+        SELECT LOWER(TRIM(name)) AS normalized_name, GROUP_CONCAT(classifier_key, ', ') AS classifier_keys
+        FROM classifier_profiles
+        GROUP BY LOWER(TRIM(name))
+        HAVING COUNT(*) > 1
+        """
+    ).fetchall()
+    if duplicates:
+        details = "; ".join(
+            f"{row['normalized_name']}: {row['classifier_keys']}"
+            for row in duplicates
+        )
+        raise ValueError(f"Duplicate classifier profile names must be resolved before opening Rhythm Lab: {details}")
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_classifier_profiles_profile_name_unique
+        ON classifier_profiles(LOWER(TRIM(name)))
+        """
+    )
 
 
 def _ensure_classifier_tables(connection: sqlite3.Connection) -> None:
@@ -1000,6 +1064,23 @@ def _get_profile(connection: sqlite3.Connection, classifier_key: str) -> Classif
         labels=labels,
         archived_at=row["archived_at"],
     )
+
+
+def _get_profile_by_name(connection: sqlite3.Connection, name: str) -> ClassifierProfile:
+    clean_name = name.strip()
+    if not clean_name:
+        raise ValueError("Classifier profile name is required")
+    row = connection.execute(
+        """
+        SELECT classifier_key
+        FROM classifier_profiles
+        WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))
+        """,
+        (clean_name,),
+    ).fetchone()
+    if row is None:
+        raise KeyError(f"Unknown classifier profile name: {clean_name}")
+    return _get_profile(connection, str(row["classifier_key"]))
 
 
 def _normalize_profile_labels(

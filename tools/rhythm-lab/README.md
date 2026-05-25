@@ -8,7 +8,7 @@ training checkpoints in its own writable SQLite file.
 Rhythm Lab is profile-based. A classifier profile defines:
 
 - a stable `classifier_key`
-- a display name and description
+- a unique display name and description
 - a profile type:
   - `binary`: exactly one positive training label, exactly one negative
     training label, and optional review-only labels that are stored but
@@ -72,6 +72,11 @@ classifier_training_checkpoints
 Rows for different profiles are isolated by `classifier_key`, so labels,
 predictions, and training checkpoints do not mix.
 
+Profile display names are unique case-insensitively inside one lab database.
+For example, `Electronic Mood` and `electronic mood` cannot exist together.
+If an older lab database already contains duplicate profile names, Rhythm Lab
+will refuse to open it until the duplicate names are resolved.
+
 ## Quick Start
 
 Run from the repository root:
@@ -111,6 +116,10 @@ The UI includes:
 - compact label-count badges for the active profile
 - training readiness and guidance cards
 - per-profile train-refresh threshold editing in Profile Settings
+
+Archiving a profile hides it from the normal active profile list but keeps its
+labels, predictions, likes, and training checkpoints in the lab database.
+Permanent deletion is intentionally exposed through the CLI instead of the UI.
 
 Keyboard shortcuts on a focused row use the active profile's label order:
 
@@ -192,6 +201,30 @@ This copies the latest `<artifact-prefix>-combined-*.joblib` artifact to
 the selected profile and artifact payload (`classifier_key`, profile name,
 labels, feature set, and label counts). Those promoted files are local runtime
 artifacts and are ignored by git.
+
+## Profile Deletion
+
+Delete is a destructive operation. It permanently removes the profile row and
+all profile-scoped lab data from `rhythm_lab.sqlite`: profile labels, manual
+track labels, likes, saved predictions, and training checkpoints. It does not
+delete source audio files, source database rows, or training/model artifact
+files on disk.
+
+Delete by unique profile name:
+
+```powershell
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py delete-profile --labels tools\rhythm-lab\data\rhythm_lab.sqlite --name "Electronic Mood" --confirm "Electronic Mood"
+```
+
+Delete by `classifier_key`:
+
+```powershell
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py delete-profile --labels tools\rhythm-lab\data\rhythm_lab.sqlite --profile electronic_mood --confirm electronic_mood
+```
+
+The `--confirm` value must exactly match the selected `--name` or `--profile`
+value. This prevents accidental deletion when shell history or copy/paste is
+used.
 
 ## Useful Checks
 

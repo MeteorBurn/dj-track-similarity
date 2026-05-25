@@ -347,9 +347,10 @@ profile-neutral shape for all profiles (`positive_*` metrics and
 `label_order`) instead of classifier-specific metric aliases.
 
 Rhythm Lab itself can manage additional classifier profiles inside its own UI.
-Those profiles are scoped to the lab database and can define a name,
-description, profile type, labels, a profile artifact folder, and a per-profile
-train-refresh threshold for required new labels per training class. Binary
+Those profiles are scoped to the lab database and can define a unique display
+name, description, profile type, labels, a profile artifact folder, and a
+per-profile train-refresh threshold for required new labels per training class.
+Profile names are unique case-insensitively inside one lab database. Binary
 profiles use one positive training label, one negative training label, and
 optional review-only labels. Multiclass profiles use two or more user-defined
 `class` labels, and each track can have only one current label for the active
@@ -359,6 +360,19 @@ profile training run. Updating the train-refresh threshold immediately changes
 the readiness calculation for that profile. Rhythm Lab profiles become main-app
 `dj-sim` classifier scores after they are promoted and scored with the generic
 classifier command or API.
+
+Rhythm Lab profile archive and delete are different operations. Archive hides a
+profile from the normal UI list while preserving its labels, likes,
+predictions, and training checkpoints. Delete is a CLI-only hard delete that
+removes the profile and all profile-scoped lab rows from `rhythm_lab.sqlite`;
+it never deletes source audio, source database rows, or artifact files. Delete
+requires an exact confirmation value and can target either the unique profile
+name or `classifier_key`:
+
+```powershell
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py delete-profile --labels tools\rhythm-lab\data\rhythm_lab.sqlite --name "Electronic Mood" --confirm "Electronic Mood"
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py delete-profile --labels tools\rhythm-lab\data\rhythm_lab.sqlite --profile electronic_mood --confirm electronic_mood
+```
 
 Rhythm Lab benchmarks `sonara`, `mert`, `maest`, and `combined` feature sets.
 The `combined` feature set requires SONARA features plus MERT and MAEST

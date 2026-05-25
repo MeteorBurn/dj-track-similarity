@@ -1322,10 +1322,12 @@ def test_web_app_summary_uses_compact_badges(tmp_path: Path) -> None:
     client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
     styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
 
-    assert ".summary-strip {\n  display: flex;" in styles
+    assert ".summary-strip {\n  display: grid;" in styles
+    assert "grid-template-columns: auto minmax(0, 1fr);" in styles
     assert ".summary-group {\n  display: inline-flex;" in styles
     assert ".summary-badge {\n  display: inline-flex;" in styles
-    assert ".summary-labels {\n  max-width: 100%;" in styles
+    assert ".summary-labels {\n  justify-self: end;\n  max-width: 100%;" in styles
+    assert "justify-content: flex-end;" in styles
     assert ".coverage-sonara" in styles
 
 

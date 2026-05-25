@@ -170,11 +170,11 @@ main {
 }
 
 .summary-strip {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   flex: 1 1 100%;
   align-items: flex-start;
   gap: 8px;
-  flex-wrap: wrap;
   min-width: 0;
 }
 
@@ -219,7 +219,9 @@ main {
 }
 
 .summary-labels {
+  justify-self: end;
   max-width: 100%;
+  justify-content: flex-end;
 }
 
 .coverage-tracks {
@@ -412,8 +414,13 @@ main {
 }
 
 .liked-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
   color: #f0b429;
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1;
 }
 

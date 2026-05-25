@@ -786,69 +786,87 @@ def test_artifact_cleanup_keeps_recent_files_per_feature_and_protected_artifact(
     assert result["deleted_metrics"] == 2
 
 
-def test_cli_promote_break_energy_copies_latest_combined_model_to_classifier_asset(tmp_path: Path) -> None:
+def test_cli_promote_profile_copies_latest_combined_model_to_classifier_asset(tmp_path: Path) -> None:
     from rhythm_lab.cli import build_parser
 
-    artifacts = tmp_path / "artifacts" / "break-energy"
-    target = tmp_path / "models" / "classifiers" / "break-energy"
+    labels_db = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    labels_db.create_profile(
+        classifier_key="live_instrumentation",
+        name="Live Instrumentation",
+        artifact_dir=tmp_path / "artifacts" / "live-instrumentation",
+        artifact_prefix="live-instrumentation",
+        labels=[
+            {"key": "live_instrument", "name": "Live Instrument", "role": "positive"},
+            {"key": "no_instrument", "name": "No Instrument", "role": "negative"},
+            {"key": "uncertain", "name": "Uncertain", "role": "review"},
+        ],
+    )
+    labels_db = RhythmLabDatabase(labels_db.path, classifier_key="live_instrumentation")
+    labels_db.set_label(101, "live_instrument")
+    labels_db.set_label(102, "no_instrument")
+
+    artifacts = tmp_path / "artifacts" / "live-instrumentation"
+    target_root = tmp_path / "models" / "classifiers"
     artifacts.mkdir(parents=True)
-    old = artifacts / "break-energy-combined-20260524T100000Z.joblib"
-    latest = artifacts / "break-energy-combined-20260524T110000Z.joblib"
-    maest = artifacts / "break-energy-maest-20260524T120000Z.joblib"
+    old = artifacts / "live-instrumentation-combined-20260524T100000Z.joblib"
+    latest = artifacts / "live-instrumentation-combined-20260524T110000Z.joblib"
+    maest = artifacts / "live-instrumentation-maest-20260524T120000Z.joblib"
     joblib.dump(
         {
-            "classifier_key": "break_energy",
+            "classifier_key": "live_instrumentation",
             "feature_set": "combined",
-            "label_order": ["broken", "straight"],
-            "positive_label": "broken",
+            "label_order": ["live_instrument", "no_instrument"],
+            "positive_label": "live_instrument",
             "model": object(),
         },
         old,
     )
     joblib.dump(
         {
-            "classifier_key": "break_energy",
+            "classifier_key": "live_instrumentation",
             "feature_set": "combined",
-            "label_order": ["broken", "straight"],
-            "positive_label": "broken",
+            "label_order": ["live_instrument", "no_instrument"],
+            "positive_label": "live_instrument",
             "model": object(),
         },
         latest,
     )
     joblib.dump(
         {
-            "classifier_key": "break_energy",
+            "classifier_key": "live_instrumentation",
             "feature_set": "maest",
-            "label_order": ["broken", "straight"],
-            "positive_label": "broken",
+            "label_order": ["live_instrument", "no_instrument"],
+            "positive_label": "live_instrument",
             "model": object(),
         },
         maest,
     )
 
     args = build_parser().parse_args([
-        "promote-break-energy",
-        "--artifacts",
-        str(artifacts),
+        "promote",
+        "--profile",
+        "live_instrumentation",
         "--target",
-        str(target),
+        str(target_root),
         "--labels",
-        str(tmp_path / "labels.sqlite"),
+        str(labels_db.path),
     ])
     args.func(args)
 
+    target = target_root / "live-instrumentation"
     promoted = target / "model.joblib"
     metadata_path = target / "model.json"
     assert promoted.exists()
     assert joblib.load(promoted)["feature_set"] == "combined"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    assert metadata["classifier_key"] == "break_energy"
-    assert metadata["profile_name"] == "Break Energy"
-    assert metadata["positive_label"] == "broken"
-    assert metadata["negative_label"] == "straight"
+    assert metadata["classifier_key"] == "live_instrumentation"
+    assert metadata["profile_name"] == "Live Instrumentation"
+    assert metadata["positive_label"] == "live_instrument"
+    assert metadata["negative_label"] == "no_instrument"
     assert "classifier" not in metadata
     assert "score_name" not in metadata
     assert metadata["source_artifact"] == str(latest)
+    assert metadata["trained_label_counts"] == {"live_instrument": 1, "no_instrument": 1}
 
 
 def test_web_app_tracks_endpoint_uses_source_sql_pagination(monkeypatch, tmp_path: Path) -> None:

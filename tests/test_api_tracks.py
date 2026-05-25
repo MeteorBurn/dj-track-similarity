@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import subprocess
 
 from fastapi.testclient import TestClient
@@ -69,7 +70,7 @@ def test_tracks_endpoint_filters_by_query_and_syncopated_preset(tmp_path: Path) 
     assert preset_payload["items"][0]["id"] == breaks_id
 
 
-def test_tracks_endpoint_filters_by_min_break_energy(tmp_path: Path) -> None:
+def test_tracks_endpoint_filters_by_classifier_scores(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
     low_id = _add_track(db, tmp_path, "low.wav", "DJ One", "Low Energy", {})
@@ -96,8 +97,8 @@ def test_tracks_endpoint_filters_by_min_break_energy(tmp_path: Path) -> None:
     )
     client = TestClient(create_app(db_path))
 
-    response = client.get("/api/tracks?min_break_energy=0.9")
-    filtered = client.post("/api/tracks/filtered", json={"min_break_energy": 0.9})
+    response = client.get("/api/tracks", params={"classifier_min_scores": '{"break_energy": 0.9}'})
+    filtered = client.post("/api/tracks/filtered", json={"classifier_min_scores": {"break_energy": 0.9}})
 
     assert response.status_code == 200
     payload = response.json()
@@ -106,6 +107,104 @@ def test_tracks_endpoint_filters_by_min_break_energy(tmp_path: Path) -> None:
     assert payload["items"][0]["classifier_scores"]["break_energy"]["score"] == 0.93
     assert filtered.status_code == 200
     assert [item["id"] for item in filtered.json()["items"]] == [high_id]
+
+
+def test_tracks_endpoint_filters_by_generic_classifier_scores(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    low_id = _add_track(db, tmp_path, "low-live.wav", "DJ One", "Low Live", {})
+    high_id = _add_track(db, tmp_path, "high-live.wav", "DJ Two", "High Live", {})
+    db.save_classifier_score(
+        low_id,
+        classifier="live_instrumentation",
+        score=0.41,
+        label="low",
+        confidence=0.59,
+        probabilities={"live_instrument": 0.41, "no_instrument": 0.59},
+        feature_set="combined",
+        model_id="model.joblib",
+    )
+    db.save_classifier_score(
+        high_id,
+        classifier="live_instrumentation",
+        score=0.88,
+        label="high",
+        confidence=0.88,
+        probabilities={"live_instrument": 0.88, "no_instrument": 0.12},
+        feature_set="combined",
+        model_id="model.joblib",
+    )
+    client = TestClient(create_app(db_path))
+
+    response = client.get("/api/tracks", params={"classifier_min_scores": '{"live_instrumentation": 0.8}'})
+    filtered = client.post(
+        "/api/tracks/filtered",
+        json={"classifier_min_scores": {"live_instrumentation": 0.8}},
+    )
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == [high_id]
+    assert filtered.status_code == 200
+    assert [item["id"] for item in filtered.json()["items"]] == [high_id]
+
+
+def test_classifier_analyze_endpoint_uses_classifier_key(monkeypatch, tmp_path: Path) -> None:
+    from dj_track_similarity.classifier_jobs import ClassifierJobManager, ClassifierJobStatus
+
+    db_path = tmp_path / "library.sqlite"
+    LibraryDatabase(db_path)
+    seen: dict[str, object] = {}
+
+    def fake_start(self, *, classifier: str, limit: int | None = None, model_path=None):
+        seen["classifier"] = classifier
+        seen["limit"] = limit
+        return ClassifierJobStatus(
+            job_id="job-1",
+            state="queued",
+            adapter_name=classifier,
+            embedding_key=classifier,
+            total=0,
+        )
+
+    monkeypatch.setattr(ClassifierJobManager, "start", fake_start)
+    client = TestClient(create_app(db_path))
+
+    response = client.post("/api/classifiers/live_instrumentation/analyze", json={"limit": 7})
+
+    assert response.status_code == 200
+    assert response.json()["adapter_name"] == "live_instrumentation"
+    assert seen == {"classifier": "live_instrumentation", "limit": 7}
+
+
+def test_classifiers_endpoint_lists_promoted_model_metadata(tmp_path: Path, monkeypatch) -> None:
+    import dj_track_similarity.api as api_module
+
+    root = tmp_path / "models" / "classifiers" / "live-instrumentation"
+    root.mkdir(parents=True)
+    (root / "model.joblib").write_bytes(b"model")
+    (root / "model.json").write_text(
+        json.dumps(
+            {
+                "classifier_key": "live_instrumentation",
+                "profile_name": "Live Instrumentation",
+                "artifact_prefix": "live-instrumentation",
+                "positive_label": "live_instrument",
+                "label_order": ["live_instrument", "no_instrument"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    from dj_track_similarity.classifier_scoring import promoted_classifiers
+
+    monkeypatch.setattr(api_module, "promoted_classifiers", lambda: promoted_classifiers(root.parent))
+    db_path = tmp_path / "library.sqlite"
+    LibraryDatabase(db_path)
+    client = TestClient(create_app(db_path))
+
+    response = client.get("/api/classifiers")
+
+    assert response.status_code == 200
+    assert response.json()[0]["classifier_key"] == "live_instrumentation"
 
 
 def test_filtered_tracks_endpoint_returns_all_matching_tracks_without_pagination(tmp_path: Path) -> None:

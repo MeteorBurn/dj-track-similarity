@@ -148,22 +148,22 @@ export function TrackMetadataDialog({
 
 function readableClassifierScores(track: Track) {
   const result: Array<{ key: string; label: string; value: string }> = [];
-  const breakEnergy = track.classifier_scores?.break_energy;
-  if (breakEnergy) {
+  Object.entries(track.classifier_scores || {}).forEach(([key, score]) => {
     result.push({
-      key: "break_energy",
-      label: "Break Energy",
-      value: formatClassifierScore(displayBreakEnergyScore(breakEnergy))
+      key,
+      label: readableClassifierName(key),
+      value: formatClassifierScore(score.score)
     });
-  }
+  });
   return result;
 }
 
-function displayBreakEnergyScore(score: NonNullable<Track["classifier_scores"]>[string]) {
-  const value = score.score;
-  const opposite = score.probabilities?.straight_energy;
-  if (value === 1 && typeof opposite === "number" && opposite > 0 && opposite < 1) return 1 - opposite;
-  return value;
+function readableClassifierName(key: string) {
+  return key
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function formatClassifierScore(value: unknown) {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import subprocess
 import tempfile
 import threading
@@ -14,6 +15,7 @@ from starlette.background import BackgroundTask
 
 from .analysis_jobs import AnalysisJobManager
 from .classifier_jobs import ClassifierJobManager
+from .classifier_scoring import promoted_classifiers
 from .database import LibraryDatabase
 from .dependencies import require_ffmpeg
 from .embedding import ClapEmbeddingAdapter
@@ -130,7 +132,7 @@ class TextSearchRequest(BaseModel):
 class FilteredTracksRequest(BaseModel):
     query: str = ""
     preset: str = Field(default="all", pattern="^(all|syncopated)$")
-    min_break_energy: float | None = Field(default=None, ge=0.0, le=1.0)
+    classifier_min_scores: dict[str, float] = Field(default_factory=dict)
 
 
 class ExportRequest(BaseModel):
@@ -389,7 +391,7 @@ def create_app(
     def tracks(
         q: str = "",
         preset: str = Query(default="all", pattern="^(all|syncopated)$"),
-        min_break_energy: float | None = Query(default=None, ge=0.0, le=1.0),
+        classifier_min_scores: str | None = Query(default=None),
         limit: int = Query(default=100, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
         include_metadata: bool = False,
@@ -397,7 +399,7 @@ def create_app(
         return state.require_db().list_tracks_page(
             query=q,
             preset=preset,
-            min_break_energy=min_break_energy,
+            classifier_min_scores=_query_classifier_min_scores(classifier_min_scores),
             limit=limit,
             offset=offset,
             include_metadata=include_metadata,
@@ -415,7 +417,7 @@ def create_app(
         return state.require_db().list_filtered_tracks(
             query=request.query,
             preset=request.preset,
-            min_break_energy=request.min_break_energy,
+            classifier_min_scores=_valid_classifier_min_scores(request.classifier_min_scores),
         )
 
     @app.get("/api/library/summary")
@@ -443,23 +445,27 @@ def create_app(
     def analyze_sonara(request: SonaraAnalyzeRequest):
         return state.require_sonara_jobs().start(limit=request.limit, batch_size=request.batch_size)
 
-    @app.post("/api/classifiers/break-energy/analyze")
-    def analyze_break_energy(request: ClassifierAnalyzeRequest):
-        return state.require_classifier_jobs().start(limit=request.limit)
+    @app.get("/api/classifiers")
+    def classifiers():
+        return promoted_classifiers()
 
-    @app.get("/api/classifiers/break-energy/analyze/jobs/latest")
-    def latest_break_energy_job():
+    @app.post("/api/classifiers/{classifier_key}/analyze")
+    def analyze_classifier(classifier_key: str, request: ClassifierAnalyzeRequest):
+        return state.require_classifier_jobs().start(classifier=classifier_key, limit=request.limit)
+
+    @app.get("/api/classifiers/{classifier_key}/analyze/jobs/latest")
+    def latest_classifier_job(classifier_key: str):
         return state.require_classifier_jobs().latest()
 
-    @app.get("/api/classifiers/break-energy/analyze/jobs/{job_id}")
-    def break_energy_job(job_id: str):
+    @app.get("/api/classifiers/{classifier_key}/analyze/jobs/{job_id}")
+    def classifier_job(classifier_key: str, job_id: str):
         try:
             return state.require_classifier_jobs().get(job_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
-    @app.post("/api/classifiers/break-energy/analyze/jobs/{job_id}/cancel")
-    def cancel_break_energy_job(job_id: str):
+    @app.post("/api/classifiers/{classifier_key}/analyze/jobs/{job_id}/cancel")
+    def cancel_classifier_job(classifier_key: str, job_id: str):
         try:
             return state.require_classifier_jobs().cancel(job_id)
         except KeyError as error:
@@ -650,6 +656,28 @@ def create_app(
         app.mount("/", StaticFiles(directory=static_dir, html=True), name="frontend")
 
     return app
+
+
+def _query_classifier_min_scores(raw: str | None) -> dict[str, float]:
+    if raw is None or not raw.strip():
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise HTTPException(status_code=422, detail="classifier_min_scores must be a JSON object") from error
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=422, detail="classifier_min_scores must be a JSON object")
+    return _valid_classifier_min_scores(parsed)
+
+
+def _valid_classifier_min_scores(scores: dict[str, float]) -> dict[str, float]:
+    result: dict[str, float] = {}
+    for classifier, value in scores.items():
+        score = float(value)
+        if score < 0.0 or score > 1.0:
+            raise HTTPException(status_code=422, detail=f"Classifier threshold out of range: {classifier}")
+        result[str(classifier)] = score
+    return result
 
 
 def _transcoded_wav_file_response(path: Path, ffmpeg_path: str) -> FileResponse:

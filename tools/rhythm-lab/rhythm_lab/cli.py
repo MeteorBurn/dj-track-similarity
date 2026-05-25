@@ -15,7 +15,7 @@ LAB_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = LAB_ROOT.parents[1]
 DEFAULT_SOURCE_DB = Path(r"C:\db\abstracted.sqlite")
 DEFAULT_LABELS_DB = LAB_ROOT / "data" / "rhythm_lab.sqlite"
-DEFAULT_BREAK_ENERGY_TARGET = PROJECT_ROOT / "models" / "classifiers" / "break-energy"
+DEFAULT_CLASSIFIER_TARGET_ROOT = PROJECT_ROOT / "models" / "classifiers"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -40,14 +40,12 @@ def build_parser() -> argparse.ArgumentParser:
     export_parser.add_argument("--profile", default=BREAK_ENERGY_CLASSIFIER_KEY)
     export_parser.set_defaults(func=_export_predictions)
 
-    promote_parser = subcommands.add_parser(
-        "promote-break-energy",
-        help="Copy the latest combined Break Energy model into the main project's classifier slot.",
-    )
+    promote_parser = subcommands.add_parser("promote", help="Copy the latest combined profile model into the main project.")
+    promote_parser.add_argument("--profile", default=BREAK_ENERGY_CLASSIFIER_KEY)
     promote_parser.add_argument("--artifacts", type=Path, default=None)
-    promote_parser.add_argument("--target", type=Path, default=DEFAULT_BREAK_ENERGY_TARGET)
+    promote_parser.add_argument("--target", type=Path, default=DEFAULT_CLASSIFIER_TARGET_ROOT)
     promote_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
-    promote_parser.set_defaults(func=_promote_break_energy)
+    promote_parser.set_defaults(func=_promote_profile)
 
     serve_parser = subcommands.add_parser("serve", help="Start the minimal labeling web app.")
     serve_parser.add_argument("--source", type=Path, default=None)
@@ -89,8 +87,8 @@ def _export_predictions(args: argparse.Namespace) -> None:
     print(f"output={path}")
 
 
-def _promote_break_energy(args: argparse.Namespace) -> None:
-    labels_db = RhythmLabDatabase(args.labels, classifier_key=BREAK_ENERGY_CLASSIFIER_KEY)
+def _promote_profile(args: argparse.Namespace) -> None:
+    labels_db = RhythmLabDatabase(args.labels, classifier_key=args.profile)
     profile = labels_db.get_profile()
     artifact_dir = args.artifacts or Path(profile.artifact_dir)
     artifact = _latest_combined_artifact(artifact_dir, profile.artifact_prefix)
@@ -103,7 +101,7 @@ def _promote_break_energy(args: argparse.Namespace) -> None:
     if str(payload.get("feature_set")) != "combined":
         raise SystemExit(f"Expected a combined artifact, got feature_set={payload.get('feature_set')!r}")
 
-    target = Path(args.target)
+    target = Path(args.target) / profile.artifact_prefix
     target.mkdir(parents=True, exist_ok=True)
     model_path = target / "model.joblib"
     metadata_path = target / "model.json"

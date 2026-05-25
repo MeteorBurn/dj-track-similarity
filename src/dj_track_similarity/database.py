@@ -241,16 +241,17 @@ class LibraryDatabase:
         *,
         query: str = "",
         preset: str = "all",
-        min_break_energy: float | None = None,
+        classifier_min_scores: dict[str, float] | None = None,
         limit: int = 100,
         offset: int = 0,
         include_metadata: bool = False,
         embedding_key: str = DEFAULT_EMBEDDING_KEY,
     ) -> dict[str, object]:
         fields = TRACK_SELECT_FIELDS if include_metadata else TRACK_SLIM_SELECT_FIELDS
-        where_parts, params = _track_filter_sql(query=query, preset=preset, min_break_energy=min_break_energy)
+        thresholds = dict(classifier_min_scores or {})
+        where_parts, params = _track_filter_sql(query=query, preset=preset, classifier_min_scores=thresholds)
         where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
-        order_sql = _track_order_sql(min_break_energy=min_break_energy)
+        order_sql = _track_order_sql(classifier_min_scores=thresholds)
         bounded_limit = max(1, min(500, int(limit)))
         bounded_offset = max(0, int(offset))
         with self.connect() as connection:
@@ -278,14 +279,15 @@ class LibraryDatabase:
         *,
         query: str = "",
         preset: str = "all",
-        min_break_energy: float | None = None,
+        classifier_min_scores: dict[str, float] | None = None,
         include_metadata: bool = False,
         embedding_key: str = DEFAULT_EMBEDDING_KEY,
     ) -> dict[str, object]:
         fields = TRACK_SELECT_FIELDS if include_metadata else TRACK_SLIM_SELECT_FIELDS
-        where_parts, params = _track_filter_sql(query=query, preset=preset, min_break_energy=min_break_energy)
+        thresholds = dict(classifier_min_scores or {})
+        where_parts, params = _track_filter_sql(query=query, preset=preset, classifier_min_scores=thresholds)
         where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
-        order_sql = _track_order_sql(min_break_energy=min_break_energy)
+        order_sql = _track_order_sql(classifier_min_scores=thresholds)
         with self.connect() as connection:
             rows = connection.execute(
                 f"""
@@ -861,7 +863,12 @@ def _limit_sql(limit: int | None) -> tuple[str, tuple[int, ...]]:
     return "LIMIT ?", (max(0, int(limit)),)
 
 
-def _track_filter_sql(*, query: str, preset: str, min_break_energy: float | None = None) -> tuple[list[str], list[object]]:
+def _track_filter_sql(
+    *,
+    query: str,
+    preset: str,
+    classifier_min_scores: dict[str, float] | None = None,
+) -> tuple[list[str], list[object]]:
     where_parts: list[str] = []
     params: list[object] = []
     needle = query.strip().lower()
@@ -880,28 +887,30 @@ def _track_filter_sql(*, query: str, preset: str, min_break_energy: float | None
         where_parts.append("json_extract(t.metadata_json, '$.maest_syncopated_rhythm') = 1")
     elif preset != "all":
         raise ValueError(f"Unknown library preset: {preset}")
-    if min_break_energy is not None:
+    for classifier, threshold in (classifier_min_scores or {}).items():
         where_parts.append(
             """
             EXISTS (
                 SELECT 1
                 FROM track_classifier_scores cs
                 WHERE cs.track_id = t.id
-                  AND cs.classifier = 'break_energy'
+                  AND cs.classifier = ?
                   AND cs.score >= ?
             )
             """
         )
-        params.append(float(min_break_energy))
+        params.extend([classifier, float(threshold)])
     return where_parts, params
 
 
-def _track_order_sql(*, min_break_energy: float | None = None) -> str:
-    if min_break_energy is None:
+def _track_order_sql(*, classifier_min_scores: dict[str, float] | None = None) -> str:
+    classifiers = list((classifier_min_scores or {}).keys())
+    if not classifiers:
         return "COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path"
+    classifier = classifiers[0].replace("'", "''")
     return (
         "(SELECT cs.score FROM track_classifier_scores cs "
-        "WHERE cs.track_id = t.id AND cs.classifier = 'break_energy') DESC, "
+        f"WHERE cs.track_id = t.id AND cs.classifier = '{classifier}') DESC, "
         "COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path"
     )
 

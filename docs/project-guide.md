@@ -31,7 +31,7 @@ The current workflow is:
 4. Browse the paged library, inspect track metadata, and choose seed tracks.
 5. Search with SONARA, MERT, or CLAP.
 6. Assemble a temporary set and export it as M3U or CSV.
-7. Optionally score promoted classifiers such as Break Energy.
+7. Optionally score promoted classifier profiles.
 8. Optionally write MAEST genres into standard audio genre tags.
 
 ## Core Features
@@ -46,8 +46,7 @@ The current workflow is:
 - Builds CLAP audio embeddings and CLAP text vectors for text-to-audio search.
 - Extracts MAEST genre labels and confidence scores.
 - Stores MAEST embeddings during genre analysis.
-- Scores promoted Break Energy classifier models from existing SONARA, MERT,
-  and MAEST data.
+- Scores promoted classifier models from existing SONARA, MERT, and MAEST data.
 - Stores analysis status per track for `sonara`, `maest`, `mert`, and `clap`.
 - Stores classifier scores separately from file tags and model metadata.
 - Keeps the library browser server-side paginated for large local collections.
@@ -69,7 +68,7 @@ files.
 - RefreshTags rereads file metadata and writes SQLite rows only.
 - Sonara, MAEST, MERT, and CLAP analysis read audio and write SQLite analysis
   outputs only.
-- Break Energy classifier scoring reads existing SQLite analysis data and writes
+- Promoted classifier scoring reads existing SQLite analysis data and writes
   SQLite classifier rows only. It does not decode or modify audio.
 - Search reads SQLite data and does not change audio or the database.
 - Browser preview serves audio for the player; AIFF/AIF previews may be
@@ -122,7 +121,7 @@ The backend package lives in `src/dj_track_similarity/`.
   feature similarity.
 - `embedding.py` contains MERT and CLAP embedding adapters.
 - `genres.py` contains the MAEST genre adapter.
-- `break_energy.py` loads promoted Break Energy classifier artifacts and scores
+- `classifier_scoring.py` loads promoted classifier artifacts and scores
   feature-complete tracks.
 - `search.py` performs embedding-space similarity search.
 - `exporter.py` writes M3U and CSV outputs.
@@ -185,12 +184,12 @@ Stores local database-level settings such as the selected music root.
 Stores derived classifier outputs by track and classifier key:
 
 - `track_id`: references `tracks.id`.
-- `classifier`: classifier key, currently `break_energy`.
+- `classifier`: classifier key such as `live_instrumentation`.
 - `score`: primary user-facing score used for filtering.
 - `label`: coarse label such as `high`, `medium`, or `low`.
 - `confidence`: maximum class probability.
-- `probabilities_json`: classifier probabilities. Break Energy stores
-  `break_energy` and diagnostic `straight_energy`.
+- `probabilities_json`: classifier probabilities keyed by the profile's
+  training labels.
 - `feature_set`: feature family used by the classifier artifact, currently
   `combined`.
 - `model_id`: promoted model path used for scoring.
@@ -308,28 +307,29 @@ lukewys/laion_clap/music_audioset_epoch_15_esc_90.14.pt
 
 Text search requires CLAP audio embeddings produced by the same CLAP checkpoint.
 
-### Break Energy
+### Promoted Classifiers
 
-Break Energy is a promoted local classifier, not an audio-analysis model that
-decodes files itself. It scores tracks from already stored analysis outputs:
+Promoted classifiers are local classifier profiles, not audio-analysis models
+that decode files themselves. They score tracks from already stored analysis
+outputs:
 
 - SONARA playlist features from `metadata_json.sonara_features`;
 - MERT embeddings from `embeddings.embedding_key = "mert"`;
 - MAEST embeddings from `embeddings.embedding_key = "maest"`.
 
 Tracks missing any of those inputs are skipped by the classifier job. Scores are
-stored in `track_classifier_scores` under classifier key `break_energy`.
+stored in `track_classifier_scores` under the profile classifier key.
 
-The stable model location is:
+Stable model locations use the profile artifact prefix:
 
 ```text
-models/classifiers/break-energy/model.joblib
+models/classifiers/<artifact-prefix>/model.joblib
 ```
 
-That file is produced outside the main app by Rhythm Lab's promotion command:
+Those files are produced outside the main app by Rhythm Lab's promotion command:
 
 ```powershell
-.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py promote-break-energy
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation
 ```
 
 The promoted `model.joblib` and `model.json` files are local artifacts and are
@@ -337,15 +337,14 @@ ignored by git. The source Rhythm Lab training artifacts remain in the
 classifier-specific lab workspace:
 
 ```text
-tools/rhythm-lab/artifacts/break-energy/
+tools/rhythm-lab/artifacts/<artifact-prefix>/
 ```
 
 Promoted metadata is generated from the Rhythm Lab profile and model artifact:
 `classifier_key`, profile name, profile type, labels, feature set, source
 artifact, and training label counts. Rhythm Lab training metrics use the same
-profile-neutral shape for Break Energy and custom profiles (`positive_*`
-metrics and `label_order`) instead of legacy Break Energy-specific metric
-aliases.
+profile-neutral shape for all profiles (`positive_*` metrics and
+`label_order`) instead of classifier-specific metric aliases.
 
 Rhythm Lab itself can manage additional classifier profiles inside its own UI.
 Those profiles are scoped to the lab database and can define a name,
@@ -357,21 +356,20 @@ optional review-only labels. Multiclass profiles use two or more user-defined
 profile. Track labels in Rhythm Lab are editable current-state annotations:
 when a label changes, the new value replaces the old one and is used by the next
 profile training run. Updating the train-refresh threshold immediately changes
-the readiness calculation for that profile. Custom Rhythm Lab profiles do not
-automatically become main-app `dj-sim` classifier scores; Break Energy remains
-the promoted runtime classifier path in the main app.
+the readiness calculation for that profile. Rhythm Lab profiles become main-app
+`dj-sim` classifier scores after they are promoted and scored with the generic
+classifier command or API.
 
 Rhythm Lab benchmarks `sonara`, `mert`, `maest`, and `combined` feature sets.
 The `combined` feature set requires SONARA features plus MERT and MAEST
 embeddings. The lab UI displays compact coverage badges for Tracks, SONARA,
 MAEST, and MERT, plus label-count badges for the active profile.
 
-The user-facing Break Energy score is the classifier probability for the
-Rhythm Lab `broken` training label. The stored probability key is
-`break_energy`; `straight_energy` is kept as a diagnostic complement. Because UI
-displays can round probabilities, a value shown as `1.0000` may be slightly
-below mathematical `1.0`. Use thresholds such as `0.99`, `0.95`, or `0.90` for
-practical filtering instead of relying on exact `1.0`.
+The user-facing score is the classifier probability for the profile's positive
+training label. Because UI displays can round probabilities, a value shown as
+`1.0000` may be slightly below mathematical `1.0`. Use thresholds such as
+`0.99`, `0.95`, or `0.90` for practical filtering instead of relying on exact
+`1.0`.
 
 ## Search Modes
 
@@ -381,8 +379,9 @@ The library browser also has a `syncopated` preset filter. It selects tracks
 whose stored MAEST metadata has `maest_syncopated_rhythm = true` and can be
 combined with normal library text search and the add-filtered-tracks workflow.
 
-The CLASS tab contains classifier controls. Break Energy can be analyzed from
-the UI, and the `Min Break Energy` slider filters the library and
+The CLASS tab contains classifier controls discovered from promoted
+`models/classifiers/*/model.json` metadata. Each promoted classifier can be
+analyzed from the UI, and its slider filters the library and
 add-filtered-tracks workflow by `track_classifier_scores.score`.
 
 ### SONARA Search
@@ -436,19 +435,20 @@ Dark hypnotic techno with sparse percussion and deep rolling bass
 Organic microhouse with soft pads, plucked textures, and spacious mood
 ```
 
-### CLASS / Break Energy
+### CLASS / Classifiers
 
 The CLASS tab is for classifier-driven workflows rather than similarity search.
-The initial classifier is Break Energy:
+It lists promoted classifiers discovered from `models/classifiers/*/model.json`:
 
-- `Analyze Break Energy` starts a cancellable classifier job.
-- `Min Break Energy` filters the library server-side.
-- The metadata dialog shows Break Energy score, confidence, label, feature set,
+- `Analyze <classifier>` starts a cancellable classifier job.
+- Each classifier slider filters the library server-side by stored classifier
+  score.
+- The metadata dialog shows classifier scores, confidence, label, feature set,
   and model file below SONARA features.
 
-Break Energy requires a promoted model file and feature-complete tracks. It does
-not analyze audio directly; run SONARA, MERT, and MAEST first for the tracks you
-want to score.
+Promoted classifiers require a promoted model file and feature-complete tracks.
+They do not analyze audio directly; run SONARA, MERT, and MAEST first for the
+tracks you want to score.
 
 ## Tag Writing
 
@@ -607,7 +607,7 @@ relocate-library
 analyze
 analyze-genres
 analyze-sonara
-analyze-break-energy
+analyze-classifier
 doctor
 text-search
 serve
@@ -797,33 +797,34 @@ state=<state> total=<n> processed=<n> analyzed=<n> failed=<n> embedding_key=maes
 
 MAEST analysis writes SQLite genre metadata and a MAEST embedding vector.
 
-### `dj-sim analyze-break-energy`
+### `dj-sim analyze-classifier`
 
-Score tracks with the promoted Break Energy classifier.
+Score tracks with a promoted classifier profile.
 
 ```powershell
-dj-sim analyze-break-energy --db .\data\library.sqlite
+dj-sim analyze-classifier live_instrumentation --db .\data\library.sqlite
 ```
 
 Usage:
 
 ```text
-dj-sim analyze-break-energy [OPTIONS]
+dj-sim analyze-classifier CLASSIFIER [OPTIONS]
 ```
 
 Options:
 
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
+| `CLASSIFIER` | text | required | Classifier key, for example `live_instrumentation`. |
 | `--db` | path | `dj-track-similarity.sqlite` | SQLite database path. |
-| `--model` | path | `models/classifiers/break-energy/model.joblib` | Optional classifier artifact path. |
+| `--model` | path | `models/classifiers/<artifact-prefix>/model.joblib` | Optional classifier artifact path. |
 | `--limit` | integer | none | Maximum number of feature-complete tracks to score. |
 | `--help` | flag | off | Show help. |
 
 Output:
 
 ```text
-classifier=break_energy scored=<n> skipped=<n> model=<path>
+classifier=live_instrumentation scored=<n> skipped=<n> model=<path>
 ```
 
 The command reads existing SONARA, MERT, and MAEST data. Tracks missing any
@@ -968,8 +969,8 @@ The frontend uses these endpoints through `frontend/src/api.ts`.
 | `POST` | `/api/tracks/filtered` | Return filtered track rows for selection workflows. |
 
 `/api/tracks` and `/api/tracks/filtered` accept `preset=syncopated` to filter on
-the stored MAEST syncopated-rhythm flag. They also accept
-`min_break_energy` (`0.0..1.0`) to filter tracks by stored Break Energy score.
+the stored MAEST syncopated-rhythm flag. They also accept classifier threshold
+maps to filter tracks by stored classifier scores.
 
 ### Jobs
 
@@ -987,9 +988,9 @@ the stored MAEST syncopated-rhythm flag. They also accept
 | `GET` | `/api/genres/analyze/jobs/latest` | Return latest MAEST job. |
 | `GET` | `/api/genres/analyze/jobs/{job_id}` | Return one MAEST job. |
 | `POST` | `/api/genres/analyze/jobs/{job_id}/cancel` | Request MAEST cancellation. |
-| `GET` | `/api/classifiers/break-energy/analyze/jobs/latest` | Return latest Break Energy classifier job. |
-| `GET` | `/api/classifiers/break-energy/analyze/jobs/{job_id}` | Return one Break Energy classifier job. |
-| `POST` | `/api/classifiers/break-energy/analyze/jobs/{job_id}/cancel` | Request Break Energy cancellation. |
+| `GET` | `/api/classifiers/{classifier_key}/analyze/jobs/latest` | Return latest classifier job. |
+| `GET` | `/api/classifiers/{classifier_key}/analyze/jobs/{job_id}` | Return one classifier job. |
+| `POST` | `/api/classifiers/{classifier_key}/analyze/jobs/{job_id}/cancel` | Request classifier cancellation. |
 | `GET` | `/api/tags/genres/jobs/latest` | Return latest genre tag write job. |
 | `GET` | `/api/tags/genres/jobs/{job_id}` | Return one genre tag write job. |
 | `POST` | `/api/tags/genres/jobs/{job_id}/cancel` | Request genre tag write cancellation. |
@@ -1001,7 +1002,7 @@ the stored MAEST syncopated-rhythm flag. They also accept
 | `POST` | `/api/analyze` | Start MERT or CLAP embedding analysis. |
 | `POST` | `/api/sonara/analyze` | Start Sonara feature analysis. |
 | `POST` | `/api/genres/analyze` | Start MAEST genre analysis. |
-| `POST` | `/api/classifiers/break-energy/analyze` | Start Break Energy classifier scoring. |
+| `POST` | `/api/classifiers/{classifier_key}/analyze` | Start classifier scoring. |
 | `POST` | `/api/analysis/reset` | Reset one analysis family. |
 | `POST` | `/api/search` | Search in MERT embedding space. |
 | `POST` | `/api/search/sonara` | Search with Sonara features. |

@@ -1,6 +1,6 @@
-import { Dispatch, SetStateAction, useEffect, useState } from "react";
+import { Dispatch, Fragment, SetStateAction, useEffect, useState } from "react";
 import { Download, FolderOpen, ListMusic, Play, Search, SlidersHorizontal, Tags, Trash2, X } from "lucide-react";
-import { AnalysisJobStatus, SearchResult, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
+import { AnalysisJobStatus, PromotedClassifier, SearchResult, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
 import { playlistPage } from "./playlistView";
 import { ResultRow } from "./TrackRows";
 import { displayTrack, trackInfo } from "./trackDisplay";
@@ -32,7 +32,6 @@ type SearchHelpText = {
   sonaraModifierRhythmDensity: string;
   sonaraModifierDynamicRange: string;
   sonaraModifierLoudness: string;
-  breakEnergy: string;
   playlistName: string;
   outputDir: string;
 };
@@ -55,14 +54,15 @@ export function SearchPlaylistPanel({
   onOutputDirChange,
   onChooseOutputFolder,
   helpText,
-  minBreakEnergy,
-  onMinBreakEnergyChange,
-  breakEnergyJob,
+  classifiers,
+  classifierMinScores,
+  onClassifierMinScoreChange,
+  classifierJob,
   removeSeed,
   handleTextSearch,
   handleSonaraSearch,
   handleMertSearch,
-  handleBreakEnergyAnalyze,
+  handleClassifierAnalyze,
   addSeed,
   togglePlaylist,
   setPreview,
@@ -87,14 +87,15 @@ export function SearchPlaylistPanel({
   onOutputDirChange: (value: string) => void;
   onChooseOutputFolder: () => void;
   helpText: SearchHelpText;
-  minBreakEnergy: number;
-  onMinBreakEnergyChange: (value: number) => void;
-  breakEnergyJob: AnalysisJobStatus | null;
+  classifiers: PromotedClassifier[];
+  classifierMinScores: Record<string, number>;
+  onClassifierMinScoreChange: (classifier: string, value: number) => void;
+  classifierJob: AnalysisJobStatus | null;
   removeSeed: (trackId: number) => void;
   handleTextSearch: () => void;
   handleSonaraSearch: () => void;
   handleMertSearch: () => void;
-  handleBreakEnergyAnalyze: () => void;
+  handleClassifierAnalyze: (classifier: string, label: string) => void;
   addSeed: (track: Track) => void;
   togglePlaylist: (track: Track) => void;
   setPreview: (track: Track) => void;
@@ -271,31 +272,41 @@ export function SearchPlaylistPanel({
         {activeSearchTab === "class" && (
           <div className="search-tab-panel" role="tabpanel">
             <div className="classifier-controls">
-              <div className="custom-control-header" title={helpText.breakEnergy}>
-                <span>Break Energy</span>
-              </div>
-              <label className="range-control" title={helpText.breakEnergy}>
-                <span>
-                  <em>{minBreakEnergy.toFixed(2)}</em>
-                </span>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  value={minBreakEnergy}
-                  title={helpText.breakEnergy}
-                  onChange={(event) => onMinBreakEnergyChange(Number(event.target.value))}
-                />
-              </label>
-              {breakEnergyJob && breakEnergyJob.failed > 0 ? (
-                <span className="classifier-job-status">failed {breakEnergyJob.failed}</span>
+              {classifiers.map((classifier) => {
+                const title = classifierHelp(classifier);
+                const value = classifierMinScores[classifier.classifier_key] || 0;
+                return (
+                  <Fragment key={classifier.classifier_key}>
+                    <div className="custom-control-header" title={title}>
+                      <span>{classifier.name}</span>
+                    </div>
+                    <label className="range-control" title={title}>
+                      <span>
+                        <em>{value.toFixed(2)}</em>
+                      </span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={value}
+                        title={title}
+                        onChange={(event) => onClassifierMinScoreChange(classifier.classifier_key, Number(event.target.value))}
+                      />
+                    </label>
+                  </Fragment>
+                );
+              })}
+              {classifierJob && classifierJob.failed > 0 ? (
+                <span className="classifier-job-status">failed {classifierJob.failed}</span>
               ) : null}
             </div>
-            <button className="primary break-energy-analyze-button" disabled={busy} onClick={handleBreakEnergyAnalyze}>
-              <SlidersHorizontal size={17} />
-              Analyze Break Energy
-            </button>
+            {classifiers.map((classifier) => (
+              <button className="primary classifier-analyze-button" disabled={busy} onClick={() => handleClassifierAnalyze(classifier.classifier_key, classifier.name)} key={classifier.classifier_key}>
+                <SlidersHorizontal size={17} />
+                Analyze {classifier.name}
+              </button>
+            ))}
           </div>
         )}
         <div className="results-list">
@@ -372,4 +383,9 @@ export function SearchPlaylistPanel({
 function formatSigned(value: number) {
   if (value === 0) return "0.00";
   return `${value > 0 ? "+" : ""}${value.toFixed(2)}`;
+}
+
+function classifierHelp(classifier: PromotedClassifier) {
+  const label = classifier.positive_label ? ` Positive label: ${classifier.positive_label}.` : "";
+  return `Minimum ${classifier.name}. Type: number 0.00-1.00. Filters tracks by stored promoted classifier score.${label}`;
 }

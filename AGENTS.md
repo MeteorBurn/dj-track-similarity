@@ -17,7 +17,7 @@ The project is a Python backend/CLI plus a React/Vite frontend:
 - `frontend/`: React UI built with Vite and TypeScript.
 - `tests/`: pytest coverage for backend/API/search/jobs/tags.
 - `tools/rhythm-lab/`: auxiliary classifier labeling/training UI and CLI for
-  Break Energy and user-created classifier profiles. It runs separately from
+  user-created classifier profiles. It runs separately from
   `dj_track_similarity`, but stays in this repository as a helper project.
 - `scripts/repair_audio_metadata.py`: standalone dry-run-first audio metadata
   diagnostic/repair helper.
@@ -51,8 +51,8 @@ branches, or history are available.
 - Keep SQLite writes routed through `LibraryDatabase`, with the shared
   path-scoped write lock, WAL, and busy timeout so scan/RefreshTags/Sonara/
   MAEST/MERT/CLAP/reset writes queue safely.
-- Break Energy classifier scoring is database-only. It must read existing
-  SONARA features plus MERT and MAEST embeddings, then write only
+- Promoted classifier scoring is database-only. It must read existing SONARA
+  features plus MERT and MAEST embeddings, then write only
   `track_classifier_scores`; it must not decode audio or modify audio files.
 - Rhythm Lab must never write to the source library database or audio files. It
   opens the main project SQLite database read-only and writes only its own lab
@@ -100,26 +100,26 @@ branches, or history are available.
 - Search UI stays split into SONARA, MERT, and CLAP tabs. SONARA sends custom
   mixer/modifiers to `/api/search/sonara`; MERT seed search uses `/api/search`;
   CLAP text search uses `/api/search/text` and requires `clap` embeddings.
-- The search/listening panel also has a CLASS tab for classifier controls.
-  Break Energy uses the promoted local model at
-  `models/classifiers/break-energy/model.joblib`. Keep generated classifier
-  assets (`model.joblib`, `model.json`) out of git.
-- Break Energy scores are stored in `track_classifier_scores` with classifier
-  key `break_energy`. The user-facing score is `probabilities.break_energy`
-  (trained internally from Rhythm Lab Break Energy `broken` labels);
-  `straight_energy` is diagnostic.
+- The search/listening panel also has a CLASS tab for classifier controls. It
+  discovers promoted local classifier profiles from
+  `models/classifiers/*/model.json`. Keep generated classifier assets
+  (`model.joblib`, `model.json`) out of git.
+- Promoted classifier scores are stored in `track_classifier_scores` with their
+  profile `classifier_key`. The user-facing score is the promoted model's
+  positive-label probability stored as `score`; per-label probabilities remain
+  in `probabilities_json`.
 - Rhythm Lab's lab DB uses `classifier_labels`, `classifier_predictions`, and
-  `classifier_training_checkpoints`, scoped by `classifier_key`; Break Energy
-  rows use `break_energy`. Do not reintroduce `rhythm_*` lab tables except in a
-  one-way migration that removes them after data is copied.
+  `classifier_training_checkpoints`, scoped by `classifier_key`. Do not
+  reintroduce `rhythm_*` lab tables except in a one-way migration that removes
+  them after data is copied.
 - Rhythm Lab profiles support `profile_type = "binary"` and
   `profile_type = "multiclass"`. Binary profiles use exactly one positive and
   one negative training label plus optional review labels. Multiclass profiles
   use `class` labels only, can have arbitrary user-defined classes, and one
   track can hold only one current label for the active profile.
-- Rhythm Lab training artifacts are classifier-scoped:
-  `tools/rhythm-lab/artifacts/break-energy/` for Break Energy. Promoted runtime
-  models for the main app stay separate under `models/classifiers/<key>/`.
+- Rhythm Lab training artifacts are classifier-scoped under
+  `tools/rhythm-lab/artifacts/<artifact-prefix>/`. Promoted runtime models for
+  the main app stay separate under `models/classifiers/<artifact-prefix>/`.
 - Rhythm Lab training benchmarks `sonara`, `mert`, `maest`, and `combined`.
   `combined` requires existing SONARA features plus MERT and MAEST embeddings;
   do not remove SONARA from the combined classifier path. Rhythm Lab summary UI
@@ -131,7 +131,7 @@ branches, or history are available.
   SQLite records only and must require explicit UI confirmation.
 - Metadata dialog must keep Mutagen tags, SONARA features, and MAEST genres
   visually separate; preserve the current display order and source boundaries.
-  Break Energy may be shown as its own classifier block below SONARA features.
+  Classifier scores may be shown as their own block below SONARA features.
 - Keep hover help on user-editable controls with purpose, type/format, and range.
 
 ## Common Commands
@@ -159,10 +159,10 @@ dj-sim analyze-sonara --limit 3 --batch-size 4 --db .\data\library.sqlite
 dj-sim analyze --adapter mert --device cpu --batch-size 2 --limit 3 --db .\data\library.sqlite
 dj-sim analyze --adapter clap --device cpu --batch-size 2 --limit 3 --db .\data\library.sqlite
 dj-sim analyze-genres --device cpu --batch-size 2 --limit 3 --db .\data\library.sqlite
-dj-sim analyze-break-energy --limit 3 --db .\data\library.sqlite
+dj-sim analyze-classifier live_instrumentation --limit 3 --db .\data\library.sqlite
 .\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py serve --labels tools\rhythm-lab\data\rhythm_lab.sqlite
-.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py train --source C:\db\abstracted.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
-.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py promote-break-energy --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source C:\db\abstracted.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 5 --db .\data\library.sqlite
 dj-sim relocate-library .\music-old .\music-new --db .\data\library.sqlite
 dj-sim relocate-library .\music-old .\music-new --apply --db .\data\library.sqlite
@@ -188,8 +188,8 @@ python -m pytest scripts\tests\test_repair_audio_metadata.py --override-ini addo
 - `src/dj_track_similarity/genres.py` / `genre_jobs.py`: MAEST genre analysis.
 - `src/dj_track_similarity/embedding.py` / `analysis_jobs.py`: MERT/CLAP
   embeddings and jobs.
-- `src/dj_track_similarity/break_energy.py` / `classifier_jobs.py`: promoted
-  classifier scoring and cancellable classifier jobs.
+- `src/dj_track_similarity/classifier_scoring.py` / `classifier_jobs.py`:
+  promoted classifier scoring and cancellable classifier jobs.
 - `tools/rhythm-lab/rhythm_lab/`: separate classifier lab package for labels,
   predictions, feature matrices, training artifacts, and the standalone lab UI.
 - `src/dj_track_similarity/search.py`, `sonara_similarity.py`: embedding and
@@ -233,7 +233,7 @@ python -m pytest scripts\tests\test_repair_audio_metadata.py --override-ini addo
   database when practical.
 - Rhythm Lab changes: run
   `.\.venv\Scripts\python.exe -m pytest tools\rhythm-lab\tests\test_rhythm_lab.py --override-ini addopts=`
-  and, for Break Energy promotion/scoring boundaries, include
+  and, for promoted classifier scoring boundaries, include
   `tests\test_break_energy.py`.
 - Relocation changes: verify dry-run does not modify paths, apply preserves IDs
   and analysis state, and conflicts/missing files block apply.

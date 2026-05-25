@@ -5,7 +5,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 
-from dj_track_similarity.break_energy import analyze_break_energy, default_break_energy_model_path
+from dj_track_similarity.classifier_scoring import analyze_classifier, default_classifier_model_path
 from dj_track_similarity.database import LibraryDatabase
 
 
@@ -29,7 +29,7 @@ class AlmostCertainModel:
         return np.asarray(["broken"] * matrix.shape[0])
 
 
-def test_analyze_break_energy_scores_feature_complete_tracks_and_skips_missing_features(tmp_path: Path) -> None:
+def test_analyze_classifier_scores_feature_complete_tracks_and_skips_missing_features(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     complete_id = _track(db, tmp_path, "complete.wav")
     missing_id = _track(db, tmp_path, "missing.wav")
@@ -38,7 +38,7 @@ def test_analyze_break_energy_scores_feature_complete_tracks_and_skips_missing_f
     db.save_embedding(complete_id, np.asarray([1.0], dtype=np.float32), "maest-test", embedding_key="maest")
     model_path = _write_model(tmp_path / "model.joblib")
 
-    result = analyze_break_energy(db, model_path=model_path)
+    result = analyze_classifier(db, classifier="break_energy", model_path=model_path)
 
     assert result == {"classifier": "break_energy", "scored": 1, "skipped": 1, "model": str(model_path)}
     score = db.classifier_score(complete_id, "break_energy")
@@ -47,15 +47,15 @@ def test_analyze_break_energy_scores_feature_complete_tracks_and_skips_missing_f
     assert score["confidence"] == 0.87
     assert score["label"] == "high"
     assert score["probabilities"] == {
-        "break_energy": 0.87,
-        "straight_energy": 0.13,
+        "broken": 0.87,
+        "straight": 0.13,
     }
     assert score["feature_set"] == "combined"
     assert score["model_id"] == str(model_path)
     assert db.classifier_score(missing_id, "break_energy") is None
 
 
-def test_analyze_break_energy_preserves_high_confidence_probability_precision(tmp_path: Path) -> None:
+def test_analyze_classifier_preserves_high_confidence_probability_precision(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_id = _track(db, tmp_path, "complete.wav")
     db.save_sonara_features(track_id, {"bpm": {"type": "float", "value": 128.0}}, model_name="sonara-test")
@@ -63,15 +63,15 @@ def test_analyze_break_energy_preserves_high_confidence_probability_precision(tm
     db.save_embedding(track_id, np.asarray([1.0], dtype=np.float32), "maest-test", embedding_key="maest")
     model_path = _write_model(tmp_path / "model.joblib", model=AlmostCertainModel())
 
-    analyze_break_energy(db, model_path=model_path)
+    analyze_classifier(db, classifier="break_energy", model_path=model_path)
 
     score = db.classifier_score(track_id, "break_energy")
     assert score is not None
     assert score["score"] == 0.99999999
     assert score["confidence"] == 0.99999999
     assert score["probabilities"] == {
-        "break_energy": 0.99999999,
-        "straight_energy": 0.00000001,
+        "broken": 0.99999999,
+        "straight": 0.00000001,
     }
 
 
@@ -100,16 +100,51 @@ def test_break_energy_filter_orders_tracks_by_score(tmp_path: Path) -> None:
         model_id="model.joblib",
     )
 
-    page = db.list_tracks_page(min_break_energy=0.8)
-    filtered = db.list_filtered_tracks(min_break_energy=0.8)
+    page = db.list_tracks_page(classifier_min_scores={"break_energy": 0.8})
+    filtered = db.list_filtered_tracks(classifier_min_scores={"break_energy": 0.8})
 
     assert [track.id for track in page["items"]] == [high_id]
     assert page["items"][0].classifier_scores["break_energy"]["score"] == 0.94
     assert [track.id for track in filtered["items"]] == [high_id]
 
 
-def test_default_break_energy_model_path_points_to_stable_classifier_asset() -> None:
-    assert default_break_energy_model_path().as_posix().endswith("models/classifiers/break-energy/model.joblib")
+def test_generic_classifier_filter_orders_tracks_by_score(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    low_id = _track(db, tmp_path, "low-live.wav", title="Low")
+    high_id = _track(db, tmp_path, "high-live.wav", title="High")
+    db.save_classifier_score(
+        low_id,
+        classifier="live_instrumentation",
+        score=0.51,
+        label="medium",
+        confidence=0.51,
+        probabilities={"live_instrument": 0.51, "no_instrument": 0.49},
+        feature_set="combined",
+        model_id="model.joblib",
+    )
+    db.save_classifier_score(
+        high_id,
+        classifier="live_instrumentation",
+        score=0.91,
+        label="high",
+        confidence=0.91,
+        probabilities={"live_instrument": 0.91, "no_instrument": 0.09},
+        feature_set="combined",
+        model_id="model.joblib",
+    )
+
+    page = db.list_tracks_page(classifier_min_scores={"live_instrumentation": 0.8})
+    filtered = db.list_filtered_tracks(classifier_min_scores={"live_instrumentation": 0.8})
+
+    assert [track.id for track in page["items"]] == [high_id]
+    assert page["items"][0].classifier_scores["live_instrumentation"]["score"] == 0.91
+    assert [track.id for track in filtered["items"]] == [high_id]
+
+
+def test_default_classifier_model_path_points_to_profile_classifier_asset() -> None:
+    assert default_classifier_model_path("live_instrumentation").as_posix().endswith(
+        "models/classifiers/live-instrumentation/model.joblib"
+    )
 
 
 def _track(db: LibraryDatabase, tmp_path: Path, filename: str, title: str | None = None) -> int:
@@ -124,6 +159,8 @@ def _write_model(path: Path, *, model: object | None = None) -> Path:
         "feature_set": "combined",
         "feature_names": ["sonara:bpm", "mert:0", "maest:0"],
         "label_order": ["broken", "straight"],
+        "classifier_key": "break_energy",
+        "positive_label": "broken",
     }
     joblib.dump(payload, path)
     return path

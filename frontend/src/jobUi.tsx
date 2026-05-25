@@ -106,14 +106,14 @@ function unifiedLogEvents(
 export function analysisJobRequest(job: AnalysisJobStatus) {
   if (job.adapter_name === "sonara") return api.sonaraJob(job.job_id);
   if (job.adapter_name === "maest") return api.genreJob(job.job_id);
-  if (job.adapter_name === "break_energy") return api.breakEnergyJob(job.job_id);
+  if (!["mert", "clap"].includes(job.adapter_name)) return api.classifierJob(job.adapter_name, job.job_id);
   return api.analyzeJob(job.job_id);
 }
 
 export function cancelAnalysisJob(job: AnalysisJobStatus) {
   if (job.adapter_name === "sonara") return api.cancelSonaraJob(job.job_id);
   if (job.adapter_name === "maest") return api.cancelGenreJob(job.job_id);
-  if (job.adapter_name === "break_energy") return api.cancelBreakEnergyJob(job.job_id);
+  if (!["mert", "clap"].includes(job.adapter_name)) return api.cancelClassifierJob(job.adapter_name, job.job_id);
   return api.cancelAnalyzeJob(job.job_id);
 }
 

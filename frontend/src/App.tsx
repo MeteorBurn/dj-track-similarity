@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AnalysisJobStatus, api, GenreTagJobStatus, LibrarySummary, ScanStats, SearchResult, Track } from "./api";
+import { AnalysisJobStatus, api, GenreTagJobStatus, LibrarySummary, PromotedClassifier, ScanStats, SearchResult, Track } from "./api";
 import { exportDirectoryError } from "./exportView";
 import { ActivityEvent, analysisJobRequest, cancelAnalysisJob, scanSummary } from "./jobUi";
 import { LibraryPanel } from "./LibraryPanel";
@@ -29,7 +29,6 @@ const helpText = {
   sonaraAnalyze: "SONARA считает BPM, key и музыкальные признаки. Нужна для базового описания трека и будущих DJ-фильтров. Параллельность берется из Embedding batch size.",
   maestAnalyze: "MAEST определяет жанровые метки. Нужна для жанровой навигации и проверки характера библиотеки. Batch берется из Embedding batch size.",
   writeMaestGenres: "Перезаписать стандартный Genre/TCON/©gen в аудиофайлах жанрами MAEST. Плееры вроде AIMP будут видеть эти жанры.",
-  breakEnergy: "Минимальный Break Energy. Тип: число 0.00-1.00. Показывает треки, где классификатор уверен в break-heavy drums, брейках, сбивках и плотной перкуссии.",
   mertAnalyze: "MERT строит аудио-эмбеддинги. Нужна для поиска похожих треков от выбранных seed-треков.",
   clapAnalyze: "CLAP строит music-focused аудио-эмбеддинги для поиска по текстовому описанию звучания.",
   analysisBatchSize: "Для SONARA это число параллельных track workers. Для MAEST/MERT/CLAP это inference batch. Тип: целое число 1-16.",
@@ -59,6 +58,10 @@ function optimalWorkerLimit() {
   return Math.max(1, Math.min(8, Math.floor(cores / 2) || 1));
 }
 
+function activeClassifierMinScores(scores: Record<string, number>) {
+  return Object.fromEntries(Object.entries(scores).filter(([, value]) => value > 0));
+}
+
 export function App() {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [libraryTotal, setLibraryTotal] = useState(0);
@@ -67,7 +70,8 @@ export function App() {
   const [librarySummary, setLibrarySummary] = useState<LibrarySummary>(emptySummary);
   const [query, setQuery] = useState("");
   const [libraryPreset, setLibraryPreset] = useState<LibraryPreset>("all");
-  const [minBreakEnergy, setMinBreakEnergy] = useState(0);
+  const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
+  const [classifierMinScores, setClassifierMinScores] = useState<Record<string, number>>({});
   const [databasePath, setDatabasePath] = useState<string | null>(null);
   const [musicRoot, setMusicRoot] = useState("");
   const [textQuery, setTextQuery] = useState("");
@@ -138,7 +142,7 @@ export function App() {
       void refreshLibrary(0);
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [query, libraryPreset, minBreakEnergy, databasePath]);
+  }, [query, libraryPreset, classifierMinScores, databasePath]);
 
   useEffect(() => {
     if (!scanJob?.job_id || !["queued", "running"].includes(scanJob.state || "")) return;
@@ -200,6 +204,12 @@ export function App() {
 
   async function initializeDatabase() {
     try {
+      const promotedClassifiers = await api.classifiers();
+      setClassifiers(promotedClassifiers);
+      setClassifierMinScores((current) => {
+        const keys = new Set(promotedClassifiers.map((classifier) => classifier.classifier_key));
+        return Object.fromEntries(Object.entries(current).filter(([key]) => keys.has(key)));
+      });
       const current = await api.currentDatabase();
       setDatabasePath(current.path);
       setMusicRoot(current.music_root || "");
@@ -209,7 +219,7 @@ export function App() {
         return;
       }
       await refreshLibrary(0, true);
-      await loadLatestJobs();
+      await loadLatestJobs(promotedClassifiers);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setNotice({ kind: "error", text: message });
@@ -217,7 +227,7 @@ export function App() {
     }
   }
 
-  async function loadLatestJobs() {
+  async function loadLatestJobs(promotedClassifiers = classifiers) {
     await Promise.all([
       api.latestScanJob().then((job) => {
         if (job) {
@@ -237,12 +247,14 @@ export function App() {
           if (["queued", "running"].includes(job.state)) setProcessLogKind("analysis");
         }
       }).catch(() => undefined),
-      api.latestBreakEnergyJob().then((job) => {
-        if (job) {
-          setAnalysisJob((current) => (current && ["queued", "running"].includes(current.state) ? current : job));
-          if (["queued", "running"].includes(job.state)) setProcessLogKind("analysis");
-        }
-      }).catch(() => undefined),
+      ...promotedClassifiers.map((classifier) =>
+        api.latestClassifierJob(classifier.classifier_key).then((job) => {
+          if (job) {
+            setAnalysisJob((current) => (current && ["queued", "running"].includes(current.state) ? current : job));
+            if (["queued", "running"].includes(job.state)) setProcessLogKind("analysis");
+          }
+        }).catch(() => undefined)
+      ),
       api.latestGenreJob().then((job) => {
         if (job) {
           setAnalysisJob((current) => (current && ["queued", "running"].includes(current.state) ? current : job));
@@ -313,7 +325,7 @@ export function App() {
         api.tracks({
           query,
           preset: libraryPreset,
-          minBreakEnergy: minBreakEnergy > 0 ? minBreakEnergy : null,
+          classifierMinScores: activeClassifierMinScores(classifierMinScores),
           limit: libraryPageSize,
           offset: nextOffset
         }),
@@ -393,7 +405,7 @@ export function App() {
       const filtered = await api.filteredTracks({
         query,
         preset: libraryPreset,
-        minBreakEnergy: minBreakEnergy > 0 ? minBreakEnergy : null
+        classifierMinScores: activeClassifierMinScores(classifierMinScores)
       });
       const matchingTracks = filtered.items;
       const nextPlaylist = appendVisibleTracksToPlaylist(playlist, matchingTracks);
@@ -440,14 +452,14 @@ export function App() {
     );
   }
 
-  async function handleBreakEnergyAnalyze() {
-    appendActivity("info", "Break Energy classification запущен");
+  async function handleClassifierAnalyze(classifier: string, label: string) {
+    appendActivity("info", `${label} classification запущен`);
     setProcessLogKind("analysis");
     await run(
-      () => api.analyzeBreakEnergy(analysisLimit > 0 ? analysisLimit : undefined),
+      () => api.analyzeClassifier(classifier, analysisLimit > 0 ? analysisLimit : undefined),
       (job) => {
         setAnalysisJob(job);
-        return "Break Energy classification поставлен в очередь";
+        return `${label} classification поставлен в очередь`;
       }
     );
   }
@@ -868,14 +880,17 @@ export function App() {
           onOutputDirChange={setOutputDir}
           onChooseOutputFolder={() => void handleChooseOutputFolder()}
           helpText={helpText}
-          minBreakEnergy={minBreakEnergy}
-          onMinBreakEnergyChange={setMinBreakEnergy}
-          breakEnergyJob={analysisJob?.adapter_name === "break_energy" ? analysisJob : null}
+          classifiers={classifiers}
+          classifierMinScores={classifierMinScores}
+          onClassifierMinScoreChange={(classifier, value) =>
+            setClassifierMinScores((current) => ({ ...current, [classifier]: value }))
+          }
+          classifierJob={classifiers.some((classifier) => classifier.classifier_key === analysisJob?.adapter_name) ? analysisJob : null}
           removeSeed={removeSeed}
           handleTextSearch={() => void handleTextSearch()}
           handleSonaraSearch={() => void handleSonaraSearch()}
           handleMertSearch={() => void handleMertSearch()}
-          handleBreakEnergyAnalyze={() => void handleBreakEnergyAnalyze()}
+          handleClassifierAnalyze={(classifier, label) => void handleClassifierAnalyze(classifier, label)}
           addSeed={addSeed}
           togglePlaylist={togglePlaylist}
           setPreview={setPreview}

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
 
-from .break_energy import CLASSIFIER_NAME, BreakEnergyScorer, default_break_energy_model_path
+from .classifier_scoring import ClassifierScorer, default_classifier_model_path
 from .database import LibraryDatabase
 from .job_runtime import JobStore
 from .logging_config import exception_summary, log_failure, log_job_event
@@ -38,8 +38,8 @@ class ClassifierLogEvent:
 class ClassifierJobStatus:
     job_id: str
     state: str
-    adapter_name: str = CLASSIFIER_NAME
-    embedding_key: str = CLASSIFIER_NAME
+    adapter_name: str
+    embedding_key: str
     model_name: str | None = None
     device: str | None = "cpu"
     device_requested: str = "cpu"
@@ -64,45 +64,49 @@ class ClassifierJobManager:
         self.db = db
         self._store = JobStore(self._copy_status, unknown_label="classifier job")
 
-    def create_job(self, *, classifier: str = CLASSIFIER_NAME, limit: int | None = None) -> str:
-        if classifier != CLASSIFIER_NAME:
-            raise ValueError(f"Unknown classifier: {classifier}")
+    def create_job(self, *, classifier: str, limit: int | None = None) -> str:
         tracks = self.db.list_tracks(include_metadata=True)
         if limit is not None:
             tracks = tracks[: max(0, int(limit))]
         job_id = str(uuid.uuid4())
-        status = ClassifierJobStatus(job_id=job_id, state="queued", total=len(tracks))
+        status = ClassifierJobStatus(
+            job_id=job_id,
+            state="queued",
+            adapter_name=classifier,
+            embedding_key=classifier,
+            total=len(tracks),
+        )
         self._store.add(job_id, status, payload=tracks)
-        self._append_event(job_id, "info", "Break Energy classification queued")
+        self._append_event(job_id, "info", f"{classifier} classification queued")
         return job_id
 
     def start(
         self,
         *,
-        classifier: str = CLASSIFIER_NAME,
+        classifier: str,
         limit: int | None = None,
         model_path: str | Path | None = None,
     ) -> ClassifierJobStatus:
         job_id = self.create_job(classifier=classifier, limit=limit)
-        thread = threading.Thread(target=self.run_job, args=(job_id, model_path), daemon=True)
+        thread = threading.Thread(target=self.run_job, args=(job_id, classifier, model_path), daemon=True)
         thread.start()
         return self.get(job_id)
 
-    def run_job(self, job_id: str, model_path: str | Path | None = None) -> ClassifierJobStatus:
+    def run_job(self, job_id: str, classifier: str, model_path: str | Path | None = None) -> ClassifierJobStatus:
         status = self.get(job_id)
         tracks = cast(list[Track], self._store.payload(job_id) or [])
         if status.cancel_requested:
             self._update(job_id, state="cancelled", finished_at=time.time())
-            self._append_event(job_id, "warn", "Break Energy classification cancelled")
+            self._append_event(job_id, "warn", f"{classifier} classification cancelled")
             return self.get(job_id)
 
         started = time.time()
-        path = Path(model_path) if model_path is not None else default_break_energy_model_path()
+        path = Path(model_path) if model_path is not None else default_classifier_model_path(classifier)
         self._update(job_id, state="running", started_at=started, model_name=str(path))
-        self._append_event(job_id, "info", "Break Energy classification started")
+        self._append_event(job_id, "info", f"{classifier} classification started")
 
         try:
-            scorer = BreakEnergyScorer(self.db, path)
+            scorer = ClassifierScorer(self.db, classifier=classifier, model_path=path)
         except Exception as error:
             error_text = exception_summary(error)
             self._update(job_id, state="failed", finished_at=time.time())
@@ -112,7 +116,7 @@ class ClassifierJobManager:
         for track in tracks:
             if self.get(job_id).cancel_requested:
                 self._update(job_id, state="cancelled", finished_at=time.time(), current_path=None)
-                self._append_event(job_id, "warn", "Break Energy classification cancelled")
+                self._append_event(job_id, "warn", f"{classifier} classification cancelled")
                 return self.get(job_id)
             self._score_one(job_id, scorer, track)
 
@@ -126,7 +130,7 @@ class ClassifierJobManager:
             current_path=None,
             avg_seconds_per_track=(finished - (final.started_at or started)) / processed,
         )
-        self._append_event(job_id, "info", "Break Energy classification completed")
+        self._append_event(job_id, "info", f"{classifier} classification completed")
         return self.get(job_id)
 
     def get(self, job_id: str) -> ClassifierJobStatus:
@@ -139,7 +143,7 @@ class ClassifierJobManager:
         self._update(job_id, cancel_requested=True)
         return self.get(job_id)
 
-    def _score_one(self, job_id: str, scorer: BreakEnergyScorer, track: Track) -> None:
+    def _score_one(self, job_id: str, scorer: ClassifierScorer, track: Track) -> None:
         self._update(job_id, current_path=track.path)
         try:
             result = scorer.score_track(track)

@@ -29,8 +29,7 @@ else who collects, tags, or plays music will find the approach useful too.
 - Builds MERT audio embeddings for audio-to-audio similarity search.
 - Builds CLAP audio embeddings for text-to-audio search.
 - Extracts MAEST genre labels and stores them in the local SQLite database.
-- Scores a promoted Break Energy classifier for break-heavy drums, percussion,
-  fills, and related drum-break texture using existing SONARA, MERT, and MAEST
+- Scores promoted classifier profiles using existing SONARA, MERT, and MAEST
   analysis data.
 - Can explicitly save stored MAEST labels into standard audio genre tags.
 - Keeps the library browser server-side paginated so large local databases stay
@@ -52,11 +51,11 @@ SONARA seed search is the primary explainable search path in the UI. MERT is
 available as a separate seed-search tab, and CLAP is available for text-to-audio
 search after CLAP audio embeddings have been analyzed. MAEST genre analysis is
 available for local genre inspection and optional explicit genre tag writing.
-The CLASS tab can run the Break Energy classifier after a model has been
+The CLASS tab lists promoted classifier profiles after their models have been
 promoted from the auxiliary Rhythm Lab tool into
-`models/classifiers/break-energy/model.joblib`. Rhythm Lab lives under
-`tools/rhythm-lab/` and keeps its training artifacts in
-`tools/rhythm-lab/artifacts/break-energy/`.
+`models/classifiers/<artifact-prefix>/model.joblib`. Rhythm Lab lives under
+`tools/rhythm-lab/` and keeps its training artifacts under
+`tools/rhythm-lab/artifacts/<artifact-prefix>/`.
 
 The UI keeps file tags and model-derived values separate. This is intentional:
 file tags, Sonara values, MAEST labels, MERT vectors, CLAP vectors, and
@@ -125,9 +124,9 @@ database details, analysis workflows, performance notes, and troubleshooting.
 - RefreshTags rereads file metadata and updates SQLite only.
 - Library relocation updates only stored paths in SQLite.
 - Analysis reset buttons delete only local SQLite analysis outputs.
-- Break Energy scores are SQLite-only classifier outputs. They depend on
-  SONARA, MERT, and MAEST data and can be recomputed from a promoted classifier
-  model; they do not modify audio files.
+- Promoted classifier scores are SQLite-only outputs. They depend on SONARA,
+  MERT, and MAEST data and can be recomputed from promoted classifier models;
+  they do not modify audio files.
 - Database clear deletes local SQLite records only; it does not delete music
   files.
 - The genre save action is the explicit app-level exception: it writes stored

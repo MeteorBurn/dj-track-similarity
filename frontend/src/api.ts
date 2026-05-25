@@ -120,6 +120,16 @@ export type AnalysisJobStatus = {
   top_k?: number;
 };
 
+export type PromotedClassifier = {
+  classifier_key: string;
+  name: string;
+  artifact_prefix: string;
+  positive_label?: string | null;
+  label_order?: string[];
+  model_path: string;
+  metadata_path: string;
+};
+
 export type GenreTagJobStatus = {
   job_id: string;
   state: "queued" | "running" | "completed" | "cancelled" | "failed";
@@ -178,23 +188,25 @@ export const api = {
       method: "POST",
       body: JSON.stringify({})
     }),
-  tracks: (params: { query?: string; preset?: string; minBreakEnergy?: number | null; limit?: number; offset?: number; includeMetadata?: boolean } = {}) => {
+  tracks: (params: { query?: string; preset?: string; classifierMinScores?: Record<string, number>; limit?: number; offset?: number; includeMetadata?: boolean } = {}) => {
     const search = new URLSearchParams();
     if (params.query) search.set("q", params.query);
     if (params.preset) search.set("preset", params.preset);
-    if (params.minBreakEnergy != null) search.set("min_break_energy", String(params.minBreakEnergy));
+    if (params.classifierMinScores && Object.keys(params.classifierMinScores).length) {
+      search.set("classifier_min_scores", JSON.stringify(params.classifierMinScores));
+    }
     if (params.limit != null) search.set("limit", String(params.limit));
     if (params.offset != null) search.set("offset", String(params.offset));
     search.set("include_metadata", params.includeMetadata ? "true" : "false");
     return request<TrackPage>(`/api/tracks?${search.toString()}`);
   },
-  filteredTracks: (payload: { query?: string; preset?: string; minBreakEnergy?: number | null }) =>
+  filteredTracks: (payload: { query?: string; preset?: string; classifierMinScores?: Record<string, number> }) =>
     request<{ items: Track[]; total: number }>("/api/tracks/filtered", {
       method: "POST",
       body: JSON.stringify({
         query: payload.query || "",
         preset: payload.preset || "all",
-        min_break_energy: payload.minBreakEnergy ?? null
+        classifier_min_scores: payload.classifierMinScores || {}
       })
     }),
   track: (trackId: number) => request<Track>(`/api/tracks/${trackId}`),
@@ -248,18 +260,19 @@ export const api = {
       method: "POST",
       body: JSON.stringify({})
     }),
-  analyzeBreakEnergy: (limit?: number) =>
-    request<AnalysisJobStatus>("/api/classifiers/break-energy/analyze", {
+  analyzeClassifier: (classifier: string, limit?: number) =>
+    request<AnalysisJobStatus>(`/api/classifiers/${classifier}/analyze`, {
       method: "POST",
       body: JSON.stringify({ limit: limit || null })
     }),
-  breakEnergyJob: (jobId: string) => request<AnalysisJobStatus>(`/api/classifiers/break-energy/analyze/jobs/${jobId}`),
-  latestBreakEnergyJob: () => request<AnalysisJobStatus | null>("/api/classifiers/break-energy/analyze/jobs/latest"),
-  cancelBreakEnergyJob: (jobId: string) =>
-    request<AnalysisJobStatus>(`/api/classifiers/break-energy/analyze/jobs/${jobId}/cancel`, {
+  classifierJob: (classifier: string, jobId: string) => request<AnalysisJobStatus>(`/api/classifiers/${classifier}/analyze/jobs/${jobId}`),
+  latestClassifierJob: (classifier: string) => request<AnalysisJobStatus | null>(`/api/classifiers/${classifier}/analyze/jobs/latest`),
+  cancelClassifierJob: (classifier: string, jobId: string) =>
+    request<AnalysisJobStatus>(`/api/classifiers/${classifier}/analyze/jobs/${jobId}/cancel`, {
       method: "POST",
       body: JSON.stringify({})
     }),
+  classifiers: () => request<PromotedClassifier[]>("/api/classifiers"),
   analyzeJob: (jobId: string) => request<AnalysisJobStatus>(`/api/analyze/jobs/${jobId}`),
   latestAnalyzeJob: () => request<AnalysisJobStatus | null>("/api/analyze/jobs/latest"),
   cancelAnalyzeJob: (jobId: string) =>

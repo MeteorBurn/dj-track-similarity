@@ -19,12 +19,12 @@ Rhythm Lab is profile-based. A classifier profile defines:
 - a train-refresh threshold for how many new labels per training class are
   required after the last training checkpoint before the UI enables training
 
-The default profile is Break Energy:
+Profiles can be binary or multiclass. A binary profile might use:
 
-- `broken`: positive class for syncopated, broken, break-heavy, or drum-break
-  rhythm texture
-- `straight`: negative/reference class for straight four-on-the-floor rhythm
-- `ambiguous`: review-only label, excluded from fitting
+- `live_instrument`: positive class for tracks with live/acoustic instrument
+  material
+- `no_instrument`: negative/reference class
+- `uncertain`: review-only label, excluded from fitting
 
 Track labels are current-state annotations. If a track was labeled incorrectly
 or your judgment changes, select another label or Clear in the UI; the old value
@@ -40,10 +40,10 @@ Lab state:
 tools/rhythm-lab/data/rhythm_lab.sqlite
 ```
 
-Training artifacts for Break Energy:
+Training artifacts for a profile:
 
 ```text
-tools/rhythm-lab/artifacts/break-energy/
+tools/rhythm-lab/artifacts/<artifact-prefix>/
 ```
 
 New profiles can use their own folder, for example:
@@ -55,8 +55,8 @@ tools/rhythm-lab/artifacts/vocal-presence/
 Promoted runtime model used by the main app:
 
 ```text
-models/classifiers/break-energy/model.joblib
-models/classifiers/break-energy/model.json
+models/classifiers/<artifact-prefix>/model.joblib
+models/classifiers/<artifact-prefix>/model.json
 ```
 
 The lab database uses classifier-scoped tables:
@@ -154,24 +154,25 @@ labels" display for the active profile.
 Artifacts and metrics are written to the active profile's artifact folder:
 
 ```text
-tools/rhythm-lab/artifacts/break-energy/
+tools/rhythm-lab/artifacts/live-instrumentation/
 ```
 
 Artifact names use the profile artifact prefix, for example:
 
 ```text
-break-energy-combined-20260525T010203Z.joblib
-break-energy-combined-20260525T010203Z.metrics.json
+live-instrumentation-combined-20260525T010203Z.joblib
+live-instrumentation-combined-20260525T010203Z.metrics.json
 ```
 
 Metrics use profile-neutral names such as `positive_discovery`,
 `positive_precision`, `positive_recall`, `negative_candidates`, and
-`label_order`. New profiles do not write legacy Break Energy-only metric fields.
+`label_order`. Profiles should not write classifier-specific legacy metric
+fields.
 
 Apply a trained model and export candidates:
 
 ```powershell
-.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py predict tools\rhythm-lab\artifacts\break-energy\<model>.joblib --source C:\db\abstracted.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py predict tools\rhythm-lab\artifacts\live-instrumentation\<model>.joblib --source C:\db\abstracted.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 .\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py export-predictions --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
@@ -179,22 +180,22 @@ For custom profiles, pass `--profile <classifier_key>` when the artifact does
 not already contain profile metadata or when exporting profile-scoped
 predictions.
 
-Promote the latest combined Break Energy model into the main project:
+Promote the latest combined model for any profile into the main project:
 
 ```powershell
-.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py promote-break-energy --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
-This copies the latest `break-energy-combined-*.joblib` artifact to
-`models/classifiers/break-energy/model.joblib` and writes local metadata to
-`models/classifiers/break-energy/model.json`. The metadata is written from the
-Break Energy profile and artifact payload (`classifier_key`, profile name,
-labels, feature set, and label counts), without legacy Break Energy-only report
-fields. Those promoted files are local runtime artifacts and are ignored by git.
+This copies the latest `<artifact-prefix>-combined-*.joblib` artifact to
+`models/classifiers/<artifact-prefix>/model.joblib` and writes local metadata to
+`models/classifiers/<artifact-prefix>/model.json`. The metadata is written from
+the selected profile and artifact payload (`classifier_key`, profile name,
+labels, feature set, and label counts). Those promoted files are local runtime
+artifacts and are ignored by git.
 
 ## Useful Checks
 
-Count Break Energy labels:
+Count labels for a profile:
 
 ```powershell
 @'
@@ -206,7 +207,7 @@ try:
     print(conn.execute("""
         SELECT label, COUNT(*)
         FROM classifier_labels
-        WHERE classifier_key = 'break_energy'
+        WHERE classifier_key = 'live_instrumentation'
         GROUP BY label
         ORDER BY label
     """).fetchall())

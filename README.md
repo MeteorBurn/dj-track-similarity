@@ -152,9 +152,13 @@ order:
    similarity after both score ranges are understood.
 7. `DJ transition features` - add phrase, loudness, vocalness, density, and
    other transition-specific features.
-8. `MERT model upgrade` - add a heavier MERT model option after the current
+8. `Classifier model benchmarks` - keep logistic regression as the small-data
+   baseline, then compare Linear SVM with calibration, tree/boosting models for
+   SONARA-style tabular features, and a small MLP once classifier profiles have
+   enough labeled examples and hard negatives.
+9. `MERT model upgrade` - add a heavier MERT model option after the current
    pipeline is stable.
-9. `Scale improvements` - add an ANN index or cached embedding matrix for
+10. `Scale improvements` - add an ANN index or cached embedding matrix for
    larger libraries.
 
 ## Development

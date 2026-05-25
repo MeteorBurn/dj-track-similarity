@@ -273,7 +273,6 @@ export function SearchPlaylistPanel({
             <div className="classifier-controls">
               <div className="custom-control-header">
                 <span>Break Energy</span>
-                <span>{breakEnergyJob ? `${breakEnergyJob.state} · ${breakEnergyJob.processed}/${breakEnergyJob.total}` : "not analyzed"}</span>
               </div>
               <label className="range-control" title={helpText.breakEnergy}>
                 <span>
@@ -290,12 +289,9 @@ export function SearchPlaylistPanel({
                   onChange={(event) => onMinBreakEnergyChange(Number(event.target.value))}
                 />
               </label>
-              {breakEnergyJob && (
-                <div className="classifier-job-status">
-                  <progress max={breakEnergyJob.total || 1} value={breakEnergyJob.processed} />
-                  <span>scored {breakEnergyJob.analyzed} · skipped {breakEnergyJob.skipped || 0} · failed {breakEnergyJob.failed}</span>
-                </div>
-              )}
+              {breakEnergyJob && breakEnergyJob.failed > 0 ? (
+                <span className="classifier-job-status">failed {breakEnergyJob.failed}</span>
+              ) : null}
             </div>
             <button className="primary break-energy-analyze-button" disabled={busy} onClick={handleBreakEnergyAnalyze}>
               <SlidersHorizontal size={17} />

@@ -1031,9 +1031,7 @@ h2 {
 
 .classifier-job-status {
   color: #586351;
-  display: grid;
   font-size: 12px;
-  gap: 5px;
 }
 
 .custom-control-header {

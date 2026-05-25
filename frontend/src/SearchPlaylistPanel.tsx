@@ -271,12 +271,11 @@ export function SearchPlaylistPanel({
         {activeSearchTab === "class" && (
           <div className="search-tab-panel" role="tabpanel">
             <div className="classifier-controls">
-              <div className="custom-control-header">
+              <div className="custom-control-header" title={helpText.breakEnergy}>
                 <span>Break Energy</span>
               </div>
               <label className="range-control" title={helpText.breakEnergy}>
                 <span>
-                  <strong>Min Break Energy</strong>
                   <em>{minBreakEnergy.toFixed(2)}</em>
                 </span>
                 <input

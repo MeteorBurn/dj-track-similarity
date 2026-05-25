@@ -81,13 +81,15 @@ http://127.0.0.1:8777/
 
 No source database is loaded at startup unless `--source` is provided. The UI
 has a source database path field, file picker, and Load database button. The
-selected source DB is opened read-only.
+selected source DB is opened read-only. No classifier profile is selected at
+startup; choose an existing profile or create one before loading tracks.
 
 ## Labeling UI
 
 The UI includes:
 
 - profile creation, editing, archiving, and switching
+- explicit profile selection on startup
 - profile-scoped Library, Candidates, Training, and Profile Settings views
 - text search by path/title/artist
 - source database picker and load control

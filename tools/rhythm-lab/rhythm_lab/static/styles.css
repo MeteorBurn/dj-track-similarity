@@ -12,6 +12,9 @@
   --green: #55d88a;
   --page-gutter: clamp(10px, 2.4vw, 34px);
   --panel-pad-x: clamp(12px, 1.6vw, 22px);
+  --header-action-width: 112px;
+  --header-wide-action-width: 144px;
+  --header-grid-columns: minmax(360px, 1fr) var(--header-action-width) var(--header-wide-action-width) minmax(170px, auto);
 }
 
 * {
@@ -80,17 +83,62 @@ main {
 .source-row,
 .tabs,
 .filters,
-.pager,
-.profile-controls {
+.pager {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
 
+.top-bar,
+.source-row {
+  display: grid;
+  grid-template-columns: var(--header-grid-columns);
+  align-items: center;
+  gap: 8px;
+}
+
 .top-bar {
-  justify-content: space-between;
   margin-bottom: 10px;
+}
+
+.top-bar > div:first-child {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+}
+
+.profile-controls {
+  display: contents;
+}
+
+#profileSelect {
+  grid-column: 1;
+  justify-self: end;
+  grid-row: 1;
+  width: min(320px, 100%);
+}
+
+#newProfile,
+#chooseSource {
+  grid-column: 2;
+  width: 100%;
+}
+
+#settingsTab,
+#loadSource {
+  grid-column: 3;
+  width: 100%;
+}
+
+#archiveProfile {
+  grid-column: 4;
+  justify-self: start;
+}
+
+#sourceStatus {
+  grid-column: 4;
 }
 
 .top-bar strong {
@@ -122,8 +170,9 @@ main {
 }
 
 .source-path {
-  flex: 1 1 460px;
-  min-width: min(460px, 100%);
+  grid-column: 1;
+  width: 100%;
+  min-width: 0;
 }
 
 .source-status {
@@ -137,10 +186,26 @@ main {
   color: #ff9baa;
 }
 
-.tabs button.active {
+.tabs button.active,
+#settingsTab.active {
   border-color: var(--amber);
   background: rgba(240, 184, 74, 0.14);
   color: #ffe0a3;
+}
+
+.icon-button {
+  width: 38px;
+  height: 38px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  flex: 0 0 38px;
+}
+
+.icon-button svg {
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
 }
 
 .refresh-candidates {
@@ -364,6 +429,35 @@ menu {
 }
 
 @media (max-width: 760px) {
+  .top-bar,
+  .source-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .profile-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  #profileSelect,
+  #newProfile,
+  #chooseSource,
+  #settingsTab,
+  #archiveProfile,
+  #loadSource {
+    width: auto;
+  }
+
+  #profileSelect,
+  .source-path {
+    flex: 1 1 min(320px, 100%);
+  }
+
   .track {
     grid-template-columns: 1fr;
   }

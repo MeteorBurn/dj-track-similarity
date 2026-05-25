@@ -17,6 +17,7 @@ const candidateMinBrokenEl = document.getElementById("candidateMinBroken");
 const candidateMinPositiveEl = document.getElementById("candidateMinPositive");
 const refreshCandidatesEl = document.getElementById("refreshCandidates");
 const trainRefreshEl = document.getElementById("trainRefresh");
+const archiveProfileEl = document.getElementById("archiveProfile");
 const refreshCandidatesStatusEl = document.getElementById("refreshCandidatesStatus");
 const summaryEl = document.getElementById("summary");
 const pageSizeEl = document.getElementById("pageSize");
@@ -41,13 +42,19 @@ document.getElementById("load").addEventListener("click", () => loadActive({ res
 document.getElementById("chooseSource").addEventListener("click", () => chooseSource().catch(showError));
 document.getElementById("loadSource").addEventListener("click", () => switchSource(sourcePathEl.value).catch(showError));
 document.getElementById("newProfile").addEventListener("click", () => profileDialogEl.showModal());
-document.getElementById("archiveProfile").addEventListener("click", () => archiveActiveProfile().catch(showError));
+archiveProfileEl.addEventListener("click", () => archiveActiveProfile().catch(showError));
 document.getElementById("cancelProfileButton").addEventListener("click", () => profileDialogEl.close());
 document.getElementById("newProfileForm").addEventListener("submit", event => createProfile(event).catch(showError));
 document.getElementById("profileForm").addEventListener("submit", event => updateProfile(event).catch(showError));
 document.getElementById("renameLabelForm").addEventListener("submit", event => renameLabel(event).catch(showError));
 
-profileSelectEl.addEventListener("change", () => setActiveProfile(profileSelectEl.value).catch(showError));
+profileSelectEl.addEventListener("change", () => {
+  if (!profileSelectEl.value) {
+    clearActiveProfile();
+    return;
+  }
+  setActiveProfile(profileSelectEl.value).catch(showError);
+});
 libraryTabEl.addEventListener("click", () => switchView("library"));
 candidatesTabEl.addEventListener("click", () => switchView("candidates"));
 trainingTabEl.addEventListener("click", () => switchView("training"));
@@ -81,6 +88,7 @@ async function loadProfiles() {
   const data = await fetch("/api/profiles").then(parseJsonResponse);
   profiles = data.items || [];
   profileSelectEl.innerHTML = "";
+  addOption(profileSelectEl, "", "Choose profile");
   profiles.forEach(profile => {
     const option = document.createElement("option");
     option.value = profile.classifier_key;
@@ -88,12 +96,19 @@ async function loadProfiles() {
     profileSelectEl.appendChild(option);
   });
   if (!profiles.length) throw new Error("No classifier profiles are available");
-  const selected = activeProfile?.classifier_key || profiles[0].classifier_key;
-  await setActiveProfile(selected, { skipLoad: true });
+  if (activeProfile && profiles.some(profile => profile.classifier_key === activeProfile.classifier_key)) {
+    await setActiveProfile(activeProfile.classifier_key, { skipLoad: true });
+  } else {
+    clearActiveProfile();
+  }
 }
 
 async function setActiveProfile(profileKey, options = {}) {
-  activeProfile = profiles.find(profile => profile.classifier_key === profileKey) || profiles[0];
+  activeProfile = profiles.find(profile => profile.classifier_key === profileKey) || null;
+  if (!activeProfile) {
+    clearActiveProfile();
+    return;
+  }
   profileSelectEl.value = activeProfile.classifier_key;
   activeProfileNameEl.textContent = activeProfile.name;
   renderProfileControls();
@@ -103,7 +118,32 @@ async function setActiveProfile(profileKey, options = {}) {
   if (!options.skipLoad) await loadActive({ reset: true });
 }
 
+function clearActiveProfile() {
+  activeProfile = null;
+  profileSelectEl.value = "";
+  activeProfileNameEl.textContent = "No profile selected";
+  summaryEl.textContent = "";
+  pageInfoEl.textContent = "";
+  tracksEl.innerHTML = "";
+  trainingPanelEl.innerHTML = "";
+  guidancePanelEl.innerHTML = '<div class="guidance-card"><b>Choose profile</b><span class="meta">Select or create a classifier profile before loading tracks.</span></div>';
+  labelEl.innerHTML = "";
+  addOption(labelEl, "all", "all labels");
+  candidatePredictedEl.innerHTML = "";
+  addOption(candidatePredictedEl, "all", "all predictions");
+  document.getElementById("profileNameInput").value = "";
+  document.getElementById("profileDescriptionInput").value = "";
+  document.getElementById("profileArtifactDirInput").value = "";
+  document.getElementById("profileArtifactPrefixInput").value = "";
+  document.getElementById("renameLabelSelect").innerHTML = "";
+  archiveProfileEl.disabled = true;
+  refreshCandidatesEl.disabled = true;
+  trainRefreshEl.disabled = true;
+}
+
 function renderProfileControls() {
+  archiveProfileEl.disabled = false;
+  refreshCandidatesEl.disabled = false;
   labelEl.innerHTML = "";
   addOption(labelEl, "all", "all labels");
   addOption(labelEl, "unlabeled", "unlabeled");

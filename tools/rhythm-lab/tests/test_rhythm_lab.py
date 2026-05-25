@@ -716,13 +716,25 @@ def test_web_app_html_contains_source_database_controls(tmp_path: Path) -> None:
     script = client.get("/static/app.js").text
 
     assert "<strong>Rhythm Lab</strong>" in html
-    assert 'id="activeProfileName">Break Energy</span>' in html
+    assert 'id="activeProfileName">No profile selected</span>' in html
     assert 'id="sourcePath"' in html
     assert 'id="chooseSource"' in html
     assert 'id="loadSource"' in html
     assert 'fetch("/api/source/dialog"' in script
     assert 'fetch("/api/source/switch"' in script
     assert "`${data.tracks} tracks | MAEST ${data.maest} | MERT ${data.mert} | Labels: ${formatLabelCounts(data.labels)}`" in script
+
+
+def test_web_app_requires_explicit_profile_selection_on_startup(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
+    script = client.get("/static/app.js").text
+
+    assert 'addOption(profileSelectEl, "", "Choose profile");' in script
+    assert 'activeProfile = null;' in script
+    assert 'activeProfileNameEl.textContent = "No profile selected";' in script
+    assert "profiles[0].classifier_key" not in script
 
 
 def test_web_app_serves_static_profile_ui_without_hardcoded_label_buttons(tmp_path: Path) -> None:
@@ -831,7 +843,7 @@ def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path
     assert 'candidateFiltersEl.hidden = view !== "candidates";' in script
     assert 'id="refreshCandidates"' in html
     assert 'id="trainRefresh"' in html
-    assert '<button id="trainRefresh" type="button" class="train-refresh"' in html
+    assert '<button id="trainRefresh" type="button" class="icon-button train-refresh"' in html
     assert 'fetch(`/api/profiles/${activeProfile.classifier_key}/predictions/refresh`, { method: "POST" })' in script
     assert 'fetch(`/api/profiles/${activeProfile.classifier_key}/training/readiness`)' in script
     assert 'fetch(`/api/profiles/${activeProfile.classifier_key}/training/train-refresh`, { method: "POST" })' in script
@@ -853,6 +865,58 @@ def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path
     assert "label: labelEl.value," in script
     assert "predicted: candidatePredictedEl.value," in script
     assert "probability_focus: candidateMinBrokenEl.value," in script
+
+
+def test_web_app_refresh_and_train_controls_are_icon_buttons(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
+    html = client.get("/").text
+    styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
+
+    assert '<button id="refreshCandidates" type="button" class="icon-button refresh-candidates"' in html
+    assert 'aria-label="Refresh candidates"' in html
+    assert 'class="lucide lucide-refresh-cw"' in html
+    assert ">Refresh candidates</button>" not in html
+    assert '<button id="trainRefresh" type="button" class="icon-button train-refresh"' in html
+    assert 'aria-label="Train and refresh candidates"' in html
+    assert 'class="lucide lucide-brain"' in html
+    assert ">Train + refresh</button>" not in html
+    assert ".icon-button {\n  width: 38px;\n  height: 38px;" in styles
+    assert ".icon-button svg {\n  width: 18px;\n  height: 18px;" in styles
+
+
+def test_web_app_header_profile_controls_align_with_source_controls(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
+    html = client.get("/").text
+    styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
+
+    profile_controls = html.split('<div class="profile-controls">', 1)[1].split("</div>", 1)[0]
+    tabs = html.split('<nav class="tabs">', 1)[1].split("</nav>", 1)[0]
+    assert profile_controls.index('id="settingsTab"') < profile_controls.index('id="archiveProfile"')
+    assert 'id="settingsTab"' not in tabs
+    assert "--header-grid-columns: minmax(360px, 1fr) var(--header-action-width) var(--header-wide-action-width) minmax(170px, auto);" in styles
+    assert ".top-bar,\n.source-row {\n  display: grid;" in styles
+    assert ".profile-controls {\n  display: contents;" in styles
+    assert "#profileSelect {\n  grid-column: 1;\n  justify-self: end;" in styles
+    assert "#newProfile,\n#chooseSource {\n  grid-column: 2;" in styles
+    assert "#settingsTab,\n#loadSource {\n  grid-column: 3;" in styles
+    assert "#archiveProfile {\n  grid-column: 4;" in styles
+
+
+def test_web_app_header_badge_aligns_with_title_text(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    styles = (
+        TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
+        .get("/static/styles.css")
+        .text.replace("\r\n", "\n")
+    )
+
+    assert ".top-bar > div:first-child {\n  grid-column: 1;\n  grid-row: 1;\n  display: flex;\n  align-items: center;" in styles
+    assert ".classifier-profile {\n  display: inline-flex;\n  align-items: center;" in styles
 
 
 def test_web_app_html_colors_manual_labels_by_label_value(tmp_path: Path) -> None:

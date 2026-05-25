@@ -733,8 +733,8 @@ def test_web_app_serves_static_profile_ui_without_hardcoded_label_buttons(tmp_pa
     script = client.get("/static/app.js").text
     styles = client.get("/static/styles.css").text
 
-    assert '<link rel="stylesheet" href="/static/styles.css" />' in html
-    assert '<script src="/static/app.js" defer></script>' in html
+    assert '<link rel="stylesheet" href="/static/styles.css?v=profiles-ui-2" />' in html
+    assert '<script src="/static/app.js?v=profiles-ui-2" defer></script>' in html
     assert 'id="profileSelect"' in html
     assert "/api/profiles" in script
     assert "function renderLabelButtons" in script
@@ -904,16 +904,36 @@ def test_web_app_stops_previous_audio_preview_when_another_starts(tmp_path: Path
 def test_web_app_audio_preview_is_compact(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
-    styles = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite")).get("/static/styles.css").text
+    styles = (
+        TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
+        .get("/static/styles.css")
+        .text.replace("\r\n", "\n")
+    )
 
     assert "audio {\n  width: min(520px, 100%);\n  height: 34px;\n  margin-top: 6px;" in styles
+
+
+def test_web_app_shell_has_inner_gutters(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    styles = (
+        TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
+        .get("/static/styles.css")
+        .text.replace("\r\n", "\n")
+    )
+
+    assert "--page-gutter: clamp(10px, 2.4vw, 34px);" in styles
+    assert "--panel-pad-x: clamp(12px, 1.6vw, 22px);" in styles
+    assert "width: min(1440px, calc(100% - (var(--page-gutter) * 2)));" in styles
+    assert "padding: 16px var(--panel-pad-x) 14px;" in styles
+    assert "padding: 16px var(--panel-pad-x) 40px;" in styles
 
 
 def test_web_app_track_rows_have_more_vertical_spacing(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
     client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
-    styles = client.get("/static/styles.css").text
+    styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
     script = client.get("/static/app.js").text
 
     assert ".track-main {\n  display: flex;\n  flex-direction: column;\n  gap: 4px;" in styles

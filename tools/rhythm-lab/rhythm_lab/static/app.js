@@ -28,6 +28,10 @@ const guidancePanelEl = document.getElementById("guidancePanel");
 const trainingPanelEl = document.getElementById("trainingPanel");
 const settingsPanelEl = document.getElementById("settingsPanel");
 const profileDialogEl = document.getElementById("profileDialog");
+const newProfileTypeEl = document.getElementById("newProfileType");
+const binaryLabelGridEl = document.getElementById("binaryLabelGrid");
+const multiclassLabelEditorEl = document.getElementById("multiclassLabelEditor");
+const multiclassLabelRowsEl = document.getElementById("multiclassLabelRows");
 
 let profiles = [];
 let activeProfile = null;
@@ -45,6 +49,8 @@ document.getElementById("newProfile").addEventListener("click", () => profileDia
 archiveProfileEl.addEventListener("click", () => archiveActiveProfile().catch(showError));
 document.getElementById("cancelProfileButton").addEventListener("click", () => profileDialogEl.close());
 document.getElementById("newProfileForm").addEventListener("submit", event => createProfile(event).catch(showError));
+document.getElementById("newProfileType").addEventListener("change", updateNewProfileTypeControls);
+document.getElementById("addMulticlassLabel").addEventListener("click", () => addMulticlassLabelRow());
 document.getElementById("profileForm").addEventListener("submit", event => updateProfile(event).catch(showError));
 document.getElementById("renameLabelForm").addEventListener("submit", event => renameLabel(event).catch(showError));
 
@@ -79,6 +85,7 @@ nextPageEl.addEventListener("click", () => {
 });
 
 async function init() {
+  updateNewProfileTypeControls();
   await loadProfiles();
   await loadSourceState();
   await loadActive({ reset: true });
@@ -151,14 +158,23 @@ function renderProfileControls() {
 
   candidatePredictedEl.innerHTML = "";
   addOption(candidatePredictedEl, "all", "all predictions");
-  activeProfile.labels
-    .filter(label => label.role === "positive" || label.role === "negative")
-    .forEach(label => addOption(candidatePredictedEl, label.key, `predicted ${label.name}`));
+  trainingLabels().forEach(label => addOption(candidatePredictedEl, label.key, `predicted ${label.name}`));
 
   const positive = labelByKey(activeProfile.positive_label);
   const negative = labelByKey(activeProfile.negative_label);
-  candidateMinBrokenEl.options[0].textContent = `highest P(${positive.name})`;
-  candidateMinBrokenEl.options[1].textContent = `highest P(${negative.name})`;
+  if (isMulticlassProfile()) {
+    if (candidateMinBrokenEl.value === "negative_highest") candidateMinBrokenEl.value = "positive_highest";
+    candidateMinBrokenEl.options[0].textContent = "highest confidence";
+    candidateMinBrokenEl.options[1].hidden = true;
+    candidateMinBrokenEl.options[1].disabled = true;
+    candidateMinBrokenEl.options[2].textContent = "lowest confidence";
+  } else {
+    candidateMinBrokenEl.options[1].hidden = false;
+    candidateMinBrokenEl.options[1].disabled = false;
+    candidateMinBrokenEl.options[0].textContent = `highest P(${positive.name})`;
+    candidateMinBrokenEl.options[1].textContent = `highest P(${negative.name})`;
+    candidateMinBrokenEl.options[2].textContent = "uncertain / balanced";
+  }
 
   document.getElementById("profileNameInput").value = activeProfile.name || "";
   document.getElementById("profileDescriptionInput").value = activeProfile.description || "";
@@ -179,6 +195,16 @@ function addOption(select, value, text) {
 
 function labelByKey(key) {
   return activeProfile.labels.find(label => label.key === key) || { key, name: key, role: "review" };
+}
+
+function isMulticlassProfile() {
+  return activeProfile?.profile_type === "multiclass";
+}
+
+function trainingLabels() {
+  if (!activeProfile) return [];
+  if (isMulticlassProfile()) return activeProfile.labels.filter(label => label.role === "class");
+  return activeProfile.labels.filter(label => label.role === "positive" || label.role === "negative");
 }
 
 async function chooseSource() {
@@ -256,16 +282,22 @@ function formatLabelCounts(labels) {
 
 function renderGuidance(summary) {
   const counts = summary.labels || {};
-  const positive = labelByKey(activeProfile.positive_label);
-  const negative = labelByKey(activeProfile.negative_label);
+  const trainingCountText = trainingLabels().map(label => `${escapeHtml(label.name)} ${counts[label.key] || 0}`).join(" · ");
   guidancePanelEl.innerHTML = `
     <div class="guidance-card"><b>${escapeHtml(activeProfile.name)}</b><span class="meta">${escapeHtml(activeProfile.description || "Profile ready for labeling.")}</span></div>
-    <div class="guidance-card"><b>Training labels</b><span class="meta">${escapeHtml(positive.name)} ${counts[positive.key] || 0} · ${escapeHtml(negative.name)} ${counts[negative.key] || 0}</span></div>
+    <div class="guidance-card"><b>Training labels</b><span class="meta">${trainingCountText}</span></div>
     <div class="guidance-card"><b>Feature coverage</b><span class="meta">MAEST ${summary.maest || 0} · MERT ${summary.mert || 0}</span></div>
     <div class="guidance-card"><b>Next step</b><span class="meta">${nextStepText(counts)}</span></div>`;
 }
 
 function nextStepText(counts) {
+  if (isMulticlassProfile()) {
+    const lowClass = trainingLabels().find(label => (counts[label.key] || 0) < 20);
+    if (lowClass) return "Label examples for every class before trusting metrics.";
+    const lowRefreshClass = trainingLabels().find(label => (counts[label.key] || 0) < 100);
+    if (lowRefreshClass) return "Keep labeling each class; train-refresh unlocks after 100 new examples per class.";
+    return "Refresh candidates, review low-confidence predictions, then retrain after another balanced batch.";
+  }
   const positiveCount = counts[activeProfile.positive_label] || 0;
   const negativeCount = counts[activeProfile.negative_label] || 0;
   if (positiveCount < 20 || negativeCount < 20) return "Label balanced positive and negative examples before trusting metrics.";
@@ -379,13 +411,14 @@ async function loadTrainingReadiness() {
 async function loadTrainingView() {
   const data = await loadTrainingReadiness();
   await loadSummary();
-  const positive = labelByKey(activeProfile.positive_label);
-  const negative = labelByKey(activeProfile.negative_label);
+  const planText = isMulticlassProfile()
+    ? `Guided Logistic Regression across ${trainingLabels().map(label => escapeHtml(label.name)).join(", ")}. Each track contributes at most one class label.`
+    : `Guided Logistic Regression on ${escapeHtml(labelByKey(activeProfile.positive_label).name)} vs ${escapeHtml(labelByKey(activeProfile.negative_label).name)}. Review-only labels stay out of fitting.`;
   trainingPanelEl.innerHTML = `
     <div class="guidance-card"><b>Readiness</b><span class="meta">${data?.ready ? "Ready to train" : "Not ready yet"}</span></div>
     <div class="guidance-card"><b>Current labels</b><span class="meta">${formatLabelCounts(data?.current || {})}</span></div>
     <div class="guidance-card"><b>New since last train</b><span class="meta">${formatLabelCounts(data?.added || {})}</span></div>
-    <div class="guidance-card"><b>Training plan</b><span class="meta">Guided Logistic Regression on ${escapeHtml(positive.name)} vs ${escapeHtml(negative.name)}. Review-only labels stay out of fitting.</span></div>`;
+    <div class="guidance-card"><b>Training plan</b><span class="meta">${planText}</span></div>`;
 }
 
 async function loadSettingsView() {
@@ -406,12 +439,19 @@ function renderCandidate(track) {
   const row = document.createElement("section");
   row.className = "track";
   row.tabIndex = 0;
-  const positive = labelByKey(activeProfile.positive_label);
-  const negative = labelByKey(activeProfile.negative_label);
-  const predictionLine = `P(${escapeHtml(positive.name)}) ${formatProbability(track.positive_probability)} · P(${escapeHtml(negative.name)}) ${formatProbability(track.negative_probability)} · predicted <b>${escapeHtml(displayLabel(track.predicted_label))}</b> · ${escapeHtml(track.feature_set)}`;
+  const predictionLine = isMulticlassProfile()
+    ? `${multiclassProbabilitiesLine(track)} · predicted <b>${escapeHtml(displayLabel(track.predicted_label))}</b> · confidence ${formatProbability(track.confidence)} · ${escapeHtml(track.feature_set)}`
+    : `P(${escapeHtml(labelByKey(activeProfile.positive_label).name)}) ${formatProbability(track.positive_probability)} · P(${escapeHtml(labelByKey(activeProfile.negative_label).name)}) ${formatProbability(track.negative_probability)} · predicted <b>${escapeHtml(displayLabel(track.predicted_label))}</b> · ${escapeHtml(track.feature_set)}`;
   row.innerHTML = trackMarkup(track, `<div class="meta feature-line">${predictionLine}</div>`);
   wireTrackRow(row, track);
   return row;
+}
+
+function multiclassProbabilitiesLine(track) {
+  const probabilities = track.probabilities || {};
+  return trainingLabels()
+    .map(label => `P(${escapeHtml(label.name)}) ${formatProbability(probabilities[label.key])}`)
+    .join(" · ");
 }
 
 function trackMarkup(track, predictionLine) {
@@ -428,7 +468,7 @@ function trackMarkup(track, predictionLine) {
         <audio controls preload="none" src="/media/${track.id}"></audio>
       </div>
     </div>
-    <div class="actions">${renderLabelButtons(track)}</div>`;
+    <div class="actions ${isMulticlassProfile() ? "multiclass-actions" : ""}">${renderLabelButtons(track)}</div>`;
 }
 
 function renderLabelButtons(track) {
@@ -483,6 +523,35 @@ async function setLabel(trackId, label) {
 
 async function createProfile(event) {
   event.preventDefault();
+  const response = await fetch("/api/profiles", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      classifier_key: document.getElementById("newProfileKey").value,
+      profile_type: document.getElementById("newProfileType").value,
+      name: document.getElementById("newProfileName").value,
+      description: document.getElementById("newProfileDescription").value,
+      artifact_dir: document.getElementById("newProfileArtifactDir").value || null,
+      labels: collectNewProfileLabels()
+    })
+  });
+  const profile = await parseJsonResponse(response);
+  profileDialogEl.close();
+  await loadProfiles();
+  await setActiveProfile(profile.classifier_key);
+}
+
+function collectNewProfileLabels() {
+  if (newProfileTypeEl.value === "multiclass") {
+    return Array.from(multiclassLabelRowsEl.querySelectorAll(".multiclass-label-row"))
+      .map(row => ({
+        key: row.querySelector(".multiclass-label-key").value,
+        name: row.querySelector(".multiclass-label-name").value,
+        description: row.querySelector(".multiclass-label-description").value,
+        role: "class"
+      }))
+      .filter(label => label.key.trim());
+  }
   const labels = [
     {
       key: document.getElementById("newPositiveKey").value,
@@ -503,21 +572,30 @@ async function createProfile(event) {
       role: "review"
     });
   }
-  const response = await fetch("/api/profiles", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      classifier_key: document.getElementById("newProfileKey").value,
-      name: document.getElementById("newProfileName").value,
-      description: document.getElementById("newProfileDescription").value,
-      artifact_dir: document.getElementById("newProfileArtifactDir").value || null,
-      labels
-    })
+  return labels;
+}
+
+function updateNewProfileTypeControls() {
+  const multiclass = newProfileTypeEl.value === "multiclass";
+  binaryLabelGridEl.hidden = multiclass;
+  multiclassLabelEditorEl.hidden = !multiclass;
+  binaryLabelGridEl.querySelectorAll("input").forEach(input => {
+    input.required = !multiclass && ["newPositiveKey", "newPositiveName", "newNegativeKey", "newNegativeName"].includes(input.id);
   });
-  const profile = await parseJsonResponse(response);
-  profileDialogEl.close();
-  await loadProfiles();
-  await setActiveProfile(profile.classifier_key);
+  multiclassLabelRowsEl.querySelectorAll(".multiclass-label-key, .multiclass-label-name").forEach(input => {
+    input.required = multiclass;
+  });
+}
+
+function addMulticlassLabelRow() {
+  const row = document.createElement("div");
+  row.className = "multiclass-label-row";
+  row.innerHTML = `
+    <label>Class key <input class="multiclass-label-key" placeholder="dreamy" /></label>
+    <label>Class name <input class="multiclass-label-name" placeholder="Dreamy" /></label>
+    <label>Description <textarea class="multiclass-label-description" placeholder="Optional class description"></textarea></label>`;
+  multiclassLabelRowsEl.appendChild(row);
+  updateNewProfileTypeControls();
 }
 
 async function updateProfile(event) {

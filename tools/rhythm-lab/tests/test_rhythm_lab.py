@@ -151,6 +151,81 @@ def test_profile_creation_archive_and_current_track_label_replacement(tmp_path: 
     assert "vocal_presence" in [profile.classifier_key for profile in labels.list_profiles(include_archived=True)]
 
 
+def test_multiclass_profile_creation_uses_custom_single_label_per_track(tmp_path: Path) -> None:
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    profile = labels.create_profile(
+        classifier_key="mood",
+        profile_type="multiclass",
+        name="Mood",
+        description="User-defined mood labels.",
+        artifact_dir=tmp_path / "artifacts" / "mood",
+        labels=[
+            {"key": "euphoric", "name": "Euphoric", "role": "class"},
+            {"key": "dark", "name": "Dark", "role": "class"},
+            {"key": "hypnotic", "name": "Hypnotic", "role": "class"},
+        ],
+    )
+    scoped = RhythmLabDatabase(labels.path, classifier_key="mood")
+
+    scoped.set_label(101, "euphoric")
+    scoped.set_label(101, "dark")
+    scoped.set_label(102, "hypnotic")
+
+    assert profile.profile_type == "multiclass"
+    assert profile.training_label_keys == ("euphoric", "dark", "hypnotic")
+    assert [label.role for label in profile.labels] == ["class", "class", "class"]
+    assert scoped.label_for_track(101).label == "dark"
+    assert scoped.training_labels() == {101: "dark", 102: "hypnotic"}
+
+
+def test_multiclass_profile_migrates_old_profile_label_role_check(tmp_path: Path) -> None:
+    labels_path = tmp_path / "labels.sqlite"
+    with sqlite3.connect(labels_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE classifier_profiles (
+                classifier_key TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                artifact_dir TEXT NOT NULL,
+                artifact_prefix TEXT NOT NULL,
+                positive_label TEXT NOT NULL,
+                negative_label TEXT NOT NULL,
+                archived_at TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE classifier_profile_labels (
+                classifier_key TEXT NOT NULL,
+                label_key TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                role TEXT NOT NULL CHECK(role IN ('positive', 'negative', 'review')),
+                position INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(classifier_key, label_key),
+                FOREIGN KEY(classifier_key) REFERENCES classifier_profiles(classifier_key) ON DELETE CASCADE
+            );
+            """
+        )
+
+    labels = RhythmLabDatabase(labels_path)
+    profile = labels.create_profile(
+        classifier_key="mood",
+        profile_type="multiclass",
+        name="Mood",
+        artifact_dir=tmp_path / "artifacts" / "mood",
+        labels=[
+            {"key": "warm", "name": "Warm", "role": "class"},
+            {"key": "tense", "name": "Tense", "role": "class"},
+        ],
+    )
+
+    assert profile.profile_type == "multiclass"
+    assert [label.key for label in profile.labels] == ["warm", "tense"]
+
+
 def test_label_key_rename_migrates_profile_labels_predictions_and_checkpoints(tmp_path: Path) -> None:
     source_path = tmp_path / "source.sqlite"
     source = LibraryDatabase(source_path)
@@ -223,6 +298,37 @@ def test_web_app_profile_scoped_track_labels_are_isolated(tmp_path: Path) -> Non
     assert vocal_tracks["items"][0]["label"] == "vocal"
     assert break_tracks.status_code == 400
     assert RhythmLabDatabase(labels_path, classifier_key="break_energy").label_for_track(track_id) is None
+
+
+def test_web_app_creates_multiclass_profile_from_request(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    labels_path = tmp_path / "labels.sqlite"
+    client = TestClient(create_app(labels_db_path=labels_path))
+
+    response = client.post(
+        "/api/profiles",
+        json={
+            "classifier_key": "mood",
+            "profile_type": "multiclass",
+            "name": "Mood",
+            "description": "User-defined mood classes.",
+            "artifact_dir": str(tmp_path / "artifacts" / "mood"),
+            "labels": [
+                {"key": "euphoric", "name": "Euphoric", "description": "Uplifting peak-time mood.", "role": "class"},
+                {"key": "dark", "name": "Dark", "description": "Tense low-light mood.", "role": "class"},
+                {"key": "hypnotic", "name": "Hypnotic", "description": "Looping trance-like mood.", "role": "class"},
+            ],
+        },
+    )
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["profile_type"] == "multiclass"
+    assert payload["positive_label"] == "euphoric"
+    assert payload["negative_label"] == "dark"
+    assert [label["role"] for label in payload["labels"]] == ["class", "class", "class"]
+    assert payload["labels"][0]["description"] == "Uplifting peak-time mood."
 
 
 def test_web_app_profile_refresh_candidates_uses_profile_artifact_dir(monkeypatch, tmp_path: Path) -> None:
@@ -745,8 +851,8 @@ def test_web_app_serves_static_profile_ui_without_hardcoded_label_buttons(tmp_pa
     script = client.get("/static/app.js").text
     styles = client.get("/static/styles.css").text
 
-    assert '<link rel="stylesheet" href="/static/styles.css?v=profiles-ui-2" />' in html
-    assert '<script src="/static/app.js?v=profiles-ui-2" defer></script>' in html
+    assert '<link rel="stylesheet" href="/static/styles.css?v=multiclass-grid-1" />' in html
+    assert '<script src="/static/app.js?v=multiclass-grid-1" defer></script>' in html
     assert 'id="profileSelect"' in html
     assert "/api/profiles" in script
     assert "function renderLabelButtons" in script
@@ -764,6 +870,28 @@ def test_profile_dialog_cancel_closes_without_form_validation(tmp_path: Path) ->
     assert '<button id="cancelProfileButton" type="button" value="cancel">Cancel</button>' in html
     assert '<button id="createProfileButton" type="submit" value="default">Create</button>' in html
     assert 'document.getElementById("cancelProfileButton").addEventListener("click", () => profileDialogEl.close());' in script
+
+
+def test_profile_dialog_exposes_multiclass_type_and_custom_labels(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
+    html = client.get("/").text
+    script = client.get("/static/app.js").text
+
+    assert '<h2>New classifier profile</h2>' in html
+    assert 'id="newProfileType"' in html
+    assert '<option value="binary" selected>Binary</option>' in html
+    assert '<option value="multiclass">Multiclass</option>' in html
+    assert 'id="multiclassLabelRows"' in html
+    assert 'id="addMulticlassLabel"' in html
+    assert 'class="multiclass-label-description"' in html
+    assert 'function collectNewProfileLabels' in script
+    assert 'profile_type: document.getElementById("newProfileType").value' in script
+    assert 'role: "class"' in script
+    assert 'description: row.querySelector(".multiclass-label-description").value' in script
+    assert 'document.getElementById("newProfileType").addEventListener("change", updateNewProfileTypeControls);' in script
+    assert 'function updateNewProfileTypeControls' in script
 
 
 def test_static_ui_non_submit_buttons_have_explicit_button_type(tmp_path: Path) -> None:
@@ -932,6 +1060,22 @@ def test_web_app_html_colors_manual_labels_by_label_value(tmp_path: Path) -> Non
     assert "button.active.broken" not in styles
     assert "button.active.straight" not in styles
     assert "button.active.ambiguous" not in styles
+
+
+def test_web_app_multiclass_label_buttons_use_right_aligned_grid(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
+    script = client.get("/static/app.js").text
+    styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
+
+    assert 'class="actions ${isMulticlassProfile() ? "multiclass-actions" : ""}"' in script
+    assert ".multiclass-actions {\n  display: grid;\n  grid-template-columns: repeat(2, minmax(132px, 1fr));" in styles
+    assert "justify-content: end;" in styles
+    assert "width: min(340px, 100%);" in styles
+    assert "@media (max-width: 760px)" in styles
+    assert "@media (max-width: 420px)" in styles
+    assert ".multiclass-actions {\n    grid-template-columns: 1fr;" in styles
 
 
 def test_web_app_track_title_does_not_add_separator_without_artist(tmp_path: Path) -> None:

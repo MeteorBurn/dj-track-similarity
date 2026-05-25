@@ -17,8 +17,10 @@ STRAIGHT_LABEL = "straight"
 ClassifierLabelName = Literal["broken", "straight", "ambiguous"]
 CLASSIFIER_LABELS: tuple[str, ...] = ("broken", STRAIGHT_LABEL, "ambiguous")
 TRAINING_LABELS: tuple[str, ...] = ("broken", STRAIGHT_LABEL)
-ProfileLabelRole = Literal["positive", "negative", "review"]
-PROFILE_LABEL_ROLES: tuple[str, ...] = ("positive", "negative", "review")
+ProfileType = Literal["binary", "multiclass"]
+PROFILE_TYPES: tuple[str, ...] = ("binary", "multiclass")
+ProfileLabelRole = Literal["positive", "negative", "review", "class"]
+PROFILE_LABEL_ROLES: tuple[str, ...] = ("positive", "negative", "review", "class")
 DEFAULT_ARTIFACT_DIR = Path(__file__).resolve().parents[1] / "artifacts" / "break-energy"
 DEFAULT_ARTIFACT_PREFIX = "break-energy"
 DEFAULT_BREAK_ENERGY_DESCRIPTION = (
@@ -48,6 +50,7 @@ class ClassifierProfileLabel:
 @dataclass(frozen=True)
 class ClassifierProfile:
     classifier_key: str
+    profile_type: str
     name: str
     description: str
     artifact_dir: str
@@ -58,7 +61,9 @@ class ClassifierProfile:
     archived_at: str | None = None
 
     @property
-    def training_label_keys(self) -> tuple[str, str]:
+    def training_label_keys(self) -> tuple[str, ...]:
+        if self.profile_type == "multiclass":
+            return tuple(label.key for label in self.labels if label.role == "class")
         return (self.positive_label, self.negative_label)
 
     @property
@@ -123,6 +128,7 @@ class RhythmLabDatabase:
         self,
         *,
         classifier_key: str,
+        profile_type: str = "binary",
         name: str,
         description: str = "",
         artifact_dir: str | Path | None = None,
@@ -130,8 +136,9 @@ class RhythmLabDatabase:
         labels: list[dict[str, object] | ClassifierProfileLabel],
     ) -> ClassifierProfile:
         key = _validate_profile_key(classifier_key)
-        label_specs = _normalize_profile_labels(labels)
-        positive_label, negative_label = _training_labels_from_specs(label_specs)
+        clean_type = _validate_profile_type(profile_type)
+        label_specs = _normalize_profile_labels(labels, profile_type=clean_type)
+        positive_label, negative_label = _training_labels_from_specs(label_specs, profile_type=clean_type)
         clean_name = name.strip()
         if not clean_name:
             raise ValueError("Classifier profile name is required")
@@ -144,12 +151,12 @@ class RhythmLabDatabase:
                 connection.execute(
                     """
                     INSERT INTO classifier_profiles(
-                        classifier_key, name, description, artifact_dir, artifact_prefix,
+                        classifier_key, profile_type, name, description, artifact_dir, artifact_prefix,
                         positive_label, negative_label
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (key, clean_name, description.strip(), artifact_path, prefix, positive_label, negative_label),
+                    (key, clean_type, clean_name, description.strip(), artifact_path, prefix, positive_label, negative_label),
                 )
                 _replace_profile_labels(connection, key, label_specs)
             except sqlite3.IntegrityError as error:
@@ -160,6 +167,7 @@ class RhythmLabDatabase:
         self,
         classifier_key: str,
         *,
+        profile_type: str | None = None,
         name: str | None = None,
         description: str | None = None,
         artifact_dir: str | Path | None = None,
@@ -168,9 +176,15 @@ class RhythmLabDatabase:
     ) -> ClassifierProfile:
         key = _validate_profile_key(classifier_key)
         with self.connect() as connection:
-            _get_profile(connection, key)
+            current_profile = _get_profile(connection, key)
+            clean_type = _validate_profile_type(profile_type) if profile_type is not None else current_profile.profile_type
+            if profile_type is not None and clean_type != current_profile.profile_type and labels is None:
+                raise ValueError("Changing classifier profile type requires replacing the profile labels")
             assignments: list[str] = []
             params: list[object] = []
+            if profile_type is not None and clean_type != current_profile.profile_type:
+                assignments.append("profile_type = ?")
+                params.append(clean_type)
             if name is not None:
                 clean_name = name.strip()
                 if not clean_name:
@@ -196,7 +210,7 @@ class RhythmLabDatabase:
                     (*params, key),
                 )
             if labels is not None:
-                label_specs = _normalize_profile_labels(labels)
+                label_specs = _normalize_profile_labels(labels, profile_type=clean_type)
                 existing = _used_label_keys(connection, key)
                 missing = sorted(existing - {label.key for label in label_specs})
                 if missing:
@@ -204,14 +218,14 @@ class RhythmLabDatabase:
                         "Cannot remove labels that are already used; rename or clear them first: "
                         + ", ".join(missing)
                     )
-                positive_label, negative_label = _training_labels_from_specs(label_specs)
+                positive_label, negative_label = _training_labels_from_specs(label_specs, profile_type=clean_type)
                 connection.execute(
                     """
                     UPDATE classifier_profiles
-                    SET positive_label = ?, negative_label = ?, updated_at = CURRENT_TIMESTAMP
+                    SET profile_type = ?, positive_label = ?, negative_label = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE classifier_key = ?
                     """,
-                    (positive_label, negative_label, key),
+                    (clean_type, positive_label, negative_label, key),
                 )
                 _replace_profile_labels(connection, key, label_specs)
         return self.get_profile(key)
@@ -372,16 +386,19 @@ class RhythmLabDatabase:
         return {str(row["label"]): int(row["count"]) for row in rows}
 
     def training_labels(self) -> dict[int, str]:
-        positive_label, negative_label = self.get_profile().training_label_keys
+        training_keys = self.get_profile().training_label_keys
+        if not training_keys:
+            return {}
+        placeholders = ", ".join("?" for _ in training_keys)
         with self.connect() as connection:
             rows = connection.execute(
-                """
+                f"""
                 SELECT source_track_id, label
                 FROM classifier_labels
-                WHERE classifier_key = ? AND label IN (?, ?)
+                WHERE classifier_key = ? AND label IN ({placeholders})
                 ORDER BY source_track_id
                 """,
-                (self.classifier_key, positive_label, negative_label),
+                (self.classifier_key, *training_keys),
             ).fetchall()
         return {int(row["source_track_id"]): str(row["label"]) for row in rows}
 
@@ -536,6 +553,7 @@ def _ensure_profile_tables(connection: sqlite3.Connection) -> None:
         """
         CREATE TABLE IF NOT EXISTS classifier_profiles (
             classifier_key TEXT PRIMARY KEY,
+            profile_type TEXT NOT NULL DEFAULT 'binary' CHECK(profile_type IN ('binary', 'multiclass')),
             name TEXT NOT NULL,
             description TEXT NOT NULL DEFAULT '',
             artifact_dir TEXT NOT NULL,
@@ -552,7 +570,7 @@ def _ensure_profile_tables(connection: sqlite3.Connection) -> None:
             label_key TEXT NOT NULL,
             display_name TEXT NOT NULL,
             description TEXT NOT NULL DEFAULT '',
-            role TEXT NOT NULL CHECK(role IN ('positive', 'negative', 'review')),
+            role TEXT NOT NULL CHECK(role IN ('positive', 'negative', 'review', 'class')),
             position INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -561,6 +579,11 @@ def _ensure_profile_tables(connection: sqlite3.Connection) -> None:
         );
         """
     )
+    if "profile_type" not in _columns(connection, "classifier_profiles"):
+        connection.execute(
+            "ALTER TABLE classifier_profiles ADD COLUMN profile_type TEXT NOT NULL DEFAULT 'binary'"
+        )
+    _recreate_profile_labels_table_if_old_role_check_exists(connection)
 
 
 def _ensure_classifier_tables(connection: sqlite3.Connection) -> None:
@@ -594,6 +617,45 @@ def _ensure_dynamic_classifier_tables(connection: sqlite3.Connection) -> None:
             "updated_at",
         ),
     )
+
+
+def _recreate_profile_labels_table_if_old_role_check_exists(connection: sqlite3.Connection) -> None:
+    row = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'classifier_profile_labels'"
+    ).fetchone()
+    if row is None:
+        return
+    sql = str(row["sql"])
+    if "CHECK(role IN ('positive', 'negative', 'review'))" not in sql:
+        return
+    backup = "classifier_profile_labels_old_roles"
+    connection.execute(f"ALTER TABLE classifier_profile_labels RENAME TO {backup}")
+    connection.execute(
+        """
+        CREATE TABLE classifier_profile_labels (
+            classifier_key TEXT NOT NULL,
+            label_key TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            role TEXT NOT NULL CHECK(role IN ('positive', 'negative', 'review', 'class')),
+            position INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(classifier_key, label_key),
+            FOREIGN KEY(classifier_key) REFERENCES classifier_profiles(classifier_key) ON DELETE CASCADE
+        )
+        """
+    )
+    connection.execute(
+        f"""
+        INSERT INTO classifier_profile_labels(
+            classifier_key, label_key, display_name, description, role, position, created_at, updated_at
+        )
+        SELECT classifier_key, label_key, display_name, description, role, position, created_at, updated_at
+        FROM {backup}
+        """
+    )
+    connection.execute(f"DROP TABLE {backup}")
 
 
 def _recreate_table_if_label_check_exists(
@@ -820,7 +882,7 @@ def _canonical_probabilities_json(payload: str) -> str:
 def _get_profile(connection: sqlite3.Connection, classifier_key: str) -> ClassifierProfile:
     row = connection.execute(
         """
-        SELECT classifier_key, name, description, artifact_dir, artifact_prefix,
+        SELECT classifier_key, profile_type, name, description, artifact_dir, artifact_prefix,
                positive_label, negative_label, archived_at
         FROM classifier_profiles
         WHERE classifier_key = ?
@@ -850,6 +912,7 @@ def _get_profile(connection: sqlite3.Connection, classifier_key: str) -> Classif
     )
     return ClassifierProfile(
         classifier_key=str(row["classifier_key"]),
+        profile_type=str(row["profile_type"] or "binary"),
         name=str(row["name"]),
         description=str(row["description"] or ""),
         artifact_dir=str(row["artifact_dir"]),
@@ -863,9 +926,12 @@ def _get_profile(connection: sqlite3.Connection, classifier_key: str) -> Classif
 
 def _normalize_profile_labels(
     labels: list[dict[str, object] | ClassifierProfileLabel],
+    *,
+    profile_type: str = "binary",
 ) -> tuple[ClassifierProfileLabel, ...]:
     if not labels:
-        raise ValueError("At least positive and negative labels are required")
+        raise ValueError("At least two training labels are required")
+    clean_type = _validate_profile_type(profile_type)
     result: list[ClassifierProfileLabel] = []
     seen: set[str] = set()
     for position, raw in enumerate(labels):
@@ -888,13 +954,25 @@ def _normalize_profile_labels(
             raise ValueError(f"Display name is required for label: {key}")
         seen.add(key)
         result.append(ClassifierProfileLabel(key=key, name=name, role=role, description=description, position=position))
-    _training_labels_from_specs(tuple(result))
+    _training_labels_from_specs(tuple(result), profile_type=clean_type)
     return tuple(result)
 
 
-def _training_labels_from_specs(labels: tuple[ClassifierProfileLabel, ...]) -> tuple[str, str]:
+def _training_labels_from_specs(labels: tuple[ClassifierProfileLabel, ...], *, profile_type: str = "binary") -> tuple[str, str]:
+    clean_type = _validate_profile_type(profile_type)
+    if clean_type == "multiclass":
+        classes = [label.key for label in labels if label.role == "class"]
+        unsupported = [label.role for label in labels if label.role != "class"]
+        if unsupported:
+            raise ValueError("Multiclass profiles support only class labels")
+        if len(classes) < 2:
+            raise ValueError("At least two class labels are required for a multiclass profile")
+        return classes[0], classes[1]
     positive = [label.key for label in labels if label.role == "positive"]
     negative = [label.key for label in labels if label.role == "negative"]
+    class_labels = [label.key for label in labels if label.role == "class"]
+    if class_labels:
+        raise ValueError("Class labels require a multiclass profile")
     if len(positive) != 1 or len(negative) != 1:
         raise ValueError("Exactly one positive and one negative training label are required")
     return positive[0], negative[0]
@@ -1001,8 +1079,15 @@ def _rename_checkpoint_count_key(
     )
 
 
-def _training_counts_payload(counts: dict[str, object], training_keys: tuple[str, str]) -> dict[str, int]:
+def _training_counts_payload(counts: dict[str, object], training_keys: tuple[str, ...]) -> dict[str, int]:
     return {label: int(counts.get(label, 0)) for label in training_keys}
+
+
+def _validate_profile_type(profile_type: str) -> str:
+    value = str(profile_type or "").strip()
+    if value not in PROFILE_TYPES:
+        raise ValueError(f"Unsupported classifier profile type: {value}")
+    return value
 
 
 def _validate_profile_key(key: str) -> str:

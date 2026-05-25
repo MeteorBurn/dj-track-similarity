@@ -359,6 +359,22 @@ main {
   min-width: 220px;
 }
 
+.multiclass-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(132px, 1fr));
+  gap: 6px;
+  justify-content: end;
+  align-content: start;
+  justify-items: stretch;
+  min-width: 280px;
+  width: min(340px, 100%);
+}
+
+.multiclass-actions button {
+  width: 100%;
+  text-align: left;
+}
+
 .actions button.active {
   border-color: var(--green);
   background: rgba(85, 216, 138, 0.16);
@@ -406,6 +422,23 @@ label {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 8px;
+}
+
+.multiclass-label-editor,
+.multiclass-label-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.multiclass-label-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) minmax(240px, 2fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.multiclass-label-row textarea {
+  min-height: 38px;
 }
 
 dialog {
@@ -464,6 +497,17 @@ menu {
 
   .actions {
     justify-content: start;
+    min-width: 0;
+  }
+
+  .multiclass-actions {
+    justify-content: start;
+  }
+}
+
+@media (max-width: 420px) {
+  .multiclass-actions {
+    grid-template-columns: 1fr;
     min-width: 0;
   }
 }

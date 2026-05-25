@@ -48,6 +48,7 @@ class ProfileLabelRequest(BaseModel):
 
 class ProfileRequest(BaseModel):
     classifier_key: str
+    profile_type: str = "binary"
     name: str
     description: str = ""
     artifact_dir: str | None = None
@@ -56,6 +57,7 @@ class ProfileRequest(BaseModel):
 
 
 class ProfilePatchRequest(BaseModel):
+    profile_type: str | None = None
     name: str | None = None
     description: str | None = None
     artifact_dir: str | None = None
@@ -186,6 +188,7 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
         try:
             profile = labels_db.create_profile(
                 classifier_key=request.classifier_key,
+                profile_type=request.profile_type,
                 name=request.name,
                 description=request.description,
                 artifact_dir=request.artifact_dir,
@@ -201,6 +204,7 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
         try:
             profile = labels_db.update_profile(
                 profile_key,
+                profile_type=request.profile_type,
                 name=request.name,
                 description=request.description,
                 artifact_dir=request.artifact_dir,
@@ -319,7 +323,8 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
             manual_label_value = manual_label.label if manual_label is not None else None
             positive_probability = _prediction_probability(row, profile.positive_label)
             negative_probability = _prediction_probability(row, profile.negative_label)
-            if positive_probability < min_positive:
+            threshold_probability = float(row["confidence"]) if profile.profile_type == "multiclass" else positive_probability
+            if threshold_probability < min_positive:
                 continue
             if predicted != "all" and row["label"] != predicted:
                 continue
@@ -413,12 +418,7 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
             added = readiness["added"]
             raise HTTPException(
                 status_code=400,
-                detail=(
-                    f"Need {TRAIN_REFRESH_MIN_ADDED} new {profile.positive_label} and "
-                    f"{TRAIN_REFRESH_MIN_ADDED} new {profile.negative_label} labels since the last training checkpoint. "
-                    f"Added: {profile.positive_label} {added[profile.positive_label]}, "
-                    f"{profile.negative_label} {added[profile.negative_label]}."
-                ),
+                detail=_training_readiness_error(profile, added),
             )
         counts = dict(readiness["current"])
         artifact_dir = Path(profile.artifact_dir)
@@ -649,6 +649,7 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
 def _profile_payload(profile: ClassifierProfile) -> dict[str, object]:
     return {
         "classifier_key": profile.classifier_key,
+        "profile_type": profile.profile_type,
         "name": profile.name,
         "description": profile.description,
         "artifact_dir": profile.artifact_dir,
@@ -772,6 +773,21 @@ def _training_label_counts(counts: dict[str, int], *, profile: ClassifierProfile
     return {label: int(counts.get(label, 0)) for label in profile.training_label_keys}
 
 
+def _training_readiness_error(profile: ClassifierProfile, added: dict[str, int]) -> str:
+    if profile.profile_type == "multiclass":
+        counts = ", ".join(f"{label} {int(added.get(label, 0))}" for label in profile.training_label_keys)
+        return (
+            f"Need {TRAIN_REFRESH_MIN_ADDED} new labels for each multiclass training class since the last "
+            f"training checkpoint. Added: {counts}."
+        )
+    return (
+        f"Need {TRAIN_REFRESH_MIN_ADDED} new {profile.positive_label} and "
+        f"{TRAIN_REFRESH_MIN_ADDED} new {profile.negative_label} labels since the last training checkpoint. "
+        f"Added: {profile.positive_label} {added[profile.positive_label]}, "
+        f"{profile.negative_label} {added[profile.negative_label]}."
+    )
+
+
 def _prediction_item(row: dict[str, object], manual_label: str | None, broken_probability: float) -> dict[str, object]:
     return {
         "id": int(row["source_track_id"]),
@@ -809,6 +825,7 @@ def _profile_prediction_item(
         "label": manual_label,
         "predicted_label": row["label"],
         "confidence": float(row["confidence"]),
+        "profile_type": profile.profile_type,
         "positive_probability": float(positive_probability),
         "negative_probability": float(negative_probability),
         "positive_label": profile.positive_label,
@@ -839,6 +856,10 @@ def _profile_candidate_sort_key(item: dict[str, object], *, probability_focus: s
     negative_probability = float(item["negative_probability"])
     confidence = float(item["confidence"])
     path = str(item["path"])
+    if item.get("profile_type") == "multiclass":
+        if probability_focus == "balanced":
+            return (confidence, 0.0, path)
+        return (-confidence, 0.0, path)
     if probability_focus == "negative_highest":
         return (-negative_probability, -confidence, path)
     if probability_focus == "balanced":

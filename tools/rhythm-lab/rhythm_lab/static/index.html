@@ -4,8 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <link rel="stylesheet" href="/static/styles.css?v=profiles-ui-2" />
-  <script src="/static/app.js?v=profiles-ui-2" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=multiclass-grid-1" />
+  <script src="/static/app.js?v=multiclass-grid-1" defer></script>
   <title>Rhythm Lab</title>
 </head>
 <body>
@@ -123,15 +123,36 @@
       <h2>New classifier profile</h2>
       <label>Key <input id="newProfileKey" placeholder="vocal_presence" required /></label>
       <label>Name <input id="newProfileName" placeholder="Vocal Presence" required /></label>
+      <label>Type
+        <select id="newProfileType">
+          <option value="binary" selected>Binary</option>
+          <option value="multiclass">Multiclass</option>
+        </select>
+      </label>
       <label>Description <textarea id="newProfileDescription" placeholder="What this classifier should detect"></textarea></label>
       <label>Artifact folder <input id="newProfileArtifactDir" placeholder="tools/rhythm-lab/artifacts/vocal-presence" /></label>
-      <div class="label-grid">
+      <div id="binaryLabelGrid" class="label-grid">
         <label>Positive key <input id="newPositiveKey" placeholder="vocal" required /></label>
         <label>Positive name <input id="newPositiveName" placeholder="Vocal" required /></label>
         <label>Negative key <input id="newNegativeKey" placeholder="instrumental" required /></label>
         <label>Negative name <input id="newNegativeName" placeholder="Instrumental" required /></label>
         <label>Review key <input id="newReviewKey" placeholder="uncertain" /></label>
         <label>Review name <input id="newReviewName" placeholder="Uncertain" /></label>
+      </div>
+      <div id="multiclassLabelEditor" class="multiclass-label-editor" hidden>
+        <div id="multiclassLabelRows" class="multiclass-label-rows">
+          <div class="multiclass-label-row">
+            <label>Class key <input class="multiclass-label-key" placeholder="euphoric" /></label>
+            <label>Class name <input class="multiclass-label-name" placeholder="Euphoric" /></label>
+            <label>Description <textarea class="multiclass-label-description" placeholder="Bright, uplifting, hands-in-the-air mood"></textarea></label>
+          </div>
+          <div class="multiclass-label-row">
+            <label>Class key <input class="multiclass-label-key" placeholder="dark" /></label>
+            <label>Class name <input class="multiclass-label-name" placeholder="Dark" /></label>
+            <label>Description <textarea class="multiclass-label-description" placeholder="Darker, tense, low-light mood"></textarea></label>
+          </div>
+        </div>
+        <button id="addMulticlassLabel" type="button">Add class</button>
       </div>
       <menu>
         <button id="cancelProfileButton" type="button" value="cancel">Cancel</button>

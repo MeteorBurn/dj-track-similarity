@@ -1245,6 +1245,10 @@ def test_web_app_html_colors_manual_labels_by_label_value(tmp_path: Path) -> Non
 
     assert ".profile-label-badge" in styles
     assert ".analysis-status-badge" in styles
+    assert ".profile-label-badge.label-role-positive" in styles
+    assert ".profile-label-badge.label-role-negative" in styles
+    assert ".profile-label-badge.label-role-review" in styles
+    assert 'label-role-${escapeHtml(role)}' in script
     assert "label-${escapeHtml(label)}" in script
     assert "button.classList.add(button.dataset.label)" not in script
     assert "button.active.broken" not in styles

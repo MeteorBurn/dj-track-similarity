@@ -477,7 +477,8 @@ function renderCandidate(track) {
 
 function predictionBadge(track) {
   const label = track.predicted_label || "";
-  return `<span class="profile-label-badge label-${escapeHtml(label)}">${escapeHtml(displayLabel(label))}</span>`;
+  const role = labelByKey(label).role || "review";
+  return `<span class="profile-label-badge label-role-${escapeHtml(role)} label-${escapeHtml(label)}">${escapeHtml(displayLabel(label))}</span>`;
 }
 
 function predictedScore(track) {

@@ -482,8 +482,24 @@ main {
 }
 
 .profile-label-badge {
+  background: rgba(149, 163, 179, 0.16);
+  color: var(--muted);
+}
+
+.profile-label-badge.label-role-positive,
+.profile-label-badge.label-role-class {
   background: rgba(85, 216, 138, 0.16);
   color: var(--green);
+}
+
+.profile-label-badge.label-role-negative {
+  background: rgba(210, 38, 38, 0.18);
+  color: #ff6b6b;
+}
+
+.profile-label-badge.label-role-review {
+  background: rgba(240, 184, 74, 0.18);
+  color: #ffd68a;
 }
 
 .badge-separator {

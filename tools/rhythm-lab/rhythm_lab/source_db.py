@@ -135,7 +135,8 @@ class SourceDatabase:
                     f"""
                     SELECT COUNT(*)
                     FROM tracks t
-                    LEFT JOIN labels.rhythm_labels rl ON rl.source_track_id = t.id
+                    LEFT JOIN labels.classifier_labels rl
+                      ON rl.classifier_key = 'break_energy' AND rl.source_track_id = t.id
                     {where_sql}
                     """,
                     params,
@@ -144,14 +145,15 @@ class SourceDatabase:
             rows = connection.execute(
                 f"""
                 SELECT {TRACK_SELECT_FIELDS},
-                       rl.label AS rhythm_label,
+                       rl.label AS classifier_label,
                        emert.track_id IS NOT NULL AS has_mert_embedding,
                        emaest.track_id IS NOT NULL AS has_maest_embedding
                 FROM tracks t
                 LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                 LEFT JOIN embeddings emert ON emert.track_id = t.id AND emert.embedding_key = 'mert'
                 LEFT JOIN embeddings emaest ON emaest.track_id = t.id AND emaest.embedding_key = 'maest'
-                LEFT JOIN labels.rhythm_labels rl ON rl.source_track_id = t.id
+                LEFT JOIN labels.classifier_labels rl
+                  ON rl.classifier_key = 'break_energy' AND rl.source_track_id = t.id
                 {where_sql}
                 ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
                 LIMIT ? OFFSET ?
@@ -266,7 +268,7 @@ def _track_page_item(row: sqlite3.Row) -> dict[str, object]:
         "musical_key": track.musical_key,
         "genres": track.genres,
         "genre_scores": track.genre_scores,
-        "label": row["rhythm_label"],
+        "label": row["classifier_label"],
         "maest_syncopated_rhythm": metadata.get("maest_syncopated_rhythm") is True,
         "feature_status": {
             "sonara": isinstance(metadata.get("sonara_features"), dict),

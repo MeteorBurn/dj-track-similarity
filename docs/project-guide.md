@@ -328,12 +328,16 @@ models/classifiers/break-energy/model.joblib
 That file is produced outside the main app by Rhythm Lab's promotion command:
 
 ```powershell
-.\.venv\Scripts\python.exe experiments\rhythm-lab\rhythm_lab_cli.py promote-break-energy
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py promote-break-energy
 ```
 
 The promoted `model.joblib` and `model.json` files are local artifacts and are
-ignored by git. The source Rhythm Lab artifact remains in
-`experiments/rhythm-lab/artifacts/`.
+ignored by git. The source Rhythm Lab training artifacts remain in the
+classifier-specific lab workspace:
+
+```text
+tools/rhythm-lab/artifacts/break-energy/
+```
 
 The user-facing Break Energy score is the classifier probability for the
 Rhythm Lab `broken` training label. The stored probability key is

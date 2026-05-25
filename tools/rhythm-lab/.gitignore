@@ -1,0 +1,6 @@
+data/*
+!data/.gitkeep
+artifacts/*
+!artifacts/break-energy/
+artifacts/break-energy/*
+!artifacts/break-energy/.gitkeep

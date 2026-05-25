@@ -53,7 +53,10 @@ available as a separate seed-search tab, and CLAP is available for text-to-audio
 search after CLAP audio embeddings have been analyzed. MAEST genre analysis is
 available for local genre inspection and optional explicit genre tag writing.
 The CLASS tab can run the Break Energy classifier after a model has been
-promoted from Rhythm Lab into `models/classifiers/break-energy/model.joblib`.
+promoted from the auxiliary Rhythm Lab tool into
+`models/classifiers/break-energy/model.joblib`. Rhythm Lab lives under
+`tools/rhythm-lab/` and keeps its training artifacts in
+`tools/rhythm-lab/artifacts/break-energy/`.
 
 The UI keeps file tags and model-derived values separate. This is intentional:
 file tags, Sonara values, MAEST labels, MERT vectors, CLAP vectors, and

@@ -16,6 +16,9 @@ The project is a Python backend/CLI plus a React/Vite frontend:
   search, export, tags, API, and CLI.
 - `frontend/`: React UI built with Vite and TypeScript.
 - `tests/`: pytest coverage for backend/API/search/jobs/tags.
+- `tools/rhythm-lab/`: auxiliary classifier labeling/training UI and CLI,
+  currently focused on the Break Energy classifier profile. It runs separately
+  from `dj_track_similarity`, but stays in this repository as a helper project.
 - `scripts/repair_audio_metadata.py`: standalone dry-run-first audio metadata
   diagnostic/repair helper.
 - `scripts/audio_repair/`: runtime state/log/report/backup workspace; commit
@@ -51,11 +54,16 @@ branches, or history are available.
 - Break Energy classifier scoring is database-only. It must read existing
   SONARA features plus MERT and MAEST embeddings, then write only
   `track_classifier_scores`; it must not decode audio or modify audio files.
+- Rhythm Lab must never write to the source library database or audio files. It
+  opens the main project SQLite database read-only and writes only its own lab
+  database under `tools/rhythm-lab/data/`.
 - Treat `dj-track-similarity.sqlite` as local user state. Tests must use
   temporary databases (`tmp_path` or explicit `--db`).
 - Do not commit generated local artifacts: `*.sqlite`, `*.log`, `__pycache__/`,
   `.pytest_cache/`, `frontend/node_modules/`, transient temp folders, or
-  generated `scripts/audio_repair/` contents.
+  generated `scripts/audio_repair/` contents. Rhythm Lab generated state and
+  training artifacts under `tools/rhythm-lab/data/` and
+  `tools/rhythm-lab/artifacts/*/` must also stay out of git except `.gitkeep`.
 - Server startup requires `ffmpeg` on `PATH` or `DJ_TRACK_SIMILARITY_FFMPEG`;
   keep missing-ffmpeg errors clear and actionable.
 - The verified Windows CUDA ML stack is PyTorch `2.11.0`, Torchaudio
@@ -98,8 +106,15 @@ branches, or history are available.
   assets (`model.joblib`, `model.json`) out of git.
 - Break Energy scores are stored in `track_classifier_scores` with classifier
   key `break_energy`. The user-facing score is `probabilities.break_energy`
-  (trained internally from the Rhythm Lab `broken` label); `straight_energy`
-  is diagnostic.
+  (trained internally from Rhythm Lab Break Energy `broken` labels);
+  `straight_energy` is diagnostic.
+- Rhythm Lab's lab DB uses `classifier_labels`, `classifier_predictions`, and
+  `classifier_training_checkpoints`, scoped by `classifier_key`; Break Energy
+  rows use `break_energy`. Do not reintroduce `rhythm_*` lab tables except in a
+  one-way migration that removes them after data is copied.
+- Rhythm Lab training artifacts are classifier-scoped:
+  `tools/rhythm-lab/artifacts/break-energy/` for Break Energy. Promoted runtime
+  models for the main app stay separate under `models/classifiers/<key>/`.
 - Keep library browsing scalable: `/api/tracks` remains server-side
   paginated/searchable with lightweight rows, `/api/library/summary` provides
   counters, and full metadata loads via `/api/tracks/{id}` only on dialog open.
@@ -136,6 +151,9 @@ dj-sim analyze --adapter mert --device cpu --batch-size 2 --limit 3 --db .\data\
 dj-sim analyze --adapter clap --device cpu --batch-size 2 --limit 3 --db .\data\library.sqlite
 dj-sim analyze-genres --device cpu --batch-size 2 --limit 3 --db .\data\library.sqlite
 dj-sim analyze-break-energy --limit 3 --db .\data\library.sqlite
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py serve --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py train --source C:\db\abstracted.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py promote-break-energy --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 5 --db .\data\library.sqlite
 dj-sim relocate-library .\music-old .\music-new --db .\data\library.sqlite
 dj-sim relocate-library .\music-old .\music-new --apply --db .\data\library.sqlite
@@ -163,6 +181,8 @@ python -m pytest scripts\tests\test_repair_audio_metadata.py --override-ini addo
   embeddings and jobs.
 - `src/dj_track_similarity/break_energy.py` / `classifier_jobs.py`: promoted
   classifier scoring and cancellable classifier jobs.
+- `tools/rhythm-lab/rhythm_lab/`: separate classifier lab package for labels,
+  predictions, feature matrices, training artifacts, and the standalone lab UI.
 - `src/dj_track_similarity/search.py`, `sonara_similarity.py`: embedding and
   Sonara search.
 - `src/dj_track_similarity/tags.py`, `wave_tags.py`: MAEST-to-standard-genre
@@ -185,6 +205,13 @@ python -m pytest scripts\tests\test_repair_audio_metadata.py --override-ini addo
   corresponding focused tests and frontend/API/docs surfaces.
 - Prefer deterministic test data and test-local stub adapters over real audio
   analysis in automated tests.
+- Do not add legacy compatibility layers, fallback paths, or parallel old/new
+  behavior unless the user explicitly asks for compatibility. Prefer migrating
+  code, docs, tests, local DB schemas, and local artifact layout in one pass.
+- Before starting any local UI/server process, check whether the intended port
+  already has a listener and whether a matching project process is already
+  running. Keep one instance per fixed project port: main backend `8765`,
+  frontend Vite `5173`, and Rhythm Lab `8777`.
 
 ## Verification Expectations
 
@@ -195,6 +222,10 @@ python -m pytest scripts\tests\test_repair_audio_metadata.py --override-ini addo
   server.
 - CLI behavior changes: run the specific `dj-sim ...` command with a temporary
   database when practical.
+- Rhythm Lab changes: run
+  `.\.venv\Scripts\python.exe -m pytest tools\rhythm-lab\tests\test_rhythm_lab.py --override-ini addopts=`
+  and, for Break Energy promotion/scoring boundaries, include
+  `tests\test_break_energy.py`.
 - Relocation changes: verify dry-run does not modify paths, apply preserves IDs
   and analysis state, and conflicts/missing files block apply.
 - Sonara changes: prefer stubbed helpers or small temp WAV fixtures; never rely

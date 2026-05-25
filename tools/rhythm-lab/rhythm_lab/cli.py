@@ -15,15 +15,15 @@ LAB_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = LAB_ROOT.parents[1]
 DEFAULT_SOURCE_DB = Path(r"C:\db\abstracted.sqlite")
 DEFAULT_LABELS_DB = LAB_ROOT / "data" / "rhythm_lab.sqlite"
-DEFAULT_ARTIFACT_DIR = LAB_ROOT / "artifacts"
+DEFAULT_ARTIFACT_DIR = LAB_ROOT / "artifacts" / "break-energy"
 DEFAULT_BREAK_ENERGY_TARGET = PROJECT_ROOT / "models" / "classifiers" / "break-energy"
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Temporary rhythm labeling and classifier lab.")
+    parser = argparse.ArgumentParser(description="Auxiliary classifier labeling and training lab.")
     subcommands = parser.add_subparsers(dest="command", required=True)
 
-    train_parser = subcommands.add_parser("train", help="Benchmark rhythm classifiers for available feature sets.")
+    train_parser = subcommands.add_parser("train", help="Benchmark the Break Energy classifier for available feature sets.")
     _add_data_options(train_parser)
     train_parser.add_argument("--artifacts", type=Path, default=DEFAULT_ARTIFACT_DIR)
     train_parser.set_defaults(func=_train)
@@ -33,14 +33,14 @@ def build_parser() -> argparse.ArgumentParser:
     _add_data_options(predict_parser)
     predict_parser.set_defaults(func=_predict)
 
-    export_parser = subcommands.add_parser("export-predictions", help="Export saved rhythm predictions to CSV.")
+    export_parser = subcommands.add_parser("export-predictions", help="Export saved Break Energy predictions to CSV.")
     export_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
-    export_parser.add_argument("--output", type=Path, default=LAB_ROOT / "artifacts" / "predictions.csv")
+    export_parser.add_argument("--output", type=Path, default=DEFAULT_ARTIFACT_DIR / "predictions.csv")
     export_parser.set_defaults(func=_export_predictions)
 
     promote_parser = subcommands.add_parser(
         "promote-break-energy",
-        help="Copy the latest combined rhythm model into the main project's Break Energy classifier slot.",
+        help="Copy the latest combined Break Energy model into the main project's classifier slot.",
     )
     promote_parser.add_argument("--artifacts", type=Path, default=DEFAULT_ARTIFACT_DIR)
     promote_parser.add_argument("--target", type=Path, default=DEFAULT_BREAK_ENERGY_TARGET)
@@ -109,9 +109,9 @@ def _promote_break_energy(args: argparse.Namespace) -> None:
 
 
 def _latest_combined_artifact(artifact_dir: str | Path) -> Path:
-    artifacts = sorted(Path(artifact_dir).glob("rhythm-combined-*.joblib"))
+    artifacts = sorted(Path(artifact_dir).glob("break-energy-combined-*.joblib"))
     if not artifacts:
-        raise SystemExit(f"No combined rhythm model artifacts found in {artifact_dir}")
+        raise SystemExit(f"No combined Break Energy model artifacts found in {artifact_dir}")
     return artifacts[-1]
 
 

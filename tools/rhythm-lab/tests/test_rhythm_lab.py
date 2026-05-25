@@ -11,7 +11,7 @@ import joblib
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[3]
-LAB_ROOT = ROOT / "experiments" / "rhythm-lab"
+LAB_ROOT = ROOT / "tools" / "rhythm-lab"
 sys.path.insert(0, str(LAB_ROOT))
 
 from dj_track_similarity.database import LibraryDatabase
@@ -57,7 +57,7 @@ def test_source_database_rejects_missing_file_without_creating_it(tmp_path: Path
     assert not missing.exists()
 
 
-def test_labels_database_migrates_old_lab_track_ids_to_source_track_ids(tmp_path: Path) -> None:
+def test_labels_database_migrates_rhythm_tables_to_break_energy_classifier_tables(tmp_path: Path) -> None:
     labels_path = tmp_path / "rhythm_lab.sqlite"
     old_lab = LibraryDatabase(labels_path)
     local_track_id = _track(old_lab, tmp_path, "local.wav", title="Local")
@@ -91,6 +91,21 @@ def test_labels_database_migrates_old_lab_track_ids_to_source_track_ids(tmp_path
     assert labels.label_for_track(777).label == "straight"
     assert labels.label_for_track(local_track_id) is None
     assert labels.training_labels() == {777: "straight"}
+    with labels.connect() as connection:
+        table_names = {
+            str(row["name"])
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
+        assert "classifier_labels" in table_names
+        assert "classifier_predictions" in table_names
+        assert "classifier_training_checkpoints" in table_names
+        assert "rhythm_labels" not in table_names
+        assert "rhythm_predictions" not in table_names
+        assert "rhythm_training_checkpoint" not in table_names
+        row = connection.execute(
+            "SELECT classifier_key, source_track_id, label FROM classifier_labels"
+        ).fetchone()
+        assert dict(row) == {"classifier_key": "break_energy", "source_track_id": 777, "label": "straight"}
 
 
 def test_web_app_reads_source_database_and_writes_labels_database_only(tmp_path: Path) -> None:
@@ -123,7 +138,7 @@ def test_web_app_reads_source_database_and_writes_labels_database_only(tmp_path:
     assert RhythmLabDatabase(labels_path).label_for_track(broken_id).label == "broken"
     with source.connect() as connection:
         assert connection.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='rhythm_labels'"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='classifier_labels'"
         ).fetchone() is None
 
 
@@ -217,11 +232,11 @@ def test_web_app_refresh_candidates_uses_latest_combined_artifact_and_prunes_old
     source_path = tmp_path / "source.sqlite"
     LibraryDatabase(source_path)
     labels_path = tmp_path / "labels.sqlite"
-    artifacts = tmp_path / "artifacts"
-    artifacts.mkdir()
-    older = artifacts / "rhythm-combined-20260524T100000Z.joblib"
-    newer = artifacts / "rhythm-combined-20260524T110000Z.joblib"
-    maest = artifacts / "rhythm-maest-20260524T120000Z.joblib"
+    artifacts = tmp_path / "artifacts" / "break-energy"
+    artifacts.mkdir(parents=True)
+    older = artifacts / "break-energy-combined-20260524T100000Z.joblib"
+    newer = artifacts / "break-energy-combined-20260524T110000Z.joblib"
+    maest = artifacts / "break-energy-maest-20260524T120000Z.joblib"
     older.write_bytes(b"old")
     newer.write_bytes(b"new")
     maest.write_bytes(b"maest")
@@ -278,9 +293,9 @@ def test_web_app_train_refresh_requires_100_new_broken_and_straight_labels(monke
     for index in range(100):
         labels.set_label(10_000 + index, "broken")
         labels.set_label(20_000 + index, "straight")
-    artifacts = tmp_path / "artifacts"
-    artifacts.mkdir()
-    artifact = artifacts / "rhythm-combined-20260524T130000Z.joblib"
+    artifacts = tmp_path / "artifacts" / "break-energy"
+    artifacts.mkdir(parents=True)
+    artifact = artifacts / "break-energy-combined-20260524T130000Z.joblib"
     import rhythm_lab.web_app as web_app
 
     calls = []
@@ -315,7 +330,7 @@ def test_web_app_train_refresh_requires_100_new_broken_and_straight_labels(monke
     ]
     assert RhythmLabDatabase(labels_path).training_checkpoint()["counts"] == {"broken": 100, "straight": 100}
     assert blocked.status_code == 400
-    assert "Need 100 new broken and 100 new straight labels" in blocked.json()["detail"]
+    assert "Need 100 new broken and 100 new straight Break Energy labels" in blocked.json()["detail"]
 
 
 def test_web_app_training_readiness_initializes_checkpoint_from_existing_combined_artifact(monkeypatch, tmp_path: Path) -> None:
@@ -328,9 +343,9 @@ def test_web_app_training_readiness_initializes_checkpoint_from_existing_combine
     for index in range(500):
         labels.set_label(10_000 + index, "broken")
         labels.set_label(20_000 + index, "straight")
-    artifacts = tmp_path / "artifacts"
-    artifacts.mkdir()
-    artifact = artifacts / "rhythm-combined-20260524T130000Z.joblib"
+    artifacts = tmp_path / "artifacts" / "break-energy"
+    artifacts.mkdir(parents=True)
+    artifact = artifacts / "break-energy-combined-20260524T130000Z.joblib"
     artifact.write_bytes(b"combined")
     import rhythm_lab.web_app as web_app
 
@@ -351,14 +366,14 @@ def test_web_app_training_readiness_initializes_checkpoint_from_existing_combine
 def test_artifact_cleanup_keeps_recent_files_per_feature_and_protected_artifact(tmp_path: Path) -> None:
     from rhythm_lab.web_app import cleanup_training_artifacts
 
-    artifacts = tmp_path / "artifacts"
-    artifacts.mkdir()
+    artifacts = tmp_path / "artifacts" / "break-energy"
+    artifacts.mkdir(parents=True)
     for index in range(5):
-        (artifacts / f"rhythm-combined-20260524T10000{index}Z.joblib").write_bytes(b"model")
-        (artifacts / f"rhythm-mert-20260524T10000{index}Z.joblib").write_bytes(b"model")
+        (artifacts / f"break-energy-combined-20260524T10000{index}Z.joblib").write_bytes(b"model")
+        (artifacts / f"break-energy-mert-20260524T10000{index}Z.joblib").write_bytes(b"model")
     for index in range(12):
-        (artifacts / f"rhythm-combined-20260524T1100{index:02d}Z.metrics.json").write_text("{}", encoding="utf-8")
-    protected = artifacts / "rhythm-combined-20260524T100000Z.joblib"
+        (artifacts / f"break-energy-combined-20260524T1100{index:02d}Z.metrics.json").write_text("{}", encoding="utf-8")
+    protected = artifacts / "break-energy-combined-20260524T100000Z.joblib"
     unrelated = artifacts / "broken-candidates.csv"
     unrelated.write_text("source_track_id\n", encoding="utf-8")
 
@@ -367,12 +382,12 @@ def test_artifact_cleanup_keeps_recent_files_per_feature_and_protected_artifact(
     remaining = {path.name for path in artifacts.iterdir()}
     assert protected.name in remaining
     assert unrelated.name in remaining
-    assert "rhythm-combined-20260524T100001Z.joblib" not in remaining
-    assert "rhythm-mert-20260524T100000Z.joblib" not in remaining
-    assert "rhythm-combined-20260524T110001Z.metrics.json" not in remaining
-    assert len([name for name in remaining if name.startswith("rhythm-combined-") and name.endswith(".joblib")]) == 4
-    assert len([name for name in remaining if name.startswith("rhythm-mert-") and name.endswith(".joblib")]) == 3
-    assert len([name for name in remaining if name.startswith("rhythm-combined-") and name.endswith(".metrics.json")]) == 10
+    assert "break-energy-combined-20260524T100001Z.joblib" not in remaining
+    assert "break-energy-mert-20260524T100000Z.joblib" not in remaining
+    assert "break-energy-combined-20260524T110001Z.metrics.json" not in remaining
+    assert len([name for name in remaining if name.startswith("break-energy-combined-") and name.endswith(".joblib")]) == 4
+    assert len([name for name in remaining if name.startswith("break-energy-mert-") and name.endswith(".joblib")]) == 3
+    assert len([name for name in remaining if name.startswith("break-energy-combined-") and name.endswith(".metrics.json")]) == 10
     assert result["deleted_joblib"] == 3
     assert result["deleted_metrics"] == 2
 
@@ -380,12 +395,12 @@ def test_artifact_cleanup_keeps_recent_files_per_feature_and_protected_artifact(
 def test_cli_promote_break_energy_copies_latest_combined_model_to_classifier_asset(tmp_path: Path) -> None:
     from rhythm_lab.cli import build_parser
 
-    artifacts = tmp_path / "artifacts"
+    artifacts = tmp_path / "artifacts" / "break-energy"
     target = tmp_path / "models" / "classifiers" / "break-energy"
-    artifacts.mkdir()
-    old = artifacts / "rhythm-combined-20260524T100000Z.joblib"
-    latest = artifacts / "rhythm-combined-20260524T110000Z.joblib"
-    maest = artifacts / "rhythm-maest-20260524T120000Z.joblib"
+    artifacts.mkdir(parents=True)
+    old = artifacts / "break-energy-combined-20260524T100000Z.joblib"
+    latest = artifacts / "break-energy-combined-20260524T110000Z.joblib"
+    maest = artifacts / "break-energy-maest-20260524T120000Z.joblib"
     joblib.dump({"feature_set": "combined", "label_order": ["broken", "straight"], "model": object()}, old)
     joblib.dump({"feature_set": "combined", "label_order": ["broken", "straight"], "model": object()}, latest)
     joblib.dump({"feature_set": "maest", "label_order": ["broken", "straight"], "model": object()}, maest)
@@ -525,6 +540,8 @@ def test_web_app_html_contains_source_database_controls(tmp_path: Path) -> None:
 
     html = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite")).get("/").text
 
+    assert "<strong>Rhythm Lab</strong>" in html
+    assert '<span class="classifier-profile">Break Energy</span>' in html
     assert 'id="sourcePath"' in html
     assert 'id="chooseSource"' in html
     assert 'id="loadSource"' in html

@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from dj_track_similarity.dependencies import require_ffmpeg
 
-from .lab_db import RHYTHM_LABELS, RhythmLabDatabase
+from .lab_db import CLASSIFIER_LABELS, RhythmLabDatabase
 from .predictions import apply_model_to_lab, latest_predictions_by_track
 from .source_db import SourceDatabase
 from .training import benchmark_lab_database
@@ -20,7 +20,8 @@ from .training import benchmark_lab_database
 LOGGER = logging.getLogger(__name__)
 AIFF_PREVIEW_SUFFIXES = {".aif", ".aiff"}
 FAVICON_PATH = Path(__file__).with_name("static") / "favicon.svg"
-ARTIFACT_DIR = Path(__file__).resolve().parents[1] / "artifacts"
+ARTIFACT_DIR = Path(__file__).resolve().parents[1] / "artifacts" / "break-energy"
+ARTIFACT_PREFIX = "break-energy"
 TRAIN_REFRESH_MIN_ADDED = 100
 KEEP_JOBLIB_PER_FEATURE = 3
 KEEP_METRICS_PER_FEATURE = 10
@@ -223,7 +224,7 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
             raise HTTPException(status_code=400, detail="Source database is not selected")
         artifact = _latest_combined_artifact(ARTIFACT_DIR)
         if artifact is None:
-            raise HTTPException(status_code=404, detail=f"No combined rhythm model artifact found in {ARTIFACT_DIR}")
+            raise HTTPException(status_code=404, detail=f"No combined Break Energy model artifact found in {ARTIFACT_DIR}")
         try:
             result = apply_model_to_lab(source_state.path, labels_db.path, artifact)
             deleted = labels_db.prune_predictions(
@@ -231,7 +232,7 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
                 keep_model_artifact=artifact,
             )
         except Exception as error:
-            LOGGER.exception("Rhythm predictions refresh failed")
+            LOGGER.exception("Break Energy predictions refresh failed")
             raise HTTPException(status_code=500, detail=str(error)) from error
         return {**result, "artifact": str(artifact), "deleted_old_predictions": deleted}
 
@@ -249,7 +250,7 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "Need 100 new broken and 100 new straight labels since the last training checkpoint. "
+                    "Need 100 new broken and 100 new straight Break Energy labels since the last training checkpoint. "
                     f"Added: broken {readiness['added']['broken']}, straight {readiness['added']['straight']}."
                 ),
             )
@@ -258,7 +259,7 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
             training = benchmark_lab_database(source_state.path, labels_db.path, ARTIFACT_DIR)
             artifact = _latest_combined_artifact(ARTIFACT_DIR)
             if artifact is None:
-                raise RuntimeError(f"No combined rhythm model artifact found in {ARTIFACT_DIR}")
+                raise RuntimeError(f"No combined Break Energy model artifact found in {ARTIFACT_DIR}")
             result = apply_model_to_lab(source_state.path, labels_db.path, artifact)
             deleted = labels_db.prune_predictions(
                 feature_set=str(result["feature_set"]),
@@ -267,7 +268,7 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
             labels_db.record_training_checkpoint(counts, model_artifact=artifact)
             cleanup = cleanup_training_artifacts(ARTIFACT_DIR, protected_artifact=artifact)
         except Exception as error:
-            LOGGER.exception("Rhythm train + refresh failed")
+            LOGGER.exception("Break Energy train + refresh failed")
             raise HTTPException(status_code=500, detail=str(error)) from error
         return {
             "training": training,
@@ -317,7 +318,7 @@ def _prediction_probability(row: dict[str, object], label: str) -> float:
 
 
 def _latest_combined_artifact(artifact_dir: Path) -> Path | None:
-    artifacts = list(artifact_dir.glob("rhythm-combined-*.joblib"))
+    artifacts = list(artifact_dir.glob(f"{ARTIFACT_PREFIX}-combined-*.joblib"))
     if not artifacts:
         return None
     return max(artifacts, key=lambda path: (path.stat().st_mtime, path.name))
@@ -347,7 +348,7 @@ def cleanup_training_artifacts(
 
 def _artifact_groups(artifact_dir: Path, *, suffix: str) -> dict[str, list[Path]]:
     groups: dict[str, list[Path]] = {}
-    for path in artifact_dir.glob(f"rhythm-*{suffix}"):
+    for path in artifact_dir.glob(f"{ARTIFACT_PREFIX}-*{suffix}"):
         feature = _artifact_feature(path.name, suffix=suffix)
         if feature is None:
             continue
@@ -358,13 +359,14 @@ def _artifact_groups(artifact_dir: Path, *, suffix: str) -> dict[str, list[Path]
 
 
 def _artifact_feature(name: str, *, suffix: str) -> str | None:
-    if not name.startswith("rhythm-") or not name.endswith(suffix):
+    prefix = f"{ARTIFACT_PREFIX}-"
+    if not name.startswith(prefix) or not name.endswith(suffix):
         return None
     stem = name[: -len(suffix)]
     parts = stem.split("-")
-    if len(parts) < 3:
+    if len(parts) < 4:
         return None
-    return parts[1]
+    return parts[2]
 
 
 def _training_readiness(labels_db: RhythmLabDatabase, *, artifact_dir: Path) -> dict[str, object]:
@@ -509,7 +511,7 @@ def _transcoded_wav_response(path: Path, ffmpeg_path: str) -> StreamingResponse:
 
 
 def _index_html() -> str:
-    labels = ", ".join(RHYTHM_LABELS)
+    labels = ", ".join(CLASSIFIER_LABELS)
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -538,6 +540,7 @@ def _index_html() -> str:
     .source-row {{ display: flex; gap: 6px; align-items: center; flex: 1 1 100%; }}
     .source-status {{ color: #aaa; font-size: 13px; min-width: 160px; }}
     .source-status.error {{ color: #ff8f8f; }}
+    .classifier-profile {{ border: 1px solid #5f8dd3; border-radius: 4px; color: #eaf2ff; background: #17345f; padding: 3px 7px; font-size: 12px; font-weight: 700; }}
     .pager {{ display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }}
     .track {{ display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 12px 0; border-bottom: 1px solid #2b2b2b; }}
     .track-main {{ display: flex; flex-direction: column; gap: 3px; }}
@@ -563,6 +566,7 @@ def _index_html() -> str:
 <body>
   <header>
     <strong>Rhythm Lab</strong>
+    <span class="classifier-profile">Break Energy</span>
     <div class="source-row">
       <input id="sourcePath" class="source-path" placeholder="C:\\db\\abstracted.sqlite" title="Existing dj-track-similarity SQLite database. Opened read-only." />
       <button id="chooseSource" title="Choose existing SQLite database">Browse</button>
@@ -572,8 +576,8 @@ def _index_html() -> str:
     <div class="tabs">
       <button id="libraryTab" class="active">Library</button>
       <button id="candidatesTab">Candidates</button>
-      <button id="refreshCandidates" class="refresh-candidates" title="Recompute candidates from the latest combined Rhythm Lab model">Refresh candidates</button>
-      <button id="trainRefresh" class="train-refresh" title="Train a new model only after 100 new broken and 100 new straight labels, then refresh candidates">Train + refresh</button>
+      <button id="refreshCandidates" class="refresh-candidates" title="Recompute candidates from the latest combined Break Energy model">Refresh candidates</button>
+      <button id="trainRefresh" class="train-refresh" title="Train a new Break Energy model only after 100 new broken and 100 new straight labels, then refresh candidates">Train + refresh</button>
       <span id="refreshCandidatesStatus" class="meta"></span>
     </div>
     <div id="commonFilters" class="filters">
@@ -819,7 +823,7 @@ def _index_html() -> str:
 
     async function trainRefresh() {{
       if (trainRefreshEl.disabled) return;
-      if (!window.confirm("Train a new Rhythm Lab model from current broken/straight labels, then refresh candidates?")) return;
+      if (!window.confirm("Train a new Break Energy model from current broken/straight labels, then refresh candidates?")) return;
       trainRefreshEl.disabled = true;
       refreshCandidatesEl.disabled = true;
       refreshCandidatesStatusEl.textContent = "training...";

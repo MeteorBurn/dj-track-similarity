@@ -12,6 +12,7 @@ from .features import FEATURE_SETS, build_labeled_feature_matrix
 
 LABEL_ORDER = ["broken", "straight"]
 BROKEN_LABEL = "broken"
+ARTIFACT_PREFIX = "break-energy"
 BROKEN_DISCOVERY_THRESHOLDS = (0.1, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
 TOP_N_VALUES = (1, 5, 10, 25, 50, 100, 250, 500, 1000)
 
@@ -60,8 +61,8 @@ def train_feature_set(
     artifact_root = Path(artifact_dir)
     artifact_root.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    artifact_path = artifact_root / f"rhythm-{feature_set}-{stamp}.joblib"
-    metrics_path = artifact_root / f"rhythm-{feature_set}-{stamp}.metrics.json"
+    artifact_path = artifact_root / f"{ARTIFACT_PREFIX}-{feature_set}-{stamp}.joblib"
+    metrics_path = artifact_root / f"{ARTIFACT_PREFIX}-{feature_set}-{stamp}.metrics.json"
     payload = {
         "model": model,
         "feature_set": feature_set,

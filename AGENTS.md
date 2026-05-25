@@ -12,8 +12,8 @@ for full CLI/API/script details instead of duplicating long references here.
 
 The project is a Python backend/CLI plus a React/Vite frontend:
 
-- `src/dj_track_similarity/`: database, scanning, analysis, search, export,
-  tags, API, and CLI.
+- `src/dj_track_similarity/`: database, scanning, analysis, classifiers,
+  search, export, tags, API, and CLI.
 - `frontend/`: React UI built with Vite and TypeScript.
 - `tests/`: pytest coverage for backend/API/search/jobs/tags.
 - `scripts/repair_audio_metadata.py`: standalone dry-run-first audio metadata
@@ -48,6 +48,9 @@ branches, or history are available.
 - Keep SQLite writes routed through `LibraryDatabase`, with the shared
   path-scoped write lock, WAL, and busy timeout so scan/RefreshTags/Sonara/
   MAEST/MERT/CLAP/reset writes queue safely.
+- Break Energy classifier scoring is database-only. It must read existing
+  SONARA features plus MERT and MAEST embeddings, then write only
+  `track_classifier_scores`; it must not decode audio or modify audio files.
 - Treat `dj-track-similarity.sqlite` as local user state. Tests must use
   temporary databases (`tmp_path` or explicit `--db`).
 - Do not commit generated local artifacts: `*.sqlite`, `*.log`, `__pycache__/`,
@@ -89,6 +92,14 @@ branches, or history are available.
 - Search UI stays split into SONARA, MERT, and CLAP tabs. SONARA sends custom
   mixer/modifiers to `/api/search/sonara`; MERT seed search uses `/api/search`;
   CLAP text search uses `/api/search/text` and requires `clap` embeddings.
+- The search/listening panel also has a CLASS tab for classifier controls.
+  Break Energy uses the promoted local model at
+  `models/classifiers/break-energy/model.joblib`. Keep generated classifier
+  assets (`model.joblib`, `model.json`) out of git.
+- Break Energy scores are stored in `track_classifier_scores` with classifier
+  key `break_energy`. The user-facing score is `probabilities.break_energy`
+  (trained internally from the Rhythm Lab `broken` label); `straight_energy`
+  is diagnostic.
 - Keep library browsing scalable: `/api/tracks` remains server-side
   paginated/searchable with lightweight rows, `/api/library/summary` provides
   counters, and full metadata loads via `/api/tracks/{id}` only on dialog open.
@@ -96,6 +107,7 @@ branches, or history are available.
   SQLite records only and must require explicit UI confirmation.
 - Metadata dialog must keep Mutagen tags, SONARA features, and MAEST genres
   visually separate; preserve the current display order and source boundaries.
+  Break Energy may be shown as its own classifier block below SONARA features.
 - Keep hover help on user-editable controls with purpose, type/format, and range.
 
 ## Common Commands
@@ -123,6 +135,7 @@ dj-sim analyze-sonara --limit 3 --batch-size 4 --db .\data\library.sqlite
 dj-sim analyze --adapter mert --device cpu --batch-size 2 --limit 3 --db .\data\library.sqlite
 dj-sim analyze --adapter clap --device cpu --batch-size 2 --limit 3 --db .\data\library.sqlite
 dj-sim analyze-genres --device cpu --batch-size 2 --limit 3 --db .\data\library.sqlite
+dj-sim analyze-break-energy --limit 3 --db .\data\library.sqlite
 dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 5 --db .\data\library.sqlite
 dj-sim relocate-library .\music-old .\music-new --db .\data\library.sqlite
 dj-sim relocate-library .\music-old .\music-new --apply --db .\data\library.sqlite
@@ -148,6 +161,8 @@ python -m pytest scripts\tests\test_repair_audio_metadata.py --override-ini addo
 - `src/dj_track_similarity/genres.py` / `genre_jobs.py`: MAEST genre analysis.
 - `src/dj_track_similarity/embedding.py` / `analysis_jobs.py`: MERT/CLAP
   embeddings and jobs.
+- `src/dj_track_similarity/break_energy.py` / `classifier_jobs.py`: promoted
+  classifier scoring and cancellable classifier jobs.
 - `src/dj_track_similarity/search.py`, `sonara_similarity.py`: embedding and
   Sonara search.
 - `src/dj_track_similarity/tags.py`, `wave_tags.py`: MAEST-to-standard-genre
@@ -164,10 +179,10 @@ python -m pytest scripts\tests\test_repair_audio_metadata.py --override-ini addo
 - Keep FastAPI request/response shapes aligned with `frontend/src/api.ts`.
 - If changing scan/analysis job state, update backend tests and frontend
   polling/display logic.
-- If changing Mutagen tags, Sonara features, MAEST job state, audio decoding,
-  search, library browsing, relocation, analysis controls, SQLite writes, UI
-  controls, custom tags, or standard genre writes, update the corresponding
-  focused tests and frontend/API/docs surfaces.
+- If changing Mutagen tags, Sonara features, MAEST job state, classifier jobs,
+  audio decoding, search, library browsing, relocation, analysis controls,
+  SQLite writes, UI controls, custom tags, or standard genre writes, update the
+  corresponding focused tests and frontend/API/docs surfaces.
 - Prefer deterministic test data and test-local stub adapters over real audio
   analysis in automated tests.
 

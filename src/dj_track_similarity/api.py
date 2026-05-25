@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from .analysis_jobs import AnalysisJobManager
+from .classifier_jobs import ClassifierJobManager
 from .database import LibraryDatabase
 from .dependencies import require_ffmpeg
 from .embedding import ClapEmbeddingAdapter
@@ -64,6 +65,10 @@ class GenreAnalyzeRequest(BaseModel):
 class SonaraAnalyzeRequest(BaseModel):
     limit: int | None = None
     batch_size: int = Field(default=1, ge=1, le=64)
+
+
+class ClassifierAnalyzeRequest(BaseModel):
+    limit: int | None = None
 
 
 class AnalysisResetRequest(BaseModel):
@@ -123,6 +128,7 @@ class TextSearchRequest(BaseModel):
 class FilteredTracksRequest(BaseModel):
     query: str = ""
     preset: str = Field(default="all", pattern="^(all|syncopated)$")
+    min_break_energy: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class ExportRequest(BaseModel):
@@ -155,6 +161,7 @@ class AppDatabaseState:
         self.db: LibraryDatabase | None = None
         self.analysis_jobs: AnalysisJobManager | None = None
         self.genre_jobs: GenreAnalysisJobManager | None = None
+        self.classifier_jobs: ClassifierJobManager | None = None
         self.sonara_jobs: SonaraFeatureJobManager | None = None
         self.scan_jobs: ScanJobManager | None = None
         self.genre_tag_jobs: GenreTagJobManager | None = None
@@ -185,6 +192,7 @@ class AppDatabaseState:
             self.db = db
             self.analysis_jobs = AnalysisJobManager(db)
             self.genre_jobs = GenreAnalysisJobManager(db)
+            self.classifier_jobs = ClassifierJobManager(db)
             self.sonara_jobs = SonaraFeatureJobManager(db)
             self.scan_jobs = ScanJobManager(db)
             self.genre_tag_jobs = GenreTagJobManager(db)
@@ -210,6 +218,11 @@ class AppDatabaseState:
         assert self.sonara_jobs is not None
         return self.sonara_jobs
 
+    def require_classifier_jobs(self) -> ClassifierJobManager:
+        self.require_db()
+        assert self.classifier_jobs is not None
+        return self.classifier_jobs
+
     def require_scan_jobs(self) -> ScanJobManager:
         self.require_db()
         assert self.scan_jobs is not None
@@ -221,7 +234,14 @@ class AppDatabaseState:
         return self.genre_tag_jobs
 
     def _has_active_jobs(self) -> bool:
-        managers = [self.analysis_jobs, self.genre_jobs, self.sonara_jobs, self.scan_jobs, self.genre_tag_jobs]
+        managers = [
+            self.analysis_jobs,
+            self.genre_jobs,
+            self.classifier_jobs,
+            self.sonara_jobs,
+            self.scan_jobs,
+            self.genre_tag_jobs,
+        ]
         for manager in managers:
             if manager is None:
                 continue
@@ -367,6 +387,7 @@ def create_app(
     def tracks(
         q: str = "",
         preset: str = Query(default="all", pattern="^(all|syncopated)$"),
+        min_break_energy: float | None = Query(default=None, ge=0.0, le=1.0),
         limit: int = Query(default=100, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
         include_metadata: bool = False,
@@ -374,6 +395,7 @@ def create_app(
         return state.require_db().list_tracks_page(
             query=q,
             preset=preset,
+            min_break_energy=min_break_energy,
             limit=limit,
             offset=offset,
             include_metadata=include_metadata,
@@ -388,7 +410,11 @@ def create_app(
 
     @app.post("/api/tracks/filtered")
     def filtered_tracks(request: FilteredTracksRequest):
-        return state.require_db().list_filtered_tracks(query=request.query, preset=request.preset)
+        return state.require_db().list_filtered_tracks(
+            query=request.query,
+            preset=request.preset,
+            min_break_energy=request.min_break_energy,
+        )
 
     @app.get("/api/library/summary")
     def library_summary():
@@ -414,6 +440,28 @@ def create_app(
     @app.post("/api/sonara/analyze")
     def analyze_sonara(request: SonaraAnalyzeRequest):
         return state.require_sonara_jobs().start(limit=request.limit, batch_size=request.batch_size)
+
+    @app.post("/api/classifiers/break-energy/analyze")
+    def analyze_break_energy(request: ClassifierAnalyzeRequest):
+        return state.require_classifier_jobs().start(limit=request.limit)
+
+    @app.get("/api/classifiers/break-energy/analyze/jobs/latest")
+    def latest_break_energy_job():
+        return state.require_classifier_jobs().latest()
+
+    @app.get("/api/classifiers/break-energy/analyze/jobs/{job_id}")
+    def break_energy_job(job_id: str):
+        try:
+            return state.require_classifier_jobs().get(job_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.post("/api/classifiers/break-energy/analyze/jobs/{job_id}/cancel")
+    def cancel_break_energy_job(job_id: str):
+        try:
+            return state.require_classifier_jobs().cancel(job_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
 
     @app.get("/api/sonara/analyze/jobs/latest")
     def latest_sonara_job():

@@ -29,6 +29,7 @@ const helpText = {
   sonaraAnalyze: "SONARA считает BPM, key и музыкальные признаки. Нужна для базового описания трека и будущих DJ-фильтров. Параллельность берется из Embedding batch size.",
   maestAnalyze: "MAEST определяет жанровые метки. Нужна для жанровой навигации и проверки характера библиотеки. Batch берется из Embedding batch size.",
   writeMaestGenres: "Перезаписать стандартный Genre/TCON/©gen в аудиофайлах жанрами MAEST. Плееры вроде AIMP будут видеть эти жанры.",
+  breakEnergy: "Минимальный Break Energy. Тип: число 0.00-1.00. Показывает треки, где классификатор уверен в break-heavy drums, брейках, сбивках и плотной перкуссии.",
   mertAnalyze: "MERT строит аудио-эмбеддинги. Нужна для поиска похожих треков от выбранных seed-треков.",
   clapAnalyze: "CLAP строит music-focused аудио-эмбеддинги для поиска по текстовому описанию звучания.",
   analysisBatchSize: "Для SONARA это число параллельных track workers. Для MAEST/MERT/CLAP это inference batch. Тип: целое число 1-16.",
@@ -66,6 +67,7 @@ export function App() {
   const [librarySummary, setLibrarySummary] = useState<LibrarySummary>(emptySummary);
   const [query, setQuery] = useState("");
   const [libraryPreset, setLibraryPreset] = useState<LibraryPreset>("all");
+  const [minBreakEnergy, setMinBreakEnergy] = useState(0);
   const [databasePath, setDatabasePath] = useState<string | null>(null);
   const [musicRoot, setMusicRoot] = useState("");
   const [textQuery, setTextQuery] = useState("");
@@ -136,7 +138,7 @@ export function App() {
       void refreshLibrary(0);
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [query, libraryPreset, databasePath]);
+  }, [query, libraryPreset, minBreakEnergy, databasePath]);
 
   useEffect(() => {
     if (!scanJob?.job_id || !["queued", "running"].includes(scanJob.state || "")) return;
@@ -235,6 +237,12 @@ export function App() {
           if (["queued", "running"].includes(job.state)) setProcessLogKind("analysis");
         }
       }).catch(() => undefined),
+      api.latestBreakEnergyJob().then((job) => {
+        if (job) {
+          setAnalysisJob((current) => (current && ["queued", "running"].includes(current.state) ? current : job));
+          if (["queued", "running"].includes(job.state)) setProcessLogKind("analysis");
+        }
+      }).catch(() => undefined),
       api.latestGenreJob().then((job) => {
         if (job) {
           setAnalysisJob((current) => (current && ["queued", "running"].includes(current.state) ? current : job));
@@ -302,7 +310,13 @@ export function App() {
     setLibraryLoading(true);
     try {
       const [page, summary] = await Promise.all([
-        api.tracks({ query, preset: libraryPreset, limit: libraryPageSize, offset: nextOffset }),
+        api.tracks({
+          query,
+          preset: libraryPreset,
+          minBreakEnergy: minBreakEnergy > 0 ? minBreakEnergy : null,
+          limit: libraryPageSize,
+          offset: nextOffset
+        }),
         api.librarySummary()
       ]);
       setTracks(page.items);
@@ -376,7 +390,11 @@ export function App() {
     if (!databasePath || libraryLoading) return;
     setBusy(true);
     try {
-      const filtered = await api.filteredTracks({ query, preset: libraryPreset });
+      const filtered = await api.filteredTracks({
+        query,
+        preset: libraryPreset,
+        minBreakEnergy: minBreakEnergy > 0 ? minBreakEnergy : null
+      });
       const matchingTracks = filtered.items;
       const nextPlaylist = appendVisibleTracksToPlaylist(playlist, matchingTracks);
       const added = nextPlaylist.length - playlist.length;
@@ -418,6 +436,18 @@ export function App() {
         setResults(value);
         appendActivity("ok", "SONARA search завершен", `Найдено: ${value.length}`);
         return `Найдено: ${value.length}`;
+      }
+    );
+  }
+
+  async function handleBreakEnergyAnalyze() {
+    appendActivity("info", "Break Energy classification запущен");
+    setProcessLogKind("analysis");
+    await run(
+      () => api.analyzeBreakEnergy(analysisLimit > 0 ? analysisLimit : undefined),
+      (job) => {
+        setAnalysisJob(job);
+        return "Break Energy classification поставлен в очередь";
       }
     );
   }
@@ -838,10 +868,14 @@ export function App() {
           onOutputDirChange={setOutputDir}
           onChooseOutputFolder={() => void handleChooseOutputFolder()}
           helpText={helpText}
+          minBreakEnergy={minBreakEnergy}
+          onMinBreakEnergyChange={setMinBreakEnergy}
+          breakEnergyJob={analysisJob?.adapter_name === "break_energy" ? analysisJob : null}
           removeSeed={removeSeed}
           handleTextSearch={() => void handleTextSearch()}
           handleSonaraSearch={() => void handleSonaraSearch()}
           handleMertSearch={() => void handleMertSearch()}
+          handleBreakEnergyAnalyze={() => void handleBreakEnergyAnalyze()}
           addSeed={addSeed}
           togglePlaylist={togglePlaylist}
           setPreview={setPreview}

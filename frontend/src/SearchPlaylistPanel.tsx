@@ -1,6 +1,6 @@
 import { Dispatch, SetStateAction, useEffect, useState } from "react";
-import { Download, FolderOpen, ListMusic, Play, Search, Tags, Trash2, X } from "lucide-react";
-import { SearchResult, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
+import { Download, FolderOpen, ListMusic, Play, Search, SlidersHorizontal, Tags, Trash2, X } from "lucide-react";
+import { AnalysisJobStatus, SearchResult, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
 import { playlistPage } from "./playlistView";
 import { ResultRow } from "./TrackRows";
 import { displayTrack, trackInfo } from "./trackDisplay";
@@ -32,6 +32,7 @@ type SearchHelpText = {
   sonaraModifierRhythmDensity: string;
   sonaraModifierDynamicRange: string;
   sonaraModifierLoudness: string;
+  breakEnergy: string;
   playlistName: string;
   outputDir: string;
 };
@@ -54,10 +55,14 @@ export function SearchPlaylistPanel({
   onOutputDirChange,
   onChooseOutputFolder,
   helpText,
+  minBreakEnergy,
+  onMinBreakEnergyChange,
+  breakEnergyJob,
   removeSeed,
   handleTextSearch,
   handleSonaraSearch,
   handleMertSearch,
+  handleBreakEnergyAnalyze,
   addSeed,
   togglePlaylist,
   setPreview,
@@ -82,10 +87,14 @@ export function SearchPlaylistPanel({
   onOutputDirChange: (value: string) => void;
   onChooseOutputFolder: () => void;
   helpText: SearchHelpText;
+  minBreakEnergy: number;
+  onMinBreakEnergyChange: (value: number) => void;
+  breakEnergyJob: AnalysisJobStatus | null;
   removeSeed: (trackId: number) => void;
   handleTextSearch: () => void;
   handleSonaraSearch: () => void;
   handleMertSearch: () => void;
+  handleBreakEnergyAnalyze: () => void;
   addSeed: (track: Track) => void;
   togglePlaylist: (track: Track) => void;
   setPreview: (track: Track) => void;
@@ -93,7 +102,7 @@ export function SearchPlaylistPanel({
   removeFromPlaylist: (trackId: number) => void;
   handleExport: (format: "m3u" | "csv") => void;
 }) {
-  const [activeSearchTab, setActiveSearchTab] = useState<"sonara" | "mert" | "clap">("sonara");
+  const [activeSearchTab, setActiveSearchTab] = useState<"sonara" | "mert" | "clap" | "class">("sonara");
   const [playlistOffset, setPlaylistOffset] = useState(0);
   const playlistPageState = playlistPage(playlist, playlistOffset, playlistPageSize);
   useEffect(() => {
@@ -158,6 +167,9 @@ export function SearchPlaylistPanel({
           </button>
           <button className={`model-search-tab ${activeSearchTab === "clap" ? "active" : ""}`} onClick={() => setActiveSearchTab("clap")} role="tab" aria-selected={activeSearchTab === "clap"} type="button">
             CLAP
+          </button>
+          <button className={`model-search-tab ${activeSearchTab === "class" ? "active" : ""}`} onClick={() => setActiveSearchTab("class")} role="tab" aria-selected={activeSearchTab === "class"} type="button">
+            CLASS
           </button>
         </div>
         {activeSearchTab === "sonara" && (
@@ -253,6 +265,41 @@ export function SearchPlaylistPanel({
             <button className="primary clap-text-search-button" disabled={busy || !textQuery.trim()} onClick={handleTextSearch}>
               <Search size={17} />
               CLAP search
+            </button>
+          </div>
+        )}
+        {activeSearchTab === "class" && (
+          <div className="search-tab-panel" role="tabpanel">
+            <div className="classifier-controls">
+              <div className="custom-control-header">
+                <span>Break Energy</span>
+                <span>{breakEnergyJob ? `${breakEnergyJob.state} · ${breakEnergyJob.processed}/${breakEnergyJob.total}` : "not analyzed"}</span>
+              </div>
+              <label className="range-control" title={helpText.breakEnergy}>
+                <span>
+                  <strong>Min Break Energy</strong>
+                  <em>{minBreakEnergy.toFixed(2)}</em>
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={minBreakEnergy}
+                  title={helpText.breakEnergy}
+                  onChange={(event) => onMinBreakEnergyChange(Number(event.target.value))}
+                />
+              </label>
+              {breakEnergyJob && (
+                <div className="classifier-job-status">
+                  <progress max={breakEnergyJob.total || 1} value={breakEnergyJob.processed} />
+                  <span>scored {breakEnergyJob.analyzed} · skipped {breakEnergyJob.skipped || 0} · failed {breakEnergyJob.failed}</span>
+                </div>
+              )}
+            </div>
+            <button className="primary break-energy-analyze-button" disabled={busy} onClick={handleBreakEnergyAnalyze}>
+              <SlidersHorizontal size={17} />
+              Analyze Break Energy
             </button>
           </div>
         )}

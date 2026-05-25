@@ -23,23 +23,48 @@ TRACK_EMBEDDING_KEY_FIELD = """
     WHERE track_id = t.id
 ) AS embedding_keys_json
 """
+TRACK_CLASSIFIER_SCORES_FIELD = """
+(
+    SELECT COALESCE(
+        json_group_object(
+            classifier,
+            json_object(
+                'score', score,
+                'label', label,
+                'confidence', confidence,
+                'probabilities', json(probabilities_json),
+                'feature_set', feature_set,
+                'model_id', model_id,
+                'analyzed_at', analyzed_at
+            )
+        ),
+        '{}'
+    )
+    FROM track_classifier_scores
+    WHERE track_id = t.id
+) AS classifier_scores_json
+"""
 TRACK_SELECT_FIELDS = f"""
 {TRACK_BASE_FIELDS}, t.metadata_json, e.model_name AS embedding_model, e.dim AS embedding_dim,
-{TRACK_EMBEDDING_KEY_FIELD}
+{TRACK_EMBEDDING_KEY_FIELD},
+{TRACK_CLASSIFIER_SCORES_FIELD}
 """
 TRACK_SLIM_SELECT_FIELDS = f"""
 {TRACK_BASE_FIELDS}, e.model_name AS embedding_model, e.dim AS embedding_dim,
 {TRACK_ANALYSIS_FLAG_FIELDS},
-{TRACK_EMBEDDING_KEY_FIELD}
+{TRACK_EMBEDDING_KEY_FIELD},
+{TRACK_CLASSIFIER_SCORES_FIELD}
 """
 TRACK_SELECT_FIELDS_WITH_VECTOR = f"""
 {TRACK_BASE_FIELDS}, t.metadata_json, e.model_name AS embedding_model, e.dim AS embedding_dim, e.vector,
-{TRACK_EMBEDDING_KEY_FIELD}
+{TRACK_EMBEDDING_KEY_FIELD},
+{TRACK_CLASSIFIER_SCORES_FIELD}
 """
 TRACK_SLIM_SELECT_FIELDS_WITH_VECTOR = f"""
 {TRACK_BASE_FIELDS}, e.model_name AS embedding_model, e.dim AS embedding_dim, e.vector,
 {TRACK_ANALYSIS_FLAG_FIELDS},
-{TRACK_EMBEDDING_KEY_FIELD}
+{TRACK_EMBEDDING_KEY_FIELD},
+{TRACK_CLASSIFIER_SCORES_FIELD}
 """
 
 MAEST_HAS_GENRES_SQL = """
@@ -112,6 +137,20 @@ def _create_current_schema(connection: sqlite3.Connection) -> None:
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
 
+        CREATE TABLE track_classifier_scores (
+            track_id INTEGER NOT NULL,
+            classifier TEXT NOT NULL,
+            score REAL NOT NULL,
+            label TEXT NOT NULL,
+            confidence REAL NOT NULL,
+            probabilities_json TEXT NOT NULL CHECK(json_valid(probabilities_json)),
+            feature_set TEXT NOT NULL,
+            model_id TEXT NOT NULL,
+            analyzed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(track_id, classifier),
+            FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
+        );
+
         PRAGMA user_version = {CURRENT_SCHEMA_VERSION};
         """
     )
@@ -150,6 +189,23 @@ def _create_current_indexes_and_triggers(connection: sqlite3.Connection) -> None
 
         CREATE INDEX IF NOT EXISTS idx_embeddings_key_track
         ON embeddings(embedding_key, track_id);
+
+        CREATE TABLE IF NOT EXISTS track_classifier_scores (
+            track_id INTEGER NOT NULL,
+            classifier TEXT NOT NULL,
+            score REAL NOT NULL,
+            label TEXT NOT NULL,
+            confidence REAL NOT NULL,
+            probabilities_json TEXT NOT NULL CHECK(json_valid(probabilities_json)),
+            feature_set TEXT NOT NULL,
+            model_id TEXT NOT NULL,
+            analyzed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(track_id, classifier),
+            FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_classifier_scores_lookup
+        ON track_classifier_scores(classifier, score DESC, track_id);
 
         CREATE TRIGGER IF NOT EXISTS tracks_metadata_json_insert_valid
         BEFORE INSERT ON tracks

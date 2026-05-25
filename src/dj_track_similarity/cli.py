@@ -9,6 +9,7 @@ from typing import Optional
 import typer
 
 from .analysis_jobs import AnalysisJobManager
+from .break_energy import analyze_break_energy as run_break_energy_analysis
 from .database import LibraryDatabase
 from .dependencies import require_ffmpeg
 from .embedding import ClapEmbeddingAdapter
@@ -213,6 +214,19 @@ def analyze_sonara(
     typer.echo(
         f"state={status.state} total={status.total} processed={status.processed} "
         f"analyzed={status.analyzed} failed={status.failed} batch_size={status.batch_size}"
+    )
+
+
+@app.command("analyze-break-energy")
+def analyze_break_energy(
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+    model_path: Optional[Path] = typer.Option(None, "--model"),
+    limit: Optional[int] = typer.Option(None, "--limit"),
+) -> None:
+    result = run_break_energy_analysis(_db(db_path), model_path=model_path, limit=limit)
+    typer.echo(
+        f"classifier={result['classifier']} scored={result['scored']} "
+        f"skipped={result['skipped']} model={result['model']}"
     )
 
 

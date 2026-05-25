@@ -19,6 +19,7 @@ class Track:
     metadata: dict[str, object] | None = None
     genres: list[str] | None = None
     genre_scores: dict[str, float] | None = None
+    classifier_scores: dict[str, dict[str, object]] | None = None
     analyses: list[str] | None = None
     embedding_model: str | None = None
     embedding_dim: int | None = None

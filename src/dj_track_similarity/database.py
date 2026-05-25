@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import nullcontext as _nullcontext
+import json
 import sqlite3
 import threading
 from pathlib import Path
@@ -240,14 +241,16 @@ class LibraryDatabase:
         *,
         query: str = "",
         preset: str = "all",
+        min_break_energy: float | None = None,
         limit: int = 100,
         offset: int = 0,
         include_metadata: bool = False,
         embedding_key: str = DEFAULT_EMBEDDING_KEY,
     ) -> dict[str, object]:
         fields = TRACK_SELECT_FIELDS if include_metadata else TRACK_SLIM_SELECT_FIELDS
-        where_parts, params = _track_filter_sql(query=query, preset=preset)
+        where_parts, params = _track_filter_sql(query=query, preset=preset, min_break_energy=min_break_energy)
         where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+        order_sql = _track_order_sql(min_break_energy=min_break_energy)
         bounded_limit = max(1, min(500, int(limit)))
         bounded_offset = max(0, int(offset))
         with self.connect() as connection:
@@ -258,7 +261,7 @@ class LibraryDatabase:
                 FROM tracks t
                 LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                 {where_sql}
-                ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
+                ORDER BY {order_sql}
                 LIMIT ? OFFSET ?
                 """,
                 (embedding_key, *params, bounded_limit, bounded_offset),
@@ -275,12 +278,14 @@ class LibraryDatabase:
         *,
         query: str = "",
         preset: str = "all",
+        min_break_energy: float | None = None,
         include_metadata: bool = False,
         embedding_key: str = DEFAULT_EMBEDDING_KEY,
     ) -> dict[str, object]:
         fields = TRACK_SELECT_FIELDS if include_metadata else TRACK_SLIM_SELECT_FIELDS
-        where_parts, params = _track_filter_sql(query=query, preset=preset)
+        where_parts, params = _track_filter_sql(query=query, preset=preset, min_break_energy=min_break_energy)
         where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+        order_sql = _track_order_sql(min_break_energy=min_break_energy)
         with self.connect() as connection:
             rows = connection.execute(
                 f"""
@@ -288,7 +293,7 @@ class LibraryDatabase:
                 FROM tracks t
                 LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                 {where_sql}
-                ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
+                ORDER BY {order_sql}
                 """,
                 (embedding_key, *params),
             ).fetchall()
@@ -588,6 +593,70 @@ class LibraryDatabase:
         self._invalidate_embedding_cache()
         return counts
 
+    def save_classifier_score(
+        self,
+        track_id: int,
+        *,
+        classifier: str,
+        score: float,
+        label: str,
+        confidence: float,
+        probabilities: dict[str, float],
+        feature_set: str,
+        model_id: str,
+    ) -> None:
+        probabilities_json = metadata_to_json(probabilities)
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO track_classifier_scores (
+                    track_id, classifier, score, label, confidence,
+                    probabilities_json, feature_set, model_id, analyzed_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(track_id, classifier) DO UPDATE SET
+                    score = excluded.score,
+                    label = excluded.label,
+                    confidence = excluded.confidence,
+                    probabilities_json = excluded.probabilities_json,
+                    feature_set = excluded.feature_set,
+                    model_id = excluded.model_id,
+                    analyzed_at = CURRENT_TIMESTAMP
+                """,
+                (
+                    int(track_id),
+                    classifier.strip(),
+                    float(score),
+                    label.strip(),
+                    float(confidence),
+                    probabilities_json,
+                    feature_set.strip(),
+                    str(model_id),
+                ),
+            )
+
+    def classifier_score(self, track_id: int, classifier: str) -> dict[str, object] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT score, label, confidence, probabilities_json, feature_set, model_id, analyzed_at
+                FROM track_classifier_scores
+                WHERE track_id = ? AND classifier = ?
+                """,
+                (int(track_id), classifier),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "score": float(row["score"]),
+            "label": str(row["label"]),
+            "confidence": float(row["confidence"]),
+            "probabilities": metadata_from_json(row["probabilities_json"]),
+            "feature_set": str(row["feature_set"]),
+            "model_id": str(row["model_id"]),
+            "analyzed_at": str(row["analyzed_at"]),
+        }
+
     def relocate_library(self, old_root: str | Path, new_root: str | Path, *, apply: bool = False) -> dict[str, object]:
         old_root_text = _normalize_root(old_root)
         new_root_text = _normalize_root(new_root)
@@ -775,6 +844,7 @@ class LibraryDatabase:
         metadata = metadata_from_json(row["metadata_json"]) if include_metadata and "metadata_json" in row_keys else {}
         genres, genre_scores = genres_from_metadata(metadata) if include_metadata else (None, None)
         analyses = analyses_from_row(row, metadata)
+        classifier_scores = _classifier_scores_from_row(row) if "classifier_scores_json" in row_keys else None
         return Track(
             id=int(row["id"]),
             path=str(row["path"]),
@@ -790,6 +860,7 @@ class LibraryDatabase:
             metadata=metadata if include_metadata else None,
             genres=genres,
             genre_scores=genre_scores,
+            classifier_scores=classifier_scores,
             analyses=analyses,
             embedding_model=row["embedding_model"] if "embedding_model" in row.keys() else None,
             embedding_dim=row["embedding_dim"] if "embedding_dim" in row.keys() else None,
@@ -802,7 +873,7 @@ def _limit_sql(limit: int | None) -> tuple[str, tuple[int, ...]]:
     return "LIMIT ?", (max(0, int(limit)),)
 
 
-def _track_filter_sql(*, query: str, preset: str) -> tuple[list[str], list[object]]:
+def _track_filter_sql(*, query: str, preset: str, min_break_energy: float | None = None) -> tuple[list[str], list[object]]:
     where_parts: list[str] = []
     params: list[object] = []
     needle = query.strip().lower()
@@ -821,7 +892,41 @@ def _track_filter_sql(*, query: str, preset: str) -> tuple[list[str], list[objec
         where_parts.append("json_extract(t.metadata_json, '$.maest_syncopated_rhythm') = 1")
     elif preset != "all":
         raise ValueError(f"Unknown library preset: {preset}")
+    if min_break_energy is not None:
+        where_parts.append(
+            """
+            EXISTS (
+                SELECT 1
+                FROM track_classifier_scores cs
+                WHERE cs.track_id = t.id
+                  AND cs.classifier = 'break_energy'
+                  AND cs.score >= ?
+            )
+            """
+        )
+        params.append(float(min_break_energy))
     return where_parts, params
+
+
+def _track_order_sql(*, min_break_energy: float | None = None) -> str:
+    if min_break_energy is None:
+        return "COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path"
+    return (
+        "(SELECT cs.score FROM track_classifier_scores cs "
+        "WHERE cs.track_id = t.id AND cs.classifier = 'break_energy') DESC, "
+        "COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path"
+    )
+
+
+def _classifier_scores_from_row(row: sqlite3.Row) -> dict[str, dict[str, object]] | None:
+    raw = row["classifier_scores_json"]
+    if raw is None:
+        return None
+    try:
+        parsed = json.loads(str(raw))
+    except (TypeError, json.JSONDecodeError):
+        return None
+    return parsed if isinstance(parsed, dict) and parsed else None
 
 
 def _set_maest_metadata(metadata: dict[str, object], *, model_name: str, genres: list[dict[str, object]]) -> None:

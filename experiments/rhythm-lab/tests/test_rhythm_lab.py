@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 import csv
+import joblib
 
 import numpy as np
 
@@ -374,6 +375,40 @@ def test_artifact_cleanup_keeps_recent_files_per_feature_and_protected_artifact(
     assert len([name for name in remaining if name.startswith("rhythm-combined-") and name.endswith(".metrics.json")]) == 10
     assert result["deleted_joblib"] == 3
     assert result["deleted_metrics"] == 2
+
+
+def test_cli_promote_break_energy_copies_latest_combined_model_to_classifier_asset(tmp_path: Path) -> None:
+    from rhythm_lab.cli import build_parser
+
+    artifacts = tmp_path / "artifacts"
+    target = tmp_path / "models" / "classifiers" / "break-energy"
+    artifacts.mkdir()
+    old = artifacts / "rhythm-combined-20260524T100000Z.joblib"
+    latest = artifacts / "rhythm-combined-20260524T110000Z.joblib"
+    maest = artifacts / "rhythm-maest-20260524T120000Z.joblib"
+    joblib.dump({"feature_set": "combined", "label_order": ["broken", "straight"], "model": object()}, old)
+    joblib.dump({"feature_set": "combined", "label_order": ["broken", "straight"], "model": object()}, latest)
+    joblib.dump({"feature_set": "maest", "label_order": ["broken", "straight"], "model": object()}, maest)
+
+    args = build_parser().parse_args([
+        "promote-break-energy",
+        "--artifacts",
+        str(artifacts),
+        "--target",
+        str(target),
+        "--labels",
+        str(tmp_path / "labels.sqlite"),
+    ])
+    args.func(args)
+
+    promoted = target / "model.joblib"
+    metadata_path = target / "model.json"
+    assert promoted.exists()
+    assert joblib.load(promoted)["feature_set"] == "combined"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert metadata["classifier"] == "break_energy"
+    assert metadata["score_name"] == "Break Energy"
+    assert metadata["source_artifact"] == str(latest)
 
 
 def test_web_app_tracks_endpoint_uses_source_sql_pagination(monkeypatch, tmp_path: Path) -> None:

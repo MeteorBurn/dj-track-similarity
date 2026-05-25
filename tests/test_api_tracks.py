@@ -69,6 +69,45 @@ def test_tracks_endpoint_filters_by_query_and_syncopated_preset(tmp_path: Path) 
     assert preset_payload["items"][0]["id"] == breaks_id
 
 
+def test_tracks_endpoint_filters_by_min_break_energy(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    low_id = _add_track(db, tmp_path, "low.wav", "DJ One", "Low Energy", {})
+    high_id = _add_track(db, tmp_path, "high.wav", "DJ Two", "High Energy", {})
+    db.save_classifier_score(
+        low_id,
+        classifier="break_energy",
+        score=0.71,
+        label="medium",
+        confidence=0.71,
+        probabilities={"break_energy": 0.71, "straight_energy": 0.29},
+        feature_set="combined",
+        model_id="model.joblib",
+    )
+    db.save_classifier_score(
+        high_id,
+        classifier="break_energy",
+        score=0.93,
+        label="high",
+        confidence=0.93,
+        probabilities={"break_energy": 0.93, "straight_energy": 0.07},
+        feature_set="combined",
+        model_id="model.joblib",
+    )
+    client = TestClient(create_app(db_path))
+
+    response = client.get("/api/tracks?min_break_energy=0.9")
+    filtered = client.post("/api/tracks/filtered", json={"min_break_energy": 0.9})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["id"] == high_id
+    assert payload["items"][0]["classifier_scores"]["break_energy"]["score"] == 0.93
+    assert filtered.status_code == 200
+    assert [item["id"] for item in filtered.json()["items"]] == [high_id]
+
+
 def test_filtered_tracks_endpoint_returns_all_matching_tracks_without_pagination(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)

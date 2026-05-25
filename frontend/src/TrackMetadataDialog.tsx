@@ -72,6 +72,7 @@ export function TrackMetadataDialog({
   const trackHasSyncopatedRhythm = hasMaestSyncopatedRhythm(track.metadata);
   const sonaraFeatureGroups = readableSonaraFeatureGroups(track.metadata?.sonara_features);
   const sonaraFeatureCount = sonaraFeatureGroups.reduce((total, group) => total + group.features.length, 0);
+  const breakEnergy = readableBreakEnergyScore(track);
   const primaryEntries = readablePrimaryTrackInfo(track);
   const metadataEntries = readableTrackTags(track.metadata);
   return (
@@ -113,6 +114,20 @@ export function TrackMetadataDialog({
             <span className="empty-genres">SONARA признаки ещё не извлечены</span>
           )}
         </div>
+        <div className="classifier-score-block">
+          <strong>Break Energy</strong>
+          {breakEnergy ? (
+            <dl className="metadata-grid classifier-score-grid">
+              <Fragment><dt>Score</dt><dd>{breakEnergy.score}</dd></Fragment>
+              <Fragment><dt>Confidence</dt><dd>{breakEnergy.confidence}</dd></Fragment>
+              <Fragment><dt>Label</dt><dd>{breakEnergy.label}</dd></Fragment>
+              <Fragment><dt>Feature set</dt><dd>{breakEnergy.featureSet}</dd></Fragment>
+              <Fragment><dt>Model</dt><dd title={breakEnergy.modelId}>{breakEnergy.modelName}</dd></Fragment>
+            </dl>
+          ) : (
+            <span className="empty-genres">Break Energy ещё не рассчитан</span>
+          )}
+        </div>
         <div className="genre-block">
           <div className="genre-block-title">
             <strong>MAEST genres</strong>
@@ -131,6 +146,24 @@ export function TrackMetadataDialog({
       </section>
     </div>
   );
+}
+
+function readableBreakEnergyScore(track: Track) {
+  const payload = track.classifier_scores?.break_energy;
+  if (!payload) return null;
+  const modelId = payload.model_id || "-";
+  return {
+    score: formatClassifierScore(payload.score),
+    confidence: formatClassifierScore(payload.confidence),
+    label: payload.label || "-",
+    featureSet: payload.feature_set || "-",
+    modelId,
+    modelName: modelId.split(/[\\/]/).pop() || modelId
+  };
+}
+
+function formatClassifierScore(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(4) : "-";
 }
 
 const sonaraFeatureLabels: Record<string, string> = {

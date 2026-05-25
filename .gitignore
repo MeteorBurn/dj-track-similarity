@@ -19,6 +19,8 @@ venv/
 *.log.*
 *.state.json
 state.*.json
+models/classifiers/*/model.joblib
+models/classifiers/*/model.json
 scripts/audio_repair/*
 !scripts/audio_repair/.gitkeep
 

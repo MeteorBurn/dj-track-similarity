@@ -24,25 +24,27 @@ export function TrackList({
 }) {
   return (
     <div className="track-list">
-      {tracks.map((track) => (
-        <div className="track-row" key={track.id}>
-          <button className="icon-button track-preview-button" title="Preview" aria-label={`Preview ${displayTrack(track)}`} onClick={() => onPreview(track)}><Play size={15} /></button>
-          <div className="track-copy">
-            <strong>{displayTrack(track)}</strong>
-            <span>{trackInfo(track)}</span>
+      {tracks.map((track) => {
+        return (
+          <div className="track-row" key={track.id}>
+            <button className="icon-button track-preview-button" title="Preview" aria-label={`Preview ${displayTrack(track)}`} onClick={() => onPreview(track)}><Play size={15} /></button>
+            <div className="track-copy">
+              <strong>{displayTrack(track)}</strong>
+              <span>{trackInfo(track)}</span>
+            </div>
+            <button className="icon-button track-metadata-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={() => onDetails(track)}><Tags size={15} /></button>
+            <button className={`icon-button track-seed-button ${seedSet.has(track.id) ? "active" : ""}`} title="Seed" aria-label={`Seed ${displayTrack(track)}`} onClick={() => onSeed(track)}><Search size={15} /></button>
+            <button
+              className={`icon-button track-playlist-toggle-button ${playlistSet.has(track.id) ? "intent-remove active" : "intent-add"}`}
+              title={playlistSet.has(track.id) ? "Убрать из сета" : "В сет"}
+              aria-label={playlistSet.has(track.id) ? `Убрать ${displayTrack(track)} из сета` : `Добавить ${displayTrack(track)} в сет`}
+              onClick={() => onTogglePlaylist(track)}
+            >
+              {playlistSet.has(track.id) ? <Minus size={15} /> : <Plus size={15} />}
+            </button>
           </div>
-          <button className="icon-button track-metadata-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={() => onDetails(track)}><Tags size={15} /></button>
-          <button className={`icon-button track-seed-button ${seedSet.has(track.id) ? "active" : ""}`} title="Seed" aria-label={`Seed ${displayTrack(track)}`} onClick={() => onSeed(track)}><Search size={15} /></button>
-          <button
-            className={`icon-button track-playlist-toggle-button ${playlistSet.has(track.id) ? "intent-remove active" : "intent-add"}`}
-            title={playlistSet.has(track.id) ? "Убрать из сета" : "В сет"}
-            aria-label={playlistSet.has(track.id) ? `Убрать ${displayTrack(track)} из сета` : `Добавить ${displayTrack(track)} в сет`}
-            onClick={() => onTogglePlaylist(track)}
-          >
-            {playlistSet.has(track.id) ? <Minus size={15} /> : <Plus size={15} />}
-          </button>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

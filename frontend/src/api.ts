@@ -13,6 +13,15 @@ export type Track = {
   metadata?: Record<string, unknown> | null;
   genres?: string[] | null;
   genre_scores?: Record<string, number> | null;
+  classifier_scores?: Record<string, {
+    score: number;
+    label: string;
+    confidence: number;
+    probabilities?: Record<string, number>;
+    feature_set?: string;
+    model_id?: string;
+    analyzed_at?: string;
+  }> | null;
   analyses?: string[] | null;
   embedding_model?: string | null;
   embedding_dim?: number | null;
@@ -183,19 +192,24 @@ export const api = {
       method: "POST",
       body: JSON.stringify({})
     }),
-  tracks: (params: { query?: string; preset?: string; limit?: number; offset?: number; includeMetadata?: boolean } = {}) => {
+  tracks: (params: { query?: string; preset?: string; minBreakEnergy?: number | null; limit?: number; offset?: number; includeMetadata?: boolean } = {}) => {
     const search = new URLSearchParams();
     if (params.query) search.set("q", params.query);
     if (params.preset) search.set("preset", params.preset);
+    if (params.minBreakEnergy != null) search.set("min_break_energy", String(params.minBreakEnergy));
     if (params.limit != null) search.set("limit", String(params.limit));
     if (params.offset != null) search.set("offset", String(params.offset));
     search.set("include_metadata", params.includeMetadata ? "true" : "false");
     return request<TrackPage>(`/api/tracks?${search.toString()}`);
   },
-  filteredTracks: (payload: { query?: string; preset?: string }) =>
+  filteredTracks: (payload: { query?: string; preset?: string; minBreakEnergy?: number | null }) =>
     request<{ items: Track[]; total: number }>("/api/tracks/filtered", {
       method: "POST",
-      body: JSON.stringify({ query: payload.query || "", preset: payload.preset || "all" })
+      body: JSON.stringify({
+        query: payload.query || "",
+        preset: payload.preset || "all",
+        min_break_energy: payload.minBreakEnergy ?? null
+      })
     }),
   track: (trackId: number) => request<Track>(`/api/tracks/${trackId}`),
   librarySummary: () => request<LibrarySummary>("/api/library/summary"),
@@ -250,6 +264,18 @@ export const api = {
   latestSonaraJob: () => request<AnalysisJobStatus | null>("/api/sonara/analyze/jobs/latest"),
   cancelSonaraJob: (jobId: string) =>
     request<AnalysisJobStatus>(`/api/sonara/analyze/jobs/${jobId}/cancel`, {
+      method: "POST",
+      body: JSON.stringify({})
+    }),
+  analyzeBreakEnergy: (limit?: number) =>
+    request<AnalysisJobStatus>("/api/classifiers/break-energy/analyze", {
+      method: "POST",
+      body: JSON.stringify({ limit: limit || null })
+    }),
+  breakEnergyJob: (jobId: string) => request<AnalysisJobStatus>(`/api/classifiers/break-energy/analyze/jobs/${jobId}`),
+  latestBreakEnergyJob: () => request<AnalysisJobStatus | null>("/api/classifiers/break-energy/analyze/jobs/latest"),
+  cancelBreakEnergyJob: (jobId: string) =>
+    request<AnalysisJobStatus>(`/api/classifiers/break-energy/analyze/jobs/${jobId}/cancel`, {
       method: "POST",
       body: JSON.stringify({})
     }),

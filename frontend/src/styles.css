@@ -995,13 +995,17 @@ h2 {
 
 .search-tabs {
   display: grid;
-  gap: 6px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 8px;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 10px 0 12px;
 }
 
 .search-tabs button {
+  font-size: 12px;
+  min-height: 34px;
   min-width: 0;
+  padding-left: 4px;
+  padding-right: 4px;
 }
 
 .search-tab-panel {
@@ -1015,6 +1019,21 @@ h2 {
   display: grid;
   gap: 8px;
   padding: 8px;
+}
+
+.classifier-controls {
+  border: 1px solid #dfe3d6;
+  border-radius: 6px;
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+}
+
+.classifier-job-status {
+  color: #586351;
+  display: grid;
+  font-size: 12px;
+  gap: 5px;
 }
 
 .custom-control-header {
@@ -1251,7 +1270,8 @@ meter {
   overflow-wrap: anywhere;
 }
 
-.genre-block {
+.genre-block,
+.classifier-score-block {
   border-top: 1px solid #e2e5dc;
   display: flex;
   flex: 0 0 auto;
@@ -1324,6 +1344,10 @@ meter {
   max-height: none;
 }
 
+.classifier-score-grid {
+  max-height: none;
+}
+
 .mutagen-grid {
   max-height: min(204px, 28vh);
   min-width: 0;
@@ -1334,6 +1358,7 @@ meter {
 }
 
 .genre-block > strong,
+.classifier-score-block > strong,
 .mutagen-block > strong,
 .sonara-block > strong {
   font-size: 13px;

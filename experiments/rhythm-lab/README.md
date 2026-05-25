@@ -162,6 +162,24 @@ Apply a trained model:
 .\.venv\Scripts\python.exe experiments\rhythm-lab\rhythm_lab_cli.py export-predictions --labels experiments\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
+Promote the latest combined model into the main project as the Break Energy
+classifier:
+
+```powershell
+.\.venv\Scripts\python.exe experiments\rhythm-lab\rhythm_lab_cli.py promote-break-energy --labels experiments\rhythm-lab\data\rhythm_lab.sqlite
+```
+
+This copies the latest `rhythm-combined-*.joblib` artifact to:
+
+```text
+models/classifiers/break-energy/model.joblib
+```
+
+and writes local metadata to `models/classifiers/break-energy/model.json`.
+Those promoted files are local runtime artifacts and are ignored by git. The
+main app can then score Break Energy from the CLASS tab or with
+`dj-sim analyze-break-energy`.
+
 The recommended loop is:
 
 1. Label a balanced batch of confident `broken`, confident `straight`, and

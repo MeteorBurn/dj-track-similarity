@@ -29,6 +29,9 @@ else who collects, tags, or plays music will find the approach useful too.
 - Builds MERT audio embeddings for audio-to-audio similarity search.
 - Builds CLAP audio embeddings for text-to-audio search.
 - Extracts MAEST genre labels and stores them in the local SQLite database.
+- Scores a promoted Break Energy classifier for break-heavy drums, percussion,
+  fills, and related drum-break texture using existing SONARA, MERT, and MAEST
+  analysis data.
 - Can explicitly save stored MAEST labels into standard audio genre tags.
 - Keeps the library browser server-side paginated so large local databases stay
   usable.
@@ -49,10 +52,12 @@ SONARA seed search is the primary explainable search path in the UI. MERT is
 available as a separate seed-search tab, and CLAP is available for text-to-audio
 search after CLAP audio embeddings have been analyzed. MAEST genre analysis is
 available for local genre inspection and optional explicit genre tag writing.
+The CLASS tab can run the Break Energy classifier after a model has been
+promoted from Rhythm Lab into `models/classifiers/break-energy/model.joblib`.
 
 The UI keeps file tags and model-derived values separate. This is intentional:
-file tags, Sonara values, MAEST labels, MERT vectors, and CLAP vectors can
-disagree, and each source answers a different question.
+file tags, Sonara values, MAEST labels, MERT vectors, CLAP vectors, and
+classifier scores can disagree, and each source answers a different question.
 
 For the full manual, including CLI options, API endpoints, maintenance scripts,
 database details, and advanced workflows, see
@@ -117,6 +122,9 @@ database details, analysis workflows, performance notes, and troubleshooting.
 - RefreshTags rereads file metadata and updates SQLite only.
 - Library relocation updates only stored paths in SQLite.
 - Analysis reset buttons delete only local SQLite analysis outputs.
+- Break Energy scores are SQLite-only classifier outputs. They depend on
+  SONARA, MERT, and MAEST data and can be recomputed from a promoted classifier
+  model; they do not modify audio files.
 - Database clear deletes local SQLite records only; it does not delete music
   files.
 - The genre save action is the explicit app-level exception: it writes stored

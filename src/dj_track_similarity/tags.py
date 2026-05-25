@@ -18,7 +18,7 @@ from mutagen.wave import WAVE
 from .database import LibraryDatabase
 from .job_runtime import JobStore
 from .logging_config import exception_summary, log_failure, log_job_event
-from .models import GenreTagApplyResult, TagPreview, Track
+from .models import GenreTagApplyResult, Track
 from .scanner import MUTAGEN_METADATA_KEYS, read_audio_metadata
 from .wave_tags import set_audio_id3_genre, write_wave_genre_tag
 
@@ -65,22 +65,22 @@ class GenreTagJobManager:
         self.db = db
         self._store = JobStore(self._copy_status, unknown_label="genre tag job")
 
-    def create_job(self, track_ids: list[int] | None = None) -> str:
-        tracks = self.db.list_tracks_with_maest_genres() if track_ids is None else _tracks(db=self.db, track_ids=track_ids)
+    def create_job(self) -> str:
+        tracks = self.db.list_tracks_with_maest_genres()
         job_id = str(uuid.uuid4())
         status = GenreTagJobStatus(job_id=job_id, state="queued", total=len(tracks))
         self._store.add(job_id, status, payload=tracks)
         self._append_event(job_id, "info", "Genre tag apply queued")
         return job_id
 
-    def start(self, track_ids: list[int] | None = None) -> GenreTagJobStatus:
-        job_id = self.create_job(track_ids)
+    def start(self) -> GenreTagJobStatus:
+        job_id = self.create_job()
         thread = threading.Thread(target=self.run_job, args=(job_id,), daemon=True)
         thread.start()
         return self.get(job_id)
 
-    def run_sync(self, track_ids: list[int] | None = None) -> GenreTagJobStatus:
-        job_id = self.create_job(track_ids)
+    def run_sync(self) -> GenreTagJobStatus:
+        job_id = self.create_job()
         return self.run_job(job_id)
 
     def run_job(self, job_id: str) -> GenreTagJobStatus:
@@ -186,14 +186,6 @@ class GenreTagJobManager:
         return copy
 
 
-def build_genre_tag_preview(db: LibraryDatabase, track_ids: list[int]) -> list[TagPreview]:
-    return [TagPreview(track_id=track.id, path=track.path, tags=_genre_tags_for_track(track)) for track in _tracks(db, track_ids)]
-
-
-def apply_genre_tags(db: LibraryDatabase, track_ids: list[int]) -> list[GenreTagApplyResult]:
-    return apply_genre_tags_to_tracks(db, _tracks(db, track_ids))
-
-
 def apply_genre_tags_to_tracks(db: LibraryDatabase, tracks: list[Track]) -> list[GenreTagApplyResult]:
     results: list[GenreTagApplyResult] = []
     LOGGER.info("Genre tag apply started tracks=%s", len(tracks))
@@ -204,12 +196,12 @@ def apply_genre_tags_to_tracks(db: LibraryDatabase, tracks: list[Track]) -> list
 
 
 def _apply_genre_tag_to_track(db: LibraryDatabase, track: Track) -> GenreTagApplyResult:
-    preview = TagPreview(track_id=track.id, path=track.path, tags=_genre_tags_for_track(track))
-    if not preview.tags:
+    genre_tags = _genre_tags_for_track(track)
+    if not genre_tags:
         result = GenreTagApplyResult(
-            track_id=preview.track_id,
-            path=preview.path,
-            tags=preview.tags,
+            track_id=track.id,
+            path=track.path,
+            tags=genre_tags,
             status="skipped",
             message="No MAEST genres to write",
         )
@@ -217,27 +209,27 @@ def _apply_genre_tag_to_track(db: LibraryDatabase, track: Track) -> GenreTagAppl
             LOGGER,
             "info",
             "Genre tag write skipped track_id=%s path=%s reason=%s",
-            preview.track_id,
-            preview.path,
+            track.id,
+            track.path,
             result.message,
             track_event=True,
         )
         return result
 
-    path = Path(preview.path)
+    path = Path(track.path)
     try:
-        _write_genre_tag(path, list(preview.tags.values())[0])
+        _write_genre_tag(path, list(genre_tags.values())[0])
         db.refresh_track_file_metadata(
-            preview.track_id,
+            track.id,
             size=path.stat().st_size,
             mtime=path.stat().st_mtime,
             metadata=read_audio_metadata(path),
             replace_metadata_keys=MUTAGEN_METADATA_KEYS,
         )
         result = GenreTagApplyResult(
-            track_id=preview.track_id,
-            path=preview.path,
-            tags=preview.tags,
+            track_id=track.id,
+            path=track.path,
+            tags=genre_tags,
             status="applied",
             message="Genre tag written",
         )
@@ -245,18 +237,18 @@ def _apply_genre_tag_to_track(db: LibraryDatabase, track: Track) -> GenreTagAppl
             LOGGER,
             "ok",
             "Genre tags applied track_id=%s path=%s tags=%s",
-            preview.track_id,
-            preview.path,
-            preview.tags,
+            track.id,
+            track.path,
+            genre_tags,
             track_event=True,
         )
         return result
     except Exception as error:
         summary = exception_summary(error)
         result = GenreTagApplyResult(
-            track_id=preview.track_id,
-            path=preview.path,
-            tags=preview.tags,
+            track_id=track.id,
+            path=track.path,
+            tags=genre_tags,
             status="failed",
             message="Genre tag write failed",
             error=summary,
@@ -264,8 +256,8 @@ def _apply_genre_tag_to_track(db: LibraryDatabase, track: Track) -> GenreTagAppl
         log_failure(
             LOGGER,
             "Genre tag apply failed track_id=%s path=%s error=%s",
-            preview.track_id,
-            preview.path,
+            track.id,
+            track.path,
             summary,
         )
         return result
@@ -276,10 +268,6 @@ def genre_tag_apply_summary(results: list[GenreTagApplyResult]) -> str:
     skipped = sum(1 for result in results if result.status == "skipped")
     failed = sum(1 for result in results if result.status == "failed")
     return f"applied={applied} skipped={skipped} failed={failed} total={len(results)}"
-
-
-def _tracks(db: LibraryDatabase, track_ids: list[int]) -> list[Track]:
-    return [db.get_track(track_id) for track_id in track_ids]
 
 
 def _genre_tags_for_track(track: Track) -> dict[str, str]:

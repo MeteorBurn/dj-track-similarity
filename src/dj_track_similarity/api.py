@@ -600,7 +600,7 @@ def create_app(
     def genre_tags_job_start(request: GenreTagRequest):
         if request.track_ids is not None:
             raise HTTPException(status_code=400, detail="Writing MAEST genres to specific tracks is no longer supported")
-        return state.require_genre_tag_jobs().start(request.track_ids)
+        return state.require_genre_tag_jobs().start()
 
     @app.get("/api/tags/genres/jobs/latest")
     def latest_genre_tags_job():

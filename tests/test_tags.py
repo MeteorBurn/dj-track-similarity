@@ -10,7 +10,7 @@ import pytest
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity import tags, wave_tags
 from dj_track_similarity.api import create_app
-from dj_track_similarity.tags import GenreTagJobManager, apply_genre_tags, build_genre_tag_preview, genre_tag_apply_summary
+from dj_track_similarity.tags import GenreTagJobManager, apply_genre_tags_to_tracks, genre_tag_apply_summary
 from fastapi.testclient import TestClient
 from mutagen import File as MutagenFile
 from mutagen.id3 import ID3, TALB, TCON, TIT2, TPE1
@@ -128,44 +128,9 @@ def test_custom_tag_api_is_not_available(tmp_path: Path) -> None:
     assert client.post("/api/tags/apply", json={"track_ids": [track_id]}).status_code in {404, 405}
 
 
-def test_genre_tag_preview_uses_maest_genres_without_touching_audio_file(tmp_path: Path) -> None:
-    audio_path = tmp_path / "track.flac"
-    audio_path.write_bytes(b"fake audio")
-    before = audio_path.read_bytes()
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_id = db.upsert_track(
-        path=audio_path,
-        size=len(before),
-        mtime=audio_path.stat().st_mtime,
-        metadata={"title": "T"},
-    )
-    db.save_genres(track_id, [{"label": "Deep_Techno", "score": 0.9}, {"label": "Minimal", "score": 0.8}], model_name="maest")
-
-    preview = build_genre_tag_preview(db, [track_id])
-
-    assert audio_path.read_bytes() == before
-    assert preview[0].tags == {"GENRE": "Deep Techno; Minimal"}
-
-
-def test_genre_tag_preview_removes_maest_category_prefix(tmp_path: Path) -> None:
-    audio_path = tmp_path / "track.flac"
-    audio_path.write_bytes(b"fake audio")
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_id = db.upsert_track(
-        path=audio_path,
-        size=audio_path.stat().st_size,
-        mtime=audio_path.stat().st_mtime,
-        metadata={"title": "T"},
-    )
-    db.save_genres(
-        track_id,
-        [{"label": "Electronic---Tech House", "score": 0.9}, {"label": "Electronic---Minimal_Techno", "score": 0.8}],
-        model_name="maest",
-    )
-
-    preview = build_genre_tag_preview(db, [track_id])
-
-    assert preview[0].tags == {"GENRE": "Tech House; Minimal Techno"}
+def test_genre_tag_specific_track_helpers_are_not_part_of_runtime_contract() -> None:
+    assert not hasattr(tags, "build_genre_tag_preview")
+    assert not hasattr(tags, "apply_genre_tags")
 
 
 def test_apply_genre_tags_overwrites_standard_genre_tag(monkeypatch, tmp_path: Path) -> None:
@@ -182,7 +147,7 @@ def test_apply_genre_tags_overwrites_standard_genre_tag(monkeypatch, tmp_path: P
     written: list[tuple[Path, str]] = []
     monkeypatch.setattr(tags, "_write_genre_tag", lambda path, genre: written.append((path, genre)))
 
-    result = apply_genre_tags(db, [track_id])
+    result = apply_genre_tags_to_tracks(db, [db.get_track(track_id)])
 
     assert result[0].tags == {"GENRE": "House"}
     assert result[0].status == "applied"
@@ -210,7 +175,7 @@ def test_apply_genre_tags_reports_failures_and_continues(monkeypatch, tmp_path: 
     monkeypatch.setattr(tags, "_write_genre_tag", fake_write)
 
     with caplog.at_level("INFO", logger="dj_track_similarity.tags"):
-        result = apply_genre_tags(db, [first_id, second_id])
+        result = apply_genre_tags_to_tracks(db, [db.get_track(first_id), db.get_track(second_id)])
 
     assert [item.status for item in result] == ["failed", "applied"]
     assert result[0].error == "permission denied"
@@ -508,7 +473,7 @@ def test_apply_genre_tags_reports_failed_invalid_wave_and_continues(tmp_path: Pa
     db.save_genres(valid_id, [{"label": "Minimal", "score": 0.8}], model_name="maest")
 
     with caplog.at_level("ERROR", logger="dj_track_similarity.tags"):
-        previews = apply_genre_tags(db, [malformed_id, valid_id])
+        previews = apply_genre_tags_to_tracks(db, [db.get_track(malformed_id), db.get_track(valid_id)])
 
     assert malformed_path.read_bytes() == malformed_before
     assert MutagenFile(valid_path).tags["TCON"].text == ["Minimal"]
@@ -668,7 +633,7 @@ def test_apply_genre_tags_refreshes_database_metadata_and_preserves_existing_fil
     )
     db.save_genres(track_id, [{"label": "Electronic---Tech House", "score": 0.9}], model_name="maest")
 
-    apply_genre_tags(db, [track_id])
+    apply_genre_tags_to_tracks(db, [db.get_track(track_id)])
 
     saved = MutagenFile(audio_path)
     track = db.get_track(track_id)

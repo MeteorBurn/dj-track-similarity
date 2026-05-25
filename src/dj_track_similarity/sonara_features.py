@@ -75,97 +75,6 @@ PLAYLIST_FEATURE_GROUPS = (
 PLAYLIST_FEATURE_KEYS = tuple(key for _group, keys in PLAYLIST_FEATURE_GROUPS for key in keys)
 
 
-FEATURE_DESCRIPTIONS = {
-    "bpm": "Analyzed tempo in beats per minute; useful for DJ tempo compatibility.",
-    "beats": "Beat frame positions detected by sonara.",
-    "onset_frames": "Detected onset frame positions; shows where rhythmic or transient events begin.",
-    "onset_density": "Onset density measured as value/sec; a proxy for rhythmic activity.",
-    "rms_mean": "Average RMS loudness.",
-    "rms_max": "Peak RMS loudness.",
-    "loudness_lufs": "Integrated loudness in LUFS.",
-    "dynamic_range_db": "Loudness range in dB between quiet and loud passages.",
-    "spectral_centroid_mean": "Average brightness in Hz.",
-    "zero_crossing_rate": "Zero crossing rate; a rough proxy for noisiness or percussiveness.",
-    "duration_sec": "Analyzed track duration in seconds.",
-    "energy": "Perceived intensity from loudness, brightness, and activity.",
-    "danceability": "Beat regularity and rhythm suitability for dancing.",
-    "valence": "Mood estimate: lower is darker/sadder, higher is brighter/happier.",
-    "acousticness": "Acoustic versus electronic character estimate.",
-    "key": "Analyzed musical key, independent of file tags.",
-    "key_confidence": "Confidence of analyzed musical key.",
-    "predominant_chord": "Most frequent chord in the analyzed track.",
-    "chord_change_rate": "Chord changes per second; a harmonic complexity proxy.",
-    "dissonance": "Sensory dissonance estimate from harmonic roughness.",
-    "spectral_bandwidth_mean": "Average frequency spread.",
-    "spectral_rolloff_mean": "Frequency below which most spectral energy sits.",
-    "spectral_flatness_mean": "Tonal versus noise-like spectrum estimate.",
-    "spectral_contrast_mean": "Peak-valley contrast across spectral bands.",
-    "mfcc_mean": "Mean MFCC vector; compact timbre fingerprint.",
-    "chroma_mean": "Mean pitch-class vector; compact harmonic color fingerprint.",
-    "mel_spectrogram": "Mel-frequency power spectrogram values; useful for visual texture and model inputs.",
-    "melspectrogram": "Mel-frequency power spectrogram values; Sonara-compatible alias for mel_spectrogram.",
-    "mel_spectrogram_db": "Mel-frequency power spectrogram converted to dB; useful for visual texture and model inputs.",
-    "tempo": "Analyzed tempo in beats per minute; Sonara playlist pipeline aliases this to BPM.",
-    "tempo_curve": "Beat-to-beat tempo curve; available in Sonara full mode, not playlist mode.",
-    "tempo_variability": "Variation in local tempo; available in Sonara full mode, not playlist mode.",
-    "beat_track": "Tempo plus beat frame positions from Sonara beat tracking.",
-    "onset_detect": "Detected onset frame positions; shows where rhythmic or transient events begin.",
-    "onset_strength": "Onset strength envelope; shows transient/rhythmic activity over time.",
-    "onset_strength_multi": "Multi-band onset strength envelope when exported by the installed Sonara version.",
-    "tempogram": "Tempo-period representation when exported by the installed Sonara version.",
-    "fourier_tempogram": "Fourier tempogram when exported by the installed Sonara version.",
-    "metrogram": "Meter/rhythm representation when exported by the installed Sonara version.",
-    "plp": "Predominant local pulse curve when exported by the installed Sonara version.",
-    "detect_time_signature": "Detected time signature or availability status.",
-    "mfcc": "MFCC timbre coefficients over time.",
-    "chroma_stft": "Pitch-class chroma features over time.",
-    "spectral_centroid": "Spectral brightness over time in Hz.",
-    "spectral_bandwidth": "Frequency spread over time or Sonara summary value.",
-    "spectral_rolloff": "Frequency below which most spectral energy sits.",
-    "spectral_flatness": "Tonal versus noise-like spectrum estimate.",
-    "spectral_contrast": "Peak-valley contrast across spectral bands.",
-    "poly_features": "Polynomial spectral features when exported by the installed Sonara version.",
-    "hpcp": "Harmonic pitch class profile for chord/key analysis.",
-    "chords_from_beats": "Beat-synchronous chord labels produced from HPCP and beats.",
-    "chords_from_frames": "Frame/segment chord labels produced from HPCP.",
-    "chord_descriptors": "Summary statistics for a chord sequence.",
-    "key_detection": "Analyzed musical key, independent of file tags.",
-    "yin": "Fundamental frequency estimate from YIN pitch tracking.",
-    "pyin": "Probabilistic YIN pitch estimate and voiced probabilities.",
-    "piptrack": "Pitch salience tracks from spectral peaks.",
-    "estimate_tuning": "Estimated tuning offset.",
-    "pitch_tuning": "Pitch tuning estimated from detected pitches.",
-    "salience": "Harmonic salience representation from spectral energy.",
-    "detect_key": "Standalone key detection availability; Sonara playlist analysis also provides key/key_confidence.",
-}
-
-
-HUMAN_FEATURES = {
-    "bpm",
-    "key",
-    "key_confidence",
-    "energy",
-    "danceability",
-    "valence",
-    "acousticness",
-    "loudness_lufs",
-    "dynamic_range_db",
-    "onset_density",
-    "spectral_centroid_mean",
-    "zero_crossing_rate",
-    "duration_sec",
-    "predominant_chord",
-    "chord_change_rate",
-    "dissonance",
-    "spectral_bandwidth_mean",
-    "spectral_rolloff_mean",
-    "spectral_flatness_mean",
-    "spectral_contrast_mean",
-    "mfcc_mean",
-    "chroma_mean",
-}
-
-
 @dataclass(frozen=True)
 class SonaraFeatureResult:
     track_id: int
@@ -186,7 +95,7 @@ def analyze_and_store_sonara_features(
     features: dict[str, object] = {}
     for key in PLAYLIST_FEATURE_KEYS:
         if key in analysis:
-            features[key] = _feature_payload(analysis[key], key)
+            features[key] = _feature_payload(analysis[key])
     elapsed = time.perf_counter() - started
 
     db.save_sonara_features(
@@ -226,7 +135,7 @@ def _load_wav_fallback(path: str | Path, sonara: Any) -> tuple[np.ndarray, str]:
     return audio, detail
 
 
-def _feature_payload(value: object, name: str) -> dict[str, object]:
+def _feature_payload(value: object) -> dict[str, object]:
     serialized = _serialize_value(value, include_full_value=False)
     payload = {
         "value": serialized["value"],

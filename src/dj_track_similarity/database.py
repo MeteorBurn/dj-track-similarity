@@ -369,18 +369,6 @@ class LibraryDatabase:
             return None
         return int(row["id"]), int(row["size"]), float(row["mtime"])
 
-    def list_track_ids_with_maest_genres(self) -> list[int]:
-        with self.connect() as connection:
-            rows = connection.execute(
-                f"""
-                SELECT t.id
-                FROM tracks t
-                WHERE {MAEST_HAS_GENRES_SQL.replace('metadata_json', 't.metadata_json')}
-                ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
-                """
-            ).fetchall()
-        return [int(row["id"]) for row in rows]
-
     def list_tracks_with_maest_genres(self) -> list[Track]:
         with self.connect() as connection:
             rows = connection.execute(

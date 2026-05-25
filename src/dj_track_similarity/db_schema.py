@@ -55,11 +55,6 @@ TRACK_SLIM_SELECT_FIELDS = f"""
 {TRACK_EMBEDDING_KEY_FIELD},
 {TRACK_CLASSIFIER_SCORES_FIELD}
 """
-TRACK_SELECT_FIELDS_WITH_VECTOR = f"""
-{TRACK_BASE_FIELDS}, t.metadata_json, e.model_name AS embedding_model, e.dim AS embedding_dim, e.vector,
-{TRACK_EMBEDDING_KEY_FIELD},
-{TRACK_CLASSIFIER_SCORES_FIELD}
-"""
 TRACK_SLIM_SELECT_FIELDS_WITH_VECTOR = f"""
 {TRACK_BASE_FIELDS}, e.model_name AS embedding_model, e.dim AS embedding_dim, e.vector,
 {TRACK_ANALYSIS_FLAG_FIELDS},
@@ -73,15 +68,6 @@ MAEST_HAS_GENRES_SQL = """
     AND json_array_length(json_extract(metadata_json, '$.maest_genres')) > 0
 )
 """
-MAEST_MISSING_GENRES_SQL = """
-(
-    json_type(metadata_json, '$.maest_genres') IS NULL
-    OR json_type(metadata_json, '$.maest_genres') != 'array'
-    OR json_array_length(json_extract(metadata_json, '$.maest_genres')) = 0
-)
-"""
-
-
 def ensure_schema(connection: sqlite3.Connection) -> None:
     connection.execute("PRAGMA journal_mode = WAL")
     connection.execute("PRAGMA synchronous = NORMAL")

@@ -1241,6 +1241,33 @@ def test_static_ui_non_submit_buttons_have_explicit_button_type(tmp_path: Path) 
     assert 'buttons.push(\'<button type="button" data-label="">Clear</button>\');' in script
 
 
+def test_static_ui_supports_page_number_jump(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
+    html = client.get("/").text
+    script = client.get("/static/app.js").text
+
+    assert 'id="pageNumber"' in html
+    assert 'pageNumberEl.addEventListener("change", () => jumpToPage());' in script
+    assert 'pageNumberEl.addEventListener("keydown", event => { if (event.key === "Enter") jumpToPage(); });' in script
+    assert "function pageCount(totalItems, limit)" in script
+    assert "function currentPage(data)" in script
+    assert "const first = shown ? data.offset + 1 : 0;" in script
+    assert "const last = shown ? data.offset + shown : 0;" in script
+    assert 'pageInfoEl.textContent = `${current} / ${pages} (${first}-${last} / ${data.total})`;' in script
+    assert "offset = (targetPage - 1) * limit;" in script
+    styles = client.get("/static/styles.css").text
+    assert ".page-number {\n  flex: 0 0 auto;" in styles
+    assert "  width: 56px;" in styles
+    assert "  max-width: 56px;" in styles
+    assert html.index('id="pageSize"') < html.index('id="prevPage"')
+    assert html.index('id="prevPage"') < html.index('id="nextPage"')
+    assert html.index('id="nextPage"') < html.index('id="pageNumber"')
+    assert html.index('id="pageNumber"') < html.index('id="load"')
+    assert html.index('id="load"') < html.index('id="pageInfo"')
+
+
 def test_web_app_serves_favicon(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
@@ -1364,6 +1391,25 @@ def test_web_app_refresh_and_train_controls_are_icon_buttons(tmp_path: Path) -> 
     assert ">Train + refresh</button>" not in html
     assert ".icon-button {\n  width: 38px;\n  height: 38px;" in styles
     assert ".icon-button svg {\n  width: 18px;\n  height: 18px;" in styles
+
+
+def test_web_app_navigation_tabs_have_icons(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
+    html = client.get("/").text
+    styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
+
+    assert '<button id="libraryTab" type="button" class="tab-button active">' in html
+    assert 'class="lucide lucide-library-big"' in html
+    assert '<button id="candidatesTab" type="button" class="tab-button">' in html
+    assert 'class="lucide lucide-sparkles"' in html
+    assert '<button id="likedTab" type="button" class="tab-button">' in html
+    assert 'class="lucide lucide-heart"' in html
+    assert '<button id="trainingTab" type="button" class="tab-button">' in html
+    assert 'class="lucide lucide-dumbbell"' in html
+    assert ".tab-button {\n  display: inline-flex;" in styles
+    assert ".tab-button svg {\n  width: 16px;\n  height: 16px;" in styles
 
 
 def test_web_app_header_profile_controls_align_with_source_controls(tmp_path: Path) -> None:

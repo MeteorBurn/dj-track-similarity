@@ -22,6 +22,7 @@ const archiveProfileEl = document.getElementById("archiveProfile");
 const refreshCandidatesStatusEl = document.getElementById("refreshCandidatesStatus");
 const summaryEl = document.getElementById("summary");
 const pageSizeEl = document.getElementById("pageSize");
+const pageNumberEl = document.getElementById("pageNumber");
 const prevPageEl = document.getElementById("prevPage");
 const nextPageEl = document.getElementById("nextPage");
 const pageInfoEl = document.getElementById("pageInfo");
@@ -77,12 +78,15 @@ candidateMinPositiveEl.addEventListener("change", () => loadActive({ reset: true
 refreshCandidatesEl.addEventListener("click", () => refreshCandidates().catch(showError));
 trainRefreshEl.addEventListener("click", () => trainRefresh().catch(showError));
 pageSizeEl.addEventListener("change", () => loadActive({ reset: true }));
+pageNumberEl.addEventListener("change", () => jumpToPage());
+pageNumberEl.addEventListener("keydown", event => { if (event.key === "Enter") jumpToPage(); });
 prevPageEl.addEventListener("click", () => {
   offset = Math.max(0, offset - pageLimit());
   loadActive();
 });
 nextPageEl.addEventListener("click", () => {
-  offset = Math.min(Math.max(0, total - 1), offset + pageLimit());
+  const limit = pageLimit();
+  offset = Math.min(maxPageOffset(total, limit), offset + limit);
   loadActive();
 });
 
@@ -765,11 +769,40 @@ function pageLimit() {
   return Number(pageSizeEl.value || 100);
 }
 
+function pageCount(totalItems, limit) {
+  return totalItems > 0 ? Math.ceil(totalItems / Math.max(1, limit)) : 0;
+}
+
+function currentPage(data) {
+  const pages = pageCount(data.total, data.limit);
+  return pages ? Math.floor(data.offset / Math.max(1, data.limit)) + 1 : 0;
+}
+
+function maxPageOffset(totalItems, limit) {
+  const pages = pageCount(totalItems, limit);
+  return pages ? (pages - 1) * Math.max(1, limit) : 0;
+}
+
+function jumpToPage() {
+  const limit = pageLimit();
+  const pages = pageCount(total, limit);
+  const requested = Number.parseInt(pageNumberEl.value || "1", 10);
+  const targetPage = Math.min(Math.max(Number.isFinite(requested) ? requested : 1, 1), Math.max(1, pages));
+  pageNumberEl.value = String(targetPage);
+  offset = (targetPage - 1) * limit;
+  loadActive();
+}
+
 function updatePager(data) {
   const shown = data.items.length;
   const first = shown ? data.offset + 1 : 0;
   const last = shown ? data.offset + shown : 0;
-  pageInfoEl.textContent = `${first}-${last} / ${data.total}`;
+  const pages = pageCount(data.total, data.limit);
+  const current = currentPage(data);
+  pageInfoEl.textContent = `${current} / ${pages} (${first}-${last} / ${data.total})`;
+  pageNumberEl.value = String(current || 1);
+  pageNumberEl.max = String(Math.max(1, pages));
+  pageNumberEl.disabled = pages <= 0;
   prevPageEl.disabled = data.offset <= 0;
   nextPageEl.disabled = data.offset + data.limit >= data.total;
 }

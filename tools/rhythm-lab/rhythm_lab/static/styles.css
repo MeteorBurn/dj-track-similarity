@@ -90,6 +90,15 @@ main {
   flex-wrap: wrap;
 }
 
+.page-number {
+  flex: 0 0 auto;
+  width: 56px;
+  min-width: 56px;
+  max-width: 56px;
+  padding-inline: 6px;
+  text-align: center;
+}
+
 .top-bar,
 .source-row {
   display: grid;
@@ -265,6 +274,20 @@ main {
   border-color: var(--amber);
   background: rgba(240, 184, 74, 0.14);
   color: #ffe0a3;
+}
+
+.tab-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  justify-content: center;
+}
+
+.tab-button svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  pointer-events: none;
 }
 
 .icon-button {

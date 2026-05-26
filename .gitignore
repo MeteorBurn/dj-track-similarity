@@ -23,6 +23,8 @@ models/classifiers/*/model.joblib
 models/classifiers/*/model.json
 scripts/audio_repair/*
 !scripts/audio_repair/.gitkeep
+scripts/audio_dedup/reports/*
+!scripts/audio_dedup/reports/.gitkeep
 
 # Local audio libraries and temp data
 tmp_*/

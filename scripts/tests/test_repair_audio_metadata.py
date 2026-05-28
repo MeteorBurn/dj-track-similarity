@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 def _load_repair_module():
-    path = Path(__file__).resolve().parents[1] / "repair_audio_metadata.py"
+    path = Path(__file__).resolve().parents[1] / "audio_repair" / "repair_audio_metadata.py"
     spec = importlib.util.spec_from_file_location("repair_audio_metadata", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module

@@ -19,10 +19,11 @@ The project is a Python backend/CLI plus a React/Vite frontend:
 - `tools/rhythm-lab/`: auxiliary classifier labeling/training UI and CLI for
   user-created classifier profiles. It runs separately from
   `dj_track_similarity`, but stays in this repository as a helper project.
-- `scripts/repair_audio_metadata.py`: standalone dry-run-first audio metadata
+- `scripts/audio_repair/repair_audio_metadata.py`: standalone dry-run-first audio metadata
   diagnostic/repair helper.
-- `scripts/audio_repair/`: runtime state/log/report/backup workspace; commit
-  only `.gitkeep`.
+- `scripts/audio_repair/`: repair helper script plus runtime
+  state/log/report/backup workspace; commit only `repair_audio_metadata.py` and
+  `.gitkeep`.
 - `scripts/audio_dedup/`: report-only duplicate-audio candidate helper. It
   reads the project SQLite database and writes ignored reports only.
 
@@ -47,7 +48,7 @@ branches, or history are available.
 - WAV genre writing must use Mutagen WAVE/ID3 handling and read back `TCON`.
   Do not add custom RIFF repair/validation to the app path; failed WAV writes
   should fail that track and let the batch continue.
-- `scripts/repair_audio_metadata.py --apply` is separate and may rewrite only
+- `scripts/audio_repair/repair_audio_metadata.py --apply` is separate and may rewrite only
   files it reports as `REPAIRABLE`; dry-run must not write/copy audio, apply is
   sequential, and full-file backups are created by default.
 - `scripts/audio_dedup/audio_dedup.py` is report-only. It opens SQLite
@@ -66,7 +67,8 @@ branches, or history are available.
   temporary databases (`tmp_path` or explicit `--db`).
 - Do not commit generated local artifacts: `*.sqlite`, `*.log`, `__pycache__/`,
   `.pytest_cache/`, `frontend/node_modules/`, transient temp folders, or
-  generated `scripts/audio_repair/` contents. Rhythm Lab generated state and
+  generated `scripts/audio_repair/` contents except `repair_audio_metadata.py`.
+  Rhythm Lab generated state and
   training artifacts under `tools/rhythm-lab/data/` and
   `tools/rhythm-lab/artifacts/*/` must also stay out of git except `.gitkeep`.
   Generated duplicate-audio reports under `scripts/audio_dedup/reports/` must
@@ -176,7 +178,7 @@ dj-sim relocate-library .\music-old .\music-new --apply --db .\data\library.sqli
 dj-sim doctor
 ```
 
-Focused repair-script test when only `scripts/repair_audio_metadata.py` changes:
+Focused repair-script test when only `scripts/audio_repair/repair_audio_metadata.py` changes:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest scripts\tests\test_repair_audio_metadata.py --override-ini addopts=

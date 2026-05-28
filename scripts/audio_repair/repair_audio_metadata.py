@@ -19,7 +19,7 @@ from pathlib import Path
 READBACK_FAILURE = "Genre tag was not readable after WAV save:"
 ID3_CHUNK_IDS = {b"id3 ", b"ID3 "}
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_RUN_DIR = SCRIPT_DIR / "audio_repair"
+DEFAULT_RUN_DIR = SCRIPT_DIR
 DEFAULT_BACKUP_DIR = DEFAULT_RUN_DIR / "backups"
 DEFAULT_FILE_LOG = DEFAULT_RUN_DIR / "repair_audio_metadata.log"
 AUDIO_EXTENSIONS = {

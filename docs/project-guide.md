@@ -88,7 +88,7 @@ The explicit exception is the genre-save workflow:
 - Existing title, artist, album, BPM, key, and other normal tags must remain
   intact.
 
-The standalone `scripts/repair_audio_metadata.py` helper is another explicit
+The standalone `scripts/audio_repair/repair_audio_metadata.py` helper is another explicit
 exception. It is separate from the app, dry-run by default, and can rewrite
 repairable audio files only with `--apply`.
 
@@ -1051,7 +1051,7 @@ Run scripts with the project Python environment when possible:
 .\.venv\Scripts\python.exe scripts\<script-name>.py --help
 ```
 
-### `scripts\repair_audio_metadata.py`
+### `scripts\audio_repair\repair_audio_metadata.py`
 
 Standalone diagnostic and repair helper for audio metadata/container issues.
 Dry-run is read-only and does not copy or write audio files.
@@ -1059,7 +1059,7 @@ Dry-run is read-only and does not copy or write audio files.
 Usage:
 
 ```text
-python scripts\repair_audio_metadata.py [OPTIONS] [paths ...]
+python scripts\audio_repair\repair_audio_metadata.py [OPTIONS] [paths ...]
 ```
 
 Inputs:
@@ -1094,9 +1094,9 @@ Run control:
 Examples:
 
 ```powershell
-python scripts\repair_audio_metadata.py --folder .\music --workers 4
-python scripts\repair_audio_metadata.py --folder .\music --apply --reason OVERSIZED_DATA
-python scripts\repair_audio_metadata.py .\music\track.wav --summary-only
+python scripts\audio_repair\repair_audio_metadata.py --folder .\music --workers 4
+python scripts\audio_repair\repair_audio_metadata.py --folder .\music --apply --reason OVERSIZED_DATA
+python scripts\audio_repair\repair_audio_metadata.py .\music\track.wav --summary-only
 ```
 
 Status meanings:
@@ -1303,6 +1303,6 @@ Useful checks:
 ```powershell
 dj-sim --help
 dj-sim analyze --help
-python scripts\repair_audio_metadata.py --help
+python scripts\audio_repair\repair_audio_metadata.py --help
 python scripts\audio_dedup\audio_dedup.py --help
 ```

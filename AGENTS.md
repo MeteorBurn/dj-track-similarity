@@ -23,6 +23,8 @@ The project is a Python backend/CLI plus a React/Vite frontend:
   diagnostic/repair helper.
 - `scripts/audio_repair/`: runtime state/log/report/backup workspace; commit
   only `.gitkeep`.
+- `scripts/audio_dedup/`: report-only duplicate-audio candidate helper. It
+  reads the project SQLite database and writes ignored reports only.
 
 This workspace may not always be a Git repository. Do not assume commits,
 branches, or history are available.
@@ -48,6 +50,9 @@ branches, or history are available.
 - `scripts/repair_audio_metadata.py --apply` is separate and may rewrite only
   files it reports as `REPAIRABLE`; dry-run must not write/copy audio, apply is
   sequential, and full-file backups are created by default.
+- `scripts/audio_dedup/audio_dedup.py` is report-only. It opens SQLite
+  read-only, writes JSON/CSV/log reports under `scripts/audio_dedup/reports/`
+  by default, and must never delete files or mutate databases.
 - Keep SQLite writes routed through `LibraryDatabase`, with the shared
   path-scoped write lock, WAL, and busy timeout so scan/RefreshTags/Sonara/
   MAEST/MERT/CLAP/reset writes queue safely.
@@ -64,6 +69,8 @@ branches, or history are available.
   generated `scripts/audio_repair/` contents. Rhythm Lab generated state and
   training artifacts under `tools/rhythm-lab/data/` and
   `tools/rhythm-lab/artifacts/*/` must also stay out of git except `.gitkeep`.
+  Generated duplicate-audio reports under `scripts/audio_dedup/reports/` must
+  also stay out of git except `.gitkeep`.
 - Server startup requires `ffmpeg` on `PATH` or `DJ_TRACK_SIMILARITY_FFMPEG`;
   keep missing-ffmpeg errors clear and actionable.
 - The verified Windows CUDA ML stack is PyTorch `2.11.0`, Torchaudio
@@ -141,7 +148,7 @@ For the complete CLI, API, and maintenance script reference, see
 
 ```powershell
 python -m pip install -e ".[dev]"
-python -m pip install -e ".[sonara,ml,dev]"
+python -m pip install -e ".[sonara,ml,rhythm-lab,dev]"
 pytest
 dj-sim serve --host 127.0.0.1 --port 8765
 dj-sim serve --host 127.0.0.1 --port 8765 --log-track-events
@@ -172,7 +179,14 @@ dj-sim doctor
 Focused repair-script test when only `scripts/repair_audio_metadata.py` changes:
 
 ```powershell
-python -m pytest scripts\tests\test_repair_audio_metadata.py --override-ini addopts=
+.\.venv\Scripts\python.exe -m pytest scripts\tests\test_repair_audio_metadata.py --override-ini addopts=
+```
+
+Focused duplicate-report test when only `scripts/audio_dedup/audio_dedup.py`
+changes:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest scripts\tests\test_audio_dedup.py --override-ini addopts=
 ```
 
 ## Code Map
@@ -192,6 +206,8 @@ python -m pytest scripts\tests\test_repair_audio_metadata.py --override-ini addo
   promoted classifier scoring and cancellable classifier jobs.
 - `tools/rhythm-lab/rhythm_lab/`: separate classifier lab package for labels,
   predictions, feature matrices, training artifacts, and the standalone lab UI.
+- `scripts/audio_dedup/audio_dedup.py`: report-only duplicate-audio candidate
+  reporting from an existing library database.
 - `src/dj_track_similarity/search.py`, `sonara_similarity.py`: embedding and
   Sonara search.
 - `src/dj_track_similarity/tags.py`, `wave_tags.py`: MAEST-to-standard-genre
@@ -235,6 +251,8 @@ python -m pytest scripts\tests\test_repair_audio_metadata.py --override-ini addo
   `.\.venv\Scripts\python.exe -m pytest tools\rhythm-lab\tests\test_rhythm_lab.py --override-ini addopts=`
   and, for promoted classifier scoring boundaries, include
   `tests\test_break_energy.py`.
+- Audio dedup report changes: run
+  `.\.venv\Scripts\python.exe -m pytest scripts\tests\test_audio_dedup.py --override-ini addopts=`.
 - Relocation changes: verify dry-run does not modify paths, apply preserves IDs
   and analysis state, and conflicts/missing files block apply.
 - Sonara changes: prefer stubbed helpers or small temp WAV fixtures; never rely

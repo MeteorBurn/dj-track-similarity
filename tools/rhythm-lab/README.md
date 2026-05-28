@@ -67,6 +67,7 @@ classifier_profile_labels
 classifier_labels
 classifier_predictions
 classifier_training_checkpoints
+classifier_track_likes
 ```
 
 Rows for different profiles are isolated by `classifier_key`, so labels,
@@ -131,6 +132,16 @@ This is read-only for the source audio file and lets the browser load a
 seekable codec with duration and scrubbing support.
 
 ## Training
+
+Training and prediction use scikit-learn. Install the optional Rhythm Lab
+dependency group in the project environment before running training commands:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[rhythm-lab]"
+```
+
+For a single environment that also runs the main app analysis passes, install
+`.[sonara,ml,rhythm-lab,dev]`.
 
 After labeling enough examples:
 

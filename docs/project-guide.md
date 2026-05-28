@@ -76,7 +76,8 @@ files.
   are not rewritten.
 - Export writes playlist/export files only.
 - Analysis reset deletes only selected local SQLite analysis outputs.
-- Database clear deletes local SQLite records only.
+- Database clear deletes local SQLite track rows, embedding rows, and dependent
+  classifier-score rows only.
 - Library relocation updates only stored `tracks.path` values in SQLite.
 
 The explicit exception is the genre-save workflow:
@@ -496,12 +497,15 @@ Core runtime dependencies are declared in `pyproject.toml`:
 - `typer`
 - `fastapi`
 - `uvicorn`
+- `joblib`
 
 Optional groups:
 
 - `sonara`: installs Sonara support.
 - `ml`: installs the synchronized PyTorch/Torchaudio/Torchvision/TorchCodec
   stack, Transformers, Hugging Face Hub, LAION-CLAP, and MAEST support.
+- `rhythm-lab`: installs scikit-learn for local classifier training and
+  benchmarking in Rhythm Lab.
 - `dev`: installs pytest and Ruff.
 
 `ffmpeg` is required for robust server startup and audio decoding. It can be
@@ -528,6 +532,9 @@ python -m pip install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 --ind
 python -m pip install torchcodec==0.13.0 --index-url https://download.pytorch.org/whl/cu130
 python -m pip install -e ".[sonara,ml,dev]"
 ```
+
+Use `.[sonara,ml,rhythm-lab,dev]` instead when the same environment will also
+train Rhythm Lab classifier profiles.
 
 On Windows, TorchCodec-backed Torchaudio decoding needs an FFmpeg shared build
 with DLLs available on `PATH`, not only a static `ffmpeg.exe`. The portable tools
@@ -968,7 +975,7 @@ The frontend uses these endpoints through `frontend/src/api.ts`.
 | `GET` | `/api/database/current` | Return selected database state. |
 | `POST` | `/api/database/switch` | Switch to a database path. |
 | `POST` | `/api/database/dialog` | Open a local database chooser dialog. |
-| `POST` | `/api/database/clear` | Clear local SQLite tracks and embeddings. |
+| `POST` | `/api/database/clear` | Clear local SQLite tracks, embeddings, and dependent classifier scores. |
 
 ### Library
 
@@ -1101,6 +1108,43 @@ Status meanings:
 - `REPAIRABLE`: safe repair logic exists.
 - `REPAIRED`: apply mode succeeded.
 
+### `scripts\audio_dedup\audio_dedup.py`
+
+Report-only duplicate-audio candidate helper. It reads an existing
+`dj-track-similarity` SQLite database, compares tracks inside a selected stored
+path root, and writes JSON, CSV, and text-log reports. It never deletes audio
+files and never mutates the database.
+
+Usage:
+
+```text
+python scripts\audio_dedup\audio_dedup.py --root ROOT [OPTIONS]
+```
+
+Options:
+
+- `--db DB`: project SQLite database. Default is `C:\db\abstracted.sqlite`.
+- `--root ROOT`: required stored path root used to limit candidate tracks.
+- `--path-contains TEXT`: additional case-insensitive path filter. Can be
+  repeated.
+- `--preset safe|balanced|aggressive`: scoring preset. Default is `safe`.
+- `--min-score SCORE`: override the preset duplicate threshold.
+- `--limit-groups N`: write at most N duplicate groups.
+- `--out-dir DIR`: output report directory. Default is
+  `scripts\audio_dedup\reports`.
+
+Examples:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\audio_dedup\audio_dedup.py --db .\data\library.sqlite --root D:\Music
+.\.venv\Scripts\python.exe scripts\audio_dedup\audio_dedup.py --db .\data\library.sqlite --root D:\Music --preset balanced --path-contains mastered
+```
+
+Outputs are named `audio_dedup_report_<timestamp>.json`, `.csv`, and `.log`.
+The default report directory is ignored by git. Review every candidate manually;
+the report includes suggested keepers and candidate-delete evidence, but the
+script intentionally performs no delete action.
+
 ### `scripts\migrate_sonara_brightness.py`
 
 Dry-run-first helper for legacy databases that still have
@@ -1212,10 +1256,10 @@ Install ML dependencies:
 python -m pip install -e ".[ml,dev]"
 ```
 
-Install the full local lab dependency set:
+Install the full local lab dependency set, including Rhythm Lab training:
 
 ```powershell
-python -m pip install -e ".[sonara,ml,dev]"
+python -m pip install -e ".[sonara,ml,rhythm-lab,dev]"
 ```
 
 Run backend tests:
@@ -1257,4 +1301,5 @@ Useful checks:
 dj-sim --help
 dj-sim analyze --help
 python scripts\repair_audio_metadata.py --help
+python scripts\audio_dedup\audio_dedup.py --help
 ```

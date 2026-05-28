@@ -79,6 +79,13 @@ Install optional Sonara and ML dependencies when you need analysis features:
 python -m pip install -e ".[sonara,ml,dev]"
 ```
 
+Add the `rhythm-lab` optional group when you want to train local classifier
+profiles:
+
+```powershell
+python -m pip install -e ".[sonara,ml,rhythm-lab,dev]"
+```
+
 For CUDA analysis on Windows, use the synchronized PyTorch stack that has been
 tested with this project:
 
@@ -168,10 +175,10 @@ Install for development:
 python -m pip install -e ".[dev]"
 ```
 
-Install everything used by the full local lab:
+Install everything used by the full local lab, including Rhythm Lab training:
 
 ```powershell
-python -m pip install -e ".[sonara,ml,dev]"
+python -m pip install -e ".[sonara,ml,rhythm-lab,dev]"
 ```
 
 The current ML dependency set is pinned to PyTorch `2.11.0`, Torchaudio

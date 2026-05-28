@@ -1,16 +1,25 @@
 from __future__ import annotations
 
 import argparse
-import csv
 from dataclasses import dataclass
 from datetime import datetime
 import json
+import math
 from pathlib import Path
 import sqlite3
 import sys
 from typing import Iterable
+from xml.sax.saxutils import escape
+import zipfile
 
 import numpy as np
+
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except ImportError:  # pragma: no cover - exercised only in incomplete environments.
+    Image = None
+    ImageDraw = None
+    ImageFont = None
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -99,8 +108,9 @@ class DuplicateGroup:
 @dataclass(frozen=True)
 class ReportResult:
     json_path: Path
-    csv_path: Path
+    xlsx_path: Path
     log_path: Path
+    image_paths: tuple[Path, ...]
     groups: int
 
 
@@ -122,8 +132,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     print(f"Report-only run complete. groups={result.groups}")
     print(f"json={result.json_path}")
-    print(f"csv={result.csv_path}")
+    print(f"xlsx={result.xlsx_path}")
     print(f"log={result.log_path}")
+    for image_path in result.image_paths:
+        print(f"image={image_path}")
     return 0
 
 
@@ -166,12 +178,13 @@ def run_report(
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     json_path = _unique_report_path(out_dir / f"audio_dedup_report_{stamp}.json")
-    csv_path = json_path.with_suffix(".csv")
+    xlsx_path = json_path.with_suffix(".xlsx")
     log_path = json_path.with_suffix(".log")
     json_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    write_csv_report(csv_path, payload)
+    write_xlsx_report(xlsx_path, payload)
+    image_paths = write_infographics(out_dir, json_path.stem, payload)
     write_text_log(log_path, payload)
-    return ReportResult(json_path=json_path, csv_path=csv_path, log_path=log_path, groups=len(groups))
+    return ReportResult(json_path=json_path, xlsx_path=xlsx_path, log_path=log_path, image_paths=image_paths, groups=len(groups))
 
 
 def resolve_preset(name: str, *, min_score: float | None) -> PresetConfig:
@@ -224,7 +237,8 @@ def load_tracks(db_path: Path, *, root: Path, path_contains: list[str]) -> list[
         raise FileNotFoundError(f"Database does not exist: {selected}")
     root_text = normalize_path_text(root)
     contains = [item.casefold() for item in path_contains if item.strip()]
-    with _connect_readonly(selected) as connection:
+    connection = _connect_readonly(selected)
+    try:
         rows = connection.execute(
             """
             SELECT id, path, size, mtime, artist, title, album, bpm, musical_key, duration, metadata_json
@@ -234,6 +248,8 @@ def load_tracks(db_path: Path, *, root: Path, path_contains: list[str]) -> list[
         ).fetchall()
         tracks = [_track_from_row(row) for row in rows if _path_matches(row["path"], root_text, contains)]
         _attach_embeddings(connection, tracks)
+    finally:
+        connection.close()
     return tracks
 
 
@@ -408,13 +424,18 @@ def build_report(
                 continue
             direct = direct_pairs_from_keeper[track.track_id]
             safe, reasons = _candidate_safety(direct, config, ambiguous=ambiguous)
+            decision = "delete_candidate" if safe else "review"
             candidates.append(
                 {
+                    "role": "DUPLICATE",
+                    "decision": decision,
+                    "action": "DELETE CANDIDATE" if safe else "REVIEW MANUALLY",
                     "track_id": track.track_id,
                     "path": track.path,
                     "score_vs_keeper": _round_float(direct.score if direct else None),
                     "safe_to_delete": "true_candidate" if safe else "false",
                     "blocked_reasons": reasons,
+                    "why_delete_or_review": _candidate_reason_lines(track, keeper, direct, config, safe=safe, reasons=reasons),
                     "format_rank": format_rank(track.path),
                     "size_per_second": _round_float(size_per_second(track)),
                     "metadata_completeness": metadata_completeness(track),
@@ -429,12 +450,13 @@ def build_report(
                 "preset": config.name,
                 "min_score": config.min_score,
                 "blocked_reasons": blocked_reasons,
-                "suggested_keeper": track_payload(keeper, include_keeper_reasons=True),
+                "suggested_keeper": track_payload(keeper, include_keeper_reasons=True, role="KEEP", decision="keep", group_tracks=group_tracks),
                 "candidate_deletes": sorted(candidates, key=lambda item: int(item["track_id"])),
-                "tracks": [track_payload(track, include_keeper_reasons=False) for track in group_tracks],
+                "tracks": [track_payload(track, include_keeper_reasons=False, role=("KEEP" if track.track_id == keeper.track_id else "DUPLICATE")) for track in group_tracks],
                 "pairwise_evidence": [pair_payload(pair) for pair in group.pair_evidence],
             }
         )
+    stats = report_statistics(report_groups, tracks)
     return {
         "mode": "report-only",
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -444,6 +466,7 @@ def build_report(
         "min_score": config.min_score,
         "track_count": len(tracks),
         "group_count": len(report_groups),
+        "statistics": stats,
         "groups": report_groups,
     }
 
@@ -463,60 +486,447 @@ def choose_keeper(tracks: list[TrackRecord]) -> TrackRecord:
     )
 
 
-def write_csv_report(path: Path, payload: dict[str, object]) -> None:
-    fields = [
-        "group_id",
-        "confidence",
-        "group_score",
-        "keeper_track_id",
-        "keeper_path",
-        "delete_track_id",
-        "delete_path",
-        "safe_to_delete",
-        "score_vs_keeper",
-        "mert_similarity",
-        "maest_similarity",
-        "sonara_similarity",
-        "clap_similarity",
-        "duration_diff_seconds",
-        "duration_diff_ratio",
-        "bpm_diff",
-        "key_match",
-        "blocked_reasons",
+def write_xlsx_report(path: Path, payload: dict[str, object]) -> None:
+    sheets = [
+        ("Summary", _summary_sheet_rows(payload)),
+        ("Groups", _groups_sheet_rows(payload)),
+        ("Candidates", _candidates_sheet_rows(payload)),
+        ("Pair Evidence", _pair_evidence_sheet_rows(payload)),
     ]
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
-        writer.writeheader()
-        for group in payload["groups"]:  # type: ignore[index]
-            assert isinstance(group, dict)
-            keeper = group["suggested_keeper"]
-            assert isinstance(keeper, dict)
-            evidence_by_candidate = _evidence_by_candidate(group, int(keeper["track_id"]))
-            for candidate in group["candidate_deletes"]:  # type: ignore[index]
-                assert isinstance(candidate, dict)
-                evidence = evidence_by_candidate.get(int(candidate["track_id"]), {})
-                writer.writerow(
-                    {
-                        "group_id": group["group_id"],
-                        "confidence": group["confidence"],
-                        "group_score": _format_float(group["score"]),
-                        "keeper_track_id": keeper["track_id"],
-                        "keeper_path": keeper["path"],
-                        "delete_track_id": candidate["track_id"],
-                        "delete_path": candidate["path"],
-                        "safe_to_delete": candidate["safe_to_delete"],
-                        "score_vs_keeper": _format_float(candidate["score_vs_keeper"]),
-                        "mert_similarity": _format_float(evidence.get("mert_similarity")),
-                        "maest_similarity": _format_float(evidence.get("maest_similarity")),
-                        "sonara_similarity": _format_float(evidence.get("sonara_similarity")),
-                        "clap_similarity": _format_float(evidence.get("clap_similarity")),
-                        "duration_diff_seconds": _format_float(evidence.get("duration_diff_seconds")),
-                        "duration_diff_ratio": _format_float(evidence.get("duration_diff_ratio")),
-                        "bpm_diff": _format_float(evidence.get("bpm_diff")),
-                        "key_match": evidence.get("key_match", ""),
-                        "blocked_reasons": "; ".join(candidate.get("blocked_reasons", [])),
-                    }
-                )
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", _xlsx_content_types(len(sheets)))
+        archive.writestr("_rels/.rels", _xlsx_root_rels())
+        archive.writestr("docProps/app.xml", _xlsx_app_props())
+        archive.writestr("docProps/core.xml", _xlsx_core_props(str(payload["generated_at"])))
+        archive.writestr("xl/workbook.xml", _xlsx_workbook_xml([name for name, _ in sheets]))
+        archive.writestr("xl/_rels/workbook.xml.rels", _xlsx_workbook_rels(len(sheets)))
+        archive.writestr("xl/styles.xml", _xlsx_styles_xml())
+        for index, (name, rows) in enumerate(sheets, start=1):
+            archive.writestr(f"xl/worksheets/sheet{index}.xml", _xlsx_sheet_xml(name, rows))
+
+
+def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
+    stats = payload.get("statistics", {})
+    assert isinstance(stats, dict)
+    confidence = stats.get("confidence_counts", {})
+    embeddings = stats.get("embedding_coverage", {})
+    rows: list[list[object]] = [
+        ["Report-only duplicate audio summary"],
+        ["Generated at", payload["generated_at"]],
+        ["Root", payload["root"]],
+        ["Preset", payload["preset"]],
+        ["Min score", payload["min_score"]],
+        ["Tracks scanned", payload["track_count"]],
+        ["Duplicate groups", payload["group_count"]],
+        ["Duplicate candidates", stats.get("candidate_count", 0)],
+        ["Safe delete candidates", stats.get("safe_candidate_count", 0)],
+        ["Manual review candidates", stats.get("review_candidate_count", 0)],
+        [],
+        ["Confidence", "Groups"],
+    ]
+    if isinstance(confidence, dict):
+        for label in ("high", "medium", "review"):
+            rows.append([label, confidence.get(label, 0)])
+    rows.extend([[], ["Embedding", "Tracks with embedding"]])
+    if isinstance(embeddings, dict):
+        for label in SUPPORTED_EMBEDDINGS:
+            rows.append([label, embeddings.get(label, 0)])
+    return rows
+
+
+def _groups_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
+    rows: list[list[object]] = [
+        [
+            "group_id",
+            "confidence",
+            "score",
+            "keeper_track_id",
+            "keeper_path",
+            "candidate_count",
+            "safe_candidates",
+            "review_candidates",
+            "why_keep",
+            "blocked_reasons",
+        ]
+    ]
+    for group in payload["groups"]:  # type: ignore[index]
+        assert isinstance(group, dict)
+        keeper = group["suggested_keeper"]
+        assert isinstance(keeper, dict)
+        candidates = [candidate for candidate in group["candidate_deletes"] if isinstance(candidate, dict)]  # type: ignore[index]
+        rows.append(
+            [
+                group["group_id"],
+                group["confidence"],
+                group["score"],
+                keeper["track_id"],
+                keeper["path"],
+                len(candidates),
+                sum(1 for candidate in candidates if candidate.get("decision") == "delete_candidate"),
+                sum(1 for candidate in candidates if candidate.get("decision") != "delete_candidate"),
+                "; ".join(str(item) for item in keeper.get("why_keep", [])),
+                "; ".join(str(item) for item in group.get("blocked_reasons", [])),
+            ]
+        )
+    return rows
+
+
+def _candidates_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
+    rows: list[list[object]] = [
+        [
+            "group_id",
+            "action",
+            "delete_track_id",
+            "delete_path",
+            "keeper_track_id",
+            "keeper_path",
+            "score_vs_keeper",
+            "safe_to_delete",
+            "mert_similarity",
+            "maest_similarity",
+            "sonara_similarity",
+            "clap_similarity",
+            "duration_diff_seconds",
+            "duration_diff_ratio",
+            "bpm_diff",
+            "key_match",
+            "blocked_reasons",
+            "why_delete_or_review",
+        ]
+    ]
+    for group in payload["groups"]:  # type: ignore[index]
+        assert isinstance(group, dict)
+        keeper = group["suggested_keeper"]
+        assert isinstance(keeper, dict)
+        evidence_by_candidate = _evidence_by_candidate(group, int(keeper["track_id"]))
+        for candidate in group["candidate_deletes"]:  # type: ignore[index]
+            assert isinstance(candidate, dict)
+            evidence = evidence_by_candidate.get(int(candidate["track_id"]), {})
+            rows.append(
+                [
+                    group["group_id"],
+                    candidate["action"],
+                    candidate["track_id"],
+                    candidate["path"],
+                    keeper["track_id"],
+                    keeper["path"],
+                    candidate["score_vs_keeper"],
+                    candidate["safe_to_delete"],
+                    evidence.get("mert_similarity"),
+                    evidence.get("maest_similarity"),
+                    evidence.get("sonara_similarity"),
+                    evidence.get("clap_similarity"),
+                    evidence.get("duration_diff_seconds"),
+                    evidence.get("duration_diff_ratio"),
+                    evidence.get("bpm_diff"),
+                    evidence.get("key_match"),
+                    "; ".join(str(item) for item in candidate.get("blocked_reasons", [])),
+                    "; ".join(str(item) for item in candidate.get("why_delete_or_review", [])),
+                ]
+            )
+    return rows
+
+
+def _pair_evidence_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
+    rows: list[list[object]] = [
+        [
+            "group_id",
+            "left_track_id",
+            "right_track_id",
+            "score",
+            "mert_similarity",
+            "maest_similarity",
+            "sonara_similarity",
+            "clap_similarity",
+            "duration_diff_seconds",
+            "duration_diff_ratio",
+            "bpm_diff",
+            "key_match",
+            "blocked_reasons",
+        ]
+    ]
+    for group in payload["groups"]:  # type: ignore[index]
+        assert isinstance(group, dict)
+        for evidence in group["pairwise_evidence"]:  # type: ignore[index]
+            assert isinstance(evidence, dict)
+            rows.append(
+                [
+                    group["group_id"],
+                    evidence["left_track_id"],
+                    evidence["right_track_id"],
+                    evidence["score"],
+                    evidence["mert_similarity"],
+                    evidence["maest_similarity"],
+                    evidence["sonara_similarity"],
+                    evidence["clap_similarity"],
+                    evidence["duration_diff_seconds"],
+                    evidence["duration_diff_ratio"],
+                    evidence["bpm_diff"],
+                    evidence["key_match"],
+                    "; ".join(str(item) for item in evidence.get("blocked_reasons", [])),
+                ]
+            )
+    return rows
+
+
+def write_infographics(out_dir: Path, report_stem: str, payload: dict[str, object]) -> tuple[Path, ...]:
+    if Image is None or ImageDraw is None or ImageFont is None:
+        raise ValueError("Pillow is required to create audio dedup infographic PNG files")
+    stats = payload.get("statistics", {})
+    assert isinstance(stats, dict)
+    confidence = stats.get("confidence_counts", {})
+    embeddings = stats.get("embedding_coverage", {})
+    candidate_path = out_dir / f"{report_stem}_candidate_status.png"
+    confidence_path = out_dir / f"{report_stem}_confidence.png"
+    coverage_path = out_dir / f"{report_stem}_embedding_coverage.png"
+    _write_bar_chart_png(
+        candidate_path,
+        "Duplicate candidate status",
+        [
+            ("safe delete", int(stats.get("safe_candidate_count", 0))),
+            ("manual review", int(stats.get("review_candidate_count", 0))),
+        ],
+        ["#2E7D32", "#C62828"],
+    )
+    if isinstance(confidence, dict):
+        _write_bar_chart_png(
+            confidence_path,
+            "Duplicate groups by confidence",
+            [(label, int(confidence.get(label, 0))) for label in ("high", "medium", "review")],
+            ["#1565C0", "#6A1B9A", "#EF6C00"],
+        )
+    if isinstance(embeddings, dict):
+        _write_bar_chart_png(
+            coverage_path,
+            "Embedding coverage in scanned tracks",
+            [(label, int(embeddings.get(label, 0))) for label in SUPPORTED_EMBEDDINGS],
+            ["#00838F", "#455A64", "#AD1457"],
+        )
+    return (candidate_path, confidence_path, coverage_path)
+
+
+def _write_bar_chart_png(path: Path, title: str, data: list[tuple[str, int]], colors: list[str]) -> None:
+    width = 980
+    height = 560
+    margin_left = 170
+    margin_right = 70
+    margin_top = 92
+    margin_bottom = 90
+    image = Image.new("RGB", (width, height), "#FFFFFF")
+    draw = ImageDraw.Draw(image)
+    title_font = ImageFont.truetype("arial.ttf", 28) if Path(r"C:\Windows\Fonts\arial.ttf").exists() else ImageFont.load_default()
+    label_font = ImageFont.truetype("arial.ttf", 18) if Path(r"C:\Windows\Fonts\arial.ttf").exists() else ImageFont.load_default()
+    small_font = ImageFont.truetype("arial.ttf", 16) if Path(r"C:\Windows\Fonts\arial.ttf").exists() else ImageFont.load_default()
+    draw.rectangle((0, 0, width, height), fill="#FFFFFF")
+    draw.text((32, 28), title, fill="#111827", font=title_font)
+    max_value = max([value for _, value in data] + [1])
+    plot_width = width - margin_left - margin_right
+    plot_height = height - margin_top - margin_bottom
+    bar_gap = 30
+    bar_height = max(34, int((plot_height - bar_gap * max(0, len(data) - 1)) / max(1, len(data))))
+    axis_x = margin_left
+    draw.line((axis_x, margin_top, axis_x, margin_top + plot_height), fill="#374151", width=2)
+    draw.line((axis_x, margin_top + plot_height, width - margin_right, margin_top + plot_height), fill="#374151", width=2)
+    for index, (label, value) in enumerate(data):
+        y = margin_top + index * (bar_height + bar_gap) + 12
+        bar_width = int(plot_width * (value / max_value)) if max_value else 0
+        color = colors[index % len(colors)]
+        draw.text((32, y + 6), label, fill="#111827", font=label_font)
+        draw.rectangle((axis_x, y, axis_x + max(1, bar_width), y + bar_height), fill=color)
+        draw.text((axis_x + max(8, bar_width) + 12, y + 7), str(value), fill="#111827", font=label_font)
+    tick_count = 4
+    for tick in range(tick_count + 1):
+        value = math.ceil(max_value * tick / tick_count)
+        x = axis_x + int(plot_width * tick / tick_count)
+        draw.line((x, margin_top + plot_height, x, margin_top + plot_height + 7), fill="#374151", width=1)
+        draw.text((x - 12, margin_top + plot_height + 16), str(value), fill="#4B5563", font=small_font)
+    draw.text((32, height - 38), "Report-only: review candidates manually before deleting files.", fill="#4B5563", font=small_font)
+    image.save(path, format="PNG")
+
+
+def _xlsx_content_types(sheet_count: int) -> str:
+    sheet_overrides = "\n".join(
+        f'<Override PartName="/xl/worksheets/sheet{index}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        for index in range(1, sheet_count + 1)
+    )
+    return f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+{sheet_overrides}
+<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
+</Types>'''
+
+
+def _xlsx_root_rels() -> str:
+    return '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+</Relationships>'''
+
+
+def _xlsx_app_props() -> str:
+    return '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+<Application>dj-track-similarity</Application>
+</Properties>'''
+
+
+def _xlsx_core_props(generated_at: str) -> str:
+    timestamp = generated_at if generated_at.endswith("Z") else f"{generated_at}Z"
+    return f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<dc:title>Audio dedup report</dc:title>
+<dc:creator>dj-track-similarity</dc:creator>
+<dcterms:created xsi:type="dcterms:W3CDTF">{escape(timestamp)}</dcterms:created>
+</cp:coreProperties>'''
+
+
+def _xlsx_workbook_xml(sheet_names: list[str]) -> str:
+    sheets = "\n".join(
+        f'<sheet name="{escape(name)}" sheetId="{index}" r:id="rId{index}"/>'
+        for index, name in enumerate(sheet_names, start=1)
+    )
+    return f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheets>
+{sheets}
+</sheets>
+</workbook>'''
+
+
+def _xlsx_workbook_rels(sheet_count: int) -> str:
+    rels = [
+        f'<Relationship Id="rId{index}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{index}.xml"/>'
+        for index in range(1, sheet_count + 1)
+    ]
+    rels.append(
+        f'<Relationship Id="rId{sheet_count + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+    )
+    return f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+{"".join(rels)}
+</Relationships>'''
+
+
+def _xlsx_styles_xml() -> str:
+    return '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<fonts count="5">
+<font><sz val="11"/><color rgb="FF111827"/><name val="Calibri"/></font>
+<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>
+<font><b/><sz val="16"/><color rgb="FF111827"/><name val="Calibri"/></font>
+<font><b/><sz val="11"/><color rgb="FF1B5E20"/><name val="Calibri"/></font>
+<font><b/><sz val="11"/><color rgb="FFB71C1C"/><name val="Calibri"/></font>
+</fonts>
+<fills count="6">
+<fill><patternFill patternType="none"/></fill>
+<fill><patternFill patternType="gray125"/></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FF263238"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFE8F5E9"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFFFEBEE"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFE3F2FD"/><bgColor indexed="64"/></patternFill></fill>
+</fills>
+<borders count="2">
+<border><left/><right/><top/><bottom/><diagonal/></border>
+<border><left style="thin"><color rgb="FFD1D5DB"/></left><right style="thin"><color rgb="FFD1D5DB"/></right><top style="thin"><color rgb="FFD1D5DB"/></top><bottom style="thin"><color rgb="FFD1D5DB"/></bottom><diagonal/></border>
+</borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="6">
+<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/>
+<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="2" fillId="5" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>
+<xf numFmtId="0" fontId="3" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>
+<xf numFmtId="0" fontId="4" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>
+<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf>
+</cellXfs>
+<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>'''
+
+
+def _xlsx_sheet_xml(name: str, rows: list[list[object]]) -> str:
+    max_cols = max((len(row) for row in rows), default=1)
+    col_widths = _xlsx_column_widths(rows, max_cols)
+    cols_xml = "".join(
+        f'<col min="{index}" max="{index}" width="{width}" customWidth="1"/>'
+        for index, width in enumerate(col_widths, start=1)
+    )
+    sheet_views = ""
+    if len(rows) > 1:
+        sheet_views = '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+    rows_xml = "\n".join(_xlsx_row_xml(row, row_index, name) for row_index, row in enumerate(rows, start=1))
+    dimension = f"A1:{_xlsx_col_name(max_cols)}{max(1, len(rows))}"
+    auto_filter = f'<autoFilter ref="A1:{_xlsx_col_name(max_cols)}1"/>' if len(rows) > 1 else ""
+    return f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<dimension ref="{dimension}"/>
+{sheet_views}
+<cols>{cols_xml}</cols>
+<sheetData>
+{rows_xml}
+</sheetData>
+{auto_filter}
+</worksheet>'''
+
+
+def _xlsx_row_xml(row: list[object], row_index: int, sheet_name: str) -> str:
+    height = ' ht="26" customHeight="1"' if row_index == 1 else ""
+    cells = "".join(_xlsx_cell_xml(value, row_index, col_index, _xlsx_style_id(value, row_index, sheet_name)) for col_index, value in enumerate(row, start=1))
+    return f'<row r="{row_index}"{height}>{cells}</row>'
+
+
+def _xlsx_cell_xml(value: object, row_index: int, col_index: int, style_id: int) -> str:
+    ref = f"{_xlsx_col_name(col_index)}{row_index}"
+    style = f' s="{style_id}"'
+    if value is None:
+        return f'<c r="{ref}"{style}/>'
+    if isinstance(value, bool):
+        return f'<c r="{ref}" t="b"{style}><v>{1 if value else 0}</v></c>'
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+            return f'<c r="{ref}"{style}/>'
+        return f'<c r="{ref}"{style}><v>{value}</v></c>'
+    text = escape(str(value))
+    return f'<c r="{ref}" t="inlineStr"{style}><is><t>{text}</t></is></c>'
+
+
+def _xlsx_style_id(value: object, row_index: int, sheet_name: str) -> int:
+    if row_index == 1 and sheet_name == "Summary":
+        return 2
+    if row_index == 1:
+        return 1
+    if value == "DELETE CANDIDATE":
+        return 3
+    if value == "REVIEW MANUALLY":
+        return 4
+    return 5
+
+
+def _xlsx_column_widths(rows: list[list[object]], max_cols: int) -> list[int]:
+    widths: list[int] = []
+    for col_index in range(max_cols):
+        max_len = 10
+        for row in rows:
+            if col_index >= len(row):
+                continue
+            value = row[col_index]
+            text = "" if value is None else str(value)
+            max_len = max(max_len, min(80, len(text)))
+        widths.append(max(12, min(72, max_len + 3)))
+    return widths
+
+
+def _xlsx_col_name(index: int) -> str:
+    name = ""
+    while index:
+        index, remainder = divmod(index - 1, 26)
+        name = chr(65 + remainder) + name
+    return name
 
 
 def write_text_log(path: Path, payload: dict[str, object]) -> None:
@@ -576,8 +986,17 @@ def confidence_category(score: float, config: PresetConfig) -> str:
     return "review"
 
 
-def track_payload(track: TrackRecord, *, include_keeper_reasons: bool) -> dict[str, object]:
+def track_payload(
+    track: TrackRecord,
+    *,
+    include_keeper_reasons: bool,
+    role: str | None = None,
+    decision: str | None = None,
+    group_tracks: list[TrackRecord] | None = None,
+) -> dict[str, object]:
     payload: dict[str, object] = {
+        "role": role,
+        "decision": decision,
         "track_id": track.track_id,
         "path": track.path,
         "artist": track.artist,
@@ -600,6 +1019,7 @@ def track_payload(track: TrackRecord, *, include_keeper_reasons: bool) -> dict[s
             "metadata_completeness": metadata_completeness(track),
             "mtime": track.mtime,
         }
+        payload["why_keep"] = _keeper_reason_lines(track, group_tracks or [track])
     return payload
 
 
@@ -618,6 +1038,70 @@ def pair_payload(pair: PairEvidence) -> dict[str, object]:
         "key_match": pair.key_match,
         "blocked_reasons": list(pair.blocked_reasons),
     }
+
+
+def report_statistics(report_groups: list[dict[str, object]], tracks: list[TrackRecord]) -> dict[str, object]:
+    confidence_counts = {"high": 0, "medium": 0, "review": 0}
+    safe_candidates = 0
+    review_candidates = 0
+    candidate_count = 0
+    duplicate_track_ids: set[int] = set()
+    for group in report_groups:
+        confidence = str(group.get("confidence", "review"))
+        if confidence in confidence_counts:
+            confidence_counts[confidence] += 1
+        for candidate in group.get("candidate_deletes", []):  # type: ignore[union-attr]
+            if not isinstance(candidate, dict):
+                continue
+            candidate_count += 1
+            duplicate_track_ids.add(int(candidate["track_id"]))
+            if candidate.get("decision") == "delete_candidate":
+                safe_candidates += 1
+            else:
+                review_candidates += 1
+    embedding_coverage = {
+        key: sum(1 for track in tracks if key in track.embeddings)
+        for key in SUPPORTED_EMBEDDINGS
+    }
+    return {
+        "candidate_count": candidate_count,
+        "duplicate_track_count": len(duplicate_track_ids),
+        "safe_candidate_count": safe_candidates,
+        "review_candidate_count": review_candidates,
+        "confidence_counts": confidence_counts,
+        "embedding_coverage": embedding_coverage,
+    }
+
+
+def _keeper_reason_lines(keeper: TrackRecord, tracks: list[TrackRecord]) -> list[str]:
+    reasons = ["Highest keeper ranking inside this duplicate group."]
+    if all(format_rank(keeper.path) >= format_rank(track.path) for track in tracks):
+        reasons.append(f"Best or tied-best audio format rank in group: {format_rank(keeper.path)}.")
+    if all(size_per_second(keeper) >= size_per_second(track) for track in tracks):
+        reasons.append(f"Best or tied-best size-per-second quality proxy: {_format_float(size_per_second(keeper))}.")
+    if all(metadata_completeness(keeper) >= metadata_completeness(track) for track in tracks):
+        reasons.append(f"Best or tied-best metadata completeness: {metadata_completeness(keeper)} fields.")
+    return reasons
+
+
+def _candidate_reason_lines(
+    candidate: TrackRecord,
+    keeper: TrackRecord,
+    pair: PairEvidence | None,
+    config: PresetConfig,
+    *,
+    safe: bool,
+    reasons: list[str],
+) -> list[str]:
+    if not safe:
+        return [f"Manual review required: {reason}." for reason in reasons] or ["Manual review required before deleting this file."]
+    lines = [
+        f"Direct score vs keeper meets threshold: {_format_float(pair.score if pair else None)} >= {_format_float(config.direct_keeper_score)}.",
+        f"Keeper track_id={keeper.track_id} outranks candidate track_id={candidate.track_id} by format, bitrate proxy, metadata, mtime, or id tie-break.",
+    ]
+    if pair and pair.duration_diff_seconds is not None:
+        lines.append(f"Duration difference is {_format_float(pair.duration_diff_seconds)} seconds.")
+    return lines
 
 
 def _connect_readonly(path: Path) -> sqlite3.Connection:

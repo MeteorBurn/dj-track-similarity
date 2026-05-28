@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import csv
 import importlib.util
 import json
 import sqlite3
 import sys
 from pathlib import Path
+import zipfile
 
 import numpy as np
 
@@ -157,8 +157,12 @@ def test_report_only_main_does_not_delete_files_or_mutate_database(tmp_path: Pat
     assert exit_code == 0
     assert first_path.exists()
     assert second_path.exists()
-    with sqlite3.connect(db_path) as connection:
+    connection = sqlite3.connect(db_path)
+    try:
         assert connection.execute("SELECT COUNT(*) FROM tracks").fetchone()[0] == 2
+    finally:
+        connection.close()
+    db_path.rename(tmp_path / "library-renamed.sqlite")
     report_paths = sorted(out_dir.glob("audio_dedup_report_*.json"))
     assert len(report_paths) == 1
     payload = json.loads(report_paths[0].read_text(encoding="utf-8"))
@@ -249,7 +253,7 @@ def test_ambiguous_chain_group_is_report_only(tmp_path: Path) -> None:
     assert "ambiguous chain" in " ".join(group["blocked_reasons"])
 
 
-def test_json_and_csv_reports_include_candidate_evidence(tmp_path: Path) -> None:
+def test_json_xlsx_and_image_reports_include_candidate_evidence(tmp_path: Path) -> None:
     dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
     out_dir = tmp_path / "reports"
@@ -268,8 +272,21 @@ def test_json_and_csv_reports_include_candidate_evidence(tmp_path: Path) -> None
     json_payload = json.loads(result.json_path.read_text(encoding="utf-8"))
     assert "mert_similarity" in json_payload["groups"][0]["pairwise_evidence"][0]
     assert "keeper_reasons" in json_payload["groups"][0]["suggested_keeper"]
-    with result.csv_path.open("r", encoding="utf-8", newline="") as handle:
-        rows = list(csv.DictReader(handle))
-    assert rows[0]["group_id"] == "1"
-    assert rows[0]["delete_track_id"] == "2"
-    assert rows[0]["mert_similarity"] == "1.000000"
+    assert json_payload["groups"][0]["suggested_keeper"]["role"] == "KEEP"
+    assert json_payload["groups"][0]["candidate_deletes"][0]["role"] == "DUPLICATE"
+    assert json_payload["groups"][0]["candidate_deletes"][0]["decision"] == "delete_candidate"
+    assert json_payload["groups"][0]["candidate_deletes"][0]["why_delete_or_review"]
+    assert result.xlsx_path.exists()
+    assert not result.xlsx_path.with_suffix(".csv").exists()
+    with zipfile.ZipFile(result.xlsx_path) as archive:
+        workbook_xml = archive.read("xl/workbook.xml").decode("utf-8")
+        summary_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+        candidates_xml = archive.read("xl/worksheets/sheet3.xml").decode("utf-8")
+    assert "Summary" in workbook_xml
+    assert "Candidates" in workbook_xml
+    assert "DELETE CANDIDATE" in candidates_xml
+    assert "one.flac" in candidates_xml
+    assert "mert_similarity" in candidates_xml
+    assert "Report-only duplicate audio summary" in summary_xml
+    assert result.image_paths
+    assert all(path.exists() and path.suffix == ".png" for path in result.image_paths)

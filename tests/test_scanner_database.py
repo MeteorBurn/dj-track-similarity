@@ -304,7 +304,7 @@ def test_database_clear_library_removes_tracks_and_embeddings(tmp_path: Path) ->
     assert db.load_embedding_matrix("mert")[0] == []
 
 
-def test_existing_database_with_old_user_version_requires_migration_script(tmp_path: Path) -> None:
+def test_existing_database_with_old_user_version_is_rejected(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     with sqlite3.connect(db_path) as connection:
         connection.executescript(
@@ -340,7 +340,7 @@ def test_existing_database_with_old_user_version_requires_migration_script(tmp_p
             """
         )
 
-    with pytest.raises(RuntimeError, match="scripts/optimize_database.py"):
+    with pytest.raises(RuntimeError, match="schema is not current"):
         LibraryDatabase(db_path)
 
 

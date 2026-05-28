@@ -264,6 +264,6 @@ def _schema_version(connection: sqlite3.Connection) -> int:
 
 def _migration_required_message() -> str:
     return (
-        "SQLite database schema is not current. Stop the app and run "
-        ".\\.venv\\Scripts\\python.exe scripts/optimize_database.py --db <path-to-database>."
+        "SQLite database schema is not current. Stop the app and use a database created with the current "
+        "application version, or rebuild the library database by scanning the source music library again."
     )

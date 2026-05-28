@@ -7,6 +7,77 @@ import sqlite3
 
 CURRENT_SCHEMA_VERSION = 2
 
+EXPECTED_USER_TABLES = {
+    "embeddings",
+    "library_settings",
+    "track_classifier_scores",
+    "tracks",
+}
+
+EXPECTED_COLUMNS = {
+    "tracks": (
+        ("id", "INTEGER", 0, None, 1),
+        ("path", "TEXT", 1, None, 0),
+        ("size", "INTEGER", 1, None, 0),
+        ("mtime", "REAL", 1, None, 0),
+        ("artist", "TEXT", 0, None, 0),
+        ("title", "TEXT", 0, None, 0),
+        ("album", "TEXT", 0, None, 0),
+        ("bpm", "REAL", 0, None, 0),
+        ("musical_key", "TEXT", 0, None, 0),
+        ("energy", "REAL", 0, None, 0),
+        ("duration", "REAL", 0, None, 0),
+        ("metadata_json", "TEXT", 1, "'{}'", 0),
+        ("created_at", "TEXT", 1, "CURRENT_TIMESTAMP", 0),
+        ("updated_at", "TEXT", 1, "CURRENT_TIMESTAMP", 0),
+    ),
+    "embeddings": (
+        ("track_id", "INTEGER", 1, None, 1),
+        ("embedding_key", "TEXT", 1, "'mert'", 2),
+        ("model_name", "TEXT", 1, None, 0),
+        ("dim", "INTEGER", 1, None, 0),
+        ("vector", "BLOB", 1, None, 0),
+        ("updated_at", "TEXT", 1, "CURRENT_TIMESTAMP", 0),
+    ),
+    "library_settings": (
+        ("key", "TEXT", 0, None, 1),
+        ("value", "TEXT", 1, None, 0),
+        ("updated_at", "TEXT", 1, "CURRENT_TIMESTAMP", 0),
+    ),
+    "track_classifier_scores": (
+        ("track_id", "INTEGER", 1, None, 1),
+        ("classifier", "TEXT", 1, None, 2),
+        ("score", "REAL", 1, None, 0),
+        ("label", "TEXT", 1, None, 0),
+        ("confidence", "REAL", 1, None, 0),
+        ("probabilities_json", "TEXT", 1, None, 0),
+        ("feature_set", "TEXT", 1, None, 0),
+        ("model_id", "TEXT", 1, None, 0),
+        ("analyzed_at", "TEXT", 1, "CURRENT_TIMESTAMP", 0),
+    ),
+}
+
+EXPECTED_INDEXES = {
+    "idx_classifier_scores_lookup": "track_classifier_scores",
+    "idx_embeddings_key_track": "embeddings",
+    "idx_tracks_maest_missing_sort": "tracks",
+    "idx_tracks_maest_present": "tracks",
+    "idx_tracks_sonara_missing_sort": "tracks",
+    "idx_tracks_sonara_present": "tracks",
+    "idx_tracks_sort_artist_title_path": "tracks",
+    "idx_tracks_syncopated_sort": "tracks",
+}
+
+EXPECTED_TRIGGERS = {
+    "tracks_metadata_json_insert_valid": "tracks",
+    "tracks_metadata_json_update_valid": "tracks",
+}
+
+EXPECTED_FOREIGN_KEYS = {
+    "embeddings": (("tracks", "track_id", "id", "CASCADE"),),
+    "track_classifier_scores": (("tracks", "track_id", "id", "CASCADE"),),
+}
+
 
 @dataclass(frozen=True)
 class OptimizationSummary:
@@ -28,22 +99,17 @@ def optimize_database(db_path: str | Path) -> OptimizationSummary:
     if integrity_before.lower() != "ok":
         raise RuntimeError(f"Integrity check failed before optimization: {integrity_before}")
 
+    with sqlite3.connect(path) as connection:
+        connection.row_factory = sqlite3.Row
+        _validate_current_schema(connection)
+
     backup_path = _backup_database(path)
 
     with sqlite3.connect(path) as connection:
-        connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 30000")
         connection.execute("PRAGMA journal_mode = WAL")
         connection.execute("PRAGMA synchronous = NORMAL")
-        _validate_expected_schema(connection)
-        _drop_removed_tables(connection)
-        connection.execute("DELETE FROM embeddings WHERE embedding_key = 'fake'")
-        _create_settings_table(connection)
-        _create_indexes_and_triggers(connection)
-        connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
-        connection.commit()
-
         connection.execute("VACUUM")
         connection.execute("ANALYZE")
         connection.execute("PRAGMA optimize")
@@ -80,108 +146,73 @@ def _integrity_check(path: Path) -> str:
         return str(connection.execute("PRAGMA integrity_check").fetchone()[0])
 
 
-def _validate_expected_schema(connection: sqlite3.Connection) -> None:
-    tables = _user_tables(connection)
-    if not {"tracks", "embeddings"}.issubset(tables):
-        raise RuntimeError("Database must contain current tracks and embeddings tables before optimization")
-    track_columns = _columns(connection, "tracks")
-    embedding_columns = _columns(connection, "embeddings")
-    required_track_columns = {
-        "id",
-        "path",
-        "size",
-        "mtime",
-        "artist",
-        "title",
-        "album",
-        "bpm",
-        "musical_key",
-        "energy",
-        "duration",
-        "metadata_json",
-        "created_at",
-        "updated_at",
-    }
-    required_embedding_columns = {"track_id", "embedding_key", "model_name", "dim", "vector", "updated_at"}
-    if not required_track_columns.issubset(track_columns):
-        missing = ", ".join(sorted(required_track_columns - track_columns))
-        raise RuntimeError(f"tracks table is missing required columns: {missing}")
-    if not required_embedding_columns.issubset(embedding_columns):
-        missing = ", ".join(sorted(required_embedding_columns - embedding_columns))
-        raise RuntimeError(f"embeddings table is missing required columns: {missing}")
-
-
-def _drop_removed_tables(connection: sqlite3.Connection) -> None:
-    connection.execute("DROP TABLE IF EXISTS playlist_tracks")
-    connection.execute("DROP TABLE IF EXISTS playlists")
-
-
-def _create_settings_table(connection: sqlite3.Connection) -> None:
-    connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS library_settings (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+def _validate_current_schema(connection: sqlite3.Connection) -> None:
+    version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+    if version != CURRENT_SCHEMA_VERSION:
+        raise RuntimeError(
+            f"Database schema is not current: user_version is {version}, expected {CURRENT_SCHEMA_VERSION}"
         )
-        """
+
+    tables = _user_tables(connection)
+    if tables != EXPECTED_USER_TABLES:
+        missing = ", ".join(sorted(EXPECTED_USER_TABLES - tables)) or "none"
+        unexpected = ", ".join(sorted(tables - EXPECTED_USER_TABLES)) or "none"
+        raise RuntimeError(f"Database schema is not current: missing tables [{missing}], unexpected tables [{unexpected}]")
+
+    for table, expected_columns in EXPECTED_COLUMNS.items():
+        actual_columns = _columns(connection, table)
+        if actual_columns != expected_columns:
+            raise RuntimeError(f"Database schema is not current: {table} columns do not match current contract")
+
+    indexes = _objects_by_name(connection, "index")
+    expected_index_names = set(EXPECTED_INDEXES)
+    actual_index_names = {name for name in indexes if not name.startswith("sqlite_")}
+    if actual_index_names != expected_index_names:
+        missing = ", ".join(sorted(expected_index_names - actual_index_names)) or "none"
+        unexpected = ", ".join(sorted(actual_index_names - expected_index_names)) or "none"
+        raise RuntimeError(f"Database schema is not current: missing indexes [{missing}], unexpected indexes [{unexpected}]")
+    for name, table in EXPECTED_INDEXES.items():
+        if indexes[name] != table:
+            raise RuntimeError(f"Database schema is not current: index {name} is on {indexes[name]}, expected {table}")
+
+    triggers = _objects_by_name(connection, "trigger")
+    if triggers != EXPECTED_TRIGGERS:
+        missing = ", ".join(sorted(set(EXPECTED_TRIGGERS) - set(triggers))) or "none"
+        unexpected = ", ".join(sorted(set(triggers) - set(EXPECTED_TRIGGERS))) or "none"
+        raise RuntimeError(
+            f"Database schema is not current: missing triggers [{missing}], unexpected triggers [{unexpected}]"
+        )
+
+    for table, expected_foreign_keys in EXPECTED_FOREIGN_KEYS.items():
+        actual_foreign_keys = _foreign_keys(connection, table)
+        if actual_foreign_keys != expected_foreign_keys:
+            raise RuntimeError(f"Database schema is not current: {table} foreign keys do not match current contract")
+
+
+def _columns(connection: sqlite3.Connection, table: str) -> tuple[tuple[str, str, int, str | None, int], ...]:
+    return tuple(
+        (str(row["name"]), str(row["type"]), int(row["notnull"]), row["dflt_value"], int(row["pk"]))
+        for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
     )
 
 
-def _create_indexes_and_triggers(connection: sqlite3.Connection) -> None:
-    connection.executescript(
-        """
-        CREATE INDEX IF NOT EXISTS idx_tracks_sort_artist_title_path
-        ON tracks (COALESCE(artist, ''), COALESCE(title, ''), path);
-
-        CREATE INDEX IF NOT EXISTS idx_tracks_sonara_present
-        ON tracks(id)
-        WHERE json_type(metadata_json, '$.sonara_features') IS NOT NULL;
-
-        CREATE INDEX IF NOT EXISTS idx_tracks_maest_present
-        ON tracks(id)
-        WHERE json_type(metadata_json, '$.maest_genres') IS NOT NULL;
-
-        CREATE INDEX IF NOT EXISTS idx_tracks_syncopated_sort
-        ON tracks(COALESCE(artist, ''), COALESCE(title, ''), path)
-        WHERE json_extract(metadata_json, '$.maest_syncopated_rhythm') = 1;
-
-        CREATE INDEX IF NOT EXISTS idx_tracks_sonara_missing_sort
-        ON tracks(COALESCE(artist, ''), COALESCE(title, ''), path)
-        WHERE json_type(metadata_json, '$.sonara_features') IS NULL;
-
-        CREATE INDEX IF NOT EXISTS idx_tracks_maest_missing_sort
-        ON tracks(COALESCE(artist, ''), COALESCE(title, ''), path)
-        WHERE (
-            json_type(metadata_json, '$.maest_genres') IS NULL
-            OR json_type(metadata_json, '$.maest_genres') != 'array'
-            OR json_array_length(json_extract(metadata_json, '$.maest_genres')) = 0
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_embeddings_key_track
-        ON embeddings(embedding_key, track_id);
-
-        CREATE TRIGGER IF NOT EXISTS tracks_metadata_json_insert_valid
-        BEFORE INSERT ON tracks
-        FOR EACH ROW
-        WHEN NOT json_valid(NEW.metadata_json)
-        BEGIN
-            SELECT RAISE(ABORT, 'tracks.metadata_json must be valid JSON');
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS tracks_metadata_json_update_valid
-        BEFORE UPDATE OF metadata_json ON tracks
-        FOR EACH ROW
-        WHEN NOT json_valid(NEW.metadata_json)
-        BEGIN
-            SELECT RAISE(ABORT, 'tracks.metadata_json must be valid JSON');
-        END;
-        """
+def _foreign_keys(connection: sqlite3.Connection, table: str) -> tuple[tuple[str, str, str, str], ...]:
+    return tuple(
+        (str(row["table"]), str(row["from"]), str(row["to"]), str(row["on_delete"]))
+        for row in connection.execute(f"PRAGMA foreign_key_list({table})").fetchall()
     )
 
 
-def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
-    return {str(row["name"]) for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
+def _objects_by_name(connection: sqlite3.Connection, object_type: str) -> dict[str, str]:
+    rows = connection.execute(
+        """
+        SELECT name, tbl_name
+        FROM sqlite_master
+        WHERE type = ?
+        """,
+        (object_type,),
+    ).fetchall()
+    return {str(row["name"]): str(row["tbl_name"]) for row in rows}
 
 
 def _user_tables(connection: sqlite3.Connection) -> set[str]:

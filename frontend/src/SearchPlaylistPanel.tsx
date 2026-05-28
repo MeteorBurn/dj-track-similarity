@@ -306,7 +306,7 @@ export function SearchPlaylistPanel({
             <div className="classifier-action-row">
               <button className="primary classifier-analyze-button" disabled={busy || classifiers.length === 0} onClick={handleClassifierAnalyze}>
                 <SlidersHorizontal size={17} />
-                Analyze Break Energy + Live Instrumentation
+                Analyze Classifiers
               </button>
               <button className="analysis-reset-button classifier-reset-button" disabled={busy || classifiers.length === 0} onClick={handleResetClassifiers} title="Reset Break Energy + Live Instrumentation" aria-label="Reset Break Energy + Live Instrumentation">
                 Reset

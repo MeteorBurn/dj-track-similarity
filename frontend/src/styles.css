@@ -313,6 +313,13 @@ h2 {
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
+.classifier-action-row .primary,
+.classifier-action-row .analysis-reset-button {
+  margin-bottom: 8px;
+  min-height: 34px;
+  padding: 7px 10px;
+}
+
 .classifier-reset-button {
   min-width: 82px;
   width: auto;

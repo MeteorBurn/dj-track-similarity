@@ -1219,8 +1219,9 @@ python scripts\diagnose_metadata_size.py .\data\library.sqlite --top 50
 
 ### `scripts\optimize_database.py`
 
-Optimizes a SQLite database, validates schema, creates a backup, runs cleanup,
-updates schema metadata, vacuums, analyzes, and verifies integrity.
+Optimizes a SQLite database that already matches the current schema contract. It
+validates the schema, creates a backup, vacuums, analyzes, and verifies
+integrity. It does not migrate, repair, or adapt databases from older schemas.
 
 Usage:
 
@@ -1234,7 +1235,9 @@ Example:
 python scripts\optimize_database.py --db .\data\library.sqlite
 ```
 
-This script writes to the database and creates a backup next to it.
+This script writes to the database and creates a backup next to it. If the
+database schema is not current, the script prints an error and stops before
+creating a backup or modifying the database.
 
 ## Development Setup
 

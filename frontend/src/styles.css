@@ -18,13 +18,11 @@ body {
 }
 
 button,
-input,
-a.docs-button {
+input {
   font: inherit;
 }
 
-button,
-a.docs-button {
+button {
   align-items: center;
   background: #f8f9f4;
   border: 1px solid #c9cec2;
@@ -39,11 +37,6 @@ a.docs-button {
   white-space: nowrap;
 }
 
-a.docs-button {
-  min-width: 0;
-  text-decoration: none;
-}
-
 button.icon-button {
   aspect-ratio: 1;
   min-height: 34px;
@@ -51,8 +44,7 @@ button.icon-button {
   width: 34px;
 }
 
-button:hover:not(:disabled),
-a.docs-button:hover {
+button:hover:not(:disabled) {
   border-color: #4f9a87;
   color: #116858;
 }
@@ -134,6 +126,22 @@ h2 {
   position: relative;
 }
 
+.topbar h1 a {
+  color: inherit;
+  display: inline-block;
+  text-decoration: none;
+}
+
+.topbar h1 a:hover {
+  color: #116858;
+}
+
+.topbar h1 a:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid #40a487;
+  outline-offset: 3px;
+}
+
 .topbar h1::after {
   background: linear-gradient(90deg, #2b8a78, #d28b3c);
   border-radius: 999px;
@@ -157,10 +165,6 @@ h2 {
   display: flex;
   gap: 10px;
   min-width: 0;
-}
-
-.docs-button {
-  flex: 0 0 auto;
 }
 
 .notice {
@@ -1600,10 +1604,6 @@ meter {
   .topbar-actions {
     align-items: stretch;
     flex-direction: column;
-  }
-
-  .docs-button {
-    width: 100%;
   }
 
   .topbar h1 {

@@ -1,4 +1,3 @@
-import { BookOpen } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AnalysisJobStatus, api, GenreTagJobStatus, LibrarySummary, PromotedClassifier, ScanStats, SearchResult, Track } from "./api";
 import { exportDirectoryError } from "./exportView";
@@ -814,7 +813,11 @@ export function App() {
     <main className="app-shell">
       <header className="topbar">
         <div>
-          <h1>DJ Track Similarity</h1>
+          <h1>
+            <a href="/docs/" target="_blank" rel="noreferrer" title="Открыть HTML документацию">
+              DJ Track Similarity
+            </a>
+          </h1>
           <span className="meta">
             {librarySummary.tracks} {trackCountLabel(librarySummary.tracks)}
             {" | sonara "}{librarySummary.sonara}
@@ -824,10 +827,6 @@ export function App() {
           </span>
         </div>
         <div className="topbar-actions">
-          <a className="docs-button" href="/docs/" target="_blank" rel="noreferrer" title="Открыть HTML документацию" aria-label="Открыть HTML документацию">
-            <BookOpen size={16} />
-            Документация
-          </a>
           <div className={`notice ${notice.kind}`}>{notice.text}</div>
         </div>
       </header>

@@ -7,17 +7,22 @@ music-library analysis and track similarity. Keep public docs honest, practical,
 and modest: this is not a polished commercial product or a research benchmark.
 
 User-facing project documentation should be English unless the user asks
-otherwise. The documentation index is
+otherwise. The English documentation index is
 `docs/dj-track-similarity/project-guide.md`; use its linked topic pages for full
-CLI/API/script details instead of duplicating long references here.
+CLI/API/script details instead of duplicating long references here. Russian
+documentation lives under `docs/dj-track-similarity/ru/` and is updated only on
+explicit request; keep routine documentation maintenance current in the English
+version first.
 
 ## Project Documentation
 
-Project documentation lives under `docs/dj-track-similarity/`. Treat
-`docs/dj-track-similarity/project-guide.md` as the entrypoint, then follow its
-links to the focused topic pages for overview, architecture, database, analysis,
-search/tag writing, CLI, API, Rhythm Lab, development, and stable maintenance
-scripts.
+Project documentation lives under `docs/dj-track-similarity/`, with the
+canonical English source at the documentation root and the Russian localization
+under `docs/dj-track-similarity/ru/`. Treat
+`docs/dj-track-similarity/project-guide.md` as the English entrypoint, then
+follow its links to the focused topic pages for overview, architecture,
+database, analysis, search/tag writing, CLI, API, Rhythm Lab, development, and
+stable maintenance scripts.
 
 Read the relevant page in `docs/dj-track-similarity/` before making changes to
 documented behavior, public commands, API contracts, database fields, analysis

@@ -1,14 +1,24 @@
+import type { MouseEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AnalysisJobStatus, api, GenreTagJobStatus, LibrarySummary, PromotedClassifier, ScanStats, SearchResult, Track } from "./api";
 import type { ConfirmationRequest } from "./confirmation";
 import { exportDirectoryError } from "./exportView";
 import { ActivityEvent, analysisJobRequest, cancelAnalysisJob, scanSummary } from "./jobUi";
 import { LibraryPanel } from "./LibraryPanel";
-import { appendVisibleTracksToPlaylist, LibraryPreset, LibrarySortDirection, orderedLibraryTracks, toggleLikedTracksFilter } from "./libraryView";
+import {
+  appendVisibleTracksToPlaylist,
+  libraryCurrentPageNumber,
+  libraryPageOffsetForNumber,
+  libraryPageSize,
+  orderedLibraryTracks,
+  toggleLikedTracksFilter,
+  type LibraryPreset,
+  type LibrarySortDirection
+} from "./libraryView";
 import { SearchPlaylistPanel } from "./SearchPlaylistPanel";
 import { TrackMetadataDialog } from "./TrackMetadataDialog";
 import { TrackPanel } from "./TrackPanel";
-import { displayTrack, trackCountLabel } from "./trackDisplay";
+import { displayTrack } from "./trackDisplay";
 import { placeTooltip, RectLike, TooltipPosition } from "./tooltip";
 
 type Notice = { kind: "ok" | "error" | "idle"; text: string };
@@ -17,7 +27,6 @@ type AnalysisAdapter = "mert" | "clap";
 type ResetAdapter = "sonara" | "maest" | "mert" | "clap";
 
 const defaultNotice: Notice = { kind: "idle", text: "Готово к работе" };
-const libraryPageSize = 200;
 const emptySummary: LibrarySummary = { tracks: 0, sonara: 0, maest: 0, mert: 0, clap: 0, liked: 0 };
 
 const helpText = {
@@ -62,6 +71,11 @@ function optimalWorkerLimit() {
 
 function activeClassifierMinScores(scores: Record<string, number>) {
   return Object.fromEntries(Object.entries(scores).filter(([, value]) => value > 0));
+}
+
+function openDocumentationWindow(event: MouseEvent<HTMLAnchorElement>) {
+  const opened = window.open("/docs/", "_blank", "noopener,noreferrer");
+  if (opened) event.preventDefault();
 }
 
 export function App() {
@@ -360,7 +374,13 @@ export function App() {
   }
 
   function changeLibraryPage(delta: number) {
-    const nextOffset = Math.max(0, libraryOffset + delta * libraryPageSize);
+    const currentPage = libraryCurrentPageNumber(libraryTotal, libraryOffset, libraryPageSize);
+    const nextOffset = libraryPageOffsetForNumber(currentPage + delta, libraryTotal, libraryPageSize);
+    void refreshLibrary(nextOffset);
+  }
+
+  function jumpToLibraryPage(pageNumber: number) {
+    const nextOffset = libraryPageOffsetForNumber(pageNumber, libraryTotal, libraryPageSize);
     void refreshLibrary(nextOffset);
   }
 
@@ -862,17 +882,17 @@ export function App() {
       <header className="topbar">
         <div>
           <h1>
-            <a href="/docs/" target="_blank" rel="noreferrer" title="Открыть HTML документацию">
+            <a href="/docs/" target="_blank" rel="noreferrer" title="Открыть HTML документацию" onClick={openDocumentationWindow}>
               DJ Track Similarity
             </a>
           </h1>
-          <span className="meta">
-            {librarySummary.tracks} {trackCountLabel(librarySummary.tracks)}
-            {" | sonara "}{librarySummary.sonara}
-            {" | maest "}{librarySummary.maest}
-            {" | mert "}{librarySummary.mert}
-            {" | clap "}{librarySummary.clap}
-          </span>
+          <div className="meta" aria-label="Library analysis summary">
+            <span className="meta-badge meta-badge-total"><span>tracks</span><strong>{librarySummary.tracks}</strong></span>
+            <span className="meta-badge"><span>sonara</span><strong>{librarySummary.sonara}</strong></span>
+            <span className="meta-badge"><span>maest</span><strong>{librarySummary.maest}</strong></span>
+            <span className="meta-badge"><span>mert</span><strong>{librarySummary.mert}</strong></span>
+            <span className="meta-badge"><span>clap</span><strong>{librarySummary.clap}</strong></span>
+          </div>
         </div>
         <div className="topbar-actions">
           <div className={`notice ${notice.kind}`}>{notice.text}</div>
@@ -947,6 +967,7 @@ export function App() {
           canGoForward={canGoForward}
           onPreviousPage={() => changeLibraryPage(-1)}
           onNextPage={() => changeLibraryPage(1)}
+          onPageJump={jumpToLibraryPage}
           busy={busy || stageRunning || !databasePath}
           seedSet={seedSet}
           playlistSet={playlistSet}
@@ -993,7 +1014,6 @@ export function App() {
             message: "Удалить сохраненные данные Break Energy и Live Instrumentation? Аудиофайлы не трогаем.",
             onConfirm: () => handleResetClassifiers()
           })}
-          onConfirmAction={requestConfirmation}
           addSeed={addSeed}
           togglePlaylist={togglePlaylist}
           setPreview={setPreview}

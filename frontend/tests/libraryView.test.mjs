@@ -107,6 +107,19 @@ test("library track order can be reversed without mutating the loaded page", asy
   assert.deepEqual(tracks.map((track) => track.id), [1, 2, 3]);
 });
 
+test("library page helpers report one-based pages and clamp requested page offsets", async () => {
+  const { libraryCurrentPageNumber, libraryPageCount, libraryPageOffsetForNumber } = await loadLibraryViewModule();
+
+  assert.equal(libraryPageCount(0, 200), 0);
+  assert.equal(libraryPageCount(401, 200), 3);
+  assert.equal(libraryCurrentPageNumber(0, 0, 200), 0);
+  assert.equal(libraryCurrentPageNumber(401, 400, 200), 3);
+  assert.equal(libraryPageOffsetForNumber(1, 401, 200), 0);
+  assert.equal(libraryPageOffsetForNumber(3, 401, 200), 400);
+  assert.equal(libraryPageOffsetForNumber(20, 401, 200), 400);
+  assert.equal(libraryPageOffsetForNumber(-4, 401, 200), 0);
+});
+
 test("export directory validation rejects blank paths", async () => {
   const { exportDirectoryError } = await loadExportViewModule();
 

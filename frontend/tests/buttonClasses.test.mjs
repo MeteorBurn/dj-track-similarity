@@ -133,3 +133,88 @@ test("destructive actions use the in-app confirmation dialog", () => {
   assert.match(appSource, />Да</);
   assert.match(appSource, />Нет</);
 });
+
+test("non-destructive sonara mixer reset does not request confirmation", () => {
+  const source = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
+  const resetBody = source.match(/function resetCustomSonara\(\) \{([\s\S]*?)\n  \}/)?.[1] || "";
+
+  assert.match(source, /sonara-mixer-reset-button/);
+  assert.match(resetBody, /setFilters/);
+  assert.doesNotMatch(resetBody, /onConfirmAction|ConfirmationRequest/);
+});
+
+test("documentation title click opens the docs in a separate window", () => {
+  const source = readFileSync(join(srcDir, "App.tsx"), "utf8");
+  const headerLink = source.match(/<a\b[\s\S]*?>\s*DJ Track Similarity\s*<\/a>/)?.[0] || "";
+
+  assert.match(source, /function openDocumentationWindow/);
+  assert.match(source, /window\.open\("\/docs\/", "_blank", "noopener,noreferrer"\)/);
+  assert.match(headerLink, /target="_blank"/);
+  assert.match(headerLink, /onClick=\{openDocumentationWindow\}/);
+});
+
+test("library controls keep pagination left and actions pinned right", () => {
+  const source = readFileSync(join(srcDir, "TrackPanel.tsx"), "utf8");
+  const titleActions = source.match(/<div className="panel-title-actions track-panel-actions">([\s\S]*?)<\/div>/)?.[1] || "";
+  const controls = source.match(/<div className="library-view-controls">([\s\S]*?)<\/div>/)?.[1] || "";
+
+  const rangeIndex = controls.indexOf("library-range-status");
+  const sortIndex = controls.indexOf("library-sort-direction-button");
+  const addIndex = controls.indexOf("add-visible-tracks-button");
+  const prevIndex = controls.indexOf("library-page-previous-button");
+  const nextIndex = controls.indexOf("library-page-next-button");
+  const inputIndex = controls.indexOf("library-page-index-input");
+  const statusIndex = controls.indexOf("library-page-number-status");
+
+  assert.equal(titleActions.indexOf("library-range-status"), -1);
+  assert.equal(titleActions.indexOf("library-sort-direction-button"), -1);
+  assert.equal(titleActions.indexOf("add-visible-tracks-button"), -1);
+  assert.notEqual(rangeIndex, -1);
+  assert.notEqual(sortIndex, -1);
+  assert.notEqual(addIndex, -1);
+  assert.notEqual(prevIndex, -1);
+  assert.notEqual(nextIndex, -1);
+  assert.notEqual(inputIndex, -1);
+  assert.notEqual(statusIndex, -1);
+  assert.ok(prevIndex < nextIndex);
+  assert.ok(nextIndex < inputIndex);
+  assert.ok(inputIndex < statusIndex);
+  assert.ok(statusIndex < rangeIndex);
+  assert.ok(rangeIndex < sortIndex);
+  assert.ok(sortIndex < addIndex);
+});
+
+test("library range status shows only filtered total in the controls row", () => {
+  const source = readFileSync(join(srcDir, "TrackPanel.tsx"), "utf8");
+  const titleActions = source.match(/<div className="panel-title-actions track-panel-actions">([\s\S]*?)<\/div>/)?.[1] || "";
+  const controls = source.match(/<div className="library-view-controls">([\s\S]*?)<\/div>/)?.[1] || "";
+  const status = source.match(/<span className="library-range-status"[^>]*>([\s\S]*?)<\/span>/)?.[1] || "";
+
+  assert.equal(titleActions.indexOf("library-range-status"), -1);
+  assert.notEqual(controls.indexOf("library-range-status"), -1);
+  assert.match(status, /\$\{total\}/);
+  assert.doesNotMatch(status, /pageStart|pageEnd|-/);
+});
+
+test("library controls share button height and text-only counters", () => {
+  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
+  const controlsRule = styles.match(/\.library-view-controls\s*{([\s\S]*?)}/)?.[1] || "";
+  const controlRule = styles.match(/\.library-view-controls \.secondary-mini\s*{([\s\S]*?)}/)?.[1] || "";
+  const inputRule = styles.match(/\.library-page-index-input\s*{([\s\S]*?)}/)?.[1] || "";
+  const pageRule = styles.match(/\.library-page-number-status\s*{([\s\S]*?)}/)?.[1] || "";
+  const rangeRule = styles.match(/\.library-range-status\s*{([\s\S]*?)}/)?.[1] || "";
+
+  assert.match(controlsRule, /gap:\s*6px/);
+  assert.match(controlRule, /height:\s*34px/);
+  assert.match(inputRule, /align-self:\s*start/);
+  assert.match(inputRule, /height:\s*34px/);
+  assert.match(pageRule, /align-self:\s*start/);
+  assert.match(pageRule, /height:\s*34px/);
+  assert.match(rangeRule, /margin-left:\s*auto/);
+  assert.match(rangeRule, /height:\s*34px/);
+  assert.match(rangeRule, /color:\s*#4c5747/);
+  assert.doesNotMatch(pageRule, /min-width:\s*52px/);
+  assert.doesNotMatch(rangeRule, /border:/);
+  assert.doesNotMatch(rangeRule, /font-weight:/);
+  assert.doesNotMatch(rangeRule, /font-size:/);
+});

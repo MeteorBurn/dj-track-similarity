@@ -7,8 +7,24 @@ music-library analysis and track similarity. Keep public docs honest, practical,
 and modest: this is not a polished commercial product or a research benchmark.
 
 User-facing project documentation should be English unless the user asks
-otherwise. The detailed user/developer guide is `docs/project-guide.md`; use it
-for full CLI/API/script details instead of duplicating long references here.
+otherwise. The documentation index is
+`docs/dj-track-similarity/project-guide.md`; use its linked topic pages for full
+CLI/API/script details instead of duplicating long references here.
+
+## Project Documentation
+
+Project documentation lives under `docs/dj-track-similarity/`. Treat
+`docs/dj-track-similarity/project-guide.md` as the entrypoint, then follow its
+links to the focused topic pages for overview, architecture, database, analysis,
+search/tag writing, CLI, API, Rhythm Lab, development, and stable maintenance
+scripts.
+
+Read the relevant page in `docs/dj-track-similarity/` before making changes to
+documented behavior, public commands, API contracts, database fields, analysis
+outputs, UI workflows, Rhythm Lab, or stable maintenance scripts. When such
+behavior changes, update the matching page in `docs/dj-track-similarity/` in the
+same change. Do not update `docs/superpowers/` as project documentation; it is
+agent workflow material and should stay separate.
 
 The project is a Python backend/CLI plus a React/Vite frontend:
 
@@ -149,8 +165,8 @@ branches, or history are available.
 
 ## Common Commands
 
-For the complete CLI, API, and maintenance script reference, see
-`docs/project-guide.md`.
+For the CLI, API, and maintenance script documentation index, see
+`docs/dj-track-similarity/project-guide.md` and its linked topic pages.
 
 ```powershell
 python -m pip install -e ".[dev]"
@@ -233,7 +249,8 @@ changes:
 - If changing Mutagen tags, Sonara features, MAEST job state, classifier jobs,
   audio decoding, search, library browsing, relocation, analysis controls,
   SQLite writes, UI controls, custom tags, or standard genre writes, update the
-  corresponding focused tests and frontend/API/docs surfaces.
+  corresponding focused tests, frontend/API surfaces, and
+  `docs/dj-track-similarity/` documentation pages.
 - Prefer deterministic test data and test-local stub adapters over real audio
   analysis in automated tests.
 - Do not add legacy compatibility layers, fallback paths, or parallel old/new

@@ -61,9 +61,9 @@ The UI keeps file tags and model-derived values separate. This is intentional:
 file tags, Sonara values, MAEST labels, MERT vectors, CLAP vectors, and
 classifier scores can disagree, and each source answers a different question.
 
-For the full manual, including CLI options, API endpoints, maintenance scripts,
-database details, and advanced workflows, see
-[docs/project-guide.md](docs/project-guide.md).
+For the documentation index, including links to CLI options, API endpoints,
+maintenance scripts, database details, and advanced workflows, see
+[docs/dj-track-similarity/project-guide.md](docs/dj-track-similarity/project-guide.md).
 
 ## Run The App
 
@@ -121,8 +121,12 @@ verified setup is GyanD `ffmpeg 8.1.1-full_build-shared`, for example
 
 ## Full Guide
 
-The complete documentation is in [docs/project-guide.md](docs/project-guide.md).
-It covers CLI commands and arguments, API endpoints, maintenance scripts,
+The documentation entrypoint is
+[docs/dj-track-similarity/project-guide.md](docs/dj-track-similarity/project-guide.md).
+It links to focused pages for
+[CLI commands](docs/dj-track-similarity/cli.md),
+[API endpoints](docs/dj-track-similarity/api.md),
+[maintenance scripts](docs/dj-track-similarity/project-guide.md#maintenance-scripts),
 database details, analysis workflows, performance notes, and troubleshooting.
 
 ## Safety
@@ -198,5 +202,5 @@ cd frontend
 npm run build
 ```
 
-Focused operational details live in
-[docs/project-guide.md](docs/project-guide.md).
+Focused operational details start at
+[docs/dj-track-similarity/project-guide.md](docs/dj-track-similarity/project-guide.md).

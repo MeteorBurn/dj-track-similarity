@@ -253,7 +253,47 @@ def test_ambiguous_chain_group_is_report_only(tmp_path: Path) -> None:
     assert "ambiguous chain" in " ".join(group["blocked_reasons"])
 
 
-def test_json_xlsx_and_image_reports_include_candidate_evidence(tmp_path: Path) -> None:
+def test_tag_bpm_and_key_are_not_used_for_duplicate_scoring() -> None:
+    dedup = _load_dedup_module()
+    config = dedup.resolve_preset("safe", min_score=None)
+    sonara = {"bpm": 128.0, "energy": 0.7, "onset_density": 0.4}
+    left = dedup.TrackRecord(
+        track_id=1,
+        path="M:/Volumes/Abstracted/one.flac",
+        size=20_000_000,
+        mtime=100.0,
+        artist="A",
+        title="T",
+        album="Album",
+        bpm=90.0,
+        musical_key="1A",
+        duration=300.0,
+        metadata={"sonara_features": sonara},
+        embeddings={},
+    )
+    right = dedup.TrackRecord(
+        track_id=2,
+        path="M:/Volumes/Abstracted/two.flac",
+        size=20_000_000,
+        mtime=100.0,
+        artist="A",
+        title="T",
+        album="Album",
+        bpm=180.0,
+        musical_key="12B",
+        duration=300.0,
+        metadata={"sonara_features": sonara},
+        embeddings={},
+    )
+
+    evidence = dedup.score_pair(left, right, config)
+
+    assert evidence.sonara_similarity == 1.0
+    assert not hasattr(evidence, "bpm_diff")
+    assert not hasattr(evidence, "key_match")
+
+
+def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> None:
     dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
     out_dir = tmp_path / "reports"
@@ -288,5 +328,4 @@ def test_json_xlsx_and_image_reports_include_candidate_evidence(tmp_path: Path) 
     assert "one.flac" in candidates_xml
     assert "mert_similarity" in candidates_xml
     assert "Report-only duplicate audio summary" in summary_xml
-    assert result.image_paths
-    assert all(path.exists() and path.suffix == ".png" for path in result.image_paths)
+    assert not list(out_dir.glob("audio_dedup_report_*.png"))

@@ -8,8 +8,8 @@ Run this script with the project Python environment when possible:
 
 Report-only duplicate-audio candidate helper. It reads an existing
 `dj-track-similarity` SQLite database, compares tracks inside a selected stored
-path root, and writes JSON, styled XLSX, PNG infographic, and text-log reports.
-It never deletes audio files and never mutates the database.
+path root, and writes JSON, styled XLSX, and text-log reports. It never deletes
+audio files and never mutates the database.
 
 Use this script when you want evidence for possible duplicate audio before
 cleaning a library manually. It is intentionally conservative: it produces
@@ -40,8 +40,7 @@ Examples:
 .\.venv\Scripts\python.exe scripts\audio_dedup\audio_dedup.py --db .\data\library.sqlite --root D:\Music --preset balanced --path-contains mastered
 ```
 
-Outputs are named `audio_dedup_report_<timestamp>.json`, `.xlsx`, `.log`, plus
-PNG files with candidate-status, confidence, and embedding-coverage summaries.
+Outputs are named `audio_dedup_report_<timestamp>.json`, `.xlsx`, and `.log`.
 The default report directory is ignored by git.
 
 The workbook is the main human review artifact. It includes:
@@ -53,7 +52,9 @@ The workbook is the main human review artifact. It includes:
   `REVIEW MANUALLY`, the keeper path, direct score, similarity evidence, and
   review blockers.
 - `Pair Evidence`: the detailed pairwise MERT, MAEST, SONARA, CLAP, duration,
-  BPM, and key evidence used by the grouping step.
+  and duration evidence used by the grouping step. Tagged BPM/key values are
+  shown only as track metadata and are not used for duplicate scoring; SONARA
+  BPM remains part of the SONARA similarity signal when available.
 
 Review every candidate manually; the report includes suggested keepers and
 candidate-delete evidence, but the script intentionally performs no delete

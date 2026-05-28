@@ -14,13 +14,6 @@ import zipfile
 
 import numpy as np
 
-try:
-    from PIL import Image, ImageDraw, ImageFont
-except ImportError:  # pragma: no cover - exercised only in incomplete environments.
-    Image = None
-    ImageDraw = None
-    ImageFont = None
-
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_DB = Path(r"C:\db\abstracted.sqlite")
@@ -93,8 +86,6 @@ class PairEvidence:
     sonara_similarity: float | None
     duration_diff_seconds: float | None
     duration_diff_ratio: float | None
-    bpm_diff: float | None
-    key_match: bool | None
     blocked_reasons: tuple[str, ...]
 
 
@@ -110,7 +101,6 @@ class ReportResult:
     json_path: Path
     xlsx_path: Path
     log_path: Path
-    image_paths: tuple[Path, ...]
     groups: int
 
 
@@ -134,8 +124,6 @@ def main(argv: list[str] | None = None) -> int:
     print(f"json={result.json_path}")
     print(f"xlsx={result.xlsx_path}")
     print(f"log={result.log_path}")
-    for image_path in result.image_paths:
-        print(f"image={image_path}")
     return 0
 
 
@@ -182,9 +170,8 @@ def run_report(
     log_path = json_path.with_suffix(".log")
     json_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     write_xlsx_report(xlsx_path, payload)
-    image_paths = write_infographics(out_dir, json_path.stem, payload)
     write_text_log(log_path, payload)
-    return ReportResult(json_path=json_path, xlsx_path=xlsx_path, log_path=log_path, image_paths=image_paths, groups=len(groups))
+    return ReportResult(json_path=json_path, xlsx_path=xlsx_path, log_path=log_path, groups=len(groups))
 
 
 def resolve_preset(name: str, *, min_score: float | None) -> PresetConfig:
@@ -350,8 +337,6 @@ def score_pair(left: TrackRecord, right: TrackRecord, config: PresetConfig) -> P
     clap = _embedding_similarity(left, right, "clap")
     sonara = _sonara_similarity(left, right)
     duration_diff, duration_ratio = _duration_distance(left, right)
-    bpm_diff = _bpm_distance(left.bpm, right.bpm)
-    key_match = _key_match(left.musical_key, right.musical_key)
     blocked: list[str] = []
     weighted = 0.0
     total = 0.0
@@ -368,12 +353,6 @@ def score_pair(left: TrackRecord, right: TrackRecord, config: PresetConfig) -> P
             blocked.append("duration mismatch")
     else:
         blocked.append("missing duration")
-    if bpm_diff is not None:
-        weighted += max(0.0, 1.0 - min(bpm_diff / 3.0, 1.0)) * 0.015
-        total += 0.015
-    if key_match is not None:
-        weighted += (1.0 if key_match else 0.0) * 0.015
-        total += 0.015
     if mert is None:
         blocked.append("missing MERT embedding")
     if maest is None:
@@ -389,8 +368,6 @@ def score_pair(left: TrackRecord, right: TrackRecord, config: PresetConfig) -> P
         sonara_similarity=sonara,
         duration_diff_seconds=duration_diff,
         duration_diff_ratio=duration_ratio,
-        bpm_diff=bpm_diff,
-        key_match=key_match,
         blocked_reasons=tuple(blocked),
     )
 
@@ -588,8 +565,6 @@ def _candidates_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
             "clap_similarity",
             "duration_diff_seconds",
             "duration_diff_ratio",
-            "bpm_diff",
-            "key_match",
             "blocked_reasons",
             "why_delete_or_review",
         ]
@@ -618,8 +593,6 @@ def _candidates_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
                     evidence.get("clap_similarity"),
                     evidence.get("duration_diff_seconds"),
                     evidence.get("duration_diff_ratio"),
-                    evidence.get("bpm_diff"),
-                    evidence.get("key_match"),
                     "; ".join(str(item) for item in candidate.get("blocked_reasons", [])),
                     "; ".join(str(item) for item in candidate.get("why_delete_or_review", [])),
                 ]
@@ -640,8 +613,6 @@ def _pair_evidence_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
             "clap_similarity",
             "duration_diff_seconds",
             "duration_diff_ratio",
-            "bpm_diff",
-            "key_match",
             "blocked_reasons",
         ]
     ]
@@ -661,87 +632,10 @@ def _pair_evidence_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
                     evidence["clap_similarity"],
                     evidence["duration_diff_seconds"],
                     evidence["duration_diff_ratio"],
-                    evidence["bpm_diff"],
-                    evidence["key_match"],
                     "; ".join(str(item) for item in evidence.get("blocked_reasons", [])),
                 ]
             )
     return rows
-
-
-def write_infographics(out_dir: Path, report_stem: str, payload: dict[str, object]) -> tuple[Path, ...]:
-    if Image is None or ImageDraw is None or ImageFont is None:
-        raise ValueError("Pillow is required to create audio dedup infographic PNG files")
-    stats = payload.get("statistics", {})
-    assert isinstance(stats, dict)
-    confidence = stats.get("confidence_counts", {})
-    embeddings = stats.get("embedding_coverage", {})
-    candidate_path = out_dir / f"{report_stem}_candidate_status.png"
-    confidence_path = out_dir / f"{report_stem}_confidence.png"
-    coverage_path = out_dir / f"{report_stem}_embedding_coverage.png"
-    _write_bar_chart_png(
-        candidate_path,
-        "Duplicate candidate status",
-        [
-            ("safe delete", int(stats.get("safe_candidate_count", 0))),
-            ("manual review", int(stats.get("review_candidate_count", 0))),
-        ],
-        ["#2E7D32", "#C62828"],
-    )
-    if isinstance(confidence, dict):
-        _write_bar_chart_png(
-            confidence_path,
-            "Duplicate groups by confidence",
-            [(label, int(confidence.get(label, 0))) for label in ("high", "medium", "review")],
-            ["#1565C0", "#6A1B9A", "#EF6C00"],
-        )
-    if isinstance(embeddings, dict):
-        _write_bar_chart_png(
-            coverage_path,
-            "Embedding coverage in scanned tracks",
-            [(label, int(embeddings.get(label, 0))) for label in SUPPORTED_EMBEDDINGS],
-            ["#00838F", "#455A64", "#AD1457"],
-        )
-    return (candidate_path, confidence_path, coverage_path)
-
-
-def _write_bar_chart_png(path: Path, title: str, data: list[tuple[str, int]], colors: list[str]) -> None:
-    width = 980
-    height = 560
-    margin_left = 170
-    margin_right = 70
-    margin_top = 92
-    margin_bottom = 90
-    image = Image.new("RGB", (width, height), "#FFFFFF")
-    draw = ImageDraw.Draw(image)
-    title_font = ImageFont.truetype("arial.ttf", 28) if Path(r"C:\Windows\Fonts\arial.ttf").exists() else ImageFont.load_default()
-    label_font = ImageFont.truetype("arial.ttf", 18) if Path(r"C:\Windows\Fonts\arial.ttf").exists() else ImageFont.load_default()
-    small_font = ImageFont.truetype("arial.ttf", 16) if Path(r"C:\Windows\Fonts\arial.ttf").exists() else ImageFont.load_default()
-    draw.rectangle((0, 0, width, height), fill="#FFFFFF")
-    draw.text((32, 28), title, fill="#111827", font=title_font)
-    max_value = max([value for _, value in data] + [1])
-    plot_width = width - margin_left - margin_right
-    plot_height = height - margin_top - margin_bottom
-    bar_gap = 30
-    bar_height = max(34, int((plot_height - bar_gap * max(0, len(data) - 1)) / max(1, len(data))))
-    axis_x = margin_left
-    draw.line((axis_x, margin_top, axis_x, margin_top + plot_height), fill="#374151", width=2)
-    draw.line((axis_x, margin_top + plot_height, width - margin_right, margin_top + plot_height), fill="#374151", width=2)
-    for index, (label, value) in enumerate(data):
-        y = margin_top + index * (bar_height + bar_gap) + 12
-        bar_width = int(plot_width * (value / max_value)) if max_value else 0
-        color = colors[index % len(colors)]
-        draw.text((32, y + 6), label, fill="#111827", font=label_font)
-        draw.rectangle((axis_x, y, axis_x + max(1, bar_width), y + bar_height), fill=color)
-        draw.text((axis_x + max(8, bar_width) + 12, y + 7), str(value), fill="#111827", font=label_font)
-    tick_count = 4
-    for tick in range(tick_count + 1):
-        value = math.ceil(max_value * tick / tick_count)
-        x = axis_x + int(plot_width * tick / tick_count)
-        draw.line((x, margin_top + plot_height, x, margin_top + plot_height + 7), fill="#374151", width=1)
-        draw.text((x - 12, margin_top + plot_height + 16), str(value), fill="#4B5563", font=small_font)
-    draw.text((32, height - 38), "Report-only: review candidates manually before deleting files.", fill="#4B5563", font=small_font)
-    image.save(path, format="PNG")
 
 
 def _xlsx_content_types(sheet_count: int) -> str:
@@ -970,7 +864,7 @@ def size_per_second(track: TrackRecord) -> float:
 
 def metadata_completeness(track: TrackRecord) -> int:
     count = 0
-    for value in (track.artist, track.title, track.album, track.bpm, track.musical_key, track.duration):
+    for value in (track.artist, track.title, track.album, track.duration):
         if value not in (None, ""):
             count += 1
     if track.metadata.get("genre") or track.metadata.get("genres"):
@@ -1034,8 +928,6 @@ def pair_payload(pair: PairEvidence) -> dict[str, object]:
         "sonara_similarity": _round_float(pair.sonara_similarity),
         "duration_diff_seconds": _round_float(pair.duration_diff_seconds),
         "duration_diff_ratio": _round_float(pair.duration_diff_ratio),
-        "bpm_diff": _round_float(pair.bpm_diff),
-        "key_match": pair.key_match,
         "blocked_reasons": list(pair.blocked_reasons),
     }
 
@@ -1239,12 +1131,6 @@ def _bpm_distance(left: float | None, right: float | None) -> float | None:
     variants_left = (left / 2.0, left, left * 2.0)
     variants_right = (right / 2.0, right, right * 2.0)
     return min(abs(a - b) for a in variants_left for b in variants_right)
-
-
-def _key_match(left: str | None, right: str | None) -> bool | None:
-    if not left or not right:
-        return None
-    return left.strip().casefold() == right.strip().casefold()
 
 
 def _ordered_pair(left_id: int, right_id: int) -> tuple[int, int]:

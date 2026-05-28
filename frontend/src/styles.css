@@ -307,6 +307,17 @@ h2 {
   color: #8a2e19;
 }
 
+.classifier-action-row {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.classifier-reset-button {
+  min-width: 82px;
+  width: auto;
+}
+
 .secondary-mini {
   align-items: center;
   align-self: start;

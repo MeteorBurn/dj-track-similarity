@@ -65,9 +65,7 @@ class ClassifierJobManager:
         self._store = JobStore(self._copy_status, unknown_label="classifier job")
 
     def create_job(self, *, classifier: str, limit: int | None = None) -> str:
-        tracks = self.db.list_tracks(include_metadata=True)
-        if limit is not None:
-            tracks = tracks[: max(0, int(limit))]
+        tracks = self.db.list_tracks_missing_classifier(classifier, limit=limit)
         job_id = str(uuid.uuid4())
         status = ClassifierJobStatus(
             job_id=job_id,

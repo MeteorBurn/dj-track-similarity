@@ -57,6 +57,29 @@ def test_analyze_classifier_scores_feature_complete_tracks_and_skips_missing_fea
     assert db.classifier_score(missing_id, "break_energy") is None
 
 
+def test_analyze_classifier_skips_tracks_with_existing_classifier_score(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    existing_id = _complete_track(db, tmp_path, "existing.wav")
+    missing_id = _complete_track(db, tmp_path, "missing.wav")
+    db.save_classifier_score(
+        existing_id,
+        classifier="break_energy",
+        score=0.42,
+        label="low",
+        confidence=0.58,
+        probabilities={"broken": 0.42, "straight": 0.58},
+        feature_set="combined",
+        model_id="old-model.joblib",
+    )
+    model_path = _write_model(tmp_path / "model.joblib")
+
+    result = analyze_classifier(db, classifier="break_energy", model_path=model_path)
+
+    assert result["scored"] == 1
+    assert db.classifier_score(existing_id, "break_energy")["score"] == 0.42
+    assert db.classifier_score(missing_id, "break_energy")["score"] == 0.87
+
+
 def test_analyze_classifier_preserves_high_confidence_probability_precision(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_id = _track(db, tmp_path, "complete.wav")
@@ -161,6 +184,27 @@ def test_classifier_jobs_are_scoped_by_classifier_key(tmp_path: Path) -> None:
     assert manager.get(live_job).cancel_requested is False
 
 
+def test_classifier_job_total_counts_only_missing_classifier_scores(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    existing_id = _track(db, tmp_path, "existing.wav")
+    _track(db, tmp_path, "missing.wav")
+    db.save_classifier_score(
+        existing_id,
+        classifier="break_energy",
+        score=0.81,
+        label="high",
+        confidence=0.81,
+        probabilities={"broken": 0.81, "straight": 0.19},
+        feature_set="combined",
+        model_id="model.joblib",
+    )
+    manager = ClassifierJobManager(db)
+
+    job_id = manager.create_job(classifier="break_energy")
+
+    assert manager.get(job_id).total == 1
+
+
 def test_default_classifier_model_path_points_to_profile_classifier_asset() -> None:
     assert default_classifier_model_path("live_instrumentation").as_posix().endswith(
         "models/classifiers/live-instrumentation/model.joblib"
@@ -171,6 +215,14 @@ def _track(db: LibraryDatabase, tmp_path: Path, filename: str, title: str | None
     path = tmp_path / filename
     path.write_bytes(b"audio")
     return db.upsert_track(path=path, size=path.stat().st_size, mtime=1.0, metadata={"title": title or filename})
+
+
+def _complete_track(db: LibraryDatabase, tmp_path: Path, filename: str) -> int:
+    track_id = _track(db, tmp_path, filename)
+    db.save_sonara_features(track_id, {"bpm": {"type": "float", "value": 128.0}}, model_name="sonara-test")
+    db.save_embedding(track_id, np.asarray([1.0], dtype=np.float32), "mert-test", embedding_key="mert")
+    db.save_embedding(track_id, np.asarray([1.0], dtype=np.float32), "maest-test", embedding_key="maest")
+    return track_id
 
 
 def _write_model(path: Path, *, model: object | None = None) -> Path:

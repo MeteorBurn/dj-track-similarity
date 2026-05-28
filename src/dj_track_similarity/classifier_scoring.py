@@ -67,13 +67,11 @@ def analyze_classifier(
     limit: int | None = None,
 ) -> dict[str, object]:
     scorer = ClassifierScorer(db, classifier=classifier, model_path=model_path)
-    tracks = db.list_tracks(include_metadata=True)
+    tracks = db.list_tracks_missing_classifier(classifier, limit=limit)
 
     scored = 0
     skipped = 0
     for track in tracks:
-        if limit is not None and scored >= max(0, int(limit)):
-            break
         result = scorer.score_track(track)
         if result is None:
             skipped += 1

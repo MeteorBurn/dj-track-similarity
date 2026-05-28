@@ -452,14 +452,44 @@ export function App() {
     );
   }
 
-  async function handleClassifierAnalyze(classifier: string, label: string) {
-    appendActivity("info", `${label} classification запущен`);
+  const pairedClassifierKeys = ["break_energy", "live_instrumentation"];
+
+  async function handleClassifierAnalyze() {
+    const available = classifiers.filter((classifier) => pairedClassifierKeys.includes(classifier.classifier_key));
+    if (!available.length) {
+      setNotice({ kind: "error", text: "Нет promoted classifiers для Break Energy / Live Instrumentation" });
+      return;
+    }
+    const limit = analysisLimit > 0 ? analysisLimit : undefined;
+    appendActivity("info", "CLASS analysis запущен", available.map((classifier) => classifier.name).join(" + "));
     setProcessLogKind("analysis");
+    setAnalysisJob(null);
     await run(
-      () => api.analyzeClassifier(classifier, analysisLimit > 0 ? analysisLimit : undefined),
-      (job) => {
+      () => Promise.all(available.map((classifier) => api.analyzeClassifier(classifier.classifier_key, limit))),
+      (jobs) => {
+        const job = jobs[jobs.length - 1];
         setAnalysisJob(job);
-        return `${label} classification поставлен в очередь`;
+        appendActivity("ok", "CLASS jobs созданы", jobs.map((item) => `${item.adapter_name} ${item.job_id.slice(0, 8)} · ${item.total}`).join(" · "));
+        return `CLASS jobs: ${jobs.length}`;
+      }
+    );
+  }
+
+  async function handleResetClassifiers() {
+    const available = classifiers.filter((classifier) => pairedClassifierKeys.includes(classifier.classifier_key));
+    if (!available.length) {
+      setNotice({ kind: "error", text: "Нет classifier scores для сброса" });
+      return;
+    }
+    const accepted = window.confirm("Удалить сохраненные данные Break Energy и Live Instrumentation? Аудиофайлы не трогаем.");
+    if (!accepted) return;
+    appendActivity("warn", "CLASS reset запущен", "Удаляем только classifier scores из SQLite");
+    await run(
+      () => api.resetClassifiers(available.map((classifier) => classifier.classifier_key)),
+      (result) => {
+        void refreshLibrary();
+        appendActivity("ok", "CLASS reset завершен", `scores ${result.scores_deleted}`);
+        return `CLASS: удалено scores ${result.scores_deleted}`;
       }
     );
   }
@@ -890,7 +920,8 @@ export function App() {
           handleTextSearch={() => void handleTextSearch()}
           handleSonaraSearch={() => void handleSonaraSearch()}
           handleMertSearch={() => void handleMertSearch()}
-          handleClassifierAnalyze={(classifier, label) => void handleClassifierAnalyze(classifier, label)}
+          handleClassifierAnalyze={() => void handleClassifierAnalyze()}
+          handleResetClassifiers={() => void handleResetClassifiers()}
           addSeed={addSeed}
           togglePlaylist={togglePlaylist}
           setPreview={setPreview}

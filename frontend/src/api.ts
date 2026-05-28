@@ -153,6 +153,11 @@ export type AnalysisResetResult = {
   embeddings_deleted: number;
 };
 
+export type ClassifierResetResult = {
+  classifiers: string[];
+  scores_deleted: number;
+};
+
 export type DatabaseClearResult = {
   tracks_deleted: number;
   embeddings_deleted: number;
@@ -264,6 +269,11 @@ export const api = {
     request<AnalysisJobStatus>(`/api/classifiers/${classifier}/analyze`, {
       method: "POST",
       body: JSON.stringify({ limit: limit || null })
+    }),
+  resetClassifiers: (classifiers: string[]) =>
+    request<ClassifierResetResult>("/api/classifiers/reset", {
+      method: "POST",
+      body: JSON.stringify({ classifiers })
     }),
   classifierJob: (classifier: string, jobId: string) => request<AnalysisJobStatus>(`/api/classifiers/${classifier}/analyze/jobs/${jobId}`),
   latestClassifierJob: (classifier: string) => request<AnalysisJobStatus | null>(`/api/classifiers/${classifier}/analyze/jobs/latest`),

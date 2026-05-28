@@ -350,6 +350,24 @@ class LibraryDatabase:
             ).fetchall()
         return [self._row_to_track(row, include_metadata=False) for row in rows]
 
+    def list_tracks_missing_classifier(self, classifier: str, *, limit: int | None = None) -> list[Track]:
+        limit_sql, params = _limit_sql(limit)
+        with self.connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT {TRACK_SELECT_FIELDS}
+                FROM tracks t
+                LEFT JOIN track_classifier_scores s
+                  ON s.track_id = t.id AND s.classifier = ?
+                LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
+                WHERE s.track_id IS NULL
+                ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
+                {limit_sql}
+                """,
+                (classifier.strip(), DEFAULT_EMBEDDING_KEY, *params),
+            ).fetchall()
+        return [self._row_to_track(row, include_metadata=True) for row in rows]
+
     def list_track_paths(self) -> list[tuple[int, str]]:
         with self.connect() as connection:
             rows = connection.execute(
@@ -646,6 +664,19 @@ class LibraryDatabase:
             "model_id": str(row["model_id"]),
             "analyzed_at": str(row["analyzed_at"]),
         }
+
+    def reset_classifier_scores(self, classifiers: list[str]) -> dict[str, object]:
+        cleaned = [classifier.strip() for classifier in classifiers if classifier.strip()]
+        if not cleaned:
+            return {"classifiers": [], "scores_deleted": 0}
+        placeholders = ", ".join("?" for _ in cleaned)
+        with self._write_lock, self.connect() as connection:
+            cursor = connection.execute(
+                f"DELETE FROM track_classifier_scores WHERE classifier IN ({placeholders})",
+                tuple(cleaned),
+            )
+            deleted = cursor.rowcount
+        return {"classifiers": cleaned, "scores_deleted": deleted}
 
     def relocate_library(self, old_root: str | Path, new_root: str | Path, *, apply: bool = False) -> dict[str, object]:
         old_root_text = _normalize_root(old_root)

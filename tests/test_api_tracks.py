@@ -223,6 +223,35 @@ def test_classifier_job_endpoints_scope_lookup_to_classifier_key(monkeypatch, tm
     ]
 
 
+def test_classifier_reset_endpoint_deletes_requested_scores_only(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    track_id = _add_track(db, tmp_path, "track.wav", "DJ One", "Track", {})
+    for classifier in ["break_energy", "live_instrumentation", "other_classifier"]:
+        db.save_classifier_score(
+            track_id,
+            classifier=classifier,
+            score=0.9,
+            label="high",
+            confidence=0.9,
+            probabilities={"positive": 0.9, "negative": 0.1},
+            feature_set="combined",
+            model_id="model.joblib",
+        )
+    client = TestClient(create_app(db_path))
+
+    response = client.post(
+        "/api/classifiers/reset",
+        json={"classifiers": ["break_energy", "live_instrumentation"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["scores_deleted"] == 2
+    assert db.classifier_score(track_id, "break_energy") is None
+    assert db.classifier_score(track_id, "live_instrumentation") is None
+    assert db.classifier_score(track_id, "other_classifier") is not None
+
+
 def test_classifiers_endpoint_lists_promoted_model_metadata(tmp_path: Path, monkeypatch) -> None:
     import dj_track_similarity.api as api_module
 

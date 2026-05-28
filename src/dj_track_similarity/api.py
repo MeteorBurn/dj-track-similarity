@@ -75,6 +75,10 @@ class ClassifierAnalyzeRequest(BaseModel):
     limit: int | None = None
 
 
+class ClassifierResetRequest(BaseModel):
+    classifiers: list[str] = Field(default_factory=list)
+
+
 class AnalysisResetRequest(BaseModel):
     adapter: str = Field(pattern="^(sonara|maest|mert|clap)$")
 
@@ -452,6 +456,10 @@ def create_app(
     @app.post("/api/classifiers/{classifier_key}/analyze")
     def analyze_classifier(classifier_key: str, request: ClassifierAnalyzeRequest):
         return state.require_classifier_jobs().start(classifier=classifier_key, limit=request.limit)
+
+    @app.post("/api/classifiers/reset")
+    def reset_classifiers(request: ClassifierResetRequest):
+        return state.require_db().reset_classifier_scores(request.classifiers)
 
     @app.get("/api/classifiers/{classifier_key}/analyze/jobs/latest")
     def latest_classifier_job(classifier_key: str):

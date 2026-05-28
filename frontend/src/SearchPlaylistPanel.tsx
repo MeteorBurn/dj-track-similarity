@@ -63,6 +63,7 @@ export function SearchPlaylistPanel({
   handleSonaraSearch,
   handleMertSearch,
   handleClassifierAnalyze,
+  handleResetClassifiers,
   addSeed,
   togglePlaylist,
   setPreview,
@@ -95,7 +96,8 @@ export function SearchPlaylistPanel({
   handleTextSearch: () => void;
   handleSonaraSearch: () => void;
   handleMertSearch: () => void;
-  handleClassifierAnalyze: (classifier: string, label: string) => void;
+  handleClassifierAnalyze: () => void;
+  handleResetClassifiers: () => void;
   addSeed: (track: Track) => void;
   togglePlaylist: (track: Track) => void;
   setPreview: (track: Track) => void;
@@ -301,12 +303,16 @@ export function SearchPlaylistPanel({
                 <span className="classifier-job-status">failed {classifierJob.failed}</span>
               ) : null}
             </div>
-            {classifiers.map((classifier) => (
-              <button className="primary classifier-analyze-button" disabled={busy} onClick={() => handleClassifierAnalyze(classifier.classifier_key, classifier.name)} key={classifier.classifier_key}>
+            <div className="classifier-action-row">
+              <button className="primary classifier-analyze-button" disabled={busy || classifiers.length === 0} onClick={handleClassifierAnalyze}>
                 <SlidersHorizontal size={17} />
-                Analyze {classifier.name}
+                Analyze Break Energy + Live Instrumentation
               </button>
-            ))}
+              <button className="analysis-reset-button classifier-reset-button" disabled={busy || classifiers.length === 0} onClick={handleResetClassifiers} title="Reset Break Energy + Live Instrumentation" aria-label="Reset Break Energy + Live Instrumentation">
+                Reset
+                <Trash2 size={14} />
+              </button>
+            </div>
           </div>
         )}
         <div className="results-list">

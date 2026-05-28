@@ -241,6 +241,7 @@ class LibraryDatabase:
         *,
         query: str = "",
         preset: str = "all",
+        liked_only: bool = False,
         classifier_min_scores: dict[str, float] | None = None,
         limit: int = 100,
         offset: int = 0,
@@ -249,7 +250,12 @@ class LibraryDatabase:
     ) -> dict[str, object]:
         fields = TRACK_SELECT_FIELDS if include_metadata else TRACK_SLIM_SELECT_FIELDS
         thresholds = dict(classifier_min_scores or {})
-        where_parts, params = _track_filter_sql(query=query, preset=preset, classifier_min_scores=thresholds)
+        where_parts, params = _track_filter_sql(
+            query=query,
+            preset=preset,
+            liked_only=liked_only,
+            classifier_min_scores=thresholds,
+        )
         where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
         order_sql = _track_order_sql(classifier_min_scores=thresholds)
         bounded_limit = max(1, min(500, int(limit)))
@@ -279,13 +285,19 @@ class LibraryDatabase:
         *,
         query: str = "",
         preset: str = "all",
+        liked_only: bool = False,
         classifier_min_scores: dict[str, float] | None = None,
         include_metadata: bool = False,
         embedding_key: str = DEFAULT_EMBEDDING_KEY,
     ) -> dict[str, object]:
         fields = TRACK_SELECT_FIELDS if include_metadata else TRACK_SLIM_SELECT_FIELDS
         thresholds = dict(classifier_min_scores or {})
-        where_parts, params = _track_filter_sql(query=query, preset=preset, classifier_min_scores=thresholds)
+        where_parts, params = _track_filter_sql(
+            query=query,
+            preset=preset,
+            liked_only=liked_only,
+            classifier_min_scores=thresholds,
+        )
         where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
         order_sql = _track_order_sql(classifier_min_scores=thresholds)
         with self.connect() as connection:
@@ -301,6 +313,25 @@ class LibraryDatabase:
             ).fetchall()
         tracks = [self._row_to_track(row, include_metadata=include_metadata) for row in rows]
         return {"items": tracks, "total": len(tracks)}
+
+    def set_track_liked(self, track_id: int, liked: bool) -> Track:
+        with self._write_lock, self.connect() as connection:
+            row = connection.execute("SELECT id FROM tracks WHERE id = ?", (int(track_id),)).fetchone()
+            if row is None:
+                raise KeyError(f"Unknown track id: {track_id}")
+            if liked:
+                connection.execute(
+                    """
+                    INSERT INTO track_likes (track_id)
+                    VALUES (?)
+                    ON CONFLICT(track_id) DO UPDATE SET liked_at = CURRENT_TIMESTAMP
+                    """,
+                    (int(track_id),),
+                )
+            else:
+                connection.execute("DELETE FROM track_likes WHERE track_id = ?", (int(track_id),))
+        self._invalidate_embedding_cache()
+        return self.get_track(track_id)
 
     def list_tracks_missing_sonara(self, *, limit: int | None = None) -> list[Track]:
         limit_sql, params = _limit_sql(limit)
@@ -427,7 +458,8 @@ class LibraryDatabase:
             clap = int(
                 connection.execute("SELECT COUNT(DISTINCT track_id) FROM embeddings WHERE embedding_key = ?", ("clap",)).fetchone()[0]
             )
-        return {"tracks": tracks, "sonara": sonara, "maest": maest, "mert": mert, "clap": clap}
+            liked = int(connection.execute("SELECT COUNT(*) FROM track_likes").fetchone()[0])
+        return {"tracks": tracks, "sonara": sonara, "maest": maest, "mert": mert, "clap": clap, "liked": liked}
 
     def save_embedding(
         self,
@@ -878,6 +910,7 @@ class LibraryDatabase:
             musical_key=row["musical_key"],
             energy=row["energy"],
             duration=row["duration"],
+            liked=bool(row["liked"]) if "liked" in row_keys else False,
             metadata=metadata if include_metadata else None,
             genres=genres,
             genre_scores=genre_scores,
@@ -898,6 +931,7 @@ def _track_filter_sql(
     *,
     query: str,
     preset: str,
+    liked_only: bool = False,
     classifier_min_scores: dict[str, float] | None = None,
 ) -> tuple[list[str], list[object]]:
     where_parts: list[str] = []
@@ -918,6 +952,8 @@ def _track_filter_sql(
         where_parts.append("json_extract(t.metadata_json, '$.maest_syncopated_rhythm') = 1")
     elif preset != "all":
         raise ValueError(f"Unknown library preset: {preset}")
+    if liked_only:
+        where_parts.append("EXISTS (SELECT 1 FROM track_likes tl WHERE tl.track_id = t.id)")
     for classifier, threshold in (classifier_min_scores or {}).items():
         where_parts.append(
             """

@@ -37,11 +37,13 @@ library index and analysis rows from the selected SQLite file.
 | `GET` | `/api/library/summary` | Return counters for tracks and analysis families. |
 | `GET` | `/api/tracks` | Return a paginated/searchable track page. |
 | `GET` | `/api/tracks/{track_id}` | Return one full track payload. |
+| `POST` | `/api/tracks/{track_id}/liked` | Save or remove the local liked flag for one track. |
 | `POST` | `/api/tracks/filtered` | Return filtered track rows for selection workflows. |
 
 `/api/tracks` and `/api/tracks/filtered` accept `preset=syncopated` to filter on
-the stored MAEST syncopated-rhythm flag. They also accept classifier threshold
-maps to filter tracks by stored classifier scores.
+the stored MAEST syncopated-rhythm flag. They accept `liked=true` to show only
+liked tracks, and classifier threshold maps to filter tracks by stored
+classifier scores.
 
 Use `/api/tracks` for paged browsing and `/api/tracks/{track_id}` only when a
 full metadata dialog needs one track. This keeps large libraries responsive.

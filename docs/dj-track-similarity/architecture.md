@@ -35,7 +35,7 @@ The frontend lives in `frontend/src/`.
 - `LibraryPanel.tsx` contains scan, refresh, analysis, reset, and clear
   controls.
 - `TrackPanel.tsx`, `TrackRows.tsx`, and `TrackMetadataDialog.tsx` show library
-  rows and track details.
+  rows, liked-track controls, and track details.
 - `SearchPlaylistPanel.tsx` contains SONARA, MERT, CLAP, and CLASS tabs plus
   export controls.
 

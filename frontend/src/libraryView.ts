@@ -7,3 +7,13 @@ export function appendVisibleTracksToPlaylist(playlist: Track[], visibleTracks: 
   const additions = visibleTracks.filter((track) => !existing.has(track.id));
   return [...playlist, ...additions];
 }
+
+export function toggleLikedTracksFilter(current: boolean) {
+  return !current;
+}
+
+export function likedTracksFilterTitle(likedOnly: boolean, likedCount: number) {
+  return likedOnly
+    ? `Вернуться ко всей библиотеке. Лайкнутых треков: ${likedCount}.`
+    : `Показать только лайкнутые треки. Доступно: ${likedCount}.`;
+}

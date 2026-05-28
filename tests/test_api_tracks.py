@@ -70,6 +70,32 @@ def test_tracks_endpoint_filters_by_query_and_syncopated_preset(tmp_path: Path) 
     assert preset_payload["items"][0]["id"] == breaks_id
 
 
+def test_tracks_endpoint_toggles_and_filters_liked_tracks(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    first_id = _add_track(db, tmp_path, "first.wav", "DJ One", "First", {})
+    second_id = _add_track(db, tmp_path, "second.wav", "DJ Two", "Second", {})
+    client = TestClient(create_app(db_path))
+
+    liked = client.post(f"/api/tracks/{second_id}/liked", json={"liked": True})
+    liked_page = client.get("/api/tracks", params={"liked": "true"})
+    all_page = client.get("/api/tracks")
+    unliked = client.post(f"/api/tracks/{second_id}/liked", json={"liked": False})
+    empty_liked_page = client.get("/api/tracks", params={"liked": "true"})
+
+    assert liked.status_code == 200
+    assert liked.json()["liked"] is True
+    assert liked_page.status_code == 200
+    assert liked_page.json()["total"] == 1
+    assert [item["id"] for item in liked_page.json()["items"]] == [second_id]
+    assert liked_page.json()["items"][0]["liked"] is True
+    assert [item["liked"] for item in all_page.json()["items"]] == [False, True]
+    assert first_id != second_id
+    assert unliked.status_code == 200
+    assert unliked.json()["liked"] is False
+    assert empty_liked_page.json()["items"] == []
+
+
 def test_tracks_endpoint_filters_by_classifier_scores(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
@@ -376,11 +402,12 @@ def test_library_summary_counts_tracks_and_analysis_families(tmp_path: Path) -> 
     db.save_embedding(maest_id, np.asarray([0.0, 1.0], dtype=np.float32), model_name="maest-test", embedding_key="maest")
     db.save_genres(maest_genres_only_id, [{"label": "House", "score": 0.8}], model_name="maest-test")
     db.save_embedding(mert_id, np.asarray([1.0, 0.0], dtype=np.float32), model_name="mert-test", embedding_key="mert")
+    db.set_track_liked(mert_id, True)
 
     response = TestClient(create_app(db_path)).get("/api/library/summary")
 
     assert response.status_code == 200
-    assert response.json() == {"tracks": 4, "sonara": 1, "maest": 1, "mert": 1, "clap": 0}
+    assert response.json() == {"tracks": 4, "sonara": 1, "maest": 1, "mert": 1, "clap": 0, "liked": 1}
 
 
 def test_media_endpoint_transcodes_aiff_preview_to_browser_playable_wav(monkeypatch, tmp_path: Path) -> None:

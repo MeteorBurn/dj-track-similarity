@@ -16,6 +16,7 @@ class Track:
     musical_key: str | None = None
     energy: float | None = None
     duration: float | None = None
+    liked: bool = False
     metadata: dict[str, object] | None = None
     genres: list[str] | None = None
     genre_scores: dict[str, float] | None = None

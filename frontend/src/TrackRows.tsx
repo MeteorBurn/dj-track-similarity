@@ -1,9 +1,10 @@
-import { Minus, Play, Plus, Search, Tags } from "lucide-react";
+import { Heart, Minus, Play, Plus, Search, Tags } from "lucide-react";
 import { Track } from "./api";
 import { displayTrack, trackInfo } from "./trackDisplay";
 
 type TrackActions = {
   onSeed: (track: Track) => void;
+  onToggleLiked?: (track: Track) => void;
   onTogglePlaylist: (track: Track) => void;
   onPreview: (track: Track) => void;
   onDetails: (track: Track) => void;
@@ -14,6 +15,7 @@ export function TrackList({
   seedSet,
   playlistSet,
   onSeed,
+  onToggleLiked,
   onTogglePlaylist,
   onPreview,
   onDetails
@@ -33,6 +35,18 @@ export function TrackList({
               <span>{trackInfo(track)}</span>
             </div>
             <button className="icon-button track-metadata-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={() => onDetails(track)}><Tags size={15} /></button>
+            {onToggleLiked && (
+              <button
+                className={`icon-button track-liked-button ${track.liked ? "active intent-liked" : ""}`}
+                title={track.liked ? "Убрать лайк" : "Лайкнуть"}
+                aria-label={track.liked ? `Убрать лайк с ${displayTrack(track)}` : `Лайкнуть ${displayTrack(track)}`}
+                aria-pressed={track.liked}
+                onClick={() => onToggleLiked(track)}
+                type="button"
+              >
+                <Heart size={15} fill={track.liked ? "currentColor" : "none"} />
+              </button>
+            )}
             <button className={`icon-button track-seed-button ${seedSet.has(track.id) ? "active" : ""}`} title="Seed" aria-label={`Seed ${displayTrack(track)}`} onClick={() => onSeed(track)}><Search size={15} /></button>
             <button
               className={`icon-button track-playlist-toggle-button ${playlistSet.has(track.id) ? "intent-remove active" : "intent-add"}`}

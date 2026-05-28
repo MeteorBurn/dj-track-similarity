@@ -60,6 +60,18 @@ Stores local database-level settings such as the selected music root.
 Use this table for app-level preferences tied to one database rather than one
 track.
 
+### `track_likes`
+
+Stores the local liked-track list:
+
+- `track_id`: references `tracks.id`.
+- `liked_at`: local timestamp for the latest like action.
+
+The primary key is `track_id`, so a track is either liked or not liked. Rows are
+deleted automatically when the related track is removed from the local library
+database. Likes are app state only; they never write to audio files or Mutagen
+tags.
+
 ### `track_classifier_scores`
 
 Stores derived classifier outputs by track and classifier key:

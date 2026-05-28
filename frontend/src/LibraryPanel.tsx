@@ -1,4 +1,4 @@
-import { Cpu, Database, FolderOpen, Gauge, Minus, Play, Plus, RefreshCcw, Search, Square, Tags, Trash2, Wand2 } from "lucide-react";
+import { Cpu, Database, FolderOpen, Gauge, Minus, Play, Plus, RefreshCcw, Save, Search, Square, Tags, Trash2, Wand2 } from "lucide-react";
 import { AnalysisJobStatus, GenreTagJobStatus, ScanStats } from "./api";
 import { ActivityEvent, AnalysisButton, stageIndicatorLabel, UnifiedLog } from "./jobUi";
 
@@ -31,6 +31,7 @@ export function LibraryPanel({
   stageRunning,
   canStartScan,
   hasTracks,
+  maestGenreTrackCount,
   scanWorkers,
   maxScanWorkers,
   adjustScanWorkers,
@@ -53,6 +54,7 @@ export function LibraryPanel({
   onChooseFolder,
   onScan,
   onRefreshTags,
+  onWriteMaestGenres,
   onClearDatabase,
   onSonaraAnalyze,
   onGenreAnalyze,
@@ -67,6 +69,7 @@ export function LibraryPanel({
   stageRunning: boolean;
   canStartScan: boolean;
   hasTracks: boolean;
+  maestGenreTrackCount: number;
   scanWorkers: number;
   maxScanWorkers: number;
   adjustScanWorkers: (delta: number) => void;
@@ -89,6 +92,7 @@ export function LibraryPanel({
   onChooseFolder: () => void;
   onScan: () => void;
   onRefreshTags: () => void;
+  onWriteMaestGenres: () => void;
   onClearDatabase: () => void;
   onSonaraAnalyze: () => void;
   onGenreAnalyze: () => void;
@@ -137,6 +141,16 @@ export function LibraryPanel({
         </button>
         <button className="icon-button refresh-tags-button" disabled={busy || stageRunning || !hasTracks} title={helpText.refreshTags} aria-label="Обновить теги" onClick={onRefreshTags}>
           <RefreshCcw size={15} />
+        </button>
+        <button
+          className="icon-button genre-save-button"
+          title={`${helpText.writeMaestGenres} Доступно: ${maestGenreTrackCount}.`}
+          aria-label="Сохранить MAEST жанры в теги всех доступных треков"
+          disabled={busy || stageRunning || !maestGenreTrackCount}
+          onClick={onWriteMaestGenres}
+          type="button"
+        >
+          <Save size={15} />
         </button>
         <button className="icon-button stop-button database-clear-button" disabled={busy || stageRunning || !hasTracks} title={helpText.clearDatabase} aria-label="Удалить все данные из базы" onClick={onClearDatabase}>
           <Trash2 size={15} />

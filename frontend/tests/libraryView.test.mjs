@@ -82,6 +82,15 @@ test("visible track add skips duplicates and preserves visible order", async () 
   assert.deepEqual(next.map((track) => track.id), [3, 2, 4]);
 });
 
+test("liked library filter toggles and describes liked track count", async () => {
+  const { likedTracksFilterTitle, toggleLikedTracksFilter } = await loadLibraryViewModule();
+
+  assert.equal(toggleLikedTracksFilter(false), true);
+  assert.equal(toggleLikedTracksFilter(true), false);
+  assert.equal(likedTracksFilterTitle(false, 3), "Показать только лайкнутые треки. Доступно: 3.");
+  assert.equal(likedTracksFilterTitle(true, 3), "Вернуться ко всей библиотеке. Лайкнутых треков: 3.");
+});
+
 test("export directory validation rejects blank paths", async () => {
   const { exportDirectoryError } = await loadExportViewModule();
 

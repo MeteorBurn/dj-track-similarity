@@ -1,6 +1,6 @@
-import { AudioWaveform, ListMusic, Plus, Save, Search } from "lucide-react";
+import { AudioWaveform, Heart, ListMusic, Plus, Search } from "lucide-react";
 import { Track } from "./api";
-import type { LibraryPreset } from "./libraryView";
+import { likedTracksFilterTitle, type LibraryPreset } from "./libraryView";
 import { TrackList } from "./TrackRows";
 import { displayTrack } from "./trackDisplay";
 
@@ -9,6 +9,9 @@ export function TrackPanel({
   onQueryChange,
   libraryPreset,
   onToggleLibraryPreset,
+  likedOnly,
+  likedTrackCount,
+  onToggleLikedOnly,
   preview,
   tracks,
   total,
@@ -19,14 +22,12 @@ export function TrackPanel({
   onPreviousPage,
   onNextPage,
   busy,
-  maestGenreTrackCount,
-  writeMaestGenresHelp,
-  onWriteMaestGenres,
   seedSet,
   playlistSet,
   librarySearchHelp,
   onAddVisibleTracks,
   onSeed,
+  onToggleLiked,
   onTogglePlaylist,
   onPreview,
   onDetails
@@ -35,6 +36,9 @@ export function TrackPanel({
   onQueryChange: (value: string) => void;
   libraryPreset: LibraryPreset;
   onToggleLibraryPreset: (preset: LibraryPreset) => void;
+  likedOnly: boolean;
+  likedTrackCount: number;
+  onToggleLikedOnly: () => void;
   preview: Track | null;
   tracks: Track[];
   total: number;
@@ -45,14 +49,12 @@ export function TrackPanel({
   onPreviousPage: () => void;
   onNextPage: () => void;
   busy: boolean;
-  maestGenreTrackCount: number;
-  writeMaestGenresHelp: string;
-  onWriteMaestGenres: () => void;
   seedSet: Set<number>;
   playlistSet: Set<number>;
   librarySearchHelp: string;
   onAddVisibleTracks: () => void;
   onSeed: (track: Track) => void;
+  onToggleLiked: (track: Track) => void;
   onTogglePlaylist: (track: Track) => void;
   onPreview: (track: Track) => void;
   onDetails: (track: Track) => void;
@@ -86,16 +88,6 @@ export function TrackPanel({
       </div>
       <div className="library-view-controls">
         <button
-          className="icon-button genre-save-button"
-          title={`${writeMaestGenresHelp} Доступно: ${maestGenreTrackCount}.`}
-          aria-label="Сохранить MAEST жанры в теги всех доступных треков"
-          disabled={busy || !maestGenreTrackCount}
-          onClick={onWriteMaestGenres}
-          type="button"
-        >
-          <Save size={16} />
-        </button>
-        <button
           className={`icon-button library-preset-button ${libraryPreset === "syncopated" ? "active" : ""}`}
           title="Показать только треки с сохранённым MAEST-флагом syncopated rhythm"
           aria-label="Показать только треки с сохранённым MAEST-флагом syncopated rhythm"
@@ -104,6 +96,17 @@ export function TrackPanel({
           type="button"
         >
           <AudioWaveform size={16} />
+        </button>
+        <button
+          className={`icon-button liked-filter-button ${likedOnly ? "active" : ""}`}
+          title={likedTracksFilterTitle(likedOnly, likedTrackCount)}
+          aria-label="Показать список лайкнутых треков"
+          aria-pressed={likedOnly}
+          disabled={busy || (!likedOnly && likedTrackCount === 0)}
+          onClick={onToggleLikedOnly}
+          type="button"
+        >
+          <Heart size={16} />
         </button>
         <span className="library-page-status">
           {loading ? "Загрузка..." : `${pageStart}-${pageEnd} из ${total}`}
@@ -120,6 +123,7 @@ export function TrackPanel({
         seedSet={seedSet}
         playlistSet={playlistSet}
         onSeed={onSeed}
+        onToggleLiked={onToggleLiked}
         onTogglePlaylist={onTogglePlaylist}
         onPreview={onPreview}
         onDetails={onDetails}

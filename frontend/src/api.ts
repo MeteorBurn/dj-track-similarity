@@ -10,6 +10,7 @@ export type Track = {
   musical_key?: string | null;
   energy?: number | null;
   duration?: number | null;
+  liked: boolean;
   metadata?: Record<string, unknown> | null;
   genres?: string[] | null;
   genre_scores?: Record<string, number> | null;
@@ -55,6 +56,7 @@ export type LibrarySummary = {
   maest: number;
   mert: number;
   clap: number;
+  liked: number;
 };
 
 export type SonaraSearchMode = "balanced" | "vibe" | "sound" | "dj_transition" | "custom";
@@ -193,10 +195,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({})
     }),
-  tracks: (params: { query?: string; preset?: string; classifierMinScores?: Record<string, number>; limit?: number; offset?: number; includeMetadata?: boolean } = {}) => {
+  tracks: (params: { query?: string; preset?: string; liked?: boolean; classifierMinScores?: Record<string, number>; limit?: number; offset?: number; includeMetadata?: boolean } = {}) => {
     const search = new URLSearchParams();
     if (params.query) search.set("q", params.query);
     if (params.preset) search.set("preset", params.preset);
+    if (params.liked) search.set("liked", "true");
     if (params.classifierMinScores && Object.keys(params.classifierMinScores).length) {
       search.set("classifier_min_scores", JSON.stringify(params.classifierMinScores));
     }
@@ -205,16 +208,22 @@ export const api = {
     search.set("include_metadata", params.includeMetadata ? "true" : "false");
     return request<TrackPage>(`/api/tracks?${search.toString()}`);
   },
-  filteredTracks: (payload: { query?: string; preset?: string; classifierMinScores?: Record<string, number> }) =>
+  filteredTracks: (payload: { query?: string; preset?: string; liked?: boolean; classifierMinScores?: Record<string, number> }) =>
     request<{ items: Track[]; total: number }>("/api/tracks/filtered", {
       method: "POST",
       body: JSON.stringify({
         query: payload.query || "",
         preset: payload.preset || "all",
+        liked: payload.liked || false,
         classifier_min_scores: payload.classifierMinScores || {}
       })
     }),
   track: (trackId: number) => request<Track>(`/api/tracks/${trackId}`),
+  setTrackLiked: (trackId: number, liked: boolean) =>
+    request<Track>(`/api/tracks/${trackId}/liked`, {
+      method: "POST",
+      body: JSON.stringify({ liked })
+    }),
   librarySummary: () => request<LibrarySummary>("/api/library/summary"),
   resetAnalysis: (adapter: "sonara" | "maest" | "mert" | "clap") =>
     request<AnalysisResetResult>("/api/analysis/reset", {

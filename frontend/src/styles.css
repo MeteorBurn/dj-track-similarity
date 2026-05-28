@@ -435,6 +435,11 @@ h2 {
   color: #116858;
 }
 
+.scan-action-row .genre-save-button {
+  min-height: 34px;
+  width: 42px;
+}
+
 .scan-action-row .database-clear-button {
   width: 42px;
 }
@@ -484,6 +489,27 @@ h2 {
   background: #ffd69b;
   border-color: #d9821f;
   color: #713200;
+}
+
+.liked-filter-button,
+.track-liked-button {
+  background: #fff4f6;
+  border-color: #e5a8b5;
+  color: #9a3048;
+}
+
+.liked-filter-button:hover:not(:disabled),
+.track-liked-button:hover:not(:disabled) {
+  background: #ffe4ea;
+  border-color: #cc6277;
+  color: #83243a;
+}
+
+.liked-filter-button.active,
+.track-liked-button.active {
+  background: #ffdce4;
+  border-color: #c84e68;
+  color: #7f2035;
 }
 
 .genre-save-button {
@@ -973,7 +999,7 @@ h2 {
 }
 
 .track-row {
-  grid-template-columns: 34px minmax(0, 1fr) 34px 34px 34px;
+  grid-template-columns: 34px minmax(0, 1fr) 34px 34px 34px 34px;
 }
 
 .result-row {

@@ -21,6 +21,10 @@ Choose the tab by intent:
 The library browser also has a `syncopated` preset filter. It selects tracks
 whose stored MAEST metadata has `maest_syncopated_rhythm = true` and can be
 combined with normal library text search and the add-filtered-tracks workflow.
+Each library row also has a heart button for a local liked-track list. The
+heart filter in the library controls shows only liked tracks in the same
+paginated browser, and it can be combined with text search, the syncopated
+preset, classifier score filters, and add-filtered-tracks.
 
 The CLASS tab contains classifier controls discovered from promoted
 `models/classifiers/*/model.json` metadata. Each promoted classifier can be

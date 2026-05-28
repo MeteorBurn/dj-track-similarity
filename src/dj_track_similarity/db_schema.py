@@ -7,7 +7,8 @@ CURRENT_SCHEMA_VERSION = 2
 SQLITE_BUSY_TIMEOUT_SECONDS = 30
 
 TRACK_BASE_FIELDS = """
-t.id, t.path, t.size, t.mtime, t.artist, t.title, t.album, t.bpm, t.musical_key, t.energy, t.duration
+t.id, t.path, t.size, t.mtime, t.artist, t.title, t.album, t.bpm, t.musical_key, t.energy, t.duration,
+EXISTS(SELECT 1 FROM track_likes tl WHERE tl.track_id = t.id) AS liked
 """
 TRACK_ANALYSIS_FLAG_FIELDS = """
 json_type(t.metadata_json, '$.sonara_features') IS NOT NULL AS has_sonara,
@@ -137,6 +138,12 @@ def _create_current_schema(connection: sqlite3.Connection) -> None:
             FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE track_likes (
+            track_id INTEGER PRIMARY KEY,
+            liked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
+        );
+
         PRAGMA user_version = {CURRENT_SCHEMA_VERSION};
         """
     )
@@ -192,6 +199,12 @@ def _create_current_indexes_and_triggers(connection: sqlite3.Connection) -> None
 
         CREATE INDEX IF NOT EXISTS idx_classifier_scores_lookup
         ON track_classifier_scores(classifier, score DESC, track_id);
+
+        CREATE TABLE IF NOT EXISTS track_likes (
+            track_id INTEGER PRIMARY KEY,
+            liked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
+        );
 
         CREATE TRIGGER IF NOT EXISTS tracks_metadata_json_insert_valid
         BEFORE INSERT ON tracks

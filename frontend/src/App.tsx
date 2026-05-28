@@ -3,7 +3,7 @@ import { AnalysisJobStatus, api, GenreTagJobStatus, LibrarySummary, PromotedClas
 import { exportDirectoryError } from "./exportView";
 import { ActivityEvent, analysisJobRequest, cancelAnalysisJob, scanSummary } from "./jobUi";
 import { LibraryPanel } from "./LibraryPanel";
-import { appendVisibleTracksToPlaylist, LibraryPreset } from "./libraryView";
+import { appendVisibleTracksToPlaylist, LibraryPreset, toggleLikedTracksFilter } from "./libraryView";
 import { SearchPlaylistPanel } from "./SearchPlaylistPanel";
 import { TrackMetadataDialog } from "./TrackMetadataDialog";
 import { TrackPanel } from "./TrackPanel";
@@ -16,7 +16,7 @@ type ResetAdapter = "sonara" | "maest" | "mert" | "clap";
 
 const defaultNotice: Notice = { kind: "idle", text: "Готово к работе" };
 const libraryPageSize = 200;
-const emptySummary: LibrarySummary = { tracks: 0, sonara: 0, maest: 0, mert: 0, clap: 0 };
+const emptySummary: LibrarySummary = { tracks: 0, sonara: 0, maest: 0, mert: 0, clap: 0, liked: 0 };
 
 const helpText = {
   databasePath: "SQLite база проекта. Формат: путь к .sqlite файлу. Выбери существующую базу или укажи новый .sqlite файл для создания.",
@@ -70,6 +70,7 @@ export function App() {
   const [librarySummary, setLibrarySummary] = useState<LibrarySummary>(emptySummary);
   const [query, setQuery] = useState("");
   const [libraryPreset, setLibraryPreset] = useState<LibraryPreset>("all");
+  const [likedOnly, setLikedOnly] = useState(false);
   const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
   const [classifierMinScores, setClassifierMinScores] = useState<Record<string, number>>({});
   const [databasePath, setDatabasePath] = useState<string | null>(null);
@@ -142,7 +143,7 @@ export function App() {
       void refreshLibrary(0);
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [query, libraryPreset, classifierMinScores, databasePath]);
+  }, [query, libraryPreset, likedOnly, classifierMinScores, databasePath]);
 
   useEffect(() => {
     if (!scanJob?.job_id || !["queued", "running"].includes(scanJob.state || "")) return;
@@ -325,6 +326,7 @@ export function App() {
         api.tracks({
           query,
           preset: libraryPreset,
+          liked: likedOnly,
           classifierMinScores: activeClassifierMinScores(classifierMinScores),
           limit: libraryPageSize,
           offset: nextOffset
@@ -398,6 +400,10 @@ export function App() {
     setLibraryPreset((current) => (current === preset ? "all" : preset));
   }
 
+  function toggleLikedOnly() {
+    setLikedOnly((current) => toggleLikedTracksFilter(current));
+  }
+
   async function addVisibleTracksToPlaylist() {
     if (!databasePath || libraryLoading) return;
     setBusy(true);
@@ -405,6 +411,7 @@ export function App() {
       const filtered = await api.filteredTracks({
         query,
         preset: libraryPreset,
+        liked: likedOnly,
         classifierMinScores: activeClassifierMinScores(classifierMinScores)
       });
       const matchingTracks = filtered.items;
@@ -805,6 +812,34 @@ export function App() {
     });
   }
 
+  async function handleToggleTrackLiked(track: Track) {
+    const nextLiked = !track.liked;
+    try {
+      const updated = await api.setTrackLiked(track.id, nextLiked);
+      setTracks((current) => {
+        if (likedOnly && !updated.liked) return current.filter((item) => item.id !== updated.id);
+        return current.map((item) => (item.id === updated.id ? { ...item, liked: updated.liked } : item));
+      });
+      setPlaylist((current) => current.map((item) => (item.id === updated.id ? { ...item, liked: updated.liked } : item)));
+      setResults((current) => current.map((item) => (
+        item.track.id === updated.id ? { ...item, track: { ...item.track, liked: updated.liked } } : item
+      )));
+      setSeedTrackMap((current) => (
+        current[updated.id] ? { ...current, [updated.id]: { ...current[updated.id], liked: updated.liked } } : current
+      ));
+      setLibrarySummary((current) => ({
+        ...current,
+        liked: Math.max(0, current.liked + (updated.liked ? 1 : -1))
+      }));
+      setLibraryTotal((current) => (likedOnly && !updated.liked ? Math.max(0, current - 1) : current));
+      appendActivity(updated.liked ? "ok" : "warn", updated.liked ? "Трек лайкнут" : "Лайк снят", displayTrack(updated));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setNotice({ kind: "error", text: message });
+      appendActivity("error", "Не удалось изменить лайк", message);
+    }
+  }
+
   function adjustAnalysisBatchSize(delta: number) {
     setAnalysisBatchSize((current) => Math.min(maxAnalysisBatchSize, Math.max(1, current + delta)));
   }
@@ -824,6 +859,7 @@ export function App() {
             {" | maest "}{librarySummary.maest}
             {" | mert "}{librarySummary.mert}
             {" | clap "}{librarySummary.clap}
+            {" | liked "}{librarySummary.liked}
           </span>
         </div>
         <div className="topbar-actions">
@@ -841,6 +877,7 @@ export function App() {
           stageRunning={stageRunning}
           canStartScan={canStartScan}
           hasTracks={hasTracks}
+          maestGenreTrackCount={librarySummary.maest}
           scanWorkers={scanWorkers}
           maxScanWorkers={maxScanWorkers}
           adjustScanWorkers={adjustScanWorkers}
@@ -863,6 +900,7 @@ export function App() {
           onChooseFolder={() => void handleChooseFolder()}
           onScan={() => void handleScan()}
           onRefreshTags={() => void handleRefreshTags()}
+          onWriteMaestGenres={() => void handleGenreTagsApply()}
           onClearDatabase={() => void handleClearDatabase()}
           onSonaraAnalyze={() => void handleSonaraAnalyze()}
           onGenreAnalyze={() => void handleGenreAnalyze()}
@@ -875,6 +913,9 @@ export function App() {
           onQueryChange={setQuery}
           libraryPreset={libraryPreset}
           onToggleLibraryPreset={toggleLibraryPreset}
+          likedOnly={likedOnly}
+          likedTrackCount={librarySummary.liked}
+          onToggleLikedOnly={toggleLikedOnly}
           preview={preview}
           tracks={tracks}
           total={libraryTotal}
@@ -885,14 +926,12 @@ export function App() {
           onPreviousPage={() => changeLibraryPage(-1)}
           onNextPage={() => changeLibraryPage(1)}
           busy={busy || stageRunning || !databasePath}
-          maestGenreTrackCount={librarySummary.maest}
-          writeMaestGenresHelp={helpText.writeMaestGenres}
-          onWriteMaestGenres={() => void handleGenreTagsApply()}
           seedSet={seedSet}
           playlistSet={playlistSet}
           librarySearchHelp={helpText.librarySearch}
           onAddVisibleTracks={() => void addVisibleTracksToPlaylist()}
           onSeed={addSeed}
+          onToggleLiked={(track) => void handleToggleTrackLiked(track)}
           onTogglePlaylist={togglePlaylist}
           onPreview={setPreview}
           onDetails={(track) => void handleTrackDetails(track)}

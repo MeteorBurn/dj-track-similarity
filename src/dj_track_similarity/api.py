@@ -136,7 +136,12 @@ class TextSearchRequest(BaseModel):
 class FilteredTracksRequest(BaseModel):
     query: str = ""
     preset: str = Field(default="all", pattern="^(all|syncopated)$")
+    liked: bool = False
     classifier_min_scores: dict[str, float] = Field(default_factory=dict)
+
+
+class TrackLikedRequest(BaseModel):
+    liked: bool
 
 
 class ExportRequest(BaseModel):
@@ -395,6 +400,7 @@ def create_app(
     def tracks(
         q: str = "",
         preset: str = Query(default="all", pattern="^(all|syncopated)$"),
+        liked: bool = False,
         classifier_min_scores: str | None = Query(default=None),
         limit: int = Query(default=100, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
@@ -403,11 +409,19 @@ def create_app(
         return state.require_db().list_tracks_page(
             query=q,
             preset=preset,
+            liked_only=liked,
             classifier_min_scores=_query_classifier_min_scores(classifier_min_scores),
             limit=limit,
             offset=offset,
             include_metadata=include_metadata,
         )
+
+    @app.post("/api/tracks/{track_id}/liked")
+    def set_track_liked(track_id: int, request: TrackLikedRequest):
+        try:
+            return state.require_db().set_track_liked(track_id, request.liked)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
 
     @app.get("/api/tracks/{track_id}")
     def track(track_id: int):
@@ -421,6 +435,7 @@ def create_app(
         return state.require_db().list_filtered_tracks(
             query=request.query,
             preset=request.preset,
+            liked_only=request.liked,
             classifier_min_scores=_valid_classifier_min_scores(request.classifier_min_scores),
         )
 

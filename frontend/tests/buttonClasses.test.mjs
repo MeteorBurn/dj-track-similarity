@@ -68,3 +68,17 @@ test("every button has a semantic class name", () => {
   }
   assert.deepEqual(failures, []);
 });
+
+test("genre save button is placed between refresh tags and database clear", () => {
+  const source = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
+
+  const refreshIndex = source.indexOf("refresh-tags-button");
+  const genreSaveIndex = source.indexOf("genre-save-button");
+  const clearIndex = source.indexOf("database-clear-button");
+
+  assert.notEqual(refreshIndex, -1);
+  assert.notEqual(genreSaveIndex, -1);
+  assert.notEqual(clearIndex, -1);
+  assert.ok(refreshIndex < genreSaveIndex);
+  assert.ok(genreSaveIndex < clearIndex);
+});

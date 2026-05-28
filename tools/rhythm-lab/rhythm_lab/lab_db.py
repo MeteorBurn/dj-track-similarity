@@ -104,9 +104,6 @@ class RhythmLabDatabase:
 
                 CREATE INDEX IF NOT EXISTS idx_classifier_predictions_lookup
                 ON classifier_predictions(classifier_key, label, confidence);
-
-                CREATE INDEX IF NOT EXISTS idx_classifier_track_likes_lookup
-                ON classifier_track_likes(classifier_key, liked_at);
                 """
             )
 
@@ -277,7 +274,6 @@ class RhythmLabDatabase:
                 "classifier_labels",
                 "classifier_predictions",
                 "classifier_training_checkpoints",
-                "classifier_track_likes",
                 "classifier_profile_labels",
             ):
                 connection.execute(
@@ -444,46 +440,6 @@ class RhythmLabDatabase:
                 (self.classifier_key,),
             ).fetchall()
         return {str(row["label"]): int(row["count"]) for row in rows}
-
-    def set_like(self, source_track_id: int, liked: bool) -> bool:
-        track_id = int(source_track_id)
-        with self.connect() as connection:
-            if liked:
-                connection.execute(
-                    """
-                    INSERT INTO classifier_track_likes(classifier_key, source_track_id)
-                    VALUES (?, ?)
-                    ON CONFLICT(classifier_key, source_track_id) DO UPDATE SET liked_at = CURRENT_TIMESTAMP
-                    """,
-                    (self.classifier_key, track_id),
-                )
-                return True
-            connection.execute(
-                "DELETE FROM classifier_track_likes WHERE classifier_key = ? AND source_track_id = ?",
-                (self.classifier_key, track_id),
-            )
-            return False
-
-    def liked_track_ids(self) -> set[int]:
-        with self.connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT source_track_id
-                FROM classifier_track_likes
-                WHERE classifier_key = ?
-                """,
-                (self.classifier_key,),
-            ).fetchall()
-        return {int(row["source_track_id"]) for row in rows}
-
-    def like_count(self) -> int:
-        with self.connect() as connection:
-            return int(
-                connection.execute(
-                    "SELECT COUNT(*) FROM classifier_track_likes WHERE classifier_key = ?",
-                    (self.classifier_key,),
-                ).fetchone()[0]
-            )
 
     def training_labels(self) -> dict[int, str]:
         training_keys = self.get_profile().training_label_keys
@@ -719,17 +675,6 @@ def _ensure_classifier_tables(connection: sqlite3.Connection) -> None:
     connection.execute(_classifier_labels_table_sql("classifier_labels"))
     connection.execute(_classifier_predictions_table_sql("classifier_predictions"))
     connection.execute(_classifier_training_checkpoints_table_sql("classifier_training_checkpoints"))
-    connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS classifier_track_likes (
-            classifier_key TEXT NOT NULL,
-            source_track_id INTEGER NOT NULL,
-            liked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY(classifier_key, source_track_id),
-            FOREIGN KEY(classifier_key) REFERENCES classifier_profiles(classifier_key) ON DELETE CASCADE
-        )
-        """
-    )
 
 
 def _ensure_dynamic_classifier_tables(connection: sqlite3.Connection) -> None:

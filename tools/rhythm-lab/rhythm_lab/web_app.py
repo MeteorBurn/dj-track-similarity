@@ -33,10 +33,6 @@ class LabelRequest(BaseModel):
     note: str | None = None
 
 
-class LikeRequest(BaseModel):
-    liked: bool
-
-
 class SourceSwitchRequest(BaseModel):
     path: str
 
@@ -251,7 +247,6 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
             "profile": _profile_payload(profile),
             "tracks": 0,
             "labels": scoped.label_counts(),
-            "likes": scoped.like_count(),
             "sonara": 0,
             "mert": 0,
             "maest": 0,
@@ -273,7 +268,6 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
         q: str = "",
         syncopated: str = Query(default="all", pattern="^(all|yes|no)$"),
         label: str = "all",
-        liked: str = Query(default="all", pattern="^(all|yes)$"),
         limit: int = Query(default=100, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
     ):
@@ -290,22 +284,11 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
                 query=q,
                 syncopated=syncopated,
                 label=label,
-                liked=liked,
                 limit=limit,
                 offset=offset,
             )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
-
-    @app.post("/api/profiles/{profile_key}/tracks/{track_id}/like")
-    def set_profile_like(profile_key: str, track_id: int, request: LikeRequest):
-        profile_or_404(profile_key)
-        try:
-            source_state.require_source().get_track(track_id)
-            liked = profile_db(profile_key).set_like(track_id, request.liked)
-        except (KeyError, ValueError) as error:
-            raise HTTPException(status_code=400, detail=str(error)) from error
-        return {"track_id": track_id, "liked": liked}
 
     @app.post("/api/profiles/{profile_key}/tracks/{track_id}/label")
     def set_profile_label(profile_key: str, track_id: int, request: LabelRequest):
@@ -326,7 +309,6 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
         predicted: str = "all",
         probability_focus: str = Query(default="positive_highest", pattern="^(positive_highest|negative_highest|balanced)$"),
         min_positive: float = Query(default=0.0, ge=0.0, le=1.0),
-        liked: str = Query(default="all", pattern="^(all|yes)$"),
         limit: int = Query(default=100, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
     ):
@@ -340,14 +322,10 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
             return {"items": [], "total": 0, "limit": limit, "offset": offset}
         scoped = profile_db(profile.classifier_key)
         labels_by_track = scoped.labels_by_track()
-        liked_track_ids = scoped.liked_track_ids()
         checkpoint_updated_at = scoped.training_checkpoint()["updated_at"]
-        rows: list[tuple[dict[str, object], str | None, float, float, bool, bool]] = []
+        rows: list[tuple[dict[str, object], str | None, float, float, bool]] = []
         for row in latest_predictions_by_track(scoped.predictions()):
             source_track_id = int(row["source_track_id"])
-            is_liked = source_track_id in liked_track_ids
-            if liked == "yes" and not is_liked:
-                continue
             manual_label = labels_by_track.get(source_track_id)
             manual_label_value = manual_label.label if manual_label is not None else None
             positive_probability = _prediction_probability(row, profile.positive_label)
@@ -368,17 +346,16 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
                     positive_probability,
                     negative_probability,
                     _label_was_trained(manual_label, profile=profile, checkpoint_updated_at=checkpoint_updated_at),
-                    is_liked,
                 )
             )
         common_filters_active = bool(q.strip()) or syncopated != "all"
         source_tracks = (
-            source.tracks_by_ids(int(row["source_track_id"]) for row, _, _, _, _, _ in rows)
+            source.tracks_by_ids(int(row["source_track_id"]) for row, _, _, _, _ in rows)
             if common_filters_active
             else {}
         )
         items = []
-        for row, manual_label_value, positive_probability, negative_probability, label_trained, is_liked in rows:
+        for row, manual_label_value, positive_probability, negative_probability, label_trained in rows:
             track = source_tracks.get(int(row["source_track_id"]))
             if common_filters_active and (
                 track is None or not _candidate_matches_common_filters(track, query=q, syncopated=syncopated)
@@ -391,7 +368,6 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
                     positive_probability,
                     negative_probability,
                     label_trained,
-                    is_liked,
                     profile=profile,
                 )
             )
@@ -674,7 +650,6 @@ def _profile_prediction_item(
     positive_probability: float,
     negative_probability: float,
     label_trained: bool,
-    liked: bool,
     *,
     profile: ClassifierProfile,
 ) -> dict[str, object]:
@@ -686,7 +661,6 @@ def _profile_prediction_item(
         "title": row["title"],
         "label": manual_label,
         "label_trained": label_trained,
-        "liked": liked,
         "predicted_label": row["label"],
         "confidence": float(row["confidence"]),
         "profile_type": profile.profile_type,

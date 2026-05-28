@@ -77,7 +77,6 @@ classifier_profile_labels
 classifier_labels
 classifier_predictions
 classifier_training_checkpoints
-classifier_track_likes
 ```
 
 Rows for different profiles are isolated by `classifier_key`, so labels,
@@ -132,7 +131,7 @@ The UI includes:
 - per-profile train-refresh threshold editing in Profile Settings
 
 Archiving a profile hides it from the normal active profile list but keeps its
-labels, predictions, likes, and training checkpoints in the lab database.
+labels, predictions, and training checkpoints in the lab database.
 Permanent deletion is intentionally exposed through the CLI instead of the UI.
 
 Keyboard shortcuts on a focused row use the active profile's label order:
@@ -234,7 +233,7 @@ artifacts and are ignored by git.
 
 Delete is a destructive operation. It permanently removes the profile row and
 all profile-scoped lab data from `rhythm_lab.sqlite`: profile labels, manual
-track labels, likes, saved predictions, and training checkpoints. It does not
+track labels, saved predictions, and training checkpoints. It does not
 delete source audio files, source database rows, or training/model artifact
 files on disk.
 

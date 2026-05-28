@@ -436,17 +436,6 @@ main {
   background: #b4232e;
 }
 
-.liked-indicator {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  color: #f0b429;
-  font-size: 15px;
-  line-height: 1;
-}
-
 .track-path {
   overflow-wrap: anywhere;
 }
@@ -579,17 +568,6 @@ main {
 .actions button.active {
   border-color: var(--green);
   background: rgba(85, 216, 138, 0.16);
-}
-
-.actions .like-button {
-  min-width: 36px;
-  color: var(--muted);
-}
-
-.actions .like-button.active {
-  border-color: #d99a16;
-  background: rgba(240, 180, 41, 0.18);
-  color: #ffd166;
 }
 
 audio {

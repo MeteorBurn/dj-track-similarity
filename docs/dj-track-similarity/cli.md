@@ -1,6 +1,8 @@
 # CLI Reference
 
-This page documents the `dj-sim` command line interface.
+This page documents the `dj-sim` command line interface. Use the CLI for
+repeatable local workflows, batch analysis, quick diagnostics, and operations
+that are easier to review in a terminal than in the web UI.
 
 ## CLI Reference
 
@@ -18,6 +20,20 @@ dj-track-similarity.sqlite
 ```
 
 in the current working directory.
+
+## Choosing a Command
+
+| Goal | Command |
+| --- | --- |
+| Add or refresh tracks from a folder | `dj-sim scan` |
+| Start the local web UI/API server | `dj-sim serve` |
+| Build MERT or CLAP embeddings | `dj-sim analyze` |
+| Build explainable Sonara features | `dj-sim analyze-sonara` |
+| Predict MAEST genres and MAEST embeddings | `dj-sim analyze-genres` |
+| Score a promoted Rhythm Lab classifier | `dj-sim analyze-classifier` |
+| Search with a CLAP text prompt | `dj-sim text-search` |
+| Update stored paths after moving a library | `dj-sim relocate-library` |
+| Check Python, PyTorch, and CUDA setup | `dj-sim doctor` |
 
 ### `dj-sim`
 
@@ -83,6 +99,9 @@ added=<n> updated=<n> unchanged=<n> skipped=<n>
 `scan` reads audio metadata and writes SQLite only. It does not modify audio
 files.
 
+Use this first for a new database, and rerun it after adding files to the music
+folder. Existing analysis is kept for unchanged tracks.
+
 ### `dj-sim serve`
 
 Start the local FastAPI server and serve the frontend.
@@ -119,6 +138,10 @@ There is also a Windows helper:
 ```powershell
 scripts\run_server.cmd
 ```
+
+Use `serve` when you want the browser workflow: paged browsing, playback
+preview, analysis controls, search tabs, classifier filters, exports, and
+metadata review.
 
 ### `dj-sim analyze`
 
@@ -163,6 +186,10 @@ state=<state> total=<n> processed=<n> analyzed=<n> failed=<n> embedding_key=<key
 `auto` chooses CUDA when PyTorch sees a GPU, otherwise CPU. Explicit `cuda`
 fails if CUDA is unavailable.
 
+Use `--adapter mert` for seed-track similarity. Use `--adapter clap` when you
+want CLAP text search. If you only need explainable feature search, run
+`analyze-sonara` instead.
+
 ### `dj-sim analyze-sonara`
 
 Extract missing Sonara playlist features.
@@ -195,6 +222,10 @@ state=<state> total=<n> processed=<n> analyzed=<n> failed=<n> batch_size=<n>
 ```
 
 Sonara `batch-size` means parallel track workers.
+
+Use this when you want the SONARA search tab, visible feature groups, or
+library-level fields such as analyzed BPM, key, energy, danceability, and
+loudness.
 
 ### `dj-sim analyze-genres`
 
@@ -231,6 +262,10 @@ state=<state> total=<n> processed=<n> analyzed=<n> failed=<n> embedding_key=maes
 
 MAEST analysis writes SQLite genre metadata and a MAEST embedding vector.
 
+Use this before reviewing generated genres, using the `syncopated` preset, or
+training/scoring combined classifier profiles. It does not write genre tags to
+audio files by itself.
+
 ### `dj-sim analyze-classifier`
 
 Score tracks with a promoted classifier profile.
@@ -263,6 +298,9 @@ classifier=live_instrumentation scored=<n> skipped=<n> model=<path>
 
 The command reads existing SONARA, MERT, and MAEST data. Tracks missing any
 required input are skipped. Scores are upserted into `track_classifier_scores`.
+
+Use this after promoting a model from Rhythm Lab. If many tracks are skipped,
+run Sonara, MERT, and MAEST analysis for those tracks first.
 
 ### `dj-sim text-search`
 
@@ -301,6 +339,10 @@ Output rows:
 ```
 
 CLAP audio embeddings must exist before text search can return useful results.
+
+Use this for exploratory searches where a text description is faster than
+choosing seed tracks. Concrete prompts with mood, rhythm, instrumentation, and
+vocal presence tend to be more useful than a single broad genre.
 
 ### `dj-sim relocate-library`
 
@@ -346,6 +388,10 @@ dry_run=<true|false> tracks_matched=<n> tracks_updated=<n> missing_files=<n> con
 Conflicts and missing target files are printed per track. Apply mode rejects
 missing files and conflicts instead of partially updating paths.
 
+Use this only when the same audio files moved to a new root folder and you want
+to keep existing track IDs, analysis, and classifier scores. Always review the
+dry-run output before adding `--apply`.
+
 ### `dj-sim doctor`
 
 Print Python, PyTorch, and CUDA runtime diagnostics.
@@ -376,3 +422,6 @@ install=torch torchaudio --index-url <url>
 ```
 
 Use this when `auto`, `cpu`, or `cuda` behavior is unclear.
+
+Run this before long GPU analysis if you changed Python packages, CUDA wheels,
+drivers, or FFmpeg/TorchCodec setup.

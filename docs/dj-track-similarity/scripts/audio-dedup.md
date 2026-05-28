@@ -11,6 +11,10 @@ Report-only duplicate-audio candidate helper. It reads an existing
 path root, and writes JSON, CSV, and text-log reports. It never deletes audio
 files and never mutates the database.
 
+Use this script when you want evidence for possible duplicate audio before
+cleaning a library manually. It is intentionally conservative: it produces
+reports, not delete commands.
+
 Usage:
 
 ```text
@@ -40,3 +44,6 @@ Outputs are named `audio_dedup_report_<timestamp>.json`, `.csv`, and `.log`.
 The default report directory is ignored by git. Review every candidate manually;
 the report includes suggested keepers and candidate-delete evidence, but the
 script intentionally performs no delete action.
+
+Start with the `safe` preset for normal library maintenance. Use `balanced` or
+`aggressive` only when you are comfortable reviewing more false positives.

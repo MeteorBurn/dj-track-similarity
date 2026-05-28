@@ -1,10 +1,18 @@
 # Web API Reference
 
-This page documents the FastAPI endpoints used by the frontend.
+This page documents the FastAPI endpoints used by the frontend. Most users do
+not need to call these endpoints directly; use this page when debugging the web
+UI, integrating a local script, or checking which backend action a UI button
+uses.
 
 ## Web API Reference
 
 The frontend uses these endpoints through `frontend/src/api.ts`.
+
+The API is local-first. Endpoints that scan, analyze, search, preview, export,
+reset, clear, or relocate work against the selected SQLite database and local
+filesystem paths. Audio-file writes happen only through the explicit MAEST
+genre tag endpoints.
 
 ### Database
 
@@ -14,6 +22,10 @@ The frontend uses these endpoints through `frontend/src/api.ts`.
 | `POST` | `/api/database/switch` | Switch to a database path. |
 | `POST` | `/api/database/dialog` | Open a local database chooser dialog. |
 | `POST` | `/api/database/clear` | Clear local SQLite tracks, embeddings, and dependent classifier scores. |
+
+Use these endpoints when selecting the active library database. `clear` is a
+database operation, not an audio-file delete operation, but it removes the
+library index and analysis rows from the selected SQLite file.
 
 ### Library
 
@@ -30,6 +42,9 @@ The frontend uses these endpoints through `frontend/src/api.ts`.
 `/api/tracks` and `/api/tracks/filtered` accept `preset=syncopated` to filter on
 the stored MAEST syncopated-rhythm flag. They also accept classifier threshold
 maps to filter tracks by stored classifier scores.
+
+Use `/api/tracks` for paged browsing and `/api/tracks/{track_id}` only when a
+full metadata dialog needs one track. This keeps large libraries responsive.
 
 ### Jobs
 
@@ -54,6 +69,10 @@ maps to filter tracks by stored classifier scores.
 | `GET` | `/api/tags/genres/jobs/{job_id}` | Return one genre tag write job. |
 | `POST` | `/api/tags/genres/jobs/{job_id}/cancel` | Request genre tag write cancellation. |
 
+Job endpoints let the frontend poll long-running work and request cancellation.
+Cancellation is cooperative: a job may finish the current track or batch before
+it stops.
+
 ### Analysis and Search
 
 | Method | Path | Purpose |
@@ -66,6 +85,10 @@ maps to filter tracks by stored classifier scores.
 | `POST` | `/api/search` | Search in MERT embedding space. |
 | `POST` | `/api/search/sonara` | Search with Sonara features. |
 | `POST` | `/api/search/text` | Search CLAP audio vectors from text. |
+
+Use the analysis endpoints before search endpoints when a library has not been
+processed yet. Empty search results often mean the required Sonara features,
+MERT embeddings, or CLAP embeddings are missing for the candidate tracks.
 
 ### Export, Tags, Dialogs, Media
 
@@ -80,3 +103,7 @@ maps to filter tracks by stored classifier scores.
 The frontend preview player uses `/media/{track_id}` and starts playback after a
 preview button click. AIFF/AIF responses are transcoded to temporary WAV files
 for browser compatibility and scrubbing support without rewriting source audio.
+
+Use `/api/export` for playlist/report files. Use `/api/tags/genres/jobs` for
+large genre writes so progress and cancellation are available; reserve
+`/api/tags/genres/apply` for immediate smaller writes.

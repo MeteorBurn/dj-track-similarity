@@ -1,6 +1,8 @@
 # Project Overview
 
-This page covers what `dj-track-similarity` is, what it does, and which safety boundaries apply to normal app workflows.
+This page covers what `dj-track-similarity` is, what it does, and which safety
+boundaries apply to normal app workflows. Read it first if you are deciding
+whether the project fits your local DJ library workflow.
 
 ## Project Overview
 
@@ -18,7 +20,13 @@ The application has two main surfaces:
 - A Python backend and CLI installed as `dj-sim`.
 - A React/Vite frontend served by the FastAPI backend.
 
-The current workflow is:
+Use the CLI when you want repeatable commands, batch work, or quick checks. Use
+the web UI when you want to browse, listen, compare candidates, tune search
+controls, export a temporary set, or review metadata before taking action.
+
+## Typical Workflow
+
+The usual path through the app is:
 
 1. Choose or create a SQLite database.
 2. Scan a music folder.
@@ -28,6 +36,17 @@ The current workflow is:
 6. Assemble a temporary set and export it as M3U or CSV.
 7. Optionally score promoted classifier profiles.
 8. Optionally write MAEST genres into standard audio genre tags.
+
+You do not need to run every analysis family. A practical starting point is:
+
+- Run `scan` first so the library exists in SQLite.
+- Run Sonara when you want fast explainable similarity and library feature
+  filters.
+- Run MAEST when you want generated genre labels or the `syncopated` preset.
+- Run MERT when you want seed-track audio similarity from embeddings.
+- Run CLAP when you want text prompts such as "dark hypnotic techno".
+- Run promoted classifiers only after Sonara, MERT, and MAEST data exist for
+  the tracks you want to score.
 
 ## Core Features
 

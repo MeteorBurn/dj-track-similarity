@@ -1,10 +1,17 @@
 # Database and Stored Data
 
-This page documents the current SQLite schema and the metadata/analysis payloads stored in SQLite.
+This page documents the current SQLite schema and the metadata/analysis payloads
+stored in SQLite. Use it when you want to understand what the app saves, what a
+reset removes, or why one search mode needs a particular analysis pass first.
 
 ## SQLite Specification
 
 The current schema version is `2`.
+
+The database is local user state. Normal scan, analysis, search, reset, clear,
+and relocation workflows modify SQLite records only; they do not rewrite audio
+files. The explicit exception is the separate MAEST genre tag write workflow,
+which is documented in [Search and Tag Writing](search-and-tags.md).
 
 ### `tracks`
 
@@ -23,6 +30,11 @@ Stores one row per indexed audio file:
 `metadata_json` must be valid JSON. The schema has triggers to reject invalid
 JSON on insert or update.
 
+Use this table to answer "what tracks are in the library?" and "what metadata
+or analysis summaries does the UI show for a row?" The `path` is the link back
+to the local audio file; relocation updates that stored path only when the same
+files moved to a new root.
+
 ### `embeddings`
 
 Stores model vectors by track and embedding space:
@@ -37,9 +49,16 @@ Stores model vectors by track and embedding space:
 The primary key is `(track_id, embedding_key)`, so the same track can have MERT,
 CLAP, and MAEST vectors without mixing those spaces.
 
+Use this table to check whether an embedding-backed workflow has enough data:
+MERT search needs `mert`, CLAP text search needs `clap`, and promoted combined
+classifiers need `mert` plus `maest` alongside Sonara features.
+
 ### `library_settings`
 
 Stores local database-level settings such as the selected music root.
+
+Use this table for app-level preferences tied to one database rather than one
+track.
 
 ### `track_classifier_scores`
 
@@ -59,6 +78,10 @@ Stores derived classifier outputs by track and classifier key:
 
 The primary key is `(track_id, classifier)`, so rerunning a classifier updates
 the score for that track instead of appending historical rows.
+
+Use this table when a CLASS filter does not behave as expected. Missing rows
+usually mean the promoted classifier has not scored that track yet, or the track
+was missing required Sonara, MERT, or MAEST inputs during scoring.
 
 ## Metadata and Analysis Data
 
@@ -90,3 +113,7 @@ objects such as ID3 timestamps are converted to strings.
 
 `RefreshTags` replaces only this Mutagen metadata subset. It preserves stored
 paths and model analysis data.
+
+Analysis outputs live beside those file tags instead of replacing them. This is
+why a track can show both file metadata such as `genre` or `bpm` and computed
+values such as Sonara BPM, MAEST genres, embeddings, or classifier scores.

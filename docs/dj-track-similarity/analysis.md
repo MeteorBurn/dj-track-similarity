@@ -1,8 +1,20 @@
 # Analysis Families
 
-This page documents the analysis outputs used by the main app. For the separate classifier labeling and training tool, see [Rhythm Lab](rhythm-lab.md).
+This page documents the analysis outputs used by the main app. Use it to decide
+which analysis job to run before spending CPU or GPU time. For the separate
+classifier labeling and training tool, see [Rhythm Lab](rhythm-lab.md).
 
 ## Analysis Families
+
+Each family writes different SQLite data and supports a different workflow:
+
+| Family | What it does | Use when |
+| --- | --- | --- |
+| Sonara | Extracts explainable playlist features such as tempo, energy, loudness, rhythm, and tonal summaries. | You want fast seed search, visible feature controls, or library filters. |
+| MAEST | Predicts genre labels and stores MAEST embeddings. | You want generated genre tags, genre review, the `syncopated` preset, or classifier inputs. |
+| MERT | Builds audio embeddings for seed-track similarity. | You want "find tracks close to this track" behavior from an audio model. |
+| CLAP | Builds music audio embeddings and text vectors. | You want text-to-audio search from descriptive prompts. |
+| Promoted classifiers | Scores tracks with a local model trained in Rhythm Lab. | You want a reusable custom signal such as vocal presence, live instrumentation, or another profile-specific label. |
 
 ### Sonara
 
@@ -27,6 +39,9 @@ raw Sonara key data and does not derive Camelot notation.
 
 The CLI and UI call Sonara with `batch_size` as parallel track workers, not as a
 neural-network inference batch.
+
+Run Sonara early if you are unsure where to start. It is the most transparent
+analysis family because the UI can show and mix its feature groups directly.
 
 ### MAEST
 
@@ -54,6 +69,10 @@ action can later write stored MAEST labels into standard audio genre tags.
 The `maest_syncopated_rhythm` flag is derived from saved MAEST genres and is
 used by the library `syncopated` preset.
 
+Run MAEST before using genre writing or the `syncopated` preset. Review labels
+before writing them to files; analysis is database-only, but tag writing is an
+explicit audio-file mutation.
+
 ### MERT
 
 MERT builds audio-to-audio embeddings under embedding key `mert`.
@@ -66,6 +85,10 @@ m-a-p/MERT-v1-95M
 
 MERT search uses only MERT vectors. It does not mix with Sonara features or CLAP
 vectors.
+
+Run MERT when seed-track similarity matters more than explainable controls.
+Search results depend on existing MERT embeddings, so newly scanned tracks must
+be analyzed before they appear in useful MERT results.
 
 ### CLAP
 
@@ -80,6 +103,10 @@ lukewys/laion_clap/music_audioset_epoch_15_esc_90.14.pt
 
 Text search requires CLAP audio embeddings produced by the same CLAP checkpoint.
 
+Run CLAP when you want to search by mood, instrumentation, energy, or other
+descriptive language. Clear concrete prompts usually work better than single
+genre words.
+
 ### Promoted Classifiers
 
 Promoted classifiers are local classifier profiles, not audio-analysis models
@@ -92,6 +119,10 @@ outputs:
 
 Tracks missing any of those inputs are skipped by the classifier job. Scores are
 stored in `track_classifier_scores` under the profile classifier key.
+
+Use promoted classifiers after you have trained and promoted a profile in
+Rhythm Lab. They are best for personal library concepts that are difficult to
+capture with a generic genre label or one similarity seed.
 
 Stable model locations use the profile artifact prefix:
 

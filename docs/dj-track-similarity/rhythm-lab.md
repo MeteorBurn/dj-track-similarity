@@ -5,6 +5,11 @@ Rhythm Lab is an auxiliary classifier labeling and training UI for
 project SQLite database read-only, and stores only lab labels, predictions, and
 training checkpoints in its own writable SQLite file.
 
+Use Rhythm Lab when generic similarity or genre labels are not enough and you
+want a personal reusable classifier, for example "has live instrumentation",
+"vocal presence", "peak-time tool", or any other library-specific concept you
+can label consistently.
+
 Rhythm Lab is profile-based. A classifier profile defines:
 
 - a stable `classifier_key`
@@ -31,6 +36,11 @@ or your judgment changes, select another label or Clear in the UI; the old value
 is replaced and only the current label is used by the next training run.
 This applies to both binary and multiclass profiles: one track can have only one
 current label for the active profile.
+
+A good workflow is: create one focused profile, label clear examples first,
+train a few benchmark models, inspect predictions, add more labels for mistakes
+or uncertain areas, then promote the best combined model for use in the main
+app.
 
 ## Storage Layout
 
@@ -97,6 +107,9 @@ has a source database path field, file picker, and Load database button. The
 selected source DB is opened read-only. No classifier profile is selected at
 startup; choose an existing profile or create one before loading tracks.
 
+Use the UI for labeling and review. Use the CLI for training, prediction export,
+promotion, and permanent profile deletion.
+
 ## Labeling UI
 
 The UI includes:
@@ -130,6 +143,10 @@ Keyboard shortcuts on a focused row use the active profile's label order:
 AIFF/AIF previews are transcoded to temporary WAV files for browser playback.
 This is read-only for the source audio file and lets the browser load a
 seekable codec with duration and scrubbing support.
+
+Label only the current profile's concept. Mixing several concepts into one
+profile makes the model harder to interpret and usually produces less useful
+CLASS filters in the main app.
 
 ## Training
 

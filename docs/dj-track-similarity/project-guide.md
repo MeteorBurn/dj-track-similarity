@@ -1,8 +1,9 @@
 # dj-track-similarity Documentation
 
 This is the documentation index for `dj-track-similarity`. The short project
-introduction remains in [README.md](../../README.md); the pages below hold the
-operational user and developer reference.
+introduction remains in the
+[repository README](https://github.com/MeteorBurn/dj-track-similarity/blob/main/README.md);
+the pages below hold the operational user and developer reference.
 
 ## Main Project
 

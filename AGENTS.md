@@ -26,6 +26,12 @@ behavior changes, update the matching page in `docs/dj-track-similarity/` in the
 same change. Do not update `docs/superpowers/` as project documentation; it is
 agent workflow material and should stay separate.
 
+When any Markdown source under `docs/dj-track-similarity/` changes, rebuild the
+static HTML documentation before finishing by running `npm run build` from
+`docs/dj-track-similarity/`. The generated HTML lives in
+`docs/dj-track-similarity/site/` and is served from the main UI documentation
+button at `/docs/`.
+
 The project is a Python backend/CLI plus a React/Vite frontend:
 
 - `src/dj_track_similarity/`: database, scanning, analysis, classifiers,
@@ -178,6 +184,8 @@ scripts\run_server.cmd
 cd frontend
 npm run build
 npm run dev
+cd docs\dj-track-similarity
+npm run build
 ```
 
 Useful focused CLI examples:

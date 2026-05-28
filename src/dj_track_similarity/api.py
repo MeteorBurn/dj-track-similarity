@@ -655,6 +655,14 @@ def create_app(
         return FileResponse(path)
 
     package_path = Path(__file__).resolve()
+    docs_candidates = [
+        package_path.parents[2] / "docs" / "dj-track-similarity" / "site",
+        package_path.parent.parent / "docs" / "dj-track-similarity" / "site",
+    ]
+    docs_dir = next((candidate for candidate in docs_candidates if candidate.exists()), None)
+    if docs_dir is not None:
+        app.mount("/docs", StaticFiles(directory=docs_dir, html=True), name="docs")
+
     static_candidates = [
         package_path.parents[2] / "frontend" / "dist",
         package_path.parent.parent / "frontend" / "dist",

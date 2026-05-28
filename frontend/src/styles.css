@@ -18,11 +18,13 @@ body {
 }
 
 button,
-input {
+input,
+a.docs-button {
   font: inherit;
 }
 
-button {
+button,
+a.docs-button {
   align-items: center;
   background: #f8f9f4;
   border: 1px solid #c9cec2;
@@ -37,6 +39,11 @@ button {
   white-space: nowrap;
 }
 
+a.docs-button {
+  min-width: 0;
+  text-decoration: none;
+}
+
 button.icon-button {
   aspect-ratio: 1;
   min-height: 34px;
@@ -44,7 +51,8 @@ button.icon-button {
   width: 34px;
 }
 
-button:hover:not(:disabled) {
+button:hover:not(:disabled),
+a.docs-button:hover {
   border-color: #4f9a87;
   color: #116858;
 }
@@ -142,6 +150,17 @@ h2 {
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   margin-top: 8px;
+}
+
+.topbar-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+
+.docs-button {
+  flex: 0 0 auto;
 }
 
 .notice {
@@ -1576,6 +1595,15 @@ meter {
   .topbar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .topbar-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .docs-button {
+    width: 100%;
   }
 
   .topbar h1 {

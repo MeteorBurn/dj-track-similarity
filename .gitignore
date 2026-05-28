@@ -43,6 +43,8 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 frontend/.vite-temp/
+docs/dj-track-similarity/node_modules/
+docs/dj-track-similarity/.vitepress/cache/
 
 # Environment
 .env

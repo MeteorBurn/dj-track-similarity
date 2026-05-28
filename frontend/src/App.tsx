@@ -1,3 +1,4 @@
+import { BookOpen } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AnalysisJobStatus, api, GenreTagJobStatus, LibrarySummary, PromotedClassifier, ScanStats, SearchResult, Track } from "./api";
 import { exportDirectoryError } from "./exportView";
@@ -822,7 +823,13 @@ export function App() {
             {" | clap "}{librarySummary.clap}
           </span>
         </div>
-        <div className={`notice ${notice.kind}`}>{notice.text}</div>
+        <div className="topbar-actions">
+          <a className="docs-button" href="/docs/" target="_blank" rel="noreferrer" title="Открыть HTML документацию" aria-label="Открыть HTML документацию">
+            <BookOpen size={16} />
+            Документация
+          </a>
+          <div className={`notice ${notice.kind}`}>{notice.text}</div>
+        </div>
       </header>
 
       <section className="workspace">

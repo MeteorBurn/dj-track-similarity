@@ -41,6 +41,18 @@ cd frontend
 npm run build
 ```
 
+Build the static HTML documentation:
+
+```powershell
+cd docs\dj-track-similarity
+npm install
+npm run build
+```
+
+The documentation HTML is generated into `docs/dj-track-similarity/site/`.
+After the backend starts, the main UI opens it from the top-bar documentation
+button at `/docs/`.
+
 Run the frontend development server:
 
 ```powershell

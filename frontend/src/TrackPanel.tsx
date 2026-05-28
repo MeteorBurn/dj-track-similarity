@@ -1,6 +1,6 @@
-import { AudioWaveform, Heart, ListMusic, Plus, Search } from "lucide-react";
+import { ArrowDownUp, AudioWaveform, Heart, ListMusic, Plus, Search } from "lucide-react";
 import { Track } from "./api";
-import { likedTracksFilterTitle, type LibraryPreset } from "./libraryView";
+import { likedTracksFilterTitle, type LibraryPreset, type LibrarySortDirection } from "./libraryView";
 import { TrackList } from "./TrackRows";
 import { displayTrack } from "./trackDisplay";
 
@@ -12,6 +12,8 @@ export function TrackPanel({
   likedOnly,
   likedTrackCount,
   onToggleLikedOnly,
+  librarySortDirection,
+  onToggleLibrarySortDirection,
   preview,
   tracks,
   total,
@@ -39,6 +41,8 @@ export function TrackPanel({
   likedOnly: boolean;
   likedTrackCount: number;
   onToggleLikedOnly: () => void;
+  librarySortDirection: LibrarySortDirection;
+  onToggleLibrarySortDirection: () => void;
   preview: Track | null;
   tracks: Track[];
   total: number;
@@ -64,12 +68,24 @@ export function TrackPanel({
   const addVisibleTitle = total === 0
     ? "Нет отфильтрованных треков для добавления"
     : "Добавить все отфильтрованные треки в сет с учетом поиска, preset-фильтра и всех страниц. Уже добавленные треки будут пропущены.";
+  const reverseSortActive = librarySortDirection === "reverse";
   return (
     <section className="panel track-panel">
       <div className="panel-title">
         <ListMusic size={18} />
         <h2>2. Библиотека и прослушивание</h2>
         <div className="panel-title-actions track-panel-actions">
+          <button
+            className={`icon-button library-sort-direction-button ${reverseSortActive ? "active" : ""}`}
+            title={reverseSortActive ? "Показать текущую страницу библиотеки в прямом порядке" : "Показать текущую страницу библиотеки в обратном порядке"}
+            aria-label="Переключить порядок треков на текущей странице библиотеки"
+            aria-pressed={reverseSortActive}
+            disabled={loading || tracks.length < 2}
+            onClick={onToggleLibrarySortDirection}
+            type="button"
+          >
+            <ArrowDownUp size={16} />
+          </button>
           <button
             className="icon-button intent-add add-visible-tracks-button"
             title={addVisibleTitle}

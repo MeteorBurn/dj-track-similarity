@@ -91,6 +91,22 @@ test("liked library filter toggles and describes liked track count", async () =>
   assert.equal(likedTracksFilterTitle(true, 3), "Вернуться ко всей библиотеке. Лайкнутых треков: 3.");
 });
 
+test("library track order can be reversed without mutating the loaded page", async () => {
+  const { orderedLibraryTracks } = await loadLibraryViewModule();
+  const tracks = [
+    { id: 1, title: "First", path: "D:/Music/first.wav" },
+    { id: 2, title: "Second", path: "D:/Music/second.wav" },
+    { id: 3, title: "Third", path: "D:/Music/third.wav" }
+  ];
+
+  const forward = orderedLibraryTracks(tracks, "forward");
+  const reverse = orderedLibraryTracks(tracks, "reverse");
+
+  assert.deepEqual(forward.map((track) => track.id), [1, 2, 3]);
+  assert.deepEqual(reverse.map((track) => track.id), [3, 2, 1]);
+  assert.deepEqual(tracks.map((track) => track.id), [1, 2, 3]);
+});
+
 test("export directory validation rejects blank paths", async () => {
   const { exportDirectoryError } = await loadExportViewModule();
 

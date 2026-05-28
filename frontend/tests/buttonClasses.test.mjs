@@ -124,3 +124,12 @@ test("scan action row reserves one line for all scan controls", () => {
   assert.equal(controlCount, 4);
   assert.equal(declaredIconColumns, controlCount - 1);
 });
+
+test("destructive actions use the in-app confirmation dialog", () => {
+  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+
+  assert.doesNotMatch(appSource, /window\.confirm/);
+  assert.match(appSource, /ConfirmationDialog/);
+  assert.match(appSource, />Да</);
+  assert.match(appSource, />Нет</);
+});

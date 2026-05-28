@@ -56,6 +56,40 @@ button {
   z-index: 1000;
 }
 
+.confirmation-backdrop {
+  align-items: center;
+  background: rgba(20, 24, 21, 0.48);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 16px;
+  position: fixed;
+  z-index: 1200;
+}
+
+.confirmation-dialog {
+  background: #ffffff;
+  border: 1px solid #c9cec2;
+  border-radius: 8px;
+  box-shadow: 0 18px 48px rgba(28, 34, 29, 0.28);
+  max-width: min(440px, calc(100vw - 32px));
+  padding: 18px;
+  width: 100%;
+}
+
+.confirmation-dialog p {
+  color: #4a5048;
+  line-height: 1.4;
+  margin: 10px 0 0;
+}
+
+.confirmation-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
 button.icon-button {
   aspect-ratio: 1;
   min-height: 34px;

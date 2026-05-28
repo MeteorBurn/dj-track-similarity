@@ -1,6 +1,7 @@
 import { Dispatch, Fragment, SetStateAction, useEffect, useState } from "react";
 import { Download, FolderOpen, ListMusic, Play, Search, SlidersHorizontal, Tags, Trash2, X } from "lucide-react";
 import { AnalysisJobStatus, PromotedClassifier, SearchResult, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
+import type { ConfirmationRequest } from "./confirmation";
 import { playlistPage } from "./playlistView";
 import { ResultRow } from "./TrackRows";
 import { displayTrack, trackInfo } from "./trackDisplay";
@@ -64,6 +65,7 @@ export function SearchPlaylistPanel({
   handleMertSearch,
   handleClassifierAnalyze,
   handleResetClassifiers,
+  onConfirmAction,
   addSeed,
   togglePlaylist,
   setPreview,
@@ -98,6 +100,7 @@ export function SearchPlaylistPanel({
   handleMertSearch: () => void;
   handleClassifierAnalyze: () => void;
   handleResetClassifiers: () => void;
+  onConfirmAction: (request: ConfirmationRequest) => void;
   addSeed: (track: Track) => void;
   togglePlaylist: (track: Track) => void;
   setPreview: (track: Track) => void;
@@ -139,11 +142,17 @@ export function SearchPlaylistPanel({
   }
 
   function resetCustomSonara() {
-    setFilters((current) => ({
-      ...current,
-      sonaraMixer: { timbre: 1, rhythm: 1, dynamics: 0.8, harmonic: 0.8, tempo: 0.35 },
-      sonaraModifiers: { energy: 0, valence: 0, acousticness: 0, brightness: 0, rhythm_density: 0, dynamic_range: 0, loudness: 0 }
-    }));
+    onConfirmAction({
+      title: "Сбросить SONARA controls?",
+      message: "Сбросить SONARA mixer и modifiers к значениям по умолчанию?",
+      onConfirm: () => {
+        setFilters((current) => ({
+          ...current,
+          sonaraMixer: { timbre: 1, rhythm: 1, dynamics: 0.8, harmonic: 0.8, tempo: 0.35 },
+          sonaraModifiers: { energy: 0, valence: 0, acousticness: 0, brightness: 0, rhythm_density: 0, dynamic_range: 0, loudness: 0 }
+        }));
+      }
+    });
   }
 
   return (

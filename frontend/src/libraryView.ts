@@ -1,6 +1,7 @@
 import type { Track } from "./api";
 
 export type LibraryPreset = "all" | "syncopated";
+export type LibrarySortDirection = "forward" | "reverse";
 
 export function appendVisibleTracksToPlaylist(playlist: Track[], visibleTracks: Track[]) {
   const existing = new Set(playlist.map((track) => track.id));
@@ -10,6 +11,10 @@ export function appendVisibleTracksToPlaylist(playlist: Track[], visibleTracks: 
 
 export function toggleLikedTracksFilter(current: boolean) {
   return !current;
+}
+
+export function orderedLibraryTracks(tracks: Track[], direction: LibrarySortDirection) {
+  return direction === "reverse" ? [...tracks].reverse() : tracks;
 }
 
 export function likedTracksFilterTitle(likedOnly: boolean, likedCount: number) {

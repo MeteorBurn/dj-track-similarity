@@ -24,7 +24,9 @@ combined with normal library text search and the add-filtered-tracks workflow.
 Each library row also has a heart button for a local liked-track list. The
 heart filter in the library controls shows only liked tracks in the same
 paginated browser, and it can be combined with text search, the syncopated
-preset, classifier score filters, and add-filtered-tracks.
+preset, classifier score filters, and add-filtered-tracks. The library header
+has a sort-direction button that reverses the currently loaded page in the
+browser without changing the backend query or stored database order.
 
 The CLASS tab contains classifier controls discovered from promoted
 `models/classifiers/*/model.json` metadata. Each promoted classifier can be

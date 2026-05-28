@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AnalysisJobStatus, api, GenreTagJobStatus, LibrarySummary, PromotedClassifier, ScanStats, SearchResult, Track } from "./api";
+import type { ConfirmationRequest } from "./confirmation";
 import { exportDirectoryError } from "./exportView";
 import { ActivityEvent, analysisJobRequest, cancelAnalysisJob, scanSummary } from "./jobUi";
 import { LibraryPanel } from "./LibraryPanel";
-import { appendVisibleTracksToPlaylist, LibraryPreset, toggleLikedTracksFilter } from "./libraryView";
+import { appendVisibleTracksToPlaylist, LibraryPreset, LibrarySortDirection, orderedLibraryTracks, toggleLikedTracksFilter } from "./libraryView";
 import { SearchPlaylistPanel } from "./SearchPlaylistPanel";
 import { TrackMetadataDialog } from "./TrackMetadataDialog";
 import { TrackPanel } from "./TrackPanel";
@@ -72,6 +73,7 @@ export function App() {
   const [librarySummary, setLibrarySummary] = useState<LibrarySummary>(emptySummary);
   const [query, setQuery] = useState("");
   const [libraryPreset, setLibraryPreset] = useState<LibraryPreset>("all");
+  const [librarySortDirection, setLibrarySortDirection] = useState<LibrarySortDirection>("forward");
   const [likedOnly, setLikedOnly] = useState(false);
   const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
   const [classifierMinScores, setClassifierMinScores] = useState<Record<string, number>>({});
@@ -95,6 +97,7 @@ export function App() {
   const [analysisBatchSize, setAnalysisBatchSize] = useState(4);
   const [analysisDevice, setAnalysisDevice] = useState<DeviceMode>("auto");
   const [notice, setNotice] = useState<Notice>(defaultNotice);
+  const [confirmation, setConfirmation] = useState<ConfirmationRequest | null>(null);
   const [activityLog, setActivityLog] = useState<ActivityEvent[]>([
     { id: 1, time: Date.now(), level: "info", message: "Интерфейс загружен" }
   ]);
@@ -123,6 +126,7 @@ export function App() {
 
   const seedSet = useMemo(() => new Set(seeds), [seeds]);
   const playlistSet = useMemo(() => new Set(playlist.map((track) => track.id)), [playlist]);
+  const orderedTracks = useMemo(() => orderedLibraryTracks(tracks, librarySortDirection), [tracks, librarySortDirection]);
   const seedTracks = useMemo(() => seeds.map((id) => seedTrackMap[id]).filter(Boolean) as Track[], [seeds, seedTrackMap]);
   const scanRunning = Boolean(scanJob?.state && ["queued", "running"].includes(scanJob.state));
   const analysisRunning = Boolean(analysisJob && ["queued", "running"].includes(analysisJob.state));
@@ -314,6 +318,17 @@ export function App() {
     ].slice(0, 80));
   }
 
+  function requestConfirmation(request: ConfirmationRequest) {
+    setConfirmation(request);
+  }
+
+  function confirmPendingAction() {
+    const pending = confirmation;
+    if (!pending) return;
+    setConfirmation(null);
+    void pending.onConfirm();
+  }
+
   async function refreshLibrary(nextOffset = libraryOffset, databaseSelected = Boolean(databasePath)) {
     if (!databaseSelected) {
       setTracks([]);
@@ -406,6 +421,10 @@ export function App() {
     setLikedOnly((current) => toggleLikedTracksFilter(current));
   }
 
+  function toggleLibrarySortDirection() {
+    setLibrarySortDirection((current) => (current === "forward" ? "reverse" : "forward"));
+  }
+
   async function addVisibleTracksToPlaylist() {
     if (!databasePath || libraryLoading) return;
     setBusy(true);
@@ -490,8 +509,6 @@ export function App() {
       setNotice({ kind: "error", text: "Нет classifier scores для сброса" });
       return;
     }
-    const accepted = window.confirm("Удалить сохраненные данные Break Energy и Live Instrumentation? Аудиофайлы не трогаем.");
-    if (!accepted) return;
     appendActivity("warn", "CLASS reset запущен", "Удаляем только classifier scores из SQLite");
     await run(
       () => api.resetClassifiers(available.map((classifier) => classifier.classifier_key)),
@@ -646,10 +663,6 @@ export function App() {
   }
 
   async function handleClearDatabase() {
-    const accepted = window.confirm(
-      "Удалить все данные из SQLite базы: треки, анализы, эмбеддинги и текущий сет? Аудиофайлы на диске останутся."
-    );
-    if (!accepted) return;
     appendActivity("warn", "Очистка базы запущена", "Удаляем только данные SQLite, аудиофайлы не трогаем");
     await run(
       () => api.clearDatabase(),
@@ -687,8 +700,6 @@ export function App() {
 
   async function handleResetAnalysis(adapter: ResetAdapter) {
     const label = adapter.toUpperCase();
-    const accepted = window.confirm(`Сбросить результаты ${label}? Аудиофайлы не трогаем, остальные алгоритмы останутся.`);
-    if (!accepted) return;
     appendActivity("warn", `${label} reset запущен`, "Точечная очистка результатов анализа");
     await run(
       () => api.resetAnalysis(adapter),
@@ -902,11 +913,19 @@ export function App() {
           onScan={() => void handleScan()}
           onRefreshTags={() => void handleRefreshTags()}
           onWriteMaestGenres={() => void handleGenreTagsApply()}
-          onClearDatabase={() => void handleClearDatabase()}
+          onClearDatabase={() => requestConfirmation({
+            title: "Очистить базу?",
+            message: "Удалить все данные из SQLite базы: треки, анализы, эмбеддинги и текущий сет? Аудиофайлы на диске останутся.",
+            onConfirm: () => handleClearDatabase()
+          })}
           onSonaraAnalyze={() => void handleSonaraAnalyze()}
           onGenreAnalyze={() => void handleGenreAnalyze()}
           onAnalyze={(adapter) => void handleAnalyze(adapter)}
-          onResetAnalysis={(adapter) => void handleResetAnalysis(adapter)}
+          onResetAnalysis={(adapter) => requestConfirmation({
+            title: `Сбросить ${adapter.toUpperCase()}?`,
+            message: `Сбросить результаты ${adapter.toUpperCase()}? Аудиофайлы не трогаем, остальные алгоритмы останутся.`,
+            onConfirm: () => handleResetAnalysis(adapter)
+          })}
         />
 
         <TrackPanel
@@ -917,8 +936,10 @@ export function App() {
           likedOnly={likedOnly}
           likedTrackCount={librarySummary.liked}
           onToggleLikedOnly={toggleLikedOnly}
+          librarySortDirection={librarySortDirection}
+          onToggleLibrarySortDirection={toggleLibrarySortDirection}
           preview={preview}
-          tracks={tracks}
+          tracks={orderedTracks}
           total={libraryTotal}
           offset={libraryOffset}
           loading={libraryLoading}
@@ -967,7 +988,12 @@ export function App() {
           handleSonaraSearch={() => void handleSonaraSearch()}
           handleMertSearch={() => void handleMertSearch()}
           handleClassifierAnalyze={() => void handleClassifierAnalyze()}
-          handleResetClassifiers={() => void handleResetClassifiers()}
+          handleResetClassifiers={() => requestConfirmation({
+            title: "Сбросить CLASS?",
+            message: "Удалить сохраненные данные Break Energy и Live Instrumentation? Аудиофайлы не трогаем.",
+            onConfirm: () => handleResetClassifiers()
+          })}
+          onConfirmAction={requestConfirmation}
           addSeed={addSeed}
           togglePlaylist={togglePlaylist}
           setPreview={setPreview}
@@ -977,8 +1003,38 @@ export function App() {
         />
       </section>
       {metadataTrack && <TrackMetadataDialog track={metadataTrack} onClose={() => setMetadataTrack(null)} />}
+      {confirmation && (
+        <ConfirmationDialog
+          request={confirmation}
+          onConfirm={confirmPendingAction}
+          onCancel={() => setConfirmation(null)}
+        />
+      )}
       <TooltipLayer tooltip={tooltip} />
     </main>
+  );
+}
+
+function ConfirmationDialog({
+  request,
+  onConfirm,
+  onCancel
+}: {
+  request: ConfirmationRequest;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="confirmation-backdrop" role="presentation">
+      <div className="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="confirmation-title">
+        <h2 id="confirmation-title">{request.title}</h2>
+        <p>{request.message}</p>
+        <div className="confirmation-actions">
+          <button className="secondary-mini confirmation-cancel-button" title="Отменить действие" type="button" onClick={onCancel}>Нет</button>
+          <button className="primary confirmation-confirm-button" title="Подтвердить действие" type="button" onClick={onConfirm}>Да</button>
+        </div>
+      </div>
+    </div>
   );
 }
 

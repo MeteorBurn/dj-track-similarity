@@ -176,6 +176,53 @@ def test_classifier_analyze_endpoint_uses_classifier_key(monkeypatch, tmp_path: 
     assert seen == {"classifier": "live_instrumentation", "limit": 7}
 
 
+def test_classifier_job_endpoints_scope_lookup_to_classifier_key(monkeypatch, tmp_path: Path) -> None:
+    from dj_track_similarity.classifier_jobs import ClassifierJobManager, ClassifierJobStatus
+
+    db_path = tmp_path / "library.sqlite"
+    LibraryDatabase(db_path)
+    calls: list[tuple[str, str | None, str | None]] = []
+
+    def status(job_id: str = "job-1") -> ClassifierJobStatus:
+        return ClassifierJobStatus(
+            job_id=job_id,
+            state="queued",
+            adapter_name="live_instrumentation",
+            embedding_key="live_instrumentation",
+            total=0,
+        )
+
+    def fake_latest(self, *, classifier: str | None = None):
+        calls.append(("latest", classifier, None))
+        return status()
+
+    def fake_get(self, job_id: str, *, classifier: str | None = None):
+        calls.append(("get", classifier, job_id))
+        return status(job_id)
+
+    def fake_cancel(self, job_id: str, *, classifier: str | None = None):
+        calls.append(("cancel", classifier, job_id))
+        return status(job_id)
+
+    monkeypatch.setattr(ClassifierJobManager, "latest", fake_latest)
+    monkeypatch.setattr(ClassifierJobManager, "get", fake_get)
+    monkeypatch.setattr(ClassifierJobManager, "cancel", fake_cancel)
+    client = TestClient(create_app(db_path))
+
+    latest = client.get("/api/classifiers/live_instrumentation/analyze/jobs/latest")
+    fetched = client.get("/api/classifiers/live_instrumentation/analyze/jobs/job-2")
+    cancelled = client.post("/api/classifiers/live_instrumentation/analyze/jobs/job-3/cancel")
+
+    assert latest.status_code == 200
+    assert fetched.status_code == 200
+    assert cancelled.status_code == 200
+    assert calls == [
+        ("latest", "live_instrumentation", None),
+        ("get", "live_instrumentation", "job-2"),
+        ("cancel", "live_instrumentation", "job-3"),
+    ]
+
+
 def test_classifiers_endpoint_lists_promoted_model_metadata(tmp_path: Path, monkeypatch) -> None:
     import dj_track_similarity.api as api_module
 

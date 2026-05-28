@@ -117,7 +117,13 @@ class GenreAnalysisJobManager:
             self._append_event(job_id, "warn", "MAEST genre analysis cancelled")
             return self.get(job_id)
 
-        adapter = self._create_adapter(device=status.device_requested, top_k=status.top_k)
+        try:
+            adapter = self._create_adapter(device=status.device_requested, top_k=status.top_k)
+        except Exception as error:
+            error_text = exception_summary(error)
+            self._update(job_id, state="failed", finished_at=time.time(), current_path=None)
+            self._append_event(job_id, "error", error_text)
+            return self.get(job_id)
         started = time.time()
         self._update(
             job_id,

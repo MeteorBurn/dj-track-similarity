@@ -1162,7 +1162,7 @@ def test_web_app_serves_static_profile_ui_without_hardcoded_label_buttons(tmp_pa
     client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
     html = client.get("/").text
     script = client.get("/static/app.js").text
-    styles = client.get("/static/styles.css").text
+    styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
 
     assert '<link rel="stylesheet" href="/static/styles.css?v=profile-likes-1" />' in html
     assert '<script src="/static/app.js?v=profile-likes-1" defer></script>' in html
@@ -1257,7 +1257,7 @@ def test_static_ui_supports_page_number_jump(tmp_path: Path) -> None:
     assert "const last = shown ? data.offset + shown : 0;" in script
     assert 'pageInfoEl.textContent = `${current} / ${pages} (${first}-${last} / ${data.total})`;' in script
     assert "offset = (targetPage - 1) * limit;" in script
-    styles = client.get("/static/styles.css").text
+    styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
     assert ".page-number {\n  flex: 0 0 auto;" in styles
     assert "  width: 56px;" in styles
     assert "  max-width: 56px;" in styles

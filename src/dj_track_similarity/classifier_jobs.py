@@ -133,15 +133,21 @@ class ClassifierJobManager:
         self._append_event(job_id, "info", f"{classifier} classification completed")
         return self.get(job_id)
 
-    def get(self, job_id: str) -> ClassifierJobStatus:
-        return self._store.get(job_id)
+    def get(self, job_id: str, *, classifier: str | None = None) -> ClassifierJobStatus:
+        status = self._store.get(job_id)
+        if classifier is not None and status.adapter_name != classifier:
+            raise KeyError(f"Unknown classifier job for {classifier}: {job_id}")
+        return status
 
-    def latest(self) -> ClassifierJobStatus | None:
-        return self._store.latest()
+    def latest(self, *, classifier: str | None = None) -> ClassifierJobStatus | None:
+        if classifier is None:
+            return self._store.latest()
+        return self._store.latest_matching(lambda status: status.adapter_name == classifier)
 
-    def cancel(self, job_id: str) -> ClassifierJobStatus:
+    def cancel(self, job_id: str, *, classifier: str | None = None) -> ClassifierJobStatus:
+        self.get(job_id, classifier=classifier)
         self._update(job_id, cancel_requested=True)
-        return self.get(job_id)
+        return self.get(job_id, classifier=classifier)
 
     def _score_one(self, job_id: str, scorer: ClassifierScorer, track: Track) -> None:
         self._update(job_id, current_path=track.path)

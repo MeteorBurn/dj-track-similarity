@@ -37,6 +37,13 @@ class JobStore(Generic[JobStatus]):
                 return None
             return self._copy_status(next(reversed(self._jobs.values())))
 
+    def latest_matching(self, predicate: Callable[[JobStatus], bool]) -> JobStatus | None:
+        with self._lock:
+            for status in reversed(self._jobs.values()):
+                if predicate(status):
+                    return self._copy_status(status)
+            return None
+
     def payload(self, job_id: str) -> object:
         with self._lock:
             if job_id not in self._jobs:

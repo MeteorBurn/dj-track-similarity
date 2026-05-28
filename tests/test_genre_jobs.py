@@ -161,6 +161,27 @@ def test_genre_job_runs_maest_in_batches_and_records_progress(tmp_path: Path) ->
     assert tracks[2].genres == ["Genre 0"]
 
 
+def test_genre_job_records_failed_state_when_adapter_init_fails(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    _track(db, tmp_path, "one.wav")
+
+    def failing_factory(**_kwargs):
+        raise RuntimeError("maest init failed")
+
+    manager = GenreAnalysisJobManager(db, {"maest": failing_factory})
+
+    status = manager.run_sync(device="cpu")
+
+    assert status.state == "failed"
+    assert status.processed == 0
+    assert status.analyzed == 0
+    assert status.failed == 0
+    assert status.finished_at is not None
+    assert status.current_path is None
+    assert status.events[-1].level == "error"
+    assert "maest init failed" in status.events[-1].message
+
+
 def test_genre_job_logs_batch_stage_timing_when_diagnostics_enabled(tmp_path: Path, caplog) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     _track(db, tmp_path, "a.wav")

@@ -178,6 +178,27 @@ def test_analysis_job_passes_requested_device_and_batch_size_to_adapter(tmp_path
     assert status.workers == 5
 
 
+def test_analysis_job_records_failed_state_when_adapter_init_fails(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    _track(db, tmp_path, "one.wav")
+
+    def failing_factory(**_kwargs):
+        raise RuntimeError("adapter init failed")
+
+    manager = AnalysisJobManager(db, {"failing": failing_factory}, batch_size=1)
+
+    status = manager.run_sync(adapter_name="failing")
+
+    assert status.state == "failed"
+    assert status.processed == 0
+    assert status.analyzed == 0
+    assert status.failed == 0
+    assert status.finished_at is not None
+    assert status.current_path is None
+    assert status.events[-1].level == "error"
+    assert "adapter init failed" in status.events[-1].message
+
+
 def test_analysis_job_records_per_track_errors_without_stopping(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     _track(db, tmp_path, "good.wav")

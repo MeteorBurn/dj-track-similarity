@@ -148,7 +148,13 @@ class AnalysisJobManager:
             self._append_event(job_id, "warn", "Analysis cancelled")
             return self.get(job_id)
 
-        adapter = self._create_adapter(status.adapter_name, device=status.device_requested, batch_size=status.batch_size)
+        try:
+            adapter = self._create_adapter(status.adapter_name, device=status.device_requested, batch_size=status.batch_size)
+        except Exception as error:
+            error_text = exception_summary(error)
+            self._update(job_id, state="failed", finished_at=time.time(), current_path=None)
+            self._append_event(job_id, "error", error_text)
+            return self.get(job_id)
         model_name = getattr(adapter, "model_name", status.adapter_name)
         device = getattr(adapter, "device", None) or getattr(adapter, "device_name", None)
         if device is None and hasattr(adapter, "_device"):

@@ -455,19 +455,19 @@ def create_app(
 
     @app.get("/api/classifiers/{classifier_key}/analyze/jobs/latest")
     def latest_classifier_job(classifier_key: str):
-        return state.require_classifier_jobs().latest()
+        return state.require_classifier_jobs().latest(classifier=classifier_key)
 
     @app.get("/api/classifiers/{classifier_key}/analyze/jobs/{job_id}")
     def classifier_job(classifier_key: str, job_id: str):
         try:
-            return state.require_classifier_jobs().get(job_id)
+            return state.require_classifier_jobs().get(job_id, classifier=classifier_key)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
     @app.post("/api/classifiers/{classifier_key}/analyze/jobs/{job_id}/cancel")
     def cancel_classifier_job(classifier_key: str, job_id: str):
         try:
-            return state.require_classifier_jobs().cancel(job_id)
+            return state.require_classifier_jobs().cancel(job_id, classifier=classifier_key)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 

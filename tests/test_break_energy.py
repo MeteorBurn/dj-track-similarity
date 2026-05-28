@@ -4,7 +4,9 @@ from pathlib import Path
 
 import joblib
 import numpy as np
+import pytest
 
+from dj_track_similarity.classifier_jobs import ClassifierJobManager
 from dj_track_similarity.classifier_scoring import analyze_classifier, default_classifier_model_path
 from dj_track_similarity.database import LibraryDatabase
 
@@ -139,6 +141,24 @@ def test_generic_classifier_filter_orders_tracks_by_score(tmp_path: Path) -> Non
     assert [track.id for track in page["items"]] == [high_id]
     assert page["items"][0].classifier_scores["live_instrumentation"]["score"] == 0.91
     assert [track.id for track in filtered["items"]] == [high_id]
+
+
+def test_classifier_jobs_are_scoped_by_classifier_key(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    _track(db, tmp_path, "one.wav")
+    manager = ClassifierJobManager(db)
+
+    break_job = manager.create_job(classifier="break_energy")
+    live_job = manager.create_job(classifier="live_instrumentation")
+
+    assert manager.latest(classifier="break_energy").job_id == break_job
+    assert manager.latest(classifier="live_instrumentation").job_id == live_job
+    assert manager.get(break_job, classifier="break_energy").adapter_name == "break_energy"
+    with pytest.raises(KeyError):
+        manager.get(live_job, classifier="break_energy")
+    with pytest.raises(KeyError):
+        manager.cancel(live_job, classifier="break_energy")
+    assert manager.get(live_job).cancel_requested is False
 
 
 def test_default_classifier_model_path_points_to_profile_classifier_asset() -> None:

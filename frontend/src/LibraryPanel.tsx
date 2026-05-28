@@ -128,9 +128,9 @@ export function LibraryPanel({
       <div className="worker-control" title={helpText.scanWorkers}>
         <span>Scan workers</span>
         <div className="stepper">
-          <button className="icon-button scan-workers-decrement-button" disabled={busy || scanWorkers <= 1} onClick={() => adjustScanWorkers(-1)} aria-label="Уменьшить количество потоков сканирования"><Minus size={15} /></button>
+          <button className="icon-button scan-workers-decrement-button" title="Уменьшить количество потоков сканирования" disabled={busy || scanWorkers <= 1} onClick={() => adjustScanWorkers(-1)} aria-label="Уменьшить количество потоков сканирования"><Minus size={15} /></button>
           <input type="number" min={1} max={maxScanWorkers} value={scanWorkers} title={helpText.scanWorkers} onChange={(event) => onScanWorkersChange(Math.min(maxScanWorkers, Math.max(1, Number(event.target.value) || 1)))} />
-          <button className="icon-button scan-workers-increment-button" disabled={busy || scanWorkers >= maxScanWorkers} onClick={() => adjustScanWorkers(1)} aria-label="Увеличить количество потоков сканирования"><Plus size={15} /></button>
+          <button className="icon-button scan-workers-increment-button" title="Увеличить количество потоков сканирования" disabled={busy || scanWorkers >= maxScanWorkers} onClick={() => adjustScanWorkers(1)} aria-label="Увеличить количество потоков сканирования"><Plus size={15} /></button>
         </div>
         <small>Для чтения метаданных: 1-{maxScanWorkers}</small>
       </div>
@@ -191,9 +191,9 @@ export function LibraryPanel({
       <div className="worker-control" title={helpText.analysisBatchSize}>
         <span>Embedding batch size</span>
         <div className="stepper">
-          <button className="icon-button analysis-batch-decrement-button" disabled={busy || analysisBatchSize <= 1} onClick={() => adjustAnalysisBatchSize(-1)} aria-label="Уменьшить batch size"><Minus size={15} /></button>
+          <button className="icon-button analysis-batch-decrement-button" title="Уменьшить Embedding batch size" disabled={busy || analysisBatchSize <= 1} onClick={() => adjustAnalysisBatchSize(-1)} aria-label="Уменьшить batch size"><Minus size={15} /></button>
           <input type="number" min={1} max={maxAnalysisBatchSize} value={analysisBatchSize} title={helpText.analysisBatchSize} onChange={(event) => onAnalysisBatchSizeChange(Math.min(maxAnalysisBatchSize, Math.max(1, Number(event.target.value) || 1)))} />
-          <button className="icon-button analysis-batch-increment-button" disabled={busy || analysisBatchSize >= maxAnalysisBatchSize} onClick={() => adjustAnalysisBatchSize(1)} aria-label="Увеличить batch size"><Plus size={15} /></button>
+          <button className="icon-button analysis-batch-increment-button" title="Увеличить Embedding batch size" disabled={busy || analysisBatchSize >= maxAnalysisBatchSize} onClick={() => adjustAnalysisBatchSize(1)} aria-label="Увеличить batch size"><Plus size={15} /></button>
         </div>
         <small>SONARA: параллельные треки. MAEST/MERT/CLAP: inference batch; CPU 1-4, CUDA начни с 4-8.</small>
       </div>

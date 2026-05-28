@@ -69,6 +69,32 @@ test("every button has a semantic class name", () => {
   assert.deepEqual(failures, []);
 });
 
+test("every button exposes tooltip text", () => {
+  const failures = [];
+  for (const file of sourceFiles(srcDir)) {
+    const source = readFileSync(file, "utf8");
+    if (!statSync(file).isFile()) continue;
+    for (const tag of buttonTags(source)) {
+      if (!/\btitle=/.test(tag)) {
+        failures.push(`${file}: ${tag.replace(/\s+/g, " ")}`);
+      }
+    }
+  }
+  assert.deepEqual(failures, []);
+});
+
+test("button tooltip text uses compact viewport-level styling", () => {
+  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
+  const rule = styles.match(/\.ui-tooltip\s*{([\s\S]*?)}/)?.[1] || "";
+
+  assert.doesNotMatch(styles, /\.app-shell\s+\[title\][^{]*::after/);
+  assert.match(rule, /position:\s*fixed/);
+  assert.match(rule, /font-size:\s*12px/);
+  assert.match(rule, /line-height:\s*1\.25/);
+  assert.match(rule, /max-width:\s*min\(260px,\s*calc\(100vw - 16px\)\)/);
+  assert.match(rule, /overflow-wrap:\s*anywhere/);
+});
+
 test("genre save button is placed between refresh tags and database clear", () => {
   const source = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
 

@@ -111,8 +111,8 @@ export function TrackPanel({
         <span className="library-page-status">
           {loading ? "Загрузка..." : `${pageStart}-${pageEnd} из ${total}`}
         </span>
-        <button className="secondary-mini library-page-previous-button" disabled={!canGoBack} onClick={onPreviousPage} type="button">Prev</button>
-        <button className="secondary-mini library-page-next-button" disabled={!canGoForward} onClick={onNextPage} type="button">Next</button>
+        <button className="secondary-mini library-page-previous-button" title="Предыдущая страница библиотеки" disabled={!canGoBack} onClick={onPreviousPage} type="button">Prev</button>
+        <button className="secondary-mini library-page-next-button" title="Следующая страница библиотеки" disabled={!canGoForward} onClick={onNextPage} type="button">Next</button>
       </div>
       <div className="player library-player">
         <span>{preview ? displayTrack(preview) : "Preview"}</span>

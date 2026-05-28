@@ -8,12 +8,13 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
 from io import BytesIO
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 
 READBACK_FAILURE = "Genre tag was not readable after WAV save:"
@@ -196,9 +197,20 @@ class RunReporter:
 def main(argv: list[str] | None = None) -> int:
     configure_stdio()
     args = parse_args(argv)
-    all_paths = collect_paths(args.logs, args.paths, folders=args.folders, since=args.since, until=args.until)
+    if args.file_root is not None and not args.db_roots:
+        print("--file-root requires at least one --db-root.", file=sys.stderr)
+        return 2
+    db_paths, missing_db_files = collect_db_paths(args.dbs, db_roots=args.db_roots, file_root=args.file_root)
+    all_paths = collect_paths(
+        args.logs,
+        args.paths,
+        folders=args.folders,
+        db_paths=db_paths,
+        since=args.since,
+        until=args.until,
+    )
     if not all_paths:
-        print("No audio paths found. Pass paths, --folder, or --log with readback failures.", file=sys.stderr)
+        print("No audio paths found. Pass paths, --folder, --db, or --log with readback failures.", file=sys.stderr)
         return 2
 
     keep_id3 = args.keep_id3
@@ -207,19 +219,20 @@ def main(argv: list[str] | None = None) -> int:
         print("--backup-dir and --no-backup cannot be used together.", file=sys.stderr)
         return 2
     use_color = should_use_color(args.color)
-    folder_mode = bool(args.folders)
+    state_mode = bool(args.folders or args.dbs)
+    sources = state_sources(args.folders, args.dbs)
     state: dict[str, object] | None = None
     state_path: Path | None = None
     skipped_from_state = 0
     skipped_by_reason = 0
     paths = list(all_paths)
-    if args.reasons and not folder_mode:
-        print("--reason can only be used with --folder state.", file=sys.stderr)
+    if args.reasons and not state_mode:
+        print("--reason can only be used with --folder or --db state.", file=sys.stderr)
         return 2
     reason_filters = {normalize_reason_filter(reason) for reason in args.reasons}
-    if folder_mode:
-        state_path = resolve_state_path(args.state, args.folders)
-        state = load_state(state_path, args.folders)
+    if state_mode:
+        state_path = resolve_state_path(args.state, sources)
+        state = load_state(state_path, sources)
         pending_paths: list[Path] = []
         for path in all_paths:
             if reason_filters and not state_entry_reason_matches(state, path, reason_filters):
@@ -247,10 +260,11 @@ def main(argv: list[str] | None = None) -> int:
             keep_id3=keep_id3,
             state=state,
             state_path=state_path,
-            folder_mode=folder_mode,
+            state_mode=state_mode,
             summary_only=args.summary_only,
             workers=args.workers,
             skipped_by_reason=skipped_by_reason,
+            missing_db_files=missing_db_files,
         )
     finally:
         reporter.close()
@@ -269,13 +283,16 @@ def run_paths(
     keep_id3: str,
     state: dict[str, object] | None,
     state_path: Path | None,
-    folder_mode: bool,
+    state_mode: bool,
     summary_only: bool,
     workers: int,
     skipped_by_reason: int,
+    missing_db_files: int,
 ) -> int:
-    if folder_mode:
+    if state_mode:
         reporter.line(f"Total tracks: {len(all_paths)}")
+        if missing_db_files:
+            reporter.line(f"Missing DB files: {missing_db_files}")
         if state_path is not None:
             reporter.line(f"State file: {state_path}")
         reporter.line(f"Already checked from state: {skipped_from_state}")
@@ -320,7 +337,7 @@ def run_paths(
         f"notice={notice} ok={ok} suspicious={suspicious} "
         f"tag-error={tag_error} failed={failed}"
     )
-    if folder_mode:
+    if state_mode:
         summary += f" skipped-state={skipped_from_state}"
         if skipped_by_reason:
             summary += f" skipped-reason={skipped_by_reason}"
@@ -407,6 +424,27 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="Project log file. Only post-save readback-failed WAV paths are extracted.",
     )
     parser.add_argument(
+        "--db",
+        dest="dbs",
+        action="append",
+        type=Path,
+        default=[],
+        help="SQLite library database to read tracks.path values from.",
+    )
+    parser.add_argument(
+        "--db-root",
+        dest="db_roots",
+        action="append",
+        type=Path,
+        default=[],
+        help="Only use database paths under this root. Also acts as the source root for --file-root remapping.",
+    )
+    parser.add_argument(
+        "--file-root",
+        type=Path,
+        help="Filesystem root that replaces each matching --db-root before checking files.",
+    )
+    parser.add_argument(
         "--since",
         help="Only use log lines at or after this timestamp, for example: 2026-05-21 20:26.",
     )
@@ -450,7 +488,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--state",
         type=Path,
         help=(
-            "Folder-mode state file. Default is derived from the resolved --folder path(s) "
+            "Folder/DB-mode state file. Default is derived from the resolved --folder/--db source(s) "
             "and stored in scripts/audio_repair."
         ),
     )
@@ -466,7 +504,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         action="append",
         default=[],
         help=(
-            "Folder-mode state reason to process. Use after a dry-run with --apply to repair only "
+            "Folder/DB-mode state reason to process. Use after a dry-run with --apply to repair only "
             "one stored reason. Can be repeated. Match the exact reason from the state file."
         ),
     )
@@ -478,6 +516,7 @@ def collect_paths(
     paths: list[Path],
     *,
     folders: list[Path] | None = None,
+    db_paths: list[Path] | None = None,
     since: str | None,
     until: str | None,
 ) -> list[Path]:
@@ -488,30 +527,107 @@ def collect_paths(
     for folder in folders or []:
         for path in paths_from_folder(folder):
             add_path(collected, seen, path)
+    for path in db_paths or []:
+        add_path(collected, seen, path)
     for log_path in logs:
         for path in paths_from_log(log_path, since=since, until=until):
             add_path(collected, seen, path)
     return collected
 
 
-def resolve_state_path(state_path: Path | None, folders: list[Path]) -> Path:
+def collect_db_paths(dbs: list[Path], *, db_roots: list[Path], file_root: Path | None) -> tuple[list[Path], int]:
+    paths: list[Path] = []
+    missing = 0
+    for db_path in dbs:
+        for db_track_path in paths_from_db(db_path, db_roots=db_roots, file_root=file_root):
+            if db_track_path.exists():
+                paths.append(db_track_path)
+            else:
+                missing += 1
+    return paths, missing
+
+
+def paths_from_db(db_path: Path, *, db_roots: list[Path], file_root: Path | None) -> list[Path]:
+    if not db_path.exists():
+        raise RepairError(f"Database does not exist: {db_path}")
+    rows: list[str] = []
+    uri = f"{db_path.resolve().as_uri()}?mode=ro"
+    try:
+        with sqlite3.connect(uri, uri=True) as connection:
+            rows = [row[0] for row in connection.execute("SELECT path FROM tracks ORDER BY path") if isinstance(row[0], str)]
+    except sqlite3.Error as error:
+        raise RepairError(f"Could not read database tracks: {db_path}: {error}") from error
+
+    result: list[Path] = []
+    for path_text in rows:
+        resolved_path = remap_db_track_path(path_text, db_roots=db_roots, file_root=file_root)
+        if resolved_path is not None and resolved_path.suffix.lower() in AUDIO_EXTENSIONS:
+            result.append(resolved_path)
+    return result
+
+
+def remap_db_track_path(path_text: str, *, db_roots: list[Path], file_root: Path | None) -> Path | None:
+    if not db_roots:
+        return Path(path_text)
+    track_path = PureWindowsPath(path_text)
+    for db_root in db_roots:
+        root_path = PureWindowsPath(str(db_root))
+        try:
+            relative_path = track_path.relative_to(root_path)
+        except ValueError:
+            continue
+        if file_root is not None:
+            return file_root.joinpath(*relative_path.parts)
+        return Path(path_text)
+    return None
+
+
+def resolve_state_path(state_path: Path | None, sources: list[str | Path]) -> Path:
     if state_path is not None:
         return state_path
-    signature = folder_signature(folders)
+    normalized_sources = normalize_state_sources(sources)
+    signature = source_signature(normalized_sources)
     digest = hashlib.sha1(signature.encode("utf-8", errors="replace")).hexdigest()[:12]
-    return DEFAULT_RUN_DIR / f"state.{folder_state_label(folders)}.{digest}.json"
+    return DEFAULT_RUN_DIR / f"state.{source_state_label(normalized_sources)}.{digest}.json"
+
+
+def normalize_state_sources(sources: list[str | Path]) -> list[str]:
+    normalized: list[str] = []
+    for source in sources:
+        if isinstance(source, Path):
+            normalized.append(f"folder:{source.resolve()}")
+        else:
+            normalized.append(source)
+    return normalized
+
+
+def state_sources(folders: list[Path], dbs: list[Path]) -> list[str]:
+    sources = [f"folder:{folder.resolve()}" for folder in folders]
+    sources.extend(f"db:{db.resolve()}" for db in dbs)
+    return sources
+
+
+def source_signature(sources: list[str]) -> str:
+    return "\n".join(sorted(os.path.normcase(source) for source in sources))
+
+
+def source_state_label(sources: list[str]) -> str:
+    if len(sources) == 1:
+        source_type, _, source_value = sources[0].partition(":")
+        name = Path(source_value).resolve().name or Path(source_value).resolve().anchor.rstrip(":\\")
+        if source_type == "folder":
+            return safe_filename_part(name)
+        return safe_filename_part(f"{source_type}-{name}")
+    digest = hashlib.sha1(source_signature(sources).encode("utf-8", errors="replace")).hexdigest()[:8]
+    return f"multiple_{digest}"
 
 
 def folder_signature(folders: list[Path]) -> str:
-    resolved = [str(folder.resolve()) for folder in folders]
-    return "\n".join(sorted(os.path.normcase(path) for path in resolved))
+    return source_signature(state_sources(folders, []))
 
 
 def folder_state_label(folders: list[Path]) -> str:
-    if len(folders) == 1:
-        return safe_filename_part(folders[0].resolve().name or folders[0].resolve().anchor.rstrip(":\\"))
-    digest = hashlib.sha1(folder_signature(folders).encode("utf-8", errors="replace")).hexdigest()[:8]
-    return f"multiple_{digest}"
+    return source_state_label(state_sources(folders, []))
 
 
 def safe_filename_part(value: str) -> str:
@@ -520,27 +636,29 @@ def safe_filename_part(value: str) -> str:
     return cleaned or "folder"
 
 
-def load_state(state_path: Path, folders: list[Path]) -> dict[str, object]:
+def load_state(state_path: Path, sources: list[str]) -> dict[str, object]:
     if not state_path.exists():
-        return new_state(folders)
+        return new_state(sources)
     try:
         raw = json.loads(state_path.read_text(encoding="utf-8"))
     except Exception:
-        return new_state(folders)
+        return new_state(sources)
     if not isinstance(raw, dict):
-        return new_state(folders)
+        return new_state(sources)
     files = raw.get("files")
     if not isinstance(files, dict):
         raw["files"] = {}
     raw.setdefault("version", 2)
-    raw["folders"] = [str(folder.resolve()) for folder in folders]
+    raw["sources"] = sources
+    raw["folders"] = [source.removeprefix("folder:") for source in sources if source.startswith("folder:")]
     return raw
 
 
-def new_state(folders: list[Path]) -> dict[str, object]:
+def new_state(sources: list[str]) -> dict[str, object]:
     return {
         "version": 2,
-        "folders": [str(folder.resolve()) for folder in folders],
+        "sources": sources,
+        "folders": [source.removeprefix("folder:") for source in sources if source.startswith("folder:")],
         "updated_at": None,
         "files": {},
     }

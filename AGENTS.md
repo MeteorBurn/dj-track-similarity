@@ -51,6 +51,10 @@ branches, or history are available.
 - `scripts/audio_repair/repair_audio_metadata.py --apply` is separate and may rewrite only
   files it reports as `REPAIRABLE`; dry-run must not write/copy audio, apply is
   sequential, and full-file backups are created by default.
+- `scripts/audio_repair/repair_audio_metadata.py --db` opens the selected
+  SQLite library database read-only, reads existing `tracks.path` values, and
+  may remap stored roots with `--db-root` plus `--file-root` before checking the
+  filesystem. Missing remapped files are skipped, not repaired.
 - `scripts/audio_dedup/audio_dedup.py` is report-only. It opens SQLite
   read-only, writes JSON/CSV/log reports under `scripts/audio_dedup/reports/`
   by default, and must never delete files or mutate databases.

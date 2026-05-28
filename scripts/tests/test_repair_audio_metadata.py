@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -345,6 +346,82 @@ def test_folder_state_skips_checked_files_and_processes_new_files(monkeypatch, t
     assert state_path.exists()
     assert "Already checked from state: 1" in output
     assert "Pending tracks: 1" in output
+
+
+def test_db_mode_collects_existing_tracks_with_root_remap(monkeypatch, tmp_path: Path, capsys) -> None:
+    repair = _load_repair_module()
+    db_path = tmp_path / "library.sqlite"
+    db_root = tmp_path / "db-root"
+    file_root = tmp_path / "file-root"
+    db_root.mkdir()
+    file_root.mkdir()
+    existing = file_root / "Album" / "track.wav"
+    missing = file_root / "Album" / "missing.wav"
+    existing.parent.mkdir()
+    existing.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
+    con = sqlite3.connect(db_path)
+    con.execute("create table tracks (id integer primary key, path text not null)")
+    con.execute("insert into tracks (path) values (?)", (str(db_root / "Album" / "track.wav"),))
+    con.execute("insert into tracks (path) values (?)", (str(db_root / "Album" / "missing.wav"),))
+    con.commit()
+    con.close()
+    processed: list[Path] = []
+
+    def fake_repair_file(path: Path, **_kwargs):
+        processed.append(path)
+        return repair.FileRepairResult(path=path, status="ok", message="ok")
+
+    monkeypatch.setattr(repair, "repair_file", fake_repair_file)
+
+    exit_code = repair.main(
+        [
+            "--db",
+            str(db_path),
+            "--db-root",
+            str(db_root),
+            "--file-root",
+            str(file_root),
+            "--no-file-log",
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert processed == [existing]
+    assert f"Missing DB files: 1" in output
+    assert str(missing) not in output
+
+
+def test_db_mode_state_skips_checked_files(monkeypatch, tmp_path: Path, capsys) -> None:
+    repair = _load_repair_module()
+    db_path = tmp_path / "library.sqlite"
+    audio_path = tmp_path / "track.wav"
+    state_path = tmp_path / "state.json"
+    audio_path.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
+    con = sqlite3.connect(db_path)
+    con.execute("create table tracks (path text not null)")
+    con.execute("insert into tracks (path) values (?)", (str(audio_path),))
+    con.commit()
+    con.close()
+    processed: list[Path] = []
+
+    def fake_repair_file(path: Path, **_kwargs):
+        processed.append(path)
+        return repair.FileRepairResult(path=path, status="ok", message="ok")
+
+    monkeypatch.setattr(repair, "repair_file", fake_repair_file)
+
+    first_exit = repair.main(["--db", str(db_path), "--state", str(state_path), "--no-file-log"])
+    second_exit = repair.main(["--db", str(db_path), "--state", str(state_path), "--no-file-log"])
+
+    output = capsys.readouterr().out
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert first_exit == 0
+    assert second_exit == 0
+    assert processed == [audio_path]
+    assert state["sources"] == [f"db:{db_path.resolve()}"]
+    assert "Already checked from state: 1" in output
+    assert "Pending tracks: 0" in output
 
 
 def test_default_folder_state_path_is_folder_dependent_and_reused(monkeypatch, tmp_path: Path, capsys) -> None:

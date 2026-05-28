@@ -82,3 +82,19 @@ test("genre save button is placed between refresh tags and database clear", () =
   assert.ok(refreshIndex < genreSaveIndex);
   assert.ok(genreSaveIndex < clearIndex);
 });
+
+test("scan action row reserves one line for all scan controls", () => {
+  const source = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
+  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
+  const rowMatch = source.match(/<div className="scan-action-row">([\s\S]*?)<\/div>/);
+  const styleMatch = styles.match(/\.scan-action-row\s*{([\s\S]*?)}/);
+
+  assert.ok(rowMatch, "scan action row markup exists");
+  assert.ok(styleMatch, "scan action row styles exist");
+
+  const controlCount = (rowMatch[1].match(/<button\b/g) || []).length;
+  const declaredIconColumns = Number(styleMatch[1].match(/repeat\((\d+),\s*42px\)/)?.[1] || 0);
+
+  assert.equal(controlCount, 4);
+  assert.equal(declaredIconColumns, controlCount - 1);
+});

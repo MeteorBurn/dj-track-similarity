@@ -380,8 +380,8 @@ h2 {
 .scan-action-row {
   align-items: stretch;
   display: grid;
-  gap: 8px;
-  grid-template-columns: minmax(0, 1fr) 42px 42px;
+  gap: 4px;
+  grid-template-columns: minmax(0, 1fr) repeat(3, 42px);
   margin-bottom: 8px;
 }
 
@@ -417,8 +417,10 @@ h2 {
 }
 
 .scan-start-button {
+  font-size: 15px;
+  gap: 5px;
   min-width: 0;
-  padding-inline: 8px;
+  padding-inline: 6px;
   width: 100%;
 }
 

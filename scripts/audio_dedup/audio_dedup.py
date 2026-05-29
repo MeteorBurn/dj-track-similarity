@@ -484,8 +484,13 @@ def build_report(
                     "path": track.path,
                     "score_vs_keeper": _round_float(direct.score if direct else None),
                     "safe_to_delete": "true_candidate" if safe else "false",
+                    "duration": _round_float(track.duration),
+                    "duration_text": format_duration_text(track.duration),
+                    "file_size_mb": file_size_mb(track),
+                    "audio_codec": audio_codec(track),
                     "blocked_reasons": reasons,
                     "why_delete_or_review": _candidate_reason_lines(track, keeper, direct, config, safe=safe, reasons=reasons),
+                    "content_length": track.size,
                     "format_rank": format_rank(track.path),
                     "size_per_second": _round_float(size_per_second(track)),
                     "metadata_completeness": metadata_completeness(track),
@@ -654,6 +659,14 @@ def _candidates_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
             "keeper_path",
             "score_vs_keeper",
             "safe_to_delete",
+            "delete_duration",
+            "delete_duration_text",
+            "delete_file_size_mb",
+            "delete_audio_codec",
+            "keeper_duration",
+            "keeper_duration_text",
+            "keeper_file_size_mb",
+            "keeper_audio_codec",
             "mert_similarity",
             "maest_similarity",
             "sonara_similarity",
@@ -682,6 +695,14 @@ def _candidates_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
                     keeper["path"],
                     candidate["score_vs_keeper"],
                     candidate["safe_to_delete"],
+                    candidate.get("duration"),
+                    candidate.get("duration_text"),
+                    candidate.get("file_size_mb"),
+                    candidate.get("audio_codec"),
+                    keeper.get("duration"),
+                    keeper.get("duration_text"),
+                    keeper.get("file_size_mb"),
+                    keeper.get("audio_codec"),
                     evidence.get("mert_similarity"),
                     evidence.get("maest_similarity"),
                     evidence.get("sonara_similarity"),
@@ -1307,6 +1328,28 @@ def size_per_second(track: TrackRecord) -> float:
     return float(track.size) / float(track.duration)
 
 
+def file_size_mb(track: TrackRecord) -> float:
+    return round(float(track.size) / 1_000_000.0, 6)
+
+
+def format_duration_text(duration: float | None) -> str | None:
+    if duration is None or duration < 0:
+        return None
+    total_seconds = int(round(float(duration)))
+    days, remainder = divmod(total_seconds, 86_400)
+    hours, remainder = divmod(remainder, 3_600)
+    minutes, seconds = divmod(remainder, 60)
+    if days:
+        return f"{days}d {hours:02d}:{minutes:02d}:{seconds:02d}"
+    if hours:
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes:02d}:{seconds:02d}"
+
+
+def audio_codec(track: TrackRecord) -> str | None:
+    return _string_or_none(track.metadata.get("audio_codec"))
+
+
 def metadata_completeness(track: TrackRecord) -> int:
     count = 0
     for value in (track.artist, track.title, track.album, track.duration):
@@ -1342,9 +1385,13 @@ def track_payload(
         "title": track.title,
         "album": track.album,
         "duration": _round_float(track.duration),
+        "duration_text": format_duration_text(track.duration),
         "bpm": _round_float(track.bpm),
         "musical_key": track.musical_key,
         "size": track.size,
+        "content_length": track.size,
+        "file_size_mb": file_size_mb(track),
+        "audio_codec": audio_codec(track),
         "mtime": track.mtime,
         "format_rank": format_rank(track.path),
         "size_per_second": _round_float(size_per_second(track)),

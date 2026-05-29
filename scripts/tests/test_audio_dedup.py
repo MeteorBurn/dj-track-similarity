@@ -105,11 +105,14 @@ def _insert_track(
     musical_key: str | None = "8A",
     duration: float = 300.0,
     sonara: dict[str, object] | None = None,
+    metadata_extra: dict[str, object] | None = None,
     vectors: dict[str, list[float]] | None = None,
 ) -> None:
     metadata = {"duration": duration}
     if sonara is not None:
         metadata["sonara_features"] = sonara
+    if metadata_extra:
+        metadata.update(metadata_extra)
     with sqlite3.connect(db_path) as connection:
         connection.execute(
             """
@@ -344,8 +347,24 @@ def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> Non
         "clap": [1.0, 0.0, 0.0],
     }
     sonara = {"bpm": 128.0, "danceability": 0.8, "energy": 0.7, "valence": 0.5}
-    _insert_track(db_path, track_id=1, path="M:/Volumes/Abstracted/one.flac", size=20_000_000, sonara=sonara, vectors=vectors)
-    _insert_track(db_path, track_id=2, path="M:/Volumes/Abstracted/two.mp3", size=8_000_000, sonara=sonara, vectors=vectors)
+    _insert_track(
+        db_path,
+        track_id=1,
+        path="M:/Volumes/Abstracted/one.flac",
+        size=20_000_000,
+        sonara=sonara,
+        metadata_extra={"audio_codec": "FLAC"},
+        vectors=vectors,
+    )
+    _insert_track(
+        db_path,
+        track_id=2,
+        path="M:/Volumes/Abstracted/two.mp3",
+        size=8_000_000,
+        sonara=sonara,
+        metadata_extra={"audio_codec": "MPEG Audio Layer III"},
+        vectors=vectors,
+    )
     _insert_track(db_path, track_id=3, path="N:/Volumes/Other/three.flac", size=20_000_000, sonara=sonara, vectors=vectors)
 
     result = dedup.run_report(db_path=db_path, root=Path("M:/Volumes/Abstracted"), path_contains=[], preset_name="safe", min_score=None, limit_groups=None, out_dir=out_dir)
@@ -358,8 +377,16 @@ def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> Non
     assert "mert_similarity" in json_payload["groups"][0]["pairwise_evidence"][0]
     assert "keeper_reasons" in json_payload["groups"][0]["suggested_keeper"]
     assert json_payload["groups"][0]["suggested_keeper"]["role"] == "KEEP"
+    assert json_payload["groups"][0]["suggested_keeper"]["content_length"] == 20_000_000
+    assert json_payload["groups"][0]["suggested_keeper"]["duration_text"] == "05:00"
+    assert json_payload["groups"][0]["suggested_keeper"]["file_size_mb"] == 20.0
+    assert json_payload["groups"][0]["suggested_keeper"]["audio_codec"] == "FLAC"
     assert json_payload["groups"][0]["candidate_deletes"][0]["role"] == "DUPLICATE"
     assert json_payload["groups"][0]["candidate_deletes"][0]["decision"] == "delete_candidate"
+    assert json_payload["groups"][0]["candidate_deletes"][0]["content_length"] == 8_000_000
+    assert json_payload["groups"][0]["candidate_deletes"][0]["duration_text"] == "05:00"
+    assert json_payload["groups"][0]["candidate_deletes"][0]["file_size_mb"] == 8.0
+    assert json_payload["groups"][0]["candidate_deletes"][0]["audio_codec"] == "MPEG Audio Layer III"
     assert json_payload["groups"][0]["candidate_deletes"][0]["why_delete_or_review"]
     assert result.xlsx_path.exists()
     assert not result.xlsx_path.with_suffix(".csv").exists()
@@ -371,12 +398,28 @@ def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> Non
     assert "Candidates" in workbook_xml
     assert "DELETE CANDIDATE" in candidates_xml
     assert "one.flac" in candidates_xml
+    assert "delete_content_length" not in candidates_xml
+    assert "keeper_content_length" not in candidates_xml
+    assert "delete_duration" in candidates_xml
+    assert "delete_duration_text" in candidates_xml
+    assert "file_size_mb" in candidates_xml
+    assert "audio_codec" in candidates_xml
+    assert "05:00" in candidates_xml
+    assert "MPEG Audio Layer III" in candidates_xml
     assert "mert_similarity" in candidates_xml
     assert "Duplicate audio summary" in summary_xml
     assert str(db_path.resolve()) in summary_xml
     assert "Total tracks in database" in summary_xml
     assert "Tracks inside selected root" in summary_xml
     assert not list(out_dir.glob("audio_dedup_report_*.png"))
+
+
+def test_duration_text_uses_days_when_needed() -> None:
+    dedup = _load_dedup_module()
+
+    assert dedup.format_duration_text(300.0) == "05:00"
+    assert dedup.format_duration_text(90061.0) == "1d 01:01:01"
+    assert dedup.format_duration_text(None) is None
 
 
 def test_report_includes_rhythm_lab_impact_for_safe_candidates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -333,6 +333,48 @@ def test_tag_bpm_and_key_are_not_used_for_duplicate_scoring() -> None:
     assert not hasattr(evidence, "key_match")
 
 
+def test_sonara_similarity_reads_stored_feature_payload_values() -> None:
+    dedup = _load_dedup_module()
+    config = dedup.resolve_preset("safe", min_score=None)
+    sonara = {
+        "bpm": {"value": 128.0, "type": "float"},
+        "energy": {"value": 0.7, "type": "float"},
+        "onset_density": {"value": 0.4, "type": "float"},
+    }
+    left = dedup.TrackRecord(
+        track_id=1,
+        path="M:/Volumes/Abstracted/one.flac",
+        size=20_000_000,
+        mtime=100.0,
+        artist="A",
+        title="T",
+        album="Album",
+        bpm=90.0,
+        musical_key="1A",
+        duration=300.0,
+        metadata={"sonara_features": sonara},
+        embeddings={},
+    )
+    right = dedup.TrackRecord(
+        track_id=2,
+        path="M:/Volumes/Abstracted/two.flac",
+        size=20_000_000,
+        mtime=100.0,
+        artist="A",
+        title="T",
+        album="Album",
+        bpm=180.0,
+        musical_key="12B",
+        duration=300.0,
+        metadata={"sonara_features": sonara},
+        embeddings={},
+    )
+
+    evidence = dedup.score_pair(left, right, config)
+
+    assert evidence.sonara_similarity == 1.0
+
+
 def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> None:
     dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"

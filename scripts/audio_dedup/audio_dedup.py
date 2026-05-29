@@ -1666,6 +1666,8 @@ def _metadata_from_json(value: str) -> dict[str, object]:
 
 
 def _float_or_none(value: object) -> float | None:
+    if isinstance(value, dict) and "value" in value:
+        value = value.get("value")
     if value is None:
         return None
     try:

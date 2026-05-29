@@ -97,7 +97,7 @@ export default defineConfig({
   base: "/docs/",
   outDir: "site",
   cleanUrls: false,
-  appearance: false,
+  appearance: true,
   lastUpdated: true,
   locales: {
     root: {
@@ -131,9 +131,13 @@ export default defineConfig({
     }
   },
   themeConfig: {
-    siteTitle: "DJ Track Similarity Docs",
+    siteTitle: "DJ Track Similarity",
+    logo: { light: "/logo-light.svg", dark: "/logo-dark.svg", alt: "DJ Track Similarity" },
     nav: enNav,
     sidebar: enSidebar,
+    socialLinks: [
+      { icon: "github", link: "https://github.com/MeteorBurn/dj-track-similarity" }
+    ],
     search: {
       provider: "local",
       options: {
@@ -159,7 +163,8 @@ export default defineConfig({
       }
     },
     outline: {
-      level: [2, 3]
+      level: [2, 3],
+      label: "On this page"
     },
     docFooter: {
       prev: "Previous",

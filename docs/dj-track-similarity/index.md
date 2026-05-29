@@ -3,21 +3,36 @@ layout: home
 
 hero:
   name: DJ Track Similarity
-  text: Documentation
-  tagline: Practical reference for the local DJ library analysis utility.
+  text: Local Library Analysis
+  tagline: Scan, analyse, and search your DJ music collection — all local, all yours.
   actions:
     - theme: brand
-      text: Start With Overview
+      text: Get Started
       link: /overview.html
     - theme: alt
       text: CLI Reference
       link: /cli.html
+    - theme: alt
+      text: Install
+      link: /install.html
 
 features:
-  - title: Local Library Workflow
-    details: Scanning, analysis, search, playlist export, and database safety in one place.
-  - title: Analysis Reference
-    details: SONARA, MAEST, MERT, CLAP, and promoted classifier behavior without extra guesswork.
-  - title: Maintenance Guides
-    details: Stable scripts for metadata repair, duplicate reports, and database optimization.
+  - icon: 🎵
+    title: Local Library Workflow
+    details: Scan a music folder, build a SQLite library, and run analysis without uploading a single file anywhere.
+  - icon: 🔬
+    title: Multi-Model Analysis
+    details: SONARA rhythm features, MAEST genre labels, MERT and CLAP embeddings — run any combination that fits your workflow.
+  - icon: 🔍
+    title: Flexible Search
+    details: Find similar tracks by seed audio (SONARA/MERT), or describe a sound in plain text with CLAP text-to-audio search.
+  - icon: 🤖
+    title: Custom Classifiers
+    details: Train promoted binary or multiclass classifier profiles from your own labelled tracks using Rhythm Lab.
+  - icon: 🛠️
+    title: Maintenance Scripts
+    details: Stable helpers for audio metadata repair, duplicate candidate reports, and database optimization.
+  - icon: 🔒
+    title: Audio-Safe by Default
+    details: Scanning, analysis, search, and export never modify audio files. Genre writes are an explicit opt-in step.
 ---

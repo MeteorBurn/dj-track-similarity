@@ -49,15 +49,16 @@ Options:
 
 ## Presets
 
-Each preset sets a default duplicate-score threshold and how strict the
-duration match must be. `--min-score` overrides only the score threshold; the
-other preset parameters stay as listed.
+Each preset sets a default duplicate-score threshold, a stricter direct
+keeper-match threshold for automatic delete candidates, and how strict the
+duration match must be. `--min-score` overrides only the report inclusion score
+threshold; the safe-delete and duration parameters stay as listed.
 
-| Preset | Min score | Duration tolerance | Use when |
-| --- | --- | --- | --- |
-| `safe` | `0.965` | ~2 s / 1% ratio | Conservative maintenance with the fewest false positives. |
-| `balanced` | `0.925` | ~5 s / 2.5% ratio | A wider net when you are comfortable reviewing more candidates. |
-| `aggressive` | `0.875` | ~15 s / 8% ratio | Broadest matching; expect more manual review. |
+| Preset | Min score | Safe delete score | Duration tolerance | Use when |
+| --- | --- | --- | --- | --- |
+| `safe` | `0.965` | `0.980` | ~2 s / 1% ratio | Conservative maintenance with the fewest false positives. |
+| `balanced` | `0.950` | `0.980` | ~5 s / 2.5% ratio | A wider review net with the same safe-delete confidence as `safe`. |
+| `aggressive` | `0.925` | `0.990` | ~15 s / 8% ratio | Broadest matching; expect mostly manual review unless direct evidence is near-identical. |
 
 ## Scoring
 

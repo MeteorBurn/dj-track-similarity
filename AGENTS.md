@@ -20,9 +20,9 @@ Project documentation lives under `docs/dj-track-similarity/`, with the
 canonical English source at the documentation root and the Russian localization
 under `docs/dj-track-similarity/ru/`. Treat
 `docs/dj-track-similarity/project-guide.md` as the English entrypoint, then
-follow its links to the focused topic pages for overview, architecture,
-database, analysis, search/tag writing, CLI, API, Rhythm Lab, development, and
-stable maintenance scripts.
+follow its links to the focused topic pages for installation, overview,
+architecture, database, analysis models, analysis families, search/tag writing,
+CLI, API, Rhythm Lab, development, and stable maintenance scripts.
 
 Read the relevant page in `docs/dj-track-similarity/` before making changes to
 documented behavior, public commands, API contracts, database fields, analysis

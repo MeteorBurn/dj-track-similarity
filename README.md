@@ -67,6 +67,10 @@ maintenance scripts, database details, and advanced workflows, see
 
 ## Run The App
 
+For full setup notes, including the dependency groups, the verified Windows CUDA
+stack, FFmpeg requirements, and how to verify the install, see
+[Installation](docs/dj-track-similarity/install.md).
+
 Install the project for local development:
 
 ```powershell
@@ -124,6 +128,8 @@ verified setup is GyanD `ffmpeg 8.1.1-full_build-shared`, for example
 The documentation entrypoint is
 [docs/dj-track-similarity/project-guide.md](docs/dj-track-similarity/project-guide.md).
 It links to focused pages for
+[installation](docs/dj-track-similarity/install.md),
+[analysis models](docs/dj-track-similarity/models.md),
 [CLI commands](docs/dj-track-similarity/cli.md),
 [API endpoints](docs/dj-track-similarity/api.md),
 [maintenance scripts](docs/dj-track-similarity/project-guide.md#maintenance-scripts),

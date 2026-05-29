@@ -139,7 +139,6 @@ def main(argv: list[str] | None = None) -> int:
                     db_path=args.db,
                     root=args.root,
                     payload=result.payload,
-                    rhythm_lab_db=args.rhythm_lab_db,
                 )
                 result.payload["mode"] = "apply"
                 result.payload["apply_result"] = apply_result_payload(apply_result)
@@ -154,10 +153,15 @@ def main(argv: list[str] | None = None) -> int:
         print(
             "Apply run complete. "
             f"groups={result.groups} deleted={len(apply_result.deleted_track_ids)} "
-            f"skipped={len(apply_result.skipped)} failed={len(apply_result.failed)}"
+            f"skipped={len(apply_result.skipped)} failed={len(apply_result.failed)} "
+            f"rhythm_lab_deleted_rows={apply_result.rhythm_lab_deleted_rows}"
         )
     else:
-        print(f"Report-only run complete. groups={result.groups}")
+        print(
+            "Report-only run complete. "
+            f"groups={result.groups} safe_candidates={_safe_candidate_count(result.payload)}"
+        )
+    print(rhythm_lab_cli_summary(result.payload))
     print(f"json={result.json_path}")
     print(f"xlsx={result.xlsx_path}")
     print(f"log={result.log_path}")
@@ -188,15 +192,6 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         action="store_true",
         help="After writing reports, prompt for confirmation and delete safe duplicate candidates plus their database rows.",
     )
-    parser.add_argument(
-        "--rhythm-lab-db",
-        type=Path,
-        default=DEFAULT_RHYTHM_LAB_DB,
-        help=(
-            "Rhythm Lab SQLite database to clean after --apply. "
-            f"Default: {DEFAULT_RHYTHM_LAB_DB}"
-        ),
-    )
     return parser.parse_args(argv)
 
 
@@ -223,6 +218,10 @@ def run_report(
         database_track_count=database_track_count,
         root=root,
         path_contains=path_contains,
+    )
+    payload["rhythm_lab"] = rhythm_lab_impact_payload(
+        DEFAULT_RHYTHM_LAB_DB,
+        [int(candidate["track_id"]) for candidate in safe_delete_candidates(payload)],
     )
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -546,6 +545,7 @@ def write_xlsx_report(path: Path, payload: dict[str, object]) -> None:
         ("Groups", _groups_sheet_rows(payload)),
         ("Candidates", _candidates_sheet_rows(payload)),
         ("Pair Evidence", _pair_evidence_sheet_rows(payload)),
+        ("Rhythm Lab", _rhythm_lab_sheet_rows(payload)),
     ]
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("[Content_Types].xml", _xlsx_content_types(len(sheets)))
@@ -578,8 +578,24 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
         ["Safe delete candidates", stats.get("safe_candidate_count", 0)],
         ["Manual review candidates", stats.get("review_candidate_count", 0)],
         [],
-        ["Confidence", "Groups"],
+        ["Rhythm Lab", "Rows"],
     ]
+    rhythm_lab = payload.get("rhythm_lab", {})
+    if isinstance(rhythm_lab, dict):
+        rows.extend(
+            [
+                ["Database", rhythm_lab.get("database_path", "")],
+                ["Database exists", rhythm_lab.get("database_exists", False)],
+                ["Affected tracks on apply", rhythm_lab.get("affected_track_count", 0)],
+                ["Affected rows on apply", rhythm_lab.get("affected_row_count", 0)],
+            ]
+        )
+    rows.extend(
+        [
+            [],
+            ["Confidence", "Groups"],
+        ]
+    )
     if isinstance(confidence, dict):
         for label in ("high", "medium", "review"):
             rows.append([label, confidence.get(label, 0)])
@@ -714,6 +730,42 @@ def _pair_evidence_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
                     "; ".join(str(item) for item in evidence.get("blocked_reasons", [])),
                 ]
             )
+    return rows
+
+
+def _rhythm_lab_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
+    rows: list[list[object]] = [
+        [
+            "action",
+            "source_track_id",
+            "table_name",
+            "classifier_key",
+            "label",
+            "path",
+            "feature_set",
+            "model_artifact",
+            "confidence",
+        ]
+    ]
+    rhythm_lab = payload.get("rhythm_lab", {})
+    if not isinstance(rhythm_lab, dict):
+        return rows
+    for row in rhythm_lab.get("affected_rows", []):
+        if not isinstance(row, dict):
+            continue
+        rows.append(
+            [
+                row.get("action", ""),
+                row.get("source_track_id", ""),
+                row.get("table_name", ""),
+                row.get("classifier_key", ""),
+                row.get("label", ""),
+                row.get("path", ""),
+                row.get("feature_set", ""),
+                row.get("model_artifact", ""),
+                row.get("confidence", ""),
+            ]
+        )
     return rows
 
 
@@ -903,6 +955,7 @@ def _xlsx_col_name(index: int) -> str:
 
 
 def write_text_log(path: Path, payload: dict[str, object], *, apply_result: ApplyResult | None = None) -> None:
+    rhythm_lab = payload.get("rhythm_lab", {})
     lines = [
         "audio_dedup apply run" if apply_result is not None else "audio_dedup report-only run",
         f"generated_at={payload['generated_at']}",
@@ -914,6 +967,16 @@ def write_text_log(path: Path, payload: dict[str, object], *, apply_result: Appl
         f"scoped_track_count={payload.get('scoped_track_count', payload['track_count'])}",
         f"group_count={payload['group_count']}",
     ]
+    if isinstance(rhythm_lab, dict):
+        lines.extend(
+            [
+                f"rhythm_lab_summary={rhythm_lab_summary_text(rhythm_lab)}",
+                f"rhythm_lab_database={rhythm_lab.get('database_path', '')}",
+                f"rhythm_lab_database_exists={rhythm_lab.get('database_exists', False)}",
+                f"rhythm_lab_affected_track_count={rhythm_lab.get('affected_track_count', 0)}",
+                f"rhythm_lab_affected_row_count={rhythm_lab.get('affected_row_count', 0)}",
+            ]
+        )
     if apply_result is None:
         lines.append("no files deleted; no databases mutated")
     else:
@@ -926,6 +989,134 @@ def write_text_log(path: Path, payload: dict[str, object], *, apply_result: Appl
             ]
         )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def rhythm_lab_impact_payload(rhythm_lab_db: Path | None, track_ids: Iterable[int]) -> dict[str, object]:
+    ids = tuple(sorted({int(track_id) for track_id in track_ids}))
+    selected_db = Path(rhythm_lab_db).expanduser().resolve(strict=False) if rhythm_lab_db is not None else None
+    payload: dict[str, object] = {
+        "database_path": str(selected_db) if selected_db is not None else None,
+        "database_exists": bool(selected_db and selected_db.exists()),
+        "safe_candidate_track_ids": list(ids),
+        "affected_track_count": 0,
+        "affected_row_count": 0,
+        "affected_rows": [],
+    }
+    payload["summary"] = rhythm_lab_summary(payload)
+    if not ids or selected_db is None or not selected_db.exists():
+        return payload
+
+    affected_rows: list[dict[str, object]] = []
+    connection = _connect_readonly(selected_db)
+    try:
+        table_names = [
+            str(row[0])
+            for row in connection.execute(
+                """
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table'
+                  AND name NOT LIKE 'sqlite_%'
+                """
+            ).fetchall()
+        ]
+        wanted_columns = (
+            "source_track_id",
+            "classifier_key",
+            "label",
+            "path",
+            "feature_set",
+            "model_artifact",
+            "confidence",
+        )
+        for table_name in table_names:
+            quoted_table = _quote_sqlite_identifier(table_name)
+            table_columns = [str(row[1]) for row in connection.execute(f"PRAGMA table_info({quoted_table})").fetchall()]
+            if "source_track_id" not in table_columns:
+                continue
+            selected_columns = [column for column in wanted_columns if column in table_columns]
+            select_sql = ", ".join(_quote_sqlite_identifier(column) for column in selected_columns)
+            for chunk in _chunks(list(ids), 800):
+                placeholders = ",".join("?" for _ in chunk)
+                rows = connection.execute(
+                    f"""
+                    SELECT {select_sql}
+                    FROM {quoted_table}
+                    WHERE source_track_id IN ({placeholders})
+                    ORDER BY source_track_id
+                    """,
+                    tuple(chunk),
+                ).fetchall()
+                for row in rows:
+                    affected_rows.append(
+                        {
+                            "action": "DELETE ON APPLY",
+                            "table_name": table_name,
+                            "source_track_id": int(row["source_track_id"]),
+                            "classifier_key": row["classifier_key"] if "classifier_key" in row.keys() else None,
+                            "label": row["label"] if "label" in row.keys() else None,
+                            "path": row["path"] if "path" in row.keys() else None,
+                            "feature_set": row["feature_set"] if "feature_set" in row.keys() else None,
+                            "model_artifact": row["model_artifact"] if "model_artifact" in row.keys() else None,
+                            "confidence": _round_float(row["confidence"]) if "confidence" in row.keys() else None,
+                        }
+                    )
+    finally:
+        connection.close()
+
+    affected_rows.sort(
+        key=lambda row: (
+            int(row["source_track_id"]),
+            str(row["table_name"]),
+            str(row.get("classifier_key") or ""),
+            str(row.get("feature_set") or ""),
+            str(row.get("model_artifact") or ""),
+        )
+    )
+    payload["affected_rows"] = affected_rows
+    payload["affected_track_count"] = len({int(row["source_track_id"]) for row in affected_rows})
+    payload["affected_row_count"] = len(affected_rows)
+    payload["summary"] = rhythm_lab_summary(payload)
+    return payload
+
+
+def rhythm_lab_summary(payload: dict[str, object]) -> dict[str, object]:
+    return {
+        "safe_candidate_count": len(payload.get("safe_candidate_track_ids", [])),
+        "database_exists": bool(payload.get("database_exists", False)),
+        "affected_track_count": int(payload.get("affected_track_count", 0) or 0),
+        "affected_row_count": int(payload.get("affected_row_count", 0) or 0),
+    }
+
+
+def rhythm_lab_summary_text(payload: dict[str, object]) -> str:
+    summary = payload.get("summary")
+    if not isinstance(summary, dict):
+        summary = rhythm_lab_summary(payload)
+    return (
+        f"safe_candidates={int(summary.get('safe_candidate_count', 0) or 0)} "
+        f"database_exists={_bool_text(bool(summary.get('database_exists', False)))} "
+        f"affected_tracks={int(summary.get('affected_track_count', 0) or 0)} "
+        f"affected_rows={int(summary.get('affected_row_count', 0) or 0)}"
+    )
+
+
+def rhythm_lab_cli_summary(payload: dict[str, object]) -> str:
+    rhythm_lab = payload.get("rhythm_lab", {})
+    if not isinstance(rhythm_lab, dict):
+        return "Rhythm Lab: unavailable"
+    return f"Rhythm Lab: {rhythm_lab_summary_text(rhythm_lab)}"
+
+
+def _safe_candidate_count(payload: dict[str, object]) -> int:
+    stats = payload.get("statistics", {})
+    if isinstance(stats, dict):
+        return int(stats.get("safe_candidate_count", 0) or 0)
+    return len(safe_delete_candidates(payload))
+
+
+def _bool_text(value: bool) -> str:
+    return "true" if value else "false"
 
 
 def safe_delete_candidates(payload: dict[str, object]) -> list[dict[str, object]]:
@@ -961,7 +1152,7 @@ def apply_duplicate_deletions(
     db_path: Path,
     root: Path,
     payload: dict[str, object],
-    rhythm_lab_db: Path | None = DEFAULT_RHYTHM_LAB_DB,
+    rhythm_lab_db: Path | None = None,
 ) -> ApplyResult:
     selected_db = Path(db_path).expanduser().resolve(strict=False)
     if not selected_db.exists():
@@ -1003,7 +1194,8 @@ def apply_duplicate_deletions(
             deleted_paths.append(path_text)
     finally:
         connection.close()
-    rhythm_lab_deleted_rows = cleanup_rhythm_lab_database(rhythm_lab_db, deleted_ids)
+    selected_rhythm_lab_db = DEFAULT_RHYTHM_LAB_DB if rhythm_lab_db is None else rhythm_lab_db
+    rhythm_lab_deleted_rows = cleanup_rhythm_lab_database(selected_rhythm_lab_db, deleted_ids)
     return ApplyResult(
         deleted_track_ids=tuple(deleted_ids),
         deleted_paths=tuple(deleted_paths),

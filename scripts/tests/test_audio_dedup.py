@@ -8,6 +8,7 @@ from pathlib import Path
 import zipfile
 
 import numpy as np
+import pytest
 
 
 def _load_dedup_module():
@@ -378,7 +379,123 @@ def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> Non
     assert not list(out_dir.glob("audio_dedup_report_*.png"))
 
 
-def test_apply_duplicate_deletions_removes_only_safe_temp_files_and_database_rows(tmp_path: Path) -> None:
+def test_report_includes_rhythm_lab_impact_for_safe_candidates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    dedup = _load_dedup_module()
+    db_path = tmp_path / "library.sqlite"
+    rhythm_lab_db = tmp_path / "rhythm_lab.sqlite"
+    out_dir = tmp_path / "reports"
+    audio_dir = tmp_path / "Abstracted"
+    audio_dir.mkdir()
+    keeper_path = audio_dir / "keeper.flac"
+    duplicate_path = audio_dir / "duplicate.mp3"
+    keeper_path.write_bytes(b"keeper")
+    duplicate_path.write_bytes(b"duplicate")
+    monkeypatch.setattr(dedup, "DEFAULT_RHYTHM_LAB_DB", rhythm_lab_db)
+    _create_library_db(db_path)
+    _create_rhythm_lab_db(rhythm_lab_db)
+    vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
+    _insert_track(db_path, track_id=1, path=str(keeper_path), size=20_000_000, mtime=100, vectors=vectors)
+    _insert_track(db_path, track_id=2, path=str(duplicate_path), size=8_000_000, mtime=200, vectors=vectors)
+    with sqlite3.connect(rhythm_lab_db) as connection:
+        connection.executemany(
+            """
+            INSERT INTO classifier_labels(classifier_key, source_track_id, path, size, mtime, label)
+            VALUES ('break_energy', ?, ?, 1, 1, ?)
+            """,
+            [(1, str(keeper_path), "keep_label"), (2, str(duplicate_path), "delete_label")],
+        )
+        connection.execute(
+            """
+            INSERT INTO classifier_predictions(
+                classifier_key, source_track_id, path, feature_set, model_artifact,
+                label, confidence, probabilities_json
+            )
+            VALUES ('break_energy', 2, ?, 'combined', 'model.joblib', 'delete_prediction', 0.9, '{}')
+            """,
+            (str(duplicate_path),),
+        )
+
+    result = dedup.run_report(
+        db_path=db_path,
+        root=audio_dir,
+        path_contains=[],
+        preset_name="safe",
+        min_score=None,
+        limit_groups=None,
+        out_dir=out_dir,
+    )
+
+    payload = json.loads(result.json_path.read_text(encoding="utf-8"))
+    impact = payload["rhythm_lab"]
+    assert impact["database_path"] == str(rhythm_lab_db.resolve())
+    assert impact["database_exists"] is True
+    assert impact["summary"] == {
+        "safe_candidate_count": 1,
+        "database_exists": True,
+        "affected_track_count": 1,
+        "affected_row_count": 2,
+    }
+    assert impact["safe_candidate_track_ids"] == [2]
+    assert impact["affected_track_count"] == 1
+    assert impact["affected_row_count"] == 2
+    assert {row["table_name"] for row in impact["affected_rows"]} == {"classifier_labels", "classifier_predictions"}
+    assert {row["source_track_id"] for row in impact["affected_rows"]} == {2}
+    assert all(row["action"] == "DELETE ON APPLY" for row in impact["affected_rows"])
+    with zipfile.ZipFile(result.xlsx_path) as archive:
+        workbook_xml = archive.read("xl/workbook.xml").decode("utf-8")
+        rhythm_lab_xml = archive.read("xl/worksheets/sheet5.xml").decode("utf-8")
+    assert "Rhythm Lab" in workbook_xml
+    assert "classifier_labels" in rhythm_lab_xml
+    assert "classifier_predictions" in rhythm_lab_xml
+    assert "delete_label" in rhythm_lab_xml
+    assert "delete_prediction" in rhythm_lab_xml
+    assert "keep_label" not in rhythm_lab_xml
+    log_text = result.log_path.read_text(encoding="utf-8")
+    assert "rhythm_lab_summary=safe_candidates=1 database_exists=true affected_tracks=1 affected_rows=2" in log_text
+
+
+def test_report_only_cli_prints_rhythm_lab_summary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    dedup = _load_dedup_module()
+    db_path = tmp_path / "library.sqlite"
+    rhythm_lab_db = tmp_path / "rhythm_lab.sqlite"
+    out_dir = tmp_path / "reports"
+    audio_dir = tmp_path / "Abstracted"
+    audio_dir.mkdir()
+    keeper_path = audio_dir / "keeper.flac"
+    duplicate_path = audio_dir / "duplicate.mp3"
+    keeper_path.write_bytes(b"keeper")
+    duplicate_path.write_bytes(b"duplicate")
+    monkeypatch.setattr(dedup, "DEFAULT_RHYTHM_LAB_DB", rhythm_lab_db)
+    _create_library_db(db_path)
+    _create_rhythm_lab_db(rhythm_lab_db)
+    vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
+    _insert_track(db_path, track_id=1, path=str(keeper_path), size=20_000_000, mtime=100, vectors=vectors)
+    _insert_track(db_path, track_id=2, path=str(duplicate_path), size=8_000_000, mtime=200, vectors=vectors)
+    with sqlite3.connect(rhythm_lab_db) as connection:
+        connection.execute(
+            """
+            INSERT INTO classifier_labels(classifier_key, source_track_id, path, size, mtime, label)
+            VALUES ('break_energy', 2, ?, 1, 1, 'delete_label')
+            """,
+            (str(duplicate_path),),
+        )
+
+    exit_code = dedup.main(["--db", str(db_path), "--root", str(audio_dir), "--out-dir", str(out_dir)])
+
+    assert exit_code == 0
+    stdout = capsys.readouterr().out
+    assert "Report-only run complete. groups=1 safe_candidates=1" in stdout
+    assert "Rhythm Lab: safe_candidates=1 database_exists=true affected_tracks=1 affected_rows=1" in stdout
+
+
+def test_cli_does_not_accept_rhythm_lab_db_argument() -> None:
+    dedup = _load_dedup_module()
+
+    with pytest.raises(SystemExit):
+        dedup.parse_args(["--root", "M:/Volumes/Abstracted", "--rhythm-lab-db", "lab.sqlite"])
+
+
+def test_apply_duplicate_deletions_removes_only_safe_temp_files_and_database_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
     out_dir = tmp_path / "reports"
@@ -388,6 +505,7 @@ def test_apply_duplicate_deletions_removes_only_safe_temp_files_and_database_row
     duplicate_path = audio_dir / "duplicate.mp3"
     keeper_path.write_bytes(b"keeper")
     duplicate_path.write_bytes(b"duplicate")
+    monkeypatch.setattr(dedup, "DEFAULT_RHYTHM_LAB_DB", tmp_path / "missing_rhythm_lab.sqlite")
     _create_library_db(db_path)
     vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
     _insert_track(db_path, track_id=1, path=str(keeper_path), size=20_000_000, mtime=100, vectors=vectors)
@@ -415,7 +533,7 @@ def test_apply_duplicate_deletions_removes_only_safe_temp_files_and_database_row
         connection.close()
 
 
-def test_apply_duplicate_deletions_removes_deleted_tracks_from_rhythm_lab_database(tmp_path: Path) -> None:
+def test_apply_duplicate_deletions_removes_deleted_tracks_from_default_rhythm_lab_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"
     rhythm_lab_db = tmp_path / "rhythm_lab.sqlite"
@@ -426,6 +544,7 @@ def test_apply_duplicate_deletions_removes_deleted_tracks_from_rhythm_lab_databa
     duplicate_path = audio_dir / "duplicate.mp3"
     keeper_path.write_bytes(b"keeper")
     duplicate_path.write_bytes(b"duplicate")
+    monkeypatch.setattr(dedup, "DEFAULT_RHYTHM_LAB_DB", rhythm_lab_db)
     _create_library_db(db_path)
     _create_rhythm_lab_db(rhythm_lab_db)
     vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
@@ -462,12 +581,7 @@ def test_apply_duplicate_deletions_removes_deleted_tracks_from_rhythm_lab_databa
         out_dir=out_dir,
     )
 
-    apply_result = dedup.apply_duplicate_deletions(
-        db_path=db_path,
-        root=audio_dir,
-        payload=result.payload,
-        rhythm_lab_db=rhythm_lab_db,
-    )
+    apply_result = dedup.apply_duplicate_deletions(db_path=db_path, root=audio_dir, payload=result.payload)
 
     assert apply_result.rhythm_lab_deleted_rows == 2
     with sqlite3.connect(rhythm_lab_db) as connection:

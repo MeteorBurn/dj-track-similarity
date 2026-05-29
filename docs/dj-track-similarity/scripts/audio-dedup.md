@@ -6,14 +6,14 @@ Run this script with the project Python environment when possible:
 .\.venv\Scripts\python.exe scripts\audio_dedup\audio_dedup.py --help
 ```
 
-Report-only duplicate-audio candidate helper. It reads an existing
-`dj-track-similarity` SQLite database, compares tracks inside a selected stored
-path root, and writes JSON, styled XLSX, and text-log reports. It never deletes
-audio files and never mutates the database.
+Duplicate-audio candidate helper. By default it is report-only: it reads an
+existing `dj-track-similarity` SQLite database, compares tracks inside a
+selected stored path root, and writes JSON, styled XLSX, and text-log reports.
 
 Use this script when you want evidence for possible duplicate audio before
 cleaning a library manually. It is intentionally conservative: it produces
-reports, not delete commands.
+reports first. Destructive cleanup is available only with `--apply` and an
+interactive confirmation prompt.
 
 Usage:
 
@@ -32,12 +32,17 @@ Options:
 - `--limit-groups N`: write at most N duplicate groups.
 - `--out-dir DIR`: output report directory. Default is
   `scripts\audio_dedup\reports`.
+- `--apply`: after reports are written, ask for an exact confirmation phrase
+  and delete only candidates marked `DELETE CANDIDATE` / `true_candidate`.
+  Tracks are removed from SQLite only after their audio files are successfully
+  deleted.
 
 Examples:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\audio_dedup\audio_dedup.py --db .\data\library.sqlite --root D:\Music
 .\.venv\Scripts\python.exe scripts\audio_dedup\audio_dedup.py --db .\data\library.sqlite --root D:\Music --preset balanced --path-contains mastered
+.\.venv\Scripts\python.exe scripts\audio_dedup\audio_dedup.py --db .\data\library.sqlite --root D:\Music --preset safe --apply
 ```
 
 Outputs are named `audio_dedup_report_<timestamp>.json`, `.xlsx`, and `.log`.
@@ -51,14 +56,27 @@ The workbook is the main human review artifact. It includes:
 - `Candidates`: one row per duplicate candidate, with `DELETE CANDIDATE` or
   `REVIEW MANUALLY`, the keeper path, direct score, similarity evidence, and
   review blockers.
-- `Pair Evidence`: the detailed pairwise MERT, MAEST, SONARA, CLAP, duration,
-  and duration evidence used by the grouping step. Tagged BPM/key values are
-  shown only as track metadata and are not used for duplicate scoring; SONARA
-  BPM remains part of the SONARA similarity signal when available.
+- `Pair Evidence`: the detailed pairwise MERT, MAEST, SONARA, CLAP, and
+  duration evidence used by the grouping step. Tagged BPM/key values are shown
+  only as track metadata and are not used for duplicate scoring; SONARA BPM
+  remains part of the SONARA similarity signal when available.
 
 Review every candidate manually; the report includes suggested keepers and
-candidate-delete evidence, but the script intentionally performs no delete
-action.
+candidate-delete evidence.
+
+Apply mode:
+
+1. The script writes the JSON/XLSX/log reports first.
+2. It counts safe delete candidates only.
+3. It prints a destructive-action warning and requires typing exactly
+   `APPLY DELETE`.
+4. It deletes only files still inside the selected `--root`.
+5. It removes SQLite rows only for tracks whose files were successfully
+   deleted. Related rows in tables with a `track_id` column are removed before
+   the `tracks` row.
+
+Do not use `--apply` until you have reviewed the generated workbook. Automated
+tests and routine verification should not invoke the script with `--apply`.
 
 Start with the `safe` preset for normal library maintenance. Use `balanced` or
 `aggressive` only when you are comfortable reviewing more false positives.

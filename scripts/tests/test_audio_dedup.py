@@ -327,5 +327,42 @@ def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> Non
     assert "DELETE CANDIDATE" in candidates_xml
     assert "one.flac" in candidates_xml
     assert "mert_similarity" in candidates_xml
-    assert "Report-only duplicate audio summary" in summary_xml
+    assert "Duplicate audio summary" in summary_xml
     assert not list(out_dir.glob("audio_dedup_report_*.png"))
+
+
+def test_apply_duplicate_deletions_removes_only_safe_temp_files_and_database_rows(tmp_path: Path) -> None:
+    dedup = _load_dedup_module()
+    db_path = tmp_path / "library.sqlite"
+    out_dir = tmp_path / "reports"
+    audio_dir = tmp_path / "Abstracted"
+    audio_dir.mkdir()
+    keeper_path = audio_dir / "keeper.flac"
+    duplicate_path = audio_dir / "duplicate.mp3"
+    keeper_path.write_bytes(b"keeper")
+    duplicate_path.write_bytes(b"duplicate")
+    _create_library_db(db_path)
+    vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
+    _insert_track(db_path, track_id=1, path=str(keeper_path), size=20_000_000, mtime=100, vectors=vectors)
+    _insert_track(db_path, track_id=2, path=str(duplicate_path), size=8_000_000, mtime=200, vectors=vectors)
+    result = dedup.run_report(
+        db_path=db_path,
+        root=audio_dir,
+        path_contains=[],
+        preset_name="safe",
+        min_score=None,
+        limit_groups=None,
+        out_dir=out_dir,
+    )
+
+    apply_result = dedup.apply_duplicate_deletions(db_path=db_path, root=audio_dir, payload=result.payload)
+
+    assert keeper_path.exists()
+    assert not duplicate_path.exists()
+    assert apply_result.deleted_track_ids == (2,)
+    connection = sqlite3.connect(db_path)
+    try:
+        assert connection.execute("SELECT id FROM tracks ORDER BY id").fetchall() == [(1,)]
+        assert connection.execute("SELECT track_id FROM embeddings ORDER BY track_id").fetchall() == [(1,), (1,)]
+    finally:
+        connection.close()

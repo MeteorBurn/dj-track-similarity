@@ -51,8 +51,9 @@ The project is a Python backend/CLI plus a React/Vite frontend:
 - `scripts/audio_repair/`: repair helper script plus runtime
   state/log/report/backup workspace; commit only `repair_audio_metadata.py` and
   `.gitkeep`.
-- `scripts/audio_dedup/`: report-only duplicate-audio candidate helper. It
-  reads the project SQLite database and writes ignored reports only.
+- `scripts/audio_dedup/`: duplicate-audio candidate helper. By default it reads
+  the project SQLite database and writes ignored reports only; `--apply` is the
+  explicit destructive cleanup mode.
 
 This workspace may not always be a Git repository. Do not assume commits,
 branches, or history are available.
@@ -82,9 +83,13 @@ branches, or history are available.
   SQLite library database read-only, reads existing `tracks.path` values, and
   may remap stored roots with `--db-root` plus `--file-root` before checking the
   filesystem. Missing remapped files are skipped, not repaired.
-- `scripts/audio_dedup/audio_dedup.py` is report-only. It opens SQLite
-  read-only, writes JSON/CSV/log reports under `scripts/audio_dedup/reports/`
-  by default, and must never delete files or mutate databases.
+- `scripts/audio_dedup/audio_dedup.py` is report-only by default. It opens
+  SQLite read-only and writes JSON/XLSX/log reports under
+  `scripts/audio_dedup/reports/` by default. With explicit `--apply`, it must
+  prompt for exact confirmation, delete only safe duplicate candidates inside
+  the selected `--root`, and remove SQLite rows only for tracks whose files were
+  successfully deleted. Do not invoke the script with `--apply` in tests or
+  routine verification runs.
 - Keep SQLite writes routed through `LibraryDatabase`, with the shared
   path-scoped write lock, WAL, and busy timeout so scan/RefreshTags/Sonara/
   MAEST/MERT/CLAP/reset writes queue safely.
@@ -241,8 +246,8 @@ changes:
   promoted classifier scoring and cancellable classifier jobs.
 - `tools/rhythm-lab/rhythm_lab/`: separate classifier lab package for labels,
   predictions, feature matrices, training artifacts, and the standalone lab UI.
-- `scripts/audio_dedup/audio_dedup.py`: report-only duplicate-audio candidate
-  reporting from an existing library database.
+- `scripts/audio_dedup/audio_dedup.py`: duplicate-audio candidate reporting and
+  explicit confirmed `--apply` cleanup from an existing library database.
 - `src/dj_track_similarity/search.py`, `sonara_similarity.py`: embedding and
   Sonara search.
 - `src/dj_track_similarity/tags.py`, `wave_tags.py`: MAEST-to-standard-genre

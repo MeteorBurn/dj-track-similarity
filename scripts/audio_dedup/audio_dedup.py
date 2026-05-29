@@ -101,7 +101,16 @@ class ReportResult:
     json_path: Path
     xlsx_path: Path
     log_path: Path
+    payload: dict[str, object]
     groups: int
+
+
+@dataclass(frozen=True)
+class ApplyResult:
+    deleted_track_ids: tuple[int, ...]
+    deleted_paths: tuple[str, ...]
+    skipped: tuple[str, ...]
+    failed: tuple[str, ...]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -117,10 +126,30 @@ def main(argv: list[str] | None = None) -> int:
             limit_groups=args.limit_groups,
             out_dir=args.out_dir,
         )
-    except (FileNotFoundError, ValueError, sqlite3.Error) as error:
+        apply_result = None
+        if args.apply:
+            candidates = safe_delete_candidates(result.payload)
+            if not candidates:
+                print("Apply requested, but no safe delete candidates were found.")
+            elif confirm_apply(candidates, args.db, args.root):
+                apply_result = apply_duplicate_deletions(db_path=args.db, root=args.root, payload=result.payload)
+                result.payload["mode"] = "apply"
+                result.payload["apply_result"] = apply_result_payload(apply_result)
+                result.json_path.write_text(json.dumps(result.payload, indent=2, ensure_ascii=False), encoding="utf-8")
+                write_text_log(result.log_path, result.payload, apply_result=apply_result)
+            else:
+                print("Apply cancelled; reports were written but no files or database rows were deleted.")
+    except (FileNotFoundError, OSError, ValueError, sqlite3.Error) as error:
         print(f"audio_dedup failed: {error}", file=sys.stderr)
         return 2
-    print(f"Report-only run complete. groups={result.groups}")
+    if args.apply and apply_result is not None:
+        print(
+            "Apply run complete. "
+            f"groups={result.groups} deleted={len(apply_result.deleted_track_ids)} "
+            f"skipped={len(apply_result.skipped)} failed={len(apply_result.failed)}"
+        )
+    else:
+        print(f"Report-only run complete. groups={result.groups}")
     print(f"json={result.json_path}")
     print(f"xlsx={result.xlsx_path}")
     print(f"log={result.log_path}")
@@ -131,7 +160,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Find likely duplicate audio tracks from an existing dj-track-similarity SQLite database. "
-            "This v1 is report-only: it never deletes files and never mutates databases."
+            "By default it is report-only; --apply prompts before deleting safe candidates."
         )
     )
     parser.add_argument("--db", type=Path, default=DEFAULT_DB, help=r"Project SQLite database. Default: C:\db\abstracted.sqlite.")
@@ -146,6 +175,11 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--min-score", type=float, help="Override the preset duplicate score threshold.")
     parser.add_argument("--limit-groups", type=int, help="Write at most N duplicate groups.")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR, help="Report output directory.")
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="After writing reports, prompt for confirmation and delete safe duplicate candidates plus their database rows.",
+    )
     return parser.parse_args(argv)
 
 
@@ -171,7 +205,7 @@ def run_report(
     json_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     write_xlsx_report(xlsx_path, payload)
     write_text_log(log_path, payload)
-    return ReportResult(json_path=json_path, xlsx_path=xlsx_path, log_path=log_path, groups=len(groups))
+    return ReportResult(json_path=json_path, xlsx_path=xlsx_path, log_path=log_path, payload=payload, groups=len(groups))
 
 
 def resolve_preset(name: str, *, min_score: float | None) -> PresetConfig:
@@ -488,7 +522,7 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
     confidence = stats.get("confidence_counts", {})
     embeddings = stats.get("embedding_coverage", {})
     rows: list[list[object]] = [
-        ["Report-only duplicate audio summary"],
+        ["Duplicate audio summary"],
         ["Generated at", payload["generated_at"]],
         ["Root", payload["root"]],
         ["Preset", payload["preset"]],
@@ -823,18 +857,137 @@ def _xlsx_col_name(index: int) -> str:
     return name
 
 
-def write_text_log(path: Path, payload: dict[str, object]) -> None:
+def write_text_log(path: Path, payload: dict[str, object], *, apply_result: ApplyResult | None = None) -> None:
     lines = [
-        "audio_dedup report-only run",
+        "audio_dedup apply run" if apply_result is not None else "audio_dedup report-only run",
         f"generated_at={payload['generated_at']}",
         f"root={payload['root']}",
         f"preset={payload['preset']}",
         f"min_score={payload['min_score']}",
         f"track_count={payload['track_count']}",
         f"group_count={payload['group_count']}",
-        "no files deleted; no databases mutated",
     ]
+    if apply_result is None:
+        lines.append("no files deleted; no databases mutated")
+    else:
+        lines.extend(
+            [
+                f"deleted_track_count={len(apply_result.deleted_track_ids)}",
+                f"skipped_count={len(apply_result.skipped)}",
+                f"failed_count={len(apply_result.failed)}",
+            ]
+        )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def safe_delete_candidates(payload: dict[str, object]) -> list[dict[str, object]]:
+    candidates: list[dict[str, object]] = []
+    for group in payload.get("groups", []):
+        if not isinstance(group, dict):
+            continue
+        for candidate in group.get("candidate_deletes", []):
+            if not isinstance(candidate, dict):
+                continue
+            if candidate.get("decision") == "delete_candidate" and candidate.get("safe_to_delete") == "true_candidate":
+                candidates.append(candidate)
+    return candidates
+
+
+def confirm_apply(candidates: list[dict[str, object]], db_path: Path, root: Path) -> bool:
+    print("")
+    print("DESTRUCTIVE APPLY REQUESTED")
+    print(f"Database: {db_path}")
+    print(f"Root: {root}")
+    print(f"Safe duplicate candidates to delete: {len(candidates)}")
+    print("This will delete audio files from disk and remove only successfully deleted tracks from SQLite.")
+    print('Type exactly "APPLY DELETE" to continue:')
+    try:
+        response = input("> ")
+    except EOFError:
+        return False
+    return response.strip() == "APPLY DELETE"
+
+
+def apply_duplicate_deletions(*, db_path: Path, root: Path, payload: dict[str, object]) -> ApplyResult:
+    selected_db = Path(db_path).expanduser().resolve(strict=False)
+    if not selected_db.exists():
+        raise FileNotFoundError(f"Database does not exist: {selected_db}")
+    root_text = normalize_path_text(root)
+    deleted_ids: list[int] = []
+    deleted_paths: list[str] = []
+    skipped: list[str] = []
+    failed: list[str] = []
+    candidates = safe_delete_candidates(payload)
+    connection = sqlite3.connect(selected_db)
+    try:
+        connection.execute("PRAGMA busy_timeout = 30000")
+        for candidate in candidates:
+            track_id = int(candidate["track_id"])
+            path_text = str(candidate["path"])
+            if not _path_matches(path_text, root_text, []):
+                skipped.append(f"track_id={track_id}: path outside root")
+                continue
+            file_path = Path(path_text)
+            if not file_path.exists():
+                skipped.append(f"track_id={track_id}: file missing")
+                continue
+            if not file_path.is_file():
+                skipped.append(f"track_id={track_id}: path is not a file")
+                continue
+            try:
+                file_path.unlink()
+                _delete_track_from_database(connection, track_id)
+                connection.commit()
+            except OSError as error:
+                connection.rollback()
+                failed.append(f"track_id={track_id}: {error}")
+                continue
+            except sqlite3.Error:
+                connection.rollback()
+                raise
+            deleted_ids.append(track_id)
+            deleted_paths.append(path_text)
+    finally:
+        connection.close()
+    return ApplyResult(
+        deleted_track_ids=tuple(deleted_ids),
+        deleted_paths=tuple(deleted_paths),
+        skipped=tuple(skipped),
+        failed=tuple(failed),
+    )
+
+
+def _delete_track_from_database(connection: sqlite3.Connection, track_id: int) -> None:
+    table_names = [
+        str(row[0])
+        for row in connection.execute(
+            """
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'table'
+              AND name NOT LIKE 'sqlite_%'
+            """
+        ).fetchall()
+    ]
+    for table_name in table_names:
+        quoted_table = _quote_sqlite_identifier(table_name)
+        columns = {str(row[1]) for row in connection.execute(f"PRAGMA table_info({quoted_table})").fetchall()}
+        if table_name != "tracks" and "track_id" in columns:
+            connection.execute(f"DELETE FROM {quoted_table} WHERE track_id = ?", (track_id,))
+    connection.execute("DELETE FROM tracks WHERE id = ?", (track_id,))
+
+
+def _quote_sqlite_identifier(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+
+def apply_result_payload(result: ApplyResult) -> dict[str, object]:
+    return {
+        "deleted_track_ids": list(result.deleted_track_ids),
+        "deleted_paths": list(result.deleted_paths),
+        "skipped": list(result.skipped),
+        "failed": list(result.failed),
+    }
 
 
 def configure_stdio() -> None:

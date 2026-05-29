@@ -187,6 +187,12 @@ new labels per training class. The default is 50. Changing that value in Profile
 Settings immediately changes the readiness calculation and the "required new
 labels" display for the active profile.
 
+The Training tab keeps the readiness cards inside the existing training panel
+and adds one `Training Stats` card at the bottom with the latest training run, artifact
+counts, latest artifact details per feature set, current combined-model metrics,
+and a short combined-model metrics history. Dates are displayed in a
+human-readable local browser format.
+
 Artifacts and metrics are written to the active profile's artifact folder:
 
 ```text

@@ -453,7 +453,75 @@ async function loadTrainingView() {
     <div class="guidance-card"><b>Current labels</b><span class="meta">${formatLabelCounts(data?.current || {})}</span></div>
     <div class="guidance-card"><b>New since last train</b><span class="meta">${formatLabelCounts(data?.added || {})}</span></div>
     <div class="guidance-card"><b>Required new labels</b><span class="meta">${formatLabelCounts(data?.required_added || {})}</span></div>
-    <div class="guidance-card"><b>Training plan</b><span class="meta">${planText}</span></div>`;
+    <div class="guidance-card"><b>Training plan</b><span class="meta">${planText}</span></div>
+    ${renderTrainingInformationMetrics(data)}`;
+}
+
+function renderTrainingInformationMetrics(data) {
+  return `<div class="guidance-card training-info-card"><b>Training Stats</b>
+    <span class="meta training-info-text">
+      ${renderTrainingLastRunLine(data)}
+      ${renderTrainingArtifactsLine(data?.artifact_summary)}
+      ${renderTrainingMetricsLine(data?.artifact_summary)}
+      ${renderTrainingDynamicsLine(data?.metrics_history)}
+    </span>
+  </div>`;
+}
+
+function renderTrainingLastRunLine(data) {
+  const combined = featureSummary(data?.artifact_summary, "combined");
+  const artifact = data?.model_artifact || data?.artifact_summary?.latest_combined;
+  const runDate = combined?.created_at || data?.last_trained_at;
+  const modelText = combined
+    ? `${combined.feature_set} model ${formatBytes(combined.model_bytes)}`
+    : fileName(artifact) || "no combined model";
+  return trainingInfoLine("Last run", `${formatHumanDate(runDate)} · labels ${formatLabelCounts(data?.last_trained || {})} · ${modelText}`);
+}
+
+function renderTrainingArtifactsLine(summary) {
+  const features = summary?.by_feature || [];
+  const combined = featureSummary(summary, "combined");
+  const header = `${summary?.model_count || 0} models · ${summary?.metrics_count || 0} metrics · ${summary?.artifact_prefix || activeProfile.artifact_prefix || "profile"}`;
+  const featureNames = features.map(row => String(row.feature_set || "").toUpperCase()).join(", ");
+  const detail = features.length
+    ? `${features.length} feature sets · latest combined ${combined?.created_at ? formatHumanDate(combined.created_at) : "none"} · ${featureNames}`
+    : "no profile artifacts found";
+  return trainingInfoLine("Artifacts", `${header} · ${detail}`);
+}
+
+function renderTrainingMetricsLine(summary) {
+  const combined = featureSummary(summary, "combined") || (summary?.by_feature || [])[0];
+  if (!combined) return trainingInfoLine("Metrics", "No metrics JSON has been written for this profile yet.");
+  const values = [
+    `accuracy ${formatMetricPercent(combined.accuracy_mean)}`,
+    `F1 ${formatMetricPercent(combined.macro_f1_mean)}`,
+    `precision ${formatMetricPercent(combined.positive_precision_mean)}`,
+    `recall ${formatMetricPercent(combined.positive_recall_mean)}`,
+    `${combined.trained_rows ?? "-"} rows`,
+    `${combined.feature_count ?? "-"} features`
+  ].join(" · ");
+  return trainingInfoLine("Metrics", `${combined.feature_set} · ${values}`);
+}
+
+function renderTrainingDynamicsLine(history) {
+  const latest = (history || [])[0];
+  const previous = (history || [])[1];
+  if (!latest) return trainingInfoLine("Dynamics", "Train a combined model to start the metrics history.");
+  const trend = previous
+    ? `accuracy ${formatMetricDelta(latest.accuracy_mean, previous.accuracy_mean)}, F1 ${formatMetricDelta(latest.macro_f1_mean, previous.macro_f1_mean)} vs previous run`
+    : "first combined metrics snapshot";
+  return trainingInfoLine(
+    "Dynamics",
+    `${trend} · latest ${formatHumanDate(latest.created_at)} · ${latest.trained_rows ?? "-"} rows · ${formatMetricPercent(latest.accuracy_mean)} acc · ${formatMetricPercent(latest.macro_f1_mean)} F1`
+  );
+}
+
+function trainingInfoLine(label, text) {
+  return `<span class="training-info-line"><b>${escapeHtml(label)}</b><span>${escapeHtml(text)}</span></span>`;
+}
+
+function featureSummary(summary, featureSet) {
+  return (summary?.by_feature || []).find(row => row.feature_set === featureSet);
 }
 
 async function loadSettingsView() {
@@ -775,6 +843,58 @@ function formatProbability(value) {
 function formatScore(number) {
   if (number < 1 && number.toFixed(6) === "1.000000") return "0.999999";
   return number.toFixed(6);
+}
+
+function formatMetricPercent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return `${(number * 100).toFixed(1)}%`;
+}
+
+function formatMetricDelta(current, previous) {
+  const currentNumber = Number(current);
+  const previousNumber = Number(previous);
+  if (!Number.isFinite(currentNumber) || !Number.isFinite(previousNumber)) return "-";
+  const delta = (currentNumber - previousNumber) * 100;
+  const sign = delta >= 0 ? "+" : "";
+  return `${sign}${delta.toFixed(1)} pp`;
+}
+
+function formatHumanDate(value) {
+  const date = parseTrainingDate(value);
+  if (!date) return "never";
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function parseTrainingDate(value) {
+  if (!value) return null;
+  const text = String(value);
+  const compact = text.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
+  if (compact) {
+    const [, year, month, day, hour, minute, second] = compact;
+    return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second)));
+  }
+  const normalized = text.includes("T") ? text : text.replace(" ", "T");
+  const date = new Date(normalized.endsWith("Z") ? normalized : `${normalized}Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes)) return "-";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function fileName(path) {
+  return path ? String(path).split(/[\\/]/).pop() : "";
 }
 
 function mark(value) {

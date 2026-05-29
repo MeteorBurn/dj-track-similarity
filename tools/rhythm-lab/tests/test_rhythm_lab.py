@@ -827,6 +827,98 @@ def test_profile_training_readiness_uses_profile_training_min_added(tmp_path: Pa
     assert not_ready["added"] == {"vocal": 3, "instrumental": 3}
 
 
+def test_profile_training_readiness_reports_artifacts_metrics_and_history(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    source_path = tmp_path / "source.sqlite"
+    LibraryDatabase(source_path)
+    labels_path = tmp_path / "labels.sqlite"
+    labels = RhythmLabDatabase(labels_path)
+    for index in range(8):
+        labels.set_label(10_000 + index, "broken")
+        labels.set_label(20_000 + index, "straight")
+    artifacts = tmp_path / "artifacts" / "break-energy"
+    artifacts.mkdir(parents=True)
+    old_model = artifacts / "break-energy-combined-20260524T120000Z.joblib"
+    latest_model = artifacts / "break-energy-combined-20260524T130000Z.joblib"
+    sonara_model = artifacts / "break-energy-sonara-20260524T125000Z.joblib"
+    old_metrics = artifacts / "break-energy-combined-20260524T120000Z.metrics.json"
+    latest_metrics = artifacts / "break-energy-combined-20260524T130000Z.metrics.json"
+    sonara_metrics = artifacts / "break-energy-sonara-20260524T125000Z.metrics.json"
+    old_model.write_bytes(b"old")
+    latest_model.write_bytes(b"latest")
+    sonara_model.write_bytes(b"sonara")
+    old_metrics.write_text(
+        json.dumps(
+            {
+                "feature_set": "combined",
+                "created_at": "20260524T120000Z",
+                "trained_rows": 12,
+                "test_rows": 4,
+                "feature_count": 24,
+                "cross_validation": {
+                    "accuracy_mean": 0.61,
+                    "macro_f1_mean": 0.62,
+                    "positive_precision_mean": 0.63,
+                    "positive_recall_mean": 0.64,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    latest_metrics.write_text(
+        json.dumps(
+            {
+                "feature_set": "combined",
+                "created_at": "20260524T130000Z",
+                "trained_rows": 16,
+                "test_rows": 4,
+                "feature_count": 42,
+                "cross_validation": {
+                    "accuracy_mean": 0.71,
+                    "macro_f1_mean": 0.72,
+                    "positive_precision_mean": 0.73,
+                    "positive_recall_mean": 0.74,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    sonara_metrics.write_text(
+        json.dumps(
+            {
+                "feature_set": "sonara",
+                "created_at": "20260524T125000Z",
+                "trained_rows": 15,
+                "feature_count": 12,
+                "cross_validation": {"accuracy_mean": 0.51, "macro_f1_mean": 0.52},
+            }
+        ),
+        encoding="utf-8",
+    )
+    labels.update_profile("break_energy", artifact_dir=artifacts)
+    labels.record_training_checkpoint({"broken": 6, "straight": 5}, model_artifact=latest_model)
+    client = TestClient(create_app(source_path, labels_db_path=labels_path))
+
+    payload = client.get("/api/profiles/break_energy/training/readiness").json()
+
+    assert payload["last_trained_at"]
+    assert payload["artifact_summary"]["artifact_dir"] == str(artifacts)
+    assert payload["artifact_summary"]["latest_combined"] == str(latest_model)
+    assert payload["artifact_summary"]["model_count"] == 3
+    assert payload["artifact_summary"]["metrics_count"] == 3
+    combined = next(row for row in payload["artifact_summary"]["by_feature"] if row["feature_set"] == "combined")
+    assert combined["latest_model"] == str(latest_model)
+    assert combined["latest_metrics"] == str(latest_metrics)
+    assert combined["created_at"] == "20260524T130000Z"
+    assert combined["trained_rows"] == 16
+    assert combined["feature_count"] == 42
+    assert combined["accuracy_mean"] == 0.71
+    assert combined["positive_recall_mean"] == 0.74
+    assert payload["metrics_history"][0]["created_at"] == "20260524T130000Z"
+    assert payload["metrics_history"][1]["created_at"] == "20260524T120000Z"
+
+
 def test_web_app_training_readiness_initializes_checkpoint_from_existing_combined_artifact(monkeypatch, tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
@@ -1370,6 +1462,33 @@ def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path
     assert "label: labelEl.value," in script
     assert "predicted: candidatePredictedEl.value," in script
     assert "probability_focus: candidateMinBrokenEl.value," in script
+
+
+def test_web_app_training_tab_adds_bottom_training_stats_card(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
+    script = client.get("/static/app.js").text
+    styles = client.get("/static/styles.css").text
+
+    assert '<div class="guidance-card training-info-card"><b>Training Stats</b>' in script
+    assert "${renderTrainingInformationMetrics(data)}" in script
+    assert script.index('<div class="guidance-card"><b>Training plan</b>') < script.index("${renderTrainingInformationMetrics(data)}")
+    assert "function renderTrainingInformationMetrics(data)" in script
+    assert "function formatHumanDate(value)" in script
+    assert "Intl.DateTimeFormat" in script
+    assert "function parseTrainingDate(value)" in script
+    assert "function renderTrainingArtifactsLine(summary)" in script
+    assert "feature sets · latest combined" in script
+    assert "function renderTrainingMetricsLine(summary)" in script
+    assert "function renderTrainingDynamicsLine(history)" in script
+    assert "previous run" in script
+    assert "const latest = (history || [])[0];" in script
+    assert ".training-info-card .meta" in styles
+    assert ".training-info-card .meta {\n  display: grid;" in styles
+    assert ".training-info-card .meta {\n  font-size:" not in styles
+    assert ".training-info-line {\n  font-size:" not in styles
+    assert ".training-panel {\n  display: grid;" not in styles
 
 
 def test_web_app_refresh_and_train_controls_are_icon_buttons(tmp_path: Path) -> None:

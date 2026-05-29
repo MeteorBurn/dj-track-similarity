@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 import subprocess
@@ -602,6 +603,7 @@ def _training_readiness(
     latest_artifact = _latest_combined_artifact(artifact_dir, profile.artifact_prefix)
     if checkpoint_artifact is None and latest_artifact is not None:
         labels_db.record_training_checkpoint(counts, model_artifact=latest_artifact)
+        checkpoint = labels_db.training_checkpoint()
         checkpoint_counts = dict(counts)
         checkpoint_artifact = str(latest_artifact)
     added = {
@@ -613,10 +615,137 @@ def _training_readiness(
         "ready": ready,
         "current": counts,
         "last_trained": {label: int(checkpoint_counts.get(label, 0)) for label in profile.training_label_keys},
+        "last_trained_at": checkpoint["updated_at"],
         "added": added,
         "required_added": {label: profile.training_min_added for label in profile.training_label_keys},
         "model_artifact": checkpoint_artifact,
+        "artifact_summary": _artifact_summary(artifact_dir, profile.artifact_prefix),
+        "metrics_history": _metrics_history(artifact_dir, profile.artifact_prefix, feature_set="combined"),
     }
+
+
+def _artifact_summary(artifact_dir: Path, artifact_prefix: str) -> dict[str, object]:
+    model_groups = _artifact_groups(artifact_dir, suffix=".joblib", artifact_prefix=artifact_prefix)
+    metrics_groups = _artifact_groups(artifact_dir, suffix=".metrics.json", artifact_prefix=artifact_prefix)
+    latest_combined = _latest_combined_artifact(artifact_dir, artifact_prefix)
+    return {
+        "artifact_dir": str(artifact_dir),
+        "artifact_prefix": artifact_prefix,
+        "latest_combined": str(latest_combined) if latest_combined is not None else None,
+        "model_count": sum(len(files) for files in model_groups.values()),
+        "metrics_count": sum(len(files) for files in metrics_groups.values()),
+        "by_feature": [
+            _artifact_feature_summary(
+                feature,
+                latest_model=(model_groups.get(feature) or [None])[0],
+                latest_metrics=(metrics_groups.get(feature) or [None])[0],
+            )
+            for feature in sorted(set(model_groups) | set(metrics_groups))
+        ],
+    }
+
+
+def _artifact_feature_summary(feature_set: str, *, latest_model: Path | None, latest_metrics: Path | None) -> dict[str, object]:
+    metrics = _read_metrics(latest_metrics)
+    return {
+        "feature_set": feature_set,
+        "latest_model": str(latest_model) if latest_model is not None else None,
+        "latest_metrics": str(latest_metrics) if latest_metrics is not None else None,
+        "created_at": _metric_created_at(metrics, latest_metrics or latest_model),
+        "model_bytes": _file_size(latest_model),
+        "metrics_bytes": _file_size(latest_metrics),
+        **_metric_summary(metrics),
+    }
+
+
+def _metrics_history(
+    artifact_dir: Path,
+    artifact_prefix: str,
+    *,
+    feature_set: str,
+    limit: int = 8,
+) -> list[dict[str, object]]:
+    metrics_paths = _artifact_groups(artifact_dir, suffix=".metrics.json", artifact_prefix=artifact_prefix).get(feature_set, [])
+    rows = [_metrics_history_row(path, feature_set=feature_set) for path in metrics_paths]
+    rows.sort(key=lambda row: (str(row.get("created_at") or ""), str(row.get("metrics_path") or "")), reverse=True)
+    return rows[:limit]
+
+
+def _metrics_history_row(path: Path, *, feature_set: str) -> dict[str, object]:
+    metrics = _read_metrics(path)
+    return {
+        "feature_set": str(metrics.get("feature_set") or feature_set),
+        "metrics_path": str(path),
+        "created_at": _metric_created_at(metrics, path),
+        **_metric_summary(metrics),
+    }
+
+
+def _read_metrics(path: Path | None) -> dict[str, object]:
+    if path is None:
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        return {"metrics_error": str(error)}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _metric_summary(metrics: dict[str, object]) -> dict[str, object]:
+    cross_validation = metrics.get("cross_validation")
+    if not isinstance(cross_validation, dict):
+        cross_validation = {}
+    return {
+        "trained_rows": _optional_int(metrics.get("trained_rows")),
+        "test_rows": _optional_int(metrics.get("test_rows")),
+        "skipped_rows": _optional_int(metrics.get("skipped_rows")),
+        "feature_count": _optional_int(metrics.get("feature_count")),
+        "positive_label": metrics.get("positive_label"),
+        "label_order": metrics.get("label_order") if isinstance(metrics.get("label_order"), list) else None,
+        "accuracy_mean": _optional_float(cross_validation.get("accuracy_mean")),
+        "macro_f1_mean": _optional_float(cross_validation.get("macro_f1_mean")),
+        "positive_precision_mean": _optional_float(cross_validation.get("positive_precision_mean")),
+        "positive_recall_mean": _optional_float(cross_validation.get("positive_recall_mean")),
+    }
+
+
+def _metric_created_at(metrics: dict[str, object], fallback_path: Path | None) -> str | None:
+    created_at = metrics.get("created_at")
+    if created_at is not None:
+        return str(created_at)
+    if fallback_path is None or not fallback_path.exists():
+        return None
+    return _utc_file_time(fallback_path)
+
+
+def _utc_file_time(path: Path) -> str:
+    from datetime import datetime, timezone
+
+    return datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _file_size(path: Path | None) -> int | None:
+    if path is None or not path.exists():
+        return None
+    return int(path.stat().st_size)
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_float(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _training_label_counts(counts: dict[str, int], *, profile: ClassifierProfile) -> dict[str, int]:

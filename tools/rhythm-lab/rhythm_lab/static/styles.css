@@ -370,6 +370,28 @@ main {
   margin-bottom: 4px;
 }
 
+.training-info-card .meta {
+  display: grid;
+  gap: 6px;
+}
+
+.training-info-line {
+  display: grid;
+  grid-template-columns: minmax(86px, auto) minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.training-info-line b {
+  margin: 0;
+  color: var(--text);
+}
+
+.training-info-line span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 #tracks:not(:empty) {
   overflow: hidden;
   border: 1px solid rgba(38, 49, 61, 0.9);

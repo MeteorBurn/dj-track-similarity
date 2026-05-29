@@ -988,6 +988,9 @@ def write_text_log(path: Path, payload: dict[str, object], *, apply_result: Appl
                 f"rhythm_lab_deleted_rows={apply_result.rhythm_lab_deleted_rows}",
             ]
         )
+        if apply_result.deleted_paths:
+            lines.append("deleted_files:")
+            lines.extend(f"deleted_file={path}" for path in apply_result.deleted_paths)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 

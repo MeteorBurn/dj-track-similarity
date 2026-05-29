@@ -130,8 +130,10 @@ Apply mode:
 7. It rewrites the JSON and log reports with `mode` set to `apply` and an
    `apply_result` block listing deleted track IDs, deleted paths, and any
    skipped or failed deletions, plus the Rhythm Lab row cleanup count. The
-   existing `rhythm_lab.summary` block remains in the JSON as the pre-apply
-   impact summary that was shown in the workbook.
+   log also writes a `deleted_files:` block with one `deleted_file=...` line
+   for each file successfully removed from disk. The existing
+   `rhythm_lab.summary` block remains in the JSON as the pre-apply impact
+   summary that was shown in the workbook.
 
 If you decline the confirmation, the reports stay on disk and nothing is
 deleted. Do not use `--apply` until you have reviewed the generated workbook.

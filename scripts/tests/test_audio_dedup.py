@@ -564,6 +564,48 @@ def test_apply_duplicate_deletions_removes_only_safe_temp_files_and_database_row
         connection.close()
 
 
+def test_apply_log_lists_deleted_files(tmp_path: Path) -> None:
+    dedup = _load_dedup_module()
+    log_path = tmp_path / "audio_dedup_report.log"
+    deleted_path = tmp_path / "Abstracted" / "duplicate.mp3"
+    payload = {
+        "generated_at": "2026-05-29T06:00:00",
+        "database_path": str(tmp_path / "library.sqlite"),
+        "root": str(tmp_path / "Abstracted"),
+        "preset": "safe",
+        "min_score": 0.965,
+        "database_track_count": 2,
+        "track_count": 2,
+        "scoped_track_count": 2,
+        "group_count": 1,
+        "rhythm_lab": {
+            "summary": {
+                "safe_candidate_count": 1,
+                "database_exists": False,
+                "affected_track_count": 0,
+                "affected_row_count": 0,
+            },
+            "database_path": str(tmp_path / "rhythm_lab.sqlite"),
+            "database_exists": False,
+            "affected_track_count": 0,
+            "affected_row_count": 0,
+        },
+    }
+    apply_result = dedup.ApplyResult(
+        deleted_track_ids=(2,),
+        deleted_paths=(str(deleted_path),),
+        skipped=(),
+        failed=(),
+        rhythm_lab_deleted_rows=0,
+    )
+
+    dedup.write_text_log(log_path, payload, apply_result=apply_result)
+
+    log_text = log_path.read_text(encoding="utf-8")
+    assert "deleted_files:" in log_text
+    assert f"deleted_file={deleted_path}" in log_text
+
+
 def test_apply_duplicate_deletions_removes_deleted_tracks_from_default_rhythm_lab_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"

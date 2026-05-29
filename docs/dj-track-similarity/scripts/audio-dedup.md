@@ -10,7 +10,9 @@ Duplicate-audio helper with two modes. By default it is report-only: it reads an
 existing `dj-track-similarity` SQLite database, compares tracks inside a
 selected stored path root, and writes JSON, styled XLSX, and text-log reports.
 With `--apply` it adds a confirmed cleanup pass that deletes safe duplicate
-files and their database rows after the reports are written.
+files and their database rows after the reports are written. If a Rhythm Lab
+database exists, apply mode also removes matching lab labels and predictions for
+the deleted source track IDs.
 
 Use the default report mode when you want evidence for possible duplicate audio
 before cleaning a library. It is intentionally conservative: it always produces
@@ -39,6 +41,9 @@ Options:
   and delete only candidates marked `DELETE CANDIDATE` / `true_candidate`.
   Tracks are removed from SQLite only after their audio files are successfully
   deleted.
+- `--rhythm-lab-db DB`: Rhythm Lab SQLite database to clean after `--apply`.
+  Default is `tools\rhythm-lab\data\rhythm_lab.sqlite`. If the file does not
+  exist, Rhythm Lab cleanup is skipped.
 
 ## Presets
 
@@ -75,6 +80,7 @@ Examples:
 .\.venv\Scripts\python.exe scripts\audio_dedup\audio_dedup.py --db .\data\library.sqlite --root D:\Music
 .\.venv\Scripts\python.exe scripts\audio_dedup\audio_dedup.py --db .\data\library.sqlite --root D:\Music --preset balanced --path-contains mastered
 .\.venv\Scripts\python.exe scripts\audio_dedup\audio_dedup.py --db .\data\library.sqlite --root D:\Music --preset safe --apply
+.\.venv\Scripts\python.exe scripts\audio_dedup\audio_dedup.py --db .\data\library.sqlite --root D:\Music --preset safe --apply --rhythm-lab-db tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
 Outputs are named `audio_dedup_report_<timestamp>.json`, `.xlsx`, and `.log`.
@@ -109,9 +115,13 @@ Apply mode:
 5. It removes SQLite rows only for tracks whose files were successfully
    deleted. Related rows in tables with a `track_id` column are removed before
    the `tracks` row.
-6. It rewrites the JSON and log reports with `mode` set to `apply` and an
+6. It opens the selected Rhythm Lab database, when it exists, and removes rows
+   whose `source_track_id` matches the successfully deleted track IDs. This
+   cleans manual labels and predictions without touching classifier profiles or
+   training checkpoints.
+7. It rewrites the JSON and log reports with `mode` set to `apply` and an
    `apply_result` block listing deleted track IDs, deleted paths, and any
-   skipped or failed deletions.
+   skipped or failed deletions, plus the Rhythm Lab row cleanup count.
 
 If you decline the confirmation, the reports stay on disk and nothing is
 deleted. Do not use `--apply` until you have reviewed the generated workbook.

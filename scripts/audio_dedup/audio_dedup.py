@@ -16,7 +16,9 @@ import numpy as np
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parents[1]
 DEFAULT_DB = Path(r"C:\db\abstracted.sqlite")
+DEFAULT_RHYTHM_LAB_DB = REPO_ROOT / "tools" / "rhythm-lab" / "data" / "rhythm_lab.sqlite"
 DEFAULT_OUT_DIR = SCRIPT_DIR / "reports"
 SUPPORTED_EMBEDDINGS = ("mert", "maest", "clap")
 LOSSLESS_RANKS = {
@@ -111,6 +113,7 @@ class ApplyResult:
     deleted_paths: tuple[str, ...]
     skipped: tuple[str, ...]
     failed: tuple[str, ...]
+    rhythm_lab_deleted_rows: int = 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -132,7 +135,12 @@ def main(argv: list[str] | None = None) -> int:
             if not candidates:
                 print("Apply requested, but no safe delete candidates were found.")
             elif confirm_apply(candidates, args.db, args.root):
-                apply_result = apply_duplicate_deletions(db_path=args.db, root=args.root, payload=result.payload)
+                apply_result = apply_duplicate_deletions(
+                    db_path=args.db,
+                    root=args.root,
+                    payload=result.payload,
+                    rhythm_lab_db=args.rhythm_lab_db,
+                )
                 result.payload["mode"] = "apply"
                 result.payload["apply_result"] = apply_result_payload(apply_result)
                 result.json_path.write_text(json.dumps(result.payload, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -179,6 +187,15 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--apply",
         action="store_true",
         help="After writing reports, prompt for confirmation and delete safe duplicate candidates plus their database rows.",
+    )
+    parser.add_argument(
+        "--rhythm-lab-db",
+        type=Path,
+        default=DEFAULT_RHYTHM_LAB_DB,
+        help=(
+            "Rhythm Lab SQLite database to clean after --apply. "
+            f"Default: {DEFAULT_RHYTHM_LAB_DB}"
+        ),
     )
     return parser.parse_args(argv)
 
@@ -905,6 +922,7 @@ def write_text_log(path: Path, payload: dict[str, object], *, apply_result: Appl
                 f"deleted_track_count={len(apply_result.deleted_track_ids)}",
                 f"skipped_count={len(apply_result.skipped)}",
                 f"failed_count={len(apply_result.failed)}",
+                f"rhythm_lab_deleted_rows={apply_result.rhythm_lab_deleted_rows}",
             ]
         )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -938,7 +956,13 @@ def confirm_apply(candidates: list[dict[str, object]], db_path: Path, root: Path
     return response.strip() == "APPLY DELETE"
 
 
-def apply_duplicate_deletions(*, db_path: Path, root: Path, payload: dict[str, object]) -> ApplyResult:
+def apply_duplicate_deletions(
+    *,
+    db_path: Path,
+    root: Path,
+    payload: dict[str, object],
+    rhythm_lab_db: Path | None = DEFAULT_RHYTHM_LAB_DB,
+) -> ApplyResult:
     selected_db = Path(db_path).expanduser().resolve(strict=False)
     if not selected_db.exists():
         raise FileNotFoundError(f"Database does not exist: {selected_db}")
@@ -979,11 +1003,13 @@ def apply_duplicate_deletions(*, db_path: Path, root: Path, payload: dict[str, o
             deleted_paths.append(path_text)
     finally:
         connection.close()
+    rhythm_lab_deleted_rows = cleanup_rhythm_lab_database(rhythm_lab_db, deleted_ids)
     return ApplyResult(
         deleted_track_ids=tuple(deleted_ids),
         deleted_paths=tuple(deleted_paths),
         skipped=tuple(skipped),
         failed=tuple(failed),
+        rhythm_lab_deleted_rows=rhythm_lab_deleted_rows,
     )
 
 
@@ -1007,6 +1033,49 @@ def _delete_track_from_database(connection: sqlite3.Connection, track_id: int) -
     connection.execute("DELETE FROM tracks WHERE id = ?", (track_id,))
 
 
+def cleanup_rhythm_lab_database(rhythm_lab_db: Path | None, track_ids: Iterable[int]) -> int:
+    ids = tuple(sorted({int(track_id) for track_id in track_ids}))
+    if not ids or rhythm_lab_db is None:
+        return 0
+    selected_db = Path(rhythm_lab_db).expanduser().resolve(strict=False)
+    if not selected_db.exists():
+        return 0
+    deleted_rows = 0
+    connection = sqlite3.connect(selected_db)
+    try:
+        connection.execute("PRAGMA busy_timeout = 30000")
+        table_names = [
+            str(row[0])
+            for row in connection.execute(
+                """
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table'
+                  AND name NOT LIKE 'sqlite_%'
+                """
+            ).fetchall()
+        ]
+        for table_name in table_names:
+            quoted_table = _quote_sqlite_identifier(table_name)
+            columns = {str(row[1]) for row in connection.execute(f"PRAGMA table_info({quoted_table})").fetchall()}
+            if "source_track_id" not in columns:
+                continue
+            for chunk in _chunks(list(ids), 800):
+                placeholders = ",".join("?" for _ in chunk)
+                cursor = connection.execute(
+                    f"DELETE FROM {quoted_table} WHERE source_track_id IN ({placeholders})",
+                    tuple(chunk),
+                )
+                deleted_rows += int(cursor.rowcount if cursor.rowcount is not None else 0)
+        connection.commit()
+    except sqlite3.Error:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+    return deleted_rows
+
+
 def _quote_sqlite_identifier(value: str) -> str:
     return '"' + value.replace('"', '""') + '"'
 
@@ -1017,6 +1086,7 @@ def apply_result_payload(result: ApplyResult) -> dict[str, object]:
         "deleted_paths": list(result.deleted_paths),
         "skipped": list(result.skipped),
         "failed": list(result.failed),
+        "rhythm_lab_deleted_rows": result.rhythm_lab_deleted_rows,
     }
 
 

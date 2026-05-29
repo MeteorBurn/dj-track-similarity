@@ -51,6 +51,45 @@ def _create_library_db(path: Path) -> None:
         )
 
 
+def _create_rhythm_lab_db(path: Path) -> None:
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE classifier_labels (
+                classifier_key TEXT NOT NULL,
+                source_track_id INTEGER NOT NULL,
+                path TEXT,
+                size INTEGER,
+                mtime REAL,
+                label TEXT NOT NULL,
+                note TEXT,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(classifier_key, source_track_id)
+            );
+
+            CREATE TABLE classifier_predictions (
+                classifier_key TEXT NOT NULL,
+                source_track_id INTEGER NOT NULL,
+                path TEXT NOT NULL,
+                artist TEXT,
+                title TEXT,
+                feature_set TEXT NOT NULL,
+                model_artifact TEXT NOT NULL,
+                label TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                probabilities_json TEXT NOT NULL DEFAULT '{}',
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(classifier_key, source_track_id, feature_set, model_artifact)
+            );
+
+            CREATE TABLE classifier_training_checkpoints (
+                classifier_key TEXT PRIMARY KEY,
+                counts_json TEXT NOT NULL
+            );
+            """
+        )
+
+
 def _insert_track(
     db_path: Path,
     *,
@@ -374,3 +413,64 @@ def test_apply_duplicate_deletions_removes_only_safe_temp_files_and_database_row
         assert connection.execute("SELECT track_id FROM embeddings ORDER BY track_id").fetchall() == [(1,), (1,)]
     finally:
         connection.close()
+
+
+def test_apply_duplicate_deletions_removes_deleted_tracks_from_rhythm_lab_database(tmp_path: Path) -> None:
+    dedup = _load_dedup_module()
+    db_path = tmp_path / "library.sqlite"
+    rhythm_lab_db = tmp_path / "rhythm_lab.sqlite"
+    out_dir = tmp_path / "reports"
+    audio_dir = tmp_path / "Abstracted"
+    audio_dir.mkdir()
+    keeper_path = audio_dir / "keeper.flac"
+    duplicate_path = audio_dir / "duplicate.mp3"
+    keeper_path.write_bytes(b"keeper")
+    duplicate_path.write_bytes(b"duplicate")
+    _create_library_db(db_path)
+    _create_rhythm_lab_db(rhythm_lab_db)
+    vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
+    _insert_track(db_path, track_id=1, path=str(keeper_path), size=20_000_000, mtime=100, vectors=vectors)
+    _insert_track(db_path, track_id=2, path=str(duplicate_path), size=8_000_000, mtime=200, vectors=vectors)
+    with sqlite3.connect(rhythm_lab_db) as connection:
+        connection.executemany(
+            """
+            INSERT INTO classifier_labels(classifier_key, source_track_id, path, size, mtime, label)
+            VALUES ('break_energy', ?, ?, 1, 1, 'broken')
+            """,
+            [(1, str(keeper_path)), (2, str(duplicate_path))],
+        )
+        connection.executemany(
+            """
+            INSERT INTO classifier_predictions(
+                classifier_key, source_track_id, path, feature_set, model_artifact,
+                label, confidence, probabilities_json
+            )
+            VALUES ('break_energy', ?, ?, 'combined', 'model.joblib', 'broken', 0.9, '{}')
+            """,
+            [(1, str(keeper_path)), (2, str(duplicate_path))],
+        )
+        connection.execute(
+            "INSERT INTO classifier_training_checkpoints(classifier_key, counts_json) VALUES ('break_energy', '{}')"
+        )
+    result = dedup.run_report(
+        db_path=db_path,
+        root=audio_dir,
+        path_contains=[],
+        preset_name="safe",
+        min_score=None,
+        limit_groups=None,
+        out_dir=out_dir,
+    )
+
+    apply_result = dedup.apply_duplicate_deletions(
+        db_path=db_path,
+        root=audio_dir,
+        payload=result.payload,
+        rhythm_lab_db=rhythm_lab_db,
+    )
+
+    assert apply_result.rhythm_lab_deleted_rows == 2
+    with sqlite3.connect(rhythm_lab_db) as connection:
+        assert connection.execute("SELECT source_track_id FROM classifier_labels").fetchall() == [(1,)]
+        assert connection.execute("SELECT source_track_id FROM classifier_predictions").fetchall() == [(1,)]
+        assert connection.execute("SELECT classifier_key FROM classifier_training_checkpoints").fetchall() == [("break_energy",)]

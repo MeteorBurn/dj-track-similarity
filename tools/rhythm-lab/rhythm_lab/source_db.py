@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
+import json
 import sqlite3
 
 import numpy as np
 
 from dj_track_similarity.database import DEFAULT_EMBEDDING_KEY, LibraryDatabase
 from dj_track_similarity.db_schema import TRACK_SELECT_FIELDS, TRACK_SLIM_SELECT_FIELDS_WITH_VECTOR
+from dj_track_similarity.metadata_payload import genres_from_metadata, metadata_from_json
 from dj_track_similarity.models import Track
 
 
@@ -147,7 +149,9 @@ class SourceDatabase:
         where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
         bounded_limit = max(1, min(500, int(limit)))
         bounded_offset = max(0, int(offset))
-        labels_uri = f"file:{Path(labels_db_path).expanduser().resolve(strict=False).as_posix()}?mode=ro"
+        labels_uri = (
+            f"file:{Path(labels_db_path).expanduser().resolve(strict=False).as_posix()}?mode=ro"
+        )
         training_placeholders = ", ".join("?" for _ in training_label_keys) or "NULL"
         label_trained_sql = (
             f"CASE WHEN rl.label IN ({training_placeholders}) "
@@ -199,6 +203,156 @@ class SourceDatabase:
             ).fetchall()
         return {
             "items": [_track_page_item(row) for row in rows],
+            "total": total,
+            "limit": bounded_limit,
+            "offset": bounded_offset,
+        }
+
+    def list_predictions_page(
+        self,
+        *,
+        labels_db_path: str | Path,
+        classifier_key: str,
+        profile_type: str,
+        positive_label: str,
+        negative_label: str,
+        label_keys: tuple[str, ...],
+        training_label_keys: tuple[str, ...],
+        query: str = "",
+        syncopated: str = "all",
+        label: str = "unlabeled",
+        predicted: str = "all",
+        probability_focus: str = "positive_highest",
+        min_positive: float = 0.0,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict[str, object]:
+        where_sql, filter_params = _prediction_page_filter_sql(
+            query=query,
+            syncopated=syncopated,
+            label=label,
+            predicted=predicted,
+            label_keys=label_keys,
+            min_positive=min_positive,
+            profile_type=profile_type,
+        )
+        bounded_limit = max(1, min(500, int(limit)))
+        bounded_offset = max(0, int(offset))
+        labels_uri = f"file:{Path(labels_db_path).expanduser().resolve(strict=False).as_posix()}?mode=ro"
+        training_placeholders = ", ".join("?" for _ in training_label_keys) or "NULL"
+        cte_sql = f"""
+            WITH ranked_predictions AS (
+                SELECT
+                    p.rowid AS prediction_rowid,
+                    p.source_track_id,
+                    p.path AS prediction_path,
+                    p.artist AS prediction_artist,
+                    p.title AS prediction_title,
+                    p.feature_set,
+                    p.model_artifact,
+                    p.label AS predicted_label,
+                    p.confidence,
+                    p.probabilities_json,
+                    p.updated_at,
+                    COALESCE(
+                        CAST(json_extract(p.probabilities_json, ?) AS REAL), 0.0
+                    ) AS positive_probability,
+                    COALESCE(
+                        CAST(json_extract(p.probabilities_json, ?) AS REAL), 0.0
+                    ) AS negative_probability,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY p.source_track_id
+                        ORDER BY COALESCE(p.updated_at, '') DESC, p.rowid DESC, p.model_artifact DESC
+                    ) AS prediction_rank
+                FROM labels.classifier_predictions p
+                WHERE p.classifier_key = ?
+            ),
+            latest_predictions AS (
+                SELECT *
+                FROM ranked_predictions
+                WHERE prediction_rank = 1
+            ),
+            candidate_rows AS (
+                SELECT
+                    p.prediction_rowid,
+                    p.source_track_id,
+                    p.prediction_path,
+                    p.prediction_artist,
+                    p.prediction_title,
+                    p.feature_set,
+                    p.model_artifact,
+                    p.predicted_label,
+                    p.confidence,
+                    p.probabilities_json,
+                    p.updated_at,
+                    p.positive_probability,
+                    p.negative_probability,
+                    t.id AS source_row_id,
+                    t.path AS source_path,
+                    t.artist AS source_artist,
+                    t.title AS source_title,
+                    t.album AS source_album,
+                    t.metadata_json AS source_metadata_json,
+                    rl.label AS classifier_label,
+                    CASE WHEN rl.label IN ({training_placeholders})
+                         AND cp.updated_at IS NOT NULL
+                         AND rl.updated_at <= cp.updated_at
+                         THEN 1 ELSE 0 END AS classifier_label_trained,
+                    emert.track_id IS NOT NULL AS has_mert_embedding,
+                    emaest.track_id IS NOT NULL AS has_maest_embedding
+                FROM latest_predictions p
+                LEFT JOIN tracks t ON t.id = p.source_track_id
+                LEFT JOIN embeddings emert
+                  ON emert.track_id = t.id AND emert.embedding_key = 'mert'
+                LEFT JOIN embeddings emaest
+                  ON emaest.track_id = t.id AND emaest.embedding_key = 'maest'
+                LEFT JOIN labels.classifier_labels rl
+                  ON rl.classifier_key = ? AND rl.source_track_id = p.source_track_id
+                LEFT JOIN labels.classifier_training_checkpoints cp
+                  ON cp.classifier_key = ?
+            )
+        """
+        base_params = [
+            _json_probability_path(positive_label),
+            _json_probability_path(negative_label),
+            classifier_key,
+            *training_label_keys,
+            classifier_key,
+            classifier_key,
+        ]
+        order_sql = _prediction_page_order_sql(
+            probability_focus=probability_focus,
+            profile_type=profile_type,
+        )
+        with self.connect() as connection:
+            connection.execute("ATTACH DATABASE ? AS labels", (labels_uri,))
+            total = int(
+                connection.execute(
+                    f"{cte_sql} SELECT COUNT(*) FROM candidate_rows {where_sql}",
+                    (*base_params, *filter_params),
+                ).fetchone()[0]
+            )
+            rows = connection.execute(
+                f"""
+                {cte_sql}
+                SELECT *
+                FROM candidate_rows
+                {where_sql}
+                {order_sql}
+                LIMIT ? OFFSET ?
+                """,
+                (*base_params, *filter_params, bounded_limit, bounded_offset),
+            ).fetchall()
+        return {
+            "items": [
+                _prediction_page_item(
+                    row,
+                    profile_type=profile_type,
+                    positive_label=positive_label,
+                    negative_label=negative_label,
+                )
+                for row in rows
+            ],
             "total": total,
             "limit": bounded_limit,
             "offset": bounded_offset,
@@ -320,3 +474,118 @@ def _track_page_item(row: sqlite3.Row) -> dict[str, object]:
             "maest": bool(row["has_maest_embedding"]),
         },
     }
+
+
+def _prediction_page_filter_sql(
+    *,
+    query: str,
+    syncopated: str,
+    label: str,
+    predicted: str,
+    label_keys: tuple[str, ...],
+    min_positive: float,
+    profile_type: str,
+) -> tuple[str, list[object]]:
+    where_parts: list[str] = []
+    params: list[object] = []
+    needle = query.strip().casefold()
+    if needle:
+        like = f"%{needle}%"
+        searchable_columns = (
+            "LOWER(COALESCE(source_artist, ''))",
+            "LOWER(COALESCE(source_title, ''))",
+            "LOWER(COALESCE(source_album, ''))",
+            "LOWER(COALESCE(source_path, ''))",
+            "LOWER(COALESCE(source_metadata_json, ''))",
+        )
+        where_parts.append("source_row_id IS NOT NULL")
+        where_parts.append("(" + " OR ".join(f"{column} LIKE ?" for column in searchable_columns) + ")")
+        params.extend([like] * len(searchable_columns))
+    if syncopated == "yes":
+        where_parts.append("source_row_id IS NOT NULL")
+        where_parts.append("json_extract(source_metadata_json, '$.maest_syncopated_rhythm') = 1")
+    elif syncopated == "no":
+        where_parts.append("source_row_id IS NOT NULL")
+        where_parts.append("COALESCE(json_extract(source_metadata_json, '$.maest_syncopated_rhythm'), 0) != 1")
+    elif syncopated != "all":
+        raise ValueError(f"Unknown syncopated filter: {syncopated}")
+    if label == "unlabeled":
+        where_parts.append("classifier_label IS NULL")
+    elif label in set(label_keys):
+        where_parts.append("classifier_label = ?")
+        params.append(label)
+    elif label != "all":
+        raise ValueError(f"Unknown label filter: {label}")
+    if predicted != "all":
+        where_parts.append("predicted_label = ?")
+        params.append(predicted)
+    threshold_column = "confidence" if profile_type == "multiclass" else "positive_probability"
+    if min_positive > 0.0:
+        where_parts.append(f"{threshold_column} >= ?")
+        params.append(float(min_positive))
+    where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
+    return where_sql, params
+
+
+def _prediction_page_order_sql(*, probability_focus: str, profile_type: str) -> str:
+    path_expr = "LOWER(COALESCE(source_path, prediction_path, ''))"
+    if profile_type == "multiclass":
+        if probability_focus == "balanced":
+            return f"ORDER BY confidence ASC, {path_expr} ASC"
+        return f"ORDER BY confidence DESC, {path_expr} ASC"
+    if probability_focus == "negative_highest":
+        return f"ORDER BY negative_probability DESC, confidence DESC, {path_expr} ASC"
+    if probability_focus == "balanced":
+        return f"ORDER BY ABS(positive_probability - negative_probability) ASC, confidence DESC, {path_expr} ASC"
+    return f"ORDER BY positive_probability DESC, confidence DESC, {path_expr} ASC"
+
+
+def _prediction_page_item(
+    row: sqlite3.Row,
+    *,
+    profile_type: str,
+    positive_label: str,
+    negative_label: str,
+) -> dict[str, object]:
+    metadata = metadata_from_json(row["source_metadata_json"]) if row["source_row_id"] is not None else {}
+    genres, genre_scores = genres_from_metadata(metadata) if row["source_row_id"] is not None else ([], None)
+    probabilities = _probabilities_from_json(row["probabilities_json"])
+    return {
+        "id": int(row["source_track_id"]),
+        "source_track_id": int(row["source_track_id"]),
+        "path": row["source_path"] or row["prediction_path"],
+        "artist": row["source_artist"] if row["source_row_id"] is not None else row["prediction_artist"],
+        "title": row["source_title"] if row["source_row_id"] is not None else row["prediction_title"],
+        "label": row["classifier_label"],
+        "label_trained": bool(row["classifier_label_trained"]),
+        "predicted_label": row["predicted_label"],
+        "confidence": float(row["confidence"]),
+        "profile_type": profile_type,
+        "positive_probability": float(row["positive_probability"]),
+        "negative_probability": float(row["negative_probability"]),
+        "positive_label": positive_label,
+        "negative_label": negative_label,
+        "probabilities": probabilities,
+        "feature_set": row["feature_set"],
+        "model_artifact": row["model_artifact"],
+        "genres": genres,
+        "genre_scores": genre_scores,
+        "maest_syncopated_rhythm": metadata.get("maest_syncopated_rhythm") is True,
+        "feature_status": {
+            "sonara": isinstance(metadata.get("sonara_features"), dict),
+            "mert": bool(row["has_mert_embedding"]),
+            "maest": bool(row["has_maest_embedding"]),
+        },
+    }
+
+
+def _probabilities_from_json(payload: object) -> dict[str, object]:
+    try:
+        probabilities = json.loads(str(payload))
+    except json.JSONDecodeError:
+        return {}
+    return probabilities if isinstance(probabilities, dict) else {}
+
+
+def _json_probability_path(label: str) -> str:
+    return f"$.{label}"

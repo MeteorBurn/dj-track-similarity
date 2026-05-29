@@ -122,6 +122,9 @@ The UI includes:
 - source database picker and load control
 - syncopated rhythm filter
 - dynamic manual label and predicted-label filters
+- Candidate filters for predicted label, probability focus, and minimum
+  probability; text search remains in the shared path/title/artist field
+- server-side pagination and filtering for both Library and Candidates
 - pagination
 - audio preview from source paths
 - MAEST genres and SONARA/MERT/MAEST feature availability from the source DB

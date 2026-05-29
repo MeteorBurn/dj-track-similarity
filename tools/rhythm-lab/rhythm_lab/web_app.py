@@ -15,7 +15,7 @@ from starlette.background import BackgroundTask
 from dj_track_similarity.dependencies import require_ffmpeg
 
 from .lab_db import ClassifierProfile, RhythmLabDatabase
-from .predictions import apply_model_to_lab, latest_predictions_by_track
+from .predictions import apply_model_to_lab
 from .source_db import SourceDatabase
 from .training import benchmark_lab_database
 
@@ -309,7 +309,7 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
         label: str = "unlabeled",
         predicted: str = "all",
         probability_focus: str = Query(default="positive_highest", pattern="^(positive_highest|negative_highest|balanced)$"),
-        min_positive: float = Query(default=0.0, ge=0.0, le=1.0),
+        min_positive: str = "0",
         limit: int = Query(default=100, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
     ):
@@ -318,78 +318,33 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
             raise HTTPException(status_code=400, detail=f"Unknown label filter: {label}")
         if predicted not in {"all", *profile.training_label_keys}:
             raise HTTPException(status_code=400, detail=f"Unknown predicted label filter: {predicted}")
+        try:
+            min_positive_value = _probability_filter_value(min_positive)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
         source = source_state.source
         if source is None:
             return {"items": [], "total": 0, "limit": limit, "offset": offset}
-        scoped = profile_db(profile.classifier_key)
-        labels_by_track = scoped.labels_by_track()
-        checkpoint_updated_at = scoped.training_checkpoint()["updated_at"]
-        rows: list[tuple[dict[str, object], str | None, float, float, bool]] = []
-        for row in latest_predictions_by_track(scoped.predictions()):
-            source_track_id = int(row["source_track_id"])
-            manual_label = labels_by_track.get(source_track_id)
-            manual_label_value = manual_label.label if manual_label is not None else None
-            positive_probability = _prediction_probability(row, profile.positive_label)
-            negative_probability = _prediction_probability(row, profile.negative_label)
-            threshold_probability = float(row["confidence"]) if profile.profile_type == "multiclass" else positive_probability
-            if threshold_probability < min_positive:
-                continue
-            if predicted != "all" and row["label"] != predicted:
-                continue
-            if label == "unlabeled" and manual_label_value is not None:
-                continue
-            if label not in {"all", "unlabeled"} and manual_label_value != label:
-                continue
-            rows.append(
-                (
-                    row,
-                    manual_label_value,
-                    positive_probability,
-                    negative_probability,
-                    _label_was_trained(manual_label, profile=profile, checkpoint_updated_at=checkpoint_updated_at),
-                )
+        try:
+            return source.list_predictions_page(
+                labels_db_path=labels_path,
+                classifier_key=profile.classifier_key,
+                profile_type=profile.profile_type,
+                positive_label=profile.positive_label,
+                negative_label=profile.negative_label,
+                label_keys=profile.label_keys,
+                training_label_keys=profile.training_label_keys,
+                query=q,
+                syncopated=syncopated,
+                label=label,
+                predicted=predicted,
+                probability_focus=probability_focus,
+                min_positive=min_positive_value,
+                limit=limit,
+                offset=offset,
             )
-        common_filters_active = bool(q.strip()) or syncopated != "all"
-        source_tracks = (
-            source.tracks_by_ids(int(row["source_track_id"]) for row, _, _, _, _ in rows)
-            if common_filters_active
-            else {}
-        )
-        items = []
-        for row, manual_label_value, positive_probability, negative_probability, label_trained in rows:
-            track = source_tracks.get(int(row["source_track_id"]))
-            if common_filters_active and (
-                track is None or not _candidate_matches_common_filters(track, query=q, syncopated=syncopated)
-            ):
-                continue
-            items.append(
-                _profile_prediction_item(
-                    row,
-                    manual_label_value,
-                    positive_probability,
-                    negative_probability,
-                    label_trained,
-                    profile=profile,
-                )
-            )
-        items.sort(key=lambda item: _profile_candidate_sort_key(item, probability_focus=probability_focus))
-        bounded_limit = max(1, min(500, int(limit)))
-        bounded_offset = max(0, int(offset))
-        page_items = items[bounded_offset : bounded_offset + bounded_limit]
-        if page_items:
-            page_tracks = source_tracks if common_filters_active else source.tracks_by_ids(int(item["id"]) for item in page_items)
-            mert_track_ids = source.embedding_track_ids("mert")
-            maest_track_ids = source.embedding_track_ids("maest")
-            for item in page_items:
-                track = page_tracks.get(int(item["id"]))
-                if track is not None:
-                    item.update(_candidate_source_fields(track, mert_track_ids=mert_track_ids, maest_track_ids=maest_track_ids))
-        return {
-            "items": page_items,
-            "total": len(items),
-            "limit": bounded_limit,
-            "offset": bounded_offset,
-        }
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.post("/api/profiles/{profile_key}/predictions/refresh")
     def refresh_profile_predictions(profile_key: str):
@@ -519,16 +474,6 @@ def _profile_payload(profile: ClassifierProfile) -> dict[str, object]:
             for label in profile.labels
         ],
     }
-
-
-def _prediction_probability(row: dict[str, object], label: str) -> float:
-    probabilities = row.get("probabilities")
-    if not isinstance(probabilities, dict):
-        return 0.0
-    try:
-        return float(probabilities.get(label, 0.0))
-    except (TypeError, ValueError):
-        return 0.0
 
 
 def _latest_combined_artifact(artifact_dir: Path, artifact_prefix: str) -> Path | None:
@@ -748,6 +693,19 @@ def _optional_float(value: object) -> float | None:
         return None
 
 
+def _probability_filter_value(value: object) -> float:
+    text = str(value or "").strip().replace(",", ".")
+    if not text:
+        return 0.0
+    try:
+        probability = float(text)
+    except ValueError as error:
+        raise ValueError("Minimum probability must be a number between 0 and 1") from error
+    if probability < 0.0 or probability > 1.0:
+        raise ValueError("Minimum probability must be a number between 0 and 1")
+    return probability
+
+
 def _training_label_counts(counts: dict[str, int], *, profile: ClassifierProfile) -> dict[str, int]:
     return {label: int(counts.get(label, 0)) for label in profile.training_label_keys}
 
@@ -765,103 +723,6 @@ def _training_readiness_error(profile: ClassifierProfile, added: dict[str, int])
         f"Added: {profile.positive_label} {added[profile.positive_label]}, "
         f"{profile.negative_label} {added[profile.negative_label]}."
     )
-
-
-def _label_was_trained(label, *, profile: ClassifierProfile, checkpoint_updated_at: str | None) -> bool:
-    if label is None or checkpoint_updated_at is None:
-        return False
-    return label.label in profile.training_label_keys and str(label.updated_at or "") <= checkpoint_updated_at
-
-
-def _profile_prediction_item(
-    row: dict[str, object],
-    manual_label: str | None,
-    positive_probability: float,
-    negative_probability: float,
-    label_trained: bool,
-    *,
-    profile: ClassifierProfile,
-) -> dict[str, object]:
-    return {
-        "id": int(row["source_track_id"]),
-        "source_track_id": int(row["source_track_id"]),
-        "path": row["path"],
-        "artist": row["artist"],
-        "title": row["title"],
-        "label": manual_label,
-        "label_trained": label_trained,
-        "predicted_label": row["label"],
-        "confidence": float(row["confidence"]),
-        "profile_type": profile.profile_type,
-        "positive_probability": float(positive_probability),
-        "negative_probability": float(negative_probability),
-        "positive_label": profile.positive_label,
-        "negative_label": profile.negative_label,
-        "probabilities": row.get("probabilities") if isinstance(row.get("probabilities"), dict) else {},
-        "feature_set": row["feature_set"],
-        "model_artifact": row["model_artifact"],
-        "genres": [],
-        "maest_syncopated_rhythm": False,
-        "feature_status": {"sonara": False, "mert": False, "maest": False},
-    }
-
-
-def _profile_candidate_sort_key(item: dict[str, object], *, probability_focus: str) -> tuple[float, float, str]:
-    positive_probability = float(item["positive_probability"])
-    negative_probability = float(item["negative_probability"])
-    confidence = float(item["confidence"])
-    path = str(item["path"])
-    if item.get("profile_type") == "multiclass":
-        if probability_focus == "balanced":
-            return (confidence, 0.0, path)
-        return (-confidence, 0.0, path)
-    if probability_focus == "negative_highest":
-        return (-negative_probability, -confidence, path)
-    if probability_focus == "balanced":
-        return (abs(positive_probability - negative_probability), -confidence, path)
-    return (-positive_probability, -confidence, path)
-
-
-def _candidate_source_fields(track, *, mert_track_ids: set[int], maest_track_ids: set[int]) -> dict[str, object]:
-    metadata = track.metadata or {}
-    return {
-        "artist": track.artist,
-        "title": track.title,
-        "path": track.path,
-        "genres": track.genres,
-        "genre_scores": track.genre_scores,
-        "maest_syncopated_rhythm": metadata.get("maest_syncopated_rhythm") is True,
-        "feature_status": {
-            "sonara": isinstance(metadata.get("sonara_features"), dict),
-            "mert": track.id in mert_track_ids,
-            "maest": track.id in maest_track_ids,
-        },
-    }
-
-
-def _candidate_matches_common_filters(track, *, query: str, syncopated: str) -> bool:
-    metadata = track.metadata or {}
-    is_syncopated = metadata.get("maest_syncopated_rhythm") is True
-    if syncopated == "yes" and not is_syncopated:
-        return False
-    if syncopated == "no" and is_syncopated:
-        return False
-    if syncopated != "all" and syncopated not in {"yes", "no"}:
-        raise ValueError(f"Unknown syncopated filter: {syncopated}")
-    needle = query.strip().casefold()
-    if not needle:
-        return True
-    haystack = " ".join(
-        str(value or "")
-        for value in (
-            track.artist,
-            track.title,
-            track.album,
-            track.path,
-            metadata,
-        )
-    ).casefold()
-    return needle in haystack
 
 
 def _transcoded_wav_file_response(path: Path, ffmpeg_path: str) -> FileResponse:

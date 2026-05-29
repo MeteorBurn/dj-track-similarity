@@ -627,17 +627,34 @@ def test_web_app_predictions_endpoint_filters_candidates_by_probability_focus(mo
         probabilities={"broken": 0.51, "straight": 0.49},
     )
     labels.set_label(source.get_track(high_id), "broken")
+    import rhythm_lab.lab_db as lab_db
     import rhythm_lab.source_db as source_db
+
+    def fail_predictions_scan(self):
+        raise AssertionError("predictions endpoint must not full-scan classifier predictions")
 
     def fail_single_track_load(self, track_id: int):
         raise AssertionError("predictions endpoint must not fetch source tracks one at a time")
 
+    monkeypatch.setattr(lab_db.RhythmLabDatabase, "predictions", fail_predictions_scan)
     monkeypatch.setattr(source_db.SourceDatabase, "get_track", fail_single_track_load)
     client = TestClient(create_app(source_path, labels_db_path=labels.path))
 
     all_candidates = client.get("/api/profiles/break_energy/predictions", params={"label": "all"}).json()
     unlabeled = client.get("/api/profiles/break_energy/predictions", params={"label": "unlabeled"}).json()
     filtered = client.get("/api/profiles/break_energy/predictions", params={"label": "all", "min_positive": 0.5}).json()
+    comma_decimal_filtered = client.get(
+        "/api/profiles/break_energy/predictions",
+        params={"label": "all", "min_positive": "0,5"},
+    )
+    predicted_broken = client.get(
+        "/api/profiles/break_energy/predictions",
+        params={"label": "all", "predicted": "broken"},
+    ).json()
+    predicted_straight = client.get(
+        "/api/profiles/break_energy/predictions",
+        params={"label": "all", "predicted": "straight"},
+    ).json()
     straight_focus = client.get(
         "/api/profiles/break_energy/predictions",
         params={"label": "all", "probability_focus": "negative_highest"},
@@ -645,6 +662,14 @@ def test_web_app_predictions_endpoint_filters_candidates_by_probability_focus(mo
     balanced_focus = client.get(
         "/api/profiles/break_energy/predictions",
         params={"label": "all", "probability_focus": "balanced"},
+    ).json()
+    by_filename = client.get(
+        "/api/profiles/break_energy/predictions",
+        params={"label": "all", "q": "low.wav"},
+    ).json()
+    by_full_path = client.get(
+        "/api/profiles/break_energy/predictions",
+        params={"label": "all", "q": str(source.get_track(low_id).path)},
     ).json()
     combined = client.get(
         "/api/profiles/break_energy/predictions",
@@ -666,8 +691,19 @@ def test_web_app_predictions_endpoint_filters_candidates_by_probability_focus(mo
     assert unlabeled["items"][0]["id"] == balanced_id
     assert filtered["total"] == 2
     assert [item["id"] for item in filtered["items"]] == [high_id, balanced_id]
+    assert comma_decimal_filtered.status_code == 200
+    assert comma_decimal_filtered.json()["total"] == 2
+    assert [item["id"] for item in comma_decimal_filtered.json()["items"]] == [high_id, balanced_id]
+    assert predicted_broken["total"] == 2
+    assert [item["id"] for item in predicted_broken["items"]] == [high_id, balanced_id]
+    assert predicted_straight["total"] == 1
+    assert predicted_straight["items"][0]["id"] == low_id
     assert [item["id"] for item in straight_focus["items"]] == [low_id, balanced_id, high_id]
     assert [item["id"] for item in balanced_focus["items"]] == [balanced_id, high_id, low_id]
+    assert by_filename["total"] == 1
+    assert by_filename["items"][0]["id"] == low_id
+    assert by_full_path["total"] == 1
+    assert by_full_path["items"][0]["id"] == low_id
     assert combined["total"] == 1
     assert combined["items"][0]["id"] == high_id
     assert mismatched["total"] == 0
@@ -1429,6 +1465,7 @@ def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path
 
     assert 'id="commonFilters"' in html
     assert '<section id="candidateFilters" class="filters candidate-filters-placeholder">' in html
+    assert 'id="candidateMinPositive" type="number" min="0" max="1" step="0.05" value="0"' in html
     assert html.index('id="candidateFilters"') < html.index('<section class="pager">')
     assert 'syncopatedEl.addEventListener("change", () => loadActive({ reset: true }));' in script
     assert 'labelEl.addEventListener("change", () => loadActive({ reset: true }));' in script
@@ -1462,6 +1499,8 @@ def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path
     assert "label: labelEl.value," in script
     assert "predicted: candidatePredictedEl.value," in script
     assert "probability_focus: candidateMinBrokenEl.value," in script
+    assert "min_positive: probabilityFilterValue()," in script
+    assert 'replace(",", ".")' in script
 
 
 def test_web_app_training_tab_adds_bottom_training_stats_card(tmp_path: Path) -> None:

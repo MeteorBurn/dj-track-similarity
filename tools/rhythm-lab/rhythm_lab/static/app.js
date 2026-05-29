@@ -72,7 +72,10 @@ syncopatedEl.addEventListener("change", () => loadActive({ reset: true }));
 labelEl.addEventListener("change", () => loadActive({ reset: true }));
 candidatePredictedEl.addEventListener("change", () => loadActive({ reset: true }));
 candidateMinBrokenEl.addEventListener("change", () => loadActive({ reset: true }));
-candidateMinPositiveEl.addEventListener("change", () => loadActive({ reset: true }));
+candidateMinPositiveEl.addEventListener("change", () => {
+  candidateMinPositiveEl.value = probabilityFilterValue();
+  loadActive({ reset: true });
+});
 refreshCandidatesEl.addEventListener("click", () => refreshCandidates().catch(showError));
 trainRefreshEl.addEventListener("click", () => trainRefresh().catch(showError));
 pageSizeEl.addEventListener("change", () => loadActive({ reset: true }));
@@ -377,7 +380,7 @@ async function loadCandidates(options = {}) {
     label: labelEl.value,
     predicted: candidatePredictedEl.value,
     probability_focus: candidateMinBrokenEl.value,
-    min_positive: candidateMinPositiveEl.value || "0",
+    min_positive: probabilityFilterValue(),
     limit: String(limit),
     offset: String(offset)
   });
@@ -394,6 +397,13 @@ async function loadCandidates(options = {}) {
   updatePager(data);
   await loadSummary(sequence);
   await loadTrainingReadiness();
+}
+
+function probabilityFilterValue() {
+  const value = String(candidateMinPositiveEl.value || "").trim().replace(",", ".");
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return "0";
+  return String(Math.max(0, Math.min(1, parsed)));
 }
 
 async function refreshCandidates() {

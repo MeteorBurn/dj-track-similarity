@@ -186,57 +186,66 @@ body {
 
 /* ─── Layout widths ─────────────────────────────────────────────────────────── */
 
-/*
- * Strategy: widen the overall envelope and the sidebar via CSS variables only.
- * Never set max-width on .content or .content-container — VitePress flex layout
- * fills the remaining space automatically. Forcing a wide content-container
- * collapses the sidebar (it gets squeezed out of the flex row).
- */
 :root {
-  --vp-layout-max-width: 1600px;
-  --vp-sidebar-width: 300px;
+  --vp-layout-max-width: 1680px;
+  --vp-sidebar-width: 288px;
+  --dts-doc-content-max-width: 960px;
+  --dts-doc-aside-width: 240px;
 }
 
-.VPDoc .container,
+.VPDoc > .container,
 .VPHome .container {
-  max-width: 1600px;
+  max-width: var(--vp-layout-max-width);
 }
 
-/* Remove the 688px cap on the text container */
-.VPDoc.has-aside .content-container {
-  max-width: none;
+.VPDoc.has-aside > .container > .content .content-container,
+.VPDoc:not(.has-aside) > .container > .content .content-container {
+  width: 100%;
+  max-width: min(100%, var(--dts-doc-content-max-width));
+  min-width: 0;
 }
 
-/*
- * By default VitePress gives flex-grow:1 to .aside, which causes it to absorb
- * all spare horizontal space. Transfer flex-grow to .content so the text area
- * expands and aside stays at its fixed width.
- */
 @media (min-width: 1280px) {
-  .VPDoc .content {
+  .VPDoc > .container > .content {
     flex-grow: 1;
+    min-width: 0;
   }
-  .VPDoc .aside {
+
+  .VPDoc > .container > .aside {
     flex-grow: 0;
     flex-shrink: 0;
-    width: 256px;
-    max-width: 256px;
+    width: var(--dts-doc-aside-width);
+    max-width: var(--dts-doc-aside-width);
+  }
+
+  .VPDocAside {
+    min-width: 0;
+  }
+
+  .VPDocAside .content {
+    min-width: 0;
+  }
+}
+
+@media (min-width: 1280px) and (max-width: 1535.98px) {
+  .VPDoc.has-aside > .container > .aside {
+    display: none;
   }
 }
 
 /* No-sidebar pages */
-.VPDoc:not(.has-sidebar) .content {
+.VPDoc:not(.has-sidebar) > .container > .content {
   max-width: 960px;
 }
-.VPDoc:not(.has-sidebar) .container {
+.VPDoc:not(.has-sidebar) > .container {
   max-width: 1280px;
 }
 
 @media (min-width: 1440px) {
-  .VPDoc:not(.has-sidebar) .content {
+  .VPDoc:not(.has-sidebar) > .container > .content {
     max-width: 1100px;
   }
-  .VPDoc:not(.has-sidebar) .container {
+  .VPDoc:not(.has-sidebar) > .container {
     max-width: 1440px;
   }
 }
@@ -439,12 +448,15 @@ body {
 
 /* ─── Tables ─────────────────────────────────────────────────────────────────── */
 .vp-doc table {
+  display: block;
   width: 100%;
+  max-width: 100%;
   border-collapse: separate;
   border-spacing: 0;
   border: 1px solid var(--vp-c-border);
   border-radius: var(--dts-radius-sm);
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   font-size: 14px;
 }
 
@@ -460,11 +472,26 @@ body {
   text-transform: uppercase;
   padding: 10px 14px;
   border-bottom: 1px solid var(--vp-c-border);
+  overflow-wrap: normal;
+  word-break: normal;
+  white-space: nowrap;
+  vertical-align: top;
 }
 
 .vp-doc td {
   padding: 9px 14px;
   border-bottom: 1px solid var(--vp-c-divider);
+  overflow-wrap: normal;
+  word-break: normal;
+  vertical-align: top;
+}
+
+.vp-doc th:first-child,
+.vp-doc td:first-child,
+.vp-doc table :not(pre) > code {
+  overflow-wrap: normal;
+  word-break: normal;
+  white-space: nowrap;
 }
 
 .vp-doc tr:last-child td {
@@ -492,6 +519,8 @@ body {
   padding: 2px 6px;
   font-size: 0.875em;
   font-weight: 500;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   transition: background var(--dts-transition);
 }
 
@@ -501,12 +530,23 @@ body {
 
 /* ─── Code blocks ────────────────────────────────────────────────────────────── */
 .vp-doc div[class*="language-"] {
+  max-width: 100%;
   background: var(--vp-c-bg-soft);
   border: 1px solid var(--vp-c-border);
   border-radius: var(--dts-radius-sm);
   margin: 16px 0;
   position: relative;
   overflow: hidden;
+}
+
+.vp-doc div[class*="language-"] pre {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.vp-doc div[class*="language-"] code {
+  min-width: 100%;
 }
 
 .dark .vp-doc div[class*="language-"] {

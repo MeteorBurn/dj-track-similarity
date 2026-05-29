@@ -1,4 +1,4 @@
-# Project Overview
+# Overview
 
 This page covers what `dj-track-similarity` is, what it does, and which safety
 boundaries apply to normal app workflows. Read it first if you are deciding

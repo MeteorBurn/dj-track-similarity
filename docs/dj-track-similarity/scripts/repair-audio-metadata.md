@@ -7,7 +7,9 @@ Run this script with the project Python environment when possible:
 ```
 
 Standalone diagnostic and repair helper for audio metadata/container issues.
-Dry-run is read-only and does not copy or write audio files.
+Dry-run is read-only and does not copy or write audio files. Each normal run
+writes a repair-specific JSON report, styled XLSX workbook, and structured text
+log under `scripts\audio_repair\reports` by default.
 
 Use this script when scanning, tag refresh, or genre writing reports suspicious
 or unreadable metadata, especially for WAV/AIFF/container edge cases. Do not use
@@ -50,15 +52,47 @@ Run control:
 - `--limit N`: process only the first collected paths.
 - `--summary-only`: print only the final summary.
 - `--color auto|always|never`: colorize status labels.
-- `--file-log PATH`: file log path overwritten on every run.
-- `--no-file-log`: disable the file log.
+- `--out-dir DIR`: report output directory. Default is
+  `scripts\audio_repair\reports`.
+- `--file-log PATH`: optional console transcript log path overwritten on every
+  run. This is separate from the structured report log.
+- `--no-file-log`: disable the optional console transcript log.
+- `--no-report`: disable the JSON/XLSX/log report bundle.
 - `--state PATH`: explicit folder/database-mode state file.
 - `--workers N`: parallel dry-run workers. Apply mode always runs sequentially.
+
+Default generated structure:
+
+```text
+scripts\audio_repair\reports\audio_repair_report_<timestamp>.json
+scripts\audio_repair\reports\audio_repair_report_<timestamp>.xlsx
+scripts\audio_repair\reports\audio_repair_report_<timestamp>.log
+scripts\audio_repair\state\state.<source>.<hash>.json
+scripts\audio_repair\backups\<filename>.<timestamp>.<suffix>.bak
+```
+
+The report bundle contains only audio-repair data. It does not include duplicate
+grouping, delete candidates, Rhythm Lab impact, or any `audio_dedup` fields.
+The JSON stores the collected sources, run options, state skips, missing DB-file
+count, `status_counts`, `reason_counts`, `problem_summary`, and one `results`
+entry per processed file. The XLSX workbook is the main review artifact and has
+three sheets:
+
+- `Summary`: mode, source counts, processed counts, state skips, status counts,
+  and reason counts.
+- `Results`: one row per file with action (`REPAIR AVAILABLE`, `REPAIRED`,
+  `REVIEW MANUALLY`, and so on), status, reason, path, size delta, ID3 counts,
+  primary action, backup path, and Mutagen summary.
+- `Problems`: grouped problem summary matching the terminal output.
+
+The structured `.log` mirrors the run-level counts in key-value form for quick
+grep or shell review.
 
 Recommended workflow:
 
 1. Run a dry run against a small path, folder, log, or database subset.
-2. Review the status and reason for every `REPAIRABLE` entry.
+2. Review the generated workbook and the status/reason for every `REPAIRABLE`
+   entry.
 3. Run `--apply` only for the specific reason or file set you intend to fix.
 4. Keep backups enabled unless you already have an external backup.
 

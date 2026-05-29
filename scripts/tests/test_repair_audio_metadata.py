@@ -6,6 +6,7 @@ import sqlite3
 import sys
 import time
 from pathlib import Path
+import zipfile
 
 
 def _load_repair_module():
@@ -209,7 +210,7 @@ def test_main_output_includes_total_and_track_number(monkeypatch, tmp_path: Path
 
     monkeypatch.setattr(repair, "repair_file", fake_repair_file)
 
-    exit_code = repair.main([str(first), str(second), "--no-file-log"])
+    exit_code = repair.main([str(first), str(second), "--no-file-log", "--no-report"])
 
     output = capsys.readouterr().out
     assert exit_code == 0
@@ -249,7 +250,7 @@ def test_main_output_groups_problem_summary(monkeypatch, tmp_path: Path, capsys)
 
     monkeypatch.setattr(repair, "repair_file", fake_repair_file)
 
-    exit_code = repair.main([str(wav_path), str(flac_path), str(tag_path), "--no-file-log"])
+    exit_code = repair.main([str(wav_path), str(flac_path), str(tag_path), "--no-file-log", "--no-report"])
 
     output = capsys.readouterr().out
     assert exit_code == 0
@@ -307,7 +308,7 @@ def test_main_writes_file_log_for_each_processed_track(monkeypatch, tmp_path: Pa
 
     monkeypatch.setattr(repair, "repair_file", fake_repair_file)
 
-    exit_code = repair.main([str(first), str(second), "--file-log", str(file_log), "--color", "always"])
+    exit_code = repair.main([str(first), str(second), "--file-log", str(file_log), "--color", "always", "--no-report"])
 
     assert exit_code == 0
     stdout = capsys.readouterr().out
@@ -317,6 +318,75 @@ def test_main_writes_file_log_for_each_processed_track(monkeypatch, tmp_path: Pa
     assert "[2/2] OK" in log_text
     assert "\x1b[" not in log_text
     assert "[1/2]" in stdout
+
+
+def test_main_writes_audio_repair_report_bundle(monkeypatch, tmp_path: Path, capsys) -> None:
+    repair = _load_repair_module()
+    out_dir = tmp_path / "reports"
+    wav_path = tmp_path / "repair.wav"
+    flac_path = tmp_path / "wrong.flac"
+
+    def fake_repair_file(path: Path, **_kwargs):
+        if path == wav_path:
+            return repair.FileRepairResult(
+                path=path,
+                status="repairable",
+                message="ok",
+                original_size=20,
+                repaired_size=18,
+                id3_seen=2,
+                id3_removed=1,
+                mutagen_summary="mutagen ok tags=yes keys=TCON",
+                actions=["shrunk oversized data chunk at offset 36 from declared size 100 to 80"],
+            )
+        return repair.FileRepairResult(
+            path=path,
+            status="suspicious",
+            message="extension=.flac detected=mp3",
+        )
+
+    monkeypatch.setattr(repair, "repair_file", fake_repair_file)
+
+    exit_code = repair.main([str(wav_path), str(flac_path), "--out-dir", str(out_dir), "--no-file-log"])
+
+    assert exit_code == 0
+    stdout = capsys.readouterr().out
+    report_paths = sorted(out_dir.glob("audio_repair_report_*.json"))
+    assert len(report_paths) == 1
+    json_path = report_paths[0]
+    xlsx_path = json_path.with_suffix(".xlsx")
+    log_path = json_path.with_suffix(".log")
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert payload["mode"] == "dry-run"
+    assert payload["result_count"] == 2
+    assert payload["status_counts"] == {"repairable": 1, "suspicious": 1}
+    assert payload["reason_counts"] == {"EXTENSION_MISMATCH": 1, "OVERSIZED_DATA": 1}
+    assert payload["results"][0]["path"] == str(wav_path)
+    assert payload["results"][0]["reason"] == "OVERSIZED_DATA"
+    assert payload["results"][0]["action"] == "REPAIR AVAILABLE"
+    assert payload["results"][1]["action"] == "REVIEW MANUALLY"
+    assert "groups" not in payload
+    assert "rhythm_lab" not in payload
+    assert xlsx_path.exists()
+    assert log_path.exists()
+    with zipfile.ZipFile(xlsx_path) as archive:
+        workbook_xml = archive.read("xl/workbook.xml").decode("utf-8")
+        summary_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+        results_xml = archive.read("xl/worksheets/sheet2.xml").decode("utf-8")
+    assert "Summary" in workbook_xml
+    assert "Results" in workbook_xml
+    assert "Problems" in workbook_xml
+    assert "Audio repair summary" in summary_xml
+    assert "Duplicate audio summary" not in summary_xml
+    assert "REPAIR AVAILABLE" in results_xml
+    assert "OVERSIZED_DATA" in results_xml
+    log_text = log_path.read_text(encoding="utf-8")
+    assert "audio_repair dry-run run" in log_text
+    assert "status_count_repairable=1" in log_text
+    assert "reason_count_OVERSIZED_DATA=1" in log_text
+    assert f"json={json_path}" in stdout
+    assert f"xlsx={xlsx_path}" in stdout
+    assert f"log={log_path}" in stdout
 
 
 def test_folder_state_skips_checked_files_and_processes_new_files(monkeypatch, tmp_path: Path, capsys) -> None:
@@ -335,9 +405,9 @@ def test_folder_state_skips_checked_files_and_processes_new_files(monkeypatch, t
 
     monkeypatch.setattr(repair, "repair_file", fake_repair_file)
 
-    first_exit = repair.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log"])
+    first_exit = repair.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--no-report"])
     second.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
-    second_exit = repair.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log"])
+    second_exit = repair.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--no-report"])
 
     output = capsys.readouterr().out
     assert first_exit == 0
@@ -382,13 +452,14 @@ def test_db_mode_collects_existing_tracks_with_root_remap(monkeypatch, tmp_path:
             "--file-root",
             str(file_root),
             "--no-file-log",
+            "--no-report",
         ]
     )
 
     output = capsys.readouterr().out
     assert exit_code == 0
     assert processed == [existing]
-    assert f"Missing DB files: 1" in output
+    assert "Missing DB files: 1" in output
     assert str(missing) not in output
 
 
@@ -411,8 +482,8 @@ def test_db_mode_state_skips_checked_files(monkeypatch, tmp_path: Path, capsys) 
 
     monkeypatch.setattr(repair, "repair_file", fake_repair_file)
 
-    first_exit = repair.main(["--db", str(db_path), "--state", str(state_path), "--no-file-log"])
-    second_exit = repair.main(["--db", str(db_path), "--state", str(state_path), "--no-file-log"])
+    first_exit = repair.main(["--db", str(db_path), "--state", str(state_path), "--no-file-log", "--no-report"])
+    second_exit = repair.main(["--db", str(db_path), "--state", str(state_path), "--no-file-log", "--no-report"])
 
     output = capsys.readouterr().out
     state = json.loads(state_path.read_text(encoding="utf-8"))
@@ -446,9 +517,9 @@ def test_default_folder_state_path_is_folder_dependent_and_reused(monkeypatch, t
 
     monkeypatch.setattr(repair, "repair_file", fake_repair_file)
 
-    first_exit = repair.main(["--folder", str(first_folder), "--no-file-log"])
-    repeat_exit = repair.main(["--folder", str(first_folder), "--no-file-log"])
-    second_exit = repair.main(["--folder", str(second_folder), "--no-file-log"])
+    first_exit = repair.main(["--folder", str(first_folder), "--no-file-log", "--no-report"])
+    repeat_exit = repair.main(["--folder", str(first_folder), "--no-file-log", "--no-report"])
+    second_exit = repair.main(["--folder", str(second_folder), "--no-file-log", "--no-report"])
 
     output = capsys.readouterr().out
     assert first_exit == 0
@@ -517,9 +588,11 @@ def test_folder_state_dry_run_does_not_skip_later_apply(monkeypatch, tmp_path: P
 
     monkeypatch.setattr(repair, "repair_file", fake_repair_file)
 
-    dry_run_exit = repair.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log"])
-    apply_exit = repair.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--apply"])
-    second_apply_exit = repair.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--apply"])
+    dry_run_exit = repair.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--no-report"])
+    apply_exit = repair.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--no-report", "--apply"])
+    second_apply_exit = repair.main(
+        ["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--no-report", "--apply"]
+    )
 
     assert dry_run_exit == 0
     assert apply_exit == 0
@@ -558,7 +631,7 @@ def test_state_stores_reason_and_apply_can_filter_by_reason(monkeypatch, tmp_pat
 
     monkeypatch.setattr(repair, "repair_file", fake_repair_file)
 
-    dry_run_exit = repair.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log"])
+    dry_run_exit = repair.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--no-report"])
     apply_exit = repair.main(
         [
             "--folder",
@@ -566,6 +639,7 @@ def test_state_stores_reason_and_apply_can_filter_by_reason(monkeypatch, tmp_pat
             "--state",
             str(state_path),
             "--no-file-log",
+            "--no-report",
             "--apply",
             "--reason",
             "oversized_data",
@@ -619,7 +693,16 @@ def test_folder_dry_run_workers_process_multiple_files(monkeypatch, tmp_path: Pa
     monkeypatch.setattr(repair, "repair_file", fake_repair_file)
 
     exit_code = repair.main(
-        ["--folder", str(folder), "--workers", "2", "--state", str(tmp_path / "state.json"), "--no-file-log"]
+        [
+            "--folder",
+            str(folder),
+            "--workers",
+            "2",
+            "--state",
+            str(tmp_path / "state.json"),
+            "--no-file-log",
+            "--no-report",
+        ]
     )
 
     assert exit_code == 0
@@ -642,7 +725,17 @@ def test_apply_forces_single_worker(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(repair, "repair_file", fake_repair_file)
 
     exit_code = repair.main(
-        ["--folder", str(folder), "--workers", "4", "--apply", "--state", str(tmp_path / "state.json"), "--no-file-log"]
+        [
+            "--folder",
+            str(folder),
+            "--workers",
+            "4",
+            "--apply",
+            "--state",
+            str(tmp_path / "state.json"),
+            "--no-file-log",
+            "--no-report",
+        ]
     )
 
     assert exit_code == 0

@@ -194,9 +194,19 @@ def run_report(
     out_dir: Path,
 ) -> ReportResult:
     config = resolve_preset(preset_name, min_score=min_score)
+    selected_db = Path(db_path).expanduser().resolve(strict=False)
+    database_track_count = count_database_tracks(selected_db)
     tracks = load_tracks(db_path, root=root, path_contains=path_contains)
     groups = find_duplicate_groups(tracks, config, limit_groups=limit_groups)
-    payload = build_report(groups, tracks, config, root=root, path_contains=path_contains)
+    payload = build_report(
+        groups,
+        tracks,
+        config,
+        db_path=selected_db,
+        database_track_count=database_track_count,
+        root=root,
+        path_contains=path_contains,
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     json_path = _unique_report_path(out_dir / f"audio_dedup_report_{stamp}.json")
@@ -272,6 +282,17 @@ def load_tracks(db_path: Path, *, root: Path, path_contains: list[str]) -> list[
     finally:
         connection.close()
     return tracks
+
+
+def count_database_tracks(db_path: Path) -> int:
+    selected = Path(db_path).expanduser().resolve(strict=False)
+    if not selected.exists():
+        raise FileNotFoundError(f"Database does not exist: {selected}")
+    connection = _connect_readonly(selected)
+    try:
+        return int(connection.execute("SELECT COUNT(*) FROM tracks").fetchone()[0])
+    finally:
+        connection.close()
 
 
 def find_duplicate_groups(
@@ -411,6 +432,8 @@ def build_report(
     tracks: list[TrackRecord],
     config: PresetConfig,
     *,
+    db_path: Path | None = None,
+    database_track_count: int | None = None,
     root: Path,
     path_contains: list[str],
 ) -> dict[str, object]:
@@ -471,10 +494,13 @@ def build_report(
     return {
         "mode": "report-only",
         "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "database_path": str(db_path) if db_path is not None else None,
         "root": normalize_path_text(root),
         "path_contains": path_contains,
         "preset": config.name,
         "min_score": config.min_score,
+        "database_track_count": database_track_count if database_track_count is not None else len(tracks),
+        "scoped_track_count": len(tracks),
         "track_count": len(tracks),
         "group_count": len(report_groups),
         "statistics": stats,
@@ -524,10 +550,12 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
     rows: list[list[object]] = [
         ["Duplicate audio summary"],
         ["Generated at", payload["generated_at"]],
+        ["Database", payload.get("database_path") or ""],
         ["Root", payload["root"]],
         ["Preset", payload["preset"]],
         ["Min score", payload["min_score"]],
-        ["Tracks scanned", payload["track_count"]],
+        ["Total tracks in database", payload.get("database_track_count", payload["track_count"])],
+        ["Tracks inside selected root", payload.get("scoped_track_count", payload["track_count"])],
         ["Duplicate groups", payload["group_count"]],
         ["Duplicate candidates", stats.get("candidate_count", 0)],
         ["Safe delete candidates", stats.get("safe_candidate_count", 0)],
@@ -861,10 +889,12 @@ def write_text_log(path: Path, payload: dict[str, object], *, apply_result: Appl
     lines = [
         "audio_dedup apply run" if apply_result is not None else "audio_dedup report-only run",
         f"generated_at={payload['generated_at']}",
+        f"database={payload.get('database_path') or ''}",
         f"root={payload['root']}",
         f"preset={payload['preset']}",
         f"min_score={payload['min_score']}",
-        f"track_count={payload['track_count']}",
+        f"database_track_count={payload.get('database_track_count', payload['track_count'])}",
+        f"scoped_track_count={payload.get('scoped_track_count', payload['track_count'])}",
         f"group_count={payload['group_count']}",
     ]
     if apply_result is None:

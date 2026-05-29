@@ -50,7 +50,9 @@ The default report directory is ignored by git.
 
 The workbook is the main human review artifact. It includes:
 
-- `Summary`: run parameters and high-level duplicate statistics.
+- `Summary`: database path, selected root, total track count in the database,
+  track count inside the selected root/filter scope, and high-level duplicate
+  statistics.
 - `Groups`: one row per duplicate group, with the suggested `KEEP` track and
   the reasons it outranks the other files.
 - `Candidates`: one row per duplicate candidate, with `DELETE CANDIDATE` or

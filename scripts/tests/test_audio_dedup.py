@@ -306,10 +306,15 @@ def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> Non
     sonara = {"bpm": 128.0, "danceability": 0.8, "energy": 0.7, "valence": 0.5}
     _insert_track(db_path, track_id=1, path="M:/Volumes/Abstracted/one.flac", size=20_000_000, sonara=sonara, vectors=vectors)
     _insert_track(db_path, track_id=2, path="M:/Volumes/Abstracted/two.mp3", size=8_000_000, sonara=sonara, vectors=vectors)
+    _insert_track(db_path, track_id=3, path="N:/Volumes/Other/three.flac", size=20_000_000, sonara=sonara, vectors=vectors)
 
     result = dedup.run_report(db_path=db_path, root=Path("M:/Volumes/Abstracted"), path_contains=[], preset_name="safe", min_score=None, limit_groups=None, out_dir=out_dir)
 
     json_payload = json.loads(result.json_path.read_text(encoding="utf-8"))
+    assert json_payload["database_path"] == str(db_path.resolve())
+    assert json_payload["database_track_count"] == 3
+    assert json_payload["scoped_track_count"] == 2
+    assert json_payload["track_count"] == 2
     assert "mert_similarity" in json_payload["groups"][0]["pairwise_evidence"][0]
     assert "keeper_reasons" in json_payload["groups"][0]["suggested_keeper"]
     assert json_payload["groups"][0]["suggested_keeper"]["role"] == "KEEP"
@@ -328,6 +333,9 @@ def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> Non
     assert "one.flac" in candidates_xml
     assert "mert_similarity" in candidates_xml
     assert "Duplicate audio summary" in summary_xml
+    assert str(db_path.resolve()) in summary_xml
+    assert "Total tracks in database" in summary_xml
+    assert "Tracks inside selected root" in summary_xml
     assert not list(out_dir.glob("audio_dedup_report_*.png"))
 
 

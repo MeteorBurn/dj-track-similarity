@@ -27,7 +27,7 @@ type AnalysisAdapter = "mert" | "clap";
 type ResetAdapter = "sonara" | "maest" | "mert" | "clap";
 
 const defaultNotice: Notice = { kind: "idle", text: "Готово к работе" };
-const emptySummary: LibrarySummary = { tracks: 0, sonara: 0, maest: 0, mert: 0, clap: 0, liked: 0 };
+const emptySummary: LibrarySummary = { tracks: 0, sonara: 0, maest: 0, mert: 0, clap: 0, liked: 0, classifiers: 0 };
 
 const helpText = {
   databasePath: "SQLite база проекта. Формат: путь к .sqlite файлу. Выбери существующую базу или укажи новый .sqlite файл для создания.",
@@ -892,6 +892,7 @@ export function App() {
             <span className="meta-badge"><span>maest</span><strong>{librarySummary.maest}</strong></span>
             <span className="meta-badge"><span>mert</span><strong>{librarySummary.mert}</strong></span>
             <span className="meta-badge"><span>clap</span><strong>{librarySummary.clap}</strong></span>
+            <span className="meta-badge"><span>class</span><strong>{librarySummary.classifiers}</strong></span>
           </div>
         </div>
         <div className="topbar-actions">

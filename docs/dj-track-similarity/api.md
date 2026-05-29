@@ -51,7 +51,7 @@ library index and analysis rows from the selected SQLite file.
 | `POST` | `/api/library/scan` | Start a scan job for a root folder. |
 | `POST` | `/api/library/tags/refresh` | Start a Mutagen tag refresh job. |
 | `POST` | `/api/library/relocate` | Preview or apply stored path relocation. |
-| `GET` | `/api/library/summary` | Return counters for tracks and analysis families. |
+| `GET` | `/api/library/summary` | Return counters for tracks, analysis families, liked tracks, and complete promoted-classifier score coverage. |
 | `GET` | `/api/tracks` | Return a paginated/searchable track page. |
 | `GET` | `/api/tracks/{track_id}` | Return one full track payload. |
 | `POST` | `/api/tracks/{track_id}/liked` | Save or remove the local liked flag for one track. |
@@ -64,6 +64,10 @@ classifier scores.
 
 Use `/api/tracks` for paged browsing and `/api/tracks/{track_id}` only when a
 full metadata dialog needs one track. This keeps large libraries responsive.
+
+`/api/library/summary` includes a `classifiers` counter. It counts a track only
+when the track has stored `track_classifier_scores` rows for every promoted
+classifier discovered from `models/classifiers/*/model.json`.
 
 `/api/library/relocate` is a preview-first endpoint: it returns the relocation
 plan by default and only updates stored `tracks.path` values when `apply` is

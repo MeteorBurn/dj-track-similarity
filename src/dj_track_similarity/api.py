@@ -441,7 +441,8 @@ def create_app(
 
     @app.get("/api/library/summary")
     def library_summary():
-        return state.require_db().library_summary()
+        classifier_keys = [str(classifier["classifier_key"]) for classifier in promoted_classifiers()]
+        return state.require_db().library_summary(classifier_keys=classifier_keys)
 
     @app.post("/api/analysis/reset")
     def reset_analysis(request: AnalysisResetRequest):

@@ -407,7 +407,44 @@ def test_library_summary_counts_tracks_and_analysis_families(tmp_path: Path) -> 
     response = TestClient(create_app(db_path)).get("/api/library/summary")
 
     assert response.status_code == 200
-    assert response.json() == {"tracks": 4, "sonara": 1, "maest": 1, "mert": 1, "clap": 0, "liked": 1}
+    assert response.json() == {"tracks": 4, "sonara": 1, "maest": 1, "mert": 1, "clap": 0, "liked": 1, "classifiers": 0}
+
+
+def test_library_summary_counts_tracks_with_complete_promoted_classifier_scores(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    complete_id = _add_track(db, tmp_path, "complete.wav", "Artist", "Complete", {})
+    partial_id = _add_track(db, tmp_path, "partial.wav", "Artist", "Partial", {})
+    unrelated_id = _add_track(db, tmp_path, "unrelated.wav", "Artist", "Unrelated", {})
+    for track_id, classifier in [
+        (complete_id, "break_energy"),
+        (complete_id, "live_instrumentation"),
+        (partial_id, "break_energy"),
+        (unrelated_id, "unused_classifier"),
+    ]:
+        db.save_classifier_score(
+            track_id,
+            classifier=classifier,
+            score=0.92,
+            label="positive",
+            confidence=0.92,
+            probabilities={"positive": 0.92, "negative": 0.08},
+            feature_set="combined",
+            model_id=f"{classifier}-test",
+        )
+    monkeypatch.setattr(
+        api_module,
+        "promoted_classifiers",
+        lambda: [
+            {"classifier_key": "break_energy"},
+            {"classifier_key": "live_instrumentation"},
+        ],
+    )
+
+    response = TestClient(create_app(db_path)).get("/api/library/summary")
+
+    assert response.status_code == 200
+    assert response.json()["classifiers"] == 1
 
 
 def test_media_endpoint_transcodes_aiff_preview_to_browser_playable_wav(monkeypatch, tmp_path: Path) -> None:

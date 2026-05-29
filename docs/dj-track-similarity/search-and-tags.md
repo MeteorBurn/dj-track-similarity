@@ -36,7 +36,10 @@ score filters.
 The CLASS tab contains classifier controls discovered from promoted
 `models/classifiers/*/model.json` metadata. Each promoted classifier can be
 analyzed from the UI, and its slider filters the library and
-add-filtered-tracks workflow by `track_classifier_scores.score`.
+add-filtered-tracks workflow by `track_classifier_scores.score`. The top
+header's `CLASS` badge counts tracks that have stored scores for every promoted
+classifier, so two promoted classifiers require two stored classifier scores on
+the same track to add one to the badge.
 
 ### SONARA Search
 

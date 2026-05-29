@@ -434,7 +434,8 @@ class LibraryDatabase:
             ).fetchall()
         return [self._row_to_track(row) for row in rows]
 
-    def library_summary(self) -> dict[str, int]:
+    def library_summary(self, classifier_keys: Iterable[str] | None = None) -> dict[str, int]:
+        cleaned_classifier_keys = sorted({key.strip() for key in (classifier_keys or []) if key.strip()})
         with self.connect() as connection:
             tracks = int(connection.execute("SELECT COUNT(*) FROM tracks").fetchone()[0])
             sonara = int(
@@ -459,7 +460,34 @@ class LibraryDatabase:
                 connection.execute("SELECT COUNT(DISTINCT track_id) FROM embeddings WHERE embedding_key = ?", ("clap",)).fetchone()[0]
             )
             liked = int(connection.execute("SELECT COUNT(*) FROM track_likes").fetchone()[0])
-        return {"tracks": tracks, "sonara": sonara, "maest": maest, "mert": mert, "clap": clap, "liked": liked}
+            classifiers = 0
+            if cleaned_classifier_keys:
+                placeholders = ", ".join("?" for _ in cleaned_classifier_keys)
+                classifiers = int(
+                    connection.execute(
+                        f"""
+                        SELECT COUNT(*)
+                        FROM (
+                            SELECT t.id
+                            FROM tracks t
+                            JOIN track_classifier_scores s ON s.track_id = t.id
+                            WHERE s.classifier IN ({placeholders})
+                            GROUP BY t.id
+                            HAVING COUNT(DISTINCT s.classifier) = ?
+                        )
+                        """,
+                        (*cleaned_classifier_keys, len(cleaned_classifier_keys)),
+                    ).fetchone()[0]
+                )
+        return {
+            "tracks": tracks,
+            "sonara": sonara,
+            "maest": maest,
+            "mert": mert,
+            "clap": clap,
+            "liked": liked,
+            "classifiers": classifiers,
+        }
 
     def save_embedding(
         self,

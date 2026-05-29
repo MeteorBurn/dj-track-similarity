@@ -28,7 +28,15 @@ def test_database_switch_creates_new_sqlite_file(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert response.json() == {"path": str(db_path.resolve()), "selected": True, "music_root": None}
     assert db_path.exists()
-    assert client.get("/api/library/summary").json() == {"tracks": 0, "sonara": 0, "maest": 0, "mert": 0, "clap": 0}
+    assert client.get("/api/library/summary").json() == {
+        "tracks": 0,
+        "sonara": 0,
+        "maest": 0,
+        "mert": 0,
+        "clap": 0,
+        "liked": 0,
+        "classifiers": 0,
+    }
 
 
 def test_database_switch_to_existing_sqlite_reads_existing_tracks(tmp_path: Path) -> None:

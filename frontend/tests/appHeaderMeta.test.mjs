@@ -23,10 +23,12 @@ test("top header meta renders summary values as badges", () => {
   const labelRule = styles.match(/\.meta-badge span\s*{([\s\S]*?)}/)?.[1] || "";
   const valueRule = styles.match(/\.meta-badge strong\s*{([\s\S]*?)}/)?.[1] || "";
 
-  assert.equal((metaBlock.match(/className="meta-badge/g) || []).length, 5);
+  assert.equal((metaBlock.match(/className="meta-badge/g) || []).length, 6);
   assert.match(metaBlock, /<span>tracks<\/span>/);
   assert.match(metaBlock, /<span>sonara<\/span>/);
+  assert.match(metaBlock, /<span>class<\/span>/);
   assert.match(metaBlock, /<strong>\{librarySummary\.tracks\}<\/strong>/);
+  assert.match(metaBlock, /<strong>\{librarySummary\.classifiers\}<\/strong>/);
   assert.doesNotMatch(metaBlock, /trackCountLabel/);
   assert.match(badgeRule, /border-radius:\s*999px/);
   assert.match(badgeRule, /background:/);

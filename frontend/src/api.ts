@@ -57,6 +57,7 @@ export type LibrarySummary = {
   mert: number;
   clap: number;
   liked: number;
+  classifiers: number;
 };
 
 export type SonaraSearchMode = "balanced" | "vibe" | "sound" | "dj_transition" | "custom";

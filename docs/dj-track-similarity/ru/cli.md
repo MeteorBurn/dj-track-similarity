@@ -1,39 +1,41 @@
 # Справочник CLI
 
-Эта страница документирует command line interface `dj-sim`. Используйте CLI для
-повторяемых локальных workflows, batch analysis, быстрых diagnostics и операций,
-которые проще проверить в terminal, чем в web UI.
+Эта страница описывает интерфейс командной строки `dj-sim`. Используйте CLI для
+повторяемых локальных рабочих процессов, пакетного анализа, быстрой диагностики
+и операций, которые удобнее просматривать в терминале, чем в веб-интерфейсе.
 
 ## Справочник CLI
 
-Сначала установите проект, чтобы `dj-sim` был доступен:
+Сначала установите проект, чтобы команда `dj-sim` стала доступна:
 
 ```powershell
 python -m pip install -e ".[dev]"
 ```
 
-Используйте `--db` в командах, которые должны работать с конкретной SQLite
-database. Без `--db` CLI commands используют:
+Каждая команда, работающая с базой данных, объявляет собственную опцию `--db`;
+глобальной опции `--db` нет. Используйте `--db`, чтобы указать конкретную базу
+данных SQLite. Если `--db` опущена, такие команды по умолчанию используют:
 
 ```text
 dj-track-similarity.sqlite
 ```
 
-в текущей working directory.
+в текущем рабочем каталоге. Команда `doctor` не обращается ни к какой базе
+данных и поэтому не принимает `--db`.
 
 ## Выбор команды
 
 | Цель | Команда |
 | --- | --- |
-| Добавить или обновить tracks из folder | `dj-sim scan` |
-| Запустить local web UI/API server | `dj-sim serve` |
-| Построить MERT или CLAP embeddings | `dj-sim analyze` |
-| Построить explainable Sonara features | `dj-sim analyze-sonara` |
-| Предсказать MAEST genres и MAEST embeddings | `dj-sim analyze-genres` |
-| Оценить promoted Rhythm Lab classifier | `dj-sim analyze-classifier` |
-| Искать по CLAP text prompt | `dj-sim text-search` |
-| Обновить stored paths после перемещения library | `dj-sim relocate-library` |
-| Проверить Python, PyTorch и CUDA setup | `dj-sim doctor` |
+| Добавить или обновить треки из папки | `dj-sim scan` |
+| Запустить локальный сервер веб-интерфейса/API | `dj-sim serve` |
+| Построить embedding'и MERT или CLAP | `dj-sim analyze` |
+| Построить объяснимые признаки Sonara | `dj-sim analyze-sonara` |
+| Предсказать жанры MAEST и embedding'и MAEST | `dj-sim analyze-genres` |
+| Оценить продвинутый классификатор Rhythm Lab | `dj-sim analyze-classifier` |
+| Искать по текстовому запросу CLAP | `dj-sim text-search` |
+| Обновить сохранённые пути после перемещения библиотеки | `dj-sim relocate-library` |
+| Проверить настройку Python, PyTorch и CUDA | `dj-sim doctor` |
 
 ### `dj-sim`
 
@@ -41,15 +43,22 @@ dj-track-similarity.sqlite
 dj-sim [OPTIONS] COMMAND [ARGS]...
 ```
 
-Global options:
+Опции уровня приложения (встроенные в Typer, не общий `--db`):
 
-| Option | Meaning |
+| Опция | Описание |
 | --- | --- |
-| `--install-completion` | Установить shell completion для текущего shell. |
-| `--show-completion` | Напечатать shell completion code. |
-| `--help` | Показать help. |
+| `--install-completion` | Установить автодополнение для текущей оболочки. |
+| `--show-completion` | Вывести код автодополнения оболочки. |
+| `--help` | Показать справку. |
 
-Commands:
+> Примечание: `--db` не является опцией уровня приложения. Она повторяется в
+> каждой команде, которая читает или пишет базу данных. Три команды анализа на
+> основе заданий (`analyze`, `analyze-sonara`, `analyze-genres`) отображают
+> живой индикатор прогресса; команды `scan`, `relocate-library`,
+> `analyze-classifier`, `text-search`, `doctor` и `serve` выводят только
+> обычный текст.
+
+Команды:
 
 ```text
 scan
@@ -65,66 +74,68 @@ serve
 
 ### `dj-sim scan`
 
-Сканирует music folder и добавляет или обновляет SQLite track rows.
+Сканирует музыкальную папку и добавляет или обновляет строки треков в SQLite.
 
 ```powershell
 dj-sim scan <path-to-music> --db .\data\library.sqlite
 ```
 
-Usage:
+Использование:
 
 ```text
 dj-sim scan [OPTIONS] MUSIC_ROOT
 ```
 
-Arguments:
+Аргументы:
 
-| Argument | Type | Required | Meaning |
+| Аргумент | Тип | Обязателен | Описание |
 | --- | --- | --- | --- |
-| `MUSIC_ROOT` | path | yes | Folder, recursively scanned for supported audio files. |
+| `MUSIC_ROOT` | path | да | Папка, рекурсивно сканируемая на наличие поддерживаемых аудиофайлов. |
 
-Options:
+Опции:
 
-| Option | Type | Default | Meaning |
+| Опция | Тип | По умолчанию | Описание |
 | --- | --- | --- | --- |
-| `--db` | path | `dj-track-similarity.sqlite` | SQLite database path. |
-| `--help` | flag | off | Показать help. |
+| `--db` | path | `dj-track-similarity.sqlite` | Путь к базе данных SQLite. |
+| `--help` | flag | off | Показать справку. |
 
-Output:
+Вывод:
 
 ```text
 added=<n> updated=<n> unchanged=<n> skipped=<n>
 ```
 
-`scan` читает audio metadata и пишет только SQLite. Он не изменяет аудиофайлы.
+`scan` читает метаданные аудио и пишет только в SQLite. Он не изменяет
+аудиофайлы.
 
-Используйте его первым для новой database и повторяйте после добавления files в
-music folder. Existing analysis сохраняется для unchanged tracks.
+Используйте эту команду первой для новой базы данных и запускайте её повторно
+после добавления файлов в музыкальную папку. Существующий анализ сохраняется для
+неизменившихся треков.
 
 ### `dj-sim serve`
 
-Запускает local FastAPI server и отдает frontend.
+Запускает локальный сервер FastAPI и отдаёт frontend.
 
 ```powershell
 dj-sim serve --host 127.0.0.1 --port 8765 --db .\data\library.sqlite
 ```
 
-Usage:
+Использование:
 
 ```text
 dj-sim serve [OPTIONS]
 ```
 
-Options:
+Опции:
 
-| Option | Type | Default | Meaning |
+| Опция | Тип | По умолчанию | Описание |
 | --- | --- | --- | --- |
-| `--host` | text | `127.0.0.1` | Bind address for the local server. |
-| `--port` | integer | `8765` | HTTP port. |
-| `--db` | path | none | Optional SQLite database path. Без него database выбирается/создается в UI. |
-| `--log-level` | text | `info` | File log level: `debug`, `info`, `warning`, `error` или `critical`. |
-| `--log-track-events` | flag | off | Писать successful per-track events в file log. |
-| `--help` | flag | off | Показать help. |
+| `--host` | text | `127.0.0.1` | Адрес привязки локального сервера. |
+| `--port` | integer | `8765` | HTTP-порт. |
+| `--db` | path | none | Необязательный путь к базе данных SQLite. Без него выберите/создайте базу данных в интерфейсе. |
+| `--log-level` | text | `info` | Уровень логирования в файл: `debug`, `info`, `warning`, `error` или `critical`. |
+| `--log-track-events` | flag | off | Записывать успешные события по трекам в файловый лог. |
+| `--help` | flag | off | Показать справку. |
 
 Затем откройте:
 
@@ -132,280 +143,290 @@ Options:
 http://127.0.0.1:8765/
 ```
 
-Также есть Windows helper:
+Также есть вспомогательный скрипт для Windows:
 
 ```powershell
 scripts\run_server.cmd
 ```
 
-Используйте `serve`, когда нужен browser workflow: paged browsing, playback
-preview, analysis controls, search tabs, classifier filters, exports и metadata
-review.
+Используйте `serve`, когда нужен браузерный рабочий процесс: постраничный
+просмотр, предпрослушивание воспроизведения, элементы управления анализом,
+вкладки поиска, фильтры классификаторов, экспорт и просмотр метаданных.
 
 ### `dj-sim analyze`
 
-Строит missing MERT или CLAP embeddings.
+Строит отсутствующие embedding'и MERT или CLAP.
 
 ```powershell
 dj-sim analyze --adapter mert --device auto --batch-size 4 --limit 25 --db .\data\library.sqlite
 ```
 
-Usage:
+Использование:
 
 ```text
 dj-sim analyze [OPTIONS]
 ```
 
-Options:
+Опции:
 
-| Option | Type | Default | Meaning |
+| Опция | Тип | По умолчанию | Описание |
 | --- | --- | --- | --- |
-| `--db` | path | `dj-track-similarity.sqlite` | SQLite database path. |
-| `--limit` | integer | none | Maximum number of missing embeddings to analyze. |
-| `--adapter` | text | `mert` | Embedding adapter: `mert` или `clap`. |
-| `--device` | text | `auto` | Embedding device: `auto`, `cpu` или `cuda`. |
-| `--batch-size` | integer `1..64` | `4` | Embedding inference batch size. |
-| `--diagnostics` | flag | off | Писать decoder fallback и batch timing diagnostics в file log. |
-| `--help` | flag | off | Показать help. |
+| `--db` | path | `dj-track-similarity.sqlite` | Путь к базе данных SQLite. |
+| `--limit` | integer | none | Максимальное число отсутствующих embedding'ов для анализа. |
+| `--adapter` | text | `mert` | Адаптер embedding'ов: `mert` или `clap`. |
+| `--device` | text | `auto` | Устройство для embedding'ов: `auto`, `cpu` или `cuda`. |
+| `--batch-size` | integer `1..64` | `4` | Размер пакета инференса embedding'ов. |
+| `--diagnostics` | flag | off | Записывать диагностику резервного декодера и таймингов пакетов в файловый лог. |
+| `--help` | flag | off | Показать справку. |
 
-Examples:
+Примеры:
 
 ```powershell
 dj-sim analyze --adapter mert --device cpu --batch-size 2 --db .\data\library.sqlite
 dj-sim analyze --adapter clap --device cuda --batch-size 8 --db .\data\library.sqlite
 ```
 
-Output:
+Вывод:
 
 ```text
 [########################] 100.0% processed=<n>/<n> analyzed=<n> failed=<n> <rate> tracks/s eta=<time>
 state=<state> total=<n> processed=<n> analyzed=<n> failed=<n> embedding_key=<key> device=<device> batch_size=<n>
 ```
 
-`auto` выбирает CUDA, когда PyTorch видит GPU, иначе CPU. Явный `cuda` fails,
-если CUDA unavailable.
+`auto` выбирает CUDA, когда PyTorch видит GPU, иначе CPU. Явный `cuda`
+завершается ошибкой, если CUDA недоступна.
 
-Используйте `--adapter mert` для seed-track similarity. Используйте
-`--adapter clap`, когда нужен CLAP text search. Если нужен только explainable
-feature search, запускайте `analyze-sonara`.
+Используйте `--adapter mert` для поиска похожести по seed-трекам. Используйте
+`--adapter clap`, когда нужен текстовый поиск CLAP. Если нужен только объяснимый
+поиск по признакам, запустите вместо этого `analyze-sonara`.
 
 ### `dj-sim analyze-sonara`
 
-Извлекает missing Sonara playlist features.
+Извлекает отсутствующие playlist-признаки Sonara.
 
 ```powershell
 dj-sim analyze-sonara --batch-size 4 --limit 25 --db .\data\library.sqlite
 ```
 
-Usage:
+Использование:
 
 ```text
 dj-sim analyze-sonara [OPTIONS]
 ```
 
-Options:
+Опции:
 
-| Option | Type | Default | Meaning |
+| Опция | Тип | По умолчанию | Описание |
 | --- | --- | --- | --- |
-| `--db` | path | `dj-track-similarity.sqlite` | SQLite database path. |
-| `--limit` | integer | none | Maximum number of tracks missing Sonara features to analyze. |
-| `--batch-size` | integer `1..64` | `1` | Parallel Sonara track workers. |
-| `--diagnostics` | flag | off | Писать analysis timing diagnostics в file log. |
-| `--help` | flag | off | Показать help. |
+| `--db` | path | `dj-track-similarity.sqlite` | Путь к базе данных SQLite. |
+| `--limit` | integer | none | Максимальное число треков без признаков Sonara для анализа. |
+| `--batch-size` | integer `1..64` | `1` | Число параллельных воркеров обработки треков Sonara. |
+| `--diagnostics` | flag | off | Записывать диагностику таймингов анализа в файловый лог. |
+| `--help` | flag | off | Показать справку. |
 
-Output:
+Вывод:
 
 ```text
 [########################] 100.0% processed=<n>/<n> analyzed=<n> failed=<n> <rate> tracks/s eta=<time>
 state=<state> total=<n> processed=<n> analyzed=<n> failed=<n> batch_size=<n>
 ```
 
-Sonara `batch-size` означает parallel track workers.
+Для Sonara `batch-size` означает число параллельных воркеров обработки треков.
 
-Используйте это для SONARA search tab, visible feature groups или library-level
-fields вроде analyzed BPM, key, energy, danceability и loudness.
+Используйте эту команду, когда нужны вкладка поиска SONARA, видимые группы
+признаков или поля уровня библиотеки, такие как проанализированные BPM,
+тональность, энергия, танцевальность и громкость.
 
 ### `dj-sim analyze-genres`
 
-Извлекает missing MAEST genre labels.
+Извлекает отсутствующие жанровые метки MAEST.
 
 ```powershell
 dj-sim analyze-genres --device auto --top-k 3 --batch-size 4 --limit 25 --db .\data\library.sqlite
 ```
 
-Usage:
+Использование:
 
 ```text
 dj-sim analyze-genres [OPTIONS]
 ```
 
-Options:
+Опции:
 
-| Option | Type | Default | Meaning |
+| Опция | Тип | По умолчанию | Описание |
 | --- | --- | --- | --- |
-| `--db` | path | `dj-track-similarity.sqlite` | SQLite database path. |
-| `--limit` | integer | none | Maximum number of tracks missing MAEST genres to analyze. |
-| `--device` | text | `auto` | MAEST device: `auto`, `cpu` или `cuda`. |
-| `--top-k` | integer `1..10` | `3` | Number of MAEST genre labels to store per track. |
-| `--batch-size` | integer `1..64` | `4` | MAEST inference batch size. |
-| `--diagnostics` | flag | off | Писать decoder fallback и batch timing diagnostics в file log. |
-| `--help` | flag | off | Показать help. |
+| `--db` | path | `dj-track-similarity.sqlite` | Путь к базе данных SQLite. |
+| `--limit` | integer | none | Максимальное число треков без жанров MAEST для анализа. |
+| `--device` | text | `auto` | Устройство MAEST: `auto`, `cpu` или `cuda`. |
+| `--top-k` | integer `1..10` | `3` | Число жанровых меток MAEST, сохраняемых для трека. |
+| `--batch-size` | integer `1..64` | `4` | Размер пакета инференса MAEST. |
+| `--diagnostics` | flag | off | Записывать диагностику резервного декодера и таймингов пакетов в файловый лог. |
+| `--help` | flag | off | Показать справку. |
 
-Output:
+Вывод:
 
 ```text
 [########################] 100.0% processed=<n>/<n> analyzed=<n> failed=<n> <rate> tracks/s eta=<time>
 state=<state> total=<n> processed=<n> analyzed=<n> failed=<n> embedding_key=maest device=<device> top_k=<n> batch_size=<n>
 ```
 
-MAEST analysis пишет SQLite genre metadata и MAEST embedding vector.
+Анализ MAEST записывает в SQLite жанровые метаданные и вектор embedding'а MAEST.
 
-Используйте это перед review generated genres, preset `syncopated` или
-training/scoring combined classifier profiles. Сам по себе анализ не пишет
-genre tags в аудиофайлы.
+Используйте эту команду перед просмотром сгенерированных жанров, использованием
+пресета `syncopated` или обучением/оценкой комбинированных профилей
+классификаторов. Сама по себе она не записывает жанровые теги в аудиофайлы.
 
 ### `dj-sim analyze-classifier`
 
-Оценивает tracks через promoted classifier profile.
+Оценивает треки с помощью продвинутого профиля классификатора.
 
 ```powershell
 dj-sim analyze-classifier live_instrumentation --db .\data\library.sqlite
 ```
 
-Usage:
+Использование:
 
 ```text
 dj-sim analyze-classifier CLASSIFIER [OPTIONS]
 ```
 
-Options:
+Опции:
 
-| Option | Type | Default | Meaning |
+| Опция | Тип | По умолчанию | Описание |
 | --- | --- | --- | --- |
-| `CLASSIFIER` | text | required | Classifier key, например `live_instrumentation`. |
-| `--db` | path | `dj-track-similarity.sqlite` | SQLite database path. |
-| `--model` | path | `models/classifiers/<artifact-prefix>/model.joblib` | Optional classifier artifact path. |
-| `--limit` | integer | none | Maximum number of feature-complete tracks to score. |
-| `--help` | flag | off | Показать help. |
+| `CLASSIFIER` | text | обязателен | Ключ классификатора, например `live_instrumentation`. |
+| `--db` | path | `dj-track-similarity.sqlite` | Путь к базе данных SQLite. |
+| `--model` | path | `models/classifiers/<artifact-prefix>/model.joblib` | Необязательный путь к артефакту классификатора. |
+| `--limit` | integer | none | Максимальное число треков с полным набором признаков для оценки. |
+| `--help` | flag | off | Показать справку. |
 
-Output:
+Вывод:
 
 ```text
 classifier=live_instrumentation scored=<n> skipped=<n> model=<path>
 ```
 
-Команда читает existing SONARA, MERT и MAEST data. Tracks без любого required
-input пропускаются. Scores upserted в `track_classifier_scores`.
+Команда читает существующие данные SONARA, MERT и MAEST. Треки, у которых
+отсутствует какой-либо обязательный вход, пропускаются. Оценки записываются
+(upsert) в `track_classifier_scores`. В отличие от трёх команд-заданий
+`analyze*`, оценка классификатора выполняется синхронно и печатает одну итоговую
+строку вместо живого индикатора прогресса.
 
-Используйте после promotion model из Rhythm Lab. Если many tracks skipped,
-сначала запустите Sonara, MERT и MAEST analysis для этих tracks.
+Используйте эту команду после продвижения модели из Rhythm Lab. Если
+пропускается много треков, сначала выполните для них анализ Sonara, MERT и MAEST.
 
 ### `dj-sim text-search`
 
-Запускает CLAP text-to-audio search.
+Выполняет текстовый поиск CLAP (text-to-audio).
 
 ```powershell
 dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 25 --db .\data\library.sqlite
 ```
 
-Usage:
+Использование:
 
 ```text
 dj-sim text-search [OPTIONS] QUERY
 ```
 
-Arguments:
+Аргументы:
 
-| Argument | Type | Required | Meaning |
+| Аргумент | Тип | Обязателен | Описание |
 | --- | --- | --- | --- |
-| `QUERY` | text | yes | Text description embedded by CLAP. |
+| `QUERY` | text | да | Текстовое описание, преобразуемое CLAP в embedding. |
 
-Options:
+Опции:
 
-| Option | Type | Default | Meaning |
+| Опция | Тип | По умолчанию | Описание |
 | --- | --- | --- | --- |
-| `--db` | path | `dj-track-similarity.sqlite` | SQLite database path. |
-| `--limit` | integer `1..500` | `50` | Maximum result count. |
-| `--min-similarity` | float | none | Optional minimum score threshold. |
-| `--device` | text | `auto` | CLAP device: `auto`, `cpu` или `cuda`. |
-| `--help` | flag | off | Показать help. |
+| `--db` | path | `dj-track-similarity.sqlite` | Путь к базе данных SQLite. |
+| `--limit` | integer `1..500` | `50` | Максимальное число результатов. |
+| `--min-similarity` | float | none | Необязательный минимальный порог оценки. |
+| `--device` | text | `auto` | Устройство CLAP: `auto`, `cpu` или `cuda`. |
+| `--help` | flag | off | Показать справку. |
 
-Output rows:
+Строки вывода:
 
 ```text
 <score>    <track_id>    <path>
 ```
 
-CLAP audio embeddings должны существовать, чтобы text search возвращал полезные
-results.
+Аудио-embedding'и CLAP должны существовать, прежде чем текстовый поиск сможет
+возвращать полезные результаты.
 
-Используйте это для exploratory searches, где text description быстрее выбора
-seed tracks. Concrete prompts с mood, rhythm, instrumentation и vocal presence
-обычно полезнее одного broad genre.
+Используйте эту команду для исследовательских поисков, когда текстовое описание
+быстрее, чем выбор seed-треков. Конкретные запросы с настроением, ритмом,
+инструментовкой и наличием вокала обычно полезнее, чем один широкий жанр.
 
 ### `dj-sim relocate-library`
 
-Preview или apply stored path relocation после перемещения той же music folder.
+Предпросмотр или применение переноса сохранённых путей после перемещения той же
+музыкальной папки.
 
 ```powershell
 dj-sim relocate-library .\music-old .\music-new --db .\data\library.sqlite
 ```
 
-Apply после проверки dry run:
+Применить после проверки сухого прогона (dry-run):
 
 ```powershell
 dj-sim relocate-library .\music-old .\music-new --apply --db .\data\library.sqlite
 ```
 
-Usage:
+Использование:
 
 ```text
 dj-sim relocate-library [OPTIONS] OLD_ROOT NEW_ROOT
 ```
 
-Arguments:
+Аргументы:
 
-| Argument | Type | Required | Meaning |
+| Аргумент | Тип | Обязателен | Описание |
 | --- | --- | --- | --- |
-| `OLD_ROOT` | path | yes | Existing stored root prefix in SQLite. |
-| `NEW_ROOT` | path | yes | New root where the same files now exist. |
+| `OLD_ROOT` | path | да | Существующий сохранённый корневой префикс в SQLite. |
+| `NEW_ROOT` | path | да | Новый корень, где теперь находятся те же файлы. |
 
-Options:
+Опции:
 
-| Option | Type | Default | Meaning |
+| Опция | Тип | По умолчанию | Описание |
 | --- | --- | --- | --- |
-| `--apply` | flag | off | Update stored paths after preview checks pass. |
-| `--db` | path | `dj-track-similarity.sqlite` | SQLite database path. |
-| `--help` | flag | off | Показать help. |
+| `--apply` | flag | off | Обновить сохранённые пути после успешных проверок предпросмотра. |
+| `--db` | path | `dj-track-similarity.sqlite` | Путь к базе данных SQLite. |
+| `--help` | flag | off | Показать справку. |
 
-Output:
+Вывод:
 
 ```text
 dry_run=<true|false> tracks_matched=<n> tracks_updated=<n> missing_files=<n> conflicts=<n>
 ```
 
-Conflicts и missing target files печатаются per track. Apply mode rejects
-missing files and conflicts вместо частичного обновления paths.
+Конфликты и отсутствующие целевые файлы печатаются по каждому треку. Режим
+применения отклоняет отсутствующие файлы и конфликты вместо частичного обновления
+путей.
 
-Используйте это только когда те же аудиофайлы переехали в новый root folder и
-нужно сохранить existing track IDs, analysis и classifier scores. Всегда
-проверяйте dry-run output перед добавлением `--apply`.
+Используйте эту команду только тогда, когда те же аудиофайлы переместились в
+новый корневой каталог и вы хотите сохранить существующие идентификаторы треков,
+анализ и оценки классификаторов. Всегда проверяйте вывод сухого прогона (dry-run)
+перед добавлением `--apply`.
 
 ### `dj-sim doctor`
 
-Печатает Python, PyTorch и CUDA runtime diagnostics.
+Выводит диагностику среды выполнения Python, PyTorch и CUDA.
 
 ```powershell
 dj-sim doctor
 ```
 
-Usage:
+Использование:
 
 ```text
 dj-sim doctor [OPTIONS]
 ```
 
-Output can include:
+`doctor` — это диагностика окружения только для чтения. Она не открывает базу
+данных и не принимает `--db`.
+
+Вывод может включать:
 
 ```text
 python=<path>
@@ -420,8 +441,7 @@ suggested_torch_index=<url>
 install=torch torchaudio --index-url <url>
 ```
 
-Используйте это, когда поведение `auto`, `cpu` или `cuda` неясно.
+Используйте эту команду, когда поведение `auto`, `cpu` или `cuda` неясно.
 
-Запускайте перед long GPU analysis, если меняли Python packages, CUDA wheels,
-drivers или FFmpeg/TorchCodec setup.
-
+Запускайте её перед длительным анализом на GPU, если вы изменили пакеты Python,
+CUDA-колёса, драйверы или настройку FFmpeg/TorchCodec.

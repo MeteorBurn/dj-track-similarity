@@ -1,112 +1,160 @@
 # Справочник Web API
 
-Эта страница документирует FastAPI endpoints, используемые frontend. Большинству
-пользователей не нужно вызывать эти endpoints напрямую; используйте страницу
-для debugging web UI, интеграции local script или проверки, какое backend action
-использует UI button.
+Эта страница документирует эндпоинты FastAPI, которые использует фронтенд.
+Большинству пользователей не нужно вызывать эти эндпоинты напрямую; обращайтесь к
+этой странице при отладке веб-интерфейса, интеграции локального скрипта или
+проверке того, какое серверное действие выполняет та или иная кнопка UI.
 
 ## Справочник Web API
 
-Frontend вызывает эти endpoints через `frontend/src/api.ts`.
+Фронтенд использует эти эндпоинты через `frontend/src/api.ts`.
 
-API local-first. Endpoints для scan, analyze, search, preview, export, reset,
-clear или relocate работают с выбранной SQLite database и local filesystem
-paths. Запись в аудиофайлы происходит только через явные MAEST genre tag
-endpoints.
+API ориентирован на локальную работу. Эндпоинты сканирования, анализа, поиска,
+предпросмотра, экспорта, сброса, очистки и переноса работают с выбранной базой
+данных SQLite и локальными путями файловой системы. Запись в аудиофайлы
+происходит только через явные эндпоинты записи MAEST-жанров в теги.
 
-### Database
+### Соглашения
 
-| Method | Path | Purpose |
+Эти общие соглашения действуют для всего API:
+
+| Соглашение | Описание |
+| --- | --- |
+| `400` `DatabaseNotSelected` | Эндпоинт, которому нужна база данных, был вызван до того, как база была выбрана. Сначала выберите её через `/api/database/switch`. |
+| `409` `DatabaseBusy` | Попытка переключения базы данных во время задания в состоянии `queued` или `running`. Дождитесь завершения задания или отмените его, затем повторите. |
+| `404` | Неизвестный идентификатор трека, задания или медиа. |
+| Поле `state` задания | Одно из значений `queued`, `running`, `completed`, `cancelled` или `failed`. |
+| Эндпоинты заданий `latest` | Возвращают `null`, если задание этого семейства ещё ни разу не запускалось. |
+
+Длительная работа (сканирование, обновление тегов, анализ
+embedding/Sonara/MAEST, оценка классификаторами, задания записи жанровых тегов)
+запускается через `POST`, который возвращает начальный объект статуса задания.
+Затем фронтенд опрашивает соответствующий эндпоинт `jobs/latest` или
+`jobs/{job_id}` и может запросить кооперативную отмену.
+
+### База данных
+
+| Метод | Путь | Назначение |
 | --- | --- | --- |
-| `GET` | `/api/database/current` | Вернуть состояние выбранной database. |
-| `POST` | `/api/database/switch` | Переключиться на database path. |
-| `POST` | `/api/database/dialog` | Открыть локальный dialog выбора database. |
-| `POST` | `/api/database/clear` | Очистить local SQLite tracks, embeddings и dependent classifier scores. |
+| `GET` | `/api/database/current` | Вернуть состояние выбранной базы данных. |
+| `POST` | `/api/database/switch` | Переключиться на путь базы данных. |
+| `POST` | `/api/database/dialog` | Открыть локальный диалог выбора базы данных. |
+| `POST` | `/api/database/clear` | Очистить локальные треки SQLite, embeddings и зависимые оценки классификаторов. |
 
-Используйте эти endpoints при выборе active library database. `clear` - database
-operation, а не удаление аудиофайлов, но он удаляет library index и analysis
-rows из выбранного SQLite file.
+Используйте эти эндпоинты при выборе активной базы данных библиотеки. `clear` —
+это операция над базой данных, а не удаление аудиофайлов, но она удаляет индекс
+библиотеки и строки анализа из выбранного файла SQLite.
 
-### Library
+### Библиотека
 
-| Method | Path | Purpose |
+| Метод | Путь | Назначение |
 | --- | --- | --- |
-| `POST` | `/api/library/scan` | Запустить scan job для root folder. |
-| `POST` | `/api/library/tags/refresh` | Запустить Mutagen tag refresh job. |
-| `POST` | `/api/library/relocate` | Preview или apply stored path relocation. |
-| `GET` | `/api/library/summary` | Вернуть counters для tracks и analysis families. |
-| `GET` | `/api/tracks` | Вернуть paginated/searchable track page. |
-| `GET` | `/api/tracks/{track_id}` | Вернуть один full track payload. |
-| `POST` | `/api/tracks/filtered` | Вернуть filtered track rows для selection workflows. |
+| `POST` | `/api/library/scan` | Запустить задание сканирования корневой папки. |
+| `POST` | `/api/library/tags/refresh` | Запустить задание обновления Mutagen-тегов. |
+| `POST` | `/api/library/relocate` | Просмотреть план или применить перенос сохранённых путей. |
+| `GET` | `/api/library/summary` | Вернуть счётчики треков и семейств анализа. |
+| `GET` | `/api/tracks` | Вернуть постраничную страницу треков с поиском. |
+| `GET` | `/api/tracks/{track_id}` | Вернуть полные данные одного трека. |
+| `POST` | `/api/tracks/{track_id}/liked` | Сохранить или снять локальный флаг «нравится» для одного трека. |
+| `POST` | `/api/tracks/filtered` | Вернуть отфильтрованные строки треков для рабочих процессов выбора. |
 
-`/api/tracks` и `/api/tracks/filtered` принимают `preset=syncopated`, чтобы
-фильтровать по stored MAEST syncopated-rhythm flag. Они также принимают
-classifier threshold maps для filtering tracks по stored classifier scores.
+`/api/tracks` и `/api/tracks/filtered` принимают `preset=syncopated` для
+фильтрации по сохранённому флагу синкопированного ритма MAEST. Они принимают
+`liked=true`, чтобы показывать только понравившиеся треки, а карты порогов
+классификаторов фильтруют треки по сохранённым оценкам классификаторов.
 
-Используйте `/api/tracks` для paged browsing, а `/api/tracks/{track_id}` только
-когда full metadata dialog нужен один track. Это сохраняет responsiveness для
-больших libraries.
+Используйте `/api/tracks` для постраничного просмотра, а `/api/tracks/{track_id}`
+— только когда диалогу с полными метаданными нужен один трек. Это сохраняет
+отзывчивость для больших библиотек.
 
-### Jobs
+`/api/library/relocate` — это эндпоинт с предпросмотром в первую очередь: по
+умолчанию он возвращает план переноса и обновляет сохранённые значения
+`tracks.path` только при `apply=true`. У него нет кнопки в текущем
+веб-интерфейсе и нет метода в `frontend/src/api.ts`; управляйте переносом через
+CLI-команду `dj-sim relocate-library` или прямым вызовом API. Применение
+отклоняется при наличии конфликтов или отсутствии целевых файлов.
 
-| Method | Path | Purpose |
+### Задания
+
+| Метод | Путь | Назначение |
 | --- | --- | --- |
-| `GET` | `/api/library/scan/jobs/latest` | Вернуть latest scan или tag-refresh job. |
-| `GET` | `/api/library/scan/jobs/{job_id}` | Вернуть одну scan job. |
-| `POST` | `/api/library/scan/jobs/{job_id}/cancel` | Запросить scan cancellation. |
-| `GET` | `/api/analyze/jobs/latest` | Вернуть latest MERT/CLAP analysis job. |
-| `GET` | `/api/analyze/jobs/{job_id}` | Вернуть одну MERT/CLAP analysis job. |
-| `POST` | `/api/analyze/jobs/{job_id}/cancel` | Запросить MERT/CLAP cancellation. |
-| `GET` | `/api/sonara/analyze/jobs/latest` | Вернуть latest Sonara job. |
-| `GET` | `/api/sonara/analyze/jobs/{job_id}` | Вернуть одну Sonara job. |
-| `POST` | `/api/sonara/analyze/jobs/{job_id}/cancel` | Запросить Sonara cancellation. |
-| `GET` | `/api/genres/analyze/jobs/latest` | Вернуть latest MAEST job. |
-| `GET` | `/api/genres/analyze/jobs/{job_id}` | Вернуть одну MAEST job. |
-| `POST` | `/api/genres/analyze/jobs/{job_id}/cancel` | Запросить MAEST cancellation. |
-| `GET` | `/api/classifiers/{classifier_key}/analyze/jobs/latest` | Вернуть latest classifier job. |
-| `GET` | `/api/classifiers/{classifier_key}/analyze/jobs/{job_id}` | Вернуть одну classifier job. |
-| `POST` | `/api/classifiers/{classifier_key}/analyze/jobs/{job_id}/cancel` | Запросить classifier cancellation. |
-| `GET` | `/api/tags/genres/jobs/latest` | Вернуть latest genre tag write job. |
-| `GET` | `/api/tags/genres/jobs/{job_id}` | Вернуть одну genre tag write job. |
-| `POST` | `/api/tags/genres/jobs/{job_id}/cancel` | Запросить genre tag write cancellation. |
+| `GET` | `/api/library/scan/jobs/latest` | Вернуть последнее задание сканирования или обновления тегов. |
+| `GET` | `/api/library/scan/jobs/{job_id}` | Вернуть одно задание сканирования. |
+| `POST` | `/api/library/scan/jobs/{job_id}/cancel` | Запросить отмену сканирования. |
+| `GET` | `/api/analyze/jobs/latest` | Вернуть последнее задание анализа MERT/CLAP. |
+| `GET` | `/api/analyze/jobs/{job_id}` | Вернуть одно задание анализа MERT/CLAP. |
+| `POST` | `/api/analyze/jobs/{job_id}/cancel` | Запросить отмену MERT/CLAP. |
+| `GET` | `/api/sonara/analyze/jobs/latest` | Вернуть последнее задание Sonara. |
+| `GET` | `/api/sonara/analyze/jobs/{job_id}` | Вернуть одно задание Sonara. |
+| `POST` | `/api/sonara/analyze/jobs/{job_id}/cancel` | Запросить отмену Sonara. |
+| `GET` | `/api/genres/analyze/jobs/latest` | Вернуть последнее задание MAEST. |
+| `GET` | `/api/genres/analyze/jobs/{job_id}` | Вернуть одно задание MAEST. |
+| `POST` | `/api/genres/analyze/jobs/{job_id}/cancel` | Запросить отмену MAEST. |
+| `GET` | `/api/classifiers/{classifier_key}/analyze/jobs/latest` | Вернуть последнее задание классификатора. |
+| `GET` | `/api/classifiers/{classifier_key}/analyze/jobs/{job_id}` | Вернуть одно задание классификатора. |
+| `POST` | `/api/classifiers/{classifier_key}/analyze/jobs/{job_id}/cancel` | Запросить отмену классификатора. |
+| `GET` | `/api/tags/genres/jobs/latest` | Вернуть последнее задание записи жанровых тегов. |
+| `GET` | `/api/tags/genres/jobs/{job_id}` | Вернуть одно задание записи жанровых тегов. |
+| `POST` | `/api/tags/genres/jobs/{job_id}/cancel` | Запросить отмену записи жанровых тегов. |
 
-Job endpoints позволяют frontend poll long-running work и запрашивать
-cancellation. Cancellation cooperative: job может закончить текущий track или
-batch перед остановкой.
+Эндпоинты заданий позволяют фронтенду опрашивать длительную работу и запрашивать
+отмену. Отмена является кооперативной: задание может завершить текущий трек или
+пакет, прежде чем остановиться.
 
-### Analysis and search
+### Анализ и поиск
 
-| Method | Path | Purpose |
+| Метод | Путь | Назначение |
 | --- | --- | --- |
-| `POST` | `/api/analyze` | Запустить MERT или CLAP embedding analysis. |
-| `POST` | `/api/sonara/analyze` | Запустить Sonara feature analysis. |
-| `POST` | `/api/genres/analyze` | Запустить MAEST genre analysis. |
-| `POST` | `/api/classifiers/{classifier_key}/analyze` | Запустить classifier scoring. |
-| `POST` | `/api/analysis/reset` | Reset одного analysis family. |
-| `POST` | `/api/search` | Search in MERT embedding space. |
-| `POST` | `/api/search/sonara` | Search with Sonara features. |
-| `POST` | `/api/search/text` | Search CLAP audio vectors from text. |
+| `POST` | `/api/analyze` | Запустить анализ embedding MERT или CLAP. |
+| `POST` | `/api/sonara/analyze` | Запустить анализ признаков Sonara. |
+| `POST` | `/api/genres/analyze` | Запустить анализ жанров MAEST. |
+| `GET` | `/api/classifiers` | Список продвинутых классификаторов из `models/classifiers/*/model.json`. |
+| `POST` | `/api/classifiers/{classifier_key}/analyze` | Запустить оценку классификатором. |
+| `POST` | `/api/classifiers/reset` | Удалить сохранённые оценки для указанных ключей классификаторов. |
+| `POST` | `/api/analysis/reset` | Сбросить одно семейство анализа. |
+| `POST` | `/api/search` | Поиск в пространстве embedding MERT. |
+| `POST` | `/api/search/sonara` | Поиск по признакам Sonara. |
+| `POST` | `/api/search/text` | Поиск по аудиовекторам CLAP из текста. |
 
-Используйте analysis endpoints перед search endpoints, если library еще не
-processed. Empty search results часто означают, что у candidate tracks нет
-нужных Sonara features, MERT embeddings или CLAP embeddings.
+Используйте эндпоинты анализа перед эндпоинтами поиска, если библиотека ещё не
+обработана. Пустые результаты поиска часто означают, что у кандидатов
+отсутствуют необходимые признаки Sonara, embeddings MERT или embeddings CLAP.
 
-### Export, tags, dialogs, media
+`GET /api/classifiers` не требует базы данных; он обнаруживает продвинутые
+профили на диске. `/api/classifiers/reset` принимает список ключей
+классификаторов и удаляет их строки `track_classifier_scores` (пустой список
+ничего не удаляет).
 
-| Method | Path | Purpose |
+Область сброса по семействам:
+
+| Сброс | Что удаляет |
+| --- | --- |
+| `/api/analysis/reset` `sonara` | Ключи метаданных `sonara_*`; пересчитывает сохранённые BPM/тональность/энергию/длительность из оставшихся метаданных. |
+| `/api/analysis/reset` `maest` | Ключи метаданных `maest_*` плюс embeddings `maest`. |
+| `/api/analysis/reset` `mert` / `clap` | Embeddings соответствующего ключа. |
+| `/api/classifiers/reset` | Строки `track_classifier_scores` для перечисленных ключей классификаторов. |
+
+### Экспорт, теги, диалоги, медиа
+
+| Метод | Путь | Назначение |
 | --- | --- | --- |
-| `POST` | `/api/export` | Export selected tracks as M3U or CSV. |
-| `POST` | `/api/tags/genres/apply` | Apply MAEST genres immediately. |
-| `POST` | `/api/tags/genres/jobs` | Start cancellable MAEST genre tag write job. |
-| `POST` | `/api/dialog/folder` | Open a folder chooser dialog. |
-| `GET` | `/media/{track_id}` | Serve browser-playable audio for one track. |
+| `POST` | `/api/export` | Экспортировать выбранные треки как M3U или CSV. |
+| `POST` | `/api/tags/genres/apply` | Синхронно записать MAEST-жанры во все треки, у которых есть MAEST-жанры. |
+| `POST` | `/api/tags/genres/jobs` | Запустить отменяемое фоновое задание записи MAEST-жанров в теги. |
+| `POST` | `/api/dialog/folder` | Открыть диалог выбора папки. |
+| `GET` | `/media/{track_id}` | Отдать воспроизводимое в браузере аудио для одного трека. |
 
-Frontend preview player использует `/media/{track_id}` и запускает playback
-после click по preview button. AIFF/AIF responses транскодируются во временные
-WAV files для browser compatibility и scrubbing support без перезаписи source
-audio.
+Оба эндпоинта записи жанровых тегов применяются ко всем трекам, у которых есть
+сохранённые MAEST-жанры. Они не принимают подмножество треков: тело запроса с
+`track_ids` отклоняется с HTTP `400`. Это явный путь записи в аудиофайл, и он
+перезаписывает только стандартное поле жанра.
 
-Используйте `/api/export` для playlist/report files. Используйте
-`/api/tags/genres/jobs` для больших genre writes, чтобы были progress и
-cancellation; оставляйте `/api/tags/genres/apply` для немедленных малых writes.
+Плеер предпросмотра во фронтенде использует `/media/{track_id}` и запускает
+воспроизведение после нажатия кнопки предпросмотра. Ответы AIFF/AIF
+транскодируются во временные файлы WAV для совместимости с браузером и поддержки
+перемотки без перезаписи исходного аудио.
 
+Используйте `/api/export` для файлов плейлистов и отчётов. Предпочитайте
+`/api/tags/genres/jobs` для записи жанров, чтобы были доступны прогресс и отмена;
+синхронный `/api/tags/genres/apply` возвращает по одной строке результата на
+трек, но блокируется до завершения всего пакета.

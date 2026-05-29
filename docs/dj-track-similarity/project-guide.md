@@ -5,14 +5,17 @@ are not sure which page you need. The short project introduction remains in the
 [repository README](https://github.com/MeteorBurn/dj-track-similarity/blob/main/README.md);
 the pages below hold the operational user and developer reference.
 
-For a first local run, read [Overview](overview.md), then use
-[CLI Reference](cli.md) to scan a folder and start the server. If you already
-have a library database, use [Analysis Families](analysis.md) to choose which
-analysis pass to run next, then use [Search and Tag Writing](search-and-tags.md)
-for day-to-day DJ workflow guidance.
+For a first local run, start with [Installation](install.md), read the
+[Overview](overview.md), then use [CLI Reference](cli.md) to scan a folder and
+start the server. If you already have a library database, use
+[Analysis Families](analysis.md) to choose which analysis pass to run next, then
+use [Search and Tag Writing](search-and-tags.md) for day-to-day DJ workflow
+guidance.
 
 ## Main Project
 
+- [Installation](install.md): requirements, dependency groups, the verified
+  Windows CUDA stack, FFmpeg setup, and how to verify the install.
 - [Overview](overview.md): project purpose, core features, safety model, and
   supported audio files.
 - [Architecture and Runtime](architecture.md): backend/frontend map,
@@ -21,6 +24,8 @@ for day-to-day DJ workflow guidance.
 - [Database and Stored Data](database.md): SQLite schema, metadata, embeddings,
   and classifier-score storage. Use this when checking what the app saves and
   what remains read-only.
+- [Analysis Models](models.md): what each model (Sonara, MAEST, MERT, CLAP) is,
+  what it produces, how the app uses it, and which install extras it needs.
 - [Analysis Families](analysis.md): Sonara, MAEST, MERT, CLAP, and promoted
   classifier scoring. Use this before spending time on analysis jobs so you can
   pick the useful feature family first.

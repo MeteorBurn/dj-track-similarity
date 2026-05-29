@@ -1,47 +1,48 @@
 # Разработка и проверка
 
-Эта страница покрывает локальную настройку и ожидания по verification.
+Эта страница описывает локальную настройку и ожидания по проверке.
 
 ## Настройка разработки
 
-Установить development dependencies:
+Установите зависимости для разработки:
 
 ```powershell
 python -m pip install -e ".[dev]"
 ```
 
-Установить поддержку Sonara:
+Установите поддержку Sonara:
 
 ```powershell
 python -m pip install -e ".[sonara,dev]"
 ```
 
-Установить ML dependencies:
+Установите ML-зависимости:
 
 ```powershell
 python -m pip install -e ".[ml,dev]"
 ```
 
-Установить полный локальный lab dependency set, включая Rhythm Lab training:
+Установите полный локальный набор зависимостей лаборатории, включая обучение
+Rhythm Lab:
 
 ```powershell
 python -m pip install -e ".[sonara,ml,rhythm-lab,dev]"
 ```
 
-Запустить backend tests:
+Запустите тесты backend:
 
 ```powershell
 pytest
 ```
 
-Собрать frontend:
+Соберите frontend:
 
 ```powershell
 cd frontend
 npm run build
 ```
 
-Собрать статическую HTML-документацию:
+Соберите статическую HTML-документацию:
 
 ```powershell
 cd docs\dj-track-similarity
@@ -49,19 +50,19 @@ npm install
 npm run build
 ```
 
-HTML документации генерируется в `docs/dj-track-similarity/site/`. После
-запуска backend основной UI открывает ее по кнопке документации в top bar на
-`/docs/`.
+HTML-документация генерируется в `docs/dj-track-similarity/site/`. После запуска
+backend основной UI открывает её по кнопке документации в верхней панели по
+адресу `/docs/`.
 
-Запустить frontend development server:
+Запустите сервер разработки frontend:
 
 ```powershell
 cd frontend
 npm run dev
 ```
 
-Для Python-команд в этом репозитории предпочитайте project virtual environment,
-если он доступен:
+Для Python-команд в этом репозитории предпочитайте виртуальное окружение проекта,
+если оно доступно:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest
@@ -69,9 +70,9 @@ npm run dev
 
 ## Рекомендации по проверке
 
-Используйте focused verification для code changes и script changes.
-Documentation-only changes не требуют full test suite, но должны проверяться на
-устаревшие local paths и точность команд.
+Используйте фокусную проверку для изменений кода и изменений скриптов. Изменения
+только в документации не требуют полного набора тестов, но их следует проверять
+на устаревшие локальные пути и точность команд.
 
 Полезные проверки:
 
@@ -81,4 +82,3 @@ dj-sim analyze --help
 python scripts\audio_repair\repair_audio_metadata.py --help
 python scripts\audio_dedup\audio_dedup.py --help
 ```
-

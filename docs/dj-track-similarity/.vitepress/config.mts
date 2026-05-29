@@ -2,6 +2,7 @@ import { defineConfig } from "vitepress";
 
 const enNav = [
   { text: "Guide", link: "/project-guide.html" },
+  { text: "Install", link: "/install.html" },
   { text: "CLI", link: "/cli.html" },
   { text: "API", link: "/api.html" },
   { text: "Rhythm Lab", link: "/rhythm-lab.html" }
@@ -9,6 +10,7 @@ const enNav = [
 
 const ruNav = [
   { text: "Руководство", link: "/ru/project-guide.html" },
+  { text: "Установка", link: "/ru/install.html" },
   { text: "CLI", link: "/ru/cli.html" },
   { text: "API", link: "/ru/api.html" },
   { text: "Rhythm Lab", link: "/ru/rhythm-lab.html" }
@@ -20,6 +22,7 @@ const enSidebar = [
     items: [
       { text: "Home", link: "/" },
       { text: "Guide", link: "/project-guide.html" },
+      { text: "Install", link: "/install.html" },
       { text: "Overview", link: "/overview.html" },
       { text: "Architecture", link: "/architecture.html" },
       { text: "Database", link: "/database.html" },
@@ -29,6 +32,7 @@ const enSidebar = [
   {
     text: "Usage",
     items: [
+      { text: "Models", link: "/models.html" },
       { text: "Analysis", link: "/analysis.html" },
       { text: "Search & Tags", link: "/search-and-tags.html" },
       { text: "CLI", link: "/cli.html" },
@@ -53,21 +57,23 @@ const ruSidebar = [
   {
     text: "Проект",
     items: [
-      { text: "Главная документации", link: "/ru/" },
-      { text: "Путеводитель по проекту", link: "/ru/project-guide.html" },
+      { text: "Главная", link: "/ru/" },
+      { text: "Руководство", link: "/ru/project-guide.html" },
+      { text: "Установка", link: "/ru/install.html" },
       { text: "Обзор", link: "/ru/overview.html" },
-      { text: "Архитектура и среда выполнения", link: "/ru/architecture.html" },
-      { text: "База данных и сохраняемые данные", link: "/ru/database.html" },
-      { text: "Разработка и проверка", link: "/ru/development.html" }
+      { text: "Архитектура", link: "/ru/architecture.html" },
+      { text: "База данных", link: "/ru/database.html" },
+      { text: "Разработка", link: "/ru/development.html" }
     ]
   },
   {
-    text: "Использование приложения",
+    text: "Использование",
     items: [
-      { text: "Семейства анализа", link: "/ru/analysis.html" },
-      { text: "Поиск и запись тегов", link: "/ru/search-and-tags.html" },
-      { text: "Справочник CLI", link: "/ru/cli.html" },
-      { text: "Справочник Web API", link: "/ru/api.html" }
+      { text: "Модели", link: "/ru/models.html" },
+      { text: "Анализ", link: "/ru/analysis.html" },
+      { text: "Поиск и теги", link: "/ru/search-and-tags.html" },
+      { text: "CLI", link: "/ru/cli.html" },
+      { text: "Web API", link: "/ru/api.html" }
     ]
   },
   {
@@ -75,11 +81,11 @@ const ruSidebar = [
     items: [{ text: "Rhythm Lab", link: "/ru/rhythm-lab.html" }]
   },
   {
-    text: "Служебные скрипты",
+    text: "Обслуживание",
     items: [
-      { text: "Восстановление аудиометаданных", link: "/ru/scripts/repair-audio-metadata.html" },
-      { text: "Отчет о дублях аудио", link: "/ru/scripts/audio-dedup.html" },
-      { text: "Оптимизация базы данных", link: "/ru/scripts/optimize-database.html" }
+      { text: "Восстановление метаданных", link: "/ru/scripts/repair-audio-metadata.html" },
+      { text: "Дубли и очистка", link: "/ru/scripts/audio-dedup.html" },
+      { text: "Оптимизация БД", link: "/ru/scripts/optimize-database.html" }
     ]
   }
 ];

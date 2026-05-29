@@ -1,75 +1,79 @@
 # Rhythm Lab
 
-Rhythm Lab - вспомогательный UI для разметки и обучения классификаторов для
-`dj-track-similarity`. Он запускается отдельно от основного приложения, открывает
-основную SQLite database проекта read-only и сохраняет только lab labels,
-predictions и training checkpoints в собственный writable SQLite file.
+Rhythm Lab — это вспомогательный интерфейс разметки и обучения классификаторов
+для `dj-track-similarity`. Он работает отдельно от основного приложения,
+открывает базу данных SQLite основного проекта только для чтения и хранит лишь
+метки, предсказания и контрольные точки обучения в собственном SQLite-файле с
+правом записи.
 
-Используйте Rhythm Lab, когда generic similarity или genre labels недостаточны
-и нужен персональный reusable classifier, например "has live instrumentation",
-"vocal presence", "peak-time tool" или любой другой library-specific concept,
-который вы можете размечать consistently.
+Используйте Rhythm Lab, когда обычной похожести или жанровых меток
+недостаточно и вам нужен персональный переиспользуемый классификатор —
+например, «есть живые инструменты», «наличие вокала», «инструмент для пиковой
+части» или любая другая специфичная для библиотеки концепция, которую вы можете
+размечать последовательно.
 
-Rhythm Lab основан на profiles. Classifier profile определяет:
+Rhythm Lab основан на профилях. Профиль классификатора определяет:
 
 - стабильный `classifier_key`
-- уникальные display name и description
-- profile type:
-  - `binary`: ровно один positive training label, ровно один negative training
-    label и optional review-only labels, которые сохраняются, но исключаются из
-    fitting
-  - `multiclass`: два или больше user-defined class labels; каждый label -
-    trainable class
-- profile-specific artifact folder и artifact filename prefix
-- train-refresh threshold: сколько новых labels per training class требуется
-  после последнего training checkpoint, прежде чем UI включит training
+- уникальное отображаемое имя и описание
+- тип профиля:
+  - `binary`: ровно одна положительная метка для обучения, ровно одна
+    отрицательная метка для обучения и необязательные метки только для
+    просмотра, которые сохраняются, но исключаются из обучения
+  - `multiclass`: две или более пользовательские метки-классы; каждая метка
+    является обучаемым классом
+- собственную папку артефактов профиля и префикс имени файла артефакта
+- порог обновления обучения — сколько новых меток на каждый обучаемый класс
+  требуется после последней контрольной точки (checkpoint) обучения, прежде чем
+  интерфейс разрешит обучение
 
-Profiles могут быть binary или multiclass. Binary profile может использовать:
+Профили могут быть бинарными или многоклассовыми. Бинарный профиль может
+использовать:
 
-- `live_instrument`: positive class для tracks с live/acoustic instrument
-  material
-- `no_instrument`: negative/reference class
-- `uncertain`: review-only label, excluded from fitting
+- `live_instrument`: положительный класс для треков с живым/акустическим
+  инструментальным материалом
+- `no_instrument`: отрицательный/опорный класс
+- `uncertain`: метка только для просмотра, исключаемая из обучения
 
-Track labels - current-state annotations. Если track был размечен неправильно
-или ваша оценка изменилась, выберите другой label или Clear в UI; старое
-значение заменяется, и следующий training run использует только current label.
-Это относится и к binary, и к multiclass profiles: один track может иметь только
-один current label для active profile.
+Метки треков — это аннотации текущего состояния. Если трек был размечен неверно
+или ваша оценка изменилась, выберите другую метку или Clear в интерфейсе; старое
+значение заменяется, и следующий запуск обучения использует только текущую
+метку. Это касается как бинарных, так и многоклассовых профилей: один трек может
+иметь только одну текущую метку для активного профиля.
 
-Хороший workflow: создать один сфокусированный profile, сначала разметить
-очевидные examples, обучить несколько benchmark models, проверить predictions,
-добавить labels для mistakes или uncertain areas, затем promote лучший combined
-model для использования в main app.
+Хороший рабочий процесс таков: создайте один сфокусированный профиль, сначала
+разметьте очевидные примеры, обучите несколько эталонных моделей, изучите
+предсказания, добавьте больше меток для ошибок или неоднозначных областей, затем
+продвиньте лучшую модель `combined` для использования в основном приложении.
 
-## Storage layout
+## Структура хранения
 
-Lab state:
+Состояние lab:
 
 ```text
 tools/rhythm-lab/data/rhythm_lab.sqlite
 ```
 
-Training artifacts для profile:
+Артефакты обучения профиля:
 
 ```text
 tools/rhythm-lab/artifacts/<artifact-prefix>/
 ```
 
-New profiles могут использовать собственную folder, например:
+Новые профили могут использовать собственную папку, например:
 
 ```text
 tools/rhythm-lab/artifacts/vocal-presence/
 ```
 
-Promoted runtime model, используемая main app:
+Продвинутая (promotion) runtime-модель, используемая основным приложением:
 
 ```text
 models/classifiers/<artifact-prefix>/model.joblib
 models/classifiers/<artifact-prefix>/model.json
 ```
 
-Lab database использует classifier-scoped tables:
+База данных lab использует таблицы, разделённые по классификаторам:
 
 ```text
 classifier_profiles
@@ -77,183 +81,196 @@ classifier_profile_labels
 classifier_labels
 classifier_predictions
 classifier_training_checkpoints
-classifier_track_likes
 ```
 
-Rows разных profiles изолированы `classifier_key`, поэтому labels, predictions
-и training checkpoints не смешиваются.
+Строки разных профилей изолированы по `classifier_key`, поэтому метки,
+предсказания и контрольные точки обучения не смешиваются.
 
-Profile display names уникальны case-insensitively внутри одной lab database.
-Например, `Electronic Mood` и `electronic mood` не могут существовать вместе.
-Если older lab database уже содержит duplicate profile names, Rhythm Lab
-откажется открывать ее, пока duplicate names не будут resolved.
+Отображаемые имена профилей уникальны без учёта регистра внутри одной базы
+данных lab. Например, `Electronic Mood` и `electronic mood` не могут
+существовать вместе. Если более старая база данных lab уже содержит
+дублирующиеся имена профилей, Rhythm Lab откажется её открыть, пока эти
+дубликаты не будут устранены.
 
-## Quick start
+## Быстрый старт
 
-Запустить из repository root:
+Запускайте из корня репозитория:
 
 ```powershell
 .\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py serve --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
-Открыть:
+Откройте:
 
 ```text
 http://127.0.0.1:8777/
 ```
 
-Source database не загружается при startup, если не передан `--source`. UI имеет
-source database path field, file picker и Load database button. Selected source
-DB opened read-only. При startup classifier profile не выбран; выберите
-существующий profile или создайте новый перед loading tracks.
+При старте база данных источника не загружается, если не указан `--source`. В
+интерфейсе есть поле пути к базе данных источника, выбор файла и кнопка Load
+database. Выбранная база данных источника открывается только для чтения. При
+старте профиль классификатора не выбран; выберите существующий профиль или
+создайте новый, прежде чем загружать треки.
 
-Используйте UI для labeling и review. Используйте CLI для training, prediction
-export, promotion и permanent profile deletion.
+Используйте интерфейс для разметки и просмотра. Используйте CLI для обучения,
+экспорта предсказаний, продвижения (promotion) и окончательного удаления
+профиля.
 
-## Labeling UI
+## Интерфейс разметки
 
-UI включает:
+Интерфейс включает:
 
-- profile creation, editing, archiving и switching
-- profile type selection в New classifier profile dialog
-- multiclass label creation с custom keys, display names и descriptions
-- explicit profile selection on startup
-- profile-scoped Library, Candidates, Training и Profile Settings views
-- text search by path/title/artist
-- source database picker и load control
-- syncopated rhythm filter
-- dynamic manual label и predicted-label filters
-- pagination
-- audio preview from source paths
-- MAEST genres и SONARA/MERT/MAEST feature availability from source DB
-- compact app-shell coverage badges для Tracks, SONARA, MAEST и MERT
-- compact label-count badges for active profile
-- training readiness и guidance cards
-- per-profile train-refresh threshold editing в Profile Settings
+- создание, редактирование, архивирование и переключение профилей
+- выбор типа профиля в диалоге New classifier profile
+- создание многоклассовых меток с пользовательскими ключами, отображаемыми
+  именами и описаниями
+- явный выбор профиля при старте
+- разделённые по профилю представления Library, Candidates, Training и Profile
+  Settings
+- текстовый поиск по пути/названию/исполнителю
+- выбор и загрузку базы данных источника
+- фильтр синкопированного ритма
+- динамические фильтры ручных и предсказанных меток
+- постраничную навигацию
+- предпрослушивание аудио из путей источника
+- жанры MAEST и наличие признаков SONARA/MERT/MAEST из базы данных источника
+- компактные значки покрытия в оболочке приложения для Tracks, SONARA, MAEST и
+  MERT
+- компактные значки счётчиков меток для активного профиля
+- карточки готовности к обучению и подсказок
+- редактирование порога обновления обучения для каждого профиля в Profile
+  Settings
 
-Archiving profile скрывает его из normal active profile list, но сохраняет
-labels, predictions, likes и training checkpoints в lab database. Permanent
-deletion намеренно доступно через CLI, а не UI.
+Архивирование профиля скрывает его из обычного списка активных профилей, но
+сохраняет его метки, предсказания и контрольные точки обучения в базе данных
+lab. Окончательное удаление намеренно доступно через CLI, а не через интерфейс.
 
-Keyboard shortcuts на focused row используют label order active profile:
+Сочетания клавиш для выделенной строки используют порядок меток активного
+профиля:
 
-- `1`..`9` = profile labels in display order
-- `0` = clear label
+- `1`..`9` = метки профиля в порядке отображения
+- `0` = очистить метку
 
-AIFF/AIF previews транскодируются во временные WAV files для browser playback.
-Это read-only для source audio file и дает browser seekable codec с duration и
-scrubbing support.
+Предпрослушивание AIFF/AIF транскодируется во временные WAV-файлы для
+воспроизведения в браузере. Это операция только для чтения исходного аудиофайла,
+позволяющая браузеру загрузить кодек с поддержкой перемотки, длительности и
+прокрутки.
 
-Размечайте только concept текущего profile. Смешивание нескольких concepts в
-одном profile делает model менее интерпретируемой и обычно дает менее полезные
-CLASS filters в main app.
+Размечайте только концепцию текущего профиля. Смешивание нескольких концепций в
+одном профиле затрудняет интерпретацию модели и обычно даёт менее полезные
+CLASS-фильтры в основном приложении.
 
-## Training
+## Обучение
 
-Training и prediction используют scikit-learn. Установите optional Rhythm Lab
-dependency group в project environment перед training commands:
+Обучение и предсказание используют scikit-learn. Установите необязательную
+группу зависимостей Rhythm Lab в окружении проекта перед запуском команд
+обучения:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e ".[rhythm-lab]"
 ```
 
-Для одной environment, которая также запускает main app analysis passes,
-установите `.[sonara,ml,rhythm-lab,dev]`.
+Для единого окружения, которое также выполняет проходы анализа основного
+приложения, установите `.[sonara,ml,rhythm-lab,dev]`.
 
-После разметки достаточного количества examples:
+После разметки достаточного числа примеров:
 
 ```powershell
 .\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py train --source C:\db\abstracted.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
-Train custom profile:
+Обучение пользовательского профиля:
 
 ```powershell
 .\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py train --profile vocal_presence --source C:\db\abstracted.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
-Training command benchmarks these feature sets:
+Команда обучения сравнивает следующие наборы признаков:
 
 - `sonara`
 - `mert`
 - `maest`
 - `combined`
 
-`combined` требует все три family: SONARA features из
-`metadata_json.sonara_features`, MERT embeddings и MAEST embeddings. Tracks без
-любого из этих inputs пропускаются для combined model.
+`combined` требует все три семейства: признаки SONARA из
+`metadata_json.sonara_features`, эмбеддинги MERT и эмбеддинги MAEST. Треки, у
+которых отсутствует любой из этих входов, пропускаются для модели `combined`.
 
-UI train-refresh button управляется threshold active profile для new labels per
-training class. Default - 50. Изменение значения в Profile Settings сразу
-меняет readiness calculation и display "required new labels" для active
-profile.
+Кнопка обновления обучения в интерфейсе управляется порогом активного профиля
+для новых меток на каждый обучаемый класс. Значение по умолчанию — 50. Изменение
+этого значения в Profile Settings немедленно меняет расчёт готовности и
+отображение «required new labels» для активного профиля.
 
-Artifacts и metrics пишутся в artifact folder active profile:
+Артефакты и метрики записываются в папку артефактов активного профиля:
 
 ```text
 tools/rhythm-lab/artifacts/live-instrumentation/
 ```
 
-Artifact names используют profile artifact prefix, например:
+Имена артефактов используют префикс артефакта профиля, например:
 
 ```text
 live-instrumentation-combined-20260525T010203Z.joblib
 live-instrumentation-combined-20260525T010203Z.metrics.json
 ```
 
-Metrics используют profile-neutral names, например `positive_discovery`,
-`positive_precision`, `positive_recall`, `negative_candidates` и `label_order`.
-Profiles не должны писать classifier-specific legacy metric fields.
+Метрики используют нейтральные по отношению к профилю имена, такие как
+`positive_discovery`, `positive_precision`, `positive_recall`,
+`negative_candidates` и `label_order`. Профили не должны записывать устаревшие
+поля метрик, специфичные для конкретного классификатора.
 
-Apply trained model и export candidates:
+Применение обученной модели и экспорт кандидатов:
 
 ```powershell
 .\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py predict tools\rhythm-lab\artifacts\live-instrumentation\<model>.joblib --source C:\db\abstracted.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 .\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py export-predictions --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
-Для custom profiles передавайте `--profile <classifier_key>`, когда artifact не
-содержит profile metadata или когда экспортируете profile-scoped predictions.
+Для пользовательских профилей передавайте `--profile <classifier_key>`, когда
+артефакт ещё не содержит метаданных профиля или когда экспортируются
+предсказания, разделённые по профилю.
 
-Promote latest combined model for any profile into the main project:
+Продвижение (promotion) последней модели `combined` любого профиля в основной
+проект:
 
 ```powershell
 .\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
-Это копирует latest `<artifact-prefix>-combined-*.joblib` artifact в
-`models/classifiers/<artifact-prefix>/model.joblib` и пишет local metadata в
-`models/classifiers/<artifact-prefix>/model.json`. Metadata записывается из
-selected profile и artifact payload (`classifier_key`, profile name, labels,
-feature set и label counts). Эти promoted files - local runtime artifacts и
-ignored by git.
+Это копирует последний артефакт `<artifact-prefix>-combined-*.joblib` в
+`models/classifiers/<artifact-prefix>/model.joblib` и записывает локальные
+метаданные в `models/classifiers/<artifact-prefix>/model.json`. Метаданные
+записываются из выбранного профиля и содержимого артефакта (`classifier_key`,
+имя профиля, метки, набор признаков и счётчики меток). Эти продвинутые файлы
+являются локальными runtime-артефактами и игнорируются git.
 
-## Profile deletion
+## Удаление профиля
 
-Delete - destructive operation. Она навсегда удаляет profile row и все
-profile-scoped lab data из `rhythm_lab.sqlite`: profile labels, manual track
-labels, likes, saved predictions и training checkpoints. Она не удаляет source
-audio files, source database rows или training/model artifact files on disk.
+Удаление — это деструктивная операция. Она безвозвратно удаляет строку профиля и
+все данные lab, разделённые по профилю, из `rhythm_lab.sqlite`: метки профиля,
+ручные метки треков, сохранённые предсказания и контрольные точки обучения. Она
+не удаляет исходные аудиофайлы, строки базы данных источника или файлы
+артефактов обучения/моделей на диске.
 
-Delete by unique profile name:
+Удаление по уникальному имени профиля:
 
 ```powershell
 .\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py delete-profile --labels tools\rhythm-lab\data\rhythm_lab.sqlite --name "Electronic Mood" --confirm "Electronic Mood"
 ```
 
-Delete by `classifier_key`:
+Удаление по `classifier_key`:
 
 ```powershell
 .\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py delete-profile --labels tools\rhythm-lab\data\rhythm_lab.sqlite --profile electronic_mood --confirm electronic_mood
 ```
 
-Значение `--confirm` должно точно совпадать с выбранным `--name` или `--profile`
-value. Это предотвращает accidental deletion при использовании shell history
-или copy/paste.
+Значение `--confirm` должно точно совпадать с выбранным значением `--name` или
+`--profile`. Это предотвращает случайное удаление при использовании истории
+оболочки или копирования/вставки.
 
-## Useful checks
+## Полезные проверки
 
-Count labels for a profile:
+Подсчёт меток для профиля:
 
 ```powershell
 @'
@@ -274,7 +291,7 @@ finally:
 '@ | .\.venv\Scripts\python.exe -
 ```
 
-Run focused tests:
+Запуск сфокусированных тестов:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest tools\rhythm-lab\tests\test_rhythm_lab.py --override-ini addopts=
@@ -282,33 +299,34 @@ Run focused tests:
 
 ## Интеграция с основным приложением
 
-Promoted classifiers - локальные classifier profiles, а не audio-analysis
-models, которые сами декодируют files. Они оценивают tracks из уже сохраненных
-analysis outputs:
+Продвинутые классификаторы — это локальные профили классификаторов, а не модели
+анализа аудио, которые сами декодируют файлы. Они оценивают треки по уже
+сохранённым результатам анализа:
 
-- SONARA playlist features из `metadata_json.sonara_features`;
-- MERT embeddings из `embeddings.embedding_key = "mert"`;
-- MAEST embeddings из `embeddings.embedding_key = "maest"`.
+- признаки плейлистов SONARA из `metadata_json.sonara_features`;
+- эмбеддинги MERT из `embeddings.embedding_key = "mert"`;
+- эмбеддинги MAEST из `embeddings.embedding_key = "maest"`.
 
-Tracks без любого из этих inputs пропускаются classifier job. Scores
-сохраняются в `track_classifier_scores` под profile classifier key.
+Треки, у которых отсутствует любой из этих входов, пропускаются заданием
+классификатора. Оценки сохраняются в `track_classifier_scores` под ключом
+классификатора профиля.
 
-Stable model locations используют profile artifact prefix:
+Стабильные расположения моделей используют префикс артефакта профиля:
 
 ```text
 models/classifiers/<artifact-prefix>/model.joblib
 models/classifiers/<artifact-prefix>/model.json
 ```
 
-Promoted files - local runtime artifacts и ignored by git. Main app может
-оценить promoted profile командой:
+Продвинутые файлы являются локальными runtime-артефактами и игнорируются git.
+Основное приложение может оценить продвинутый профиль с помощью:
 
 ```powershell
 dj-sim analyze-classifier live_instrumentation --db .\data\library.sqlite
 ```
 
-User-facing score - classifier probability для positive training label профиля.
-Поскольку UI displays могут округлять probabilities, значение `1.0000` может
-быть немного ниже mathematical `1.0`. Для practical filtering используйте
-thresholds вроде `0.99`, `0.95` или `0.90`, а не точное `1.0`.
-
+Пользовательская оценка — это вероятность классификатора для положительной метки
+обучения профиля. Поскольку интерфейс может округлять вероятности, значение,
+показанное как `1.0000`, может быть чуть ниже математической `1.0`. Используйте
+для практической фильтрации пороги вроде `0.99`, `0.95` или `0.90`, а не точное
+значение `1.0`.

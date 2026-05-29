@@ -1,69 +1,77 @@
 # Скрипт восстановления аудиометаданных
 
-По возможности запускайте этот скрипт через project Python environment:
+Запускайте этот скрипт по возможности из окружения Python проекта:
 
 ```powershell
 .\.venv\Scripts\python.exe scripts\audio_repair\repair_audio_metadata.py --help
 ```
 
-Standalone helper для диагностики и восстановления проблем audio metadata /
-container. Dry-run работает read-only и не копирует и не пишет аудиофайлы.
+Отдельный вспомогательный инструмент для диагностики и восстановления проблем с
+аудиометаданными и контейнерами. Сухой прогон (dry-run) работает только на
+чтение и не копирует и не записывает аудиофайлы.
 
-Используйте этот скрипт, когда scanning, tag refresh или genre writing сообщает
-о подозрительных или нечитаемых metadata, особенно для WAV/AIFF/container edge
-cases. Не используйте его как general tag editor; это diagnostic и repair tool
-для файлов, которые script классифицирует как safe to repair.
+Используйте этот скрипт, когда сканирование, обновление тегов или запись жанров
+сообщают о подозрительных или нечитаемых метаданных, особенно в краевых случаях
+с WAV/AIFF и контейнерами. Не применяйте его как обычный редактор тегов: это
+инструмент диагностики и восстановления для файлов, которые скрипт
+классифицирует как безопасные для ремонта.
 
-Usage:
+Использование:
 
 ```text
 python scripts\audio_repair\repair_audio_metadata.py [OPTIONS] [paths ...]
 ```
 
-Inputs:
+Входные данные:
 
-- positional `paths`: аудиофайлы для inspect или repair.
-- `--folder FOLDER`: рекурсивно собрать supported audio files из folder.
-- `--db DB`: собрать existing audio files из `tracks.path` в SQLite library
-  database. Database opened read-only.
-- `--db-root PATH`: использовать только database paths под этим stored root.
-  Можно повторять.
-- `--file-root PATH`: заменить matching `--db-root` prefix этим real filesystem
-  root перед проверкой существования каждого файла.
-- `--log LOG`: извлечь post-save readback-failed WAV paths из project log.
-- `--since TIMESTAMP`: использовать только log lines at or after timestamp.
-- `--until TIMESTAMP`: использовать только log lines before timestamp.
+- позиционные `paths`: аудиофайлы для проверки или восстановления.
+- `--folder FOLDER`: рекурсивно собрать поддерживаемые аудиофайлы из папки.
+- `--db DB`: собрать существующие аудиофайлы из `tracks.path` в базе данных
+  библиотеки SQLite. База данных открывается только на чтение.
+- `--db-root PATH`: использовать только пути базы данных под этим сохранённым
+  корнем. Можно указывать несколько раз.
+- `--file-root PATH`: заменить соответствующий префикс `--db-root` этим
+  реальным корнем файловой системы перед проверкой существования каждого файла.
+- `--log LOG`: извлечь из лога проекта пути к WAV-файлам, у которых после
+  сохранения не прошла повторная проверка чтения.
+- `--since TIMESTAMP`: использовать только строки лога с указанной временной
+  метки и позже.
+- `--until TIMESTAMP`: использовать только строки лога до указанной временной
+  метки.
 
-Repair and safety options:
+Параметры восстановления и безопасности:
 
-- `--apply`: записать repaired files. Default - dry-run.
-- `--backup-dir PATH`: backup directory, используется только с `--apply`.
-- `--no-backup`: apply без full-file backups; используйте только при наличии
-  другого backup.
-- `--keep-id3 first|last|none`: для WAV repair выбрать readable top-level ID3
-  chunk, который оставить. Default - `first`.
-- `--reason VALUE`: в folder или database mode применять только entries с
-  stored reason. Можно повторять.
+- `--apply`: записать восстановленные файлы. По умолчанию — dry-run.
+- `--backup-dir PATH`: каталог резервных копий, используется только с `--apply`.
+- `--no-backup`: применить изменения без полных резервных копий файлов;
+  используйте только если уже существует другая резервная копия.
+- `--keep-id3 first|last|none`: при восстановлении WAV выбрать, какой читаемый
+  ID3-чанк верхнего уровня сохранить. По умолчанию — `first`.
+- `--reason VALUE`: в режиме папки или базы данных применять изменения только к
+  записям с сохранённой причиной. Можно указывать несколько раз.
 
-Run control:
+Управление запуском:
 
-- `--limit N`: обработать только первые collected paths.
-- `--summary-only`: напечатать только final summary.
-- `--color auto|always|never`: colorize status labels.
-- `--file-log PATH`: file log path, перезаписывается на каждом run.
-- `--no-file-log`: отключить file log.
-- `--state PATH`: explicit folder/database-mode state file.
-- `--workers N`: parallel dry-run workers. Apply mode всегда sequential.
+- `--limit N`: обработать только первые собранные пути.
+- `--summary-only`: вывести только итоговую сводку.
+- `--color auto|always|never`: подсвечивать метки статусов цветом.
+- `--file-log PATH`: путь к файловому логу, перезаписываемому при каждом запуске.
+- `--no-file-log`: отключить файловый лог.
+- `--state PATH`: явный файл состояния для режима папки или базы данных.
+- `--workers N`: число параллельных воркеров для dry-run. Режим применения
+  всегда выполняется последовательно.
 
-Recommended workflow:
+Рекомендуемый порядок:
 
-1. Запустите dry run на небольшом path, folder, log или database subset.
-2. Проверьте status и reason для каждого `REPAIRABLE` entry.
-3. Запускайте `--apply` только для конкретной reason или file set, который
-   действительно хотите исправить.
-4. Оставляйте backups включенными, если у вас нет внешнего backup.
+1. Запустите dry-run на небольшом наборе путей, папке, логе или подмножестве
+   базы данных.
+2. Просмотрите статус и причину для каждой записи `REPAIRABLE`.
+3. Запускайте `--apply` только для той причины или набора файлов, которые вы
+   намерены исправить.
+4. Оставляйте резервные копии включёнными, если у вас уже нет внешней резервной
+   копии.
 
-Examples:
+Примеры:
 
 ```powershell
 python scripts\audio_repair\repair_audio_metadata.py --folder .\music --workers 4
@@ -73,12 +81,42 @@ python scripts\audio_repair\repair_audio_metadata.py --db C:\db\abstracted.sqlit
 python scripts\audio_repair\repair_audio_metadata.py .\music\track.wav --summary-only
 ```
 
-Status meanings:
+Значения статусов:
 
-- `OK`: repair не требуется.
-- `NOTICE`: необязательная cleanup.
-- `SUSPICIOUS`: format/container или codec mismatch.
-- `TAG-ERROR`: tag-read failure без safe repair path.
-- `REPAIRABLE`: safe repair logic exists.
-- `REPAIRED`: apply mode succeeded.
+- `OK`: восстановление не требуется.
+- `NOTICE`: косметическая, необязательная очистка; файл не перезаписывается.
+- `REPAIRABLE`: безопасное восстановление существует (dry-run только сообщает о
+  нём).
+- `REPAIRED`: режим применения записал проверенное восстановление.
+- `SUSPICIOUS`: несоответствие формата/контейнера или кодека, требующее более
+  внимательной проверки.
+- `TAG-ERROR`: ошибка чтения тега без безопасного пути восстановления.
+- `BROKEN`: файл не удалось разобрать как ожидаемый контейнер.
+- `FAILED`: в режиме применения восстановление было предпринято, но его не
+  удалось записать или проверить.
+- `UNSUPPORTED`: расширение вне восстанавливаемого набора WAV/AIFF; только
+  проверка.
 
+Причины:
+
+В режиме папки или базы данных каждый результат также записывает причину в
+верхнем регистре. Используйте её с `--reason`, чтобы повторно запустить
+применение только для одного класса исправлений, например:
+
+- `OVERSIZED_DATA`: WAV-чанк `data` больше, чем полезная аудионагрузка до ID3.
+- `DUPLICATE_ID3`: более одного ID3-чанка верхнего уровня в WAV.
+- `EMPTY_ID3`: пустой AIFF-чанк `ID3 `, блокирующий чтение Mutagen.
+- `CONTAINER_NORMALIZATION`: нормализация корневого размера или выравнивания
+  RIFF/FORM.
+- `EXTENSION_MISMATCH`: контейнер/кодек не соответствует расширению файла.
+
+`--reason` допустим только в режиме папки или базы данных (он требует файла
+состояния). Указывайте точный текст причины, показанный в отчёте.
+
+Коды выхода:
+
+- `0`: завершено без результатов `FAILED`.
+- `1`: хотя бы один файл завершился со статусом `FAILED`.
+- `2`: ошибка использования, например `--file-root` без `--db-root`, `--reason`
+  вне режима состояния, `--backup-dir` вместе с `--no-backup` или не найдено ни
+  одного входного пути.

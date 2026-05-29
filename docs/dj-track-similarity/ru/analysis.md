@@ -1,29 +1,31 @@
 # Семейства анализа
 
-Эта страница документирует analysis outputs, используемые основным
-приложением. Используйте ее, чтобы решить, какую analysis job запускать перед
-затратой CPU или GPU time. Для отдельного инструмента разметки и обучения
-классификаторов см. [Rhythm Lab](rhythm-lab.md).
+Эта страница описывает результаты анализа, используемые основным приложением.
+Используйте её, чтобы решить, какой анализ запускать, прежде чем тратить время
+CPU или GPU. Об отдельном инструменте разметки и обучения классификаторов см.
+[Rhythm Lab](rhythm-lab.md).
 
 ## Семейства анализа
 
-Каждое семейство пишет разные SQLite data и поддерживает разный workflow:
+Каждое семейство записывает свои данные в SQLite и поддерживает свой рабочий
+процесс:
 
 | Семейство | Что делает | Когда использовать |
 | --- | --- | --- |
-| Sonara | Извлекает объяснимые playlist features: tempo, energy, loudness, rhythm и tonal summaries. | Нужен быстрый seed search, видимые feature controls или library filters. |
-| MAEST | Предсказывает genre labels и сохраняет MAEST embeddings. | Нужны сгенерированные genre tags, review жанров, preset `syncopated` или classifier inputs. |
-| MERT | Строит audio embeddings для seed-track similarity. | Нужен сценарий "найти треки рядом с этим треком" через audio model. |
-| CLAP | Строит music audio embeddings и text vectors. | Нужен text-to-audio search по описательным prompts. |
-| Promoted classifiers | Оценивает треки локальной моделью, обученной в Rhythm Lab. | Нужен переиспользуемый custom signal, например vocal presence, live instrumentation или другой profile-specific label. |
+| Sonara | Извлекает объяснимые признаки плейлиста: темп, энергию, громкость, ритм и тональные сводки. | Нужен быстрый поиск по seed-треку, видимые регуляторы признаков или фильтры библиотеки. |
+| MAEST | Предсказывает жанровые метки и сохраняет MAEST embeddings. | Нужны сгенерированные жанровые теги, проверка жанров, preset `syncopated` или входные данные для классификатора. |
+| MERT | Строит audio embeddings для поиска похожих по seed-треку. | Нужно поведение «найти треки, близкие к этому треку» на основе аудиомодели. |
+| CLAP | Строит музыкальные audio embeddings и текстовые векторы. | Нужен поиск «текст в аудио» по описательным запросам. |
+| Продвинутые классификаторы | Оценивает треки локальной моделью, обученной в Rhythm Lab. | Нужен переиспользуемый пользовательский сигнал, например наличие вокала, живые инструменты или другая метка конкретного профиля. |
 
 ### Sonara
 
-Sonara используется в playlist mode как быстрый explainable feature pass. Она
-сохраняет focused playlist features в `metadata_json.sonara_features` и имя
-модели в `metadata_json.sonara_model`.
+Sonara используется в режиме плейлиста как быстрый объяснимый проход по
+признакам. Она сохраняет компактный набор признаков плейлиста в
+`metadata_json.sonara_features`, а имя модели — в
+`metadata_json.sonara_model`.
 
-Stored groups and keys:
+Сохраняемые группы и ключи:
 
 - Core features: `bpm`, `beats`, `onset_frames`, `onset_density`, `n_beats`,
   `rms_mean`, `rms_max`, `loudness_lufs`, `dynamic_range_db`,
@@ -35,97 +37,103 @@ Stored groups and keys:
   `spectral_flatness_mean`, `spectral_contrast_mean`, `mfcc_mean`,
   `chroma_mean`.
 
-Sonara BPM и key - анализированные значения, а не копии file tags. Приложение
-хранит raw Sonara key data и не выводит Camelot notation.
+BPM и `key` в Sonara — это проанализированные значения, а не копии тегов файла.
+Приложение хранит исходные данные ключа Sonara и не выводит из них нотацию
+Camelot.
 
-CLI и UI вызывают Sonara с `batch_size` как parallel track workers, а не как
-neural-network inference batch.
+CLI и UI вызывают Sonara с `batch_size` как числом параллельных рабочих
+процессов по трекам, а не как размером батча инференса нейросети.
 
-Запускайте Sonara рано, если не уверены, с чего начать. Это самое прозрачное
-семейство анализа: UI может напрямую показывать и смешивать его feature groups.
+Запускайте Sonara в первую очередь, если не уверены, с чего начать. Это самое
+прозрачное семейство анализа, потому что UI может напрямую показывать и
+смешивать его группы признаков.
 
 ### MAEST
 
-MAEST во время анализа пишет genre metadata и embeddings только в SQLite:
+Во время анализа MAEST записывает жанровые метаданные и embeddings только в
+SQLite:
 
 - `metadata_json.maest_model`
 - `metadata_json.maest_genres`
 - `metadata_json.maest_syncopated_rhythm`
 - `embeddings.embedding_key = "maest"`
 
-Adapter использует `maest-infer` с `discogs-maest-30s-pw-129e-519l`. Он
-анализирует до трех 30-second windows на track:
+Адаптер использует `maest-infer` с `discogs-maest-30s-pw-129e-519l`. Он
+анализирует до трёх 30-секундных окон на трек:
 
-- offset 60 seconds;
-- window около 38 percent duration;
-- window около 72 percent duration.
+- окно со смещением 60 секунд;
+- окно около 38 процентов длительности;
+- окно около 72 процентов длительности.
 
-Impossible или duplicate windows clamped and deduplicated. Per-label
-activations усредняются по windows, затем top labels сохраняются. MAEST
-embedding rows усредняются по тем же windows и сохраняются под embedding key
-`maest`.
+Невозможные или совпадающие окна ограничиваются по диапазону и
+дедуплицируются. Активации по каждой метке усредняются по окнам, после чего
+сохраняются метки с наибольшими значениями. Строки MAEST embedding усредняются
+по тем же окнам и сохраняются под embedding key `maest`.
 
-MAEST analysis сам не изменяет аудиофайлы. Отдельное genre-save action позже
-может записать сохраненные MAEST labels в standard audio genre tags.
-Флаг `maest_syncopated_rhythm` выводится из сохраненных MAEST genres и
-используется library preset `syncopated`.
+Сам анализ MAEST не изменяет аудиофайлы. Отдельное действие сохранения жанров
+позже может записать сохранённые метки MAEST в стандартные жанровые теги аудио.
+Флаг `maest_syncopated_rhythm` выводится из сохранённых жанров MAEST и
+используется preset `syncopated` библиотеки.
 
-Запускайте MAEST перед genre writing или preset `syncopated`. Проверяйте labels
-перед записью в файлы: analysis database-only, но tag writing - явная мутация
-аудиофайлов.
+Запускайте MAEST перед записью жанров или использованием preset `syncopated`.
+Проверяйте метки перед записью в файлы: анализ работает только с базой данных, а
+запись тегов — это явное изменение аудиофайлов.
 
 ### MERT
 
 MERT строит audio-to-audio embeddings под embedding key `mert`.
 
-Default model:
+Модель по умолчанию:
 
 ```text
 m-a-p/MERT-v1-95M
 ```
 
-MERT search использует только MERT vectors. Он не смешивает Sonara features или
-CLAP vectors.
+Поиск MERT использует только векторы MERT. Он не смешивается с признаками Sonara
+или векторами CLAP.
 
-Запускайте MERT, когда seed-track similarity важнее explainable controls.
-Search results зависят от существующих MERT embeddings, поэтому newly scanned
-tracks нужно проанализировать, прежде чем они появятся в полезных MERT results.
+Запускайте MERT, когда похожесть по seed-треку важнее объяснимых регуляторов.
+Результаты поиска зависят от существующих MERT embeddings, поэтому
+новопросканированные треки нужно проанализировать, прежде чем они появятся в
+полезных результатах MERT.
 
 ### CLAP
 
-CLAP строит music-focused audio embeddings под embedding key `clap` и создает
-text vectors для text-to-audio search.
+CLAP строит музыкальные audio embeddings под embedding key `clap` и создаёт
+текстовые векторы для поиска «текст в аудио».
 
-Active checkpoint:
+Активный чекпойнт:
 
 ```text
 lukewys/laion_clap/music_audioset_epoch_15_esc_90.14.pt
 ```
 
-Text search требует CLAP audio embeddings, созданных тем же CLAP checkpoint.
+Текстовый поиск требует CLAP audio embeddings, созданных тем же чекпойнтом CLAP.
 
-Запускайте CLAP, когда нужно искать по mood, instrumentation, energy или другому
-описательному языку. Четкие concrete prompts обычно работают лучше, чем
-одиночные genre words.
+Запускайте CLAP, когда нужно искать по настроению, инструментовке, энергии или
+другому описательному языку. Понятные конкретные запросы обычно работают лучше,
+чем отдельные жанровые слова.
 
-### Promoted classifiers
+### Продвинутые классификаторы
 
-Promoted classifiers - локальные classifier profiles, а не audio-analysis
-models, которые сами декодируют files. Они оценивают tracks из уже сохраненных
-analysis outputs:
+Продвинутые классификаторы — это локальные профили классификаторов, а не модели
+аудиоанализа, которые сами декодируют файлы. Они оценивают треки по уже
+сохранённым результатам анализа:
 
-- SONARA playlist features из `metadata_json.sonara_features`;
+- признаки плейлиста SONARA из `metadata_json.sonara_features`;
 - MERT embeddings из `embeddings.embedding_key = "mert"`;
 - MAEST embeddings из `embeddings.embedding_key = "maest"`.
 
-Tracks без любого из этих inputs пропускаются classifier job. Scores
-сохраняются в `track_classifier_scores` под profile classifier key.
+Треки, у которых отсутствует любой из этих входных данных, пропускаются задачей
+классификатора. Оценки сохраняются в `track_classifier_scores` под
+`classifier_key` профиля.
 
-Используйте promoted classifiers после обучения и promotion профиля в Rhythm
-Lab. Лучше всего они подходят для персональных concepts библиотеки, которые
-трудно описать generic genre label или одним similarity seed.
+Используйте продвинутые классификаторы после того, как обучите и продвинете
+профиль в Rhythm Lab. Они лучше всего подходят для персональных представлений о
+библиотеке, которые трудно выразить обобщённой жанровой меткой или одним
+seed-треком похожести.
 
-Стабильные model locations используют profile artifact prefix:
+Стабильные расположения моделей используют artifact prefix профиля:
 
 ```text
 models/classifiers/<artifact-prefix>/model.joblib
@@ -137,25 +145,25 @@ models/classifiers/<artifact-prefix>/model.joblib
 .\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation
 ```
 
-Promoted `model.joblib` и `model.json` - локальные artifacts, игнорируемые git.
-Исходные Rhythm Lab training artifacts остаются в classifier-specific lab
-workspace:
+Продвинутые файлы `model.joblib` и `model.json` — это локальные артефакты,
+игнорируемые git. Исходные обучающие артефакты Rhythm Lab остаются в рабочей
+области лаборатории для конкретного классификатора:
 
 ```text
 tools/rhythm-lab/artifacts/<artifact-prefix>/
 ```
 
-Promoted metadata генерируется из Rhythm Lab profile и model artifact:
-`classifier_key`, profile name, profile type, labels, feature set, source
-artifact и training label counts. Rhythm Lab training metrics используют одну
-profile-neutral shape для всех profiles (`positive_*` metrics и `label_order`)
-вместо classifier-specific metric aliases.
+Продвинутые метаданные генерируются из профиля Rhythm Lab и артефакта модели:
+`classifier_key`, profile name, profile type, labels, feature set, исходный
+артефакт и количества обучающих меток. Обучающие метрики Rhythm Lab используют
+единую нейтральную к профилю структуру для всех профилей (метрики `positive_*` и
+`label_order`) вместо специфичных для классификатора псевдонимов метрик.
 
-О profile management, labeling, training, prediction, promotion, archive и
-delete workflows в Rhythm Lab см. [Rhythm Lab](rhythm-lab.md).
+Об управлении профилями, разметке, обучении, предсказании, promotion,
+архивировании и удалении в Rhythm Lab см. [Rhythm Lab](rhythm-lab.md).
 
-User-facing score - classifier probability для positive training label профиля.
-Поскольку UI displays могут округлять probabilities, значение `1.0000` может
-быть немного ниже математического `1.0`. Для практической фильтрации
-используйте thresholds вроде `0.99`, `0.95` или `0.90`, а не точное `1.0`.
-
+Видимая пользователю оценка — это вероятность классификатора для положительной
+обучающей метки профиля. Поскольку UI может округлять вероятности, значение,
+показанное как `1.0000`, может быть немного ниже математической `1.0`. Для
+практической фильтрации используйте пороги вроде `0.99`, `0.95` или `0.90`, а не
+точную `1.0`.

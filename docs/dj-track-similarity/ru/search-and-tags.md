@@ -1,38 +1,51 @@
 # Поиск и запись тегов
 
-Эта страница описывает search tabs, поверхность classifier filtering и явный
-workflow записи genre tags. Используйте ее, когда библиотека уже просканирована
-и нужно найти полезных соседей, собрать временный сет или решить, стоит ли
-сохранять MAEST genres обратно в файлы.
+Эта страница описывает вкладки поиска, поверхность фильтрации по
+классификаторам и явный процесс записи жанровых тегов. Используйте её, когда
+библиотека уже просканирована и нужно найти подходящих соседей, собрать
+временный сет или решить, стоит ли сохранять жанры MAEST обратно в файлы.
 
 ## Режимы поиска
 
-Search panel имеет отдельные tabs.
+Панель поиска состоит из отдельных вкладок.
 
-Выбирайте tab по намерению:
+Выбирайте вкладку по своей задаче:
 
-| Tab | Что делает | Когда использовать |
+| Вкладка | Что делает | Когда использовать |
 | --- | --- | --- |
-| SONARA | Ищет по объяснимым playlist features и custom mixer weights. | Нужны DJ-transition candidates и контроль rhythm, tempo, timbre, dynamics или harmonic balance. |
-| MERT | Ищет от выбранных seed tracks в MERT embedding space. | Нужна audio-model similarity без настройки feature weights. |
-| CLAP | Ищет CLAP audio embeddings по text prompt. | Вы знаете нужный sound или mood, но seed track нет. |
-| CLASS | Фильтрует по promoted classifier scores. | Нужен переиспользуемый personal signal, обученный в Rhythm Lab. |
+| SONARA | Ищет по объяснимым признакам плейлиста и пользовательским mixer weights. | Нужны кандидаты для DJ-перехода и контроль над rhythm, tempo, timbre, dynamics или harmonic balance. |
+| MERT | Ищет от выбранных seed-треков в embedding-пространстве MERT. | Нужна похожесть по аудиомодели без настройки весов признаков. |
+| CLAP | Ищет по embedding-ам аудио CLAP на основе текстового запроса. | Вы знаете нужное звучание или настроение, но seed-трека нет. |
+| CLASS | Фильтрует по оценкам продвинутых классификаторов. | Нужен переиспользуемый персональный сигнал, обученный в Rhythm Lab. |
 
-Library browser также имеет preset filter `syncopated`. Он выбирает tracks, у
-которых сохраненная MAEST metadata содержит `maest_syncopated_rhythm = true`, и
-может комбинироваться с обычным library text search и workflow
-add-filtered-tracks.
+В браузере библиотеки также есть фильтр-пресет `syncopated`. Он выбирает треки,
+у которых сохранённые метаданные MAEST содержат
+`maest_syncopated_rhythm = true`, и может комбинироваться с обычным текстовым
+поиском по библиотеке и процессом add-filtered-tracks. У каждой строки
+библиотеки есть кнопка-сердечко для локального списка понравившихся треков.
+Фильтр-сердечко в элементах управления библиотекой показывает только
+понравившиеся треки в том же постраничном браузере и может комбинироваться с
+текстовым поиском, пресетом `syncopated`, фильтрами по оценкам классификаторов и
+процессом add-filtered-tracks. Элементы управления библиотекой включают кнопку
+направления сортировки, которая разворачивает текущую загруженную страницу в
+браузере без изменения backend-запроса или порядка, хранящегося в базе данных.
+Элементы пагинации расположены слева в элементах управления библиотекой, после
+кнопок фильтров. Справа показан общий счётчик для текущего вида библиотеки, а за
+ним — кнопки направления сортировки и add-visible-tracks. Общий счётчик и счётчик
+страниц отражают активный текстовый поиск, пресет, фильтр понравившихся и
+фильтры по оценкам классификаторов.
 
-CLASS tab содержит classifier controls, найденные из promoted
-`models/classifiers/*/model.json` metadata. Каждый promoted classifier можно
-проанализировать из UI, а его slider фильтрует library и add-filtered-tracks
-workflow по `track_classifier_scores.score`.
+Вкладка CLASS содержит элементы управления классификаторами, обнаруженные из
+метаданных продвинутых моделей `models/classifiers/*/model.json`. Каждый
+продвинутый классификатор можно проанализировать из интерфейса, а его ползунок
+фильтрует библиотеку и процесс add-filtered-tracks по
+`track_classifier_scores.score`.
 
-### SONARA search
+### Поиск SONARA
 
-SONARA - основной explainable seed-search path. Он отправляет selected seed
-tracks, optional lookback tracks, limit, minimum similarity, mixer weights и
-modifiers в `/api/search/sonara`.
+SONARA — основной объяснимый путь поиска по seed-трекам. Он отправляет выбранные
+seed-треки, необязательные lookback-треки, лимит, минимальную похожесть, mixer
+weights и modifiers в `/api/search/sonara`.
 
 Mixer weights:
 
@@ -52,34 +65,35 @@ Modifiers:
 - `dynamic_range`
 - `loudness`
 
-Backend все еще принимает preset mode names для compatibility:
+Backend по-прежнему принимает имена пресетных режимов для совместимости:
 
 ```text
 balanced, vibe, sound, dj_transition, custom
 ```
 
-Active UI path использует custom mixer.
+Активный путь интерфейса использует пользовательский микшер.
 
-Начинайте с SONARA, когда нужны explainable results. Увеличивайте или
-уменьшайте mixer weights, чтобы сдвигать поиск к transition fit, rhythmic feel,
-harmonic similarity или overall sound.
+Начинайте с SONARA, когда нужны объяснимые результаты. Увеличивайте или
+уменьшайте mixer weights, чтобы смещать поиск в сторону пригодности для перехода,
+ритмического ощущения, гармонической похожести или общего звучания.
 
-### MERT search
+### Поиск MERT
 
-MERT seed search отправляет seed tracks, lookback tracks, limit и optional
-minimum similarity в `/api/search`. Он ранжирует tracks в MERT embedding space.
+Поиск MERT по seed-трекам отправляет seed-треки, lookback-треки, лимит и
+необязательную минимальную похожесть в `/api/search`. Он ранжирует треки в
+embedding-пространстве MERT.
 
-Используйте MERT после `dj-sim analyze --adapter mert` или соответствующей UI
-analysis job. Если results пустые или устарели, проверьте, есть ли у candidate
-tracks MERT embeddings.
+Используйте MERT после команды `dj-sim analyze --adapter mert` или
+соответствующей задачи анализа в интерфейсе. Если результаты пусты или устарели,
+проверьте, есть ли у треков-кандидатов embedding-и MERT.
 
-### CLAP text search
+### Текстовый поиск CLAP
 
-CLAP text search отправляет text prompt, limit, optional minimum similarity и
-device в `/api/search/text`. Он ранжирует CLAP audio vectors относительно CLAP
-text vector.
+Текстовый поиск CLAP отправляет текстовый запрос, лимит, необязательную
+минимальную похожесть и устройство в `/api/search/text`. Он ранжирует
+аудиовекторы CLAP относительно текстового вектора CLAP.
 
-Concrete English prompts обычно работают лучше:
+Конкретные запросы на английском обычно работают лучше всего:
 
 ```text
 Melancholic minimal house with broken drums, warm chords, no vocals
@@ -87,54 +101,54 @@ Dark hypnotic techno with sparse percussion and deep rolling bass
 Organic microhouse with soft pads, plucked textures, and spacious mood
 ```
 
-Используйте CLAP для exploratory digging. Включайте в prompt musical texture,
-mood, tempo feel, vocal presence или instrumentation вместо reliance только на
-genre name.
+Используйте CLAP для исследовательского поиска. Включайте в запрос музыкальную
+фактуру, настроение, ощущение темпа, наличие вокала или инструментовку вместо
+того, чтобы полагаться только на название жанра.
 
-### CLASS / classifiers
+### CLASS / классификаторы
 
-CLASS tab предназначен для classifier-driven workflows, а не similarity search.
-Он показывает promoted classifiers, найденные из
-`models/classifiers/*/model.json`:
+Вкладка CLASS предназначена для рабочих процессов на основе классификаторов, а
+не для поиска по похожести. Она показывает продвинутые классификаторы,
+обнаруженные из `models/classifiers/*/model.json`:
 
-- `Analyze <classifier>` запускает cancellable classifier job.
-- Каждый classifier slider фильтрует library server-side по stored classifier
-  score.
-- Metadata dialog показывает classifier scores, confidence, label, feature set
-  и model file ниже SONARA features.
+- `Analyze <classifier>` запускает отменяемую задачу классификатора.
+- Ползунок каждого классификатора фильтрует библиотеку на стороне сервера по
+  сохранённой оценке классификатора.
+- Диалог метаданных показывает оценки классификаторов, уверенность, метку, набор
+  признаков и файл модели ниже признаков SONARA.
 
-Promoted classifiers требуют promoted model file и feature-complete tracks. Они
-не анализируют аудио напрямую; сначала запустите SONARA, MERT и MAEST для
-треков, которые нужно оценить.
+Продвинутые классификаторы требуют файла продвинутой модели и треков с полным
+набором признаков. Они не анализируют аудио напрямую; сначала запустите SONARA,
+MERT и MAEST для треков, которые нужно оценить.
 
-Используйте CLASS filters после scoring promoted classifier. High score
-означает, что model считает track соответствующим positive label профиля; это
-workflow hint, а не гарантия.
+Используйте фильтры CLASS после оценки продвинутого классификатора. Высокая
+оценка означает, что модель считает трек соответствующим положительной метке
+профиля; это подсказка для рабочего процесса, а не гарантия.
 
 ## Запись тегов
 
-MAEST genre saving пишет одну нормализованную semicolon-separated genre string,
-например:
+Сохранение жанров MAEST записывает одну нормализованную строку жанров,
+разделённую точкой с запятой, например:
 
 ```text
 Tech House; Minimal; Techno
 ```
 
-MAEST category prefixes вроде `Electronic---` удаляются перед записью.
+Префиксы категорий MAEST вроде `Electronic---` удаляются перед записью.
 
-Format-specific genre fields:
+Поля жанра в зависимости от формата:
 
-- MP3, WAV, AIFF ID3 tags: `TCON`
-- FLAC и Vorbis-style tags: `GENRE`
+- ID3-теги MP3, WAV, AIFF: `TCON`
+- FLAC и теги в стиле Vorbis: `GENRE`
 - MP4, M4A, ALAC: `©gen`
 
-WAV genre writing использует Mutagen `WAVE` support, сохраняет значение `TCON`
-и проверяет, что сохраненное значение читается после записи. Он не запускает
-custom RIFF repair step. Если WAV write или readback fails, этот track
-помечается failed, а batch продолжается.
+Запись жанра в WAV использует поддержку `WAVE` в Mutagen, сохраняет значение
+`TCON` и проверяет, что сохранённое значение можно прочитать после записи. Она
+не выполняет пользовательский шаг восстановления RIFF. Если запись или обратное
+чтение WAV не удаётся, этот трек помечается как неуспешный, а пакет продолжается.
 
-Используйте tag writing только после проверки MAEST labels в приложении. Он
-предназначен для сохранения generated genre labels в стандартное поле genre; это
-не general metadata editor, и его не нужно использовать для изменения title,
-artist, album, BPM, key или custom tags.
-
+Используйте запись тегов только после проверки меток MAEST в приложении. Она
+предназначена для сохранения сгенерированных меток жанров в стандартное поле
+жанра; это не универсальный редактор метаданных, и его не следует использовать
+для изменения названия, исполнителя, альбома, BPM, тональности или
+пользовательских тегов.

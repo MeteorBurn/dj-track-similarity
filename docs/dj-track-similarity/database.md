@@ -11,7 +11,7 @@ The current schema version is `2`.
 The database is local user state. Normal scan, analysis, search, reset, clear,
 and relocation workflows modify SQLite records only; they do not rewrite audio
 files. The explicit exception is the separate MAEST genre tag write workflow,
-which is documented in [Search and Tag Writing](search-and-tags.md).
+which is documented in [Search & Tags](search-and-tags.md).
 
 ### `tracks`
 

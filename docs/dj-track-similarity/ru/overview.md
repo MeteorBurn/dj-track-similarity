@@ -122,6 +122,5 @@ DJ-библиотеки.
 
 Repair helper поддерживает более широкий diagnostic set, потому что проверяет
 несоответствия контейнера и codec для большего числа форматов. См.
-[скрипт восстановления аудиометаданных](scripts/repair-audio-metadata.md) для
+[Восстановление метаданных](scripts/repair-audio-metadata.md) для
 этого workflow.
-

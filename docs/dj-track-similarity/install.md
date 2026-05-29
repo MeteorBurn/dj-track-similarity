@@ -2,7 +2,7 @@
 
 This page covers how to install `dj-track-similarity` locally, including the
 optional dependency groups, the verified Windows CUDA stack, and the FFmpeg
-requirement. Read it before the first run, then use [CLI Reference](cli.md) to
+requirement. Read it before the first run, then use [CLI](cli.md) to
 scan a folder and start the server.
 
 ## Requirements
@@ -120,12 +120,12 @@ dj-sim doctor
 `dj-sim doctor` prints the detected Python and PyTorch versions, whether CUDA is
 available, and the device `auto` would choose. Use it whenever `auto`, `cpu`, or
 `cuda` behavior is unclear, or after changing Python packages, CUDA wheels,
-drivers, or the FFmpeg/TorchCodec setup. See [CLI Reference](cli.md) for the
+drivers, or the FFmpeg/TorchCodec setup. See [CLI](cli.md) for the
 full `doctor` output.
 
 ## Next Steps
 
 - Read the [Overview](overview.md) for the typical workflow.
-- Use [CLI Reference](cli.md) to scan a folder and start the server.
-- See [Analysis Models](models.md) for what each model does and which extras it
-  needs, and [Analysis Families](analysis.md) to decide which pass to run first.
+- Use [CLI](cli.md) to scan a folder and start the server.
+- See [Models](models.md) for what each model does and which extras it
+  needs, and [Analysis](analysis.md) to decide which pass to run first.

@@ -116,5 +116,4 @@ The main scanner currently indexes these extensions:
 
 The repair helper supports a broader diagnostic set because it checks container
 and codec mismatches for more formats. See
-[the audio metadata repair script](scripts/repair-audio-metadata.md) for that
-workflow.
+[Metadata Repair](scripts/repair-audio-metadata.md) for that workflow.

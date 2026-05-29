@@ -10,7 +10,7 @@ hero:
       text: Get Started
       link: /overview.html
     - theme: alt
-      text: CLI Reference
+      text: CLI
       link: /cli.html
     - theme: alt
       text: Install

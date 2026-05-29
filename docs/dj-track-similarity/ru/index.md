@@ -10,7 +10,7 @@ hero:
       text: Начать с обзора
       link: /ru/overview.html
     - theme: alt
-      text: Справочник CLI
+      text: CLI
       link: /ru/cli.html
 
 features:
@@ -21,4 +21,3 @@ features:
   - title: Служебные руководства
     details: Стабильные скрипты для восстановления метаданных, отчетов о дублях и оптимизации базы.
 ---
-

@@ -2,14 +2,14 @@
 
 This page describes the models behind each analysis family: what each model is,
 what it produces, and how the app uses and stores its output. Use it together
-with [Analysis Families](analysis.md), which focuses on *which* pass to run
-first, and [Search and Tag Writing](search-and-tags.md), which covers how the
+with [Analysis](analysis.md), which focuses on *which* pass to run
+first, and [Search & Tags](search-and-tags.md), which covers how the
 results are searched.
 
 All model analysis is database-first: it reads audio and writes results to
 SQLite only. It does not modify audio files. The one explicit audio-file write
 path is MAEST genre tag saving, documented in
-[Search and Tag Writing](search-and-tags.md).
+[Search & Tags](search-and-tags.md).
 
 ## Model Summary
 
@@ -22,13 +22,13 @@ path is MAEST genre tag saving, documented in
 
 Sonara features live in `metadata_json.sonara_features`. MERT, MAEST, and CLAP
 vectors live in the `embeddings` table under their embedding key. See
-[Database and Stored Data](database.md) for the full storage layout.
+[Database](database.md) for the full storage layout.
 
 Device selection for MAEST, MERT, and CLAP follows one rule: `auto` picks CUDA
 when PyTorch sees a GPU, otherwise CPU; explicit `cuda` errors if CUDA is
 unavailable. These three families also use inference batching through
 `--batch-size`. The `ml` and `sonara` install groups are described in
-[Installation](install.md).
+[Install](install.md).
 
 ## Sonara
 
@@ -54,7 +54,7 @@ How the app uses it:
 Sonara runs on CPU. Its `batch_size` means parallel track workers, not a neural
 inference batch. Run Sonara first if you are unsure where to start; it is the
 most transparent family because the UI can show and mix its feature groups
-directly. For the full key list, see [Analysis Families](analysis.md).
+directly. For the full key list, see [Analysis](analysis.md).
 
 ## MAEST
 
@@ -83,7 +83,7 @@ How the app uses it:
 
 MAEST analysis itself never modifies audio. Saving labels into standard genre
 tags is a separate, explicit action covered in
-[Search and Tag Writing](search-and-tags.md).
+[Search & Tags](search-and-tags.md).
 
 ## MERT
 
@@ -133,5 +133,5 @@ Promoted classifiers are not audio-analysis models; they are local profiles
 trained in Rhythm Lab that score tracks from already stored SONARA, MERT, and
 MAEST data. Because they read existing analysis instead of decoding audio, run
 Sonara, MERT, and MAEST first for the tracks you want to score. See
-[Analysis Families](analysis.md) for scoring details and
+[Analysis](analysis.md) for scoring details and
 [Rhythm Lab](rhythm-lab.md) for training and promotion.

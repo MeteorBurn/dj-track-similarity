@@ -45,6 +45,10 @@ for day-to-day DJ workflow guidance.
 
 Only stable user-facing maintenance helpers are documented here:
 
+- Other Python files under `scripts/` are one-off diagnostics, migrations, or
+  experiments. Treat their local `--help` output and focused tests as the
+  source of truth instead of adding them to the public maintenance guide.
+
 - [Metadata Repair](scripts/repair-audio-metadata.md):
   dry-run-first metadata/container diagnostics and repair.
 - [Dedup & Cleanup](scripts/audio-dedup.md): report-only

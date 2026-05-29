@@ -81,4 +81,5 @@ dj-sim --help
 dj-sim analyze --help
 python scripts\audio_repair\repair_audio_metadata.py --help
 python scripts\audio_dedup\audio_dedup.py --help
+python scripts\optimize_database.py --help
 ```

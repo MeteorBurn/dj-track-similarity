@@ -389,6 +389,104 @@ def test_main_writes_audio_repair_report_bundle(monkeypatch, tmp_path: Path, cap
     assert f"log={log_path}" in stdout
 
 
+def test_xlsx_report_escapes_xml_invalid_control_characters(tmp_path: Path) -> None:
+    repair = _load_repair_module()
+    xlsx_path = tmp_path / "report.xlsx"
+    payload = {
+        "mode": "dry-run",
+        "generated_at": "2026-05-29T12:00:00",
+        "source_counts": {"paths": 1, "folders": 0, "databases": 0, "logs": 0},
+        "options": {"keep_id3": "first", "workers": 1, "backup_dir": "", "no_backup": False},
+        "state": {"enabled": False, "path": None, "skipped_from_state": 0, "skipped_by_reason": 0},
+        "total_collected": 1,
+        "result_count": 1,
+        "missing_db_files": 0,
+        "status_counts": {"ok": 1},
+        "reason_counts": {},
+        "problem_summary": [],
+        "results": [
+            {
+                "action": "NO ACTION",
+                "status_label": "OK",
+                "reason": None,
+                "path": tmp_path / "track.wav",
+                "message": "ok",
+                "detail": "bad\x00priv\x01payload\x9a",
+                "original_size": 0,
+                "repaired_size": 0,
+                "size_delta": 0,
+                "id3_seen": 0,
+                "id3_removed": 0,
+                "primary_action": None,
+                "backup_path": None,
+                "mutagen_summary": "PRIV:TRAKTOR4:DMRT\x02\x00\x03",
+            }
+        ],
+    }
+
+    repair.write_xlsx_report(xlsx_path, payload)
+
+    import xml.etree.ElementTree as ET
+
+    with zipfile.ZipFile(xlsx_path) as archive:
+        for name in archive.namelist():
+            if name.endswith((".xml", ".rels")):
+                ET.fromstring(archive.read(name))
+        results_xml = archive.read("xl/worksheets/sheet2.xml").decode("utf-8")
+    assert "\\x00" in results_xml
+    assert "\\x01" in results_xml
+    assert "\\x02" in results_xml
+    assert "\\x9a" in results_xml
+
+
+def test_xlsx_report_truncates_text_to_excel_cell_limit(tmp_path: Path) -> None:
+    repair = _load_repair_module()
+    xlsx_path = tmp_path / "report.xlsx"
+    long_summary = "mutagen ok tags=yes keys=" + ("A" * 40000)
+    payload = {
+        "mode": "dry-run",
+        "generated_at": "2026-05-29T12:00:00",
+        "source_counts": {"paths": 1, "folders": 0, "databases": 0, "logs": 0},
+        "options": {"keep_id3": "first", "workers": 1, "backup_dir": "", "no_backup": False},
+        "state": {"enabled": False, "path": None, "skipped_from_state": 0, "skipped_by_reason": 0},
+        "total_collected": 1,
+        "result_count": 1,
+        "missing_db_files": 0,
+        "status_counts": {"ok": 1},
+        "reason_counts": {},
+        "problem_summary": [],
+        "results": [
+            {
+                "action": "NO ACTION",
+                "status_label": "OK",
+                "reason": None,
+                "path": tmp_path / "track.wav",
+                "message": "ok",
+                "detail": "ok",
+                "original_size": 0,
+                "repaired_size": 0,
+                "size_delta": 0,
+                "id3_seen": 0,
+                "id3_removed": 0,
+                "primary_action": None,
+                "backup_path": None,
+                "mutagen_summary": long_summary,
+            }
+        ],
+    }
+
+    repair.write_xlsx_report(xlsx_path, payload)
+
+    import xml.etree.ElementTree as ET
+
+    with zipfile.ZipFile(xlsx_path) as archive:
+        root = ET.fromstring(archive.read("xl/worksheets/sheet2.xml"))
+    namespace = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    values = ["".join(text.text or "" for text in cell.findall(".//m:t", namespace)) for cell in root.findall(".//m:c", namespace)]
+    assert max(len(value) for value in values) <= 32767
+    assert any("[truncated;" in value for value in values)
+
+
 def test_folder_state_skips_checked_files_and_processes_new_files(monkeypatch, tmp_path: Path, capsys) -> None:
     repair = _load_repair_module()
     folder = tmp_path / "library"

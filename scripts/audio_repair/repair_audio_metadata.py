@@ -128,6 +128,8 @@ STATUS_COLORS = {
     "failed": "31",
     "unsupported": "90",
 }
+EXCEL_CELL_TEXT_LIMIT = 32767
+MUTAGEN_KEY_TEXT_LIMIT = 160
 
 
 class RepairError(Exception):
@@ -857,8 +859,40 @@ def _xlsx_cell_xml(value: object, row_index: int, col_index: int, style_id: int)
         return f'<c r="{ref}" t="b"{style}><v>{1 if value else 0}</v></c>'
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return f'<c r="{ref}"{style}><v>{value}</v></c>'
-    text = escape(str(value))
+    text = escape(xml_safe_text(str(value), limit=EXCEL_CELL_TEXT_LIMIT))
     return f'<c r="{ref}" t="inlineStr"{style}><is><t>{text}</t></is></c>'
+
+
+def xml_safe_text(text: str, *, limit: int | None = None) -> str:
+    safe = "".join(char if is_xml_character(char) else escaped_codepoint(char) for char in text)
+    if limit is None or len(safe) <= limit:
+        return safe
+    suffix = f" ... [truncated; original {len(safe)} chars]"
+    if len(suffix) >= limit:
+        return suffix[:limit]
+    return safe[: limit - len(suffix)] + suffix
+
+
+def is_xml_character(char: str) -> bool:
+    codepoint = ord(char)
+    if codepoint in {0x9, 0xA, 0xD}:
+        return True
+    if codepoint < 0x20 or 0x7F <= codepoint <= 0x9F:
+        return False
+    return (
+        0x20 <= codepoint <= 0xD7FF
+        or 0xE000 <= codepoint <= 0xFFFD
+        or 0x10000 <= codepoint <= 0x10FFFF
+    )
+
+
+def escaped_codepoint(char: str) -> str:
+    codepoint = ord(char)
+    if codepoint <= 0xFF:
+        return f"\\x{codepoint:02x}"
+    if codepoint <= 0xFFFF:
+        return f"\\u{codepoint:04x}"
+    return f"\\U{codepoint:08x}"
 
 
 def _xlsx_style_id(value: object, row_index: int, sheet_name: str) -> int:
@@ -1962,7 +1996,7 @@ def mutagen_summary(data: bytes) -> str | None:
     length = getattr(getattr(audio, "info", None), "length", None)
     if audio.tags is None:
         return f"mutagen ok length={length:.3f} tags=no" if isinstance(length, float) else "mutagen ok tags=no"
-    keys = sorted(str(key) for key in audio.tags.keys())
+    keys = sorted(mutagen_key_label(key) for key in audio.tags.keys())
     return (
         f"mutagen ok length={length:.3f} tags=yes keys={','.join(keys[:8])}"
         if isinstance(length, float)
@@ -1982,12 +2016,16 @@ def mutagen_aiff_summary(data: bytes) -> str | None:
     length = getattr(getattr(audio, "info", None), "length", None)
     if audio.tags is None:
         return f"mutagen ok length={length:.3f} tags=no" if isinstance(length, float) else "mutagen ok tags=no"
-    keys = sorted(str(key) for key in audio.tags.keys())
+    keys = sorted(mutagen_key_label(key) for key in audio.tags.keys())
     return (
         f"mutagen ok length={length:.3f} tags=yes keys={','.join(keys[:8])}"
         if isinstance(length, float)
         else f"mutagen ok tags=yes keys={','.join(keys[:8])}"
     )
+
+
+def mutagen_key_label(key: object) -> str:
+    return xml_safe_text(str(key), limit=MUTAGEN_KEY_TEXT_LIMIT)
 
 
 def verify_repaired_file(path: Path) -> None:

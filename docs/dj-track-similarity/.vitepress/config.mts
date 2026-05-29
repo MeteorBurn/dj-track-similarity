@@ -18,21 +18,21 @@ const enSidebar = [
   {
     text: "Project",
     items: [
-      { text: "Documentation Home", link: "/" },
-      { text: "Project Guide", link: "/project-guide.html" },
+      { text: "Home", link: "/" },
+      { text: "Guide", link: "/project-guide.html" },
       { text: "Overview", link: "/overview.html" },
-      { text: "Architecture and Runtime", link: "/architecture.html" },
-      { text: "Database and Stored Data", link: "/database.html" },
-      { text: "Development and Verification", link: "/development.html" }
+      { text: "Architecture", link: "/architecture.html" },
+      { text: "Database", link: "/database.html" },
+      { text: "Development", link: "/development.html" }
     ]
   },
   {
-    text: "Using the App",
+    text: "Usage",
     items: [
-      { text: "Analysis Families", link: "/analysis.html" },
-      { text: "Search and Tag Writing", link: "/search-and-tags.html" },
-      { text: "CLI Reference", link: "/cli.html" },
-      { text: "Web API Reference", link: "/api.html" }
+      { text: "Analysis", link: "/analysis.html" },
+      { text: "Search & Tags", link: "/search-and-tags.html" },
+      { text: "CLI", link: "/cli.html" },
+      { text: "Web API", link: "/api.html" }
     ]
   },
   {
@@ -40,11 +40,11 @@ const enSidebar = [
     items: [{ text: "Rhythm Lab", link: "/rhythm-lab.html" }]
   },
   {
-    text: "Maintenance Scripts",
+    text: "Maintenance",
     items: [
-      { text: "Audio Metadata Repair", link: "/scripts/repair-audio-metadata.html" },
-      { text: "Audio Dedup Report", link: "/scripts/audio-dedup.html" },
-      { text: "Database Optimization", link: "/scripts/optimize-database.html" }
+      { text: "Metadata Repair", link: "/scripts/repair-audio-metadata.html" },
+      { text: "Dedup & Cleanup", link: "/scripts/audio-dedup.html" },
+      { text: "DB Optimization", link: "/scripts/optimize-database.html" }
     ]
   }
 ];

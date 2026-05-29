@@ -43,7 +43,8 @@ Only stable user-facing maintenance helpers are documented here:
 
 - [Audio Metadata Repair Script](scripts/repair-audio-metadata.md):
   dry-run-first metadata/container diagnostics and repair.
-- [Audio Dedup Report Script](scripts/audio-dedup.md): report-only
-  duplicate-audio candidate analysis.
+- [Audio Dedup Report and Cleanup Script](scripts/audio-dedup.md): report-only
+  duplicate-audio analysis by default, plus an explicit confirmed `--apply`
+  cleanup pass.
 - [Database Optimization Script](scripts/optimize-database.md):
   schema-validated SQLite backup, vacuum, analyze, and integrity check.

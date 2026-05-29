@@ -75,8 +75,33 @@ python scripts\audio_repair\repair_audio_metadata.py .\music\track.wav --summary
 Status meanings:
 
 - `OK`: no repair needed.
-- `NOTICE`: non-required cleanup.
-- `SUSPICIOUS`: format/container or codec mismatch.
+- `NOTICE`: cosmetic, non-required cleanup; not rewritten.
+- `REPAIRABLE`: a safe repair exists (dry-run only reports it).
+- `REPAIRED`: apply mode wrote a verified repair.
+- `SUSPICIOUS`: format/container or codec mismatch worth a closer look.
 - `TAG-ERROR`: tag-read failure without a safe repair path.
-- `REPAIRABLE`: safe repair logic exists.
-- `REPAIRED`: apply mode succeeded.
+- `BROKEN`: the file could not be parsed as the expected container.
+- `FAILED`: apply attempted a repair but it could not be written or verified.
+- `UNSUPPORTED`: extension outside the repairable WAV/AIFF set; inspected only.
+
+Reasons:
+
+In folder or database mode, each result also records an uppercase reason. Use it
+with `--reason` to re-run apply against only one class of fix, for example:
+
+- `OVERSIZED_DATA`: a WAV `data` chunk larger than the audio payload before ID3.
+- `DUPLICATE_ID3`: more than one top-level ID3 chunk in a WAV.
+- `EMPTY_ID3`: an empty AIFF `ID3 ` chunk that blocks Mutagen reads.
+- `CONTAINER_NORMALIZATION`: RIFF/FORM root-size or padding normalization.
+- `EXTENSION_MISMATCH`: container/codec does not match the file extension.
+
+`--reason` is only valid in folder or database mode (it requires the state
+file). Match the exact reason text shown in the report.
+
+Exit codes:
+
+- `0`: completed with no `FAILED` results.
+- `1`: at least one file ended in the `FAILED` status.
+- `2`: a usage error, such as `--file-root` without `--db-root`, `--reason`
+  outside state mode, `--backup-dir` together with `--no-backup`, or no input
+  paths found.

@@ -12,14 +12,16 @@ Install the project first so `dj-sim` is available:
 python -m pip install -e ".[dev]"
 ```
 
-Use `--db` on commands that should target a specific SQLite database. Without
-`--db`, CLI commands use:
+Each database-aware command declares its own `--db` option; there is no global
+`--db`. Use `--db` to target a specific SQLite database. When `--db` is omitted,
+those commands default to:
 
 ```text
 dj-track-similarity.sqlite
 ```
 
-in the current working directory.
+in the current working directory. The `doctor` command does not touch any
+database and therefore accepts no `--db`.
 
 ## Choosing a Command
 
@@ -41,13 +43,19 @@ in the current working directory.
 dj-sim [OPTIONS] COMMAND [ARGS]...
 ```
 
-Global options:
+App-level options (Typer built-ins, not a shared `--db`):
 
 | Option | Meaning |
 | --- | --- |
 | `--install-completion` | Install shell completion for the current shell. |
 | `--show-completion` | Print shell completion code. |
 | `--help` | Show help. |
+
+> Note: `--db` is not an app-level option. It is repeated on each command that
+> reads or writes a database. The three job-based analysis commands (`analyze`,
+> `analyze-sonara`, `analyze-genres`) render a live progress bar; `scan`,
+> `relocate-library`, `analyze-classifier`, `text-search`, `doctor`, and `serve`
+> print plain output only.
 
 Commands:
 
@@ -298,6 +306,8 @@ classifier=live_instrumentation scored=<n> skipped=<n> model=<path>
 
 The command reads existing SONARA, MERT, and MAEST data. Tracks missing any
 required input are skipped. Scores are upserted into `track_classifier_scores`.
+Unlike the three `analyze*` job commands, classifier scoring runs synchronously
+and prints a single summary line instead of a live progress bar.
 
 Use this after promoting a model from Rhythm Lab. If many tracks are skipped,
 run Sonara, MERT, and MAEST analysis for those tracks first.
@@ -405,6 +415,9 @@ Usage:
 ```text
 dj-sim doctor [OPTIONS]
 ```
+
+`doctor` is read-only environment diagnostics. It does not open a database and
+accepts no `--db`.
 
 Output can include:
 

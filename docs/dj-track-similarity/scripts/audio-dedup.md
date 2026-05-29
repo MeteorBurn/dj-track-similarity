@@ -1,4 +1,4 @@
-# Audio Dedup Report Script
+# Audio Dedup Report and Cleanup Script
 
 Run this script with the project Python environment when possible:
 
@@ -6,14 +6,17 @@ Run this script with the project Python environment when possible:
 .\.venv\Scripts\python.exe scripts\audio_dedup\audio_dedup.py --help
 ```
 
-Duplicate-audio candidate helper. By default it is report-only: it reads an
+Duplicate-audio helper with two modes. By default it is report-only: it reads an
 existing `dj-track-similarity` SQLite database, compares tracks inside a
 selected stored path root, and writes JSON, styled XLSX, and text-log reports.
+With `--apply` it adds a confirmed cleanup pass that deletes safe duplicate
+files and their database rows after the reports are written.
 
-Use this script when you want evidence for possible duplicate audio before
-cleaning a library manually. It is intentionally conservative: it produces
-reports first. Destructive cleanup is available only with `--apply` and an
-interactive confirmation prompt.
+Use the default report mode when you want evidence for possible duplicate audio
+before cleaning a library. It is intentionally conservative: it always produces
+the reports first. The destructive cleanup runs only with `--apply` and an
+interactive confirmation prompt, and it deletes only candidates the report
+marks as safe.
 
 Usage:
 
@@ -37,6 +40,35 @@ Options:
   Tracks are removed from SQLite only after their audio files are successfully
   deleted.
 
+## Presets
+
+Each preset sets a default duplicate-score threshold and how strict the
+duration match must be. `--min-score` overrides only the score threshold; the
+other preset parameters stay as listed.
+
+| Preset | Min score | Duration tolerance | Use when |
+| --- | --- | --- | --- |
+| `safe` | `0.965` | ~2 s / 1% ratio | Conservative maintenance with the fewest false positives. |
+| `balanced` | `0.925` | ~5 s / 2.5% ratio | A wider net when you are comfortable reviewing more candidates. |
+| `aggressive` | `0.875` | ~15 s / 8% ratio | Broadest matching; expect more manual review. |
+
+## Scoring
+
+The pair score blends available signals into a single value in `0..1`,
+normalized by the weight of the signals that exist for both tracks:
+
+| Signal | Weight |
+| --- | --- |
+| MERT embedding similarity | `0.43` |
+| MAEST embedding similarity | `0.32` |
+| SONARA feature similarity | `0.14` |
+| CLAP embedding similarity | `0.04` |
+| Duration closeness | `0.05` |
+
+Each group is labelled with a confidence tier of `high`, `medium`, or `review`
+based on its score and any blocking reasons. Tagged BPM/key values are shown as
+track metadata only and are never used for duplicate scoring.
+
 Examples:
 
 ```powershell
@@ -50,9 +82,10 @@ The default report directory is ignored by git.
 
 The workbook is the main human review artifact. It includes:
 
-- `Summary`: database path, selected root, total track count in the database,
-  track count inside the selected root/filter scope, and high-level duplicate
-  statistics.
+- `Summary`: database path, selected root, preset, score threshold, total track
+  count in the database, track count inside the selected root/filter scope,
+  duplicate-group and candidate counts, a confidence breakdown
+  (`high`/`medium`/`review`), and MERT/MAEST/CLAP embedding coverage counts.
 - `Groups`: one row per duplicate group, with the suggested `KEEP` track and
   the reasons it outranks the other files.
 - `Candidates`: one row per duplicate candidate, with `DELETE CANDIDATE` or
@@ -76,9 +109,14 @@ Apply mode:
 5. It removes SQLite rows only for tracks whose files were successfully
    deleted. Related rows in tables with a `track_id` column are removed before
    the `tracks` row.
+6. It rewrites the JSON and log reports with `mode` set to `apply` and an
+   `apply_result` block listing deleted track IDs, deleted paths, and any
+   skipped or failed deletions.
 
-Do not use `--apply` until you have reviewed the generated workbook. Automated
-tests and routine verification should not invoke the script with `--apply`.
+If you decline the confirmation, the reports stay on disk and nothing is
+deleted. Do not use `--apply` until you have reviewed the generated workbook.
+Automated tests and routine verification should not invoke the script with
+`--apply`.
 
 Start with the `safe` preset for normal library maintenance. Use `balanced` or
 `aggressive` only when you are comfortable reviewing more false positives.

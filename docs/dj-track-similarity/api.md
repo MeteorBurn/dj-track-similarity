@@ -14,6 +14,23 @@ reset, clear, or relocate work against the selected SQLite database and local
 filesystem paths. Audio-file writes happen only through the explicit MAEST
 genre tag endpoints.
 
+### Conventions
+
+These shared conventions apply across the API:
+
+| Convention | Meaning |
+| --- | --- |
+| `400` `DatabaseNotSelected` | A database-aware endpoint was called before a database was selected. Select one with `/api/database/switch` first. |
+| `409` `DatabaseBusy` | A database switch was attempted while a job was `queued` or `running`. Wait for or cancel the job, then retry. |
+| `404` | Unknown track, job, or media id. |
+| Job `state` | One of `queued`, `running`, `completed`, `cancelled`, or `failed`. |
+| `latest` job endpoints | Return `null` when no job of that family has run yet. |
+
+Long-running work (scan, tag refresh, embedding/Sonara/MAEST analysis,
+classifier scoring, genre tag jobs) is started by a `POST` that returns an
+initial job-status object. The frontend then polls the matching `jobs/latest`
+or `jobs/{job_id}` endpoint and can request cooperative cancellation.
+
 ### Database
 
 | Method | Path | Purpose |
@@ -47,6 +64,13 @@ classifier scores.
 
 Use `/api/tracks` for paged browsing and `/api/tracks/{track_id}` only when a
 full metadata dialog needs one track. This keeps large libraries responsive.
+
+`/api/library/relocate` is a preview-first endpoint: it returns the relocation
+plan by default and only updates stored `tracks.path` values when `apply` is
+`true`. It has no button in the current web UI and no method in
+`frontend/src/api.ts`; drive relocation from the `dj-sim relocate-library` CLI
+command or a direct API call. Apply is rejected when there are conflicts or
+missing target files.
 
 ### Jobs
 
@@ -82,7 +106,9 @@ it stops.
 | `POST` | `/api/analyze` | Start MERT or CLAP embedding analysis. |
 | `POST` | `/api/sonara/analyze` | Start Sonara feature analysis. |
 | `POST` | `/api/genres/analyze` | Start MAEST genre analysis. |
+| `GET` | `/api/classifiers` | List promoted classifiers from `models/classifiers/*/model.json`. |
 | `POST` | `/api/classifiers/{classifier_key}/analyze` | Start classifier scoring. |
+| `POST` | `/api/classifiers/reset` | Delete stored scores for the given classifier keys. |
 | `POST` | `/api/analysis/reset` | Reset one analysis family. |
 | `POST` | `/api/search` | Search in MERT embedding space. |
 | `POST` | `/api/search/sonara` | Search with Sonara features. |
@@ -92,20 +118,39 @@ Use the analysis endpoints before search endpoints when a library has not been
 processed yet. Empty search results often mean the required Sonara features,
 MERT embeddings, or CLAP embeddings are missing for the candidate tracks.
 
+`GET /api/classifiers` needs no database; it discovers promoted profiles on
+disk. `/api/classifiers/reset` accepts a list of classifier keys and deletes
+their `track_classifier_scores` rows (an empty list deletes nothing).
+
+Reset scope by family:
+
+| Reset | Removes |
+| --- | --- |
+| `/api/analysis/reset` `sonara` | `sonara_*` metadata keys; recomputes stored BPM/key/energy/duration from remaining metadata. |
+| `/api/analysis/reset` `maest` | `maest_*` metadata keys plus `maest` embeddings. |
+| `/api/analysis/reset` `mert` / `clap` | Embeddings of that key. |
+| `/api/classifiers/reset` | `track_classifier_scores` rows for the listed classifier keys. |
+
 ### Export, Tags, Dialogs, Media
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `POST` | `/api/export` | Export selected tracks as M3U or CSV. |
-| `POST` | `/api/tags/genres/apply` | Apply MAEST genres immediately. |
-| `POST` | `/api/tags/genres/jobs` | Start cancellable MAEST genre tag write job. |
+| `POST` | `/api/tags/genres/apply` | Write MAEST genres synchronously to every track that has MAEST genres. |
+| `POST` | `/api/tags/genres/jobs` | Start a cancellable background MAEST genre tag write job. |
 | `POST` | `/api/dialog/folder` | Open a folder chooser dialog. |
 | `GET` | `/media/{track_id}` | Serve browser-playable audio for one track. |
+
+Both genre tag endpoints apply to all tracks that have stored MAEST genres.
+They do not accept a track subset: a request body with `track_ids` is rejected
+with HTTP `400`. They are the explicit audio-file write path and overwrite only
+the standard genre field.
 
 The frontend preview player uses `/media/{track_id}` and starts playback after a
 preview button click. AIFF/AIF responses are transcoded to temporary WAV files
 for browser compatibility and scrubbing support without rewriting source audio.
 
-Use `/api/export` for playlist/report files. Use `/api/tags/genres/jobs` for
-large genre writes so progress and cancellation are available; reserve
-`/api/tags/genres/apply` for immediate smaller writes.
+Use `/api/export` for playlist/report files. Prefer `/api/tags/genres/jobs` for
+genre writes so progress and cancellation are available; the synchronous
+`/api/tags/genres/apply` returns one result row per track but blocks until the
+whole batch finishes.

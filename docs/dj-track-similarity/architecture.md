@@ -22,6 +22,9 @@ The backend package lives in `src/dj_track_similarity/`.
 - `genres.py` contains the MAEST genre adapter.
 - `classifier_scoring.py` loads promoted classifier artifacts and scores
   feature-complete tracks.
+- `tags.py` writes MAEST labels into the standard genre field and runs the
+  cancellable genre-tag job; `wave_tags.py` provides the guarded WAV/ID3
+  genre-write path.
 - `search.py` performs embedding-space similarity search.
 - `exporter.py` writes M3U and CSV outputs.
 - `runtime.py` selects `auto`, `cpu`, or `cuda` for PyTorch work.

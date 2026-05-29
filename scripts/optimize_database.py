@@ -11,6 +11,7 @@ EXPECTED_USER_TABLES = {
     "embeddings",
     "library_settings",
     "track_classifier_scores",
+    "track_likes",
     "tracks",
 }
 
@@ -55,6 +56,10 @@ EXPECTED_COLUMNS = {
         ("model_id", "TEXT", 1, None, 0),
         ("analyzed_at", "TEXT", 1, "CURRENT_TIMESTAMP", 0),
     ),
+    "track_likes": (
+        ("track_id", "INTEGER", 0, None, 1),
+        ("liked_at", "TEXT", 1, "CURRENT_TIMESTAMP", 0),
+    ),
 }
 
 EXPECTED_INDEXES = {
@@ -76,6 +81,7 @@ EXPECTED_TRIGGERS = {
 EXPECTED_FOREIGN_KEYS = {
     "embeddings": (("tracks", "track_id", "id", "CASCADE"),),
     "track_classifier_scores": (("tracks", "track_id", "id", "CASCADE"),),
+    "track_likes": (("tracks", "track_id", "id", "CASCADE"),),
 }
 
 

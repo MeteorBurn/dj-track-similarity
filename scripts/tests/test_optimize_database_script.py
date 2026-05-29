@@ -42,6 +42,7 @@ def test_optimize_database_script_optimizes_current_schema_without_project_impor
     summary = module.optimize_database(db_path)
 
     assert summary.backup_path.exists()
+    assert summary.database_kind == "library"
     assert summary.integrity_before == "ok"
     assert summary.integrity_after == "ok"
     with sqlite3.connect(db_path) as connection:
@@ -55,7 +56,7 @@ def test_optimize_database_script_optimizes_current_schema_without_project_impor
         embedding_keys = [row[0] for row in connection.execute("SELECT embedding_key FROM embeddings ORDER BY embedding_key")]
         integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
 
-    assert version == module.CURRENT_SCHEMA_VERSION
+    assert version == 2
     assert "library_settings" in tables
     assert "track_classifier_scores" in tables
     assert embedding_keys == ["mert"]
@@ -72,7 +73,57 @@ def test_optimize_database_script_optimizes_current_schema_without_project_impor
     assert integrity == "ok"
 
 
-def test_optimize_database_script_rejects_non_current_schema_without_migrating(tmp_path: Path) -> None:
+def test_optimize_database_script_optimizes_rhythm_lab_database(tmp_path: Path) -> None:
+    module = _load_script()
+    db_path = tmp_path / "rhythm_lab.sqlite"
+    with sqlite3.connect(db_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE classifier_profiles (
+                classifier_key TEXT PRIMARY KEY,
+                name TEXT NOT NULL
+            );
+            CREATE TABLE classifier_labels (
+                classifier_key TEXT NOT NULL,
+                source_track_id INTEGER NOT NULL,
+                label TEXT NOT NULL,
+                PRIMARY KEY(classifier_key, source_track_id)
+            );
+            CREATE TABLE classifier_predictions (
+                classifier_key TEXT NOT NULL,
+                source_track_id INTEGER NOT NULL,
+                feature_set TEXT NOT NULL,
+                model_artifact TEXT NOT NULL,
+                label TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                probabilities_json TEXT NOT NULL,
+                PRIMARY KEY(classifier_key, source_track_id, feature_set, model_artifact)
+            );
+            CREATE TABLE classifier_training_checkpoints (
+                classifier_key TEXT PRIMARY KEY,
+                counts_json TEXT NOT NULL
+            );
+            INSERT INTO classifier_profiles(classifier_key, name) VALUES ('break_energy', 'Break Energy');
+            INSERT INTO classifier_labels(classifier_key, source_track_id, label)
+            VALUES ('break_energy', 1, 'broken');
+            """
+        )
+
+    summary = module.optimize_database(db_path)
+
+    assert summary.database_kind == "rhythm_lab"
+    assert summary.backup_path.exists()
+    assert summary.integrity_before == "ok"
+    assert summary.integrity_after == "ok"
+    with sqlite3.connect(db_path) as connection:
+        labels = connection.execute("SELECT label FROM classifier_labels").fetchall()
+        integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
+
+    assert labels == [("broken",)]
+    assert integrity == "ok"
+
+
+def test_optimize_database_script_optimizes_supported_library_schema_without_migrating(tmp_path: Path) -> None:
     module = _load_script()
     db_path = tmp_path / "library.sqlite"
     with sqlite3.connect(db_path) as connection:
@@ -109,10 +160,10 @@ def test_optimize_database_script_rejects_non_current_schema_without_migrating(t
             """
         )
 
-    with pytest.raises(RuntimeError, match="schema is not current"):
-        module.optimize_database(db_path)
+    summary = module.optimize_database(db_path)
 
-    assert not list(tmp_path.glob("library.sqlite.bak-*"))
+    assert summary.database_kind == "library"
+    assert summary.backup_path.exists()
     with sqlite3.connect(db_path) as connection:
         tables = {
             row[0]
@@ -124,3 +175,15 @@ def test_optimize_database_script_rejects_non_current_schema_without_migrating(t
 
     assert tables == {"tracks", "embeddings"}
     assert version == 0
+
+
+def test_optimize_database_script_rejects_unknown_sqlite_database(tmp_path: Path) -> None:
+    module = _load_script()
+    db_path = tmp_path / "other.sqlite"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("CREATE TABLE unrelated(id INTEGER PRIMARY KEY)")
+
+    with pytest.raises(RuntimeError, match="Unsupported SQLite database"):
+        module.optimize_database(db_path)
+
+    assert not list(tmp_path.glob("other.sqlite.bak-*"))

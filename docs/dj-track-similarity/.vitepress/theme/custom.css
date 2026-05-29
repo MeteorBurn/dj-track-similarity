@@ -163,6 +163,13 @@ body {
   transition: color var(--dts-transition);
 }
 
+.VPSidebarItem.level-0 > .item > .text {
+  font-size: 15px;
+  font-weight: 750;
+  line-height: 24px;
+  padding: 5px 0;
+}
+
 .VPSidebarItem.is-active > .item > .link .text {
   color: var(--vp-c-brand-1);
   font-weight: 600;

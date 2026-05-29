@@ -249,7 +249,7 @@ def resolve_preset(name: str, *, min_score: float | None) -> PresetConfig:
             min_score=0.95,
             duration_seconds=5.0,
             duration_ratio=0.025,
-            direct_keeper_score=0.98,
+            direct_keeper_score=0.97,
             strict_duration_ratio=0.025,
         ),
         "aggressive": PresetConfig(
@@ -257,7 +257,7 @@ def resolve_preset(name: str, *, min_score: float | None) -> PresetConfig:
             min_score=0.925,
             duration_seconds=15.0,
             duration_ratio=0.08,
-            direct_keeper_score=0.99,
+            direct_keeper_score=0.965,
             strict_duration_ratio=0.08,
         ),
     }

@@ -178,7 +178,7 @@ def test_min_score_overrides_preset_threshold() -> None:
     assert config.direct_keeper_score == 0.98
 
 
-def test_presets_use_stricter_safe_delete_thresholds() -> None:
+def test_presets_use_graduated_safe_delete_thresholds() -> None:
     dedup = _load_dedup_module()
 
     safe = dedup.resolve_preset("safe", min_score=None)
@@ -188,9 +188,9 @@ def test_presets_use_stricter_safe_delete_thresholds() -> None:
     assert safe.min_score == 0.965
     assert safe.direct_keeper_score == 0.98
     assert balanced.min_score == 0.95
-    assert balanced.direct_keeper_score == 0.98
+    assert balanced.direct_keeper_score == 0.97
     assert aggressive.min_score == 0.925
-    assert aggressive.direct_keeper_score == 0.99
+    assert aggressive.direct_keeper_score == 0.965
 
 
 def test_report_only_main_does_not_delete_files_or_mutate_database(tmp_path: Path) -> None:

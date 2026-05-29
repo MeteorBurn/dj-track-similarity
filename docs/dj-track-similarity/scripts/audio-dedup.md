@@ -101,10 +101,7 @@ The workbook is the main human review artifact. It includes:
   the reasons it outranks the other files.
 - `Candidates`: one row per duplicate candidate, with `DELETE CANDIDATE` or
   `REVIEW MANUALLY`, the keeper path, direct score, similarity evidence, and
-  review blockers. Candidate and keeper file details keep `duration`,
-  human-readable `duration_text`, decimal `file_size_mb`, and `audio_codec`
-  next to each other; byte-level `content_length` remains in JSON but is not
-  shown in the workbook.
+  review blockers.
 - `Pair Evidence`: the detailed pairwise MERT, MAEST, SONARA, CLAP, and
   duration evidence used by the grouping step. Tagged BPM/key values are shown
   only as track metadata and are not used for duplicate scoring; SONARA BPM

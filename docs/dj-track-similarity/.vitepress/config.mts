@@ -95,6 +95,7 @@ export default defineConfig({
   description: "Local DJ music-library analysis and track similarity documentation.",
   lang: "en-US",
   base: "/docs/",
+  head: [["link", { rel: "icon", type: "image/svg+xml", href: "/docs/favicon.svg" }]],
   outDir: "site",
   cleanUrls: false,
   appearance: true,

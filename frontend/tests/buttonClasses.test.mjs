@@ -273,7 +273,7 @@ test("library controls share button height and text-only counters", () => {
   assert.match(pageRule, /height:\s*34px/);
   assert.match(rangeRule, /margin-left:\s*auto/);
   assert.match(rangeRule, /height:\s*34px/);
-  assert.match(rangeRule, /color:\s*#4c5747/);
+  assert.match(rangeRule, /color:\s*var\(--text-track\)/);
   assert.doesNotMatch(pageRule, /min-width:\s*52px/);
   assert.doesNotMatch(rangeRule, /border:/);
   assert.doesNotMatch(rangeRule, /font-weight:/);

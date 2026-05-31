@@ -1,6 +1,6 @@
 import type { MouseEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ScrollText, X } from "lucide-react";
+import { Moon, ScrollText, Sun, X } from "lucide-react";
 import { AnalysisJobStatus, AnalysisModel, api, GenreTagJobStatus, LibrarySummary, PromotedClassifier, ScanStats, SearchResult, Track } from "./api";
 import type { ConfirmationRequest } from "./confirmation";
 import { exportDirectoryError } from "./exportView";
@@ -20,6 +20,7 @@ import { SearchPlaylistPanel } from "./SearchPlaylistPanel";
 import { TrackMetadataDialog } from "./TrackMetadataDialog";
 import { TrackPanel } from "./TrackPanel";
 import { displayTrack } from "./trackDisplay";
+import { applyTheme, resolveInitialTheme, themeStorageKey, type ThemeMode } from "./theme";
 import { placeTooltip, RectLike, TooltipPosition } from "./tooltip";
 
 type Notice = { kind: "ok" | "error" | "idle"; text: string };
@@ -116,6 +117,7 @@ export function App() {
   const [selectedAnalysisModels, setSelectedAnalysisModels] = useState<AnalysisModel[]>(analysisModelOrder);
   const [notice, setNotice] = useState<Notice>(defaultNotice);
   const [logFrameOpen, setLogFrameOpen] = useState(false);
+  const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme());
   const [confirmation, setConfirmation] = useState<ConfirmationRequest | null>(null);
   const [activityLog, setActivityLog] = useState<ActivityEvent[]>([
     { id: 1, time: Date.now(), level: "info", message: "Интерфейс загружен" }
@@ -169,6 +171,15 @@ export function App() {
   useEffect(() => {
     void initializeDatabase();
   }, []);
+
+  useEffect(() => {
+    applyTheme(theme);
+    try {
+      localStorage.setItem(themeStorageKey, theme);
+    } catch {
+      // Theme persistence is optional; keep the UI usable if storage is blocked.
+    }
+  }, [theme]);
 
   useEffect(() => {
     if (!databasePath) return;
@@ -872,6 +883,10 @@ export function App() {
     setAnalysisInferenceBatchSize((current) => Math.min(maxAnalysisInferenceBatchSize, Math.max(1, current + delta)));
   }
 
+  function toggleTheme() {
+    setTheme((current) => current === "dark" ? "light" : "dark");
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -891,6 +906,16 @@ export function App() {
           </div>
         </div>
         <div className="topbar-actions">
+          <button
+            className="icon-button theme-toggle-button"
+            title="Переключить тему"
+            aria-label="Переключить тему"
+            aria-pressed={theme === "dark"}
+            onClick={toggleTheme}
+            type="button"
+          >
+            {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
           <button
             className={`icon-button log-frame-button ${logFrameOpen ? "active" : ""} ${logHasErrors ? "has-errors" : ""}`}
             title="Открыть лог"

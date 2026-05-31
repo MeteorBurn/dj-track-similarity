@@ -125,8 +125,10 @@ Environment variables:
 The server also exposes `--log-level` and `--log-track-events`.
 
 The web UI keeps the top notice area for the latest short status message. A
-log button beside it opens a larger in-app log frame with the current process
-status and recent UI, scan, analysis, and genre-writing events.
+theme toggle beside it switches between light and dark UI palettes and stores
+the preference in browser storage. The log button next to the theme toggle opens
+a larger in-app log frame with the current process status and recent UI, scan,
+analysis, and genre-writing events.
 
 CLI analysis commands print a live one-line progress display while they run.
 The line is redrawn in place and includes a progress bar, percentage,

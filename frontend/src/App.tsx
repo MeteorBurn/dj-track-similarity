@@ -1,10 +1,12 @@
 import type { MouseEvent } from "react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Moon, ScrollText, Sun, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Moon, ScrollText, Sun } from "lucide-react";
 import { AnalysisJobStatus, AnalysisModel, api, GenreTagJobStatus, LibrarySummary, PromotedClassifier, ScanStats, SearchResult, Track } from "./api";
 import type { ConfirmationRequest } from "./confirmation";
+import { ConfirmationDialog, LogFrameDialog } from "./dialogs";
 import { exportDirectoryError } from "./exportView";
-import { ActivityEvent, analysisJobRequest, cancelAnalysisJob, scanSummary, UnifiedLog } from "./jobUi";
+import { helpText } from "./helpText";
+import { ActivityEvent, analysisJobRequest, cancelAnalysisJob, scanSummary } from "./jobUi";
 import { LibraryPanel } from "./LibraryPanel";
 import {
   appendVisibleTracksToPlaylist,
@@ -21,7 +23,7 @@ import { TrackMetadataDialog } from "./TrackMetadataDialog";
 import { TrackPanel } from "./TrackPanel";
 import { displayTrack } from "./trackDisplay";
 import { applyTheme, resolveInitialTheme, themeStorageKey, type ThemeMode } from "./theme";
-import { placeTooltip, RectLike, TooltipPosition } from "./tooltip";
+import { TooltipLayer, useGlobalTooltip } from "./tooltipLayer";
 
 type Notice = { kind: "ok" | "error" | "idle"; text: string };
 type DeviceMode = "auto" | "cpu" | "cuda";
@@ -30,42 +32,6 @@ type ResetAdapter = AnalysisModel;
 const defaultNotice: Notice = { kind: "idle", text: "Готово к работе" };
 const emptySummary: LibrarySummary = { tracks: 0, sonara: 0, maest: 0, mert: 0, clap: 0, liked: 0, classifiers: 0 };
 const analysisModelOrder: AnalysisModel[] = ["sonara", "maest", "mert", "clap"];
-
-const helpText = {
-  databasePath: "SQLite база проекта. Формат: путь к .sqlite файлу. Выбери существующую базу или укажи новый .sqlite файл для создания.",
-  musicRoot: "Папка с музыкой. Формат: путь Windows или POSIX, например D:/Music. Тип: строка. Папка должна существовать.",
-  analyzeLimit: "Сколько треков анализировать. Тип: целое число 0-100000. 0 = вся библиотека.",
-  scanWorkers: "Параллельное чтение метаданных при сканировании. Тип: целое число. Диапазон зависит от CPU, обычно 1-8.",
-  refreshTags: "Перечитать только file tags через Mutagen для уже найденных треков. Пути, Sonara, MAEST, MERT и CLAP не трогаются.",
-  clearDatabase: "Удалить все записи из SQLite: треки, эмбеддинги и анализы. Текущий сет в интерфейсе будет очищен. Аудиофайлы на диске не трогаются.",
-  analysisDevice: "Устройство для MAEST/MERT/CLAP. Значения: AUTO, CPU, CUDA. AUTO выберет CUDA, если PyTorch видит GPU, иначе CPU.",
-  sonaraAnalyze: "SONARA считает BPM, key и музыкальные признаки. Нужна для базового описания трека и будущих DJ-фильтров. Параллельность ограничена Track batch size.",
-  maestAnalyze: "MAEST определяет жанровые метки. Нужна для жанровой навигации и проверки характера библиотеки. Окна модели ограничены Inference batch size.",
-  writeMaestGenres: "Перезаписать стандартный Genre/TCON/©gen в аудиофайлах жанрами MAEST. Плееры вроде AIMP будут видеть эти жанры.",
-  mertAnalyze: "MERT строит аудио-эмбеддинги. Нужна для поиска похожих треков от выбранных seed-треков.",
-  clapAnalyze: "CLAP строит music-focused аудио-эмбеддинги для поиска по текстовому описанию звучания.",
-  analysisTrackBatchSize: "Сколько треков декодировать и держать в памяти за один job batch. Тип: целое число 1-64. Для этой машины дефолт 6.",
-  analysisInferenceBatchSize: "Сколько окон/семплов MAEST, MERT и CLAP прогоняют за один model forward pass. Тип: целое число 1-128. Для RTX 3090 дефолт 24.",
-  librarySearch: "Фильтр библиотеки. Формат: текст. Ищет по artist, title, album, path, MAEST genres и syncopated rhythm.",
-  similarity: "Минимальный similarity. Тип: число с точкой, диапазон 0.00-1.00.",
-  sonaraMixerTimbre: "Вес тембра и спектральной фактуры: MFCC, centroid, bandwidth, rolloff, flatness, contrast. Повышай для похожего материала звука.",
-  sonaraMixerRhythm: "Вес ритмической текстуры: onset density, zero crossing, danceability, chord movement. Повышай для кликов, ломанности и микро-грува.",
-  sonaraMixerDynamics: "Вес динамики: energy, RMS, LUFS, dynamic range. Повышай для похожего давления, дыхания и громкости.",
-  sonaraMixerHarmonic: "Вес гармонического цвета: chroma, dissonance, chord change, key confidence. Повышай для похожего аккордового ощущения.",
-  sonaraMixerTempo: "Вес BPM compatibility с half/double-tempo логикой. Повышай для более удобных DJ-переходов, снижай для свободного поиска.",
-  sonaraModifierEnergy: "Направление energy относительно seed/lookback: ниже = спокойнее, выше = активнее. 0 не тянет выдачу.",
-  sonaraModifierValence: "Направление valence относительно seed/lookback: ниже = темнее/меланхоличнее, выше = светлее. Это не preset, а числовой bias.",
-  sonaraModifierAcousticness: "Направление acousticness: ниже = электроннее, выше = органичнее/живее по Sonara.",
-  sonaraModifierBrightness: "Направление spectral centroid: ниже = мягче/темнее по спектру, выше = ярче.",
-  sonaraModifierRhythmDensity: "Направление onset density: ниже = меньше событий, выше = плотнее клики/перкуссия.",
-  sonaraModifierDynamicRange: "Направление dynamic range: ниже = ровнее/плотнее, выше = больше дыхания и перепадов.",
-  sonaraModifierLoudness: "Направление LUFS: ниже = тише/дальше, выше = громче/ближе.",
-  textPrompt: "CLAP search. Лучше писать на английском одно связное описание звучания: genre/scene, rhythm/drums, bass, texture, instruments, mood/space, vocals/no vocals. Не полагайся только на абстрактное настроение без слышимых признаков.",
-  lookback: "Сколько последних треков сета добавить в контекст поиска. Тип: целое число 0-12.",
-  limit: "Максимум результатов поиска. Тип: целое число 1-500.",
-  playlistName: "Название текущего сета. Формат: текст. Используется как имя файла экспорта.",
-  outputDir: "Папка экспорта. Формат: путь Windows или POSIX, например D:/Exports. Если папки нет, она будет создана.",
-} as const;
 
 function optimalWorkerLimit() {
   const cores = typeof navigator === "undefined" ? 4 : navigator.hardwareConcurrency || 4;
@@ -1075,176 +1041,6 @@ export function App() {
       <TooltipLayer tooltip={tooltip} />
     </main>
   );
-}
-
-function LogFrameDialog({
-  processLogKind,
-  scanJob,
-  analysisJob,
-  genreTagJob,
-  activityLog,
-  onClose
-}: {
-  processLogKind: "scan" | "analysis" | "genre_tags";
-  scanJob: ScanStats | null;
-  analysisJob: AnalysisJobStatus | null;
-  genreTagJob: GenreTagJobStatus | null;
-  activityLog: ActivityEvent[];
-  onClose: () => void;
-}) {
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
-
-  return (
-    <div className="log-frame-backdrop" onClick={onClose}>
-      <section className="log-frame-dialog" role="dialog" aria-modal="true" aria-labelledby="log-frame-title" onClick={(event) => event.stopPropagation()}>
-        <div className="dialog-title log-frame-title">
-          <div>
-            <h2 id="log-frame-title">Лог</h2>
-            <span>События интерфейса, сканирования, анализа и записи жанров</span>
-          </div>
-          <button className="icon-button close-log-frame-button" title="Закрыть лог" aria-label="Закрыть лог" onClick={onClose} type="button">
-            <X size={16} />
-          </button>
-        </div>
-        <div className="log-frame-content">
-          <UnifiedLog
-            processKind={processLogKind}
-            scanJob={scanJob}
-            analysisJob={analysisJob}
-            genreTagJob={genreTagJob}
-            events={activityLog}
-            className="log-frame-panel"
-          />
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function ConfirmationDialog({
-  request,
-  onConfirm,
-  onCancel
-}: {
-  request: ConfirmationRequest;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <div className="confirmation-backdrop" role="presentation">
-      <div className="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="confirmation-title">
-        <h2 id="confirmation-title">{request.title}</h2>
-        <p>{request.message}</p>
-        <div className="confirmation-actions">
-          <button className="secondary-mini confirmation-cancel-button" title="Отменить действие" type="button" onClick={onCancel}>Нет</button>
-          <button className="primary confirmation-confirm-button" title="Подтвердить действие" type="button" onClick={onConfirm}>Да</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-type ActiveTooltip = {
-  text: string;
-  trigger: RectLike;
-};
-
-function useGlobalTooltip() {
-  const [tooltip, setTooltip] = useState<ActiveTooltip | null>(null);
-
-  useEffect(() => {
-    let activeTarget: HTMLElement | null = null;
-
-    const tooltipTarget = (target: EventTarget | null) => {
-      if (!(target instanceof Element)) return null;
-      const element = target.closest<HTMLElement>(".app-shell [title]");
-      const text = element?.getAttribute("title")?.trim();
-      return element && text ? { element, text } : null;
-    };
-
-    const showTooltip = (event: Event) => {
-      const target = tooltipTarget(event.target);
-      if (!target) return;
-      activeTarget = target.element;
-      setTooltip({ text: target.text, trigger: rectToPlainObject(target.element.getBoundingClientRect()) });
-    };
-
-    const hideTooltip = () => {
-      activeTarget = null;
-      setTooltip(null);
-    };
-
-    const hideOnPointerOut = (event: PointerEvent) => {
-      if (activeTarget && event.relatedTarget instanceof Node && activeTarget.contains(event.relatedTarget)) return;
-      hideTooltip();
-    };
-
-    document.addEventListener("pointerover", showTooltip);
-    document.addEventListener("focusin", showTooltip);
-    document.addEventListener("pointerout", hideOnPointerOut);
-    document.addEventListener("focusout", hideTooltip);
-    window.addEventListener("scroll", hideTooltip, true);
-    window.addEventListener("resize", hideTooltip);
-
-    return () => {
-      document.removeEventListener("pointerover", showTooltip);
-      document.removeEventListener("focusin", showTooltip);
-      document.removeEventListener("pointerout", hideOnPointerOut);
-      document.removeEventListener("focusout", hideTooltip);
-      window.removeEventListener("scroll", hideTooltip, true);
-      window.removeEventListener("resize", hideTooltip);
-    };
-  }, []);
-
-  return tooltip;
-}
-
-function TooltipLayer({ tooltip }: { tooltip: ActiveTooltip | null }) {
-  const tooltipRef = useRef<HTMLDivElement | null>(null);
-  const [position, setPosition] = useState<TooltipPosition | null>(null);
-
-  useLayoutEffect(() => {
-    setPosition(null);
-  }, [tooltip]);
-
-  useLayoutEffect(() => {
-    if (!tooltip || !tooltipRef.current) return;
-    const rect = tooltipRef.current.getBoundingClientRect();
-    setPosition(placeTooltip(
-      tooltip.trigger,
-      { width: rect.width, height: rect.height },
-      { width: window.innerWidth, height: window.innerHeight }
-    ));
-  }, [tooltip]);
-
-  if (!tooltip) return null;
-
-  return (
-    <div
-      ref={tooltipRef}
-      className="ui-tooltip"
-      role="tooltip"
-      data-placement={position?.placement || "top"}
-      style={position ? { left: position.left, top: position.top } : { left: 0, top: 0, visibility: "hidden" }}
-    >
-      {tooltip.text}
-    </div>
-  );
-}
-
-function rectToPlainObject(rect: DOMRect): RectLike {
-  return {
-    left: rect.left,
-    top: rect.top,
-    width: rect.width,
-    height: rect.height
-  };
 }
 
 function genreTagJobSummary(job: GenreTagJobStatus) {

@@ -8,6 +8,7 @@ import numpy as np
 
 import dj_track_similarity.api as api_module
 import dj_track_similarity.database as database_module
+import dj_track_similarity.media_preview as media_preview_module
 from dj_track_similarity.api import create_app
 from dj_track_similarity.database import LibraryDatabase
 
@@ -462,8 +463,8 @@ def test_media_endpoint_transcodes_aiff_preview_to_browser_playable_wav(monkeypa
         return subprocess.CompletedProcess(command, 0)
 
     monkeypatch.setattr(api_module, "require_ffmpeg", lambda: "ffmpeg-test")
-    monkeypatch.setattr(api_module.subprocess, "Popen", fail_streaming_process)
-    monkeypatch.setattr(api_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(media_preview_module.subprocess, "Popen", fail_streaming_process)
+    monkeypatch.setattr(media_preview_module.subprocess, "run", fake_run)
 
     response = TestClient(create_app(db_path)).get(f"/media/{track_id}")
 

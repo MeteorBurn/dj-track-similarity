@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import logging
 import json
-import subprocess
-import tempfile
 import threading
 from pathlib import Path
 
@@ -11,14 +9,14 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
-from starlette.background import BackgroundTask
 
-from .analysis_jobs import (
+from .analysis_config import (
     ANALYSIS_MODEL_ORDER,
     DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
     DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
-    AnalysisJobManager,
+    normalize_analysis_models,
 )
+from .analysis_jobs import AnalysisJobManager
 from .classifier_jobs import ClassifierJobManager
 from .classifier_scoring import promoted_classifiers
 from .database import LibraryDatabase
@@ -26,6 +24,7 @@ from .dependencies import require_ffmpeg
 from .embedding import ClapEmbeddingAdapter
 from .exporter import export_tracks
 from .logging_config import configure_logging
+from .media_preview import transcoded_wav_file_response
 from .scan_jobs import ScanJobManager
 from .search import SearchFilters, SimilaritySearch
 from .sonara_similarity import SonaraSimilaritySearch
@@ -432,7 +431,7 @@ def create_app(
     @app.post("/api/analysis/jobs")
     def analyze(request: AnalysisJobRequest):
         try:
-            models = _valid_analysis_models(request.models)
+            models = list(normalize_analysis_models(request.models))
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         return state.require_analysis_jobs().start(
@@ -601,7 +600,7 @@ def create_app(
         if not path.exists():
             raise HTTPException(status_code=404, detail="Audio file is missing")
         if path.suffix.lower() in AIFF_PREVIEW_SUFFIXES:
-            return _transcoded_wav_file_response(path, ffmpeg_path)
+            return transcoded_wav_file_response(path, ffmpeg_path)
         return FileResponse(path)
 
     package_path = Path(__file__).resolve()
@@ -644,55 +643,3 @@ def _valid_classifier_min_scores(scores: dict[str, float]) -> dict[str, float]:
             raise HTTPException(status_code=422, detail=f"Classifier threshold out of range: {classifier}")
         result[str(classifier)] = score
     return result
-
-
-def _valid_analysis_models(models: list[str]) -> list[str]:
-    selected: list[str] = []
-    for model in models:
-        text = str(model).strip().lower()
-        if text not in ANALYSIS_MODEL_ORDER:
-            raise ValueError(f"Unknown analysis model: {model}")
-        if text not in selected:
-            selected.append(text)
-    if not selected:
-        raise ValueError("At least one analysis model must be selected")
-    return [model for model in ANALYSIS_MODEL_ORDER if model in selected]
-
-
-def _transcoded_wav_file_response(path: Path, ffmpeg_path: str) -> FileResponse:
-    with tempfile.NamedTemporaryFile(prefix="dj-sim-preview-", suffix=".wav", delete=False) as temp_file:
-        temp_path = Path(temp_file.name)
-    command = [
-        ffmpeg_path,
-        "-v",
-        "error",
-        "-i",
-        str(path),
-        "-vn",
-        "-f",
-        "wav",
-        "-codec:a",
-        "pcm_s16le",
-        "-y",
-        str(temp_path),
-    ]
-    try:
-        subprocess.run(command, stderr=subprocess.PIPE, check=True)
-    except (OSError, subprocess.CalledProcessError) as error:
-        _delete_temp_file(temp_path)
-        LOGGER.warning("ffmpeg preview transcode failed path=%s error=%s", path, error)
-        raise RuntimeError("AIFF preview transcode failed") from error
-    return FileResponse(
-        temp_path,
-        media_type="audio/wav",
-        filename=f"{path.stem}.wav",
-        content_disposition_type="inline",
-        background=BackgroundTask(_delete_temp_file, temp_path),
-    )
-
-
-def _delete_temp_file(path: Path) -> None:
-    try:
-        path.unlink(missing_ok=True)
-    except OSError:
-        LOGGER.warning("Failed to delete temporary preview file: %s", path)

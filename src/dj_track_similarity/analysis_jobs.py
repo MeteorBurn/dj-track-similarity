@@ -11,6 +11,12 @@ from typing import Callable, Mapping, Protocol, Sequence, cast
 import numpy as np
 
 from .audio_loader import DecodedAudio, load_decoded_audio
+from .analysis_config import (
+    ANALYSIS_MODEL_ORDER,
+    DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
+    DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
+    normalize_analysis_models,
+)
 from .database import LibraryDatabase
 from .embedding import ClapEmbeddingAdapter, MertEmbeddingAdapter
 from .genres import MaestGenreAdapter
@@ -20,9 +26,6 @@ from .models import Track
 from .sonara_features import analyze_and_store_sonara_features_from_audio
 
 
-ANALYSIS_MODEL_ORDER = ("sonara", "maest", "mert", "clap")
-DEFAULT_ANALYSIS_TRACK_BATCH_SIZE = 6
-DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE = 24
 LOGGER = logging.getLogger(__name__)
 
 
@@ -140,10 +143,10 @@ class AnalysisJobManager:
         device: str = "auto",
         top_k: int = 3,
     ) -> str:
-        selected = _normalize_models(models)
-        tracks = self.db.list_tracks_missing_any_analysis(selected, limit=limit)
-        targets_by_track = {track.id: _missing_models(track, selected) for track in tracks}
-        tracks = [track for track in tracks if targets_by_track[track.id]]
+        selected = normalize_analysis_models(models)
+        candidates = self.db.list_analysis_candidates(selected, limit=limit)
+        tracks = [candidate.to_track() for candidate in candidates]
+        targets_by_track = {candidate.id: candidate.missing_models for candidate in candidates}
         progress = {model: AnalysisModelProgress() for model in selected}
         for targets in targets_by_track.values():
             for model in targets:
@@ -564,25 +567,6 @@ def _default_model_runners(model: str, device: str, inference_batch_size: int, t
     if model in {"mert", "clap"}:
         return EmbeddingModelRunner(model, device=device, inference_batch_size=inference_batch_size)
     raise ValueError(f"No analysis runner configured for: {model}")
-
-
-def _normalize_models(models: Sequence[str] | None) -> tuple[str, ...]:
-    requested = models or ANALYSIS_MODEL_ORDER
-    selected: list[str] = []
-    for model in requested:
-        text = str(model).strip().lower()
-        if text not in ANALYSIS_MODEL_ORDER:
-            raise ValueError(f"Unknown analysis model: {model}")
-        if text not in selected:
-            selected.append(text)
-    if not selected:
-        raise ValueError("At least one analysis model must be selected")
-    return tuple(model for model in ANALYSIS_MODEL_ORDER if model in selected)
-
-
-def _missing_models(track: Track, selected: Sequence[str]) -> tuple[str, ...]:
-    existing = set(track.analyses or [])
-    return tuple(model for model in selected if model not in existing)
 
 
 def _embedding_for_path(adapter: object, path: str) -> np.ndarray | None:

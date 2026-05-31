@@ -40,6 +40,7 @@ test("top header meta renders summary values as badges", () => {
 
 test("topbar log button opens a separate large log frame", () => {
   const appSource = readFileSync(appPath, "utf8");
+  const dialogSource = readFileSync(fileURLToPath(new URL("../src/dialogs.tsx", import.meta.url)), "utf8");
   const librarySource = readFileSync(fileURLToPath(new URL("../src/LibraryPanel.tsx", import.meta.url)), "utf8");
   const styles = readFileSync(fileURLToPath(new URL("../src/styles.css", import.meta.url)), "utf8");
   const actionsBlock = appSource.match(/<div className="topbar-actions">([\s\S]*?)<\/div>/)?.[1] || "";
@@ -47,8 +48,8 @@ test("topbar log button opens a separate large log frame", () => {
   const contentRule = styles.match(/\.log-frame-content\s*{([\s\S]*?)}/)?.[1] || "";
 
   assert.match(appSource, /logFrameOpen/);
-  assert.match(appSource, /function LogFrameDialog/);
-  assert.match(appSource, /<UnifiedLog[\s\S]*className="log-frame-panel"/);
+  assert.match(dialogSource, /function LogFrameDialog/);
+  assert.match(dialogSource, /<UnifiedLog[\s\S]*className="log-frame-panel"/);
   assert.match(actionsBlock, /log-frame-button[\s\S]*notice/);
   assert.doesNotMatch(librarySource, /UnifiedLog/);
   assert.match(styles, /\.log-frame-button/);

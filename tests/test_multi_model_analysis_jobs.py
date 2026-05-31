@@ -109,6 +109,29 @@ def test_multi_model_limit_counts_candidate_tracks_not_per_model_totals(tmp_path
     assert runners["mert"].calls == [["b-candidate.wav", "c-candidate.wav"]]
 
 
+def test_multi_model_job_uses_lean_analysis_candidates(tmp_path: Path, monkeypatch) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    _track(db, tmp_path, "a-candidate.wav")
+    runners = {model: FakeModelRunner(model) for model in ("sonara", "mert")}
+    decoder = DecodeRecorder()
+    manager = AnalysisJobManager(db, model_runners=runners, decode_audio=decoder, track_batch_size=2)
+    original_candidates = db.list_analysis_candidates
+    calls: list[tuple[tuple[str, ...], int | None]] = []
+
+    def spy_candidates(models, *, limit=None):
+        calls.append((tuple(models), limit))
+        return original_candidates(models, limit=limit)
+
+    monkeypatch.setattr(db, "list_analysis_candidates", spy_candidates)
+
+    status = manager.run_sync(models=["sonara", "mert"], device="cpu", track_batch_size=2)
+
+    assert status.state == "completed"
+    assert status.total == 1
+    assert calls == [(("sonara", "mert"), None)]
+    assert decoder.calls == ["a-candidate.wav"]
+
+
 def test_multi_model_job_logs_track_success_once_after_all_models_complete(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     _track(db, tmp_path, "a-candidate.wav")

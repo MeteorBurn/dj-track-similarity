@@ -1,3 +1,4 @@
+/* Theme tokens and global foundation */
 :root {
   --app-bg: #f2f4ef;
   --app-text: #222421;
@@ -401,6 +402,7 @@ h2 {
   font-weight: 720;
 }
 
+/* App shell and topbar */
 .app-shell {
   min-height: 100vh;
   padding: 16px;
@@ -560,6 +562,7 @@ h2 {
   padding: 12px;
 }
 
+/* Database and library panels */
 .library-panel,
 .track-panel,
 .search-panel,
@@ -625,6 +628,7 @@ h2 {
   margin-bottom: 8px;
 }
 
+/* Analysis jobs and classifier controls */
 .analysis-actions {
   align-self: stretch;
   display: grid;
@@ -947,6 +951,7 @@ h2 {
   color: var(--pink-text-active);
 }
 
+/* Playback and process logs */
 .log-frame-button {
   background: var(--blue-bg);
   border-color: var(--blue-border);
@@ -1366,6 +1371,7 @@ h2 {
   text-align: center;
 }
 
+/* Search, playlist, and track lists */
 .track-list,
 .results-list,
 .playlist-list {
@@ -1768,6 +1774,7 @@ meter {
   z-index: 20;
 }
 
+/* Dialogs and metadata review */
 .metadata-dialog {
   background: var(--surface);
   border: 1px solid var(--border);

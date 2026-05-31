@@ -26,7 +26,7 @@ from .metadata_payload import (
     optional_float,
     string_or_none,
 )
-from .models import Track
+from .models import AnalysisCandidate, Track
 
 
 DEFAULT_EMBEDDING_KEY = "mert"
@@ -333,88 +333,45 @@ class LibraryDatabase:
         self._invalidate_embedding_cache()
         return self.get_track(track_id)
 
-    def list_tracks_missing_sonara(self, *, limit: int | None = None) -> list[Track]:
-        limit_sql, params = _limit_sql(limit)
-        with self.connect() as connection:
-            rows = connection.execute(
-                f"""
-                SELECT {TRACK_SLIM_SELECT_FIELDS}
-                FROM tracks t
-                LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
-                WHERE json_type(t.metadata_json, '$.sonara_features') IS NULL
-                ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
-                {limit_sql}
-                """,
-                (DEFAULT_EMBEDDING_KEY, *params),
-            ).fetchall()
-        return [self._row_to_track(row, include_metadata=False) for row in rows]
-
-    def list_tracks_missing_maest(self, *, limit: int | None = None) -> list[Track]:
-        limit_sql, params = _limit_sql(limit)
-        with self.connect() as connection:
-            rows = connection.execute(
-                f"""
-                SELECT {TRACK_SLIM_SELECT_FIELDS}
-                FROM tracks t
-                LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
-                WHERE e.track_id IS NULL
-                ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
-                {limit_sql}
-                """,
-                (MAEST_EMBEDDING_KEY, *params),
-            ).fetchall()
-        return [self._row_to_track(row, include_metadata=False) for row in rows]
-
-    def list_tracks_missing_embedding(self, embedding_key: str, *, limit: int | None = None) -> list[Track]:
-        limit_sql, params = _limit_sql(limit)
-        with self.connect() as connection:
-            rows = connection.execute(
-                f"""
-                SELECT {TRACK_SLIM_SELECT_FIELDS}
-                FROM tracks t
-                LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
-                WHERE e.track_id IS NULL
-                ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
-                {limit_sql}
-                """,
-                (embedding_key, *params),
-            ).fetchall()
-        return [self._row_to_track(row, include_metadata=False) for row in rows]
-
-    def list_tracks_missing_any_analysis(self, models: Iterable[str], *, limit: int | None = None) -> list[Track]:
+    def list_analysis_candidates(self, models: Iterable[str], *, limit: int | None = None) -> list[AnalysisCandidate]:
         selected = _clean_analysis_models(models)
         if not selected:
             return []
-        missing_terms: list[str] = []
-        for model in selected:
-            if model == "sonara":
-                missing_terms.append("json_type(t.metadata_json, '$.sonara_features') IS NULL")
-            elif model in {"maest", "mert", "clap"}:
-                missing_terms.append(
-                    """
-                    NOT EXISTS (
-                        SELECT 1
-                        FROM embeddings missing_e
-                        WHERE missing_e.track_id = t.id
-                          AND missing_e.embedding_key = ?
-                    )
-                    """
-                )
-        limit_sql, limit_params = _limit_sql(limit)
-        params = [DEFAULT_EMBEDDING_KEY, *(model for model in selected if model in {"maest", "mert", "clap"}), *limit_params]
+        candidate_ids: dict[int, None] = {}
+        per_model_limit = limit if limit is not None else None
         with self.connect() as connection:
-            rows = connection.execute(
-                f"""
-                SELECT {TRACK_SLIM_SELECT_FIELDS}
-                FROM tracks t
-                LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
-                WHERE {" OR ".join(f"({term})" for term in missing_terms)}
-                ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
-                {limit_sql}
-                """,
-                tuple(params),
-            ).fetchall()
-        return [self._row_to_track(row, include_metadata=False) for row in rows]
+            for model in selected:
+                rows = connection.execute(
+                    _missing_analysis_ids_sql(model, per_model_limit),
+                    _missing_analysis_ids_params(model, per_model_limit),
+                ).fetchall()
+                for row in rows:
+                    candidate_ids[int(row["id"])] = None
+        if not candidate_ids:
+            return []
+        candidates: list[AnalysisCandidate] = []
+        with self.connect() as connection:
+            for chunk_ids in _chunks(tuple(candidate_ids), 500):
+                placeholders = ", ".join("?" for _ in chunk_ids)
+                rows = connection.execute(
+                    f"""
+                    SELECT
+                        t.id, t.path, t.size, t.mtime, t.artist, t.title, t.album,
+                        t.bpm, t.musical_key, t.energy, t.duration,
+                        json_type(t.metadata_json, '$.sonara_features') IS NOT NULL AS has_sonara,
+                        EXISTS(SELECT 1 FROM embeddings maest_e WHERE maest_e.track_id = t.id AND maest_e.embedding_key = 'maest') AS has_maest,
+                        EXISTS(SELECT 1 FROM embeddings mert_e WHERE mert_e.track_id = t.id AND mert_e.embedding_key = 'mert') AS has_mert,
+                        EXISTS(SELECT 1 FROM embeddings clap_e WHERE clap_e.track_id = t.id AND clap_e.embedding_key = 'clap') AS has_clap
+                    FROM tracks t
+                    WHERE t.id IN ({placeholders})
+                    """,
+                    chunk_ids,
+                ).fetchall()
+                candidates.extend(_row_to_analysis_candidate(row, selected) for row in rows)
+        candidates.sort(key=lambda candidate: (candidate.artist or "", candidate.title or "", candidate.path))
+        if limit is not None:
+            return candidates[: max(0, int(limit))]
+        return candidates
 
     def list_tracks_missing_classifier(self, classifier: str, *, limit: int | None = None) -> list[Track]:
         limit_sql, params = _limit_sql(limit)
@@ -1001,6 +958,62 @@ def _clean_analysis_models(models: Iterable[str]) -> list[str]:
             continue
         selected.append(text)
     return selected
+
+
+def _missing_analysis_ids_sql(model: str, limit: int | None) -> str:
+    limit_sql, _params = _limit_sql(limit)
+    if model == "sonara":
+        where_sql = "json_type(t.metadata_json, '$.sonara_features') IS NULL"
+        join_sql = ""
+    elif model in {"maest", "mert", "clap"}:
+        where_sql = "e.track_id IS NULL"
+        join_sql = "LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?"
+    else:
+        raise ValueError(f"Unknown analysis model: {model}")
+    return f"""
+        SELECT t.id
+        FROM tracks t
+        {join_sql}
+        WHERE {where_sql}
+        ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
+        {limit_sql}
+        """
+
+
+def _missing_analysis_ids_params(model: str, limit: int | None) -> tuple[object, ...]:
+    _sql, limit_params = _limit_sql(limit)
+    if model in {"maest", "mert", "clap"}:
+        return (model, *limit_params)
+    return limit_params
+
+
+def _chunks(items: tuple[int, ...], size: int) -> Iterable[tuple[int, ...]]:
+    for index in range(0, len(items), size):
+        yield items[index : index + size]
+
+
+def _row_to_analysis_candidate(row: sqlite3.Row, selected: Iterable[str]) -> AnalysisCandidate:
+    analyses = tuple(
+        model
+        for model in ("sonara", "maest", "mert", "clap")
+        if bool(row[f"has_{model}"])
+    )
+    missing = tuple(model for model in selected if model not in analyses)
+    return AnalysisCandidate(
+        id=int(row["id"]),
+        path=str(row["path"]),
+        size=int(row["size"]),
+        mtime=float(row["mtime"]),
+        artist=row["artist"],
+        title=row["title"],
+        album=row["album"],
+        bpm=row["bpm"],
+        musical_key=row["musical_key"],
+        energy=row["energy"],
+        duration=row["duration"],
+        analyses=analyses,
+        missing_models=missing,
+    )
 
 
 def _track_filter_sql(

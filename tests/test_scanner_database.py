@@ -280,6 +280,27 @@ def test_database_resets_embedding_analysis_independently(tmp_path: Path) -> Non
     assert db.get_track(track_id).analyses == ["clap"]
 
 
+def test_database_lists_lean_analysis_candidates_with_missing_models(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    missing_mert = db.upsert_track(path=tmp_path / "a-missing-mert.wav", size=10, mtime=1, metadata={"title": "A"})
+    missing_sonara = db.upsert_track(path=tmp_path / "b-missing-sonara.wav", size=10, mtime=1, metadata={"title": "B"})
+    complete = db.upsert_track(path=tmp_path / "c-complete.wav", size=10, mtime=1, metadata={"title": "C"})
+    missing_unselected = db.upsert_track(path=tmp_path / "d-missing-clap.wav", size=10, mtime=1, metadata={"title": "D"})
+
+    db.save_sonara_features(missing_mert, {"bpm": {"value": 128.0}}, model_name="sonara")
+    db.save_embedding(missing_sonara, np.asarray([1.0, 0.0], dtype=np.float32), "mert", embedding_key="mert")
+    for track_id in (complete, missing_unselected):
+        db.save_sonara_features(track_id, {"bpm": {"value": 128.0}}, model_name="sonara")
+        db.save_embedding(track_id, np.asarray([1.0, 0.0], dtype=np.float32), "mert", embedding_key="mert")
+
+    candidates = db.list_analysis_candidates(["sonara", "mert"], limit=10)
+
+    assert [(candidate.id, candidate.missing_models, candidate.analyses) for candidate in candidates] == [
+        (missing_mert, ("mert",), ("sonara",)),
+        (missing_sonara, ("sonara",), ("mert",)),
+    ]
+
+
 def test_database_reset_rejects_removed_fake_adapter(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
 

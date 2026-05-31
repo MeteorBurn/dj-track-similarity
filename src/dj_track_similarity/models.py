@@ -27,6 +27,39 @@ class Track:
 
 
 @dataclass(frozen=True)
+class AnalysisCandidate:
+    id: int
+    path: str
+    size: int
+    mtime: float
+    artist: str | None = None
+    title: str | None = None
+    album: str | None = None
+    bpm: float | None = None
+    musical_key: str | None = None
+    energy: float | None = None
+    duration: float | None = None
+    analyses: tuple[str, ...] = ()
+    missing_models: tuple[str, ...] = ()
+
+    def to_track(self) -> Track:
+        return Track(
+            id=self.id,
+            path=self.path,
+            size=self.size,
+            mtime=self.mtime,
+            artist=self.artist,
+            title=self.title,
+            album=self.album,
+            bpm=self.bpm,
+            musical_key=self.musical_key,
+            energy=self.energy,
+            duration=self.duration,
+            analyses=list(self.analyses) or None,
+        )
+
+
+@dataclass(frozen=True)
 class ScanStats:
     added: int = 0
     updated: int = 0

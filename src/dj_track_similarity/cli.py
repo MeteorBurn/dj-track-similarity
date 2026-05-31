@@ -8,12 +8,13 @@ from typing import Optional
 
 import typer
 
-from .analysis_jobs import (
+from .analysis_config import (
     ANALYSIS_MODEL_ORDER,
     DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
     DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
-    AnalysisJobManager,
+    parse_analysis_models_text,
 )
+from .analysis_jobs import AnalysisJobManager
 from .classifier_scoring import analyze_classifier as run_classifier_analysis
 from .database import LibraryDatabase
 from .dependencies import require_ffmpeg
@@ -122,18 +123,10 @@ def _format_eta_seconds(seconds: float | None) -> str:
 
 
 def _parse_analysis_models(value: str) -> list[str]:
-    selected: list[str] = []
-    for item in value.split(","):
-        model = item.strip().lower()
-        if not model:
-            continue
-        if model not in ANALYSIS_MODEL_ORDER:
-            raise typer.BadParameter(f"Unknown analysis model: {item}")
-        if model not in selected:
-            selected.append(model)
-    if not selected:
-        raise typer.BadParameter("At least one analysis model must be selected")
-    return [model for model in ANALYSIS_MODEL_ORDER if model in selected]
+    try:
+        return list(parse_analysis_models_text(value))
+    except ValueError as error:
+        raise typer.BadParameter(str(error)) from error
 
 
 @app.command()

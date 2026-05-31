@@ -188,11 +188,12 @@ test("analysis process status renders per-model progress", () => {
 
 test("destructive actions use the in-app confirmation dialog", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+  const dialogSource = readFileSync(join(srcDir, "dialogs.tsx"), "utf8");
 
   assert.doesNotMatch(appSource, /window\.confirm/);
   assert.match(appSource, /ConfirmationDialog/);
-  assert.match(appSource, />Да</);
-  assert.match(appSource, />Нет</);
+  assert.match(dialogSource, />Да</);
+  assert.match(dialogSource, />Нет</);
 });
 
 test("non-destructive sonara mixer reset does not request confirmation", () => {

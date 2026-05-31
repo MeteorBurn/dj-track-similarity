@@ -1,8 +1,9 @@
-import { Heart, Minus, Play, Plus, Search, Tags } from "lucide-react";
+import { Heart, Minus, Pause, Play, Plus, Search, Tags } from "lucide-react";
 import { Track } from "./api";
-import { displayTrack, trackInfo } from "./trackDisplay";
+import { displayTrack } from "./trackDisplay";
 
 type TrackActions = {
+  playingTrackId: number | null;
   onSeed: (track: Track) => void;
   onToggleLiked?: (track: Track) => void;
   onTogglePlaylist: (track: Track) => void;
@@ -14,6 +15,7 @@ export function TrackList({
   tracks,
   seedSet,
   playlistSet,
+  playingTrackId,
   onSeed,
   onToggleLiked,
   onTogglePlaylist,
@@ -27,12 +29,14 @@ export function TrackList({
   return (
     <div className="track-list">
       {tracks.map((track) => {
+        const trackPreviewActive = playingTrackId === track.id;
         return (
           <div className="track-row" key={track.id}>
-            <button className="icon-button track-preview-button" title="Preview" aria-label={`Preview ${displayTrack(track)}`} onClick={() => onPreview(track)}><Play size={15} /></button>
-            <div className="track-copy">
+            <button className="icon-button track-preview-button" title={trackPreviewActive ? "Pause preview" : "Preview"} aria-label={`${trackPreviewActive ? "Pause" : "Preview"} ${displayTrack(track)}`} onClick={() => onPreview(track)}>
+              {trackPreviewActive ? <Pause size={15} /> : <Play size={15} />}
+            </button>
+            <div className="track-title-cell">
               <strong>{displayTrack(track)}</strong>
-              <span>{trackInfo(track)}</span>
             </div>
             <button className="icon-button track-metadata-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={() => onDetails(track)}><Tags size={15} /></button>
             {onToggleLiked && (
@@ -67,6 +71,7 @@ export function ResultRow({
   track,
   score,
   scoreBreakdown,
+  playingTrackId,
   isSeed,
   inPlaylist,
   onSeed,
@@ -81,16 +86,18 @@ export function ResultRow({
   inPlaylist: boolean;
 }) {
   const breakdownTitle = scoreBreakdownTitle(scoreBreakdown);
+  const trackPreviewActive = playingTrackId === track.id;
   return (
     <div className="result-row">
-      <button className="icon-button result-preview-button" title="Preview" aria-label={`Preview ${displayTrack(track)}`} onClick={() => onPreview(track)}><Play size={15} /></button>
-      <div className="track-copy">
+      <button className="icon-button result-preview-button" title={trackPreviewActive ? "Pause preview" : "Preview"} aria-label={`${trackPreviewActive ? "Pause" : "Preview"} ${displayTrack(track)}`} onClick={() => onPreview(track)}>
+        {trackPreviewActive ? <Pause size={15} /> : <Play size={15} />}
+      </button>
+      <div className="track-title-cell">
         <strong>{displayTrack(track)}</strong>
-        <span>{trackInfo(track)}</span>
       </div>
       <button className="icon-button result-metadata-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={() => onDetails(track)}><Tags size={15} /></button>
       <meter min={0} max={1} value={Math.max(0, Math.min(1, score))} title={breakdownTitle} />
-      <span className="score" title={breakdownTitle}>{score.toFixed(3)}</span>
+      <span className="similarity-score" title={breakdownTitle}>{score.toFixed(3)}</span>
       <button className={`icon-button result-seed-button ${isSeed ? "active" : ""}`} title="Seed" aria-label={`Seed ${displayTrack(track)}`} onClick={() => onSeed(track)}><Search size={15} /></button>
       <button
         className={`icon-button result-playlist-toggle-button ${inPlaylist ? "intent-remove active" : "intent-add"}`}

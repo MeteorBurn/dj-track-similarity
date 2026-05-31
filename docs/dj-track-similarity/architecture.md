@@ -7,12 +7,20 @@ This page maps the backend, frontend, runtime dependencies, and logging behavior
 The backend package lives in `src/dj_track_similarity/`.
 
 - `cli.py` exposes the `dj-sim` Typer CLI.
-- `api.py` creates the FastAPI app and REST endpoints.
-- `database.py` owns SQLite access and all database mutations.
+- `api.py` creates the FastAPI app; route groups live in `api_routes_*`
+  modules.
+- `database.py` is the public `LibraryDatabase` facade. Database internals are
+  split into `db_tracks.py` for track CRUD, paging, likes, and relocation,
+  `db_analysis.py` for embeddings, analysis writes, resets, and analyzer
+  candidate selection, and `db_summary.py` for summary counters.
 - `db_schema.py` defines the current SQLite schema and validation.
 - `scanner.py` scans folders and reads Mutagen metadata.
 - `scan_jobs.py`, `analysis_jobs.py`, `classifier_jobs.py`, and `tags.py`
-  manage cancellable jobs and status objects.
+  manage cancellable jobs and status objects. Multi-model analysis internals
+  are split further: `analysis_job_state.py` owns progress/status accounting,
+  `analysis_job_batch.py` owns per-batch decode preparation, and
+  `analysis_model_runners.py` owns Sonara, MAEST, MERT, and CLAP runner
+  adapters.
 - `audio_loader.py` provides shared native-first audio loading.
 - `sonara_features.py` extracts the focused Sonara playlist feature set.
 - `sonara_similarity.py` and `sonara_similarity_scoring.py` rank Sonara

@@ -1,9 +1,9 @@
 import { Dispatch, Fragment, SetStateAction, useEffect, useState } from "react";
-import { Download, FolderOpen, ListMusic, Play, Search, SlidersHorizontal, Tags, Trash2, X } from "lucide-react";
+import { Download, FolderOpen, ListMusic, Pause, Play, Search, Tags, Trash2, X } from "lucide-react";
 import { AnalysisJobStatus, PromotedClassifier, SearchResult, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
 import { playlistPage } from "./playlistView";
 import { ResultRow } from "./TrackRows";
-import { displayTrack, trackInfo } from "./trackDisplay";
+import { displayTrack } from "./trackDisplay";
 
 const playlistPageSize = 200;
 
@@ -62,10 +62,10 @@ export function SearchPlaylistPanel({
   handleTextSearch,
   handleSonaraSearch,
   handleMertSearch,
-  handleClassifierAnalyze,
   handleResetClassifiers,
   addSeed,
   togglePlaylist,
+  playingTrackId,
   setPreview,
   setMetadataTrack,
   removeFromPlaylist,
@@ -96,10 +96,10 @@ export function SearchPlaylistPanel({
   handleTextSearch: () => void;
   handleSonaraSearch: () => void;
   handleMertSearch: () => void;
-  handleClassifierAnalyze: () => void;
   handleResetClassifiers: () => void;
   addSeed: (track: Track) => void;
   togglePlaylist: (track: Track) => void;
+  playingTrackId: number | null;
   setPreview: (track: Track) => void;
   setMetadataTrack: (track: Track) => void;
   removeFromPlaylist: (trackId: number) => void;
@@ -148,7 +148,7 @@ export function SearchPlaylistPanel({
 
   return (
     <aside className="panel search-panel">
-      <section className="search-section">
+      <section className="search-workflow-section">
         <div className="panel-title">
           <Search size={18} />
           <h2>3. Поиск и прослушивание</h2>
@@ -224,12 +224,12 @@ export function SearchPlaylistPanel({
                 ))}
               </div>
             </div>
-            <div className="filters compact-filters">
+            <div className="search-filter-grid">
               <label title={helpText.similarity}>Similarity<input type="number" value={filters.minSimilarity} min={0} max={1} step={0.01} title={helpText.similarity} onChange={(event) => setFilters({ ...filters, minSimilarity: Number(event.target.value) })} /></label>
               <label title={helpText.lookback}>Lookback<input type="number" value={filters.lookback} min={0} max={12} title={helpText.lookback} onChange={(event) => setFilters({ ...filters, lookback: Number(event.target.value) })} /></label>
               <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => setFilters({ ...filters, limit: Number(event.target.value) })} /></label>
             </div>
-            <button className="primary sonara-search-button" title="Найти похожие треки через SONARA по выбранным seed-трекам" disabled={busy || !seeds.length} onClick={handleSonaraSearch}>
+            <button className="sonara-search-button" title="Найти похожие треки через SONARA по выбранным seed-трекам" disabled={busy || !seeds.length} onClick={handleSonaraSearch}>
               <Search size={17} />
               SONARA search
             </button>
@@ -237,12 +237,12 @@ export function SearchPlaylistPanel({
         )}
         {activeSearchTab === "mert" && (
           <div className="search-tab-panel" role="tabpanel">
-            <div className="filters compact-filters">
+            <div className="search-filter-grid">
               <label title={helpText.similarity}>Similarity<input type="number" value={filters.minSimilarity} min={0} max={1} step={0.01} title={helpText.similarity} onChange={(event) => setFilters({ ...filters, minSimilarity: Number(event.target.value) })} /></label>
               <label title={helpText.lookback}>Lookback<input type="number" value={filters.lookback} min={0} max={12} title={helpText.lookback} onChange={(event) => setFilters({ ...filters, lookback: Number(event.target.value) })} /></label>
               <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => setFilters({ ...filters, limit: Number(event.target.value) })} /></label>
             </div>
-            <button className="primary mert-search-button" title="Найти похожие треки через MERT по выбранным seed-трекам" disabled={busy || !seeds.length} onClick={handleMertSearch}>
+            <button className="mert-search-button" title="Найти похожие треки через MERT по выбранным seed-трекам" disabled={busy || !seeds.length} onClick={handleMertSearch}>
               <Search size={17} />
               MERT search
             </button>
@@ -261,11 +261,11 @@ export function SearchPlaylistPanel({
                 />
               </label>
             </div>
-            <div className="filters compact-filters">
+            <div className="search-filter-grid">
               <label title={helpText.similarity}>Similarity<input type="number" value={filters.minSimilarity} min={0} max={1} step={0.01} title={helpText.similarity} onChange={(event) => setFilters({ ...filters, minSimilarity: Number(event.target.value) })} /></label>
               <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => setFilters({ ...filters, limit: Number(event.target.value) })} /></label>
             </div>
-            <button className="primary clap-text-search-button" title="Найти треки через CLAP по текстовому описанию звучания" disabled={busy || !textQuery.trim()} onClick={handleTextSearch}>
+            <button className="clap-text-search-button" title="Найти треки через CLAP по текстовому описанию звучания" disabled={busy || !textQuery.trim()} onClick={handleTextSearch}>
               <Search size={17} />
               CLAP search
             </button>
@@ -304,11 +304,7 @@ export function SearchPlaylistPanel({
               ) : null}
             </div>
             <div className="classifier-action-row">
-              <button className="primary classifier-analyze-button" title="Пересчитать promoted classifier scores для текущей базы" disabled={busy || classifiers.length === 0} onClick={handleClassifierAnalyze}>
-                <SlidersHorizontal size={17} />
-                Analyze Classifiers
-              </button>
-              <button className="analysis-reset-button classifier-reset-button" disabled={busy || classifiers.length === 0} onClick={handleResetClassifiers} title="Reset Break Energy + Live Instrumentation" aria-label="Reset Break Energy + Live Instrumentation">
+              <button className="analysis-reset-button classifier-reset-button" disabled={busy || classifiers.length === 0} onClick={handleResetClassifiers} title="Reset promoted classifier scores" aria-label="Reset promoted classifier scores">
                 Reset
                 <Trash2 size={14} />
               </button>
@@ -322,6 +318,7 @@ export function SearchPlaylistPanel({
               track={track}
               score={score}
               scoreBreakdown={score_breakdown}
+              playingTrackId={playingTrackId}
               isSeed={seedSet.has(track.id)}
               inPlaylist={playlistSet.has(track.id)}
               onSeed={addSeed}
@@ -332,7 +329,7 @@ export function SearchPlaylistPanel({
           ))}
         </div>
       </section>
-      <section className="playlist-section">
+      <section className="playlist-export-section">
         <div className="panel-title">
           <ListMusic size={18} />
           <h2>Сет и экспорт</h2>
@@ -347,8 +344,8 @@ export function SearchPlaylistPanel({
             <span className="library-page-status">
               {playlistPageState.pageStart}-{playlistPageState.pageEnd} из {playlistPageState.total}
             </span>
-            <button className="secondary-mini playlist-page-previous-button" title="Предыдущая страница сета" disabled={!playlistPageState.canGoBack} onClick={() => setPlaylistOffset((current) => Math.max(0, current - playlistPageSize))} type="button">Prev</button>
-            <button className="secondary-mini playlist-page-next-button" title="Следующая страница сета" disabled={!playlistPageState.canGoForward} onClick={() => setPlaylistOffset((current) => current + playlistPageSize)} type="button">Next</button>
+            <button className="playlist-page-previous-button" title="Предыдущая страница сета" disabled={!playlistPageState.canGoBack} onClick={() => setPlaylistOffset((current) => Math.max(0, current - playlistPageSize))} type="button">Prev</button>
+            <button className="playlist-page-next-button" title="Следующая страница сета" disabled={!playlistPageState.canGoForward} onClick={() => setPlaylistOffset((current) => current + playlistPageSize)} type="button">Next</button>
           </div>
         ) : null}
         <div className="playlist-list">
@@ -357,18 +354,22 @@ export function SearchPlaylistPanel({
               Сет пуст
             </div>
           ) : (
-            playlistPageState.items.map((track, index) => (
-              <div className="playlist-row" key={track.id}>
-                <span className="row-index">{playlistPageState.offset + index + 1}</span>
-                <button className="icon-button playlist-preview-button" title="Preview" aria-label={`Preview ${displayTrack(track)}`} onClick={() => setPreview(track)}><Play size={15} /></button>
-                <div className="track-copy">
-                  <strong>{displayTrack(track)}</strong>
-                  <span>{trackInfo(track)}</span>
+            playlistPageState.items.map((track, index) => {
+              const trackPreviewActive = playingTrackId === track.id;
+              return (
+                <div className="playlist-row" key={track.id}>
+                  <span className="row-index">{playlistPageState.offset + index + 1}</span>
+                  <button className="icon-button playlist-preview-button" title={trackPreviewActive ? "Pause preview" : "Preview"} aria-label={`${trackPreviewActive ? "Pause" : "Preview"} ${displayTrack(track)}`} onClick={() => setPreview(track)}>
+                    {trackPreviewActive ? <Pause size={15} /> : <Play size={15} />}
+                  </button>
+                  <div className="track-title-cell">
+                    <strong>{displayTrack(track)}</strong>
+                  </div>
+                  <button className="icon-button playlist-metadata-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={() => setMetadataTrack(track)}><Tags size={15} /></button>
+                  <button className="icon-button intent-remove playlist-remove-button" title="Убрать из сета" aria-label={`Убрать ${displayTrack(track)} из сета`} onClick={() => removeFromPlaylist(track.id)}><Trash2 size={15} /></button>
                 </div>
-                <button className="icon-button playlist-metadata-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={() => setMetadataTrack(track)}><Tags size={15} /></button>
-                <button className="icon-button intent-remove playlist-remove-button" title="Убрать из сета" aria-label={`Убрать ${displayTrack(track)} из сета`} onClick={() => removeFromPlaylist(track.id)}><Trash2 size={15} /></button>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
         <div className="path-row output-row">
@@ -377,7 +378,7 @@ export function SearchPlaylistPanel({
             <FolderOpen size={17} />
           </button>
         </div>
-        <div className="action-row">
+        <div className="export-action-row">
           <button className="export-m3u-button" title="Экспортировать текущий сет в M3U" disabled={busy || !playlist.length} onClick={() => handleExport("m3u")}><Download size={16} />M3U</button>
           <button className="export-csv-button" title="Экспортировать текущий сет в CSV" disabled={busy || !playlist.length} onClick={() => handleExport("csv")}><Download size={16} />CSV</button>
         </div>

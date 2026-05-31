@@ -8,12 +8,23 @@ from typing import Optional
 
 import typer
 
-from .analysis_jobs import (
+from .analysis_config import (
     ANALYSIS_MODEL_ORDER,
+    DEFAULT_ANALYSIS_DEVICE,
     DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
+    DEFAULT_ANALYSIS_TOP_K,
     DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
-    AnalysisJobManager,
+    MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
+    MAX_ANALYSIS_TOP_K,
+    MAX_ANALYSIS_TRACK_BATCH_SIZE,
+    MIN_ANALYSIS_INFERENCE_BATCH_SIZE,
+    MIN_ANALYSIS_TOP_K,
+    MIN_ANALYSIS_TRACK_BATCH_SIZE,
+    build_analysis_job_config,
+    normalize_analysis_device,
+    parse_analysis_models_text,
 )
+from .analysis_jobs import AnalysisJobManager
 from .classifier_scoring import analyze_classifier as run_classifier_analysis
 from .database import LibraryDatabase
 from .dependencies import require_ffmpeg
@@ -122,18 +133,17 @@ def _format_eta_seconds(seconds: float | None) -> str:
 
 
 def _parse_analysis_models(value: str) -> list[str]:
-    selected: list[str] = []
-    for item in value.split(","):
-        model = item.strip().lower()
-        if not model:
-            continue
-        if model not in ANALYSIS_MODEL_ORDER:
-            raise typer.BadParameter(f"Unknown analysis model: {item}")
-        if model not in selected:
-            selected.append(model)
-    if not selected:
-        raise typer.BadParameter("At least one analysis model must be selected")
-    return [model for model in ANALYSIS_MODEL_ORDER if model in selected]
+    try:
+        return list(parse_analysis_models_text(value))
+    except ValueError as error:
+        raise typer.BadParameter(str(error)) from error
+
+
+def _parse_analysis_device(value: str | None) -> str:
+    try:
+        return normalize_analysis_device(value)
+    except ValueError as error:
+        raise typer.BadParameter(str(error)) from error
 
 
 @app.command()
@@ -173,36 +183,52 @@ def analyze(
     db_path: Optional[Path] = typer.Option(None, "--db"),
     limit: Optional[int] = typer.Option(None, "--limit"),
     models: str = typer.Option(",".join(ANALYSIS_MODEL_ORDER), "--models", help="Comma-separated analysis models: sonara,maest,mert,clap."),
-    device: str = typer.Option("auto", "--device", help="Embedding device: auto, cpu, or cuda."),
-    top_k: int = typer.Option(3, "--top-k", min=1, max=10, help="Number of MAEST genre labels to store per track."),
+    device: str = typer.Option(DEFAULT_ANALYSIS_DEVICE, "--device", help="Embedding device: auto, cpu, or cuda."),
+    top_k: int = typer.Option(
+        DEFAULT_ANALYSIS_TOP_K,
+        "--top-k",
+        min=MIN_ANALYSIS_TOP_K,
+        max=MAX_ANALYSIS_TOP_K,
+        help="Number of MAEST genre labels to store per track.",
+    ),
     track_batch_size: int = typer.Option(
         DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
         "--track-batch-size",
-        min=1,
-        max=64,
+        min=MIN_ANALYSIS_TRACK_BATCH_SIZE,
+        max=MAX_ANALYSIS_TRACK_BATCH_SIZE,
         help="Number of decoded tracks held and processed together.",
     ),
     inference_batch_size: int = typer.Option(
         DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
         "--inference-batch-size",
-        min=1,
-        max=128,
+        min=MIN_ANALYSIS_INFERENCE_BATCH_SIZE,
+        max=MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
         help="MERT/CLAP/MAEST model inference batch size.",
     ),
     diagnostics: bool = typer.Option(False, "--diagnostics", help="Write decoder fallback and batch timing diagnostics to the file log."),
 ) -> None:
     set_analysis_diagnostics_enabled(diagnostics)
-    selected_models = _parse_analysis_models(models)
+    try:
+        config = build_analysis_job_config(
+            models=_parse_analysis_models(models),
+            limit=limit,
+            device=device,
+            top_k=top_k,
+            track_batch_size=track_batch_size,
+            inference_batch_size=inference_batch_size,
+        )
+    except ValueError as error:
+        raise typer.BadParameter(str(error)) from error
     manager = AnalysisJobManager(_db(db_path))
     job_id = manager.create_job(
-        models=selected_models,
-        limit=limit,
-        device=device,
-        top_k=top_k,
-        track_batch_size=track_batch_size,
-        inference_batch_size=inference_batch_size,
+        models=list(config.models),
+        limit=config.limit,
+        device=config.device,
+        top_k=config.top_k,
+        track_batch_size=config.track_batch_size,
+        inference_batch_size=config.inference_batch_size,
     )
-    status = _run_cli_job_with_progress(manager, job_id, label=",".join(selected_models))
+    status = _run_cli_job_with_progress(manager, job_id, label=",".join(config.models))
     typer.echo(
         f"state={status.state} total={status.total} processed={status.processed} "
         f"analyzed={status.analyzed} failed={status.failed} models={','.join(status.models)} "
@@ -259,9 +285,9 @@ def text_search(
     db_path: Optional[Path] = typer.Option(None, "--db"),
     limit: int = typer.Option(50, "--limit", min=1, max=500),
     min_similarity: Optional[float] = typer.Option(None, "--min-similarity"),
-    device: str = typer.Option("auto", "--device", help="CLAP device: auto, cpu, or cuda."),
+    device: str = typer.Option(DEFAULT_ANALYSIS_DEVICE, "--device", help="CLAP device: auto, cpu, or cuda."),
 ) -> None:
-    adapter = ClapEmbeddingAdapter(device=device)
+    adapter = ClapEmbeddingAdapter(device=_parse_analysis_device(device))
     vector = adapter.embed_text(query.strip())
     results = SimilaritySearch(_db(db_path), embedding_key=adapter.embedding_key).search_vector(
         vector,

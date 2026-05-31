@@ -1,9 +1,9 @@
-import { Cpu, Database, FolderOpen, Minus, Play, Plus, RefreshCcw, Save, Square, Trash2 } from "lucide-react";
-import { AnalysisJobStatus, AnalysisModel, ScanStats } from "./api";
-import { stageIndicatorLabel } from "./jobUi";
+import { Cpu, Database, FolderOpen, Minus, Play, Plus, RefreshCcw, Save, Trash2 } from "lucide-react";
+import { AnalysisModel } from "./api";
+import type { AnalysisSelection } from "./analysisSelection";
 
 type DeviceMode = "auto" | "cpu" | "cuda";
-const analysisModelOrder: AnalysisModel[] = ["sonara", "maest", "mert", "clap"];
+const analysisModelOrder: AnalysisSelection[] = ["sonara", "maest", "mert", "clap", "classifiers"];
 
 type LibraryHelpText = {
   databasePath: string;
@@ -15,6 +15,7 @@ type LibraryHelpText = {
   maestAnalyze: string;
   mertAnalyze: string;
   clapAnalyze: string;
+  classifiersAnalyze: string;
   writeMaestGenres: string;
   analyzeLimit: string;
   analysisDevice: string;
@@ -22,11 +23,12 @@ type LibraryHelpText = {
   analysisInferenceBatchSize: string;
 };
 
-const analysisModelHelpKey: Record<AnalysisModel, keyof LibraryHelpText> = {
+const analysisModelHelpKey: Record<AnalysisSelection, keyof LibraryHelpText> = {
   sonara: "sonaraAnalyze",
   maest: "maestAnalyze",
   mert: "mertAnalyze",
-  clap: "clapAnalyze"
+  clap: "clapAnalyze",
+  classifiers: "classifiersAnalyze"
 };
 
 export function LibraryPanel({
@@ -55,19 +57,19 @@ export function LibraryPanel({
   maxAnalysisInferenceBatchSize,
   adjustAnalysisInferenceBatchSize,
   onAnalysisInferenceBatchSizeChange,
-  scanJob,
-  analysisJob,
   helpText,
-  onStopActiveStage,
   onChooseFolder,
   onScan,
   onRefreshTags,
   onWriteMaestGenres,
   onClearDatabase,
+  classifierAvailable,
+  analysisCounts,
   selectedAnalysisModels,
   onToggleAnalysisModel,
   onAnalyzeSelected,
-  onResetAnalysis
+  onResetAnalysis,
+  onResetClassifiers
 }: {
   databasePath: string | null;
   onChooseDatabase: () => void;
@@ -94,19 +96,19 @@ export function LibraryPanel({
   maxAnalysisInferenceBatchSize: number;
   adjustAnalysisInferenceBatchSize: (delta: number) => void;
   onAnalysisInferenceBatchSizeChange: (value: number) => void;
-  scanJob: ScanStats | null;
-  analysisJob: AnalysisJobStatus | null;
   helpText: LibraryHelpText;
-  onStopActiveStage: () => void;
   onChooseFolder: () => void;
   onScan: () => void;
   onRefreshTags: () => void;
   onWriteMaestGenres: () => void;
   onClearDatabase: () => void;
-  selectedAnalysisModels: AnalysisModel[];
-  onToggleAnalysisModel: (model: AnalysisModel) => void;
+  classifierAvailable: boolean;
+  analysisCounts: Record<AnalysisSelection, number>;
+  selectedAnalysisModels: AnalysisSelection[];
+  onToggleAnalysisModel: (model: AnalysisSelection) => void;
   onAnalyzeSelected: () => void;
   onResetAnalysis: (adapter: AnalysisModel) => void;
+  onResetClassifiers: () => void;
 }) {
   const analysisDisabled = busy || stageRunning || !hasTracks;
   return (
@@ -114,14 +116,6 @@ export function LibraryPanel({
       <div className="panel-title">
         <FolderOpen size={18} />
         <h2>1. База и анализ</h2>
-        <div className="panel-title-actions process-controls">
-          <button className="icon-button stop-button stop-active-stage-button" title="Остановить текущий scan или анализ" aria-label="Остановить текущий scan или анализ" disabled={busy || !stageRunning} onClick={onStopActiveStage}>
-            <Square size={15} />
-          </button>
-          <span className={`process-indicator ${stageRunning ? "running" : ""}`} title={stageIndicatorLabel(scanJob, analysisJob)} aria-label={stageIndicatorLabel(scanJob, analysisJob)}>
-            <RefreshCcw size={17} />
-          </span>
-        </div>
       </div>
       <div className="path-row database-path-row">
         <input value={databasePath || ""} readOnly placeholder="Выберите SQLite базу" title={helpText.databasePath} />
@@ -145,7 +139,7 @@ export function LibraryPanel({
         <small>Для чтения метаданных: 1-{maxScanWorkers}</small>
       </div>
       <div className="scan-action-row">
-        <button className="primary scan-start-button" title="Первично прочитать треки через Mutagen и добавить или обновить записи в SQLite" disabled={busy || stageRunning || !canStartScan} onClick={onScan}>
+        <button className="scan-start-button" title="Первично прочитать треки через Mutagen и добавить или обновить записи в SQLite" disabled={busy || stageRunning || !canStartScan} onClick={onScan}>
           <Play size={15} />
           Загрузить треки в базу
         </button>
@@ -166,31 +160,41 @@ export function LibraryPanel({
           <Trash2 size={17} />
         </button>
       </div>
-      <div className="analysis-section-title">
+      <div className="analysis-models-heading">
         <span>Анализ моделей</span>
         <small>Один запуск обработает выбранные модели и пропустит уже готовые результаты</small>
       </div>
       <div className="analysis-actions">
         {analysisModelOrder.map((model) => {
-          const label = model.toUpperCase();
+          const isClassifiers = model === "classifiers";
+          const label = isClassifiers ? "CLASSIFIERS" : model.toUpperCase();
+          const title = helpText[analysisModelHelpKey[model]];
+          const count = analysisCounts[model] || 0;
           return (
             <div className="analysis-model-row" key={model}>
-              <span className="analysis-model-name" title={helpText[analysisModelHelpKey[model]]}>{label}</span>
-              <label className="analysis-model-check" title={helpText[analysisModelHelpKey[model]]} aria-label={`${label} selected`}>
+              <span className="analysis-model-name" title={title}>{label}</span>
+              <span className="analysis-model-count" title={`${label}: ${count} треков`}>{count}</span>
+              <label className="analysis-model-check" title={title} aria-label={`${label} selected`}>
                 <input
                   className="analysis-model-checkbox"
                   type="checkbox"
                   checked={selectedAnalysisModels.includes(model)}
-                  disabled={busy || stageRunning}
+                  disabled={busy || stageRunning || (isClassifiers && !classifierAvailable)}
                   onChange={() => onToggleAnalysisModel(model)}
                 />
               </label>
               <button
                 className={`analysis-reset-button ${model}-reset-button`}
-                disabled={analysisDisabled}
+                disabled={analysisDisabled || (isClassifiers && !classifierAvailable)}
                 title={`Reset ${label}`}
                 aria-label={`Reset ${label}`}
-                onClick={() => onResetAnalysis(model)}
+                onClick={() => {
+                  if (model === "classifiers") {
+                    onResetClassifiers();
+                  } else {
+                    onResetAnalysis(model);
+                  }
+                }}
                 type="button"
               >
                 Reset
@@ -241,7 +245,7 @@ export function LibraryPanel({
         <small>MAEST/MERT/CLAP forward pass; RTX 3090 default 24.</small>
       </div>
       <button
-        className="primary analyze-selected-button"
+        className="analyze-selected-button"
         disabled={analysisDisabled || selectedAnalysisModels.length === 0}
         title="Запустить анализ выбранных моделей для треков с отсутствующими результатами"
         onClick={onAnalyzeSelected}

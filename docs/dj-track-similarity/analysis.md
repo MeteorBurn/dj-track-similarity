@@ -17,10 +17,15 @@ Each family writes different SQLite data and supports a different workflow:
 | Promoted classifiers | Scores tracks with a local model trained in Rhythm Lab. | You want a reusable custom signal such as vocal presence, live instrumentation, or another profile-specific label. |
 
 The main audio-analysis workflow is one selected-model job. In the UI, select
-SONARA, MAEST, MERT, and/or CLAP with checkboxes and start one analysis run. In
+SONARA, MAEST, MERT, and/or CLAP with checkboxes and start one analysis run.
+The same UI block also has a `CLASSIFIERS` checkbox. When selected, promoted
+classifier scoring starts after the selected audio-analysis models finish, and
+only profiles discovered from `models/classifiers/*/model.json` are launched.
+Tracks missing the classifier input data are skipped by the classifier job. In
 the CLI, use `dj-sim analyze --models sonara,maest,mert,clap`; omitting
-`--models` selects all four. A track is eligible when it is missing at least
-one selected model, and existing selected-model results are skipped.
+`--models` selects all four audio models. A track is eligible when it is
+missing at least one selected model, and existing selected-model results are
+skipped.
 
 ### Sonara
 
@@ -30,9 +35,9 @@ name under `metadata_json.sonara_model`.
 
 Stored groups and keys:
 
-- Core features: `bpm`, `beats`, `onset_frames`, `onset_density`, `n_beats`,
+- Core features: `bpm`, `duration_sec`, `beats`, `onset_frames`, `onset_density`, `n_beats`,
   `rms_mean`, `rms_max`, `loudness_lufs`, `dynamic_range_db`,
-  `spectral_centroid_mean`, `zero_crossing_rate`, `duration_sec`.
+  `spectral_centroid_mean`, `zero_crossing_rate`.
 - Perceptual features: `energy`, `danceability`, `valence`, `acousticness`.
 - Musical key: `key`, `key_confidence`.
 - Tonal analysis: `predominant_chord`, `chord_change_rate`, `dissonance`.

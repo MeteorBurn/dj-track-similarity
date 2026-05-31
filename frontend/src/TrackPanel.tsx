@@ -1,13 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowDownUp, AudioWaveform, Heart, ListMusic, Plus, Search } from "lucide-react";
 import { Track } from "./api";
-import { likedTracksFilterTitle, libraryCurrentPageNumber, libraryPageCount, type LibraryPreset, type LibrarySortDirection } from "./libraryView";
+import { likedTracksFilterTitle, libraryCurrentPageNumber, libraryPageCount, librarySearchModeTitle, type LibraryPreset, type LibrarySearchMode, type LibrarySortDirection } from "./libraryView";
 import { TrackList } from "./TrackRows";
 import { displayTrack } from "./trackDisplay";
 
 export function TrackPanel({
   query,
   onQueryChange,
+  searchMode,
+  onSearchModeChange,
   libraryPreset,
   onToggleLibraryPreset,
   likedOnly,
@@ -16,6 +18,7 @@ export function TrackPanel({
   librarySortDirection,
   onToggleLibrarySortDirection,
   preview,
+  playingTrackId,
   tracks,
   total,
   offset,
@@ -34,10 +37,14 @@ export function TrackPanel({
   onToggleLiked,
   onTogglePlaylist,
   onPreview,
+  onPreviewPlaying,
+  onPreviewPaused,
   onDetails
 }: {
   query: string;
   onQueryChange: (value: string) => void;
+  searchMode: LibrarySearchMode;
+  onSearchModeChange: (mode: LibrarySearchMode) => void;
   libraryPreset: LibraryPreset;
   onToggleLibraryPreset: (preset: LibraryPreset) => void;
   likedOnly: boolean;
@@ -46,6 +53,7 @@ export function TrackPanel({
   librarySortDirection: LibrarySortDirection;
   onToggleLibrarySortDirection: () => void;
   preview: Track | null;
+  playingTrackId: number | null;
   tracks: Track[];
   total: number;
   offset: number;
@@ -64,12 +72,15 @@ export function TrackPanel({
   onToggleLiked: (track: Track) => void;
   onTogglePlaylist: (track: Track) => void;
   onPreview: (track: Track) => void;
+  onPreviewPlaying: (trackId: number) => void;
+  onPreviewPaused: (trackId: number) => void;
   onDetails: (track: Track) => void;
 }) {
   const pageCount = libraryPageCount(total);
   const currentPage = libraryCurrentPageNumber(total, offset);
   const syncedPageInput = currentPage ? String(currentPage) : "";
   const [pageInput, setPageInput] = useState(syncedPageInput);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const addVisibleTitle = total === 0
     ? "Нет отфильтрованных треков для добавления"
     : "Добавить все отфильтрованные треки в сет с учетом поиска, preset-фильтра и всех страниц. Уже добавленные треки будут пропущены.";
@@ -78,6 +89,16 @@ export function TrackPanel({
   useEffect(() => {
     setPageInput(syncedPageInput);
   }, [syncedPageInput]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !preview) return;
+    if (playingTrackId === preview.id) {
+      void audio.play().catch(() => undefined);
+    } else {
+      audio.pause();
+    }
+  }, [preview?.id, playingTrackId]);
 
   function submitPageInput() {
     const requestedPage = Number.parseInt(pageInput, 10);
@@ -99,6 +120,28 @@ export function TrackPanel({
       <div className="search-input">
         <Search size={16} />
         <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="artist, title, genre, path" title={librarySearchHelp} />
+        <div className="library-search-mode-toggle" role="group" aria-label="Library search mode">
+          <button
+            className={`library-search-like-button ${searchMode === "like" ? "active" : ""}`}
+            title={librarySearchModeTitle("like")}
+            aria-label="LIKE search"
+            aria-pressed={searchMode === "like"}
+            onClick={() => onSearchModeChange("like")}
+            type="button"
+          >
+            LIKE
+          </button>
+          <button
+            className={`library-search-fts-button ${searchMode === "fts" ? "active" : ""}`}
+            title={librarySearchModeTitle("fts")}
+            aria-label="FTS search"
+            aria-pressed={searchMode === "fts"}
+            onClick={() => onSearchModeChange("fts")}
+            type="button"
+          >
+            FTS
+          </button>
+        </div>
       </div>
       <div className="library-view-controls">
         <button
@@ -122,8 +165,8 @@ export function TrackPanel({
         >
           <Heart size={16} />
         </button>
-        <button className="secondary-mini library-page-previous-button" title="Предыдущая страница библиотеки" disabled={!canGoBack} onClick={onPreviousPage} type="button">Prev</button>
-        <button className="secondary-mini library-page-next-button" title="Следующая страница библиотеки" disabled={!canGoForward} onClick={onNextPage} type="button">Next</button>
+        <button className="library-page-previous-button" title="Предыдущая страница библиотеки" disabled={!canGoBack} onClick={onPreviousPage} type="button">Prev</button>
+        <button className="library-page-next-button" title="Следующая страница библиотеки" disabled={!canGoForward} onClick={onNextPage} type="button">Next</button>
         <input
           className="library-page-index-input"
           type="number"
@@ -171,14 +214,24 @@ export function TrackPanel({
           <Plus size={16} />
         </button>
       </div>
-      <div className="player library-player">
+      <div className="library-preview-player">
         <span>{preview ? displayTrack(preview) : "Preview"}</span>
-        {preview && <audio controls autoPlay src={`/media/${preview.id}`} />}
+        {preview && (
+          <audio
+            ref={audioRef}
+            controls
+            src={`/media/${preview.id}`}
+            onPlay={() => onPreviewPlaying(preview.id)}
+            onPause={() => onPreviewPaused(preview.id)}
+            onEnded={() => onPreviewPaused(preview.id)}
+          />
+        )}
       </div>
       <TrackList
         tracks={tracks}
         seedSet={seedSet}
         playlistSet={playlistSet}
+        playingTrackId={playingTrackId}
         onSeed={onSeed}
         onToggleLiked={onToggleLiked}
         onTogglePlaylist={onTogglePlaylist}

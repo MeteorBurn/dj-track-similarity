@@ -34,20 +34,62 @@ def test_new_database_uses_current_schema_version_and_indexes(tmp_path: Path) ->
     with db.connect() as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         tables = {row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        track_columns = {row["name"] for row in connection.execute("PRAGMA table_info(tracks)").fetchall()}
         track_indexes = {row["name"] for row in connection.execute("PRAGMA index_list(tracks)").fetchall()}
         embedding_indexes = {row["name"] for row in connection.execute("PRAGMA index_list(embeddings)").fetchall()}
 
     assert version == CURRENT_SCHEMA_VERSION
     assert "library_settings" in tables
+    assert "track_search_fts" in tables
     assert {
         "idx_tracks_sort_artist_title_path",
+        "idx_tracks_syncopated_sort",
+        "idx_tracks_missing_sonara_flag_sort",
+        "idx_tracks_missing_maest_embedding_flag_sort",
+        "idx_tracks_missing_mert_embedding_flag_sort",
+        "idx_tracks_missing_clap_embedding_flag_sort",
+        "idx_tracks_present_sonara_flag",
+        "idx_tracks_present_maest_embedding_flag",
+        "idx_tracks_present_mert_embedding_flag",
+        "idx_tracks_present_clap_embedding_flag",
+    }.issubset(track_indexes)
+    assert {
+        "has_sonara_analysis",
+        "has_maest_embedding",
+        "has_mert_embedding",
+        "has_clap_embedding",
+    }.issubset(track_columns)
+    assert not {
         "idx_tracks_sonara_present",
         "idx_tracks_maest_present",
-        "idx_tracks_syncopated_sort",
         "idx_tracks_sonara_missing_sort",
         "idx_tracks_maest_missing_sort",
-    }.issubset(track_indexes)
+    }.intersection(track_indexes)
     assert "idx_embeddings_key_track" in embedding_indexes
+
+
+def test_track_search_fts_mode_is_explicit_token_search(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    substring_id = db.upsert_track(
+        path=tmp_path / "substring.wav",
+        size=10,
+        mtime=1,
+        metadata={"artist": "DJ One", "title": "AlphaBeta"},
+    )
+    token_id = db.upsert_track(
+        path=tmp_path / "token.wav",
+        size=10,
+        mtime=1,
+        metadata={"artist": "DJ Two", "title": "Deep House"},
+    )
+
+    like_page = db.list_tracks_page(query="phaB")
+    fts_substring_page = db.list_tracks_page(query="phaB", search_mode="fts")
+    fts_token_page = db.list_tracks_page(query="deep house", search_mode="fts")
+
+    assert [track.id for track in like_page["items"]] == [substring_id]
+    assert fts_substring_page["total"] == 0
+    assert [track.id for track in fts_token_page["items"]] == [token_id]
 
 
 def test_database_persists_library_root_setting(tmp_path: Path) -> None:
@@ -264,6 +306,34 @@ def test_database_stores_multiple_embedding_spaces_per_track(tmp_path: Path) -> 
     assert track.analyses == ["mert", "clap"]
 
 
+def test_database_keeps_embedding_matrix_cache_when_unembedded_track_changes(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    embedded_id = db.upsert_track(path=tmp_path / "embedded.wav", size=10, mtime=1, metadata={"title": "Embedded"})
+    plain_id = db.upsert_track(path=tmp_path / "plain.wav", size=10, mtime=1, metadata={"title": "Plain"})
+    db.save_embedding(embedded_id, np.array([1, 0, 0], dtype=np.float32), "mert-model", 3, embedding_key="mert")
+
+    cached = db.load_embedding_matrix("mert")
+    db.set_track_liked(plain_id, True)
+    db.upsert_track(path=tmp_path / "new.wav", size=10, mtime=1, metadata={"title": "New"})
+
+    assert db.load_embedding_matrix("mert") is cached
+
+
+def test_database_invalidates_only_changed_track_embedding_keys(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    mert_id = db.upsert_track(path=tmp_path / "mert.wav", size=10, mtime=1, metadata={"title": "Mert"})
+    clap_id = db.upsert_track(path=tmp_path / "clap.wav", size=10, mtime=1, metadata={"title": "Clap"})
+    db.save_embedding(mert_id, np.array([1, 0, 0], dtype=np.float32), "mert-model", 3, embedding_key="mert")
+    db.save_embedding(clap_id, np.array([0, 1, 0], dtype=np.float32), "clap-model", 3, embedding_key="clap")
+
+    db.load_embedding_matrix("mert")
+    cached_clap = db.load_embedding_matrix("clap")
+    db.save_sonara_features(mert_id, {"energy": {"value": 0.8}}, energy=0.8, model_name="sonara")
+
+    assert "mert" not in db._embedding_matrix_cache
+    assert db.load_embedding_matrix("clap") is cached_clap
+
+
 def test_database_resets_embedding_analysis_independently(tmp_path: Path) -> None:
     import numpy as np
 
@@ -278,6 +348,109 @@ def test_database_resets_embedding_analysis_independently(tmp_path: Path) -> Non
     assert db.load_embedding_matrix("mert")[0] == []
     assert [track.id for track in db.load_embedding_matrix("clap")[0]] == [track_id]
     assert db.get_track(track_id).analyses == ["clap"]
+
+
+def test_database_maintains_analysis_presence_flags(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = db.upsert_track(path=tmp_path / "track.wav", size=10, mtime=1, metadata={"title": "Track"})
+
+    assert _analysis_flag_row(db, track_id) == {
+        "has_sonara_analysis": 0,
+        "has_maest_embedding": 0,
+        "has_mert_embedding": 0,
+        "has_clap_embedding": 0,
+    }
+
+    db.save_sonara_features(track_id, {"bpm": {"value": 128}}, model_name="sonara")
+    db.save_embedding(track_id, np.asarray([1.0, 0.0], dtype=np.float32), "maest", embedding_key="maest")
+    db.save_embedding(track_id, np.asarray([0.0, 1.0], dtype=np.float32), "mert", embedding_key="mert")
+    db.save_embedding(track_id, np.asarray([1.0, 1.0], dtype=np.float32), "clap", embedding_key="clap")
+
+    assert _analysis_flag_row(db, track_id) == {
+        "has_sonara_analysis": 1,
+        "has_maest_embedding": 1,
+        "has_mert_embedding": 1,
+        "has_clap_embedding": 1,
+    }
+
+    db.reset_analysis("mert")
+    db.reset_analysis("sonara")
+    db.reset_analysis("maest")
+
+    assert _analysis_flag_row(db, track_id) == {
+        "has_sonara_analysis": 0,
+        "has_maest_embedding": 0,
+        "has_mert_embedding": 0,
+        "has_clap_embedding": 1,
+    }
+
+
+def test_database_lists_lean_analysis_candidates_with_missing_models(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    missing_mert = db.upsert_track(path=tmp_path / "a-missing-mert.wav", size=10, mtime=1, metadata={"title": "A"})
+    missing_sonara = db.upsert_track(path=tmp_path / "b-missing-sonara.wav", size=10, mtime=1, metadata={"title": "B"})
+    complete = db.upsert_track(path=tmp_path / "c-complete.wav", size=10, mtime=1, metadata={"title": "C"})
+    missing_unselected = db.upsert_track(path=tmp_path / "d-missing-clap.wav", size=10, mtime=1, metadata={"title": "D"})
+
+    db.save_sonara_features(missing_mert, {"bpm": {"value": 128.0}}, model_name="sonara")
+    db.save_embedding(missing_sonara, np.asarray([1.0, 0.0], dtype=np.float32), "mert", embedding_key="mert")
+    for track_id in (complete, missing_unselected):
+        db.save_sonara_features(track_id, {"bpm": {"value": 128.0}}, model_name="sonara")
+        db.save_embedding(track_id, np.asarray([1.0, 0.0], dtype=np.float32), "mert", embedding_key="mert")
+
+    candidates = db.list_analysis_candidates(["sonara", "mert"], limit=10)
+
+    assert [(candidate.id, candidate.missing_models, candidate.analyses) for candidate in candidates] == [
+        (missing_mert, ("mert",), ("sonara",)),
+        (missing_sonara, ("sonara",), ("mert",)),
+    ]
+
+
+def test_database_lists_analysis_candidates_with_one_read_connection(tmp_path: Path) -> None:
+    class CountingDatabase(LibraryDatabase):
+        connect_calls = 0
+
+        def connect(self):
+            self.connect_calls += 1
+            return super().connect()
+
+    db = CountingDatabase(tmp_path / "library.sqlite")
+    db.upsert_track(path=tmp_path / "a-missing-mert.wav", size=10, mtime=1, metadata={"title": "A"})
+    db.upsert_track(path=tmp_path / "b-missing-sonara.wav", size=10, mtime=1, metadata={"title": "B"})
+    db.connect_calls = 0
+
+    candidates = db.list_analysis_candidates(["sonara", "mert"], limit=10)
+
+    assert len(candidates) == 2
+    assert db.connect_calls == 1
+
+
+def test_database_analysis_candidates_use_presence_flag_indexes(tmp_path: Path, monkeypatch) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    db.upsert_track(path=tmp_path / "a-missing-mert.wav", size=10, mtime=1, metadata={"title": "A"})
+    present_id = db.upsert_track(path=tmp_path / "b-present-mert.wav", size=10, mtime=1, metadata={"title": "B"})
+    db.save_embedding(present_id, np.asarray([1.0, 0.0], dtype=np.float32), "mert", embedding_key="mert")
+    statements: list[str] = []
+    original_connect = db.connect
+
+    def traced_connect():
+        connection = original_connect()
+        connection.set_trace_callback(statements.append)
+        return connection
+
+    monkeypatch.setattr(db, "connect", traced_connect)
+
+    candidates = db.list_analysis_candidates(["mert"], limit=10)
+
+    assert [candidate.path for candidate in candidates] == [(tmp_path / "a-missing-mert.wav").as_posix()]
+    candidate_sql = next(statement for statement in statements if "SELECT t.id" in statement and "has_mert_embedding" in statement)
+    assert "LEFT JOIN embeddings" not in candidate_sql
+    with db.connect() as connection:
+        plan = "\n".join(
+            str(row["detail"])
+            for row in connection.execute(f"EXPLAIN QUERY PLAN {candidate_sql}").fetchall()
+        )
+    assert "idx_tracks_missing_mert_embedding_flag_sort" in plan
 
 
 def test_database_reset_rejects_removed_fake_adapter(tmp_path: Path) -> None:
@@ -639,3 +812,16 @@ def test_relocate_library_apply_rejects_path_conflicts(tmp_path: Path) -> None:
     else:
         raise AssertionError("relocate_library should reject conflicting paths")
     assert db.get_track(old_track_id).path == old_file.as_posix()
+
+
+def _analysis_flag_row(db: LibraryDatabase, track_id: int) -> dict[str, int]:
+    with db.connect() as connection:
+        row = connection.execute(
+            """
+            SELECT has_sonara_analysis, has_maest_embedding, has_mert_embedding, has_clap_embedding
+            FROM tracks
+            WHERE id = ?
+            """,
+            (track_id,),
+        ).fetchone()
+    return {key: int(row[key]) for key in row.keys()}

@@ -3,6 +3,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import dj_track_similarity.api as api
+import dj_track_similarity.api_state as api_state
 from dj_track_similarity.database import LibraryDatabase
 
 
@@ -73,7 +74,6 @@ def _status(models, *, track_batch_size=6, inference_batch_size=24, device="cpu"
         "events": [],
         "cancel_requested": False,
         "workers": track_batch_size,
-        "batch_size": track_batch_size,
         "track_batch_size": track_batch_size,
         "inference_batch_size": inference_batch_size,
         "top_k": top_k,
@@ -83,7 +83,7 @@ def _status(models, *, track_batch_size=6, inference_batch_size=24, device="cpu"
 def test_api_starts_selected_multi_model_analysis_job(monkeypatch, tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     LibraryDatabase(db_path)
-    monkeypatch.setattr(api, "AnalysisJobManager", SynchronousAnalysisManager)
+    monkeypatch.setattr(api_state, "AnalysisJobManager", SynchronousAnalysisManager)
     client = TestClient(api.create_app(db_path))
 
     response = client.post(
@@ -103,7 +103,7 @@ def test_api_starts_selected_multi_model_analysis_job(monkeypatch, tmp_path: Pat
     assert payload["adapter_name"] == "multi"
     assert payload["models"] == ["maest", "mert"]
     assert payload["model_progress"]["maest"]["total"] == 1
-    assert payload["batch_size"] == 5
+    assert "batch_size" not in payload
     assert payload["track_batch_size"] == 5
     assert payload["inference_batch_size"] == 18
     assert SynchronousAnalysisManager.last_request == {
@@ -119,7 +119,7 @@ def test_api_starts_selected_multi_model_analysis_job(monkeypatch, tmp_path: Pat
 def test_api_defaults_multi_model_analysis_to_all_models(monkeypatch, tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     LibraryDatabase(db_path)
-    monkeypatch.setattr(api, "AnalysisJobManager", SynchronousAnalysisManager)
+    monkeypatch.setattr(api_state, "AnalysisJobManager", SynchronousAnalysisManager)
     client = TestClient(api.create_app(db_path))
 
     response = client.post("/api/analysis/jobs", json={})
@@ -131,10 +131,30 @@ def test_api_defaults_multi_model_analysis_to_all_models(monkeypatch, tmp_path: 
     assert SynchronousAnalysisManager.last_request["inference_batch_size"] == 24
 
 
+def test_real_analysis_job_status_does_not_emit_legacy_batch_size(tmp_path: Path) -> None:
+    client = TestClient(api.create_app(tmp_path / "library.sqlite"))
+
+    response = client.post("/api/analysis/jobs", json={"models": ["mert"], "limit": 0})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "batch_size" not in payload
+    assert payload["track_batch_size"] == 6
+    assert payload["inference_batch_size"] == 24
+
+
 def test_api_rejects_legacy_analysis_batch_size(tmp_path: Path) -> None:
     client = TestClient(api.create_app(tmp_path / "library.sqlite"))
 
     response = client.post("/api/analysis/jobs", json={"models": ["mert"], "batch_size": 4})
+
+    assert response.status_code == 422
+
+
+def test_api_rejects_unknown_analysis_device(tmp_path: Path) -> None:
+    client = TestClient(api.create_app(tmp_path / "library.sqlite"))
+
+    response = client.post("/api/analysis/jobs", json={"models": ["mert"], "device": "gpu"})
 
     assert response.status_code == 422
 

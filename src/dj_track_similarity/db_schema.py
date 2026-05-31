@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import sqlite3
 
+from .db_search_fts import create_track_search_fts
 
-CURRENT_SCHEMA_VERSION = 2
+
+CURRENT_SCHEMA_VERSION = 3
 SQLITE_BUSY_TIMEOUT_SECONDS = 30
 
 TRACK_BASE_FIELDS = """
@@ -11,11 +13,8 @@ t.id, t.path, t.size, t.mtime, t.artist, t.title, t.album, t.bpm, t.musical_key,
 EXISTS(SELECT 1 FROM track_likes tl WHERE tl.track_id = t.id) AS liked
 """
 TRACK_ANALYSIS_FLAG_FIELDS = """
-json_type(t.metadata_json, '$.sonara_features') IS NOT NULL AS has_sonara,
-(
-    json_type(t.metadata_json, '$.maest_genres') = 'array'
-    AND json_array_length(json_extract(t.metadata_json, '$.maest_genres')) > 0
-) AS has_maest
+t.has_sonara_analysis = 1 AS has_sonara,
+t.has_maest_embedding = 1 AS has_maest
 """
 TRACK_EMBEDDING_KEY_FIELD = """
 (
@@ -102,6 +101,10 @@ def _create_current_schema(connection: sqlite3.Connection) -> None:
             musical_key TEXT,
             energy REAL,
             duration REAL,
+            has_sonara_analysis INTEGER NOT NULL DEFAULT 0,
+            has_maest_embedding INTEGER NOT NULL DEFAULT 0,
+            has_mert_embedding INTEGER NOT NULL DEFAULT 0,
+            has_clap_embedding INTEGER NOT NULL DEFAULT 0,
             metadata_json TEXT NOT NULL DEFAULT '{{}}' CHECK (json_valid(metadata_json)),
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -147,6 +150,7 @@ def _create_current_schema(connection: sqlite3.Connection) -> None:
         PRAGMA user_version = {CURRENT_SCHEMA_VERSION};
         """
     )
+    create_track_search_fts(connection)
     _create_current_indexes_and_triggers(connection)
 
 
@@ -156,29 +160,41 @@ def _create_current_indexes_and_triggers(connection: sqlite3.Connection) -> None
         CREATE INDEX IF NOT EXISTS idx_tracks_sort_artist_title_path
         ON tracks (COALESCE(artist, ''), COALESCE(title, ''), path);
 
-        CREATE INDEX IF NOT EXISTS idx_tracks_sonara_present
-        ON tracks(id)
-        WHERE json_type(metadata_json, '$.sonara_features') IS NOT NULL;
-
-        CREATE INDEX IF NOT EXISTS idx_tracks_maest_present
-        ON tracks(id)
-        WHERE json_type(metadata_json, '$.maest_genres') IS NOT NULL;
-
         CREATE INDEX IF NOT EXISTS idx_tracks_syncopated_sort
         ON tracks(COALESCE(artist, ''), COALESCE(title, ''), path)
         WHERE json_extract(metadata_json, '$.maest_syncopated_rhythm') = 1;
 
-        CREATE INDEX IF NOT EXISTS idx_tracks_sonara_missing_sort
+        CREATE INDEX IF NOT EXISTS idx_tracks_missing_sonara_flag_sort
         ON tracks(COALESCE(artist, ''), COALESCE(title, ''), path)
-        WHERE json_type(metadata_json, '$.sonara_features') IS NULL;
+        WHERE has_sonara_analysis = 0;
 
-        CREATE INDEX IF NOT EXISTS idx_tracks_maest_missing_sort
+        CREATE INDEX IF NOT EXISTS idx_tracks_missing_maest_embedding_flag_sort
         ON tracks(COALESCE(artist, ''), COALESCE(title, ''), path)
-        WHERE (
-            json_type(metadata_json, '$.maest_genres') IS NULL
-            OR json_type(metadata_json, '$.maest_genres') != 'array'
-            OR json_array_length(json_extract(metadata_json, '$.maest_genres')) = 0
-        );
+        WHERE has_maest_embedding = 0;
+
+        CREATE INDEX IF NOT EXISTS idx_tracks_missing_mert_embedding_flag_sort
+        ON tracks(COALESCE(artist, ''), COALESCE(title, ''), path)
+        WHERE has_mert_embedding = 0;
+
+        CREATE INDEX IF NOT EXISTS idx_tracks_missing_clap_embedding_flag_sort
+        ON tracks(COALESCE(artist, ''), COALESCE(title, ''), path)
+        WHERE has_clap_embedding = 0;
+
+        CREATE INDEX IF NOT EXISTS idx_tracks_present_sonara_flag
+        ON tracks(id)
+        WHERE has_sonara_analysis = 1;
+
+        CREATE INDEX IF NOT EXISTS idx_tracks_present_maest_embedding_flag
+        ON tracks(id)
+        WHERE has_maest_embedding = 1;
+
+        CREATE INDEX IF NOT EXISTS idx_tracks_present_mert_embedding_flag
+        ON tracks(id)
+        WHERE has_mert_embedding = 1;
+
+        CREATE INDEX IF NOT EXISTS idx_tracks_present_clap_embedding_flag
+        ON tracks(id)
+        WHERE has_clap_embedding = 1;
 
         CREATE INDEX IF NOT EXISTS idx_embeddings_key_track
         ON embeddings(embedding_key, track_id);
@@ -240,6 +256,10 @@ def _validate_current_schema(connection: sqlite3.Connection) -> None:
         "musical_key",
         "energy",
         "duration",
+        "has_sonara_analysis",
+        "has_maest_embedding",
+        "has_mert_embedding",
+        "has_clap_embedding",
         "metadata_json",
         "created_at",
         "updated_at",
@@ -247,11 +267,14 @@ def _validate_current_schema(connection: sqlite3.Connection) -> None:
     required_embedding_columns = {"track_id", "embedding_key", "model_name", "dim", "vector", "updated_at"}
     settings_columns = _columns(connection, "library_settings")
     required_settings_columns = {"key", "value", "updated_at"}
+    tables = _user_tables(connection)
     if not required_track_columns.issubset(track_columns):
         raise RuntimeError(_migration_required_message())
     if not required_embedding_columns.issubset(embedding_columns):
         raise RuntimeError(_migration_required_message())
     if not required_settings_columns.issubset(settings_columns):
+        raise RuntimeError(_migration_required_message())
+    if "track_search_fts" not in tables:
         raise RuntimeError(_migration_required_message())
 
 

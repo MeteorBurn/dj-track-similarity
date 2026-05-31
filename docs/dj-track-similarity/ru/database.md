@@ -7,7 +7,21 @@
 
 ## Спецификация SQLite
 
-Текущая версия схемы — `2`.
+Текущая версия схемы — `3`.
+
+Существующие library DB со схемой версии `2` не мигрируются приложением
+автоматически. Сначала запустите отдельный migration script; dry-run является
+режимом по умолчанию:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\migrate_database_v3.py --db .\data\library.sqlite
+.\.venv\Scripts\python.exe scripts\migrate_database_v3.py --db .\data\library.sqlite --apply
+```
+
+Перед `--apply` скрипт создаёт online SQLite backup. Закройте запущенное
+приложение перед применением миграции к той же базе. Этот же скрипт backfill'ит
+v3 FTS search table для баз, которые уже были переведены на v3 до появления FTS
+индекса; это всё равно явное действие скрипта, а не runtime migration.
 
 База данных — это локальное состояние пользователя. Обычные рабочие процессы
 сканирования, анализа, поиска, сброса, очистки и переноса библиотеки изменяют
@@ -26,12 +40,22 @@
 - `artist`, `title`, `album`: выбранные метаданные файла.
 - `bpm`, `musical_key`, `energy`, `duration`: рабочие поля, используемые
   интерфейсом и процессами анализа.
+- `has_sonara_analysis`, `has_maest_embedding`, `has_mert_embedding`,
+  `has_clap_embedding`: производные флаги наличия анализа, поддерживаемые
+  analysis writes и resets. Они ускоряют счётчики summary и выбор кандидатов
+  для missing-analysis. Это флаги наличия сохранённых данных, а не политика
+  stale/fresh.
 - `metadata_json`: объект JSON для полей Mutagen и метаданных, полученных от
   моделей.
 - `created_at`, `updated_at`: локальные временные метки строки.
 
 `metadata_json` должен быть корректным JSON. В схеме есть триггеры, которые
 отклоняют некорректный JSON при вставке или обновлении.
+
+Схема v3 содержит partial indexes для missing и present analysis flags. Эти
+индексы используются счётчиками summary и выбором кандидатов для analyzer, так
+что анализ почти полной большой библиотеки не должен сканировать всю таблицу
+`tracks`, чтобы найти небольшой набор строк без SONARA, MAEST, MERT или CLAP.
 
 Используйте эту таблицу, чтобы ответить на вопросы «какие треки есть в
 библиотеке?» и «какие метаданные или сводки анализа интерфейс показывает для
@@ -102,6 +126,23 @@
 Отсутствующие строки обычно означают, что продвинутый классификатор ещё не
 оценил трек или что у трека не было необходимых входных данных Sonara, MERT или
 MAEST во время оценки.
+
+### `track_search_fts`
+
+Хранит производный FTS5 индекс для явного token-based поиска по библиотеке:
+
+- `track_id`: стабильный локальный track ID, сохранённый unindexed для join
+  обратно к `tracks.id`.
+- `search_text`: материализованный текст artist, title, album, path и
+  `metadata_json`.
+
+Обычный поиск библиотеки по умолчанию использует substring `LIKE`. FTS
+используется только когда caller явно передаёт `search_mode=fts`. FTS token
+matching может сильно ускорить count/filter для широких запросов, но sorted
+first page всё ещё может упираться в сортировку library order, если token очень
+частый. Scan/upsert, RefreshTags, MAEST genre saves, Sonara metadata saves,
+resets, меняющие metadata, library relocation и clear-library поддерживают FTS
+rows в той же SQLite write transaction, что и связанное изменение `tracks`.
 
 ## Метаданные и данные анализа
 

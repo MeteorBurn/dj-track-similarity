@@ -17,7 +17,6 @@ class _FakeStatus:
     current_model = None
     model_progress = {}
     device = "cpu"
-    batch_size = 6
     track_batch_size = 6
     inference_batch_size = 24
     top_k = 3
@@ -33,7 +32,6 @@ class _FakeAnalysisManager:
     def create_job(self, **_kwargs):
         type(self).last_kwargs = _kwargs
         if "track_batch_size" in _kwargs:
-            self.status.batch_size = _kwargs["track_batch_size"]
             self.status.track_batch_size = _kwargs["track_batch_size"]
         if "inference_batch_size" in _kwargs:
             self.status.inference_batch_size = _kwargs["inference_batch_size"]
@@ -100,6 +98,18 @@ def test_analyze_cli_does_not_accept_legacy_batch_size():
     assert "No such option" in result.output
 
 
+def test_analyze_cli_rejects_unknown_device_before_starting_job(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "AnalysisJobManager", _FakeAnalysisManager)
+    _FakeAnalysisManager.last_kwargs = {}
+    db_path = tmp_path / "library.sqlite"
+
+    result = CliRunner().invoke(cli.app, ["analyze", "--device", "gpu", "--db", str(db_path)])
+
+    assert result.exit_code != 0
+    assert "Unknown torch device: gpu" in result.output
+    assert _FakeAnalysisManager.last_kwargs == {}
+
+
 def test_analyze_cli_prints_live_progress_for_default_models(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "AnalysisJobManager", _FakeAnalysisManager)
     db_path = tmp_path / "library.sqlite"
@@ -154,6 +164,18 @@ def test_analyze_cli_accepts_separate_track_and_inference_batch_sizes(monkeypatc
     assert _FakeAnalysisManager.last_kwargs["track_batch_size"] == 3
     assert _FakeAnalysisManager.last_kwargs["inference_batch_size"] == 12
     assert "track_batch_size=3 inference_batch_size=12" in result.output
+
+
+def test_text_search_cli_rejects_unknown_device_before_loading_adapter(monkeypatch, tmp_path):
+    def fail_adapter(**_kwargs):
+        raise AssertionError("adapter should not be constructed for invalid device")
+
+    monkeypatch.setattr(cli, "ClapEmbeddingAdapter", fail_adapter)
+
+    result = CliRunner().invoke(cli.app, ["text-search", "dark techno", "--device", "gpu", "--db", str(tmp_path / "library.sqlite")])
+
+    assert result.exit_code != 0
+    assert "Unknown torch device: gpu" in result.output
 
 
 @pytest.mark.parametrize("command", [["analyze", "--adapter", "mert"], ["analyze-genres"], ["analyze-sonara"]])

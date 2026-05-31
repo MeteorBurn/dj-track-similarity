@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from dj_track_similarity.classifier_jobs import ClassifierJobManager
-from dj_track_similarity.classifier_scoring import analyze_classifier, default_classifier_model_path
+from dj_track_similarity.classifier_scoring import _embedding_vectors, analyze_classifier, default_classifier_model_path
 from dj_track_similarity.database import LibraryDatabase
 
 
@@ -166,6 +166,43 @@ def test_generic_classifier_filter_orders_tracks_by_score(tmp_path: Path) -> Non
     assert [track.id for track in filtered["items"]] == [high_id]
 
 
+def test_classifier_filter_page_uses_score_lookup_index(tmp_path: Path, monkeypatch) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    for index, score in enumerate((0.1, 0.9, 0.8), start=1):
+        track_id = _track(db, tmp_path, f"track-{index}.wav", title=f"Track {index}")
+        db.save_classifier_score(
+            track_id,
+            classifier="break_energy",
+            score=score,
+            label="high" if score >= 0.8 else "low",
+            confidence=score,
+            probabilities={"break_energy": score, "straight_energy": 1.0 - score},
+            feature_set="combined",
+            model_id="model.joblib",
+        )
+    statements: list[str] = []
+    original_connect = db.connect
+
+    def traced_connect():
+        connection = original_connect()
+        connection.set_trace_callback(statements.append)
+        return connection
+
+    monkeypatch.setattr(db, "connect", traced_connect)
+
+    db.list_tracks_page(classifier_min_scores={"break_energy": 0.8})
+
+    page_statements = [
+        statement
+        for statement in statements
+        if "LEFT JOIN embeddings" in statement and "LIMIT" in statement and "OFFSET" in statement
+    ]
+    assert page_statements
+    assert "FROM track_classifier_scores" in page_statements[0]
+    assert "SCAN t" not in _query_plan_details(db, page_statements[0])
+    assert "idx_classifier_scores_lookup" in _query_plan_details(db, page_statements[0])
+
+
 def test_classifier_jobs_are_scoped_by_classifier_key(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     _track(db, tmp_path, "one.wav")
@@ -211,6 +248,17 @@ def test_default_classifier_model_path_points_to_profile_classifier_asset() -> N
     )
 
 
+def test_classifier_embedding_vector_map_reuses_cached_matrix_rows(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = _track(db, tmp_path, "one.wav")
+    db.save_embedding(track_id, np.asarray([1.0, 2.0], dtype=np.float32), "mert-test", embedding_key="mert")
+    _, matrix = db.load_embedding_matrix("mert")
+
+    vectors = _embedding_vectors(db, "mert")
+
+    assert np.shares_memory(vectors[track_id], matrix)
+
+
 def _track(db: LibraryDatabase, tmp_path: Path, filename: str, title: str | None = None) -> int:
     path = tmp_path / filename
     path.write_bytes(b"audio")
@@ -236,3 +284,9 @@ def _write_model(path: Path, *, model: object | None = None) -> Path:
     }
     joblib.dump(payload, path)
     return path
+
+
+def _query_plan_details(db: LibraryDatabase, sql: str) -> str:
+    with db.connect() as connection:
+        rows = connection.execute(f"EXPLAIN QUERY PLAN {sql}").fetchall()
+    return "\n".join(str(row["detail"]) for row in rows)

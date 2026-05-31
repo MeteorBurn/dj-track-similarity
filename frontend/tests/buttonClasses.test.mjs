@@ -9,9 +9,7 @@ const styleTokens = new Set([
   "active",
   "icon-button",
   "intent-add",
-  "intent-remove",
-  "primary",
-  "secondary-mini"
+  "intent-remove"
 ]);
 
 function sourceFiles(dir) {
@@ -130,9 +128,13 @@ test("analysis controls use model checkboxes and one selected-run button", () =>
 
   assert.match(source, /analysis-model-checkbox/);
   assert.match(source, /analysis-model-name/);
+  assert.match(source, /analysis-model-count/);
   assert.match(source, /analysis-model-check/);
   assert.match(source, /analyze-selected-button/);
   assert.match(source, />\s*Analyze\s*<\/button>/);
+  assert.match(source, /classifiers/);
+  assert.match(source, /CLASSIFIERS/);
+  assert.match(source, /classifiersAnalyze/);
   assert.doesNotMatch(source, /Analyze selected/);
   assert.match(source, /selectedAnalysisModels/);
   assert.doesNotMatch(source, /onSonaraAnalyze/);
@@ -144,10 +146,67 @@ test("analysis controls use model checkboxes and one selected-run button", () =>
   const resetButtonIndex = source.indexOf("analysis-reset-button");
   const batchSizeIndex = source.indexOf("Embedding batch size");
   const analyzeSelectedIndex = source.indexOf("analyze-selected-button");
+  const clapIndex = source.indexOf('"clap"');
+  const classifiersIndex = source.indexOf('"classifiers"');
 
   assert.ok(modelNameIndex < modelCheckboxIndex);
   assert.ok(modelCheckboxIndex < resetButtonIndex);
   assert.ok(batchSizeIndex < analyzeSelectedIndex);
+  assert.ok(clapIndex < classifiersIndex);
+});
+
+test("ui class names describe responsibility instead of visual priority", () => {
+  const staleClasses = new Set([
+    "primary",
+    "secondary-mini",
+    "meta",
+    "meta-badge",
+    "track-copy",
+    "filters",
+    "compact-filters",
+    "player",
+    "action-row",
+    "score",
+    "analysis-section-title",
+    "search-section",
+    "playlist-section"
+  ]);
+  const failures = [];
+  for (const file of sourceFiles(srcDir)) {
+    const source = readFileSync(file, "utf8");
+    for (const className of source.matchAll(/className=(?:"([^"]+)"|\{`([^`]+)`\})/g)) {
+      const value = className[1] || className[2] || "";
+      for (const token of value.split(/\s+/).filter(Boolean)) {
+        if (staleClasses.has(token)) failures.push(`${file}: ${value}`);
+      }
+    }
+  }
+  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
+  assert.deepEqual(failures, []);
+  for (const className of staleClasses) {
+    assert.doesNotMatch(styles, new RegExp(`\\.${className}(?=[\\s,{:.#])`));
+  }
+  assert.match(styles, /\.library-summary\s*{/);
+  assert.match(styles, /\.track-title-cell\s*{/);
+  assert.match(styles, /\.search-filter-grid\s*{/);
+  assert.match(styles, /\.analysis-models-heading\s*{/);
+  assert.match(styles, /\.search-workflow-section\s*{/);
+  assert.match(styles, /\.playlist-export-section\s*{/);
+  assert.match(styles, /\.library-preview-player\s*{/);
+  assert.match(styles, /\.export-action-row\s*{/);
+  assert.match(styles, /\.similarity-score\s*{/);
+});
+
+test("classifiers remain filter sliders but analysis moved to model selection", () => {
+  const searchSource = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
+  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+
+  assert.match(searchSource, /classifier-controls/);
+  assert.match(searchSource, /type="range"/);
+  assert.match(searchSource, /onClassifierMinScoreChange/);
+  assert.doesNotMatch(searchSource, /classifier-analyze-button/);
+  assert.match(appSource, /selectedAnalysisModels\.includes\("classifiers"\)/);
+  assert.match(appSource, /startClassifierJobs/);
 });
 
 test("analysis model reset buttons fit inside a full-width row", () => {
@@ -160,7 +219,7 @@ test("analysis model reset buttons fit inside a full-width row", () => {
   assert.doesNotMatch(source, /icon-button\s+analysis-reset-button/);
   assert.match(actionsRule, /align-self:\s*stretch/);
   assert.match(actionsRule, /width:\s*100%/);
-  assert.match(rowRule, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+36px\s+minmax\(96px,\s*max-content\)/);
+  assert.match(rowRule, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+max-content\s+36px\s+minmax\(96px,\s*max-content\)/);
   assert.match(rowRule, /width:\s*100%/);
   assert.doesNotMatch(rowRule, /82px/);
   assert.match(resetRule, /display:\s*inline-flex/);
@@ -177,6 +236,16 @@ test("frontend analysis api uses unified job endpoints only", () => {
   assert.doesNotMatch(source, /\/api\/analyze"/);
 });
 
+test("model search default limit is ten", () => {
+  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+  const schemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "api_schemas.py"), "utf8");
+
+  assert.match(appSource, /limit:\s*10/);
+  assert.match(schemaSource, /class SearchRequest[\s\S]*limit:\s*int\s*=\s*10/);
+  assert.match(schemaSource, /class SonaraSearchRequest[\s\S]*limit:\s*int\s*=\s*Field\(default=10/);
+  assert.match(schemaSource, /class TextSearchRequest[\s\S]*limit:\s*int\s*=\s*Field\(default=10/);
+});
+
 test("analysis process status renders per-model progress", () => {
   const source = readFileSync(join(srcDir, "jobUi.tsx"), "utf8");
 
@@ -188,11 +257,12 @@ test("analysis process status renders per-model progress", () => {
 
 test("destructive actions use the in-app confirmation dialog", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+  const dialogSource = readFileSync(join(srcDir, "dialogs.tsx"), "utf8");
 
   assert.doesNotMatch(appSource, /window\.confirm/);
   assert.match(appSource, /ConfirmationDialog/);
-  assert.match(appSource, />Да</);
-  assert.match(appSource, />Нет</);
+  assert.match(dialogSource, />Да</);
+  assert.match(dialogSource, />Нет</);
 });
 
 test("non-destructive sonara mixer reset does not request confirmation", () => {
@@ -245,6 +315,40 @@ test("library controls keep pagination left and actions pinned right", () => {
   assert.ok(sortIndex < addIndex);
 });
 
+test("library search exposes an explicit LIKE and FTS segmented toggle", () => {
+  const source = readFileSync(join(srcDir, "TrackPanel.tsx"), "utf8");
+  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
+
+  assert.match(source, /library-search-mode-toggle/);
+  assert.match(source, /library-search-like-button/);
+  assert.match(source, /library-search-fts-button/);
+  assert.match(source, /searchMode === "like"/);
+  assert.match(source, /searchMode === "fts"/);
+  assert.match(source, /onSearchModeChange\("fts"\)/);
+  assert.match(styles, /\.library-search-mode-toggle\s*{/);
+  assert.match(styles, /\.library-search-mode-toggle button\s*{/);
+});
+
+test("track rows do not show analysis availability inside track copy", () => {
+  const source = readFileSync(join(srcDir, "TrackRows.tsx"), "utf8");
+  const trackTitleBlocks = [...source.matchAll(/<div className="track-title-cell">([\s\S]*?)<\/div>/g)].map((match) => match[1]);
+
+  assert.ok(trackTitleBlocks.length >= 2);
+  for (const block of trackTitleBlocks) {
+    assert.doesNotMatch(block, /trackInfo\(track\)/);
+    assert.doesNotMatch(block, /analysisStatusLabel/);
+    assert.doesNotMatch(block, /<span>/);
+  }
+});
+
+test("library search mode active state highlights the active mode text", () => {
+  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
+  const activeRule = styles.match(/\.library-search-mode-toggle button\.active\s*{([\s\S]*?)}/)?.[1] || "";
+
+  assert.match(activeRule, /background:\s*transparent;/);
+  assert.match(activeRule, /color:\s*var\(--accent-hover\);/);
+});
+
 test("library range status shows only filtered total in the controls row", () => {
   const source = readFileSync(join(srcDir, "TrackPanel.tsx"), "utf8");
   const titleActions = source.match(/<div className="panel-title-actions track-panel-actions">([\s\S]*?)<\/div>/)?.[1] || "";
@@ -260,7 +364,7 @@ test("library range status shows only filtered total in the controls row", () =>
 test("library controls share button height and text-only counters", () => {
   const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
   const controlsRule = styles.match(/\.library-view-controls\s*{([\s\S]*?)}/)?.[1] || "";
-  const controlRule = styles.match(/\.library-view-controls \.secondary-mini\s*{([\s\S]*?)}/)?.[1] || "";
+  const controlRule = styles.match(/\.library-view-controls \.library-page-previous-button,[\s\S]*?\.library-view-controls \.library-page-next-button\s*{([\s\S]*?)}/)?.[1] || "";
   const inputRule = styles.match(/\.library-page-index-input\s*{([\s\S]*?)}/)?.[1] || "";
   const pageRule = styles.match(/\.library-page-number-status\s*{([\s\S]*?)}/)?.[1] || "";
   const rangeRule = styles.match(/\.library-range-status\s*{([\s\S]*?)}/)?.[1] || "";

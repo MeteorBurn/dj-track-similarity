@@ -91,6 +91,15 @@ test("liked library filter toggles and describes liked track count", async () =>
   assert.equal(likedTracksFilterTitle(true, 3), "Вернуться ко всей библиотеке. Лайкнутых треков: 3.");
 });
 
+test("library search mode toggles between substring and FTS semantics", async () => {
+  const { librarySearchModeTitle, toggleLibrarySearchMode } = await loadLibraryViewModule();
+
+  assert.equal(toggleLibrarySearchMode("like"), "fts");
+  assert.equal(toggleLibrarySearchMode("fts"), "like");
+  assert.equal(librarySearchModeTitle("like"), "Substring LIKE search. Finds partial text inside artist, title, album, path, and metadata.");
+  assert.equal(librarySearchModeTitle("fts"), "FTS token search. Faster on broad text queries, but does not match arbitrary substrings inside one token.");
+});
+
 test("library track order can be reversed without mutating the loaded page", async () => {
   const { orderedLibraryTracks } = await loadLibraryViewModule();
   const tracks = [

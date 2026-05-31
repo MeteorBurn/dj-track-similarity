@@ -100,3 +100,21 @@ test("mutagen bpm and key labels omit tag suffix", () => {
   assert.doesNotMatch(source, /"BPM tag"/);
   assert.doesNotMatch(source, /"Key tag"/);
 });
+
+test("metadata dialog moves SONARA duration after BPM and formats BPM with two decimals", () => {
+  const source = readFileSync(dialogPath, "utf8");
+  const coreGroup = source.match(/title:\s*"Core features",[\s\S]*?keys:\s*\[([^\]]+)\]/)?.[1] || "";
+
+  assert.ok(coreGroup.indexOf('"bpm"') < coreGroup.indexOf('"duration_sec"'));
+  assert.ok(coreGroup.indexOf('"duration_sec"') < coreGroup.indexOf('"beats"'));
+  assert.match(source, /if \(key === "bpm" && typeof value === "number"\) return value\.toFixed\(2\);/);
+});
+
+test("metadata dialog shows analysis availability badges", () => {
+  const source = readFileSync(dialogPath, "utf8");
+
+  assert.match(source, /analysis-badge-row/);
+  assert.match(source, /readableAnalysisBadges\(track\)/);
+  assert.match(source, /analysis-badge/);
+  assert.match(source, /CLASSIFIERS/);
+});

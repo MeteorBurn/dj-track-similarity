@@ -1,79 +1,35 @@
 import type { MouseEvent } from "react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Moon, ScrollText, Sun, X } from "lucide-react";
-import { AnalysisJobStatus, AnalysisModel, api, GenreTagJobStatus, LibrarySummary, PromotedClassifier, ScanStats, SearchResult, Track } from "./api";
+import { useEffect, useMemo, useState } from "react";
+import { Moon, RefreshCcw, ScrollText, Square, Sun } from "lucide-react";
+import { AnalysisJobStatus, AnalysisModel, api, GenreTagJobStatus, PromotedClassifier, ScanStats, Track } from "./api";
+import { defaultAnalysisSelections, isAudioAnalysisModel, type AnalysisSelection } from "./analysisSelection";
 import type { ConfirmationRequest } from "./confirmation";
+import { ConfirmationDialog, LogFrameDialog } from "./dialogs";
 import { exportDirectoryError } from "./exportView";
-import { ActivityEvent, analysisJobRequest, cancelAnalysisJob, scanSummary, UnifiedLog } from "./jobUi";
+import { helpText } from "./helpText";
+import { analysisJobRequest, cancelAnalysisJob, scanSummary, stageIndicatorLabel } from "./jobUi";
 import { LibraryPanel } from "./LibraryPanel";
-import {
-  appendVisibleTracksToPlaylist,
-  libraryCurrentPageNumber,
-  libraryPageOffsetForNumber,
-  libraryPageSize,
-  orderedLibraryTracks,
-  toggleLikedTracksFilter,
-  type LibraryPreset,
-  type LibrarySortDirection
-} from "./libraryView";
+import { appendVisibleTracksToPlaylist } from "./libraryView";
 import { SearchPlaylistPanel } from "./SearchPlaylistPanel";
 import { TrackMetadataDialog } from "./TrackMetadataDialog";
 import { TrackPanel } from "./TrackPanel";
 import { displayTrack } from "./trackDisplay";
 import { applyTheme, resolveInitialTheme, themeStorageKey, type ThemeMode } from "./theme";
-import { placeTooltip, RectLike, TooltipPosition } from "./tooltip";
+import { TooltipLayer, useGlobalTooltip } from "./tooltipLayer";
+import { useActivityLog } from "./useActivityLog";
+import { useLibraryState } from "./useLibraryState";
+import { useSearchPlaylist } from "./useSearchPlaylist";
 
 type Notice = { kind: "ok" | "error" | "idle"; text: string };
 type DeviceMode = "auto" | "cpu" | "cuda";
 type ResetAdapter = AnalysisModel;
 
 const defaultNotice: Notice = { kind: "idle", text: "Готово к работе" };
-const emptySummary: LibrarySummary = { tracks: 0, sonara: 0, maest: 0, mert: 0, clap: 0, liked: 0, classifiers: 0 };
-const analysisModelOrder: AnalysisModel[] = ["sonara", "maest", "mert", "clap"];
-
-const helpText = {
-  databasePath: "SQLite база проекта. Формат: путь к .sqlite файлу. Выбери существующую базу или укажи новый .sqlite файл для создания.",
-  musicRoot: "Папка с музыкой. Формат: путь Windows или POSIX, например D:/Music. Тип: строка. Папка должна существовать.",
-  analyzeLimit: "Сколько треков анализировать. Тип: целое число 0-100000. 0 = вся библиотека.",
-  scanWorkers: "Параллельное чтение метаданных при сканировании. Тип: целое число. Диапазон зависит от CPU, обычно 1-8.",
-  refreshTags: "Перечитать только file tags через Mutagen для уже найденных треков. Пути, Sonara, MAEST, MERT и CLAP не трогаются.",
-  clearDatabase: "Удалить все записи из SQLite: треки, эмбеддинги и анализы. Текущий сет в интерфейсе будет очищен. Аудиофайлы на диске не трогаются.",
-  analysisDevice: "Устройство для MAEST/MERT/CLAP. Значения: AUTO, CPU, CUDA. AUTO выберет CUDA, если PyTorch видит GPU, иначе CPU.",
-  sonaraAnalyze: "SONARA считает BPM, key и музыкальные признаки. Нужна для базового описания трека и будущих DJ-фильтров. Параллельность ограничена Track batch size.",
-  maestAnalyze: "MAEST определяет жанровые метки. Нужна для жанровой навигации и проверки характера библиотеки. Окна модели ограничены Inference batch size.",
-  writeMaestGenres: "Перезаписать стандартный Genre/TCON/©gen в аудиофайлах жанрами MAEST. Плееры вроде AIMP будут видеть эти жанры.",
-  mertAnalyze: "MERT строит аудио-эмбеддинги. Нужна для поиска похожих треков от выбранных seed-треков.",
-  clapAnalyze: "CLAP строит music-focused аудио-эмбеддинги для поиска по текстовому описанию звучания.",
-  analysisTrackBatchSize: "Сколько треков декодировать и держать в памяти за один job batch. Тип: целое число 1-64. Для этой машины дефолт 6.",
-  analysisInferenceBatchSize: "Сколько окон/семплов MAEST, MERT и CLAP прогоняют за один model forward pass. Тип: целое число 1-128. Для RTX 3090 дефолт 24.",
-  librarySearch: "Фильтр библиотеки. Формат: текст. Ищет по artist, title, album, path, MAEST genres и syncopated rhythm.",
-  similarity: "Минимальный similarity. Тип: число с точкой, диапазон 0.00-1.00.",
-  sonaraMixerTimbre: "Вес тембра и спектральной фактуры: MFCC, centroid, bandwidth, rolloff, flatness, contrast. Повышай для похожего материала звука.",
-  sonaraMixerRhythm: "Вес ритмической текстуры: onset density, zero crossing, danceability, chord movement. Повышай для кликов, ломанности и микро-грува.",
-  sonaraMixerDynamics: "Вес динамики: energy, RMS, LUFS, dynamic range. Повышай для похожего давления, дыхания и громкости.",
-  sonaraMixerHarmonic: "Вес гармонического цвета: chroma, dissonance, chord change, key confidence. Повышай для похожего аккордового ощущения.",
-  sonaraMixerTempo: "Вес BPM compatibility с half/double-tempo логикой. Повышай для более удобных DJ-переходов, снижай для свободного поиска.",
-  sonaraModifierEnergy: "Направление energy относительно seed/lookback: ниже = спокойнее, выше = активнее. 0 не тянет выдачу.",
-  sonaraModifierValence: "Направление valence относительно seed/lookback: ниже = темнее/меланхоличнее, выше = светлее. Это не preset, а числовой bias.",
-  sonaraModifierAcousticness: "Направление acousticness: ниже = электроннее, выше = органичнее/живее по Sonara.",
-  sonaraModifierBrightness: "Направление spectral centroid: ниже = мягче/темнее по спектру, выше = ярче.",
-  sonaraModifierRhythmDensity: "Направление onset density: ниже = меньше событий, выше = плотнее клики/перкуссия.",
-  sonaraModifierDynamicRange: "Направление dynamic range: ниже = ровнее/плотнее, выше = больше дыхания и перепадов.",
-  sonaraModifierLoudness: "Направление LUFS: ниже = тише/дальше, выше = громче/ближе.",
-  textPrompt: "CLAP search. Лучше писать на английском одно связное описание звучания: genre/scene, rhythm/drums, bass, texture, instruments, mood/space, vocals/no vocals. Не полагайся только на абстрактное настроение без слышимых признаков.",
-  lookback: "Сколько последних треков сета добавить в контекст поиска. Тип: целое число 0-12.",
-  limit: "Максимум результатов поиска. Тип: целое число 1-500.",
-  playlistName: "Название текущего сета. Формат: текст. Используется как имя файла экспорта.",
-  outputDir: "Папка экспорта. Формат: путь Windows или POSIX, например D:/Exports. Если папки нет, она будет создана.",
-} as const;
+const analysisModelOrder = defaultAnalysisSelections;
 
 function optimalWorkerLimit() {
   const cores = typeof navigator === "undefined" ? 4 : navigator.hardwareConcurrency || 4;
   return Math.max(1, Math.min(8, Math.floor(cores / 2) || 1));
-}
-
-function activeClassifierMinScores(scores: Record<string, number>) {
-  return Object.fromEntries(Object.entries(scores).filter(([, value]) => value > 0));
 }
 
 function openDocumentationWindow(event: MouseEvent<HTMLAnchorElement>) {
@@ -83,28 +39,67 @@ function openDocumentationWindow(event: MouseEvent<HTMLAnchorElement>) {
 
 export function App() {
   const tooltip = useGlobalTooltip();
-  const [tracks, setTracks] = useState<Track[]>([]);
-  const [libraryTotal, setLibraryTotal] = useState(0);
-  const [libraryOffset, setLibraryOffset] = useState(0);
-  const [libraryLoading, setLibraryLoading] = useState(false);
-  const [librarySummary, setLibrarySummary] = useState<LibrarySummary>(emptySummary);
-  const [query, setQuery] = useState("");
-  const [libraryPreset, setLibraryPreset] = useState<LibraryPreset>("all");
-  const [librarySortDirection, setLibrarySortDirection] = useState<LibrarySortDirection>("forward");
-  const [likedOnly, setLikedOnly] = useState(false);
-  const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
-  const [classifierMinScores, setClassifierMinScores] = useState<Record<string, number>>({});
   const [databasePath, setDatabasePath] = useState<string | null>(null);
+  const { activityLog, appendActivity } = useActivityLog();
+  const {
+    libraryTotal,
+    libraryOffset,
+    libraryLoading,
+    librarySummary,
+    query,
+    setQuery,
+    searchMode,
+    setSearchMode,
+    libraryPreset,
+    librarySortDirection,
+    likedOnly,
+    classifierMinScores,
+    setClassifierMinScores,
+    orderedTracks,
+    hasTracks,
+    canGoBack,
+    canGoForward,
+    refreshLibrary,
+    resetLibraryState,
+    changeLibraryPage,
+    jumpToLibraryPage,
+    toggleLibraryPreset,
+    toggleLikedOnly,
+    toggleLibrarySortDirection,
+    filteredTracks,
+    updateTrackLiked
+  } = useLibraryState({ databaseSelected: Boolean(databasePath) });
+  const {
+    textQuery,
+    setTextQuery,
+    outputDir,
+    setOutputDir,
+    seeds,
+    results,
+    setResults,
+    playlist,
+    setPlaylist,
+    playlistName,
+    setPlaylistName,
+    preview,
+    playingTrackId,
+    togglePreview,
+    markPreviewPlaying,
+    markPreviewPaused,
+    metadataTrack,
+    setMetadataTrack,
+    setSeedTrackMap,
+    seedSet,
+    playlistSet,
+    seedTracks,
+    addSeed,
+    removeSeed,
+    removeFromPlaylist,
+    togglePlaylist,
+    resetSearchPlaylistState
+  } = useSearchPlaylist({ onActivity: appendActivity });
+  const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
   const [musicRoot, setMusicRoot] = useState("");
-  const [textQuery, setTextQuery] = useState("");
-  const [outputDir, setOutputDir] = useState("");
-  const [seeds, setSeeds] = useState<number[]>([]);
-  const [results, setResults] = useState<SearchResult[]>([]);
-  const [playlist, setPlaylist] = useState<Track[]>([]);
-  const [playlistName, setPlaylistName] = useState("seamless-set");
-  const [preview, setPreview] = useState<Track | null>(null);
-  const [metadataTrack, setMetadataTrack] = useState<Track | null>(null);
-  const [seedTrackMap, setSeedTrackMap] = useState<Record<number, Track>>({});
   const [analysisJob, setAnalysisJob] = useState<AnalysisJobStatus | null>(null);
   const [scanJob, setScanJob] = useState<ScanStats | null>(null);
   const [genreTagJob, setGenreTagJob] = useState<GenreTagJobStatus | null>(null);
@@ -114,19 +109,17 @@ export function App() {
   const [analysisTrackBatchSize, setAnalysisTrackBatchSize] = useState(6);
   const [analysisInferenceBatchSize, setAnalysisInferenceBatchSize] = useState(24);
   const [analysisDevice, setAnalysisDevice] = useState<DeviceMode>("auto");
-  const [selectedAnalysisModels, setSelectedAnalysisModels] = useState<AnalysisModel[]>(analysisModelOrder);
+  const [selectedAnalysisModels, setSelectedAnalysisModels] = useState<AnalysisSelection[]>(analysisModelOrder);
+  const [pendingClassifierAfterAnalysis, setPendingClassifierAfterAnalysis] = useState(false);
   const [notice, setNotice] = useState<Notice>(defaultNotice);
   const [logFrameOpen, setLogFrameOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme());
   const [confirmation, setConfirmation] = useState<ConfirmationRequest | null>(null);
-  const [activityLog, setActivityLog] = useState<ActivityEvent[]>([
-    { id: 1, time: Date.now(), level: "info", message: "Интерфейс загружен" }
-  ]);
   const [busy, setBusy] = useState(false);
   const [filters, setFilters] = useState({
     minSimilarity: 0,
     lookback: 2,
-    limit: 5,
+    limit: 10,
     sonaraMixer: {
       timbre: 1,
       rhythm: 1,
@@ -145,15 +138,10 @@ export function App() {
     }
   });
 
-  const seedSet = useMemo(() => new Set(seeds), [seeds]);
-  const playlistSet = useMemo(() => new Set(playlist.map((track) => track.id)), [playlist]);
-  const orderedTracks = useMemo(() => orderedLibraryTracks(tracks, librarySortDirection), [tracks, librarySortDirection]);
-  const seedTracks = useMemo(() => seeds.map((id) => seedTrackMap[id]).filter(Boolean) as Track[], [seeds, seedTrackMap]);
   const scanRunning = Boolean(scanJob?.state && ["queued", "running"].includes(scanJob.state));
   const analysisRunning = Boolean(analysisJob && ["queued", "running"].includes(analysisJob.state));
   const genreTagRunning = Boolean(genreTagJob && ["queued", "running"].includes(genreTagJob.state));
   const stageRunning = scanRunning || analysisRunning || genreTagRunning;
-  const hasTracks = librarySummary.tracks > 0;
   const logHasErrors = useMemo(() => {
     const hasErrorEvent = activityLog.some((event) => event.level === "error")
       || (scanJob?.events || []).some((event) => event.level === "error")
@@ -161,9 +149,14 @@ export function App() {
       || (genreTagJob?.events || []).some((event) => event.level === "error");
     return hasErrorEvent || Boolean(analysisJob?.errors.length) || Boolean(genreTagJob?.errors.length);
   }, [activityLog, analysisJob, genreTagJob, scanJob]);
-  const canGoBack = libraryOffset > 0 && !libraryLoading;
-  const canGoForward = libraryOffset + tracks.length < libraryTotal && !libraryLoading;
   const canStartScan = Boolean(databasePath && musicRoot);
+  const analysisModelCounts: Record<AnalysisSelection, number> = {
+    sonara: librarySummary.sonara,
+    maest: librarySummary.maest,
+    mert: librarySummary.mert,
+    clap: librarySummary.clap,
+    classifiers: librarySummary.classifiers
+  };
   const maxScanWorkers = useMemo(() => optimalWorkerLimit(), []);
   const maxAnalysisTrackBatchSize = 64;
   const maxAnalysisInferenceBatchSize = 128;
@@ -187,7 +180,7 @@ export function App() {
       void refreshLibrary(0);
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [query, libraryPreset, likedOnly, classifierMinScores, databasePath]);
+  }, [query, searchMode, libraryPreset, likedOnly, classifierMinScores, databasePath]);
 
   useEffect(() => {
     if (!scanJob?.job_id || !["queued", "running"].includes(scanJob.state || "")) return;
@@ -218,13 +211,19 @@ export function App() {
         setAnalysisJob(job);
         if (["completed", "cancelled", "failed"].includes(job.state)) {
           void refreshLibrary();
+          if (pendingClassifierAfterAnalysis) {
+            setPendingClassifierAfterAnalysis(false);
+            if (job.state === "completed") {
+              void startClassifierJobs("CLASSIFIERS analysis запущен после выбранных моделей");
+            }
+          }
         }
       }).catch((error) => {
         setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
       });
     }, 1500);
     return () => window.clearInterval(timer);
-  }, [analysisJob?.job_id, analysisJob?.state]);
+  }, [analysisJob?.job_id, analysisJob?.state, pendingClassifierAfterAnalysis]);
 
   useEffect(() => {
     if (!genreTagJob || !["queued", "running"].includes(genreTagJob.state)) return;
@@ -304,17 +303,9 @@ export function App() {
   }
 
   function resetDatabaseScopedState() {
-    setTracks([]);
-    setLibraryTotal(0);
-    setLibraryOffset(0);
-    setLibrarySummary(emptySummary);
+    resetLibraryState();
     setMusicRoot("");
-    setSeeds([]);
-    setResults([]);
-    setPlaylist([]);
-    setPreview(null);
-    setMetadataTrack(null);
-    setSeedTrackMap({});
+    resetSearchPlaylistState();
     setScanJob(null);
     setAnalysisJob(null);
     setGenreTagJob(null);
@@ -337,13 +328,6 @@ export function App() {
     }
   }
 
-  function appendActivity(level: ActivityEvent["level"], message: string, detail?: string) {
-    setActivityLog((current) => [
-      { id: Date.now() + Math.random(), time: Date.now(), level, message, detail },
-      ...current
-    ].slice(0, 80));
-  }
-
   function requestConfirmation(request: ConfirmationRequest) {
     setConfirmation(request);
   }
@@ -353,47 +337,6 @@ export function App() {
     if (!pending) return;
     setConfirmation(null);
     void pending.onConfirm();
-  }
-
-  async function refreshLibrary(nextOffset = libraryOffset, databaseSelected = Boolean(databasePath)) {
-    if (!databaseSelected) {
-      setTracks([]);
-      setLibraryTotal(0);
-      setLibraryOffset(0);
-      setLibrarySummary(emptySummary);
-      return;
-    }
-    setLibraryLoading(true);
-    try {
-      const [page, summary] = await Promise.all([
-        api.tracks({
-          query,
-          preset: libraryPreset,
-          liked: likedOnly,
-          classifierMinScores: activeClassifierMinScores(classifierMinScores),
-          limit: libraryPageSize,
-          offset: nextOffset
-        }),
-        api.librarySummary()
-      ]);
-      setTracks(page.items);
-      setLibraryTotal(page.total);
-      setLibraryOffset(page.offset);
-      setLibrarySummary(summary);
-    } finally {
-      setLibraryLoading(false);
-    }
-  }
-
-  function changeLibraryPage(delta: number) {
-    const currentPage = libraryCurrentPageNumber(libraryTotal, libraryOffset, libraryPageSize);
-    const nextOffset = libraryPageOffsetForNumber(currentPage + delta, libraryTotal, libraryPageSize);
-    void refreshLibrary(nextOffset);
-  }
-
-  function jumpToLibraryPage(pageNumber: number) {
-    const nextOffset = libraryPageOffsetForNumber(pageNumber, libraryTotal, libraryPageSize);
-    void refreshLibrary(nextOffset);
   }
 
   async function handleTrackDetails(track: Track) {
@@ -408,52 +351,7 @@ export function App() {
     }
   }
 
-  function addSeed(track: Track) {
-    setSeedTrackMap((current) => ({ ...current, [track.id]: track }));
-    setSeeds((current) => (current.includes(track.id) ? current : [...current, track.id]));
-  }
-
-  function removeSeed(trackId: number) {
-    setSeedTrackMap((current) => {
-      const next = { ...current };
-      delete next[trackId];
-      return next;
-    });
-    setSeeds((current) => current.filter((id) => id !== trackId));
-  }
-
-  function addToPlaylist(track: Track) {
-    if (!playlistSet.has(track.id)) {
-      appendActivity("ok", "Добавлен в сет", displayTrack(track));
-    }
-    setPlaylist((current) => (current.some((item) => item.id === track.id) ? current : [...current, track]));
-  }
-
-  function removeFromPlaylist(trackId: number) {
-    const removed = playlist.find((track) => track.id === trackId);
-    if (removed) {
-      appendActivity("warn", "Убран из сета", displayTrack(removed));
-    }
-    setPlaylist((current) => current.filter((track) => track.id !== trackId));
-  }
-
-  function togglePlaylist(track: Track) {
-    if (playlistSet.has(track.id)) {
-      removeFromPlaylist(track.id);
-    } else {
-      addToPlaylist(track);
-    }
-  }
-
-  function toggleLibraryPreset(preset: LibraryPreset) {
-    setLibraryPreset((current) => (current === preset ? "all" : preset));
-  }
-
-  function toggleLikedOnly() {
-    setLikedOnly((current) => toggleLikedTracksFilter(current));
-  }
-
-  function toggleAnalysisModel(model: AnalysisModel) {
+  function toggleAnalysisModel(model: AnalysisSelection) {
     setSelectedAnalysisModels((current) => {
       const next = current.includes(model)
         ? current.filter((item) => item !== model)
@@ -462,20 +360,11 @@ export function App() {
     });
   }
 
-  function toggleLibrarySortDirection() {
-    setLibrarySortDirection((current) => (current === "forward" ? "reverse" : "forward"));
-  }
-
   async function addVisibleTracksToPlaylist() {
     if (!databasePath || libraryLoading) return;
     setBusy(true);
     try {
-      const filtered = await api.filteredTracks({
-        query,
-        preset: libraryPreset,
-        liked: likedOnly,
-        classifierMinScores: activeClassifierMinScores(classifierMinScores)
-      });
+      const filtered = await filteredTracks();
       const matchingTracks = filtered.items;
       const nextPlaylist = appendVisibleTracksToPlaylist(playlist, matchingTracks);
       const added = nextPlaylist.length - playlist.length;
@@ -521,16 +410,14 @@ export function App() {
     );
   }
 
-  const pairedClassifierKeys = ["break_energy", "live_instrumentation"];
-
-  async function handleClassifierAnalyze() {
-    const available = classifiers.filter((classifier) => pairedClassifierKeys.includes(classifier.classifier_key));
+  async function startClassifierJobs(message = "CLASSIFIERS analysis запущен") {
+    const available = classifiers;
     if (!available.length) {
-      setNotice({ kind: "error", text: "Нет promoted classifiers для Break Energy / Live Instrumentation" });
+      setNotice({ kind: "error", text: "Нет promoted classifiers для расчета" });
       return;
     }
     const limit = analysisLimit > 0 ? analysisLimit : undefined;
-    appendActivity("info", "CLASS analysis запущен", available.map((classifier) => classifier.name).join(" + "));
+    appendActivity("info", message, available.map((classifier) => classifier.name).join(" + "));
     setProcessLogKind("analysis");
     setAnalysisJob(null);
     await run(
@@ -545,7 +432,7 @@ export function App() {
   }
 
   async function handleResetClassifiers() {
-    const available = classifiers.filter((classifier) => pairedClassifierKeys.includes(classifier.classifier_key));
+    const available = classifiers;
     if (!available.length) {
       setNotice({ kind: "error", text: "Нет classifier scores для сброса" });
       return;
@@ -673,18 +560,27 @@ export function App() {
   }
 
   async function handleAnalyzeSelected() {
-    if (!selectedAnalysisModels.length) {
+    const selectedAudioModels = selectedAnalysisModels.filter(isAudioAnalysisModel);
+    const includeClassifiers = selectedAnalysisModels.includes("classifiers");
+    if (!selectedAudioModels.length && !includeClassifiers) {
       setNotice({ kind: "error", text: "Выберите хотя бы одну модель анализа" });
       return;
     }
+    if (!selectedAudioModels.length && includeClassifiers) {
+      await startClassifierJobs();
+      return;
+    }
     const limit = analysisLimit > 0 ? analysisLimit : undefined;
-    const models = [...selectedAnalysisModels];
+    const models = [...selectedAudioModels];
     const labels = models.map((model) => model.toUpperCase()).join(", ");
-    const detail = `${labels} · ${analysisDevice.toUpperCase()} · tracks ${analysisTrackBatchSize} · inference ${analysisInferenceBatchSize} · ${limit ? `limit ${limit}` : "вся библиотека"}`;
+    const startClassifiersAfterAudio = includeClassifiers && classifiers.length > 0;
+    const classifierTail = startClassifiersAfterAudio ? " · CLASSIFIERS после моделей" : "";
+    const detail = `${labels}${classifierTail} · ${analysisDevice.toUpperCase()} · tracks ${analysisTrackBatchSize} · inference ${analysisInferenceBatchSize} · ${limit ? `limit ${limit}` : "вся библиотека"}`;
     appendActivity("info", "Анализ выбранных моделей запущен", detail);
     setProcessLogKind("analysis");
     setAnalysisJob(null);
-    await run(
+    setPendingClassifierAfterAnalysis(false);
+    const job = await run(
       () => api.analysisJobStart({
         models,
         limit: limit ?? null,
@@ -695,10 +591,19 @@ export function App() {
       }),
       (job) => {
         setAnalysisJob(job);
+        if (startClassifiersAfterAudio && ["queued", "running"].includes(job.state)) {
+          setPendingClassifierAfterAnalysis(true);
+        }
+        if (includeClassifiers && !classifiers.length) {
+          appendActivity("warn", "CLASSIFIERS не запущены", "Нет promoted classifier models");
+        }
         appendActivity("ok", "Analysis job создан", `${job.job_id.slice(0, 8)} · ${job.total} треков · tracks ${job.track_batch_size} · inference ${job.inference_batch_size}`);
         return `Analysis job ${job.job_id.slice(0, 8)}: ${job.total} треков`;
       }
     );
+    if (startClassifiersAfterAudio && job?.state === "completed") {
+      await startClassifierJobs("CLASSIFIERS analysis запущен после выбранных моделей");
+    }
   }
 
   async function handleRefreshTags() {
@@ -721,12 +626,8 @@ export function App() {
     await run(
       () => api.clearDatabase(),
       (value) => {
-        setTracks([]);
-        setSeeds([]);
-        setResults([]);
-        setPlaylist([]);
-        setPreview(null);
-        setMetadataTrack(null);
+        resetLibraryState();
+        resetSearchPlaylistState();
         setScanJob(null);
         setAnalysisJob(null);
         const detail = `${value.tracks_deleted} треков · ${value.embeddings_deleted} эмбеддингов`;
@@ -851,10 +752,7 @@ export function App() {
     const nextLiked = !track.liked;
     try {
       const updated = await api.setTrackLiked(track.id, nextLiked);
-      setTracks((current) => {
-        if (likedOnly && !updated.liked) return current.filter((item) => item.id !== updated.id);
-        return current.map((item) => (item.id === updated.id ? { ...item, liked: updated.liked } : item));
-      });
+      updateTrackLiked(updated);
       setPlaylist((current) => current.map((item) => (item.id === updated.id ? { ...item, liked: updated.liked } : item)));
       setResults((current) => current.map((item) => (
         item.track.id === updated.id ? { ...item, track: { ...item.track, liked: updated.liked } } : item
@@ -862,11 +760,6 @@ export function App() {
       setSeedTrackMap((current) => (
         current[updated.id] ? { ...current, [updated.id]: { ...current[updated.id], liked: updated.liked } } : current
       ));
-      setLibrarySummary((current) => ({
-        ...current,
-        liked: Math.max(0, current.liked + (updated.liked ? 1 : -1))
-      }));
-      setLibraryTotal((current) => (likedOnly && !updated.liked ? Math.max(0, current - 1) : current));
       appendActivity(updated.liked ? "ok" : "warn", updated.liked ? "Трек лайкнут" : "Лайк снят", displayTrack(updated));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -896,13 +789,8 @@ export function App() {
               DJ Track Similarity
             </a>
           </h1>
-          <div className="meta" aria-label="Library analysis summary">
-            <span className="meta-badge meta-badge-total"><span>tracks</span><strong>{librarySummary.tracks}</strong></span>
-            <span className="meta-badge"><span>sonara</span><strong>{librarySummary.sonara}</strong></span>
-            <span className="meta-badge"><span>maest</span><strong>{librarySummary.maest}</strong></span>
-            <span className="meta-badge"><span>mert</span><strong>{librarySummary.mert}</strong></span>
-            <span className="meta-badge"><span>clap</span><strong>{librarySummary.clap}</strong></span>
-            <span className="meta-badge"><span>class</span><strong>{librarySummary.classifiers}</strong></span>
+          <div className="library-summary" aria-label="Library analysis summary">
+            <span className="library-summary-badge library-summary-total-badge"><span>tracks</span><strong>{librarySummary.tracks}</strong></span>
           </div>
         </div>
         <div className="topbar-actions">
@@ -926,6 +814,19 @@ export function App() {
           >
             <ScrollText size={16} />
           </button>
+          <button
+            className="icon-button stop-button stop-active-stage-button"
+            title="Остановить текущий scan или анализ"
+            aria-label="Остановить текущий scan или анализ"
+            disabled={busy || !stageRunning}
+            onClick={() => void handleStopActiveStage()}
+            type="button"
+          >
+            <Square size={15} />
+          </button>
+          <span className={`process-indicator ${stageRunning ? "running" : ""}`} title={stageIndicatorLabel(scanJob, analysisJob)} aria-label={stageIndicatorLabel(scanJob, analysisJob)}>
+            <RefreshCcw size={17} />
+          </span>
           <div className={`notice ${notice.kind}`}>{notice.text}</div>
         </div>
       </header>
@@ -957,10 +858,7 @@ export function App() {
           maxAnalysisInferenceBatchSize={maxAnalysisInferenceBatchSize}
           adjustAnalysisInferenceBatchSize={adjustAnalysisInferenceBatchSize}
           onAnalysisInferenceBatchSizeChange={setAnalysisInferenceBatchSize}
-          scanJob={scanJob}
-          analysisJob={analysisJob}
           helpText={helpText}
-          onStopActiveStage={() => void handleStopActiveStage()}
           onChooseFolder={() => void handleChooseFolder()}
           onScan={() => void handleScan()}
           onRefreshTags={() => void handleRefreshTags()}
@@ -970,6 +868,8 @@ export function App() {
             message: "Удалить все данные из SQLite базы: треки, анализы, эмбеддинги и текущий сет? Аудиофайлы на диске останутся.",
             onConfirm: () => handleClearDatabase()
           })}
+          classifierAvailable={classifiers.length > 0}
+          analysisCounts={analysisModelCounts}
           selectedAnalysisModels={selectedAnalysisModels}
           onToggleAnalysisModel={toggleAnalysisModel}
           onAnalyzeSelected={() => void handleAnalyzeSelected()}
@@ -978,11 +878,18 @@ export function App() {
             message: `Сбросить результаты ${adapter.toUpperCase()}? Аудиофайлы не трогаем, остальные алгоритмы останутся.`,
             onConfirm: () => handleResetAnalysis(adapter)
           })}
+          onResetClassifiers={() => requestConfirmation({
+            title: "Сбросить CLASSIFIERS?",
+            message: "Удалить сохраненные promoted classifier scores? Аудиофайлы не трогаем.",
+            onConfirm: () => handleResetClassifiers()
+          })}
         />
 
         <TrackPanel
           query={query}
           onQueryChange={setQuery}
+          searchMode={searchMode}
+          onSearchModeChange={setSearchMode}
           libraryPreset={libraryPreset}
           onToggleLibraryPreset={toggleLibraryPreset}
           likedOnly={likedOnly}
@@ -991,6 +898,7 @@ export function App() {
           librarySortDirection={librarySortDirection}
           onToggleLibrarySortDirection={toggleLibrarySortDirection}
           preview={preview}
+          playingTrackId={playingTrackId}
           tracks={orderedTracks}
           total={libraryTotal}
           offset={libraryOffset}
@@ -1008,7 +916,9 @@ export function App() {
           onSeed={addSeed}
           onToggleLiked={(track) => void handleToggleTrackLiked(track)}
           onTogglePlaylist={togglePlaylist}
-          onPreview={setPreview}
+          onPreview={togglePreview}
+          onPreviewPlaying={markPreviewPlaying}
+          onPreviewPaused={markPreviewPaused}
           onDetails={(track) => void handleTrackDetails(track)}
         />
 
@@ -1040,15 +950,15 @@ export function App() {
           handleTextSearch={() => void handleTextSearch()}
           handleSonaraSearch={() => void handleSonaraSearch()}
           handleMertSearch={() => void handleMertSearch()}
-          handleClassifierAnalyze={() => void handleClassifierAnalyze()}
           handleResetClassifiers={() => requestConfirmation({
             title: "Сбросить CLASS?",
-            message: "Удалить сохраненные данные Break Energy и Live Instrumentation? Аудиофайлы не трогаем.",
+            message: "Удалить сохраненные promoted classifier scores? Аудиофайлы не трогаем.",
             onConfirm: () => handleResetClassifiers()
           })}
           addSeed={addSeed}
           togglePlaylist={togglePlaylist}
-          setPreview={setPreview}
+          playingTrackId={playingTrackId}
+          setPreview={togglePreview}
           setMetadataTrack={(track) => void handleTrackDetails(track)}
           removeFromPlaylist={removeFromPlaylist}
           handleExport={(format) => void handleExport(format)}
@@ -1075,176 +985,6 @@ export function App() {
       <TooltipLayer tooltip={tooltip} />
     </main>
   );
-}
-
-function LogFrameDialog({
-  processLogKind,
-  scanJob,
-  analysisJob,
-  genreTagJob,
-  activityLog,
-  onClose
-}: {
-  processLogKind: "scan" | "analysis" | "genre_tags";
-  scanJob: ScanStats | null;
-  analysisJob: AnalysisJobStatus | null;
-  genreTagJob: GenreTagJobStatus | null;
-  activityLog: ActivityEvent[];
-  onClose: () => void;
-}) {
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
-
-  return (
-    <div className="log-frame-backdrop" onClick={onClose}>
-      <section className="log-frame-dialog" role="dialog" aria-modal="true" aria-labelledby="log-frame-title" onClick={(event) => event.stopPropagation()}>
-        <div className="dialog-title log-frame-title">
-          <div>
-            <h2 id="log-frame-title">Лог</h2>
-            <span>События интерфейса, сканирования, анализа и записи жанров</span>
-          </div>
-          <button className="icon-button close-log-frame-button" title="Закрыть лог" aria-label="Закрыть лог" onClick={onClose} type="button">
-            <X size={16} />
-          </button>
-        </div>
-        <div className="log-frame-content">
-          <UnifiedLog
-            processKind={processLogKind}
-            scanJob={scanJob}
-            analysisJob={analysisJob}
-            genreTagJob={genreTagJob}
-            events={activityLog}
-            className="log-frame-panel"
-          />
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function ConfirmationDialog({
-  request,
-  onConfirm,
-  onCancel
-}: {
-  request: ConfirmationRequest;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <div className="confirmation-backdrop" role="presentation">
-      <div className="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="confirmation-title">
-        <h2 id="confirmation-title">{request.title}</h2>
-        <p>{request.message}</p>
-        <div className="confirmation-actions">
-          <button className="secondary-mini confirmation-cancel-button" title="Отменить действие" type="button" onClick={onCancel}>Нет</button>
-          <button className="primary confirmation-confirm-button" title="Подтвердить действие" type="button" onClick={onConfirm}>Да</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-type ActiveTooltip = {
-  text: string;
-  trigger: RectLike;
-};
-
-function useGlobalTooltip() {
-  const [tooltip, setTooltip] = useState<ActiveTooltip | null>(null);
-
-  useEffect(() => {
-    let activeTarget: HTMLElement | null = null;
-
-    const tooltipTarget = (target: EventTarget | null) => {
-      if (!(target instanceof Element)) return null;
-      const element = target.closest<HTMLElement>(".app-shell [title]");
-      const text = element?.getAttribute("title")?.trim();
-      return element && text ? { element, text } : null;
-    };
-
-    const showTooltip = (event: Event) => {
-      const target = tooltipTarget(event.target);
-      if (!target) return;
-      activeTarget = target.element;
-      setTooltip({ text: target.text, trigger: rectToPlainObject(target.element.getBoundingClientRect()) });
-    };
-
-    const hideTooltip = () => {
-      activeTarget = null;
-      setTooltip(null);
-    };
-
-    const hideOnPointerOut = (event: PointerEvent) => {
-      if (activeTarget && event.relatedTarget instanceof Node && activeTarget.contains(event.relatedTarget)) return;
-      hideTooltip();
-    };
-
-    document.addEventListener("pointerover", showTooltip);
-    document.addEventListener("focusin", showTooltip);
-    document.addEventListener("pointerout", hideOnPointerOut);
-    document.addEventListener("focusout", hideTooltip);
-    window.addEventListener("scroll", hideTooltip, true);
-    window.addEventListener("resize", hideTooltip);
-
-    return () => {
-      document.removeEventListener("pointerover", showTooltip);
-      document.removeEventListener("focusin", showTooltip);
-      document.removeEventListener("pointerout", hideOnPointerOut);
-      document.removeEventListener("focusout", hideTooltip);
-      window.removeEventListener("scroll", hideTooltip, true);
-      window.removeEventListener("resize", hideTooltip);
-    };
-  }, []);
-
-  return tooltip;
-}
-
-function TooltipLayer({ tooltip }: { tooltip: ActiveTooltip | null }) {
-  const tooltipRef = useRef<HTMLDivElement | null>(null);
-  const [position, setPosition] = useState<TooltipPosition | null>(null);
-
-  useLayoutEffect(() => {
-    setPosition(null);
-  }, [tooltip]);
-
-  useLayoutEffect(() => {
-    if (!tooltip || !tooltipRef.current) return;
-    const rect = tooltipRef.current.getBoundingClientRect();
-    setPosition(placeTooltip(
-      tooltip.trigger,
-      { width: rect.width, height: rect.height },
-      { width: window.innerWidth, height: window.innerHeight }
-    ));
-  }, [tooltip]);
-
-  if (!tooltip) return null;
-
-  return (
-    <div
-      ref={tooltipRef}
-      className="ui-tooltip"
-      role="tooltip"
-      data-placement={position?.placement || "top"}
-      style={position ? { left: position.left, top: position.top } : { left: 0, top: 0, visibility: "hidden" }}
-    >
-      {tooltip.text}
-    </div>
-  );
-}
-
-function rectToPlainObject(rect: DOMRect): RectLike {
-  return {
-    left: rect.left,
-    top: rect.top,
-    width: rect.width,
-    height: rect.height
-  };
 }
 
 function genreTagJobSummary(job: GenreTagJobStatus) {

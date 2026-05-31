@@ -8,13 +8,20 @@
 Пакет backend находится в `src/dj_track_similarity/`.
 
 - `cli.py` предоставляет Typer CLI `dj-sim`.
-- `api.py` создаёт приложение FastAPI и REST-эндпоинты.
-- `database.py` отвечает за доступ к SQLite и все изменения базы данных.
+- `api.py` создаёт приложение FastAPI; группы маршрутов живут в модулях
+  `api_routes_*`.
+- `database.py` — публичный фасад `LibraryDatabase`. Внутренние части базы
+  разделены на `db_tracks.py` для CRUD треков, paging, likes и relocation,
+  `db_analysis.py` для embeddings, analysis writes, resets и выбора кандидатов
+  analyzer, а также `db_summary.py` для summary counters.
 - `db_schema.py` определяет текущую схему SQLite и её проверку.
 - `scanner.py` сканирует папки и читает метаданные Mutagen.
-- `scan_jobs.py`, `analysis_jobs.py`, `sonara_jobs.py`, `genre_jobs.py`,
-  `classifier_jobs.py` и `tags.py` управляют отменяемыми заданиями и объектами
-  статуса.
+- `scan_jobs.py`, `analysis_jobs.py`, `classifier_jobs.py` и `tags.py`
+  управляют отменяемыми заданиями и объектами статуса. Внутренности
+  multi-model analysis дополнительно разделены: `analysis_job_state.py`
+  отвечает за progress/status accounting, `analysis_job_batch.py` — за
+  per-batch decode preparation, а `analysis_model_runners.py` — за runner
+  adapters Sonara, MAEST, MERT и CLAP.
 - `audio_loader.py` предоставляет общую загрузку аудио по принципу
   native-first.
 - `sonara_features.py` извлекает сфокусированный набор признаков плейлиста

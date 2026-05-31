@@ -194,9 +194,14 @@ export function stageIndicatorLabel(scanJob: ScanStats | null, analysisJob: Anal
 function analysisRuntimeLabel(job: AnalysisJobStatus) {
   if (job.adapter_name === "multi" || job.models?.length) {
     const audioModels = job.models?.map((model) => model.toUpperCase()).join(", ");
-    const classifierModels = job.classifier_keys?.map((model) => model.replace(/_/g, " ").toUpperCase()).join(", ");
+    const classifierModels = job.classifier_keys?.length ? "CLASSIFIERS" : undefined;
     const models = audioModels || classifierModels || "selected models";
-    const current = job.current_model ? `now ${job.current_model.toUpperCase()}` : models;
+    const classifierKeySet = new Set(job.classifier_keys || []);
+    const current = job.current_model
+      ? classifierKeySet.has(job.current_model)
+        ? "now CLASSIFIERS"
+        : `now ${job.current_model.toUpperCase()}`
+      : models;
     return `${current} · ${job.device || `${job.device_requested} pending`}`;
   }
   const model = job.model_name || job.adapter_name;
@@ -228,32 +233,54 @@ function AnalysisProcessStatus({ job }: { job: AnalysisJobStatus | null }) {
       </div>
       {job.avg_seconds_per_track != null && <span className="analysis-muted">{job.avg_seconds_per_track.toFixed(2)} s/track{etaSeconds ? ` · ETA ${formatEta(etaSeconds)}` : ""}</span>}
       {job.current_path && <span className="analysis-current">Сейчас: {basename(job.current_path)}</span>}
-      {job.model_progress && <ModelProgress progress={job.model_progress} />}
+      {job.model_progress && <ModelProgress job={job} />}
       {job.errors.length > 0 && <span className="analysis-error">{job.errors[0].model ? `${job.errors[0].model}: ` : ""}{job.errors[0].path}: {job.errors[0].error}</span>}
     </div>
   );
 }
 
-function ModelProgress({ progress }: { progress: AnalysisJobStatus["model_progress"] }) {
+type ProgressItem = NonNullable<NonNullable<AnalysisJobStatus["model_progress"]>[string]>;
+type ProgressRow = { key: string; label: string; item: ProgressItem };
+
+function ModelProgress({ job }: { job: AnalysisJobStatus }) {
+  const progress = job.model_progress;
   const audioModels: AnalysisModel[] = ["sonara", "maest", "mert", "clap"];
-  const modelKeys = [
-    ...audioModels,
-    ...Object.keys(progress || {}).filter((model) => !audioModels.includes(model as AnalysisModel))
-  ];
-  const rows = modelKeys.flatMap((model) => {
+  const audioRows: ProgressRow[] = audioModels.flatMap((model) => {
     const item = progress?.[model];
-    return item ? [{ model, item }] : [];
+    return item ? [{ key: model, label: model.toUpperCase(), item }] : [];
   });
+  const classifierProgressItems = Object.keys(progress || {})
+    .filter((model) => !audioModels.includes(model as AnalysisModel))
+    .flatMap((model) => {
+      const item = progress?.[model];
+      return item ? [item] : [];
+    });
+  const classifierRow = classifierProgressItems.length ? classifierProgressRow(classifierProgressItems) : null;
+  const rows = classifierRow ? [...audioRows, classifierRow] : audioRows;
   if (!rows.length) return null;
   return (
     <div className="analysis-model-progress">
-      {rows.map(({ model, item }) => (
-        <span key={model}>
-          {model.replace(/_/g, " ").toUpperCase()} {item.processed}/{item.total} · ok {item.analyzed} · fail {item.failed}
+      {rows.map(({ key, label, item }) => (
+        <span key={key}>
+          {label} {item.processed}/{item.total} · ok {item.analyzed} · fail {item.failed}
         </span>
       ))}
     </div>
   );
+}
+
+function classifierProgressRow(items: ProgressItem[]): ProgressRow {
+  return {
+    key: "classifiers",
+    label: "CLASSIFIERS",
+    item: {
+      total: Math.max(...items.map((item) => item.total)),
+      processed: Math.min(...items.map((item) => item.processed)),
+      analyzed: Math.min(...items.map((item) => item.analyzed)),
+      failed: Math.max(...items.map((item) => item.failed)),
+      skipped: Math.min(...items.map((item) => item.skipped))
+    }
+  };
 }
 
 function GenreTagProcessStatus({ job }: { job: GenreTagJobStatus | null }) {

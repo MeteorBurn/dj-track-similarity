@@ -13,7 +13,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.background import BackgroundTask
 
-from .analysis_jobs import ANALYSIS_MODEL_ORDER, AnalysisJobManager
+from .analysis_jobs import (
+    ANALYSIS_MODEL_ORDER,
+    DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
+    DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
+    AnalysisJobManager,
+)
 from .classifier_jobs import ClassifierJobManager
 from .classifier_scoring import promoted_classifiers
 from .database import LibraryDatabase
@@ -50,11 +55,14 @@ class DatabaseSwitchRequest(BaseModel):
 
 
 class AnalysisJobRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     limit: int | None = None
     models: list[str] = Field(default_factory=lambda: list(ANALYSIS_MODEL_ORDER), min_length=1)
     device: str = Field(default="auto", pattern="^(auto|cpu|cuda)$")
     top_k: int = Field(default=3, ge=1, le=10)
-    batch_size: int = Field(default=4, ge=1, le=64)
+    track_batch_size: int = Field(default=DEFAULT_ANALYSIS_TRACK_BATCH_SIZE, ge=1, le=64)
+    inference_batch_size: int = Field(default=DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE, ge=1, le=128)
 
 
 class ClassifierAnalyzeRequest(BaseModel):
@@ -430,7 +438,8 @@ def create_app(
         return state.require_analysis_jobs().start(
             models=models,
             limit=request.limit,
-            batch_size=request.batch_size,
+            track_batch_size=request.track_batch_size,
+            inference_batch_size=request.inference_batch_size,
             device=request.device,
             top_k=request.top_k,
         )

@@ -21,6 +21,8 @@ from .sonara_features import analyze_and_store_sonara_features_from_audio
 
 
 ANALYSIS_MODEL_ORDER = ("sonara", "maest", "mert", "clap")
+DEFAULT_ANALYSIS_TRACK_BATCH_SIZE = 6
+DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE = 24
 LOGGER = logging.getLogger(__name__)
 
 
@@ -98,8 +100,10 @@ class AnalysisJobStatus:
     errors: list[AnalysisTrackError] = field(default_factory=list)
     events: list[AnalysisLogEvent] = field(default_factory=list)
     cancel_requested: bool = False
-    workers: int = 1
-    batch_size: int = 1
+    workers: int = DEFAULT_ANALYSIS_TRACK_BATCH_SIZE
+    batch_size: int = DEFAULT_ANALYSIS_TRACK_BATCH_SIZE
+    track_batch_size: int = DEFAULT_ANALYSIS_TRACK_BATCH_SIZE
+    inference_batch_size: int = DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE
     top_k: int = 3
 
 
@@ -115,13 +119,15 @@ class AnalysisJobManager:
         *,
         decode_audio: DecodeAudio = load_decoded_audio,
         runner_factory: RunnerFactory | None = None,
-        batch_size: int = 4,
+        track_batch_size: int = DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
+        inference_batch_size: int = DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
     ) -> None:
         self.db = db
         self._model_runners = dict(model_runners) if model_runners is not None else None
         self._runner_factory = runner_factory or _default_model_runners
         self._decode_audio = decode_audio
-        self.batch_size = max(1, int(batch_size))
+        self.track_batch_size = max(1, int(track_batch_size))
+        self.inference_batch_size = max(1, int(inference_batch_size))
         self._store = JobStore(self._copy_status, unknown_label="analysis job")
 
     def create_job(
@@ -129,7 +135,8 @@ class AnalysisJobManager:
         *,
         models: Sequence[str] | None = None,
         limit: int | None = None,
-        batch_size: int | None = None,
+        track_batch_size: int | None = None,
+        inference_batch_size: int | None = None,
         device: str = "auto",
         top_k: int = 3,
     ) -> str:
@@ -146,7 +153,11 @@ class AnalysisJobManager:
             for track in tracks
         }
         job_id = str(uuid.uuid4())
-        effective_batch_size = max(1, int(batch_size or self.batch_size))
+        effective_track_batch_size = max(1, int(track_batch_size if track_batch_size is not None else self.track_batch_size))
+        effective_inference_batch_size = max(
+            1,
+            int(inference_batch_size if inference_batch_size is not None else self.inference_batch_size),
+        )
         status = AnalysisJobStatus(
             job_id=job_id,
             state="queued",
@@ -154,8 +165,10 @@ class AnalysisJobManager:
             model_progress=progress,
             total=len(tracks),
             device_requested=device,
-            workers=effective_batch_size,
-            batch_size=effective_batch_size,
+            workers=effective_track_batch_size,
+            batch_size=effective_track_batch_size,
+            track_batch_size=effective_track_batch_size,
+            inference_batch_size=effective_inference_batch_size,
             top_k=max(1, int(top_k)),
         )
         self._store.add(
@@ -171,11 +184,19 @@ class AnalysisJobManager:
         *,
         models: Sequence[str] | None = None,
         limit: int | None = None,
-        batch_size: int | None = None,
+        track_batch_size: int | None = None,
+        inference_batch_size: int | None = None,
         device: str = "auto",
         top_k: int = 3,
     ) -> AnalysisJobStatus:
-        job_id = self.create_job(models=models, limit=limit, batch_size=batch_size, device=device, top_k=top_k)
+        job_id = self.create_job(
+            models=models,
+            limit=limit,
+            track_batch_size=track_batch_size,
+            inference_batch_size=inference_batch_size,
+            device=device,
+            top_k=top_k,
+        )
         thread = threading.Thread(target=self.run_job, args=(job_id,), daemon=True)
         thread.start()
         return self.get(job_id)
@@ -185,11 +206,19 @@ class AnalysisJobManager:
         *,
         models: Sequence[str] | None = None,
         limit: int | None = None,
-        batch_size: int | None = None,
+        track_batch_size: int | None = None,
+        inference_batch_size: int | None = None,
         device: str = "auto",
         top_k: int = 3,
     ) -> AnalysisJobStatus:
-        job_id = self.create_job(models=models, limit=limit, batch_size=batch_size, device=device, top_k=top_k)
+        job_id = self.create_job(
+            models=models,
+            limit=limit,
+            track_batch_size=track_batch_size,
+            inference_batch_size=inference_batch_size,
+            device=device,
+            top_k=top_k,
+        )
         return self.run_job(job_id)
 
     def run_job(self, job_id: str) -> AnalysisJobStatus:
@@ -208,7 +237,7 @@ class AnalysisJobManager:
         runners: dict[str, AnalysisModelRunner] = {}
         failed_model_inits: dict[str, str] = {}
 
-        for batch in chunks(tracks, max(1, status.batch_size)):
+        for batch in chunks(tracks, max(1, status.track_batch_size)):
             if self.get(job_id).cancel_requested:
                 self._update(job_id, state="cancelled", finished_at=time.time(), current_path=None, current_model=None)
                 self._append_event(job_id, "warn", "Analysis cancelled")
@@ -297,7 +326,7 @@ class AnalysisJobManager:
                 return self._model_runners[model]
             except KeyError as error:
                 raise ValueError(f"No analysis runner configured for: {model}") from error
-        return self._runner_factory(model, status.device_requested, status.batch_size, status.top_k)
+        return self._runner_factory(model, status.device_requested, status.inference_batch_size, status.top_k)
 
     def _run_model_batch(
         self,
@@ -337,7 +366,6 @@ class AnalysisJobManager:
             progress = status.model_progress[model]
             progress.processed += 1
             progress.analyzed += 1
-        self._append_event(job_id, "ok", "Track analyzed", path=track.path, track_id=track.id, model=model)
 
     def _record_model_failure(self, job_id: str, model: str, track: Track, error: Exception) -> None:
         error_text = exception_summary(error)
@@ -360,6 +388,7 @@ class AnalysisJobManager:
 
     def _mark_track_processed(self, job_id: str, track: Track) -> None:
         outcome = self._track_outcome(job_id, track.id)
+        analyzed = False
         with self._store.locked(job_id) as status:
             status.current_path = track.path
             status.processed += 1
@@ -369,10 +398,13 @@ class AnalysisJobManager:
                 status.failed += 1
             elif outcome.successes >= outcome.target_count:
                 status.analyzed += 1
+                analyzed = True
             else:
                 status.skipped += 1
             if status.started_at and status.processed:
                 status.avg_seconds_per_track = (time.time() - status.started_at) / status.processed
+        if analyzed:
+            self._append_event(job_id, "ok", "Track analyzed", path=track.path, track_id=track.id)
 
     def _record_track_model_result(self, job_id: str, track_id: int, *, failed: bool) -> None:
         outcome = self._track_outcome(job_id, track_id)
@@ -450,6 +482,8 @@ class AnalysisJobManager:
             cancel_requested=status.cancel_requested,
             workers=status.workers,
             batch_size=status.batch_size,
+            track_batch_size=status.track_batch_size,
+            inference_batch_size=status.inference_batch_size,
             top_k=status.top_k,
         )
 
@@ -467,8 +501,8 @@ class SonaraModelRunner:
 class MaestModelRunner:
     model = "maest"
 
-    def __init__(self, *, device: str, top_k: int) -> None:
-        self.adapter = MaestGenreAdapter(device=device, top_k=top_k)
+    def __init__(self, *, device: str, top_k: int, inference_batch_size: int) -> None:
+        self.adapter = MaestGenreAdapter(device=device, top_k=top_k, inference_batch_size=inference_batch_size)
 
     @property
     def model_name(self) -> str:
@@ -492,10 +526,10 @@ class MaestModelRunner:
 
 
 class EmbeddingModelRunner:
-    def __init__(self, model: str, *, device: str, batch_size: int) -> None:
+    def __init__(self, model: str, *, device: str, inference_batch_size: int) -> None:
         self.model = model
         adapter_class = MertEmbeddingAdapter if model == "mert" else ClapEmbeddingAdapter
-        self.adapter = adapter_class(device=device, inference_batch_size=batch_size)
+        self.adapter = adapter_class(device=device, inference_batch_size=inference_batch_size)
 
     @property
     def model_name(self) -> str:
@@ -514,13 +548,13 @@ class EmbeddingModelRunner:
             db.save_embedding(track.id, vector, self.adapter.model_name, getattr(self.adapter, "dim", None), embedding_key=self.model)
 
 
-def _default_model_runners(model: str, device: str, batch_size: int, top_k: int) -> AnalysisModelRunner:
+def _default_model_runners(model: str, device: str, inference_batch_size: int, top_k: int) -> AnalysisModelRunner:
     if model == "sonara":
         return SonaraModelRunner()
     if model == "maest":
-        return MaestModelRunner(device=device, top_k=top_k)
+        return MaestModelRunner(device=device, top_k=top_k, inference_batch_size=inference_batch_size)
     if model in {"mert", "clap"}:
-        return EmbeddingModelRunner(model, device=device, batch_size=batch_size)
+        return EmbeddingModelRunner(model, device=device, inference_batch_size=inference_batch_size)
     raise ValueError(f"No analysis runner configured for: {model}")
 
 

@@ -38,12 +38,13 @@ const helpText = {
   refreshTags: "Перечитать только file tags через Mutagen для уже найденных треков. Пути, Sonara, MAEST, MERT и CLAP не трогаются.",
   clearDatabase: "Удалить все записи из SQLite: треки, эмбеддинги и анализы. Текущий сет в интерфейсе будет очищен. Аудиофайлы на диске не трогаются.",
   analysisDevice: "Устройство для MAEST/MERT/CLAP. Значения: AUTO, CPU, CUDA. AUTO выберет CUDA, если PyTorch видит GPU, иначе CPU.",
-  sonaraAnalyze: "SONARA считает BPM, key и музыкальные признаки. Нужна для базового описания трека и будущих DJ-фильтров. Параллельность берется из Embedding batch size.",
-  maestAnalyze: "MAEST определяет жанровые метки. Нужна для жанровой навигации и проверки характера библиотеки. Batch берется из Embedding batch size.",
+  sonaraAnalyze: "SONARA считает BPM, key и музыкальные признаки. Нужна для базового описания трека и будущих DJ-фильтров. Параллельность ограничена Track batch size.",
+  maestAnalyze: "MAEST определяет жанровые метки. Нужна для жанровой навигации и проверки характера библиотеки. Окна модели ограничены Inference batch size.",
   writeMaestGenres: "Перезаписать стандартный Genre/TCON/©gen в аудиофайлах жанрами MAEST. Плееры вроде AIMP будут видеть эти жанры.",
   mertAnalyze: "MERT строит аудио-эмбеддинги. Нужна для поиска похожих треков от выбранных seed-треков.",
   clapAnalyze: "CLAP строит music-focused аудио-эмбеддинги для поиска по текстовому описанию звучания.",
-  analysisBatchSize: "Для SONARA это число параллельных track workers. Для MAEST/MERT/CLAP это inference batch. Тип: целое число 1-16.",
+  analysisTrackBatchSize: "Сколько треков декодировать и держать в памяти за один job batch. Тип: целое число 1-64. Для этой машины дефолт 6.",
+  analysisInferenceBatchSize: "Сколько окон/семплов MAEST, MERT и CLAP прогоняют за один model forward pass. Тип: целое число 1-128. Для RTX 3090 дефолт 24.",
   librarySearch: "Фильтр библиотеки. Формат: текст. Ищет по artist, title, album, path, MAEST genres и syncopated rhythm.",
   similarity: "Минимальный similarity. Тип: число с точкой, диапазон 0.00-1.00.",
   sonaraMixerTimbre: "Вес тембра и спектральной фактуры: MFCC, centroid, bandwidth, rolloff, flatness, contrast. Повышай для похожего материала звука.",
@@ -109,7 +110,8 @@ export function App() {
   const [processLogKind, setProcessLogKind] = useState<"scan" | "analysis" | "genre_tags">("scan");
   const [analysisLimit, setAnalysisLimit] = useState(0);
   const [scanWorkers, setScanWorkers] = useState(4);
-  const [analysisBatchSize, setAnalysisBatchSize] = useState(4);
+  const [analysisTrackBatchSize, setAnalysisTrackBatchSize] = useState(6);
+  const [analysisInferenceBatchSize, setAnalysisInferenceBatchSize] = useState(24);
   const [analysisDevice, setAnalysisDevice] = useState<DeviceMode>("auto");
   const [selectedAnalysisModels, setSelectedAnalysisModels] = useState<AnalysisModel[]>(analysisModelOrder);
   const [notice, setNotice] = useState<Notice>(defaultNotice);
@@ -161,7 +163,8 @@ export function App() {
   const canGoForward = libraryOffset + tracks.length < libraryTotal && !libraryLoading;
   const canStartScan = Boolean(databasePath && musicRoot);
   const maxScanWorkers = useMemo(() => optimalWorkerLimit(), []);
-  const maxAnalysisBatchSize = 16;
+  const maxAnalysisTrackBatchSize = 64;
+  const maxAnalysisInferenceBatchSize = 128;
 
   useEffect(() => {
     void initializeDatabase();
@@ -666,15 +669,22 @@ export function App() {
     const limit = analysisLimit > 0 ? analysisLimit : undefined;
     const models = [...selectedAnalysisModels];
     const labels = models.map((model) => model.toUpperCase()).join(", ");
-    const detail = `${labels} · ${analysisDevice.toUpperCase()} · batch ${analysisBatchSize} · ${limit ? `limit ${limit}` : "вся библиотека"}`;
+    const detail = `${labels} · ${analysisDevice.toUpperCase()} · tracks ${analysisTrackBatchSize} · inference ${analysisInferenceBatchSize} · ${limit ? `limit ${limit}` : "вся библиотека"}`;
     appendActivity("info", "Анализ выбранных моделей запущен", detail);
     setProcessLogKind("analysis");
     setAnalysisJob(null);
     await run(
-      () => api.analysisJobStart({ models, limit: limit ?? null, device: analysisDevice, top_k: 3, batch_size: analysisBatchSize }),
+      () => api.analysisJobStart({
+        models,
+        limit: limit ?? null,
+        device: analysisDevice,
+        top_k: 3,
+        track_batch_size: analysisTrackBatchSize,
+        inference_batch_size: analysisInferenceBatchSize
+      }),
       (job) => {
         setAnalysisJob(job);
-        appendActivity("ok", "Analysis job создан", `${job.job_id.slice(0, 8)} · ${job.total} треков · batch ${job.batch_size}`);
+        appendActivity("ok", "Analysis job создан", `${job.job_id.slice(0, 8)} · ${job.total} треков · tracks ${job.track_batch_size} · inference ${job.inference_batch_size}`);
         return `Analysis job ${job.job_id.slice(0, 8)}: ${job.total} треков`;
       }
     );
@@ -854,8 +864,12 @@ export function App() {
     }
   }
 
-  function adjustAnalysisBatchSize(delta: number) {
-    setAnalysisBatchSize((current) => Math.min(maxAnalysisBatchSize, Math.max(1, current + delta)));
+  function adjustAnalysisTrackBatchSize(delta: number) {
+    setAnalysisTrackBatchSize((current) => Math.min(maxAnalysisTrackBatchSize, Math.max(1, current + delta)));
+  }
+
+  function adjustAnalysisInferenceBatchSize(delta: number) {
+    setAnalysisInferenceBatchSize((current) => Math.min(maxAnalysisInferenceBatchSize, Math.max(1, current + delta)));
   }
 
   return (
@@ -910,10 +924,14 @@ export function App() {
           onAnalysisLimitChange={setAnalysisLimit}
           analysisDevice={analysisDevice}
           onAnalysisDeviceChange={setAnalysisDevice}
-          analysisBatchSize={analysisBatchSize}
-          maxAnalysisBatchSize={maxAnalysisBatchSize}
-          adjustAnalysisBatchSize={adjustAnalysisBatchSize}
-          onAnalysisBatchSizeChange={setAnalysisBatchSize}
+          analysisTrackBatchSize={analysisTrackBatchSize}
+          maxAnalysisTrackBatchSize={maxAnalysisTrackBatchSize}
+          adjustAnalysisTrackBatchSize={adjustAnalysisTrackBatchSize}
+          onAnalysisTrackBatchSizeChange={setAnalysisTrackBatchSize}
+          analysisInferenceBatchSize={analysisInferenceBatchSize}
+          maxAnalysisInferenceBatchSize={maxAnalysisInferenceBatchSize}
+          adjustAnalysisInferenceBatchSize={adjustAnalysisInferenceBatchSize}
+          onAnalysisInferenceBatchSizeChange={setAnalysisInferenceBatchSize}
           scanJob={scanJob}
           analysisJob={analysisJob}
           helpText={helpText}

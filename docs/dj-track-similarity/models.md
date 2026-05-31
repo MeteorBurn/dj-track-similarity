@@ -27,7 +27,8 @@ vectors live in the `embeddings` table under their embedding key. See
 Device selection for MAEST, MERT, and CLAP follows one rule: `auto` picks CUDA
 when PyTorch sees a GPU, otherwise CPU; explicit `cuda` errors if CUDA is
 unavailable. These three families also use inference batching through
-`--batch-size`. The `ml` and `sonara` install groups are described in
+`--inference-batch-size`; decoded track batching is controlled separately with
+`--track-batch-size`. The `ml` and `sonara` install groups are described in
 [Install](install.md).
 
 ## Sonara
@@ -51,10 +52,11 @@ How the app uses it:
   loudness come from Sonara.
 - Sonara features are one of the inputs for promoted classifier scoring.
 
-Sonara runs on CPU. Its `batch_size` means parallel track workers, not a neural
-inference batch. Run Sonara first if you are unsure where to start; it is the
-most transparent family because the UI can show and mix its feature groups
-directly. For the full key list, see [Analysis](analysis.md).
+Sonara runs on CPU and participates in the shared decoded-track batches
+controlled by `track_batch_size`; it does not use a neural inference batch. Run
+Sonara first if you are unsure where to start; it is the most transparent family
+because the UI can show and mix its feature groups directly. For the full key
+list, see [Analysis](analysis.md).
 
 ## MAEST
 

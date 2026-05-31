@@ -67,9 +67,9 @@ def test_multi_model_job_selects_tracks_missing_selected_models_and_skips_existi
         _mark_analyzed(db, missing_unselected, model)
     runners = {model: FakeModelRunner(model) for model in ("sonara", "mert")}
     decoder = DecodeRecorder()
-    manager = AnalysisJobManager(db, model_runners=runners, decode_audio=decoder, batch_size=2)
+    manager = AnalysisJobManager(db, model_runners=runners, decode_audio=decoder, track_batch_size=2)
 
-    status = manager.run_sync(models=["sonara", "mert"], device="cpu", batch_size=2)
+    status = manager.run_sync(models=["sonara", "mert"], device="cpu", track_batch_size=2)
 
     assert status.state == "completed"
     assert status.total == 2
@@ -95,9 +95,9 @@ def test_multi_model_limit_counts_candidate_tracks_not_per_model_totals(tmp_path
         _track(db, tmp_path, name)
     runners = {model: FakeModelRunner(model) for model in ("sonara", "mert")}
     decoder = DecodeRecorder()
-    manager = AnalysisJobManager(db, model_runners=runners, decode_audio=decoder, batch_size=4)
+    manager = AnalysisJobManager(db, model_runners=runners, decode_audio=decoder, track_batch_size=4)
 
-    status = manager.run_sync(models=["sonara", "mert"], limit=2, device="cpu", batch_size=4)
+    status = manager.run_sync(models=["sonara", "mert"], limit=2, device="cpu", track_batch_size=4)
 
     assert status.total == 2
     assert status.processed == 2
@@ -109,6 +109,19 @@ def test_multi_model_limit_counts_candidate_tracks_not_per_model_totals(tmp_path
     assert runners["mert"].calls == [["b-candidate.wav", "c-candidate.wav"]]
 
 
+def test_multi_model_job_logs_track_success_once_after_all_models_complete(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    _track(db, tmp_path, "a-candidate.wav")
+    runners = {model: FakeModelRunner(model) for model in ("sonara", "mert")}
+    decoder = DecodeRecorder()
+    manager = AnalysisJobManager(db, model_runners=runners, decode_audio=decoder, track_batch_size=1)
+
+    status = manager.run_sync(models=["sonara", "mert"], device="cpu", track_batch_size=1)
+
+    track_events = [event for event in status.events if event.message == "Track analyzed"]
+    assert [(Path(event.path or "").name, event.model) for event in track_events] == [("a-candidate.wav", None)]
+
+
 def test_multi_model_failure_is_model_scoped_and_other_models_continue(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     good = _track(db, tmp_path, "a-good.wav")
@@ -118,9 +131,9 @@ def test_multi_model_failure_is_model_scoped_and_other_models_continue(tmp_path:
         "mert": FakeModelRunner("mert"),
     }
     decoder = DecodeRecorder()
-    manager = AnalysisJobManager(db, model_runners=runners, decode_audio=decoder, batch_size=2)
+    manager = AnalysisJobManager(db, model_runners=runners, decode_audio=decoder, track_batch_size=2)
 
-    status = manager.run_sync(models=["sonara", "mert"], device="cpu", batch_size=2)
+    status = manager.run_sync(models=["sonara", "mert"], device="cpu", track_batch_size=2)
 
     assert status.state == "completed"
     assert status.total == 2
@@ -147,9 +160,9 @@ def test_multi_model_decode_failure_marks_missing_selected_models_failed(tmp_pat
     _track(db, tmp_path, "b-undecodable.wav")
     runners = {model: FakeModelRunner(model) for model in ("sonara", "mert")}
     decoder = DecodeRecorder(fail_names={"b-undecodable.wav"})
-    manager = AnalysisJobManager(db, model_runners=runners, decode_audio=decoder, batch_size=2)
+    manager = AnalysisJobManager(db, model_runners=runners, decode_audio=decoder, track_batch_size=2)
 
-    status = manager.run_sync(models=["sonara", "mert"], device="cpu", batch_size=2)
+    status = manager.run_sync(models=["sonara", "mert"], device="cpu", track_batch_size=2)
 
     assert status.state == "completed"
     assert status.processed == 2
@@ -175,15 +188,15 @@ def test_multi_model_runner_factory_loads_only_models_with_work(tmp_path: Path) 
     created: list[str] = []
     decoder = DecodeRecorder()
 
-    def runner_factory(model: str, device: str, batch_size: int, top_k: int):
+    def runner_factory(model: str, device: str, inference_batch_size: int, top_k: int):
         created.append(model)
         if model == "mert":
             raise AssertionError("runner with no missing model work should not be initialized")
         return FakeModelRunner(model)
 
-    manager = AnalysisJobManager(db, runner_factory=runner_factory, decode_audio=decoder, batch_size=2)
+    manager = AnalysisJobManager(db, runner_factory=runner_factory, decode_audio=decoder, track_batch_size=2)
 
-    status = manager.run_sync(models=["sonara", "mert"], device="cpu", batch_size=2)
+    status = manager.run_sync(models=["sonara", "mert"], device="cpu", track_batch_size=2)
 
     assert status.state == "completed"
     assert created == ["sonara"]
@@ -196,14 +209,14 @@ def test_multi_model_runner_init_failure_marks_only_that_model_failed(tmp_path: 
     track_id = _track(db, tmp_path, "a-track.wav")
     decoder = DecodeRecorder()
 
-    def runner_factory(model: str, device: str, batch_size: int, top_k: int):
+    def runner_factory(model: str, device: str, inference_batch_size: int, top_k: int):
         if model == "maest":
             raise RuntimeError("maest init failed")
         return FakeModelRunner(model)
 
-    manager = AnalysisJobManager(db, runner_factory=runner_factory, decode_audio=decoder, batch_size=2)
+    manager = AnalysisJobManager(db, runner_factory=runner_factory, decode_audio=decoder, track_batch_size=2)
 
-    status = manager.run_sync(models=["sonara", "maest"], device="cpu", batch_size=2)
+    status = manager.run_sync(models=["sonara", "maest"], device="cpu", track_batch_size=2)
 
     assert status.state == "completed"
     assert status.processed == 1
@@ -216,3 +229,29 @@ def test_multi_model_runner_init_failure_marks_only_that_model_failed(tmp_path: 
         ("maest", "a-track.wav", "maest init failed")
     ]
     assert db.get_track(track_id).analyses == ["sonara"]
+
+
+def test_multi_model_track_batch_and_inference_batch_are_independent(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    for name in ["a.wav", "b.wav", "c.wav", "d.wav", "e.wav"]:
+        _track(db, tmp_path, name)
+    decoder = DecodeRecorder()
+    created: list[tuple[str, str, int, int]] = []
+    runners: dict[str, FakeModelRunner] = {}
+
+    def runner_factory(model: str, device: str, inference_batch_size: int, top_k: int):
+        created.append((model, device, inference_batch_size, top_k))
+        runner = FakeModelRunner(model)
+        runners[model] = runner
+        return runner
+
+    manager = AnalysisJobManager(db, runner_factory=runner_factory, decode_audio=decoder, track_batch_size=2, inference_batch_size=9)
+
+    status = manager.run_sync(models=["mert"], device="cpu", top_k=5, track_batch_size=2, inference_batch_size=9)
+
+    assert status.track_batch_size == 2
+    assert status.inference_batch_size == 9
+    assert status.batch_size == 2
+    assert status.workers == 2
+    assert created == [("mert", "cpu", 9, 5)]
+    assert runners["mert"].calls == [["a.wav", "b.wav"], ["c.wav", "d.wav"], ["e.wav"]]

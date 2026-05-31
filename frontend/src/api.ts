@@ -132,6 +132,8 @@ export type AnalysisJobStatus = {
   cancel_requested: boolean;
   workers: number;
   batch_size: number;
+  track_batch_size?: number;
+  inference_batch_size?: number;
   top_k?: number;
 };
 
@@ -270,7 +272,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify({})
     }),
-  analysisJobStart: (payload: { models?: AnalysisModel[]; limit?: number | null; device?: "auto" | "cpu" | "cuda"; top_k?: number; batch_size?: number } = {}) =>
+  analysisJobStart: (payload: {
+    models?: AnalysisModel[];
+    limit?: number | null;
+    device?: "auto" | "cpu" | "cuda";
+    top_k?: number;
+    track_batch_size?: number;
+    inference_batch_size?: number;
+  } = {}) =>
     request<AnalysisJobStatus>("/api/analysis/jobs", {
       method: "POST",
       body: JSON.stringify({
@@ -278,7 +287,8 @@ export const api = {
         limit: payload.limit ?? null,
         device: payload.device ?? "auto",
         top_k: payload.top_k ?? 3,
-        batch_size: payload.batch_size ?? 4
+        track_batch_size: payload.track_batch_size ?? 6,
+        inference_batch_size: payload.inference_batch_size ?? 24
       })
     }),
   analysisJob: (jobId: string) => request<AnalysisJobStatus>(`/api/analysis/jobs/${jobId}`),

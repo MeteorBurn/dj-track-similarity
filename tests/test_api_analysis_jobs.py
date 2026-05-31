@@ -12,15 +12,22 @@ class SynchronousAnalysisManager:
     def __init__(self, db):
         self.db = db
 
-    def start(self, *, models=None, limit=None, device="auto", top_k=3, batch_size=1):
+    def start(self, *, models=None, limit=None, device="auto", top_k=3, track_batch_size=6, inference_batch_size=24):
         type(self).last_request = {
             "models": models,
             "limit": limit,
             "device": device,
             "top_k": top_k,
-            "batch_size": batch_size,
+            "track_batch_size": track_batch_size,
+            "inference_batch_size": inference_batch_size,
         }
-        return _status(models or ["sonara", "maest", "mert", "clap"], batch_size=batch_size, device=device, top_k=top_k)
+        return _status(
+            models or ["sonara", "maest", "mert", "clap"],
+            track_batch_size=track_batch_size,
+            inference_batch_size=inference_batch_size,
+            device=device,
+            top_k=top_k,
+        )
 
     def latest(self):
         return _status(["sonara"])
@@ -38,7 +45,7 @@ class SynchronousAnalysisManager:
         return payload
 
 
-def _status(models, *, batch_size=4, device="cpu", top_k=3):
+def _status(models, *, track_batch_size=6, inference_batch_size=24, device="cpu", top_k=3):
     return {
         "job_id": "job-1",
         "state": "completed",
@@ -65,8 +72,10 @@ def _status(models, *, batch_size=4, device="cpu", top_k=3):
         "errors": [],
         "events": [],
         "cancel_requested": False,
-        "workers": batch_size,
-        "batch_size": batch_size,
+        "workers": track_batch_size,
+        "batch_size": track_batch_size,
+        "track_batch_size": track_batch_size,
+        "inference_batch_size": inference_batch_size,
         "top_k": top_k,
     }
 
@@ -79,7 +88,14 @@ def test_api_starts_selected_multi_model_analysis_job(monkeypatch, tmp_path: Pat
 
     response = client.post(
         "/api/analysis/jobs",
-        json={"models": ["maest", "mert"], "limit": 2, "device": "cpu", "top_k": 4, "batch_size": 5},
+        json={
+            "models": ["maest", "mert"],
+            "limit": 2,
+            "device": "cpu",
+            "top_k": 4,
+            "track_batch_size": 5,
+            "inference_batch_size": 18,
+        },
     )
 
     assert response.status_code == 200
@@ -88,12 +104,15 @@ def test_api_starts_selected_multi_model_analysis_job(monkeypatch, tmp_path: Pat
     assert payload["models"] == ["maest", "mert"]
     assert payload["model_progress"]["maest"]["total"] == 1
     assert payload["batch_size"] == 5
+    assert payload["track_batch_size"] == 5
+    assert payload["inference_batch_size"] == 18
     assert SynchronousAnalysisManager.last_request == {
         "models": ["maest", "mert"],
         "limit": 2,
         "device": "cpu",
         "top_k": 4,
-        "batch_size": 5,
+        "track_batch_size": 5,
+        "inference_batch_size": 18,
     }
 
 
@@ -108,6 +127,16 @@ def test_api_defaults_multi_model_analysis_to_all_models(monkeypatch, tmp_path: 
     assert response.status_code == 200
     assert response.json()["models"] == ["sonara", "maest", "mert", "clap"]
     assert SynchronousAnalysisManager.last_request["models"] == ["sonara", "maest", "mert", "clap"]
+    assert SynchronousAnalysisManager.last_request["track_batch_size"] == 6
+    assert SynchronousAnalysisManager.last_request["inference_batch_size"] == 24
+
+
+def test_api_rejects_legacy_analysis_batch_size(tmp_path: Path) -> None:
+    client = TestClient(api.create_app(tmp_path / "library.sqlite"))
+
+    response = client.post("/api/analysis/jobs", json={"models": ["mert"], "batch_size": 4})
+
+    assert response.status_code == 422
 
 
 def test_old_individual_analysis_start_endpoints_are_removed(tmp_path: Path) -> None:

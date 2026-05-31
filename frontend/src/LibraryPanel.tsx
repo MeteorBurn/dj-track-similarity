@@ -18,7 +18,8 @@ type LibraryHelpText = {
   writeMaestGenres: string;
   analyzeLimit: string;
   analysisDevice: string;
-  analysisBatchSize: string;
+  analysisTrackBatchSize: string;
+  analysisInferenceBatchSize: string;
 };
 
 const analysisModelHelpKey: Record<AnalysisModel, keyof LibraryHelpText> = {
@@ -46,10 +47,14 @@ export function LibraryPanel({
   onAnalysisLimitChange,
   analysisDevice,
   onAnalysisDeviceChange,
-  analysisBatchSize,
-  maxAnalysisBatchSize,
-  adjustAnalysisBatchSize,
-  onAnalysisBatchSizeChange,
+  analysisTrackBatchSize,
+  maxAnalysisTrackBatchSize,
+  adjustAnalysisTrackBatchSize,
+  onAnalysisTrackBatchSizeChange,
+  analysisInferenceBatchSize,
+  maxAnalysisInferenceBatchSize,
+  adjustAnalysisInferenceBatchSize,
+  onAnalysisInferenceBatchSizeChange,
   scanJob,
   analysisJob,
   helpText,
@@ -81,10 +86,14 @@ export function LibraryPanel({
   onAnalysisLimitChange: (value: number) => void;
   analysisDevice: DeviceMode;
   onAnalysisDeviceChange: (value: DeviceMode) => void;
-  analysisBatchSize: number;
-  maxAnalysisBatchSize: number;
-  adjustAnalysisBatchSize: (delta: number) => void;
-  onAnalysisBatchSizeChange: (value: number) => void;
+  analysisTrackBatchSize: number;
+  maxAnalysisTrackBatchSize: number;
+  adjustAnalysisTrackBatchSize: (delta: number) => void;
+  onAnalysisTrackBatchSizeChange: (value: number) => void;
+  analysisInferenceBatchSize: number;
+  maxAnalysisInferenceBatchSize: number;
+  adjustAnalysisInferenceBatchSize: (delta: number) => void;
+  onAnalysisInferenceBatchSizeChange: (value: number) => void;
   scanJob: ScanStats | null;
   analysisJob: AnalysisJobStatus | null;
   helpText: LibraryHelpText;
@@ -213,14 +222,23 @@ export function LibraryPanel({
         </div>
         <small>Auto выбирает CUDA, если PyTorch видит GPU; иначе CPU.</small>
       </div>
-      <div className="worker-control" title={helpText.analysisBatchSize}>
-        <span>Embedding batch size</span>
+      <div className="worker-control" title={helpText.analysisTrackBatchSize}>
+        <span>Track batch size</span>
         <div className="stepper">
-          <button className="icon-button analysis-batch-decrement-button" title="Уменьшить Embedding batch size" disabled={busy || analysisBatchSize <= 1} onClick={() => adjustAnalysisBatchSize(-1)} aria-label="Уменьшить batch size"><Minus size={15} /></button>
-          <input type="number" min={1} max={maxAnalysisBatchSize} value={analysisBatchSize} title={helpText.analysisBatchSize} onChange={(event) => onAnalysisBatchSizeChange(Math.min(maxAnalysisBatchSize, Math.max(1, Number(event.target.value) || 1)))} />
-          <button className="icon-button analysis-batch-increment-button" title="Увеличить Embedding batch size" disabled={busy || analysisBatchSize >= maxAnalysisBatchSize} onClick={() => adjustAnalysisBatchSize(1)} aria-label="Увеличить batch size"><Plus size={15} /></button>
+          <button className="icon-button analysis-track-batch-decrement-button" title="Уменьшить Track batch size" disabled={busy || analysisTrackBatchSize <= 1} onClick={() => adjustAnalysisTrackBatchSize(-1)} aria-label="Уменьшить track batch size"><Minus size={15} /></button>
+          <input type="number" min={1} max={maxAnalysisTrackBatchSize} value={analysisTrackBatchSize} title={helpText.analysisTrackBatchSize} onChange={(event) => onAnalysisTrackBatchSizeChange(Math.min(maxAnalysisTrackBatchSize, Math.max(1, Number(event.target.value) || 1)))} />
+          <button className="icon-button analysis-track-batch-increment-button" title="Увеличить Track batch size" disabled={busy || analysisTrackBatchSize >= maxAnalysisTrackBatchSize} onClick={() => adjustAnalysisTrackBatchSize(1)} aria-label="Увеличить track batch size"><Plus size={15} /></button>
         </div>
-        <small>SONARA: параллельные треки. MAEST/MERT/CLAP: inference batch; CPU 1-4, CUDA начни с 4-8.</small>
+        <small>Сколько decoded треков держать в памяти одновременно.</small>
+      </div>
+      <div className="worker-control" title={helpText.analysisInferenceBatchSize}>
+        <span>Inference batch size</span>
+        <div className="stepper">
+          <button className="icon-button analysis-inference-batch-decrement-button" title="Уменьшить Inference batch size" disabled={busy || analysisInferenceBatchSize <= 1} onClick={() => adjustAnalysisInferenceBatchSize(-1)} aria-label="Уменьшить inference batch size"><Minus size={15} /></button>
+          <input type="number" min={1} max={maxAnalysisInferenceBatchSize} value={analysisInferenceBatchSize} title={helpText.analysisInferenceBatchSize} onChange={(event) => onAnalysisInferenceBatchSizeChange(Math.min(maxAnalysisInferenceBatchSize, Math.max(1, Number(event.target.value) || 1)))} />
+          <button className="icon-button analysis-inference-batch-increment-button" title="Увеличить Inference batch size" disabled={busy || analysisInferenceBatchSize >= maxAnalysisInferenceBatchSize} onClick={() => adjustAnalysisInferenceBatchSize(1)} aria-label="Увеличить inference batch size"><Plus size={15} /></button>
+        </div>
+        <small>MAEST/MERT/CLAP forward pass; RTX 3090 default 24.</small>
       </div>
       <button
         className="primary analyze-selected-button"

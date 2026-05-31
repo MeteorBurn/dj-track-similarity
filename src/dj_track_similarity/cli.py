@@ -8,7 +8,12 @@ from typing import Optional
 
 import typer
 
-from .analysis_jobs import ANALYSIS_MODEL_ORDER, AnalysisJobManager
+from .analysis_jobs import (
+    ANALYSIS_MODEL_ORDER,
+    DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
+    DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
+    AnalysisJobManager,
+)
 from .classifier_scoring import analyze_classifier as run_classifier_analysis
 from .database import LibraryDatabase
 from .dependencies import require_ffmpeg
@@ -170,7 +175,20 @@ def analyze(
     models: str = typer.Option(",".join(ANALYSIS_MODEL_ORDER), "--models", help="Comma-separated analysis models: sonara,maest,mert,clap."),
     device: str = typer.Option("auto", "--device", help="Embedding device: auto, cpu, or cuda."),
     top_k: int = typer.Option(3, "--top-k", min=1, max=10, help="Number of MAEST genre labels to store per track."),
-    batch_size: int = typer.Option(4, "--batch-size", min=1, max=64, help="Shared decode and model inference batch size."),
+    track_batch_size: int = typer.Option(
+        DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
+        "--track-batch-size",
+        min=1,
+        max=64,
+        help="Number of decoded tracks held and processed together.",
+    ),
+    inference_batch_size: int = typer.Option(
+        DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
+        "--inference-batch-size",
+        min=1,
+        max=128,
+        help="MERT/CLAP/MAEST model inference batch size.",
+    ),
     diagnostics: bool = typer.Option(False, "--diagnostics", help="Write decoder fallback and batch timing diagnostics to the file log."),
 ) -> None:
     set_analysis_diagnostics_enabled(diagnostics)
@@ -181,13 +199,15 @@ def analyze(
         limit=limit,
         device=device,
         top_k=top_k,
-        batch_size=batch_size,
+        track_batch_size=track_batch_size,
+        inference_batch_size=inference_batch_size,
     )
     status = _run_cli_job_with_progress(manager, job_id, label=",".join(selected_models))
     typer.echo(
         f"state={status.state} total={status.total} processed={status.processed} "
         f"analyzed={status.analyzed} failed={status.failed} models={','.join(status.models)} "
-        f"device={status.device} top_k={status.top_k} batch_size={status.batch_size}"
+        f"device={status.device} top_k={status.top_k} "
+        f"track_batch_size={status.track_batch_size} inference_batch_size={status.inference_batch_size}"
     )
 
 

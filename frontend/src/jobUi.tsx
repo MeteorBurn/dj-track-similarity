@@ -214,7 +214,8 @@ function AnalysisProcessStatus({ job }: { job: AnalysisJobStatus | null }) {
         <span>ok {job.analyzed}</span>
         <span>fail {job.failed}</span>
         {job.skipped ? <span>skip {job.skipped}</span> : null}
-        <span>batch {job.batch_size || job.workers || 1}</span>
+        <span>tracks {job.track_batch_size || job.batch_size || job.workers || 1}</span>
+        {job.inference_batch_size ? <span>infer {job.inference_batch_size}</span> : null}
         <span>{percent}%</span>
       </div>
       {job.avg_seconds_per_track != null && <span className="analysis-muted">{job.avg_seconds_per_track.toFixed(2)} s/track{etaSeconds ? ` · ETA ${formatEta(etaSeconds)}` : ""}</span>}

@@ -44,11 +44,13 @@ Sonara BPM and key are analyzed values, not copied from file tags. The app keeps
 raw Sonara key data and does not derive Camelot notation.
 
 In the multi-model job, Sonara runs after the shared per-batch decode step and
-before MAEST, MERT, and CLAP. `batch_size` caps the in-memory track batch used
-by the selected models. The shared decode keeps source sample rate, uses a
-native mono-WAV fast path when it can preserve FFmpeg parity, and otherwise uses
-FFmpeg to produce mono `float32` audio. Each model runner then resamples to its
-own required rate.
+before MAEST, MERT, and CLAP. `track_batch_size` caps the in-memory decoded
+track batch, while `inference_batch_size` caps MAEST/MERT/CLAP model forward
+passes. The defaults are tuned for the verified local RTX 3090/32 GB setup:
+`track_batch_size=6` and `inference_batch_size=24`. The shared decode keeps
+source sample rate, uses a native mono-WAV fast path when it can preserve FFmpeg
+parity, and otherwise uses FFmpeg to produce mono `float32` audio. Each model
+runner then resamples to its own required rate.
 
 Run Sonara early if you are unsure where to start. It is the most transparent
 analysis family because the UI can show and mix its feature groups directly.

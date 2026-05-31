@@ -152,7 +152,7 @@ Analyze missing SONARA, MAEST, MERT, and/or CLAP results in one job. By
 default, all four audio models are selected.
 
 ```powershell
-dj-sim analyze --models sonara,maest,mert,clap --device auto --batch-size 4 --limit 25 --db .\data\library.sqlite
+dj-sim analyze --models sonara,maest,mert,clap --device auto --track-batch-size 6 --inference-batch-size 24 --limit 25 --db .\data\library.sqlite
 ```
 
 Usage:
@@ -170,7 +170,8 @@ Options:
 | `--models` | comma-separated text | `sonara,maest,mert,clap` | Selected analysis models. Valid values: `sonara`, `maest`, `mert`, `clap`. |
 | `--device` | text | `auto` | MAEST/MERT/CLAP device: `auto`, `cpu`, or `cuda`. |
 | `--top-k` | integer `1..10` | `3` | Number of MAEST genre labels to store per track. |
-| `--batch-size` | integer `1..64` | `4` | Shared decoded-track batch and inference batch cap. |
+| `--track-batch-size` | integer `1..64` | `6` | Number of decoded tracks held and processed together. |
+| `--inference-batch-size` | integer `1..128` | `24` | MAEST/MERT/CLAP model inference batch size. |
 | `--diagnostics` | flag | off | Write decoder fallback and batch timing diagnostics to the file log. |
 | `--help` | flag | off | Show help. |
 
@@ -178,15 +179,15 @@ Examples:
 
 ```powershell
 dj-sim analyze --db .\data\library.sqlite
-dj-sim analyze --models maest,mert --device cpu --batch-size 2 --db .\data\library.sqlite
-dj-sim analyze --models clap --device cuda --batch-size 8 --db .\data\library.sqlite
+dj-sim analyze --models maest,mert --device cpu --track-batch-size 2 --inference-batch-size 4 --db .\data\library.sqlite
+dj-sim analyze --models clap --device cuda --track-batch-size 6 --inference-batch-size 24 --db .\data\library.sqlite
 ```
 
 Output:
 
 ```text
 [########################] 100.0% processed=<n>/<n> analyzed=<n> failed=<n> <rate> tracks/s eta=<time>
-state=<state> total=<n> processed=<n> analyzed=<n> failed=<n> models=<models> device=<device> top_k=<n> batch_size=<n>
+state=<state> total=<n> processed=<n> analyzed=<n> failed=<n> models=<models> device=<device> top_k=<n> track_batch_size=<n> inference_batch_size=<n>
 ```
 
 `processed`, `analyzed`, and `failed` are track-level counters. Per-model

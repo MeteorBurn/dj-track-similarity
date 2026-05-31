@@ -17,7 +17,9 @@ class _FakeStatus:
     current_model = None
     model_progress = {}
     device = "cpu"
-    batch_size = 4
+    batch_size = 6
+    track_batch_size = 6
+    inference_batch_size = 24
     top_k = 3
     avg_seconds_per_track = 0.5
 
@@ -30,6 +32,11 @@ class _FakeAnalysisManager:
 
     def create_job(self, **_kwargs):
         type(self).last_kwargs = _kwargs
+        if "track_batch_size" in _kwargs:
+            self.status.batch_size = _kwargs["track_batch_size"]
+            self.status.track_batch_size = _kwargs["track_batch_size"]
+        if "inference_batch_size" in _kwargs:
+            self.status.inference_batch_size = _kwargs["inference_batch_size"]
         return "job-1"
 
     def run_job(self, _job_id):
@@ -86,6 +93,13 @@ def test_analyze_cli_does_not_expose_removed_fake_option():
     assert "No such option" in result.output
 
 
+def test_analyze_cli_does_not_accept_legacy_batch_size():
+    result = CliRunner().invoke(cli.app, ["analyze", "--batch-size", "4"])
+
+    assert result.exit_code != 0
+    assert "No such option" in result.output
+
+
 def test_analyze_cli_prints_live_progress_for_default_models(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "AnalysisJobManager", _FakeAnalysisManager)
     db_path = tmp_path / "library.sqlite"
@@ -113,6 +127,33 @@ def test_analyze_cli_accepts_selected_models_and_diagnostics_flag(monkeypatch, t
     assert result.exit_code == 0
     assert "Starting maest,mert analysis" in result.output
     assert _FakeAnalysisManager.last_kwargs["models"] == ["maest", "mert"]
+    assert _FakeAnalysisManager.last_kwargs["track_batch_size"] == 6
+    assert _FakeAnalysisManager.last_kwargs["inference_batch_size"] == 24
+
+
+def test_analyze_cli_accepts_separate_track_and_inference_batch_sizes(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "AnalysisJobManager", _FakeAnalysisManager)
+    db_path = tmp_path / "library.sqlite"
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "analyze",
+            "--models",
+            "maest,mert",
+            "--track-batch-size",
+            "3",
+            "--inference-batch-size",
+            "12",
+            "--db",
+            str(db_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert _FakeAnalysisManager.last_kwargs["track_batch_size"] == 3
+    assert _FakeAnalysisManager.last_kwargs["inference_batch_size"] == 12
+    assert "track_batch_size=3 inference_batch_size=12" in result.output
 
 
 @pytest.mark.parametrize("command", [["analyze", "--adapter", "mert"], ["analyze-genres"], ["analyze-sonara"]])

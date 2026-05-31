@@ -111,11 +111,17 @@ it stops.
 | `POST` | `/api/search/text` | Search CLAP audio vectors from text. |
 
 Use `/api/analysis/jobs` before search endpoints when a library has not been
-processed yet. Its request body accepts `models`, `limit`, `device`,
-`batch_size`, and `top_k`. `models` defaults to all four audio models
-(`sonara`, `maest`, `mert`, `clap`) and must be a non-empty subset. `limit:
-null` means all eligible tracks; positive limits count candidate tracks that
-are missing at least one selected model.
+processed yet. Its request body accepts `models`, `limit`, `device`, `top_k`,
+`track_batch_size`, and `inference_batch_size`. `models` defaults to all four
+audio models (`sonara`, `maest`, `mert`, `clap`) and must be a non-empty
+subset. `limit: null` means all eligible tracks; positive limits count
+candidate tracks that are missing at least one selected model.
+
+`track_batch_size` controls how many decoded tracks the job holds and processes
+together. `inference_batch_size` controls MAEST/MERT/CLAP model forward-pass
+batches. The default values are `track_batch_size=6` and
+`inference_batch_size=24`. The former single `batch_size` request field is no
+longer accepted.
 
 The analysis job skips selected-model results that already exist. Its top-level
 status uses `total`, `processed`, `analyzed`, `failed`, and `skipped` for

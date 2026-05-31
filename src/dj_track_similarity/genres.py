@@ -115,7 +115,6 @@ class MaestGenreAdapter:
         audio_values, sample_rate, _decode_detail = load_audio_mono(
             path,
             torchaudio_module=torchaudio,
-            target_sample_rate=16000,
         )
         decode_seconds = time.perf_counter() - decode_started
         return self._prepare_audio_windows_from_audio(path, audio_values, sample_rate), decode_seconds

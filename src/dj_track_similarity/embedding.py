@@ -63,7 +63,6 @@ class MertEmbeddingAdapter:
             audio, sample_rate, _decode_detail = load_audio_mono(
                 path,
                 torchaudio_module=torchaudio,
-                target_sample_rate=target_rate,
             )
             decode_seconds += time.perf_counter() - decode_started
             decoded_items.append(DecodedAudio(path=str(path), audio=audio, sample_rate=sample_rate, detail="adapter decode"))
@@ -190,7 +189,6 @@ class ClapEmbeddingAdapter:
             audio, sample_rate, _decode_detail = load_audio_mono(
                 path,
                 torchaudio_module=torchaudio,
-                target_sample_rate=target_rate,
             )
             decode_seconds += time.perf_counter() - decode_started
             decoded_items.append(DecodedAudio(path=str(path), audio=audio, sample_rate=sample_rate, detail="adapter decode"))

@@ -83,7 +83,7 @@ class BatchMaestAdapter(MaestGenreAdapter):
 
 
 def test_maest_predict_batch_uses_model_logits_per_track(monkeypatch) -> None:
-    def fake_load_audio(path, *, torchaudio_module=None, target_sample_rate=None):
+    def fake_load_audio(path, *, torchaudio_module=None):
         value = 1.0 if Path(path).name == "a.wav" else 2.0
         return np.full(16000 * 120, value, dtype=np.float32), 16000, "fake"
 
@@ -129,7 +129,7 @@ def test_maest_prepares_three_30_second_windows(monkeypatch) -> None:
     sample_rate = 16000
     audio = np.arange(sample_rate * 200, dtype=np.float32)
 
-    def fake_load_audio(path, *, torchaudio_module=None, target_sample_rate=None):
+    def fake_load_audio(path, *, torchaudio_module=None):
         return audio, sample_rate, "fake"
 
     monkeypatch.setattr(genres, "load_audio_mono", fake_load_audio)

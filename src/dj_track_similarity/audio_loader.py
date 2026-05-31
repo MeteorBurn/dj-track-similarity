@@ -8,13 +8,12 @@ import shutil
 import subprocess
 import wave
 
+from mutagen import File as MutagenFile
 import numpy as np
 
 from .dependencies import FFMPEG_ENV_VAR
 from .logging_config import analysis_diagnostics_enabled
 
-DEFAULT_FFMPEG_SAMPLE_RATE = 16_000
-DEFAULT_SHARED_DECODE_SAMPLE_RATE = 48_000
 LOGGER = logging.getLogger(__name__)
 
 
@@ -26,8 +25,8 @@ class DecodedAudio:
     detail: str
 
 
-def load_decoded_audio(path: str | Path, *, target_sample_rate: int = DEFAULT_SHARED_DECODE_SAMPLE_RATE) -> DecodedAudio:
-    audio, sample_rate, detail = _load_with_ffmpeg(Path(path), target_sample_rate=target_sample_rate)
+def load_decoded_audio(path: str | Path) -> DecodedAudio:
+    audio, sample_rate, detail = _load_with_ffmpeg(Path(path))
     return DecodedAudio(path=str(path), audio=audio, sample_rate=sample_rate, detail=detail)
 
 
@@ -35,7 +34,6 @@ def load_audio_mono(
     path: str | Path,
     *,
     torchaudio_module: object | None = None,
-    target_sample_rate: int | None = None,
 ) -> tuple[np.ndarray, int, str]:
     audio_path = Path(path)
     errors: list[str] = []
@@ -57,7 +55,7 @@ def load_audio_mono(
             _log_decoder_failure("wave", audio_path, error)
 
     try:
-        audio, sample_rate, detail = _load_with_ffmpeg(audio_path, target_sample_rate=target_sample_rate)
+        audio, sample_rate, detail = _load_with_ffmpeg(audio_path)
         if errors:
             detail = f"{detail}; native decoders failed ({'; '.join(errors)})"
             _log_decoder_fallback_success("ffmpeg", audio_path, sample_rate, errors)
@@ -103,11 +101,11 @@ def _load_with_torchaudio(path: Path, torchaudio_module: object) -> tuple[np.nda
     return audio.astype(np.float32, copy=False), int(sample_rate), "native torchaudio decode"
 
 
-def _load_with_ffmpeg(path: Path, *, target_sample_rate: int | None = None) -> tuple[np.ndarray, int, str]:
+def _load_with_ffmpeg(path: Path) -> tuple[np.ndarray, int, str]:
     ffmpeg = _ffmpeg_path()
     if not ffmpeg:
         raise RuntimeError(f"ffmpeg executable not found on PATH or {FFMPEG_ENV_VAR}")
-    sample_rate = int(target_sample_rate or DEFAULT_FFMPEG_SAMPLE_RATE)
+    sample_rate = _source_sample_rate(path, ffmpeg_path=ffmpeg)
     command = [
         ffmpeg,
         "-v",
@@ -120,10 +118,8 @@ def _load_with_ffmpeg(path: Path, *, target_sample_rate: int | None = None) -> t
         "pcm_f32le",
         "-ac",
         "1",
-        "-ar",
-        str(sample_rate),
-        "-",
     ]
+    command.append("-")
     try:
         result = subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except subprocess.CalledProcessError as error:
@@ -138,6 +134,69 @@ def _load_with_ffmpeg(path: Path, *, target_sample_rate: int | None = None) -> t
     return audio.astype(np.float32, copy=False), sample_rate, "ffmpeg decode"
 
 
+def _source_sample_rate(path: Path, *, ffmpeg_path: str) -> int:
+    sample_rate = _source_sample_rate_from_file_metadata(path)
+    if sample_rate is not None:
+        return sample_rate
+    sample_rate = _source_sample_rate_from_ffprobe(path, ffmpeg_path=ffmpeg_path)
+    if sample_rate is not None:
+        return sample_rate
+    raise RuntimeError(f"Unable to determine source sample rate before ffmpeg decode: {path}")
+
+
+def _source_sample_rate_from_file_metadata(path: Path) -> int | None:
+    if path.suffix.lower() in {".wav", ".wave"}:
+        try:
+            with wave.open(str(path), "rb") as audio:
+                sample_rate = int(audio.getframerate())
+            if sample_rate > 0:
+                return sample_rate
+        except Exception:
+            pass
+
+    try:
+        audio = MutagenFile(path)
+    except Exception:
+        return None
+    info = getattr(audio, "info", None)
+    sample_rate = getattr(info, "sample_rate", None)
+    try:
+        sample_rate = int(sample_rate)
+    except (TypeError, ValueError):
+        return None
+    return sample_rate if sample_rate > 0 else None
+
+
+def _source_sample_rate_from_ffprobe(path: Path, *, ffmpeg_path: str) -> int | None:
+    ffprobe = _ffprobe_path(ffmpeg_path)
+    if not ffprobe:
+        return None
+    command = [
+        ffprobe,
+        "-v",
+        "error",
+        "-select_streams",
+        "a:0",
+        "-show_entries",
+        "stream=sample_rate",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        str(path),
+    ]
+    try:
+        result = subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    first_line = (result.stdout or b"").decode("utf-8", errors="replace").strip().splitlines()
+    if not first_line:
+        return None
+    try:
+        sample_rate = int(first_line[0].strip())
+    except ValueError:
+        return None
+    return sample_rate if sample_rate > 0 else None
+
+
 def _ffmpeg_path() -> str | None:
     configured = os.environ.get(FFMPEG_ENV_VAR)
     if configured:
@@ -145,6 +204,15 @@ def _ffmpeg_path() -> str | None:
         if candidate.is_file():
             return str(candidate)
     return shutil.which("ffmpeg")
+
+
+def _ffprobe_path(ffmpeg_path: str) -> str | None:
+    resolved_ffmpeg = Path(ffmpeg_path)
+    for name in ("ffprobe.exe", "ffprobe"):
+        candidate = resolved_ffmpeg.with_name(name)
+        if candidate.is_file():
+            return str(candidate)
+    return shutil.which("ffprobe")
 
 
 def _load_with_wave(path: Path) -> tuple[np.ndarray, int, str]:

@@ -1,4 +1,5 @@
 from pathlib import Path
+import inspect
 import logging
 import subprocess
 from types import SimpleNamespace
@@ -77,7 +78,7 @@ def test_load_audio_mono_reads_normal_wav_with_native_backend(tmp_path: Path) ->
     assert "native" in detail
 
 
-def test_load_decoded_audio_uses_48khz_ffmpeg_base_decode(monkeypatch, tmp_path: Path) -> None:
+def test_load_decoded_audio_preserves_native_sample_rate(monkeypatch, tmp_path: Path) -> None:
     audio_path = tmp_path / "track.wav"
     _write_pcm_wav(audio_path, sample_rate=44_100)
     decoded = np.array([0.1, -0.2, 0.3], dtype=np.float32)
@@ -93,14 +94,19 @@ def test_load_decoded_audio_uses_48khz_ffmpeg_base_decode(monkeypatch, tmp_path:
         SimpleNamespace(which=lambda name: "ffmpeg" if name == "ffmpeg" else None),
         raising=False,
     )
+    monkeypatch.setattr(audio_loader, "_source_sample_rate", lambda path, *, ffmpeg_path: 44_100)
     monkeypatch.setattr(audio_loader, "subprocess", SimpleNamespace(run=fake_run, PIPE=subprocess.PIPE), raising=False)
 
     result = load_decoded_audio(audio_path)
 
     assert result.path == str(audio_path)
-    assert result.sample_rate == 48_000
+    assert result.sample_rate == 44_100
     assert np.allclose(result.audio, decoded)
-    assert commands[0][commands[0].index("-ar") + 1] == "48000"
+    assert "-ar" not in commands[0]
+
+
+def test_load_decoded_audio_exposes_only_one_decode_mode() -> None:
+    assert list(inspect.signature(load_decoded_audio).parameters) == ["path"]
 
 
 def test_torch_compatible_audio_copies_readonly_float32_buffers() -> None:
@@ -114,7 +120,7 @@ def test_torch_compatible_audio_copies_readonly_float32_buffers() -> None:
     assert not np.shares_memory(prepared, readonly)
 
 
-def test_load_audio_mono_uses_ffmpeg_when_native_wav_decode_fails(monkeypatch, tmp_path: Path) -> None:
+def test_load_audio_mono_uses_native_rate_ffmpeg_when_native_wav_decode_fails(monkeypatch, tmp_path: Path) -> None:
     audio_path = tmp_path / "malformed.wav"
     _make_malformed_wave(audio_path)
     decoded = np.array([0.1, -0.2, 0.3], dtype=np.float32)
@@ -132,11 +138,12 @@ def test_load_audio_mono_uses_ffmpeg_when_native_wav_decode_fails(monkeypatch, t
         SimpleNamespace(which=lambda name: "ffmpeg" if name == "ffmpeg" else None),
         raising=False,
     )
+    monkeypatch.setattr(audio_loader, "_source_sample_rate", lambda path, *, ffmpeg_path: 44_100)
     monkeypatch.setattr(audio_loader, "subprocess", SimpleNamespace(run=fake_run, PIPE=subprocess.PIPE), raising=False)
 
-    audio, sample_rate, detail = load_audio_mono(audio_path, target_sample_rate=22_050)
+    audio, sample_rate, detail = load_audio_mono(audio_path)
 
-    assert sample_rate == 22_050
+    assert sample_rate == 44_100
     assert audio.dtype == np.float32
     assert np.allclose(audio, decoded)
     assert "ffmpeg decode" in detail
@@ -208,8 +215,7 @@ def test_load_audio_mono_logs_decoder_fallback_errors(monkeypatch, tmp_path: Pat
         assert command[:2] == ["ffmpeg", "-v"]
         assert "-f" in command
         assert command[command.index("-f") + 1] == "f32le"
-        assert "-ar" in command
-        assert command[command.index("-ar") + 1] == "22050"
+        assert "-ar" not in command
         assert command[-1] == "-"
         return subprocess.CompletedProcess(command, 0, stdout=decoded.tobytes(), stderr=b"")
 
@@ -219,16 +225,17 @@ def test_load_audio_mono_logs_decoder_fallback_errors(monkeypatch, tmp_path: Pat
         SimpleNamespace(which=lambda name: "ffmpeg" if name == "ffmpeg" else None),
         raising=False,
     )
+    monkeypatch.setattr(audio_loader, "_source_sample_rate", lambda path, *, ffmpeg_path: 44_100)
     monkeypatch.setattr(audio_loader, "subprocess", SimpleNamespace(run=fake_run, PIPE=subprocess.PIPE), raising=False)
 
     set_analysis_diagnostics_enabled(True)
     try:
         with caplog.at_level(logging.WARNING, logger="dj_track_similarity.audio_loader"):
-            audio, sample_rate, detail = load_audio_mono(audio_path, torchaudio_module=FailingTorchaudio, target_sample_rate=22_050)
+            audio, sample_rate, detail = load_audio_mono(audio_path, torchaudio_module=FailingTorchaudio)
     finally:
         set_analysis_diagnostics_enabled(None)
 
-    assert sample_rate == 22_050
+    assert sample_rate == 44_100
     assert audio.dtype == np.float32
     assert np.allclose(audio, decoded)
     assert "ffmpeg decode" in detail

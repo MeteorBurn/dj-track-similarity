@@ -807,6 +807,140 @@ def test_default_backup_dir_is_under_script_work_dir(monkeypatch, tmp_path: Path
     assert backup_path.read_bytes() == audio_bytes
 
 
+def test_apply_wav_backs_up_writes_and_fully_inspects_repaired_file(monkeypatch, tmp_path: Path) -> None:
+    repair = _load_repair_module()
+    audio_path = tmp_path / "track.wav"
+    backup_path = tmp_path / "track.wav.bak"
+    audio_path.write_bytes(b"original")
+    repaired_bytes = b"repaired"
+    order: list[str] = []
+
+    monkeypatch.setattr(repair, "data_payload_hash", lambda data: "same")
+    monkeypatch.setattr(
+        repair,
+        "repair_wave_bytes",
+        lambda data, keep_id3: repair.ByteRepairResult(
+            changed=True,
+            data=repaired_bytes,
+            actions=["normalized RIFF root size"],
+            original_size=len(data),
+            repaired_size=len(repaired_bytes),
+            mutagen_summary="mutagen ok tags=yes",
+        ),
+    )
+
+    def fake_create_backup(path: Path, **_kwargs):
+        order.append("backup")
+        backup_path.write_bytes(path.read_bytes())
+        return backup_path
+
+    def fake_write_repaired_file(path: Path, data: bytes) -> None:
+        order.append("write")
+        path.write_bytes(data)
+
+    def fake_verify_repaired_file(path: Path) -> None:
+        order.append("structural-verify")
+
+    def fake_inspect_file(path: Path):
+        order.append("full-inspect")
+        return repair.FileInspectionResult(
+            path=path,
+            status="ok",
+            message="ok",
+            detected_format="wav",
+            detected_codec="pcm_s16le",
+            tag_summary="mutagen ok tags=yes keys=TCON",
+        )
+
+    monkeypatch.setattr(repair, "create_backup", fake_create_backup)
+    monkeypatch.setattr(repair, "write_repaired_file", fake_write_repaired_file)
+    monkeypatch.setattr(repair, "verify_repaired_file", fake_verify_repaired_file)
+    monkeypatch.setattr(repair, "inspect_file", fake_inspect_file)
+
+    result = repair.repair_wave_file(
+        audio_path,
+        apply_changes=True,
+        backup_dir=None,
+        no_backup=False,
+        keep_id3="first",
+    )
+
+    assert result.status == "repaired"
+    assert result.backup_path == backup_path
+    assert result.mutagen_summary == "mutagen ok tags=yes keys=TCON"
+    assert audio_path.read_bytes() == repaired_bytes
+    assert not backup_path.exists()
+    assert "backup created" in " | ".join(result.actions)
+    assert "post-write inspection passed" in result.actions
+    assert "backup deleted" in " | ".join(result.actions)
+    formatted = repair.format_result(result, dry_run=False, index=1, total=1, color=False)
+    assert "actions=" in formatted
+    assert "backup created" in formatted
+    assert "post-write inspection passed" in formatted
+    assert "backup deleted" in formatted
+    assert order == ["backup", "write", "structural-verify", "full-inspect"]
+
+
+def test_apply_wav_restores_backup_when_full_inspection_fails(monkeypatch, tmp_path: Path) -> None:
+    repair = _load_repair_module()
+    audio_path = tmp_path / "track.wav"
+    backup_path = tmp_path / "track.wav.bak"
+    original_bytes = b"original"
+    repaired_bytes = b"repaired"
+    audio_path.write_bytes(original_bytes)
+
+    monkeypatch.setattr(repair, "data_payload_hash", lambda data: "same")
+    monkeypatch.setattr(
+        repair,
+        "repair_wave_bytes",
+        lambda data, keep_id3: repair.ByteRepairResult(
+            changed=True,
+            data=repaired_bytes,
+            actions=["normalized RIFF root size"],
+            original_size=len(data),
+            repaired_size=len(repaired_bytes),
+            mutagen_summary="mutagen ok tags=yes",
+        ),
+    )
+
+    def fake_create_backup(path: Path, **_kwargs):
+        backup_path.write_bytes(path.read_bytes())
+        return backup_path
+
+    monkeypatch.setattr(repair, "create_backup", fake_create_backup)
+    monkeypatch.setattr(repair, "write_repaired_file", lambda path, data: path.write_bytes(data))
+    monkeypatch.setattr(repair, "verify_repaired_file", lambda path: None)
+    monkeypatch.setattr(
+        repair,
+        "inspect_file",
+        lambda path: repair.FileInspectionResult(
+            path=path,
+            status="tag-error",
+            message="mutagen error: repaired tags unreadable",
+            tag_summary="mutagen error: repaired tags unreadable",
+        ),
+    )
+
+    result = repair.repair_wave_file(
+        audio_path,
+        apply_changes=True,
+        backup_dir=None,
+        no_backup=False,
+        keep_id3="first",
+    )
+
+    assert result.status == "failed"
+    assert "post-write verification failed: tag-error" in result.message
+    assert audio_path.read_bytes() == original_bytes
+    assert not backup_path.exists()
+    assert "backup restored" in " | ".join(result.actions)
+    assert "backup deleted" in " | ".join(result.actions)
+    formatted = repair.format_result(result, dry_run=False, index=1, total=1, color=False)
+    assert "actions=" in formatted
+    assert "backup restored" in formatted
+    assert "backup deleted" in formatted
+
+
 def test_folder_state_dry_run_does_not_skip_later_apply(monkeypatch, tmp_path: Path) -> None:
     repair = _load_repair_module()
     folder = tmp_path / "library"

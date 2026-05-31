@@ -104,6 +104,23 @@ Recommended workflow:
    while `REPAIRABLE` entries remain candidates for repair.
 4. Keep backups enabled unless you already have an external backup.
 
+Apply safety sequence:
+
+1. Create a full-file backup unless `--no-backup` was explicitly passed.
+2. Write the repaired bytes through a temporary sibling file and atomic replace.
+3. Re-read the repaired file from disk and verify the container structure.
+4. Run the normal post-write inspection from disk, including format/codec checks
+   when `ffprobe` is available and Mutagen tag readback.
+5. Mark the result as `REPAIRED` only after those checks pass. If verification
+   fails and a backup exists, restore the original file from the backup and mark
+   the result as `FAILED`.
+6. Delete the backup after a fully successful repair. If verification fails,
+   restore the original file from backup, then delete the backup after the
+   restore succeeds. A backup remains only if restore or cleanup itself fails.
+
+Apply-mode CLI output includes the repair action plus backup/write/verify/delete
+or restore events in the per-file `actions=` field.
+
 Examples:
 
 ```powershell

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import hashlib
@@ -1743,10 +1743,14 @@ def repair_wave_file(
     no_backup: bool,
     keep_id3: str,
 ) -> FileRepairResult:
+    backup_path = None
+    repair_actions: list[str] = []
+    apply_actions: list[str] = []
     try:
         data = path.read_bytes()
         original_payload_hash = data_payload_hash(data)
         repaired = repair_wave_bytes(data, keep_id3=keep_id3)
+        repair_actions = list(repaired.actions)
         repaired_payload_hash = data_payload_hash(repaired.data)
         if original_payload_hash != repaired_payload_hash:
             raise RepairError("audio data payload would change; refusing to write")
@@ -1764,20 +1768,27 @@ def repair_wave_file(
             )
 
         status = "ok"
-        backup_path = None
         if repaired.changed:
             status = "repairable"
             if apply_changes:
                 backup_path = create_backup(path, backup_dir=backup_dir, no_backup=no_backup)
-                write_repaired_file(path, repaired.data)
-                verify_repaired_file(path)
+                record_backup_created(apply_actions, backup_path)
+                post_write_inspection = apply_repaired_file(
+                    path,
+                    repaired.data,
+                    backup_path=backup_path,
+                    structural_verify=verify_repaired_file,
+                    actions=apply_actions,
+                )
+                if post_write_inspection.tag_summary:
+                    repaired.mutagen_summary = post_write_inspection.tag_summary
                 status = "repaired"
 
         return FileRepairResult(
             path=path,
             status=status,
             message="ok",
-            actions=repaired.actions,
+            actions=repair_actions + apply_actions,
             backup_path=backup_path,
             original_size=repaired.original_size,
             repaired_size=repaired.repaired_size,
@@ -1786,7 +1797,13 @@ def repair_wave_file(
             mutagen_summary=repaired.mutagen_summary,
         )
     except Exception as error:
-        return FileRepairResult(path=path, status="failed", message=str(error))
+        return FileRepairResult(
+            path=path,
+            status="failed",
+            message=str(error),
+            actions=repair_actions + apply_actions,
+            backup_path=backup_path,
+        )
 
 
 def is_cosmetic_only_wave_repair(repaired: ByteRepairResult) -> bool:
@@ -1808,6 +1825,9 @@ def repair_aiff_file(
     backup_dir: Path | None,
     no_backup: bool,
 ) -> FileRepairResult:
+    backup_path = None
+    repair_actions: list[str] = []
+    apply_actions: list[str] = []
     try:
         data = path.read_bytes()
         if not has_empty_aiff_id3_chunks(data):
@@ -1823,25 +1843,33 @@ def repair_aiff_file(
             )
         original_payload_hash = aiff_sound_payload_hash(data)
         repaired = repair_aiff_bytes(data)
+        repair_actions = list(repaired.actions)
         repaired_payload_hash = aiff_sound_payload_hash(repaired.data)
         if original_payload_hash != repaired_payload_hash:
             raise RepairError("audio sound payload would change; refusing to write")
 
         status = "ok"
-        backup_path = None
         if repaired.changed:
             status = "repairable"
             if apply_changes:
                 backup_path = create_backup(path, backup_dir=backup_dir, no_backup=no_backup)
-                write_repaired_file(path, repaired.data)
-                verify_repaired_aiff_file(path)
+                record_backup_created(apply_actions, backup_path)
+                post_write_inspection = apply_repaired_file(
+                    path,
+                    repaired.data,
+                    backup_path=backup_path,
+                    structural_verify=verify_repaired_aiff_file,
+                    actions=apply_actions,
+                )
+                if post_write_inspection.tag_summary:
+                    repaired.mutagen_summary = post_write_inspection.tag_summary
                 status = "repaired"
 
         return FileRepairResult(
             path=path,
             status=status,
             message="ok",
-            actions=repaired.actions,
+            actions=repair_actions + apply_actions,
             backup_path=backup_path,
             original_size=repaired.original_size,
             repaired_size=repaired.repaired_size,
@@ -1850,6 +1878,14 @@ def repair_aiff_file(
             mutagen_summary=repaired.mutagen_summary,
         )
     except Exception as error:
+        if apply_changes:
+            return FileRepairResult(
+                path=path,
+                status="failed",
+                message=str(error),
+                actions=repair_actions + apply_actions,
+                backup_path=backup_path,
+            )
         inspection = inspect_file(path)
         if inspection.status in {"tag-error", "suspicious"}:
             return FileRepairResult(path=path, status=inspection.status, message=inspection.message)
@@ -2230,6 +2266,69 @@ def verify_repaired_aiff_file(path: Path) -> None:
         raise RepairError(summary)
 
 
+def apply_repaired_file(
+    path: Path,
+    data: bytes,
+    *,
+    backup_path: Path | None,
+    structural_verify: Callable[[Path], None],
+    actions: list[str],
+) -> FileInspectionResult:
+    try:
+        write_repaired_file(path, data)
+        actions.append("repaired bytes written")
+        structural_verify(path)
+        actions.append("container verification passed")
+        inspection = verify_post_write_inspection(path)
+        actions.append("post-write inspection passed")
+    except Exception as error:
+        restore_backup(path, backup_path, actions=actions)
+        delete_backup(backup_path, actions=actions)
+        raise
+    delete_backup(backup_path, actions=actions)
+    return inspection
+
+
+def verify_post_write_inspection(path: Path) -> FileInspectionResult:
+    inspection = inspect_file(path)
+    if inspection.status != "ok":
+        raise RepairError(f"post-write verification failed: {inspection.status}: {inspection.message}")
+    if not inspection.tag_summary or not inspection.tag_summary.startswith("mutagen ok"):
+        detail = inspection.tag_summary or "missing Mutagen tag readback"
+        raise RepairError(f"post-write tag verification failed: {detail}")
+    return inspection
+
+
+def record_backup_created(actions: list[str], backup_path: Path | None) -> None:
+    if backup_path is None:
+        actions.append("backup skipped")
+    else:
+        actions.append(f"backup created: {backup_path}")
+
+
+def restore_backup(path: Path, backup_path: Path | None, *, actions: list[str]) -> None:
+    if backup_path is None:
+        actions.append("backup restore skipped: no backup")
+        return
+    try:
+        shutil.copy2(backup_path, path)
+    except Exception as error:
+        actions.append(f"backup restore failed: {backup_path}: {error}")
+        raise
+    actions.append(f"backup restored: {backup_path}")
+
+
+def delete_backup(backup_path: Path | None, *, actions: list[str]) -> None:
+    if backup_path is None:
+        return
+    try:
+        backup_path.unlink()
+    except Exception as error:
+        actions.append(f"backup delete failed: {backup_path}: {error}")
+        raise
+    actions.append(f"backup deleted: {backup_path}")
+
+
 def create_backup(path: Path, *, backup_dir: Path | None, no_backup: bool) -> Path | None:
     if no_backup:
         return None
@@ -2281,7 +2380,10 @@ def format_result(
     if result.status in {"failed", "suspicious", "tag-error", "broken", "unsupported", "notice"}:
         fields.append(f"problem={result.message}")
     if result.actions:
-        fields.append(f"action={primary_action(result.actions)}")
+        if dry_run:
+            fields.append(f"action={primary_action(result.actions)}")
+        else:
+            fields.append(f"actions={'; '.join(result.actions)}")
     return " | ".join(fields)
 
 

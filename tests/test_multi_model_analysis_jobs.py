@@ -74,6 +74,9 @@ def test_multi_model_job_selects_tracks_missing_selected_models_and_skips_existi
     assert status.state == "completed"
     assert status.total == 2
     assert status.processed == 2
+    assert status.analyzed == 2
+    assert status.failed == 0
+    assert status.skipped == 0
     assert status.model_progress["sonara"].total == 1
     assert status.model_progress["sonara"].analyzed == 1
     assert status.model_progress["mert"].total == 1
@@ -98,6 +101,9 @@ def test_multi_model_limit_counts_candidate_tracks_not_per_model_totals(tmp_path
 
     assert status.total == 2
     assert status.processed == 2
+    assert status.analyzed == 2
+    assert status.failed == 0
+    assert status.skipped == 0
     assert decoder.calls == ["b-candidate.wav", "c-candidate.wav"]
     assert runners["sonara"].calls == [["b-candidate.wav", "c-candidate.wav"]]
     assert runners["mert"].calls == [["b-candidate.wav", "c-candidate.wav"]]
@@ -119,8 +125,13 @@ def test_multi_model_failure_is_model_scoped_and_other_models_continue(tmp_path:
     assert status.state == "completed"
     assert status.total == 2
     assert status.processed == 2
-    assert status.analyzed == 3
+    assert status.analyzed == 1
     assert status.failed == 1
+    assert status.skipped == 0
+    assert status.model_progress["sonara"].analyzed == 1
+    assert status.model_progress["sonara"].failed == 1
+    assert status.model_progress["mert"].analyzed == 2
+    assert status.model_progress["mert"].failed == 0
     assert [(error.model, Path(error.path).name) for error in status.errors] == [("sonara", "b-bad.wav")]
     assert decoder.calls == ["a-good.wav", "b-bad.wav"]
     assert runners["sonara"].calls == [["a-good.wav", "b-bad.wav"], ["a-good.wav"], ["b-bad.wav"]]
@@ -142,8 +153,13 @@ def test_multi_model_decode_failure_marks_missing_selected_models_failed(tmp_pat
 
     assert status.state == "completed"
     assert status.processed == 2
-    assert status.analyzed == 2
-    assert status.failed == 2
+    assert status.analyzed == 1
+    assert status.failed == 1
+    assert status.skipped == 0
+    assert status.model_progress["sonara"].analyzed == 1
+    assert status.model_progress["sonara"].failed == 1
+    assert status.model_progress["mert"].analyzed == 1
+    assert status.model_progress["mert"].failed == 1
     assert [(error.model, Path(error.path).name) for error in status.errors] == [
         ("sonara", "b-undecodable.wav"),
         ("mert", "b-undecodable.wav"),
@@ -191,8 +207,9 @@ def test_multi_model_runner_init_failure_marks_only_that_model_failed(tmp_path: 
 
     assert status.state == "completed"
     assert status.processed == 1
-    assert status.analyzed == 1
+    assert status.analyzed == 0
     assert status.failed == 1
+    assert status.skipped == 0
     assert status.model_progress["sonara"].analyzed == 1
     assert status.model_progress["maest"].failed == 1
     assert [(error.model, Path(error.path).name, error.error) for error in status.errors] == [

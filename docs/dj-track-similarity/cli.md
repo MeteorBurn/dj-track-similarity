@@ -189,6 +189,9 @@ Output:
 state=<state> total=<n> processed=<n> analyzed=<n> failed=<n> models=<models> device=<device> top_k=<n> batch_size=<n>
 ```
 
+`processed`, `analyzed`, and `failed` are track-level counters. Per-model
+successes and failures remain available in the web/API `model_progress` status.
+
 `auto` chooses CUDA when PyTorch sees a GPU, otherwise CPU. Explicit `cuda`
 fails if CUDA is unavailable.
 

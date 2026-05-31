@@ -117,9 +117,10 @@ processed yet. Its request body accepts `models`, `limit`, `device`,
 null` means all eligible tracks; positive limits count candidate tracks that
 are missing at least one selected model.
 
-The analysis job skips selected-model results that already exist. Its status
-uses `total` and `processed` for candidate tracks, `analyzed` and `failed` for
-model-level writes or failures, and `model_progress` for per-model counters.
+The analysis job skips selected-model results that already exist. Its top-level
+status uses `total`, `processed`, `analyzed`, `failed`, and `skipped` for
+track-level counters. `model_progress` keeps per-model counters for model-level
+writes and failures.
 `current_model` identifies which selected model is currently running. Empty
 search results often mean the required Sonara features, MERT embeddings, or
 CLAP embeddings are missing for the candidate tracks.

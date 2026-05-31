@@ -68,6 +68,13 @@ class AnalysisModelProgress:
 
 
 @dataclass
+class AnalysisTrackOutcome:
+    target_count: int
+    successes: int = 0
+    failures: int = 0
+
+
+@dataclass
 class AnalysisJobStatus:
     job_id: str
     state: str
@@ -83,6 +90,7 @@ class AnalysisJobStatus:
     processed: int = 0
     analyzed: int = 0
     failed: int = 0
+    skipped: int = 0
     current_path: str | None = None
     started_at: float | None = None
     finished_at: float | None = None
@@ -133,6 +141,10 @@ class AnalysisJobManager:
         for targets in targets_by_track.values():
             for model in targets:
                 progress[model].total += 1
+        track_outcomes = {
+            track.id: AnalysisTrackOutcome(target_count=len(targets_by_track[track.id]))
+            for track in tracks
+        }
         job_id = str(uuid.uuid4())
         effective_batch_size = max(1, int(batch_size or self.batch_size))
         status = AnalysisJobStatus(
@@ -146,7 +158,11 @@ class AnalysisJobManager:
             batch_size=effective_batch_size,
             top_k=max(1, int(top_k)),
         )
-        self._store.add(job_id, status, payload={"tracks": tracks, "targets_by_track": targets_by_track})
+        self._store.add(
+            job_id,
+            status,
+            payload={"tracks": tracks, "targets_by_track": targets_by_track, "track_outcomes": track_outcomes},
+        )
         self._append_event(job_id, "info", "Analysis queued")
         return job_id
 
@@ -316,8 +332,8 @@ class AnalysisJobManager:
                 self._record_model_failure(job_id, model, item.track, error)
 
     def _record_model_success(self, job_id: str, model: str, track: Track) -> None:
+        self._record_track_model_result(job_id, track.id, failed=False)
         with self._store.locked(job_id) as status:
-            status.analyzed += 1
             progress = status.model_progress[model]
             progress.processed += 1
             progress.analyzed += 1
@@ -334,8 +350,8 @@ class AnalysisJobManager:
             track.path,
             error_text,
         )
+        self._record_track_model_result(job_id, track.id, failed=True)
         with self._store.locked(job_id) as status:
-            status.failed += 1
             progress = status.model_progress[model]
             progress.processed += 1
             progress.failed += 1
@@ -343,11 +359,34 @@ class AnalysisJobManager:
         self._append_event(job_id, "error", f"Track failed: {error_text}", path=track.path, track_id=track.id, model=model)
 
     def _mark_track_processed(self, job_id: str, track: Track) -> None:
+        outcome = self._track_outcome(job_id, track.id)
         with self._store.locked(job_id) as status:
             status.current_path = track.path
             status.processed += 1
+            if outcome is None or outcome.target_count <= 0:
+                status.skipped += 1
+            elif outcome.failures:
+                status.failed += 1
+            elif outcome.successes >= outcome.target_count:
+                status.analyzed += 1
+            else:
+                status.skipped += 1
             if status.started_at and status.processed:
                 status.avg_seconds_per_track = (time.time() - status.started_at) / status.processed
+
+    def _record_track_model_result(self, job_id: str, track_id: int, *, failed: bool) -> None:
+        outcome = self._track_outcome(job_id, track_id)
+        if outcome is None:
+            return
+        if failed:
+            outcome.failures += 1
+        else:
+            outcome.successes += 1
+
+    def _track_outcome(self, job_id: str, track_id: int) -> AnalysisTrackOutcome | None:
+        payload = cast(dict[str, object], self._store.payload(job_id) or {})
+        outcomes = cast(dict[int, AnalysisTrackOutcome], payload.get("track_outcomes") or {})
+        return outcomes.get(track_id)
 
     def _update(self, job_id: str, **changes: object) -> None:
         self._store.update(job_id, **changes)
@@ -401,6 +440,7 @@ class AnalysisJobManager:
             processed=status.processed,
             analyzed=status.analyzed,
             failed=status.failed,
+            skipped=status.skipped,
             current_path=status.current_path,
             started_at=status.started_at,
             finished_at=status.finished_at,

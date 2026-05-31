@@ -126,10 +126,10 @@ The server also exposes `--log-level` and `--log-track-events`.
 
 CLI analysis commands print a live one-line progress display while they run.
 The line is redrawn in place and includes a progress bar, percentage,
-`processed/total`, `analyzed`, `failed`, approximate `tracks/s`, and an
-estimated remaining time. This is console-only progress for the CLI process that
-started the job; it does not attach to jobs started by the web UI/server
-process.
+`processed/total`, track-level `analyzed` and `failed`, approximate `tracks/s`,
+and an estimated remaining time. This is console-only progress for the CLI
+process that started the job; it does not attach to jobs started by the web
+UI/server process.
 
 CLI analysis commands can also write diagnostic timing lines to the file log
 when `--diagnostics` is passed on the command or

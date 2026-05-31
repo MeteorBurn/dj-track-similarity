@@ -69,6 +69,7 @@ def register_library_routes(
         q: str = "",
         preset: str = Query(default="all", pattern="^(all|syncopated)$"),
         liked: bool = False,
+        search_mode: str = Query(default="like", pattern="^(like|fts)$"),
         classifier_min_scores: str | None = Query(default=None),
         limit: int = Query(default=100, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
@@ -82,6 +83,7 @@ def register_library_routes(
             limit=limit,
             offset=offset,
             include_metadata=include_metadata,
+            search_mode=search_mode,
         )
 
     @app.post("/api/tracks/{track_id}/liked")
@@ -105,6 +107,7 @@ def register_library_routes(
             preset=request.preset,
             liked_only=request.liked,
             classifier_min_scores=valid_classifier_min_scores(request.classifier_min_scores),
+            search_mode=request.search_mode,
         )
 
     @app.get("/api/library/summary")

@@ -22,7 +22,13 @@ index instead of scanning `tracks`.
 Implementation checkpoint: schema version `3` is now implemented in app code
 for new/current databases without runtime migration compatibility. Existing
 schema version `2` databases are upgraded only by the separate
-`scripts/migrate_database_v3.py` maintenance script.
+`scripts/migrate_database_v3.py` maintenance script. The same script also
+backfills the v3 FTS5 library search index for databases that were already
+migrated to v3 before that index was added.
+
+Implementation checkpoint: FTS5 library search is implemented as an explicit
+mode. Default `/api/tracks?q=...` remains substring `LIKE`; callers can request
+token-based FTS with `search_mode=fts`.
 
 ## Goals
 
@@ -44,6 +50,7 @@ schema version `2` databases are upgraded only by the separate
 | Classifier-filtered library page | Around 300 ms with the current correlated subquery shape; rewritten to start from `track_classifier_scores`, it measured around 0.1 ms on a copied DB. |
 | Core-analysis flag prototype | Missing MAEST/MERT/CLAP/Sonara ids measured around 0.02 ms with `tracks.has_*` flags and partial missing-sort indexes on a copied DB. |
 | `track_analysis_state` prototype | Backfilled exactly, but missing-analysis selectors measured around 72-75 ms and were slower than the existing or flag-based paths. |
+| FTS5 library search prototype | Common text search dropped from about 94 ms LIKE scanning to about 22 ms first-page FTS on a copied DB; count queries were sub-millisecond. |
 
 ## No-Schema Hot-Path Checkpoint
 
@@ -96,7 +103,7 @@ These require approval before implementation, but have low data-model risk:
 | --- | --- | --- |
 | Additional partial indexes for analyzer candidate selection | Current indexes cover Sonara and MAEST JSON presence, but MERT/CLAP missing selection depends on embeddings lookups. Validate whether current `(embedding_key, track_id)` plus PK is enough before adding. | `CREATE INDEX IF NOT EXISTS`, schema version bump only if project policy requires tracking index additions. |
 | Composite indexes for classifier-filtered library pages | CLASS filters can combine score thresholds with sorted track pages. | Add targeted indexes after measuring `EXPLAIN QUERY PLAN` on real filter combinations. |
-| FTS5 index for text library search | Current text search uses LIKE-style matching across track fields and metadata-derived text. | Add virtual table plus rebuild trigger or explicit rebuild helper. Needs fallback decision if SQLite build lacks FTS5. |
+| FTS5 index for text library search | Implemented as explicit `search_mode=fts`; default search keeps LIKE semantics. | Virtual table is created in v3 schema and backfilled by `scripts/migrate_database_v3.py`; runtime code maintains rows on track metadata/path changes. |
 
 ## Deprecated First Schema Proposal
 
@@ -219,7 +226,8 @@ Start with one migration version, not many small incompatible migrations:
 7. Move analyzer candidate selection and summary counters to the new flag
    selectors.
 8. Add perf tests comparing old read-only queries against the migrated copy.
-9. Only after that, consider FTS/search materialization, `track_genres`, or a
+9. FTS/search materialization is now implemented as explicit mode.
+10. Only after that, consider `track_genres` or a
    state/freshness table.
 
 ## Approval Gates

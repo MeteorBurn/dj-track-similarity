@@ -103,6 +103,7 @@ class TextSearchRequest(BaseModel):
 
 class FilteredTracksRequest(BaseModel):
     query: str = ""
+    search_mode: str = Field(default="like", pattern="^(like|fts)$")
     preset: str = Field(default="all", pattern="^(all|syncopated)$")
     liked: bool = False
     classifier_min_scores: dict[str, float] = Field(default_factory=dict)

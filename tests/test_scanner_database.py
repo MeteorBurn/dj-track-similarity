@@ -40,6 +40,7 @@ def test_new_database_uses_current_schema_version_and_indexes(tmp_path: Path) ->
 
     assert version == CURRENT_SCHEMA_VERSION
     assert "library_settings" in tables
+    assert "track_search_fts" in tables
     assert {
         "idx_tracks_sort_artist_title_path",
         "idx_tracks_syncopated_sort",
@@ -65,6 +66,30 @@ def test_new_database_uses_current_schema_version_and_indexes(tmp_path: Path) ->
         "idx_tracks_maest_missing_sort",
     }.intersection(track_indexes)
     assert "idx_embeddings_key_track" in embedding_indexes
+
+
+def test_track_search_fts_mode_is_explicit_token_search(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    substring_id = db.upsert_track(
+        path=tmp_path / "substring.wav",
+        size=10,
+        mtime=1,
+        metadata={"artist": "DJ One", "title": "AlphaBeta"},
+    )
+    token_id = db.upsert_track(
+        path=tmp_path / "token.wav",
+        size=10,
+        mtime=1,
+        metadata={"artist": "DJ Two", "title": "Deep House"},
+    )
+
+    like_page = db.list_tracks_page(query="phaB")
+    fts_substring_page = db.list_tracks_page(query="phaB", search_mode="fts")
+    fts_token_page = db.list_tracks_page(query="deep house", search_mode="fts")
+
+    assert [track.id for track in like_page["items"]] == [substring_id]
+    assert fts_substring_page["total"] == 0
+    assert [track.id for track in fts_token_page["items"]] == [token_id]
 
 
 def test_database_persists_library_root_setting(tmp_path: Path) -> None:

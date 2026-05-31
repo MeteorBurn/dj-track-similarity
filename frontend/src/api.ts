@@ -210,9 +210,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({})
     }),
-  tracks: (params: { query?: string; preset?: string; liked?: boolean; classifierMinScores?: Record<string, number>; limit?: number; offset?: number; includeMetadata?: boolean } = {}) => {
+  tracks: (params: { query?: string; searchMode?: "like" | "fts"; preset?: string; liked?: boolean; classifierMinScores?: Record<string, number>; limit?: number; offset?: number; includeMetadata?: boolean } = {}) => {
     const search = new URLSearchParams();
     if (params.query) search.set("q", params.query);
+    if (params.searchMode) search.set("search_mode", params.searchMode);
     if (params.preset) search.set("preset", params.preset);
     if (params.liked) search.set("liked", "true");
     if (params.classifierMinScores && Object.keys(params.classifierMinScores).length) {
@@ -223,11 +224,12 @@ export const api = {
     search.set("include_metadata", params.includeMetadata ? "true" : "false");
     return request<TrackPage>(`/api/tracks?${search.toString()}`);
   },
-  filteredTracks: (payload: { query?: string; preset?: string; liked?: boolean; classifierMinScores?: Record<string, number> }) =>
+  filteredTracks: (payload: { query?: string; searchMode?: "like" | "fts"; preset?: string; liked?: boolean; classifierMinScores?: Record<string, number> }) =>
     request<{ items: Track[]; total: number }>("/api/tracks/filtered", {
       method: "POST",
       body: JSON.stringify({
         query: payload.query || "",
+        search_mode: payload.searchMode || "like",
         preset: payload.preset || "all",
         liked: payload.liked || false,
         classifier_min_scores: payload.classifierMinScores || {}

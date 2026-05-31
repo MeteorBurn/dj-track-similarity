@@ -244,6 +244,13 @@ contract risk because FTS token matching is not identical to substring `LIKE`.
 Before implementing, decide whether search should keep substring semantics,
 switch to token search, or expose both modes.
 
+Implementation decision: expose both modes. Existing `/api/tracks?q=...`
+continues to use substring `LIKE`; explicit `search_mode=fts` uses the FTS5
+token index. The FTS table is included in the current schema version `3` and is
+created/backfilled only by the standalone `scripts/migrate_database_v3.py`
+script for existing v3 databases. No runtime migration or `LIKE` fallback is
+added for the FTS mode.
+
 ## Candidate 4: `track_analysis_state`
 
 The earlier proposal was tested on the copied database:
@@ -311,7 +318,8 @@ migration should also get its own size check before approval.
    `tracks` and partial indexes for missing/present counts.
 3. If approved, implement the migration on a copy first, then update write paths
    and focused tests.
-4. Consider FTS5 search only after deciding search semantics.
+4. FTS5 search is implemented as an explicit `search_mode=fts`; default
+   substring `LIKE` semantics are preserved.
 5. Defer `track_analysis_state` until there is a clear source-freshness or state
    history requirement that justifies the extra table.
 

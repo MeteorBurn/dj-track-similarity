@@ -20,6 +20,7 @@ from .db_repository_utils import (
     _set_maest_metadata,
 )
 from .db_schema import MAEST_HAS_GENRES_SQL, TRACK_SELECT_FIELDS, TRACK_SLIM_SELECT_FIELDS_WITH_VECTOR
+from .db_search_fts import rebuild_track_search_fts, upsert_track_search_fts
 from .metadata_payload import clean_maest_genre_label, metadata_from_json, metadata_to_json, optional_float, string_or_none
 from .models import AnalysisCandidate, Track
 
@@ -146,6 +147,7 @@ class AnalysisRepository:
                 "UPDATE tracks SET metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (metadata_to_json(metadata, sort_keys=False), track_id),
             )
+            upsert_track_search_fts(connection, track_id)
             embedding_keys = _embedding_keys_for_track(connection, track_id)
         self._invalidate_embedding_cache_keys(embedding_keys)
 
@@ -185,6 +187,7 @@ class AnalysisRepository:
                     track_id,
                 ),
             )
+            upsert_track_search_fts(connection, track_id)
             embedding_keys = _embedding_keys_for_track(connection, track_id)
         self._invalidate_embedding_cache_keys(embedding_keys)
 
@@ -217,6 +220,7 @@ class AnalysisRepository:
             }
             connection.execute("DELETE FROM embeddings")
             connection.execute("DELETE FROM tracks")
+            rebuild_track_search_fts(connection)
         self._invalidate_embedding_cache()
         return counts
 
@@ -312,6 +316,7 @@ class AnalysisRepository:
                     "UPDATE tracks SET metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                     (metadata_to_json(metadata), row["id"]),
                 )
+                upsert_track_search_fts(connection, int(row["id"]))
                 embedding_keys_to_invalidate.update(_embedding_keys_for_track(connection, int(row["id"])))
                 updated += 1
         if updated:
@@ -340,6 +345,7 @@ class AnalysisRepository:
                     "UPDATE tracks SET metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                     (metadata_to_json(metadata), row["id"]),
                 )
+                upsert_track_search_fts(connection, int(row["id"]))
                 embedding_keys_to_invalidate.update(_embedding_keys_for_track(connection, int(row["id"])))
                 updated += 1
             cursor = connection.execute("DELETE FROM embeddings WHERE embedding_key = ?", (embedding_key,))
@@ -381,6 +387,7 @@ class AnalysisRepository:
                         row["id"],
                     ),
                 )
+                upsert_track_search_fts(connection, int(row["id"]))
                 embedding_keys_to_invalidate.update(_embedding_keys_for_track(connection, int(row["id"])))
                 updated += 1
             connection.execute("UPDATE tracks SET has_sonara_analysis = 0 WHERE has_sonara_analysis != 0")

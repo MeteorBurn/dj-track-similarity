@@ -16,6 +16,7 @@ from .db_repository_utils import (
     normalize_path,
 )
 from .db_schema import TRACK_SELECT_FIELDS, TRACK_SLIM_SELECT_FIELDS
+from .db_search_fts import fts_match_query, normalize_search_mode, rebuild_track_search_fts, upsert_track_search_fts
 from .metadata_payload import (
     analyses_from_row,
     genres_from_metadata,
@@ -141,6 +142,8 @@ class TrackRepository:
                 ),
             )
             row = connection.execute("SELECT id FROM tracks WHERE path = ?", (normalized,)).fetchone()
+            if row is not None:
+                upsert_track_search_fts(connection, int(row["id"]))
             embedding_keys = _embedding_keys_for_track(connection, int(row["id"])) if row is not None else ()
         self._invalidate_embedding_cache_keys(embedding_keys)
         if row is None:
@@ -184,22 +187,32 @@ class TrackRepository:
         offset: int = 0,
         include_metadata: bool = False,
         embedding_key: str = DEFAULT_EMBEDDING_KEY,
+        search_mode: str = "like",
     ) -> dict[str, object]:
+        mode = normalize_search_mode(search_mode)
+        use_fts = mode == "fts" and bool(query.strip())
+        fts_query = fts_match_query(query) if use_fts else ""
         fields = TRACK_SELECT_FIELDS if include_metadata else TRACK_SLIM_SELECT_FIELDS
         thresholds = dict(classifier_min_scores or {})
         primary_classifier, remaining_thresholds = split_primary_classifier_filter(thresholds)
         where_sql, params = build_track_filter_sql(
-            query=query,
+            query="" if use_fts else query,
             preset=preset,
             liked_only=liked_only,
             classifier_min_scores=remaining_thresholds if primary_classifier else thresholds,
         )
+        if use_fts:
+            condition = "track_search_fts MATCH ?" if fts_query else "0 = 1"
+            where_sql = combine_where_condition(condition, where_sql)
+            if fts_query:
+                params = [fts_query, *params]
         order_sql = track_order_sql(classifier_min_scores=thresholds)
         bounded_limit = max(1, min(500, int(limit)))
         bounded_offset = max(0, int(offset))
         with self.connect() as connection:
             if primary_classifier:
                 classifier, threshold = primary_classifier
+                fts_join = "JOIN track_search_fts fts ON fts.track_id = t.id" if use_fts and fts_query else ""
                 classifier_where = combine_where_condition(
                     "primary_cs.classifier = ? AND primary_cs.score >= ?",
                     where_sql,
@@ -211,6 +224,7 @@ class TrackRepository:
                         SELECT COUNT(*)
                         FROM track_classifier_scores primary_cs
                         JOIN tracks t ON t.id = primary_cs.track_id
+                        {fts_join}
                         {classifier_where}
                         """,
                         classifier_params,
@@ -221,6 +235,7 @@ class TrackRepository:
                     SELECT {fields}
                     FROM track_classifier_scores primary_cs
                     JOIN tracks t ON t.id = primary_cs.track_id
+                    {fts_join}
                     LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                     {classifier_where}
                     ORDER BY primary_cs.score DESC, COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
@@ -229,11 +244,12 @@ class TrackRepository:
                     (embedding_key, *classifier_params, bounded_limit, bounded_offset),
                 ).fetchall()
             else:
-                total = int(connection.execute(f"SELECT COUNT(*) FROM tracks t {where_sql}", params).fetchone()[0])
+                from_sql = "track_search_fts fts JOIN tracks t ON t.id = fts.track_id" if use_fts and fts_query else "tracks t"
+                total = int(connection.execute(f"SELECT COUNT(*) FROM {from_sql} {where_sql}", params).fetchone()[0])
                 rows = connection.execute(
                     f"""
                     SELECT {fields}
-                    FROM tracks t
+                    FROM {from_sql}
                     LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                     {where_sql}
                     ORDER BY {order_sql}
@@ -257,20 +273,30 @@ class TrackRepository:
         classifier_min_scores: dict[str, float] | None = None,
         include_metadata: bool = False,
         embedding_key: str = DEFAULT_EMBEDDING_KEY,
+        search_mode: str = "like",
     ) -> dict[str, object]:
+        mode = normalize_search_mode(search_mode)
+        use_fts = mode == "fts" and bool(query.strip())
+        fts_query = fts_match_query(query) if use_fts else ""
         fields = TRACK_SELECT_FIELDS if include_metadata else TRACK_SLIM_SELECT_FIELDS
         thresholds = dict(classifier_min_scores or {})
         primary_classifier, remaining_thresholds = split_primary_classifier_filter(thresholds)
         where_sql, params = build_track_filter_sql(
-            query=query,
+            query="" if use_fts else query,
             preset=preset,
             liked_only=liked_only,
             classifier_min_scores=remaining_thresholds if primary_classifier else thresholds,
         )
+        if use_fts:
+            condition = "track_search_fts MATCH ?" if fts_query else "0 = 1"
+            where_sql = combine_where_condition(condition, where_sql)
+            if fts_query:
+                params = [fts_query, *params]
         order_sql = track_order_sql(classifier_min_scores=thresholds)
         with self.connect() as connection:
             if primary_classifier:
                 classifier, threshold = primary_classifier
+                fts_join = "JOIN track_search_fts fts ON fts.track_id = t.id" if use_fts and fts_query else ""
                 classifier_where = combine_where_condition(
                     "primary_cs.classifier = ? AND primary_cs.score >= ?",
                     where_sql,
@@ -280,6 +306,7 @@ class TrackRepository:
                     SELECT {fields}
                     FROM track_classifier_scores primary_cs
                     JOIN tracks t ON t.id = primary_cs.track_id
+                    {fts_join}
                     LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                     {classifier_where}
                     ORDER BY primary_cs.score DESC, COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
@@ -287,10 +314,11 @@ class TrackRepository:
                     (embedding_key, classifier, threshold, *params),
                 ).fetchall()
             else:
+                from_sql = "track_search_fts fts JOIN tracks t ON t.id = fts.track_id" if use_fts and fts_query else "tracks t"
                 rows = connection.execute(
                     f"""
                     SELECT {fields}
-                    FROM tracks t
+                    FROM {from_sql}
                     LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                     {where_sql}
                     ORDER BY {order_sql}
@@ -390,6 +418,7 @@ class TrackRepository:
                     track_id,
                 ),
             )
+            upsert_track_search_fts(connection, track_id)
             embedding_keys = _embedding_keys_for_track(connection, track_id)
         self._invalidate_embedding_cache_keys(embedding_keys)
 
@@ -458,6 +487,7 @@ class TrackRepository:
                         "UPDATE tracks SET path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                         (change["new_path"], change["track_id"]),
                     )
+                    upsert_track_search_fts(connection, int(change["track_id"]))
         if apply and changes:
             self._invalidate_embedding_cache_keys(embedding_keys_to_invalidate)
 
@@ -471,6 +501,10 @@ class TrackRepository:
             "conflicts": conflicts,
             "changes": changes,
         }
+
+    def rebuild_track_search_index(self) -> int:
+        with self._write_lock, self.connect() as connection:
+            return rebuild_track_search_fts(connection)
 
     @staticmethod
     def _row_to_track(row: sqlite3.Row, *, include_metadata: bool = True) -> Track:

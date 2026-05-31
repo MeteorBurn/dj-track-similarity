@@ -18,7 +18,10 @@ mode:
 ```
 
 The script creates an online SQLite backup before `--apply`. Close the running
-app before applying the migration to the same database.
+app before applying the migration to the same database. The same script also
+backfills the v3 FTS search table for databases that were already migrated to
+v3 before the FTS index existed; this is still an explicit script action, not a
+runtime migration.
 
 The database is local user state. Normal scan, analysis, search, reset, clear,
 and relocation workflows modify SQLite records only; they do not rewrite audio
@@ -111,6 +114,21 @@ the score for that track instead of appending historical rows.
 Use this table when a CLASS filter does not behave as expected. Missing rows
 usually mean the promoted classifier has not scored that track yet, or the track
 was missing required Sonara, MERT, or MAEST inputs during scoring.
+
+### `track_search_fts`
+
+Stores a derived FTS5 index for explicit token-based library search:
+
+- `track_id`: stable local track ID, stored unindexed for joins back to
+  `tracks.id`.
+- `search_text`: materialized artist, title, album, path, and `metadata_json`
+  text.
+
+The default library search still uses substring `LIKE` semantics. FTS is used
+only when the caller explicitly requests `search_mode=fts`. Scan/upsert,
+RefreshTags, MAEST genre saves, Sonara metadata saves, resets that edit metadata,
+library relocation, and clear-library operations maintain the FTS rows in the
+same SQLite write transaction as the related `tracks` update.
 
 ## Metadata and Analysis Data
 

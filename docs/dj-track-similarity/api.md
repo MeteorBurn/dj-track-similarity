@@ -62,6 +62,11 @@ the stored MAEST syncopated-rhythm flag. They accept `liked=true` to show only
 liked tracks, and classifier threshold maps to filter tracks by stored
 classifier scores.
 
+The `q` search parameter keeps substring `LIKE` behavior by default. Pass
+`search_mode=fts` to use the explicit token-based FTS5 index instead. FTS is
+faster on broad text queries but does not match arbitrary substrings inside a
+token.
+
 Use `/api/tracks` for paged browsing and `/api/tracks/{track_id}` only when a
 full metadata dialog needs one track. This keeps large libraries responsive.
 

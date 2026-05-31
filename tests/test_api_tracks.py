@@ -71,6 +71,24 @@ def test_tracks_endpoint_filters_by_query_and_syncopated_preset(tmp_path: Path) 
     assert preset_payload["items"][0]["id"] == breaks_id
 
 
+def test_tracks_endpoint_keeps_like_default_and_supports_explicit_fts_mode(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    substring_id = _add_track(db, tmp_path, "substring.wav", "DJ One", "AlphaBeta", {})
+    token_id = _add_track(db, tmp_path, "token.wav", "DJ Two", "Deep House", {})
+    client = TestClient(create_app(db_path))
+
+    like_payload = client.get("/api/tracks", params={"q": "phaB"}).json()
+    fts_substring_payload = client.get("/api/tracks", params={"q": "phaB", "search_mode": "fts"}).json()
+    fts_token_payload = client.get("/api/tracks", params={"q": "deep house", "search_mode": "fts"}).json()
+    invalid_payload = client.get("/api/tracks", params={"q": "deep", "search_mode": "legacy"})
+
+    assert [item["id"] for item in like_payload["items"]] == [substring_id]
+    assert fts_substring_payload["total"] == 0
+    assert [item["id"] for item in fts_token_payload["items"]] == [token_id]
+    assert invalid_payload.status_code == 422
+
+
 def test_tracks_endpoint_toggles_and_filters_liked_tracks(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)

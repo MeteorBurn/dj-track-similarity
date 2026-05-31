@@ -28,6 +28,7 @@ class MigrationSummary:
     maest: int
     mert: int
     clap: int
+    fts_rows: int
     integrity_before: str
     integrity_after: str | None
 
@@ -43,23 +44,28 @@ def migrate_database_v3(db_path: str | Path, *, apply: bool = False) -> Migratio
 
     with sqlite3.connect(path) as connection:
         connection.row_factory = sqlite3.Row
+        _require_fts5(connection)
         _detect_library_database(connection)
         version_before = _schema_version(connection)
         if version_before == CURRENT_VERSION:
             counts = _analysis_counts(connection)
-            return MigrationSummary(
-                db_path=path,
-                dry_run=not apply,
-                version_before=version_before,
-                version_after=version_before,
-                backup_path=None,
-                integrity_before=integrity_before,
-                integrity_after=integrity_before,
-                **counts,
-            )
-        if version_before != SOURCE_VERSION:
-            raise RuntimeError(f"Expected library schema version {SOURCE_VERSION}, found {version_before}")
-        counts = _source_analysis_counts(connection)
+            needs_fts = not _has_fts_table(connection)
+            if not needs_fts:
+                return MigrationSummary(
+                    db_path=path,
+                    dry_run=not apply,
+                    version_before=version_before,
+                    version_after=version_before,
+                    backup_path=None,
+                    integrity_before=integrity_before,
+                    integrity_after=integrity_before,
+                    **counts,
+                )
+        else:
+            if version_before != SOURCE_VERSION:
+                raise RuntimeError(f"Expected library schema version {SOURCE_VERSION}, found {version_before}")
+            counts = _source_analysis_counts(connection)
+            needs_fts = True
 
     if not apply:
         return MigrationSummary(
@@ -80,7 +86,10 @@ def migrate_database_v3(db_path: str | Path, *, apply: bool = False) -> Migratio
         connection.execute("PRAGMA busy_timeout = 30000")
         connection.execute("PRAGMA journal_mode = WAL")
         connection.execute("PRAGMA synchronous = NORMAL")
-        _apply_v3_schema(connection)
+        if version_before == SOURCE_VERSION:
+            _apply_v3_schema(connection)
+        elif needs_fts:
+            _apply_fts_schema(connection)
         connection.commit()
 
     integrity_after = _integrity_check(path)
@@ -191,6 +200,33 @@ def _apply_v3_schema(connection: sqlite3.Connection) -> None:
         PRAGMA user_version = {CURRENT_VERSION};
         """
     )
+    _apply_fts_schema(connection)
+
+
+def _apply_fts_schema(connection: sqlite3.Connection) -> None:
+    connection.executescript(
+        """
+        CREATE VIRTUAL TABLE IF NOT EXISTS track_search_fts USING fts5(
+            track_id UNINDEXED,
+            search_text,
+            tokenize = 'unicode61'
+        );
+
+        DELETE FROM track_search_fts;
+
+        INSERT INTO track_search_fts(rowid, track_id, search_text)
+        SELECT
+            t.id,
+            t.id,
+            COALESCE(t.artist, '') || ' ' ||
+            COALESCE(t.title, '') || ' ' ||
+            COALESCE(t.album, '') || ' ' ||
+            t.path || ' ' ||
+            t.metadata_json
+        FROM tracks t
+        ORDER BY t.id;
+        """
+    )
 
 
 def _source_analysis_counts(connection: sqlite3.Connection) -> dict[str, int]:
@@ -208,6 +244,7 @@ def _source_analysis_counts(connection: sqlite3.Connection) -> dict[str, int]:
         "maest": _embedding_count(connection, "maest"),
         "mert": _embedding_count(connection, "mert"),
         "clap": _embedding_count(connection, "clap"),
+        "fts_rows": 0,
     }
 
 
@@ -218,6 +255,9 @@ def _analysis_counts(connection: sqlite3.Connection) -> dict[str, int]:
         "maest": int(connection.execute("SELECT COUNT(*) FROM tracks WHERE has_maest_embedding = 1").fetchone()[0]),
         "mert": int(connection.execute("SELECT COUNT(*) FROM tracks WHERE has_mert_embedding = 1").fetchone()[0]),
         "clap": int(connection.execute("SELECT COUNT(*) FROM tracks WHERE has_clap_embedding = 1").fetchone()[0]),
+        "fts_rows": int(connection.execute("SELECT COUNT(*) FROM track_search_fts").fetchone()[0])
+        if _has_fts_table(connection)
+        else 0,
     }
 
 
@@ -252,6 +292,18 @@ def _detect_library_database(connection: sqlite3.Connection) -> None:
     if not LIBRARY_MARKER_TABLES.issubset(tables):
         actual = ", ".join(sorted(tables)) or "none"
         raise RuntimeError(f"Unsupported SQLite database: found tables [{actual}], expected main library database")
+
+
+def _require_fts5(connection: sqlite3.Connection) -> None:
+    try:
+        connection.execute("CREATE VIRTUAL TABLE temp._fts5_check USING fts5(value)")
+        connection.execute("DROP TABLE temp._fts5_check")
+    except sqlite3.DatabaseError as error:
+        raise RuntimeError("SQLite FTS5 is required for schema v3 search indexing") from error
+
+
+def _has_fts_table(connection: sqlite3.Connection) -> bool:
+    return "track_search_fts" in _user_tables(connection)
 
 
 def _user_tables(connection: sqlite3.Connection) -> set[str]:
@@ -291,9 +343,10 @@ def main() -> None:
     print(f"maest={summary.maest}")
     print(f"mert={summary.mert}")
     print(f"clap={summary.clap}")
+    print(f"fts_rows={summary.fts_rows}")
     print(f"integrity_before={summary.integrity_before}")
     print(f"integrity_after={summary.integrity_after or ''}")
-    if not args.apply and summary.version_before == SOURCE_VERSION:
+    if not args.apply and (summary.version_before == SOURCE_VERSION or summary.fts_rows == 0):
         print("dry_run=true")
         print("apply_hint=rerun with --apply after closing the app")
 

@@ -125,6 +125,65 @@ def test_migration_script_applies_v3_flags_indexes_and_backfill(tmp_path: Path) 
     assert integrity == "ok"
 
 
+def test_migration_script_dry_run_reports_missing_v3_fts_without_mutating(tmp_path: Path) -> None:
+    module = _load_script()
+    db_path = tmp_path / "library.sqlite"
+    _create_v3_library_database_without_fts(db_path)
+
+    summary = module.migrate_database_v3(db_path, apply=False)
+
+    assert summary.dry_run is True
+    assert summary.version_before == 3
+    assert summary.version_after == 3
+    assert summary.backup_path is None
+    assert summary.tracks == 2
+    assert summary.fts_rows == 0
+    with sqlite3.connect(db_path) as connection:
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    assert version == 3
+    assert "track_search_fts" not in tables
+    assert not list(tmp_path.glob("library.sqlite.bak-*"))
+
+
+def test_migration_script_applies_v3_fts_to_existing_v3_database(tmp_path: Path) -> None:
+    module = _load_script()
+    db_path = tmp_path / "library.sqlite"
+    track_ids = _create_v3_library_database_without_fts(db_path)
+
+    summary = module.migrate_database_v3(db_path, apply=True)
+
+    assert summary.dry_run is False
+    assert summary.version_before == 3
+    assert summary.version_after == 3
+    assert summary.backup_path is not None
+    assert summary.backup_path.exists()
+    assert summary.tracks == 2
+    assert summary.fts_rows == 2
+    with sqlite3.connect(db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        tables = {row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        fts_ids = [
+            int(row["track_id"])
+            for row in connection.execute(
+                """
+                SELECT f.track_id
+                FROM track_search_fts f
+                WHERE track_search_fts MATCH ?
+                ORDER BY f.track_id
+                """,
+                ('"warehouse"',),
+            ).fetchall()
+        ]
+        integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
+
+    assert version == 3
+    assert "track_search_fts" in tables
+    assert fts_ids == [track_ids["warehouse"]]
+    assert integrity == "ok"
+
+
 def _create_v2_library_database(path: Path) -> dict[str, int]:
     with sqlite3.connect(path) as connection:
         connection.executescript(
@@ -230,4 +289,81 @@ def _create_v2_library_database(path: Path) -> dict[str, int]:
                 """,
                 (track_ids[track_key], embedding_key, f"{embedding_key}-model", b"\x00\x00\x80?"),
             )
+    return track_ids
+
+
+def _create_v3_library_database_without_fts(path: Path) -> dict[str, int]:
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE tracks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT NOT NULL UNIQUE,
+                size INTEGER NOT NULL,
+                mtime REAL NOT NULL,
+                artist TEXT,
+                title TEXT,
+                album TEXT,
+                bpm REAL,
+                musical_key TEXT,
+                energy REAL,
+                duration REAL,
+                has_sonara_analysis INTEGER NOT NULL DEFAULT 0,
+                has_maest_embedding INTEGER NOT NULL DEFAULT 0,
+                has_mert_embedding INTEGER NOT NULL DEFAULT 0,
+                has_clap_embedding INTEGER NOT NULL DEFAULT 0,
+                metadata_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata_json)),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE embeddings (
+                track_id INTEGER NOT NULL,
+                embedding_key TEXT NOT NULL DEFAULT 'mert',
+                model_name TEXT NOT NULL,
+                dim INTEGER NOT NULL,
+                vector BLOB NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(track_id, embedding_key),
+                FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
+            );
+            CREATE TABLE library_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE track_classifier_scores (
+                track_id INTEGER NOT NULL,
+                classifier TEXT NOT NULL,
+                score REAL NOT NULL,
+                label TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                probabilities_json TEXT NOT NULL CHECK(json_valid(probabilities_json)),
+                feature_set TEXT NOT NULL,
+                model_id TEXT NOT NULL,
+                analyzed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(track_id, classifier),
+                FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
+            );
+            CREATE TABLE track_likes (
+                track_id INTEGER PRIMARY KEY,
+                liked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
+            );
+            PRAGMA user_version = 3;
+            """
+        )
+        rows = {
+            "warehouse": ("warehouse.wav", "DJ One", "Dark Room", '{"comment":"warehouse"}'),
+            "radio": ("radio.wav", "DJ Two", "Radio Edit", '{"comment":"daytime"}'),
+        }
+        track_ids = {}
+        for key, (path_text, artist, title, metadata_json) in rows.items():
+            cursor = connection.execute(
+                """
+                INSERT INTO tracks(path, size, mtime, artist, title, metadata_json)
+                VALUES (?, 10, 1, ?, ?, ?)
+                """,
+                (path_text, artist, title, metadata_json),
+            )
+            track_ids[key] = int(cursor.lastrowid)
     return track_ids

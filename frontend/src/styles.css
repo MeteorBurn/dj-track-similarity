@@ -362,7 +362,7 @@ h2 {
 .analysis-actions {
   display: grid;
   gap: 6px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   margin-bottom: 8px;
 }
 
@@ -388,43 +388,51 @@ h2 {
 }
 
 .analysis-model-row {
-  align-items: stretch;
+  align-items: center;
   display: grid;
-  gap: 5px;
-  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) 34px 82px;
   min-width: 0;
 }
 
-.analysis-model-label {
+.analysis-model-name {
   align-items: center;
   background: #f7f8f2;
   border: 1px solid #dfe3d6;
   border-radius: 6px;
   color: #354036;
-  cursor: pointer;
   display: flex;
   font-size: 12px;
   font-weight: 720;
-  gap: 6px;
   min-height: 34px;
   min-width: 0;
-  padding: 6px 8px;
-}
-
-.analysis-model-label span {
   overflow: hidden;
+  padding: 6px 8px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.analysis-model-check {
+  align-items: center;
+  background: #f7f8f2;
+  border: 1px solid #dfe3d6;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  height: 34px;
+  justify-content: center;
+}
+
 .analysis-model-checkbox {
-  flex: 0 0 auto;
+  height: 15px;
+  margin: 0;
+  width: 15px;
 }
 
 .analyze-selected-button {
-  grid-column: 1 / -1;
-  margin-bottom: 0;
+  margin: 0 0 8px;
   min-width: 0;
+  width: 100%;
 }
 
 .analysis-reset-button {
@@ -1817,7 +1825,7 @@ meter {
   }
 
   .analysis-actions {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .result-row {

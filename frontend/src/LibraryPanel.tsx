@@ -1,4 +1,4 @@
-import { Cpu, Database, FolderOpen, Gauge, Minus, Play, Plus, RefreshCcw, Save, Search, Square, Tags, Trash2, Wand2 } from "lucide-react";
+import { Cpu, Database, FolderOpen, Minus, Play, Plus, RefreshCcw, Save, Square, Trash2 } from "lucide-react";
 import { AnalysisJobStatus, AnalysisModel, GenreTagJobStatus, ScanStats } from "./api";
 import { ActivityEvent, stageIndicatorLabel, UnifiedLog } from "./jobUi";
 
@@ -172,7 +172,8 @@ export function LibraryPanel({
           const label = model.toUpperCase();
           return (
             <div className="analysis-model-row" key={model}>
-              <label className="analysis-model-label" title={helpText[analysisModelHelpKey[model]]}>
+              <span className="analysis-model-name" title={helpText[analysisModelHelpKey[model]]}>{label}</span>
+              <label className="analysis-model-check" title={helpText[analysisModelHelpKey[model]]} aria-label={`${label} selected`}>
                 <input
                   className="analysis-model-checkbox"
                   type="checkbox"
@@ -180,8 +181,6 @@ export function LibraryPanel({
                   disabled={busy || stageRunning}
                   onChange={() => onToggleAnalysisModel(model)}
                 />
-                {analysisModelIcon(model)}
-                <span>{label}</span>
               </label>
               <button
                 className={`icon-button analysis-reset-button ${model}-reset-button`}
@@ -191,21 +190,12 @@ export function LibraryPanel({
                 onClick={() => onResetAnalysis(model)}
                 type="button"
               >
+                Reset
                 <Trash2 size={14} />
               </button>
             </div>
           );
         })}
-        <button
-          className="primary analyze-selected-button"
-          disabled={analysisDisabled || selectedAnalysisModels.length === 0}
-          title="Запустить анализ выбранных моделей для треков с отсутствующими результатами"
-          onClick={onAnalyzeSelected}
-          type="button"
-        >
-          <Play size={15} />
-          Analyze selected
-        </button>
       </div>
       <label className="analysis-limit" title={helpText.analyzeLimit}>
         Analyze limit
@@ -238,6 +228,16 @@ export function LibraryPanel({
         </div>
         <small>SONARA: параллельные треки. MAEST/MERT/CLAP: inference batch; CPU 1-4, CUDA начни с 4-8.</small>
       </div>
+      <button
+        className="primary analyze-selected-button"
+        disabled={analysisDisabled || selectedAnalysisModels.length === 0}
+        title="Запустить анализ выбранных моделей для треков с отсутствующими результатами"
+        onClick={onAnalyzeSelected}
+        type="button"
+      >
+        <Play size={15} />
+        Analyze selected
+      </button>
       <UnifiedLog
         processKind={processLogKind}
         scanJob={scanJob}
@@ -247,11 +247,4 @@ export function LibraryPanel({
       />
     </aside>
   );
-}
-
-function analysisModelIcon(model: AnalysisModel) {
-  if (model === "sonara") return <Gauge size={16} />;
-  if (model === "maest") return <Tags size={16} />;
-  if (model === "mert") return <Wand2 size={16} />;
-  return <Search size={16} />;
 }

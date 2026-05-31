@@ -129,11 +129,23 @@ test("analysis controls use model checkboxes and one selected-run button", () =>
   const source = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
 
   assert.match(source, /analysis-model-checkbox/);
+  assert.match(source, /analysis-model-name/);
+  assert.match(source, /analysis-model-check/);
   assert.match(source, /analyze-selected-button/);
   assert.match(source, /selectedAnalysisModels/);
   assert.doesNotMatch(source, /onSonaraAnalyze/);
   assert.doesNotMatch(source, /onGenreAnalyze/);
   assert.doesNotMatch(source, /onAnalyze: \(adapter/);
+
+  const modelNameIndex = source.indexOf("analysis-model-name");
+  const modelCheckboxIndex = source.indexOf("analysis-model-checkbox");
+  const resetButtonIndex = source.indexOf("analysis-reset-button");
+  const batchSizeIndex = source.indexOf("Embedding batch size");
+  const analyzeSelectedIndex = source.indexOf("analyze-selected-button");
+
+  assert.ok(modelNameIndex < modelCheckboxIndex);
+  assert.ok(modelCheckboxIndex < resetButtonIndex);
+  assert.ok(batchSizeIndex < analyzeSelectedIndex);
 });
 
 test("frontend analysis api uses unified job endpoints only", () => {

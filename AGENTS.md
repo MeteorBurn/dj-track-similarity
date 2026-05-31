@@ -276,6 +276,9 @@ changes:
 - Do not add legacy compatibility layers, fallback paths, or parallel old/new
   behavior unless the user explicitly asks for compatibility. Prefer migrating
   code, docs, tests, local DB schemas, and local artifact layout in one pass.
+- After frontend source changes, run `npm run build` from `frontend/` before
+  finishing. The backend served at `http://localhost:8765/` uses the generated
+  `frontend/dist` bundle, not Vite hot reload.
 - Before starting any local UI/server process, check whether the intended port
   already has a listener and whether a matching project process is already
   running. Keep one instance per fixed project port: main backend `8765`,

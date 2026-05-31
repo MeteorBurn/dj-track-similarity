@@ -120,20 +120,25 @@ lukewys/laion_clap/music_audioset_epoch_15_esc_90.14.pt
 
 How the app uses it:
 
-- The CLAP text search tab embeds a text prompt and ranks CLAP audio vectors
-  against it.
-- The `dj-sim text-search` CLI command does the same from the terminal.
+- The CLAP text search tab can embed positive and negative prompt variants and
+  rank CLAP audio vectors by adaptive contrast.
+- The `dj-sim text-search` CLI command runs direct single-prompt CLAP search
+  from the terminal.
 - Text search requires CLAP audio embeddings produced by the same checkpoint.
 
 Run CLAP when you want to search by mood, instrumentation, energy, or other
 descriptive language. Clear, concrete prompts usually work better than a single
-genre word.
+genre word. In the UI, prompt presets and Generate provide local Find/Avoid
+prompt pairs; Generate expands existing text instead of replacing it.
 
 ## Promoted Classifiers
 
 Promoted classifiers are not audio-analysis models; they are local profiles
 trained in Rhythm Lab that score tracks from already stored SONARA, MERT, and
 MAEST data. Because they read existing analysis instead of decoding audio, run
-Sonara, MERT, and MAEST first for the tracks you want to score. See
-[Analysis](analysis.md) for scoring details and
+Sonara, MERT, and MAEST first for the tracks you want to score. In the UI,
+`CLASSIFIERS` can be selected together with audio models; scoring then runs
+after all selected audio models complete. CLAP is not an input for promoted
+classifiers, but selected CLAP work is still completed before classifier
+scoring starts. See [Analysis](analysis.md) for scoring details and
 [Rhythm Lab](rhythm-lab.md) for training and promotion.

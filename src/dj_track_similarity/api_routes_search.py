@@ -55,14 +55,26 @@ def register_search_routes(
         query = request.query.strip()
         if not query:
             raise HTTPException(status_code=400, detail="Text query is required")
+        positive_queries = _clean_text_queries(request.positive_queries) or [query]
+        negative_queries = _clean_text_queries(request.negative_queries)
         adapter = clap_embedding_adapter(device=request.device)
-        vector = adapter.embed_text(query)
         filters = SearchFilters(min_similarity=request.min_similarity)
         try:
-            return SimilaritySearch(state.require_db(), embedding_key=adapter.embedding_key).search_vector(
-                vector,
-                filters=filters,
-                limit=request.limit,
-            )
+            searcher = SimilaritySearch(state.require_db(), embedding_key=adapter.embedding_key)
+            if request.adaptive_contrast and negative_queries:
+                positive_vectors = [adapter.embed_text(text) for text in positive_queries]
+                negative_vectors = [adapter.embed_text(text) for text in negative_queries]
+                return searcher.search_contrast_vectors(
+                    positive_vectors=positive_vectors,
+                    negative_vectors=negative_vectors,
+                    filters=filters,
+                    limit=request.limit,
+                )
+            vector = adapter.embed_text(positive_queries[0])
+            return searcher.search_vector(vector, filters=filters, limit=request.limit)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+def _clean_text_queries(queries: list[str]) -> list[str]:
+    return [query.strip() for query in queries if query.strip()]

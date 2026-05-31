@@ -106,12 +106,66 @@ class SimilaritySearch:
                 break
         return results
 
+    def search_contrast_vectors(
+        self,
+        *,
+        positive_vectors: list[np.ndarray],
+        negative_vectors: list[np.ndarray] | None = None,
+        filters: SearchFilters | None = None,
+        limit: int = 50,
+        negative_weight: float = 1.0,
+    ) -> list[SearchResult]:
+        if not positive_vectors:
+            raise ValueError("At least one positive query vector is required")
+        filters = filters or SearchFilters()
+        tracks, matrix = self.db.load_embedding_matrix(self.embedding_key)
+        if matrix.size == 0:
+            return []
+
+        positives = _normalize_matrix(positive_vectors)
+        positive_scores = np.max(matrix @ positives.T, axis=1)
+        if negative_vectors:
+            negatives = _normalize_matrix(negative_vectors)
+            negative_scores = np.max(matrix @ negatives.T, axis=1)
+        else:
+            negative_scores = np.zeros_like(positive_scores)
+        scores = positive_scores - max(0.0, negative_weight) * negative_scores
+
+        candidates: list[tuple[Track, float, float, dict[str, float]]] = []
+        for index in np.argsort(-scores):
+            track = tracks[int(index)]
+            score = float(scores[int(index)])
+            if not _passes_filters(track, [], score, filters):
+                continue
+            breakdown = {
+                "positive": float(positive_scores[int(index)]),
+                "negative": float(negative_scores[int(index)]),
+                "contrast": score,
+            }
+            candidates.append((track, score, _ranking_score(track, score, filters.noise), breakdown))
+
+        if filters.epsilon is not None and candidates:
+            best_score = max(score for _, score, _, _ in candidates)
+            candidates = [candidate for candidate in candidates if candidate[1] >= best_score - filters.epsilon]
+
+        results: list[SearchResult] = []
+        for track, score, _, breakdown in sorted(candidates, key=lambda candidate: candidate[2], reverse=True):
+            results.append(SearchResult(track=track, score=score, score_breakdown=breakdown))
+            if len(results) >= limit:
+                break
+        return results
+
 
 def _normalize(vector: np.ndarray) -> np.ndarray:
     norm = float(np.linalg.norm(vector))
     if norm == 0:
         raise ValueError("Cannot normalize zero vector")
     return (vector / norm).astype(np.float32)
+
+
+def _normalize_matrix(vectors: list[np.ndarray]) -> np.ndarray:
+    normalized = [_normalize(np.asarray(vector, dtype=np.float32).reshape(-1)) for vector in vectors]
+    return np.vstack(normalized).astype(np.float32)
 
 
 def _passes_filters(track: Track, seeds: list[Track], score: float, filters: SearchFilters) -> bool:

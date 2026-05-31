@@ -48,6 +48,7 @@ class AnalysisJobStatus:
     adapter_name: str = "multi"
     embedding_key: str = "multi"
     models: list[str] = field(default_factory=lambda: list(ANALYSIS_MODEL_ORDER))
+    classifier_keys: list[str] = field(default_factory=list)
     current_model: str | None = None
     model_progress: dict[str, AnalysisModelProgress] = field(default_factory=dict)
     model_name: str | None = None
@@ -144,6 +145,7 @@ def copy_analysis_status(status: AnalysisJobStatus) -> AnalysisJobStatus:
         adapter_name=status.adapter_name,
         embedding_key=status.embedding_key,
         models=list(status.models),
+        classifier_keys=list(status.classifier_keys),
         current_model=status.current_model,
         model_progress={
             model: AnalysisModelProgress(

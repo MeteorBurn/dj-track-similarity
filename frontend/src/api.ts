@@ -106,8 +106,9 @@ export type AnalysisJobStatus = {
   adapter_name: string;
   embedding_key: string;
   models?: AnalysisModel[];
-  current_model?: AnalysisModel | null;
-  model_progress?: Partial<Record<AnalysisModel, {
+  classifier_keys?: string[];
+  current_model?: string | null;
+  model_progress?: Partial<Record<string, {
     total: number;
     processed: number;
     analyzed: number;
@@ -275,6 +276,7 @@ export const api = {
     }),
   analysisJobStart: (payload: {
     models?: AnalysisModel[];
+    classifier_keys?: string[];
     limit?: number | null;
     device?: "auto" | "cpu" | "cuda";
     top_k?: number;
@@ -285,6 +287,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({
         models: payload.models,
+        classifier_keys: payload.classifier_keys ?? [],
         limit: payload.limit ?? null,
         device: payload.device ?? "auto",
         top_k: payload.top_k ?? 3,
@@ -344,7 +347,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
-  textSearch: (payload: { query: string; limit: number; min_similarity?: number | null; device?: "auto" | "cpu" | "cuda" }) =>
+  textSearch: (payload: {
+    query: string;
+    positive_queries?: string[];
+    negative_queries?: string[];
+    adaptive_contrast?: boolean;
+    preset?: string | null;
+    limit: number;
+    min_similarity?: number | null;
+    device?: "auto" | "cpu" | "cuda";
+  }) =>
     request<SearchResult[]>("/api/search/text", {
       method: "POST",
       body: JSON.stringify(payload)

@@ -101,7 +101,17 @@ candidate tracks have MERT embeddings.
 
 CLAP text search sends a text prompt, limit, optional minimum similarity, and
 device to `/api/search/text`. It ranks CLAP audio vectors against a CLAP text
-vector.
+vector. The UI uses adaptive contrast by default: it sends positive CLAP prompt
+variants plus generated or user-entered negative prompts, then ranks candidates
+by `max(positive similarity) - max(negative similarity)`. This is useful for
+queries such as vocal presence, ambience, drum feel, or other broad descriptors
+where a single positive prompt is often too vague.
+
+The CLAP tab includes prompt presets and a Generate button. Presets provide a
+small local dictionary of Find/Avoid prompt pairs. Generate fills an empty
+prompt from the selected preset, or expands already entered text with preset
+hints while preserving the user's wording. The optional Avoid field can override
+the generated negative prompt.
 
 The UI and API default result limit is `10`.
 

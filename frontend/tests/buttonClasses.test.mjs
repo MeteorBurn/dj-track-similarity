@@ -209,6 +209,9 @@ test("classifiers remain filter sliders but analysis moved to model selection", 
   assert.doesNotMatch(searchSource, /classifier-analyze-button/);
   assert.match(appSource, /selectedAnalysisModels\.includes\("classifiers"\)/);
   assert.match(appSource, /startClassifierJobs/);
+  assert.match(appSource, /classifierKeys\s*=\s*startClassifiersAfterAudio/);
+  assert.match(appSource, /classifier_keys:\s*classifierKeys/);
+  assert.doesNotMatch(appSource, /setPendingClassifierAfterAnalysis/);
   assert.match(selectionSource, /analysisSelectionOrder[\s\S]*"classifiers"/);
   assert.match(appSource, /analysisSelectionOrder/);
   assert.match(librarySource, /analysisSelectionOrder/);
@@ -312,6 +315,28 @@ test("class search tab only shows classifier threshold controls", () => {
   assert.doesNotMatch(classPanel, /classifier-action-row/);
   assert.doesNotMatch(classPanel, /classifier-reset-button/);
   assert.doesNotMatch(classPanel, />\s*Reset\s*</);
+});
+
+test("clap search exposes prompt presets, generation, and adaptive contrast fields", () => {
+  const searchSource = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
+  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+  const apiSource = readFileSync(join(srcDir, "api.ts"), "utf8");
+  const schemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "api_schemas.py"), "utf8");
+
+  assert.match(searchSource, /clap-presets-button/);
+  assert.match(searchSource, /clap-generate-button/);
+  assert.match(searchSource, /clap-avoid-input/);
+  assert.match(searchSource, /WandSparkles/);
+  assert.match(searchSource, /ListFilter/);
+  assert.match(appSource, /generateClapPrompt/);
+  assert.match(appSource, /positive_queries/);
+  assert.match(appSource, /negative_queries/);
+  assert.match(appSource, /adaptive_contrast:\s*true/);
+  assert.match(apiSource, /positive_queries\?:\s*string\[\]/);
+  assert.match(apiSource, /negative_queries\?:\s*string\[\]/);
+  assert.match(schemaSource, /positive_queries:\s*list\[str\]/);
+  assert.match(schemaSource, /negative_queries:\s*list\[str\]/);
+  assert.match(schemaSource, /adaptive_contrast:\s*bool\s*=\s*True/);
 });
 
 test("documentation title click opens the docs in a separate window", () => {

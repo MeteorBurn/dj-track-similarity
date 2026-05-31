@@ -13,7 +13,7 @@ class SynchronousAnalysisManager:
     def __init__(self, db):
         self.db = db
 
-    def start(self, *, models=None, limit=None, device="auto", top_k=3, track_batch_size=4, inference_batch_size=24):
+    def start(self, *, models=None, limit=None, device="auto", top_k=3, track_batch_size=4, inference_batch_size=24, classifier_keys=None):
         type(self).last_request = {
             "models": models,
             "limit": limit,
@@ -21,6 +21,7 @@ class SynchronousAnalysisManager:
             "top_k": top_k,
             "track_batch_size": track_batch_size,
             "inference_batch_size": inference_batch_size,
+            "classifier_keys": classifier_keys,
         }
         return _status(
             models or ["sonara", "maest", "mert", "clap"],
@@ -28,6 +29,7 @@ class SynchronousAnalysisManager:
             inference_batch_size=inference_batch_size,
             device=device,
             top_k=top_k,
+            classifier_keys=classifier_keys,
         )
 
     def latest(self):
@@ -46,13 +48,14 @@ class SynchronousAnalysisManager:
         return payload
 
 
-def _status(models, *, track_batch_size=4, inference_batch_size=24, device="cpu", top_k=3):
+def _status(models, *, track_batch_size=4, inference_batch_size=24, device="cpu", top_k=3, classifier_keys=None):
     return {
         "job_id": "job-1",
         "state": "completed",
         "adapter_name": "multi",
         "embedding_key": "multi",
         "models": models,
+        "classifier_keys": classifier_keys or [],
         "current_model": None,
         "model_progress": {
             model: {"total": 1, "processed": 1, "analyzed": 1, "failed": 0, "skipped": 0}
@@ -84,6 +87,11 @@ def test_api_starts_selected_multi_model_analysis_job(monkeypatch, tmp_path: Pat
     db_path = tmp_path / "library.sqlite"
     LibraryDatabase(db_path)
     monkeypatch.setattr(api_state, "AnalysisJobManager", SynchronousAnalysisManager)
+    monkeypatch.setattr(
+        api,
+        "promoted_classifiers",
+        lambda: [{"classifier_key": "break_energy", "name": "Break Energy"}],
+    )
     client = TestClient(api.create_app(db_path))
 
     response = client.post(
@@ -95,6 +103,7 @@ def test_api_starts_selected_multi_model_analysis_job(monkeypatch, tmp_path: Pat
             "top_k": 4,
             "track_batch_size": 5,
             "inference_batch_size": 18,
+            "classifier_keys": ["break_energy"],
         },
     )
 
@@ -102,6 +111,7 @@ def test_api_starts_selected_multi_model_analysis_job(monkeypatch, tmp_path: Pat
     payload = response.json()
     assert payload["adapter_name"] == "multi"
     assert payload["models"] == ["maest", "mert"]
+    assert payload["classifier_keys"] == ["break_energy"]
     assert payload["model_progress"]["maest"]["total"] == 1
     assert "batch_size" not in payload
     assert payload["track_batch_size"] == 5
@@ -113,6 +123,7 @@ def test_api_starts_selected_multi_model_analysis_job(monkeypatch, tmp_path: Pat
         "top_k": 4,
         "track_batch_size": 5,
         "inference_batch_size": 18,
+        "classifier_keys": ["break_energy"],
     }
 
 
@@ -129,6 +140,23 @@ def test_api_defaults_multi_model_analysis_to_all_models(monkeypatch, tmp_path: 
     assert SynchronousAnalysisManager.last_request["models"] == ["sonara", "maest", "mert", "clap"]
     assert SynchronousAnalysisManager.last_request["track_batch_size"] == 4
     assert SynchronousAnalysisManager.last_request["inference_batch_size"] == 24
+    assert SynchronousAnalysisManager.last_request["classifier_keys"] == []
+
+
+def test_api_rejects_unknown_analysis_classifier_key(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    LibraryDatabase(db_path)
+    monkeypatch.setattr(api_state, "AnalysisJobManager", SynchronousAnalysisManager)
+    monkeypatch.setattr(api, "promoted_classifiers", lambda: [])
+    client = TestClient(api.create_app(db_path))
+
+    response = client.post(
+        "/api/analysis/jobs",
+        json={"models": ["sonara"], "classifier_keys": ["missing_profile"]},
+    )
+
+    assert response.status_code == 400
+    assert "missing_profile" in response.json()["detail"]
 
 
 def test_real_analysis_job_status_does_not_emit_legacy_batch_size(tmp_path: Path) -> None:

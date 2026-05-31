@@ -1670,6 +1670,63 @@ h2 {
   height: 37px;
 }
 
+.clap-prompt-row {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) max-content;
+}
+
+.clap-query-field,
+.clap-avoid-field {
+  min-width: 0;
+}
+
+.clap-prompt-actions {
+  align-items: end;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 37px 37px;
+  position: relative;
+}
+
+.clap-prompt-actions .icon-button {
+  height: 37px;
+  width: 37px;
+}
+
+.clap-preset-menu {
+  background: var(--surface);
+  border: 1px solid var(--button-border);
+  border-radius: 6px;
+  box-shadow: 0 10px 26px var(--shadow-dialog);
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  width: min(220px, calc(100vw - 32px));
+  z-index: 30;
+}
+
+.clap-preset-option-button {
+  background: var(--surface-muted);
+  border-color: var(--border);
+  color: var(--text-track);
+  font-size: 12px;
+  justify-content: flex-start;
+  min-height: 30px;
+  padding: 5px 8px;
+  width: 100%;
+}
+
+.clap-preset-option-button.active {
+  background: var(--accent-soft-bg);
+  border-color: var(--accent-soft-border);
+  color: var(--accent);
+}
+
 .seed-remove-chip {
   background: var(--warning-soft-bg);
   border-color: var(--warning-soft-border);

@@ -2,7 +2,8 @@ import type { MouseEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { Moon, RefreshCcw, ScrollText, Square, Sun } from "lucide-react";
 import { AnalysisJobStatus, AnalysisModel, api, GenreTagJobStatus, PromotedClassifier, ScanStats, Track } from "./api";
-import { analysisSelectionOrder, defaultAnalysisSelections, isAudioAnalysisModel, type AnalysisSelection } from "./analysisSelection";
+import { analysisSelectionOrder, isAudioAnalysisModel, type AnalysisSelection } from "./analysisSelection";
+import { clapPromptPresets, defaultClapPromptPresetKey, generateClapPrompt, promptQueriesFromText } from "./clapPrompt";
 import type { ConfirmationRequest } from "./confirmation";
 import { ConfirmationDialog, LogFrameDialog } from "./dialogs";
 import { exportDirectoryError } from "./exportView";
@@ -98,6 +99,10 @@ export function App() {
     togglePlaylist,
     resetSearchPlaylistState
   } = useSearchPlaylist({ onActivity: appendActivity });
+  const [clapPresetKey, setClapPresetKey] = useState(defaultClapPromptPresetKey);
+  const [clapAvoidQuery, setClapAvoidQuery] = useState("");
+  const [clapGeneratedPositiveQueries, setClapGeneratedPositiveQueries] = useState<string[]>([]);
+  const [clapGeneratedNegativeQueries, setClapGeneratedNegativeQueries] = useState<string[]>([]);
   const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
   const [musicRoot, setMusicRoot] = useState("");
   const [analysisJob, setAnalysisJob] = useState<AnalysisJobStatus | null>(null);
@@ -110,7 +115,6 @@ export function App() {
   const [analysisInferenceBatchSize, setAnalysisInferenceBatchSize] = useState(24);
   const [analysisDevice, setAnalysisDevice] = useState<DeviceMode>("auto");
   const [selectedAnalysisModels, setSelectedAnalysisModels] = useState<AnalysisSelection[]>(analysisModelOrder);
-  const [pendingClassifierAfterAnalysis, setPendingClassifierAfterAnalysis] = useState(false);
   const [notice, setNotice] = useState<Notice>(defaultNotice);
   const [logFrameOpen, setLogFrameOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme());
@@ -210,19 +214,13 @@ export function App() {
         setAnalysisJob(job);
         if (["completed", "cancelled", "failed"].includes(job.state)) {
           void refreshLibrary();
-          if (pendingClassifierAfterAnalysis) {
-            setPendingClassifierAfterAnalysis(false);
-            if (job.state === "completed") {
-              void startClassifierJobs("CLASSIFIERS analysis запущен после выбранных моделей");
-            }
-          }
         }
       }).catch((error) => {
         setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
       });
     }, 1500);
     return () => window.clearInterval(timer);
-  }, [analysisJob?.job_id, analysisJob?.state, pendingClassifierAfterAnalysis]);
+  }, [analysisJob?.job_id, analysisJob?.state]);
 
   useEffect(() => {
     if (!genreTagJob || !["queued", "running"].includes(genreTagJob.state)) return;
@@ -357,6 +355,25 @@ export function App() {
         : [...current, model];
       return analysisModelOrder.filter((item) => next.includes(item));
     });
+  }
+
+  function handleTextQueryChange(value: string) {
+    setTextQuery(value);
+    setClapGeneratedPositiveQueries([]);
+  }
+
+  function handleClapAvoidQueryChange(value: string) {
+    setClapAvoidQuery(value);
+    setClapGeneratedNegativeQueries([]);
+  }
+
+  function handleGenerateClapPrompt() {
+    const generated = generateClapPrompt({ currentText: textQuery, presetKey: clapPresetKey });
+    setTextQuery(generated.query);
+    setClapAvoidQuery(generated.avoidQuery);
+    setClapPresetKey(generated.presetKey);
+    setClapGeneratedPositiveQueries(generated.positiveQueries);
+    setClapGeneratedNegativeQueries(generated.negativeQueries);
   }
 
   async function addVisibleTracksToPlaylist() {
@@ -569,15 +586,16 @@ export function App() {
     const models = [...selectedAudioModels];
     const labels = models.map((model) => model.toUpperCase()).join(", ");
     const startClassifiersAfterAudio = includeClassifiers && classifiers.length > 0;
-    const classifierTail = startClassifiersAfterAudio ? " · CLASSIFIERS после моделей" : "";
+    const classifierKeys = startClassifiersAfterAudio ? classifiers.map((classifier) => classifier.classifier_key) : [];
+    const classifierTail = startClassifiersAfterAudio ? " · CLASSIFIERS после выбранных моделей" : "";
     const detail = `${labels}${classifierTail} · ${analysisDevice.toUpperCase()} · tracks ${analysisTrackBatchSize} · inference ${analysisInferenceBatchSize} · ${limit ? `limit ${limit}` : "вся библиотека"}`;
     appendActivity("info", "Анализ выбранных моделей запущен", detail);
     setProcessLogKind("analysis");
     setAnalysisJob(null);
-    setPendingClassifierAfterAnalysis(false);
-    const job = await run(
+    await run(
       () => api.analysisJobStart({
         models,
+        classifier_keys: classifierKeys,
         limit: limit ?? null,
         device: analysisDevice,
         top_k: 3,
@@ -586,9 +604,6 @@ export function App() {
       }),
       (job) => {
         setAnalysisJob(job);
-        if (startClassifiersAfterAudio && ["queued", "running"].includes(job.state)) {
-          setPendingClassifierAfterAnalysis(true);
-        }
         if (includeClassifiers && !classifiers.length) {
           appendActivity("warn", "CLASSIFIERS не запущены", "Нет promoted classifier models");
         }
@@ -596,9 +611,6 @@ export function App() {
         return `Analysis job ${job.job_id.slice(0, 8)}: ${job.total} треков`;
       }
     );
-    if (startClassifiersAfterAudio && job?.state === "completed") {
-      await startClassifierJobs("CLASSIFIERS analysis запущен после выбранных моделей");
-    }
   }
 
   async function handleRefreshTags() {
@@ -651,11 +663,23 @@ export function App() {
       setNotice({ kind: "error", text: "Введите текстовый запрос для CLAP" });
       return;
     }
-    appendActivity("info", "CLAP search запущен", prompt);
+    const manualQueries = promptQueriesFromText(prompt, clapAvoidQuery);
+    const generatedQueries = generateClapPrompt({ currentText: prompt, presetKey: clapPresetKey });
+    const positiveQueries = clapGeneratedPositiveQueries.length
+      ? clapGeneratedPositiveQueries
+      : generatedQueries.positiveQueries.length ? generatedQueries.positiveQueries : manualQueries.positiveQueries;
+    const negativeQueries = manualQueries.negativeQueries.length
+      ? manualQueries.negativeQueries
+      : clapGeneratedNegativeQueries.length ? clapGeneratedNegativeQueries : generatedQueries.negativeQueries;
+    appendActivity("info", "CLAP search запущен", negativeQueries.length ? `${prompt} · avoid ${negativeQueries[0]}` : prompt);
     await run(
       () =>
         api.textSearch({
           query: prompt,
+          positive_queries: positiveQueries,
+          negative_queries: negativeQueries,
+          adaptive_contrast: true,
+          preset: clapPresetKey,
           limit: filters.limit,
           min_similarity: filters.minSimilarity,
           device: analysisDevice
@@ -919,7 +943,13 @@ export function App() {
         <SearchPlaylistPanel
           seedTracks={seedTracks}
           textQuery={textQuery}
-          onTextQueryChange={setTextQuery}
+          onTextQueryChange={handleTextQueryChange}
+          clapAvoidQuery={clapAvoidQuery}
+          onClapAvoidQueryChange={handleClapAvoidQueryChange}
+          clapPresetKey={clapPresetKey}
+          onClapPresetChange={setClapPresetKey}
+          clapPromptPresets={clapPromptPresets}
+          onGenerateClapPrompt={handleGenerateClapPrompt}
           busy={busy || !databasePath}
           filters={filters}
           setFilters={setFilters}

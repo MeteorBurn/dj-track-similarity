@@ -1,6 +1,7 @@
 import { Dispatch, Fragment, SetStateAction, useEffect, useState } from "react";
-import { Download, FolderOpen, ListMusic, Pause, Play, Search, Tags, Trash2, X } from "lucide-react";
+import { Download, FolderOpen, ListFilter, ListMusic, Pause, Play, Search, Tags, Trash2, WandSparkles, X } from "lucide-react";
 import { AnalysisJobStatus, PromotedClassifier, SearchResult, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
+import type { ClapPromptPreset } from "./clapPrompt";
 import { playlistPage } from "./playlistView";
 import { ResultRow } from "./TrackRows";
 import { displayTrack } from "./trackDisplay";
@@ -38,6 +39,12 @@ export function SearchPlaylistPanel({
   seedTracks,
   textQuery,
   onTextQueryChange,
+  clapAvoidQuery,
+  onClapAvoidQueryChange,
+  clapPresetKey,
+  onClapPresetChange,
+  clapPromptPresets,
+  onGenerateClapPrompt,
   busy,
   filters,
   setFilters,
@@ -71,6 +78,12 @@ export function SearchPlaylistPanel({
   seedTracks: Track[];
   textQuery: string;
   onTextQueryChange: (value: string) => void;
+  clapAvoidQuery: string;
+  onClapAvoidQueryChange: (value: string) => void;
+  clapPresetKey: string;
+  onClapPresetChange: (value: string) => void;
+  clapPromptPresets: ClapPromptPreset[];
+  onGenerateClapPrompt: () => void;
   busy: boolean;
   filters: SearchFiltersState;
   setFilters: Dispatch<SetStateAction<SearchFiltersState>>;
@@ -102,6 +115,7 @@ export function SearchPlaylistPanel({
   handleExport: (format: "m3u" | "csv") => void;
 }) {
   const [activeSearchTab, setActiveSearchTab] = useState<"sonara" | "mert" | "clap" | "class">("sonara");
+  const [clapPresetMenuOpen, setClapPresetMenuOpen] = useState(false);
   const [playlistOffset, setPlaylistOffset] = useState(0);
   const playlistPageState = playlistPage(playlist, playlistOffset, playlistPageSize);
   useEffect(() => {
@@ -244,14 +258,65 @@ export function SearchPlaylistPanel({
         )}
         {activeSearchTab === "clap" && (
           <div className="search-tab-panel" role="tabpanel">
-            <div className="text-search-box">
-              <label title={helpText.textPrompt}>
-                Text query
+            <div className="text-search-box clap-text-search-box">
+              <div className="clap-prompt-row">
+                <label className="clap-query-field" title={helpText.textPrompt}>
+                  Text query
+                  <input
+                    value={textQuery}
+                    onChange={(event) => onTextQueryChange(event.target.value)}
+                    placeholder="Melancholic minimal house with broken drums, warm chords, no vocals"
+                    title={helpText.textPrompt}
+                  />
+                </label>
+                <div className="clap-prompt-actions">
+                  <button
+                    className={`icon-button folder-picker clap-presets-button ${clapPresetMenuOpen ? "active" : ""}`}
+                    title="Выбрать prompt preset для CLAP"
+                    aria-label="Выбрать prompt preset для CLAP"
+                    aria-expanded={clapPresetMenuOpen}
+                    onClick={() => setClapPresetMenuOpen((current) => !current)}
+                    type="button"
+                  >
+                    <ListFilter size={17} />
+                  </button>
+                  <button
+                    className="icon-button folder-picker clap-generate-button"
+                    title="Сгенерировать или расширить CLAP prompt"
+                    aria-label="Сгенерировать или расширить CLAP prompt"
+                    onClick={onGenerateClapPrompt}
+                    type="button"
+                  >
+                    <WandSparkles size={17} />
+                  </button>
+                  {clapPresetMenuOpen ? (
+                    <div className="clap-preset-menu" role="menu">
+                      {clapPromptPresets.map((preset) => (
+                        <button
+                          className={`clap-preset-option-button ${clapPresetKey === preset.key ? "active" : ""}`}
+                          key={preset.key}
+                          title={`Применить preset: ${preset.label}`}
+                          onClick={() => {
+                            onClapPresetChange(preset.key);
+                            setClapPresetMenuOpen(false);
+                          }}
+                          type="button"
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+              <label className="clap-avoid-field" title="Negative CLAP prompt. Type: text. Optional; Generate fills this from the selected preset.">
+                Avoid
                 <input
-                  value={textQuery}
-                  onChange={(event) => onTextQueryChange(event.target.value)}
-                  placeholder="Melancholic minimal house with broken drums, warm chords, no vocals"
-                  title={helpText.textPrompt}
+                  className="clap-avoid-input"
+                  value={clapAvoidQuery}
+                  onChange={(event) => onClapAvoidQueryChange(event.target.value)}
+                  placeholder="bright pop, straight drums, vocals"
+                  title="Negative CLAP prompt. Type: text. Optional; Generate fills this from the selected preset."
                 />
               </label>
             </div>

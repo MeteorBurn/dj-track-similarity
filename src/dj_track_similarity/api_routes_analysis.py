@@ -35,6 +35,7 @@ def register_analysis_routes(
             )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+        classifier_keys = _validated_classifier_keys(request.classifier_keys, promoted_classifiers)
         return state.require_analysis_jobs().start(
             models=list(config.models),
             limit=config.limit,
@@ -42,6 +43,7 @@ def register_analysis_routes(
             inference_batch_size=config.inference_batch_size,
             device=config.device,
             top_k=config.top_k,
+            classifier_keys=classifier_keys,
         )
 
     @app.get("/api/classifiers")
@@ -91,3 +93,17 @@ def register_analysis_routes(
             return state.require_analysis_jobs().cancel(job_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+def _validated_classifier_keys(
+    requested: list[str],
+    promoted_classifiers: Callable[[], list[dict[str, object]]],
+) -> list[str]:
+    cleaned = list(dict.fromkeys(key.strip() for key in requested if key.strip()))
+    if not cleaned:
+        return []
+    available = {str(classifier["classifier_key"]) for classifier in promoted_classifiers()}
+    unknown = [key for key in cleaned if key not in available]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown classifier: {', '.join(unknown)}")
+    return cleaned

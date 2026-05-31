@@ -112,3 +112,20 @@ def test_search_vector_uses_requested_embedding_space(tmp_path: Path) -> None:
 
     assert [result.track.id for result in results] == [clap_near, clap_far]
     assert mert_track not in {result.track.id for result in results}
+
+
+def test_search_contrast_vectors_rank_positive_over_negative_match(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    positive_match = _add_track_with_embedding_key(db, "positive.wav", [0.0, 1.0, 0.0], "clap")
+    mixed_match = _add_track_with_embedding_key(db, "mixed.wav", [0.7, 0.7, 0.0], "clap")
+    negative_match = _add_track_with_embedding_key(db, "negative.wav", [1.0, 0.0, 0.0], "clap")
+
+    results = SimilaritySearch(db, embedding_key="clap").search_contrast_vectors(
+        positive_vectors=[np.array([0.0, 1.0, 0.0], dtype=np.float32)],
+        negative_vectors=[np.array([1.0, 0.0, 0.0], dtype=np.float32)],
+        limit=5,
+    )
+
+    assert [result.track.id for result in results] == [positive_match, mixed_match, negative_match]
+    assert results[0].score > results[1].score > results[2].score
+    assert results[0].score_breakdown == {"positive": 1.0, "negative": 0.0, "contrast": 1.0}

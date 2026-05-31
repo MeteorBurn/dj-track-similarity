@@ -25,16 +25,19 @@ def _mark_analyzed(db: LibraryDatabase, track_id: int, model: str) -> None:
 
 
 class FakeModelRunner:
-    def __init__(self, model: str, *, fail_names: set[str] | None = None) -> None:
+    def __init__(self, model: str, *, fail_names: set[str] | None = None, order: list[str] | None = None) -> None:
         self.model = model
         self.model_name = f"fake-{model}"
         self.device = "cpu"
         self.calls: list[list[str]] = []
         self.fail_names = fail_names or set()
+        self.order = order
 
     def analyze_batch(self, db: LibraryDatabase, items) -> None:
         names = [Path(item.track.path).name for item in items]
         self.calls.append(names)
+        if self.order is not None:
+            self.order.append(self.model)
         if any(name in self.fail_names for name in names):
             raise RuntimeError(f"{self.model} failed")
         for item in items:
@@ -52,6 +55,33 @@ class DecodeRecorder:
         if name in self.fail_names:
             raise RuntimeError("decode failed")
         return SimpleNamespace(path=str(path), audio=np.ones(48_000, dtype=np.float32), sample_rate=48_000, detail="fake")
+
+
+class FakeClassifierScorer:
+    def __init__(self, db: LibraryDatabase, classifier: str, order: list[str]) -> None:
+        self.db = db
+        self.classifier_key = classifier
+        self.order = order
+
+    def score_track(self, track):
+        analyses = set(track.analyses or [])
+        if {"sonara", "maest", "mert"}.issubset(analyses):
+            self.order.append(f"{self.classifier_key}:score")
+            return {"positive": 0.9, "negative": 0.1}
+        return None
+
+    def save_score(self, track, probabilities) -> None:
+        self.order.append(f"{self.classifier_key}:save")
+        self.db.save_classifier_score(
+            track.id,
+            classifier=self.classifier_key,
+            score=probabilities["positive"],
+            label="high",
+            confidence=probabilities["positive"],
+            probabilities=probabilities,
+            feature_set="combined",
+            model_id="fake-classifier",
+        )
 
 
 def test_multi_model_job_selects_tracks_missing_selected_models_and_skips_existing(tmp_path: Path) -> None:
@@ -143,6 +173,66 @@ def test_multi_model_job_logs_track_success_once_after_all_models_complete(tmp_p
 
     track_events = [event for event in status.events if event.message == "Track analyzed"]
     assert [(Path(event.path or "").name, event.model) for event in track_events] == [("a-candidate.wav", None)]
+
+
+def test_multi_model_job_scores_classifiers_after_all_selected_audio_models_complete(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = _track(db, tmp_path, "a-candidate.wav")
+    order: list[str] = []
+    runners = {
+        model: FakeModelRunner(model, order=order)
+        for model in ("sonara", "maest", "mert", "clap")
+    }
+    decoder = DecodeRecorder()
+    manager = AnalysisJobManager(
+        db,
+        model_runners=runners,
+        decode_audio=decoder,
+        track_batch_size=1,
+        classifier_scorer_factory=lambda classifier: FakeClassifierScorer(db, classifier, order),
+    )
+
+    status = manager.run_sync(
+        models=["sonara", "maest", "mert", "clap"],
+        classifier_keys=["break_energy"],
+        device="cpu",
+        track_batch_size=1,
+    )
+
+    assert status.state == "completed"
+    assert db.classifier_score(track_id, "break_energy")["score"] == 0.9
+    assert order.index("break_energy:save") > order.index("clap")
+    assert any(event.message == "Classifier analyzed" and event.model == "break_energy" for event in status.events)
+
+
+def test_multi_model_job_scores_classifiers_after_selected_required_models_when_clap_not_selected(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = _track(db, tmp_path, "a-candidate.wav")
+    order: list[str] = []
+    runners = {
+        model: FakeModelRunner(model, order=order)
+        for model in ("sonara", "maest", "mert")
+    }
+    decoder = DecodeRecorder()
+    manager = AnalysisJobManager(
+        db,
+        model_runners=runners,
+        decode_audio=decoder,
+        track_batch_size=1,
+        classifier_scorer_factory=lambda classifier: FakeClassifierScorer(db, classifier, order),
+    )
+
+    status = manager.run_sync(
+        models=["sonara", "maest", "mert"],
+        classifier_keys=["break_energy"],
+        device="cpu",
+        track_batch_size=1,
+    )
+
+    assert status.state == "completed"
+    assert db.classifier_score(track_id, "break_energy")["score"] == 0.9
+    assert order == ["sonara", "maest", "mert", "break_energy:score", "break_energy:save"]
+    assert "clap" not in order
 
 
 def test_multi_model_failure_is_model_scoped_and_other_models_continue(tmp_path: Path) -> None:

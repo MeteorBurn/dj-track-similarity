@@ -42,6 +42,7 @@ class AnalysisJobRequest(BaseModel):
 
     limit: int | None = None
     models: list[str] = Field(default_factory=lambda: list(ANALYSIS_MODEL_ORDER), min_length=1)
+    classifier_keys: list[str] = Field(default_factory=list)
     device: str = Field(default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN)
     top_k: int = Field(default=DEFAULT_ANALYSIS_TOP_K, ge=MIN_ANALYSIS_TOP_K, le=MAX_ANALYSIS_TOP_K)
     track_batch_size: int = Field(
@@ -112,7 +113,13 @@ class SonaraSearchRequest(BaseModel):
 
 
 class TextSearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     query: str
+    positive_queries: list[str] = Field(default_factory=list)
+    negative_queries: list[str] = Field(default_factory=list)
+    adaptive_contrast: bool = True
+    preset: str | None = None
     limit: int = Field(default=10, ge=1, le=500)
     min_similarity: float | None = None
     device: str = Field(default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN)

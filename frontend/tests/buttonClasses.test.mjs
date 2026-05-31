@@ -132,6 +132,8 @@ test("analysis controls use model checkboxes and one selected-run button", () =>
   assert.match(source, /analysis-model-name/);
   assert.match(source, /analysis-model-check/);
   assert.match(source, /analyze-selected-button/);
+  assert.match(source, />\s*Analyze\s*<\/button>/);
+  assert.doesNotMatch(source, /Analyze selected/);
   assert.match(source, /selectedAnalysisModels/);
   assert.doesNotMatch(source, /onSonaraAnalyze/);
   assert.doesNotMatch(source, /onGenreAnalyze/);

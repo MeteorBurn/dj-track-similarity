@@ -230,7 +230,7 @@ export function LibraryPanel({
         type="button"
       >
         <Play size={15} />
-        Analyze selected
+        Analyze
       </button>
     </aside>
   );

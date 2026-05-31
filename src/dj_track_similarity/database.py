@@ -5,18 +5,18 @@ import json
 import sqlite3
 import threading
 from pathlib import Path
-from typing import ClassVar, Iterable
+from typing import Iterable
 
 import numpy as np
 
 from .db_schema import (
     MAEST_HAS_GENRES_SQL,
-    SQLITE_BUSY_TIMEOUT_SECONDS,
     TRACK_SELECT_FIELDS,
     TRACK_SLIM_SELECT_FIELDS,
     TRACK_SLIM_SELECT_FIELDS_WITH_VECTOR,
-    ensure_schema,
 )
+from .db_connection import connect_database, ensure_database_schema, resolve_database_path, write_lock_for_path
+from .db_library_queries import build_track_filter_sql, track_order_sql
 from .db_analysis_candidates import (
     analysis_candidate_select_sql,
     chunk_ids,
@@ -62,39 +62,18 @@ def normalize_path(path: str | Path) -> str:
 
 
 class LibraryDatabase:
-    _write_locks: ClassVar[dict[Path, threading.RLock]] = {}
-    _write_locks_guard: ClassVar[threading.Lock] = threading.Lock()
-
     def __init__(self, path: str | Path) -> None:
-        self.path = Path(path).expanduser().resolve(strict=False)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._write_lock = self._write_lock_for_path(self.path)
+        self.path = resolve_database_path(path)
+        self._write_lock = write_lock_for_path(self.path)
         self._cache_lock = threading.Lock()
         self._embedding_matrix_cache: dict[str, tuple[list[Track], np.ndarray]] = {}
         self._ensure_schema()
 
-    @classmethod
-    def _write_lock_for_path(cls, path: Path) -> threading.RLock:
-        with cls._write_locks_guard:
-            lock = cls._write_locks.get(path)
-            if lock is None:
-                lock = threading.RLock()
-                cls._write_locks[path] = lock
-            return lock
-
     def connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path, timeout=SQLITE_BUSY_TIMEOUT_SECONDS)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_SECONDS * 1000}")
-        connection.execute("PRAGMA synchronous = NORMAL")
-        connection.execute("PRAGMA temp_store = MEMORY")
-        connection.execute("PRAGMA cache_size = -32768")
-        return connection
+        return connect_database(self.path)
 
     def _ensure_schema(self) -> None:
-        with self._write_lock, self.connect() as connection:
-            ensure_schema(connection)
+        ensure_database_schema(self.path, self._write_lock)
 
     def _invalidate_embedding_cache(self, embedding_key: str | None = None) -> None:
         with self._cache_lock:
@@ -267,14 +246,13 @@ class LibraryDatabase:
     ) -> dict[str, object]:
         fields = TRACK_SELECT_FIELDS if include_metadata else TRACK_SLIM_SELECT_FIELDS
         thresholds = dict(classifier_min_scores or {})
-        where_parts, params = _track_filter_sql(
+        where_sql, params = build_track_filter_sql(
             query=query,
             preset=preset,
             liked_only=liked_only,
             classifier_min_scores=thresholds,
         )
-        where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
-        order_sql = _track_order_sql(classifier_min_scores=thresholds)
+        order_sql = track_order_sql(classifier_min_scores=thresholds)
         bounded_limit = max(1, min(500, int(limit)))
         bounded_offset = max(0, int(offset))
         with self.connect() as connection:
@@ -309,14 +287,13 @@ class LibraryDatabase:
     ) -> dict[str, object]:
         fields = TRACK_SELECT_FIELDS if include_metadata else TRACK_SLIM_SELECT_FIELDS
         thresholds = dict(classifier_min_scores or {})
-        where_parts, params = _track_filter_sql(
+        where_sql, params = build_track_filter_sql(
             query=query,
             preset=preset,
             liked_only=liked_only,
             classifier_min_scores=thresholds,
         )
-        where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
-        order_sql = _track_order_sql(classifier_min_scores=thresholds)
+        order_sql = track_order_sql(classifier_min_scores=thresholds)
         with self.connect() as connection:
             rows = connection.execute(
                 f"""
@@ -975,61 +952,6 @@ def _embedding_keys_for_track(connection: sqlite3.Connection, track_id: int) -> 
         (int(track_id),),
     ).fetchall()
     return tuple(str(row["embedding_key"]) for row in rows)
-
-
-def _track_filter_sql(
-    *,
-    query: str,
-    preset: str,
-    liked_only: bool = False,
-    classifier_min_scores: dict[str, float] | None = None,
-) -> tuple[list[str], list[object]]:
-    where_parts: list[str] = []
-    params: list[object] = []
-    needle = query.strip().lower()
-    if needle:
-        like = f"%{needle}%"
-        searchable_columns = (
-            "LOWER(COALESCE(t.artist, ''))",
-            "LOWER(COALESCE(t.title, ''))",
-            "LOWER(COALESCE(t.album, ''))",
-            "LOWER(t.path)",
-            "LOWER(t.metadata_json)",
-        )
-        where_parts.append("(" + " OR ".join(f"{column} LIKE ?" for column in searchable_columns) + ")")
-        params.extend([like] * len(searchable_columns))
-    if preset == "syncopated":
-        where_parts.append("json_extract(t.metadata_json, '$.maest_syncopated_rhythm') = 1")
-    elif preset != "all":
-        raise ValueError(f"Unknown library preset: {preset}")
-    if liked_only:
-        where_parts.append("EXISTS (SELECT 1 FROM track_likes tl WHERE tl.track_id = t.id)")
-    for classifier, threshold in (classifier_min_scores or {}).items():
-        where_parts.append(
-            """
-            EXISTS (
-                SELECT 1
-                FROM track_classifier_scores cs
-                WHERE cs.track_id = t.id
-                  AND cs.classifier = ?
-                  AND cs.score >= ?
-            )
-            """
-        )
-        params.extend([classifier, float(threshold)])
-    return where_parts, params
-
-
-def _track_order_sql(*, classifier_min_scores: dict[str, float] | None = None) -> str:
-    classifiers = list((classifier_min_scores or {}).keys())
-    if not classifiers:
-        return "COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path"
-    classifier = classifiers[0].replace("'", "''")
-    return (
-        "(SELECT cs.score FROM track_classifier_scores cs "
-        f"WHERE cs.track_id = t.id AND cs.classifier = '{classifier}') DESC, "
-        "COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path"
-    )
 
 
 def _classifier_scores_from_row(row: sqlite3.Row) -> dict[str, dict[str, object]] | None:

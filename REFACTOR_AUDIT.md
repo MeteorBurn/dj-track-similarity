@@ -24,11 +24,11 @@ is `C:\db\abstracted.sqlite`; no schema or field changes are approved here.
 | `LibraryDatabase.list_tracks_missing_embedding` | None. `rg list_tracks_missing_embedding` found no callers after analysis job refactor. | No direct tests; covered indirectly by old selected-analysis job flow before replacement. | Remove unused generic embedding missing-track query; MERT/CLAP selection now goes through `list_analysis_candidates`. |
 | `LibraryDatabase.list_tracks_missing_any_analysis` | None. `rg list_tracks_missing_any_analysis` found no callers after analysis job refactor. | Replaced by focused tests for `list_analysis_candidates` and `AnalysisJobManager` using that helper. | Remove the heavier Track-producing multi-model candidate query; the analyzer now fetches lean `AnalysisCandidate` rows. |
 | `analysis_jobs._missing_models` | None after `AnalysisCandidate.missing_models` became the job source of truth. | Replaced by `test_database_lists_lean_analysis_candidates_with_missing_models`. | Remove duplicate missing-model accounting from the orchestration layer. |
+| `tools/rhythm-lab/rhythm_lab/lab_db.py` old `rhythm_*` runtime migrations, old static label/role table recreation, and `straight_four_on_the_floor` remapping | Only called from `RhythmLabDatabase._ensure_lab_schema` or `set_label`; no active DB tables require them. Real `E:\Projects\dj-track-similarity\tools\rhythm-lab\data\rhythm_lab.sqlite` has no `rhythm_*` tables, `quick_check=ok`, and `_ensure_lab_schema` on a temp copy made no schema or row-count changes. | Removed old migration tests `test_labels_database_migrates_rhythm_tables_to_break_energy_classifier_tables` and `test_multiclass_profile_migrates_old_profile_label_role_check`; current Rhythm Lab tests cover current profile/label/prediction flows. | Remove runtime compatibility migrations from app code. Future old lab DB upgrades should be handled by explicit scripts/backups, not hidden startup code. |
 
 ## Deferred
 
 | Candidate | Decision |
 | --- | --- |
-| `batch_size` compatibility fields in job statuses | Keep for now because tests and frontend types still read them; remove only after a focused UI/API contract update. |
-| Rhythm Lab old table migrations in `lab_db.py` | Keep until the active `tools/rhythm-lab/data/rhythm_lab.sqlite` is audited; this is a separate database from `C:\db\abstracted.sqlite`. |
+| `batch_size` compatibility fields in job statuses | Keep for now because frontend `jobUi.tsx` still reads `job.batch_size` as a display fallback and backend/API tests cover the field. Remove only after a focused UI/API contract update. |
 | Current API/CLI negative tests for removed routes/options | Keep as safety guards. |

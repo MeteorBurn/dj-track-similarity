@@ -12,7 +12,6 @@ from dj_track_similarity.models import Track
 
 
 BREAK_ENERGY_CLASSIFIER_KEY = "break_energy"
-OLD_STRAIGHT_LABEL = "straight_four_on_the_floor"
 STRAIGHT_LABEL = "straight"
 ClassifierLabelName = Literal["broken", "straight", "ambiguous"]
 CLASSIFIER_LABELS: tuple[str, ...] = ("broken", STRAIGHT_LABEL, "ambiguous")
@@ -93,9 +92,6 @@ class RhythmLabDatabase:
         with self.connect() as connection:
             _ensure_profile_tables(connection)
             _ensure_classifier_tables(connection)
-            _migrate_rhythm_tables(connection)
-            _drop_rhythm_tables(connection)
-            _ensure_dynamic_classifier_tables(connection)
             _ensure_default_break_energy_profile(connection)
             connection.executescript(
                 """
@@ -376,7 +372,7 @@ class RhythmLabDatabase:
                     (self.classifier_key, source_track_id),
                 )
             return None
-        label = _canonical_label(label.strip())
+        label = label.strip()
         profile = self.get_profile()
         if label not in profile.label_keys:
             raise ValueError(f"Unsupported classifier label: {label}")
@@ -600,10 +596,6 @@ def _track_snapshot(track: Track | int) -> tuple[int, str | None, int | None, fl
     return int(track), None, None, None
 
 
-def _canonical_label(label: str) -> str:
-    return STRAIGHT_LABEL if label == OLD_STRAIGHT_LABEL else label
-
-
 def _ensure_profile_tables(connection: sqlite3.Connection) -> None:
     connection.executescript(
         """
@@ -644,7 +636,6 @@ def _ensure_profile_tables(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE classifier_profiles ADD COLUMN training_min_added INTEGER NOT NULL DEFAULT 50"
         )
-    _recreate_profile_labels_table_if_old_role_check_exists(connection)
     _ensure_unique_profile_names(connection)
 
 
@@ -675,99 +666,6 @@ def _ensure_classifier_tables(connection: sqlite3.Connection) -> None:
     connection.execute(_classifier_labels_table_sql("classifier_labels"))
     connection.execute(_classifier_predictions_table_sql("classifier_predictions"))
     connection.execute(_classifier_training_checkpoints_table_sql("classifier_training_checkpoints"))
-
-
-def _ensure_dynamic_classifier_tables(connection: sqlite3.Connection) -> None:
-    _recreate_table_if_label_check_exists(
-        connection,
-        table="classifier_labels",
-        create_sql=_classifier_labels_table_sql("classifier_labels"),
-        columns=("classifier_key", "source_track_id", "path", "size", "mtime", "label", "note", "updated_at"),
-    )
-    _recreate_table_if_label_check_exists(
-        connection,
-        table="classifier_predictions",
-        create_sql=_classifier_predictions_table_sql("classifier_predictions"),
-        columns=(
-            "classifier_key",
-            "source_track_id",
-            "path",
-            "artist",
-            "title",
-            "feature_set",
-            "model_artifact",
-            "label",
-            "confidence",
-            "probabilities_json",
-            "updated_at",
-        ),
-    )
-
-
-def _recreate_profile_labels_table_if_old_role_check_exists(connection: sqlite3.Connection) -> None:
-    row = connection.execute(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'classifier_profile_labels'"
-    ).fetchone()
-    if row is None:
-        return
-    sql = str(row["sql"])
-    if "CHECK(role IN ('positive', 'negative', 'review'))" not in sql:
-        return
-    backup = "classifier_profile_labels_old_roles"
-    connection.execute(f"ALTER TABLE classifier_profile_labels RENAME TO {backup}")
-    connection.execute(
-        """
-        CREATE TABLE classifier_profile_labels (
-            classifier_key TEXT NOT NULL,
-            label_key TEXT NOT NULL,
-            display_name TEXT NOT NULL,
-            description TEXT NOT NULL DEFAULT '',
-            role TEXT NOT NULL CHECK(role IN ('positive', 'negative', 'review', 'class')),
-            position INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY(classifier_key, label_key),
-            FOREIGN KEY(classifier_key) REFERENCES classifier_profiles(classifier_key) ON DELETE CASCADE
-        )
-        """
-    )
-    connection.execute(
-        f"""
-        INSERT INTO classifier_profile_labels(
-            classifier_key, label_key, display_name, description, role, position, created_at, updated_at
-        )
-        SELECT classifier_key, label_key, display_name, description, role, position, created_at, updated_at
-        FROM {backup}
-        """
-    )
-    connection.execute(f"DROP TABLE {backup}")
-
-
-def _recreate_table_if_label_check_exists(
-    connection: sqlite3.Connection,
-    *,
-    table: str,
-    create_sql: str,
-    columns: tuple[str, ...],
-) -> None:
-    row = connection.execute(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
-        (table,),
-    ).fetchone()
-    if row is None or "CHECK(label IN" not in str(row["sql"]):
-        return
-    backup = f"{table}_old_static_labels"
-    connection.execute(f"ALTER TABLE {table} RENAME TO {backup}")
-    connection.execute(create_sql)
-    column_sql = ", ".join(columns)
-    connection.execute(
-        f"""
-        INSERT INTO {table}({column_sql})
-        SELECT {column_sql}
-        FROM {backup}
-        """
-    )
-    connection.execute(f"DROP TABLE {backup}")
 
 
 def _ensure_default_break_energy_profile(connection: sqlite3.Connection) -> None:
@@ -826,143 +724,6 @@ def _ensure_default_break_energy_profile(connection: sqlite3.Connection) -> None
                 label.position,
             ),
         )
-
-
-def _migrate_rhythm_tables(connection: sqlite3.Connection) -> None:
-    if _columns(connection, "rhythm_labels"):
-        _migrate_rhythm_labels(connection)
-    if _columns(connection, "rhythm_predictions"):
-        _migrate_rhythm_predictions(connection)
-    if _columns(connection, "rhythm_training_checkpoint"):
-        _migrate_rhythm_training_checkpoint(connection)
-
-
-def _migrate_rhythm_labels(connection: sqlite3.Connection) -> None:
-    columns = _columns(connection, "rhythm_labels")
-    source_expr = "source_track_id" if "source_track_id" in columns else _old_source_track_expr("rhythm_labels")
-    path_expr = "path" if "path" in columns else _old_track_lookup_expr("path")
-    size_expr = "size" if "size" in columns else _old_track_lookup_expr("size")
-    mtime_expr = "mtime" if "mtime" in columns else _old_track_lookup_expr("mtime")
-    connection.execute(
-        f"""
-        INSERT OR REPLACE INTO classifier_labels(
-            classifier_key, source_track_id, path, size, mtime, label, note, updated_at
-        )
-        SELECT ?,
-               {source_expr},
-               {path_expr},
-               {size_expr},
-               {mtime_expr},
-               CASE label WHEN 'straight_four_on_the_floor' THEN 'straight' ELSE label END,
-               note,
-               updated_at
-        FROM rhythm_labels
-        WHERE label IN ('broken', 'straight_four_on_the_floor', 'straight', 'ambiguous')
-        """,
-        (BREAK_ENERGY_CLASSIFIER_KEY,),
-    )
-
-
-def _migrate_rhythm_predictions(connection: sqlite3.Connection) -> None:
-    columns = _columns(connection, "rhythm_predictions")
-    source_expr = "source_track_id" if "source_track_id" in columns else _old_source_track_expr("rhythm_predictions")
-    path_expr = "path" if "path" in columns else _old_track_lookup_expr("path")
-    artist_expr = "artist" if "artist" in columns else _old_track_lookup_expr("artist")
-    title_expr = "title" if "title" in columns else _old_track_lookup_expr("title")
-    rows = connection.execute(
-        f"""
-        SELECT {source_expr} AS source_track_id,
-               {path_expr} AS path,
-               {artist_expr} AS artist,
-               {title_expr} AS title,
-               feature_set,
-               model_artifact,
-               label,
-               confidence,
-               probabilities_json,
-               updated_at
-        FROM rhythm_predictions
-        """
-    ).fetchall()
-    for row in rows:
-        label = _canonical_label(str(row["label"]))
-        if label not in TRAINING_LABELS:
-            continue
-        connection.execute(
-            """
-            INSERT OR REPLACE INTO classifier_predictions(
-                classifier_key, source_track_id, path, artist, title, feature_set, model_artifact,
-                label, confidence, probabilities_json, updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                BREAK_ENERGY_CLASSIFIER_KEY,
-                int(row["source_track_id"]),
-                str(row["path"] or ""),
-                row["artist"],
-                row["title"],
-                str(row["feature_set"]),
-                str(row["model_artifact"]),
-                label,
-                float(row["confidence"]),
-                _canonical_probabilities_json(str(row["probabilities_json"])),
-                row["updated_at"],
-            ),
-        )
-
-
-def _migrate_rhythm_training_checkpoint(connection: sqlite3.Connection) -> None:
-    row = connection.execute(
-        """
-        SELECT broken_count, straight_count, model_artifact, updated_at
-        FROM rhythm_training_checkpoint
-        WHERE id = 1
-        """
-    ).fetchone()
-    if row is None:
-        return
-    counts = metadata_to_json({"broken": int(row["broken_count"]), "straight": int(row["straight_count"])})
-    connection.execute(
-        """
-        INSERT OR REPLACE INTO classifier_training_checkpoints(
-            classifier_key, counts_json, model_artifact, updated_at
-        )
-        VALUES (?, ?, ?, ?)
-        """,
-        (BREAK_ENERGY_CLASSIFIER_KEY, counts, row["model_artifact"], row["updated_at"]),
-    )
-
-
-def _drop_rhythm_tables(connection: sqlite3.Connection) -> None:
-    for table in ("rhythm_labels", "rhythm_predictions", "rhythm_training_checkpoint", "rhythm_lab_tracks"):
-        connection.execute(f"DROP TABLE IF EXISTS {table}")
-
-
-def _old_source_track_expr(table: str) -> str:
-    if table not in {"rhythm_labels", "rhythm_predictions"}:
-        raise ValueError(f"Unsupported old source table: {table}")
-    return (
-        "COALESCE((SELECT source_track_id FROM rhythm_lab_tracks "
-        f"WHERE rhythm_lab_tracks.track_id = {table}.track_id), {table}.track_id)"
-    )
-
-
-def _old_track_lookup_expr(column: str) -> str:
-    if column not in {"path", "size", "mtime", "artist", "title"}:
-        raise ValueError(f"Unsupported old track column: {column}")
-    return f"(SELECT {column} FROM tracks WHERE tracks.id = rhythm_labels.track_id)" if column in {"path", "size", "mtime"} else f"(SELECT {column} FROM tracks WHERE tracks.id = rhythm_predictions.track_id)"
-
-
-def _canonical_probabilities_json(payload: str) -> str:
-    try:
-        probabilities = json.loads(payload)
-    except json.JSONDecodeError:
-        return payload
-    if isinstance(probabilities, dict) and OLD_STRAIGHT_LABEL in probabilities:
-        old_value = probabilities.pop(OLD_STRAIGHT_LABEL)
-        probabilities.setdefault(STRAIGHT_LABEL, old_value)
-    return metadata_to_json(probabilities) if isinstance(probabilities, dict) else payload
 
 
 def _get_profile(connection: sqlite3.Connection, classifier_key: str) -> ClassifierProfile:

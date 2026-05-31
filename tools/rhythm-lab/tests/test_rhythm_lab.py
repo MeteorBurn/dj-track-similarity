@@ -57,58 +57,6 @@ def test_source_database_rejects_missing_file_without_creating_it(tmp_path: Path
     assert not missing.exists()
 
 
-def test_labels_database_migrates_rhythm_tables_to_break_energy_classifier_tables(tmp_path: Path) -> None:
-    labels_path = tmp_path / "rhythm_lab.sqlite"
-    old_lab = LibraryDatabase(labels_path)
-    local_track_id = _track(old_lab, tmp_path, "local.wav", title="Local")
-    with old_lab._write_lock, old_lab.connect() as connection:
-        connection.executescript(
-            """
-            CREATE TABLE rhythm_lab_tracks (
-                track_id INTEGER PRIMARY KEY,
-                source_track_id INTEGER NOT NULL UNIQUE,
-                imported_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE rhythm_labels (
-                track_id INTEGER PRIMARY KEY,
-                label TEXT NOT NULL CHECK(label IN ('broken', 'straight_four_on_the_floor', 'ambiguous')),
-                note TEXT,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-            """
-        )
-        connection.execute(
-            "INSERT INTO rhythm_lab_tracks(track_id, source_track_id) VALUES (?, ?)",
-            (local_track_id, 777),
-        )
-        connection.execute(
-            "INSERT INTO rhythm_labels(track_id, label, note) VALUES (?, 'straight_four_on_the_floor', 'old note')",
-            (local_track_id,),
-        )
-
-    labels = RhythmLabDatabase(labels_path)
-
-    assert labels.label_for_track(777).label == "straight"
-    assert labels.label_for_track(local_track_id) is None
-    assert labels.training_labels() == {777: "straight"}
-    with labels.connect() as connection:
-        table_names = {
-            str(row["name"])
-            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
-        }
-        assert "classifier_labels" in table_names
-        assert "classifier_predictions" in table_names
-        assert "classifier_training_checkpoints" in table_names
-        assert "classifier_track_likes" not in table_names
-        assert "rhythm_labels" not in table_names
-        assert "rhythm_predictions" not in table_names
-        assert "rhythm_training_checkpoint" not in table_names
-        row = connection.execute(
-            "SELECT classifier_key, source_track_id, label FROM classifier_labels"
-        ).fetchone()
-        assert dict(row) == {"classifier_key": "break_energy", "source_track_id": 777, "label": "straight"}
-
-
 def test_labels_database_creates_default_break_energy_profile(tmp_path: Path) -> None:
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
 
@@ -301,54 +249,6 @@ def test_multiclass_profile_creation_uses_custom_single_label_per_track(tmp_path
     assert [label.role for label in profile.labels] == ["class", "class", "class"]
     assert scoped.label_for_track(101).label == "dark"
     assert scoped.training_labels() == {101: "dark", 102: "hypnotic"}
-
-
-def test_multiclass_profile_migrates_old_profile_label_role_check(tmp_path: Path) -> None:
-    labels_path = tmp_path / "labels.sqlite"
-    with sqlite3.connect(labels_path) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE classifier_profiles (
-                classifier_key TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT NOT NULL DEFAULT '',
-                artifact_dir TEXT NOT NULL,
-                artifact_prefix TEXT NOT NULL,
-                positive_label TEXT NOT NULL,
-                negative_label TEXT NOT NULL,
-                archived_at TEXT,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE classifier_profile_labels (
-                classifier_key TEXT NOT NULL,
-                label_key TEXT NOT NULL,
-                display_name TEXT NOT NULL,
-                description TEXT NOT NULL DEFAULT '',
-                role TEXT NOT NULL CHECK(role IN ('positive', 'negative', 'review')),
-                position INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY(classifier_key, label_key),
-                FOREIGN KEY(classifier_key) REFERENCES classifier_profiles(classifier_key) ON DELETE CASCADE
-            );
-            """
-        )
-
-    labels = RhythmLabDatabase(labels_path)
-    profile = labels.create_profile(
-        classifier_key="mood",
-        profile_type="multiclass",
-        name="Mood",
-        artifact_dir=tmp_path / "artifacts" / "mood",
-        labels=[
-            {"key": "warm", "name": "Warm", "role": "class"},
-            {"key": "tense", "name": "Tense", "role": "class"},
-        ],
-    )
-
-    assert profile.profile_type == "multiclass"
-    assert [label.key for label in profile.labels] == ["warm", "tense"]
 
 
 def test_label_key_rename_migrates_profile_labels_predictions_and_checkpoints(tmp_path: Path) -> None:

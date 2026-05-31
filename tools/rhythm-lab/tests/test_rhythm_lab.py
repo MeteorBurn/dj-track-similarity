@@ -556,13 +556,14 @@ def test_web_app_reads_source_database_and_writes_labels_database_only(tmp_path:
         ).fetchone() is None
 
 
-def test_web_app_profile_likes_api_and_payload_are_removed(tmp_path: Path) -> None:
+def test_web_app_profile_likes_share_main_library_state(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
     source_path = tmp_path / "source.sqlite"
     source = LibraryDatabase(source_path)
     track_id = _track(source, tmp_path, "track.wav", title="Track")
     other_id = _track(source, tmp_path, "other.wav", title="Other")
+    source.set_track_liked(other_id, True)
     labels_path = tmp_path / "labels.sqlite"
     labels = RhythmLabDatabase(labels_path)
     labels.create_profile(
@@ -576,17 +577,32 @@ def test_web_app_profile_likes_api_and_payload_are_removed(tmp_path: Path) -> No
     )
     client = TestClient(create_app(source_path, labels_db_path=labels_path))
 
-    like_response = client.post(f"/api/profiles/break_energy/tracks/{track_id}/like", json={"liked": True})
+    like_response = client.post(f"/api/tracks/{track_id}/liked", json={"liked": True})
     tracks = client.get("/api/profiles/break_energy/tracks").json()
-    ignored_liked_filter = client.get("/api/profiles/break_energy/tracks", params={"liked": "yes"}).json()
+    liked_tracks = client.get("/api/profiles/break_energy/tracks", params={"liked": "yes"}).json()
+    unlike_response = client.post(f"/api/tracks/{other_id}/liked", json={"liked": False})
+    liked_after_unlike = client.get("/api/profiles/break_energy/tracks", params={"liked": "yes"}).json()
     summary = client.get("/api/profiles/break_energy/summary").json()
 
-    assert like_response.status_code == 404
+    assert like_response.status_code == 200
+    assert like_response.json() == {"track_id": track_id, "liked": True}
+    assert unlike_response.status_code == 200
+    assert unlike_response.json() == {"track_id": other_id, "liked": False}
+    assert source.get_track(track_id).liked is True
+    assert source.get_track(other_id).liked is False
     assert tracks["total"] == 2
     assert {item["id"] for item in tracks["items"]} == {track_id, other_id}
-    assert all("liked" not in item for item in tracks["items"])
-    assert ignored_liked_filter["total"] == 2
-    assert "likes" not in summary
+    assert next(item for item in tracks["items"] if item["id"] == track_id)["liked"] is True
+    assert next(item for item in tracks["items"] if item["id"] == other_id)["liked"] is True
+    assert liked_tracks["total"] == 2
+    assert {item["id"] for item in liked_tracks["items"]} == {track_id, other_id}
+    assert liked_after_unlike["total"] == 1
+    assert liked_after_unlike["items"][0]["id"] == track_id
+    assert summary["liked"] == 1
+    with labels.connect() as connection:
+        assert connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='classifier_track_likes'"
+        ).fetchone() is None
 
 
 def test_web_app_predictions_endpoint_filters_candidates_by_probability_focus(monkeypatch, tmp_path: Path) -> None:
@@ -597,6 +613,7 @@ def test_web_app_predictions_endpoint_filters_candidates_by_probability_focus(mo
     low_id = _track(source, tmp_path, "low.wav", title="Low")
     high_id = _track(source, tmp_path, "high.wav", title="High")
     balanced_id = _track(source, tmp_path, "balanced.wav", title="Balanced")
+    source.set_track_liked(high_id, True)
     source.save_genres(high_id, [{"label": "Breakbeat", "score": 0.9}], model_name="maest-test")
     source.save_sonara_features(high_id, {"onset_density": {"type": "float", "value": 4.2}}, model_name="sonara-test")
     source.save_embedding(high_id, np.asarray([1, 0, 0], dtype=np.float32), "maest-test", embedding_key="maest")
@@ -684,6 +701,7 @@ def test_web_app_predictions_endpoint_filters_candidates_by_probability_focus(mo
     assert [item["id"] for item in all_candidates["items"]] == [high_id, balanced_id, low_id]
     assert all_candidates["items"][0]["positive_probability"] == 0.7
     assert all_candidates["items"][0]["label"] == "broken"
+    assert all_candidates["items"][0]["liked"] is True
     assert all_candidates["items"][0]["genres"] == ["Breakbeat"]
     assert all_candidates["items"][0]["maest_syncopated_rhythm"] is True
     assert all_candidates["items"][0]["feature_status"] == {"sonara": True, "mert": True, "maest": True}
@@ -1289,8 +1307,8 @@ def test_web_app_serves_static_profile_ui_without_hardcoded_label_buttons(tmp_pa
     script = client.get("/static/app.js").text
     styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
 
-    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260529" />' in html
-    assert '<script src="/static/app.js?v=rhythm-lab-20260529" defer></script>' in html
+    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260531" />' in html
+    assert '<script src="/static/app.js?v=rhythm-lab-20260531" defer></script>' in html
     assert 'id="profileSelect"' in html
     assert "/api/profiles" in script
     assert "function renderLabelButtons" in script
@@ -1353,6 +1371,7 @@ def test_static_ui_non_submit_buttons_have_explicit_button_type(tmp_path: Path) 
         "loadSource",
         "libraryTab",
         "candidatesTab",
+        "likedTab",
         "trainingTab",
         "settingsTab",
         "refreshCandidates",
@@ -1362,8 +1381,8 @@ def test_static_ui_non_submit_buttons_have_explicit_button_type(tmp_path: Path) 
         "nextPage",
     ):
         assert f'<button id="{button_id}" type="button"' in html
-    assert '<button type="button" class="${active}" data-label="${escapeHtml(label.key)}">' in script
-    assert 'buttons.push(\'<button type="button" data-label="">Clear</button>\');' in script
+    assert '<button type="button" class="${active}" data-action="label" data-label="${escapeHtml(label.key)}">' in script
+    assert 'buttons.push(\'<button type="button" data-action="label" data-label="">Clear</button>\');' in script
 
 
 def test_static_ui_supports_page_number_jump(tmp_path: Path) -> None:
@@ -1416,7 +1435,7 @@ def test_web_app_html_contains_candidates_tab(tmp_path: Path) -> None:
 
     assert 'id="libraryTab"' in html
     assert 'id="candidatesTab"' in html
-    assert 'id="likedTab"' not in html
+    assert 'id="likedTab"' in html
     assert 'id="candidateMinBroken"' in html
     assert '<option value="positive_highest" selected>highest positive probability</option>' in html
     assert '<option value="negative_highest">highest negative probability</option>' in html
@@ -1439,10 +1458,12 @@ def test_web_app_html_contains_candidates_tab(tmp_path: Path) -> None:
     assert 'return featureStatusBadge("TRAINED", track.label_trained);' in script
     assert 'function predictionStatus(track)' in script
     assert '<span class="status-item"><b>PREDICTED</b>${predictionBadge(track)}</span>' in script
-    assert "toggleLike" not in script
+    assert "toggleLike" in script
     assert "likedIndicator" not in script
-    assert 'liked: "yes"' not in script
-    assert "renderLikeButton" not in script
+    assert "<b>LIKED</b>" not in script
+    assert ".analysis-status-badge.status-liked" not in styles
+    assert 'params.set("liked", "yes");' in script
+    assert "renderLikeButton" in script
     assert '<b>LABEL</b>' not in script
     assert "<b>ANALYZED</b>" not in script
     assert "status-separator" not in script
@@ -1487,11 +1508,12 @@ def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path
     assert "async function loadTrainingReadiness()" in script
     assert ".refresh-candidates" in styles
     assert ".train-refresh" in styles
-    assert "const viewOffsets = { library: 0, candidates: 0, training: 0, settings: 0 };" in script
+    assert "const viewOffsets = { library: 0, candidates: 0, liked: 0, training: 0, settings: 0 };" in script
     assert "let loadSequence = 0;" in script
     assert "const sequence = ++loadSequence;" in script
     assert 'if (sequence !== loadSequence || activeView !== "library") return;' in script
     assert 'if (sequence !== loadSequence || activeView !== "candidates") return;' in script
+    assert 'if (sequence !== loadSequence || activeView !== "liked") return;' in script
     assert "viewOffsets[activeView] = offset;" in script
     assert "offset = viewOffsets[view] || 0;" in script
     assert "q: queryEl.value," in script
@@ -1560,8 +1582,8 @@ def test_web_app_navigation_tabs_have_icons(tmp_path: Path) -> None:
     assert 'class="lucide lucide-library-big"' in html
     assert '<button id="candidatesTab" type="button" class="tab-button">' in html
     assert 'class="lucide lucide-sparkles"' in html
-    assert '<button id="likedTab" type="button" class="tab-button">' not in html
-    assert 'class="lucide lucide-heart"' not in html
+    assert '<button id="likedTab" type="button" class="tab-button">' in html
+    assert 'class="lucide lucide-heart"' in html
     assert '<button id="trainingTab" type="button" class="tab-button">' in html
     assert 'class="lucide lucide-dumbbell"' in html
     assert ".tab-button {\n  display: inline-flex;" in styles
@@ -1628,13 +1650,13 @@ def test_web_app_multiclass_label_buttons_use_right_aligned_grid(tmp_path: Path)
     script = client.get("/static/app.js").text
     styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
 
-    assert 'class="actions ${isMulticlassProfile() ? "multiclass-actions" : ""}"' in script
-    assert ".multiclass-actions {\n  display: grid;\n  grid-template-columns: repeat(2, minmax(132px, 1fr));" in styles
+    assert '<div class="label-actions ${isMulticlassProfile() ? "multiclass-label-actions" : ""}">' in script
+    assert ".multiclass-label-actions {\n  display: grid;\n  grid-template-columns: repeat(2, minmax(132px, 1fr));" in styles
     assert "justify-content: end;" in styles
     assert "width: min(340px, 100%);" in styles
     assert "@media (max-width: 760px)" in styles
     assert "@media (max-width: 420px)" in styles
-    assert ".multiclass-actions {\n    grid-template-columns: 1fr;" in styles
+    assert ".multiclass-label-actions {\n    grid-template-columns: 1fr;" in styles
 
 
 def test_web_app_summary_uses_compact_badges(tmp_path: Path) -> None:

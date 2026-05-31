@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
+from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.dependencies import require_ffmpeg
 
 from .lab_db import ClassifierProfile, RhythmLabDatabase
@@ -32,6 +33,10 @@ KEEP_METRICS_PER_FEATURE = 10
 class LabelRequest(BaseModel):
     label: str | None = None
     note: str | None = None
+
+
+class TrackLikedRequest(BaseModel):
+    liked: bool
 
 
 class SourceSwitchRequest(BaseModel):
@@ -251,6 +256,7 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
             "sonara": 0,
             "mert": 0,
             "maest": 0,
+            "liked": 0,
             "source": source_state.current(),
         }
         if source is None:
@@ -261,6 +267,7 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
             "sonara": source.count_sonara_features(),
             "mert": source.count_embeddings("mert"),
             "maest": source.count_embeddings("maest"),
+            "liked": source.count_liked_tracks(),
         }
 
     @app.get("/api/profiles/{profile_key}/tracks")
@@ -268,6 +275,7 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
         profile_key: str,
         q: str = "",
         syncopated: str = Query(default="all", pattern="^(all|yes|no)$"),
+        liked: str = Query(default="all", pattern="^(all|yes|no)$"),
         label: str = "all",
         limit: int = Query(default=100, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
@@ -284,12 +292,23 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
                 training_label_keys=profile.training_label_keys,
                 query=q,
                 syncopated=syncopated,
+                liked=liked,
                 label=label,
                 limit=limit,
                 offset=offset,
             )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.post("/api/tracks/{track_id}/liked")
+    def set_track_liked(track_id: int, request: TrackLikedRequest):
+        if source_state.path is None:
+            raise HTTPException(status_code=400, detail="Source database is not selected")
+        try:
+            updated = LibraryDatabase(source_state.path).set_track_liked(track_id, request.liked)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        return {"track_id": updated.id, "liked": updated.liked}
 
     @app.post("/api/profiles/{profile_key}/tracks/{track_id}/label")
     def set_profile_label(profile_key: str, track_id: int, request: LabelRequest):

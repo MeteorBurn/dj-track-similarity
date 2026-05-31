@@ -2,8 +2,11 @@
 
 Rhythm Lab is an auxiliary classifier labeling and training UI for
 `dj-track-similarity`. It runs separately from the main app, opens a main
-project SQLite database read-only, and stores only lab labels, predictions, and
-training checkpoints in its own writable SQLite file.
+project SQLite database read-only for track browsing, analysis metadata,
+training inputs, and audio preview. The only source-database write path is the
+explicit liked-track toggle, which updates the shared `track_likes` table used
+by the main app. Lab labels, predictions, and training checkpoints stay in
+Rhythm Lab's own writable SQLite file.
 
 Use Rhythm Lab when generic similarity or genre labels are not enough and you
 want a personal reusable classifier, for example "has live instrumentation",
@@ -103,8 +106,9 @@ http://127.0.0.1:8777/
 
 No source database is loaded at startup unless `--source` is provided. The UI
 has a source database path field, file picker, and Load database button. The
-selected source DB is opened read-only. No classifier profile is selected at
-startup; choose an existing profile or create one before loading tracks.
+selected source DB is opened read-only except for explicit liked-track
+changes. No classifier profile is selected at startup; choose an existing
+profile or create one before loading tracks.
 
 Use the UI for labeling and review. Use the CLI for training, prediction export,
 promotion, and permanent profile deletion.
@@ -117,10 +121,13 @@ The UI includes:
 - profile type selection in the New classifier profile dialog
 - multiclass label creation with custom keys, display names, and descriptions
 - explicit profile selection on startup
-- profile-scoped Library, Candidates, Training, and Profile Settings views
+- profile-scoped Library, Candidates, Liked, Training, and Profile Settings
+  views
 - text search by path/title/artist
 - source database picker and load control
 - syncopated rhythm filter
+- liked-track buttons that update the main app's shared `track_likes` table
+- a Liked tab for the shared liked-track list
 - dynamic manual label and predicted-label filters
 - Candidate filters for predicted label, probability focus, and minimum
   probability; text search remains in the shared path/title/artist field
@@ -128,7 +135,8 @@ The UI includes:
 - pagination
 - audio preview from source paths
 - MAEST genres and SONARA/MERT/MAEST feature availability from the source DB
-- compact app-shell coverage badges for Tracks, SONARA, MAEST, and MERT
+- compact app-shell coverage badges for Tracks, SONARA, MAEST, MERT, and
+  Liked tracks
 - compact label-count badges for the active profile
 - training readiness and guidance cards
 - per-profile train-refresh threshold editing in Profile Settings

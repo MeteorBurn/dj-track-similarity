@@ -96,9 +96,11 @@ branches, or history are available.
 - Promoted classifier scoring is database-only. It must read existing SONARA
   features plus MERT and MAEST embeddings, then write only
   `track_classifier_scores`; it must not decode audio or modify audio files.
-- Rhythm Lab must never write to the source library database or audio files. It
-  opens the main project SQLite database read-only and writes only its own lab
-  database under `tools/rhythm-lab/data/`.
+- Rhythm Lab must never write to source audio files. It opens the main project
+  SQLite database read-only for browsing, analysis metadata, training inputs,
+  and preview. Its only source-database write path is the explicit liked-track
+  toggle, which updates `track_likes` through `LibraryDatabase`; lab labels,
+  predictions, and checkpoints stay under `tools/rhythm-lab/data/`.
 - Treat `dj-track-similarity.sqlite` as local user state. Tests must use
   temporary databases (`tmp_path` or explicit `--db`).
 - Do not commit generated local artifacts: `*.sqlite`, `*.log`, `__pycache__/`,

@@ -252,6 +252,11 @@ main {
   background: rgba(57, 214, 223, 0.1);
 }
 
+.coverage-liked {
+  border-color: rgba(255, 95, 137, 0.42);
+  background: rgba(255, 95, 137, 0.1);
+}
+
 .source-path {
   grid-column: 1;
   width: 100%;
@@ -563,6 +568,21 @@ main {
 }
 
 .actions {
+  display: grid;
+  grid-template-columns: 38px minmax(220px, auto);
+  gap: 8px;
+  align-items: start;
+  justify-content: end;
+}
+
+.row-tools {
+  display: flex;
+  gap: 6px;
+  align-items: start;
+  justify-content: end;
+}
+
+.label-actions {
   display: flex;
   gap: 6px;
   align-items: start;
@@ -571,7 +591,7 @@ main {
   min-width: 220px;
 }
 
-.multiclass-actions {
+.multiclass-label-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(132px, 1fr));
   gap: 6px;
@@ -582,14 +602,20 @@ main {
   width: min(340px, 100%);
 }
 
-.multiclass-actions button {
+.multiclass-label-actions button {
   width: 100%;
   text-align: left;
 }
 
-.actions button.active {
+.label-actions button.active {
   border-color: var(--green);
   background: rgba(85, 216, 138, 0.16);
+}
+
+.track-like-button.active {
+  border-color: var(--rose);
+  background: rgba(255, 95, 137, 0.14);
+  color: #ff9bb3;
 }
 
 audio {
@@ -708,17 +734,19 @@ menu {
   }
 
   .actions {
+    grid-template-columns: 38px minmax(0, 1fr);
     justify-content: start;
-    min-width: 0;
   }
 
-  .multiclass-actions {
+  .label-actions,
+  .multiclass-label-actions {
     justify-content: start;
+    min-width: 0;
   }
 }
 
 @media (max-width: 420px) {
-  .multiclass-actions {
+  .multiclass-label-actions {
     grid-template-columns: 1fr;
     min-width: 0;
   }

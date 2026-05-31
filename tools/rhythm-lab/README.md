@@ -2,8 +2,9 @@
 
 Rhythm Lab is an auxiliary classifier labeling and training UI for
 `dj-track-similarity`. It runs separately from the main app, opens a main
-project SQLite database read-only, and writes only its own lab database and
-training artifacts.
+project SQLite database read-only for browsing and training inputs, and writes
+only its own lab database and training artifacts. The exception is the explicit
+liked-track toggle, which updates the main app's shared `track_likes` table.
 
 Full documentation is in
 [docs/dj-track-similarity/rhythm-lab.md](../../docs/dj-track-similarity/rhythm-lab.md).

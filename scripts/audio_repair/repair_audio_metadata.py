@@ -184,6 +184,7 @@ class FileInspectionResult:
 class RepairRunResult:
     exit_code: int
     results: list[FileRepairResult]
+    skipped_state_results: list[StateRepairResult]
     total_collected: int
     skipped_from_state: int
     skipped_by_reason: int
@@ -195,6 +196,12 @@ class RepairRunResult:
     backup_dir: Path | None
     no_backup: bool
     workers: int
+
+
+@dataclass(frozen=True)
+class StateRepairResult:
+    path: Path
+    entry: dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -255,6 +262,7 @@ def main(argv: list[str] | None = None) -> int:
     state_path: Path | None = None
     skipped_from_state = 0
     skipped_by_reason = 0
+    skipped_state_results: list[StateRepairResult] = []
     paths = list(all_paths)
     if args.reasons and not state_mode:
         print("--reason can only be used with --folder or --db state.", file=sys.stderr)
@@ -270,6 +278,9 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             if state_entry_current(state, path, apply_changes=apply_changes):
                 skipped_from_state += 1
+                entry = state_entry_for_path(state, path)
+                if entry is not None:
+                    skipped_state_results.append(StateRepairResult(path=path, entry=dict(entry)))
             else:
                 pending_paths.append(path)
         paths = pending_paths
@@ -295,6 +306,7 @@ def main(argv: list[str] | None = None) -> int:
             workers=args.workers,
             skipped_by_reason=skipped_by_reason,
             missing_db_files=missing_db_files,
+            skipped_state_results=skipped_state_results,
         )
         if not args.no_report:
             report = write_report_bundle(
@@ -333,6 +345,7 @@ def run_paths(
     workers: int,
     skipped_by_reason: int,
     missing_db_files: int,
+    skipped_state_results: list[StateRepairResult],
 ) -> RepairRunResult:
     if state_mode:
         reporter.line(f"Total tracks: {len(all_paths)}")
@@ -394,6 +407,7 @@ def run_paths(
     return RepairRunResult(
         exit_code=1 if failed else 0,
         results=results,
+        skipped_state_results=skipped_state_results,
         total_collected=len(all_paths),
         skipped_from_state=skipped_from_state,
         skipped_by_reason=skipped_by_reason,
@@ -496,9 +510,13 @@ def build_report_payload(
     explicit_paths: list[Path],
     reason_filters: list[str],
 ) -> dict[str, object]:
-    results = [file_result_payload(result, apply_changes=run_result.apply_changes) for result in run_result.results]
-    status_counts = summarize_status_counts(run_result.results)
-    reason_counts = summarize_reason_counts(run_result.results)
+    processed_results = [
+        file_result_payload(result, apply_changes=run_result.apply_changes) for result in run_result.results
+    ]
+    state_results = [state_result_payload(result) for result in run_result.skipped_state_results]
+    results = processed_results + state_results
+    status_counts = summarize_report_status_counts(results)
+    reason_counts = summarize_report_reason_counts(results)
     return {
         "mode": "apply" if run_result.apply_changes else "dry-run",
         "generated_at": generated_at,
@@ -527,17 +545,16 @@ def build_report_payload(
             "path": str(run_result.state_path) if run_result.state_path is not None else None,
             "skipped_from_state": run_result.skipped_from_state,
             "skipped_by_reason": run_result.skipped_by_reason,
+            "included_in_report": len(state_results),
         },
         "total_collected": run_result.total_collected,
         "processed_count": len(run_result.results),
-        "result_count": len(run_result.results),
+        "state_result_count": len(state_results),
+        "result_count": len(results),
         "missing_db_files": run_result.missing_db_files,
         "status_counts": status_counts,
         "reason_counts": reason_counts,
-        "problem_summary": [
-            {"problem": problem, "count": count}
-            for problem, count in summarize_problem_types(run_result.results)
-        ],
+        "problem_summary": [{"problem": problem, "count": count} for problem, count in summarize_report_problem_types(results)],
         "results": results,
     }
 
@@ -545,6 +562,7 @@ def build_report_payload(
 def file_result_payload(result: FileRepairResult, *, apply_changes: bool) -> dict[str, object]:
     reason = result_reason(result)
     payload: dict[str, object] = {
+        "source": "processed",
         "action": repair_report_action(result),
         "path": str(result.path),
         "status": result.status,
@@ -562,8 +580,42 @@ def file_result_payload(result: FileRepairResult, *, apply_changes: bool) -> dic
         "mutagen_summary": result.mutagen_summary,
         "primary_action": primary_action(result.actions) if result.actions else None,
         "actions": list(result.actions),
+        "checked_at": None,
+        "modified_at": None,
     }
     return payload
+
+
+def state_result_payload(result: StateRepairResult) -> dict[str, object]:
+    entry = result.entry
+    status_label = state_entry_status(entry) or "UNKNOWN"
+    status = status_label.lower()
+    reason = state_entry_reason(entry)
+    size = state_entry_int(entry, "size") or 0
+    message = state_entry_text(entry, "message") or ""
+    mode = state_entry_text(entry, "mode") or ""
+    return {
+        "source": "state",
+        "action": state_report_action(status),
+        "path": str(result.path),
+        "status": status,
+        "status_label": status_label,
+        "reason": reason,
+        "message": message,
+        "detail": message,
+        "mode": mode,
+        "original_size": size,
+        "repaired_size": size,
+        "size_delta": 0,
+        "id3_seen": 0,
+        "id3_removed": 0,
+        "backup_path": None,
+        "mutagen_summary": None,
+        "primary_action": None,
+        "actions": [],
+        "checked_at": state_entry_int(entry, "checked_at"),
+        "modified_at": state_entry_int(entry, "modified_at"),
+    }
 
 
 def repair_report_action(result: FileRepairResult) -> str:
@@ -582,10 +634,36 @@ def repair_report_action(result: FileRepairResult) -> str:
     return "REVIEW MANUALLY"
 
 
+def state_report_action(status: str) -> str:
+    if status == "repaired":
+        return "ALREADY REPAIRED"
+    if status == "ok":
+        return "OK"
+    if status == "repairable":
+        return "REPAIR AVAILABLE"
+    if status == "notice":
+        return "NOTICE"
+    if status == "failed":
+        return "FAILED"
+    if status == "unsupported":
+        return "INSPECT ONLY"
+    return "REVIEW MANUALLY"
+
+
 def summarize_status_counts(results: list[FileRepairResult]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for result in results:
         counts[result.status] = counts.get(result.status, 0) + 1
+    return {key: counts[key] for key in sorted(counts)}
+
+
+def summarize_report_status_counts(results: list[dict[str, object]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for result in results:
+        status = result.get("status")
+        if not isinstance(status, str) or not status:
+            continue
+        counts[status] = counts.get(status, 0) + 1
     return {key: counts[key] for key in sorted(counts)}
 
 
@@ -597,6 +675,57 @@ def summarize_reason_counts(results: list[FileRepairResult]) -> dict[str, int]:
             continue
         counts[reason] = counts.get(reason, 0) + 1
     return {key: counts[key] for key in sorted(counts)}
+
+
+def summarize_report_reason_counts(results: list[dict[str, object]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for result in results:
+        reason = result.get("reason")
+        if isinstance(reason, str) and reason:
+            counts[reason] = counts.get(reason, 0) + 1
+    return {key: counts[key] for key in sorted(counts)}
+
+
+def summarize_report_problem_types(results: list[dict[str, object]]) -> list[tuple[str, int]]:
+    counts: dict[str, int] = {}
+    for result in results:
+        problem = report_result_problem_summary(result)
+        if problem is None:
+            continue
+        counts[problem] = counts.get(problem, 0) + 1
+    return sorted(counts.items())
+
+
+def report_result_problem_summary(result: dict[str, object]) -> str | None:
+    status = result.get("status")
+    reason = result.get("reason")
+    if not isinstance(status, str) or not isinstance(reason, str) or not reason:
+        return None
+    message = result.get("detail") or result.get("message") or ""
+    if not isinstance(message, str):
+        message = str(message)
+    if status in {"repairable", "repaired"}:
+        path_value = result.get("path")
+        path = Path(path_value) if isinstance(path_value, str) else Path("")
+        summary_result = FileRepairResult(path=path, status=status, message=message)
+        return f"repairable[{reason}]: {repairable_reason_description(reason, summary_result)}"
+    if status == "notice":
+        return f"notice[{reason}]: {message}"
+    if status == "suspicious":
+        extension_match = re.search(r"extension=(\.[^\s]+) detected=([^\s]+)", message)
+        if extension_match:
+            return (
+                f"suspicious[{reason}]: extension mismatch: {extension_match.group(1)} "
+                f"detected as {extension_match.group(2)}"
+            )
+        codec_match = re.search(r"extension=(\.[^\s]+) detected_codec=([^\s]+)", message)
+        if codec_match:
+            return (
+                f"suspicious[{reason}]: codec mismatch: {codec_match.group(1)} "
+                f"codec {codec_match.group(2)}"
+            )
+        return f"suspicious[{reason}]: {message}"
+    return f"{status}[{reason}]: {message}"
 
 
 def write_xlsx_report(path: Path, payload: dict[str, object]) -> None:
@@ -639,12 +768,15 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
         ["Generated at", payload["generated_at"]],
         ["Mode", payload["mode"]],
         ["Total collected", payload["total_collected"]],
-        ["Processed results", payload["result_count"]],
+        ["Processed results", payload.get("processed_count", payload["result_count"])],
+        ["State results in report", payload.get("state_result_count", 0)],
+        ["Report results", payload["result_count"]],
         ["Missing DB files", payload["missing_db_files"]],
         ["State enabled", state.get("enabled", False)],
         ["State file", state.get("path") or ""],
         ["Skipped from state", state.get("skipped_from_state", 0)],
         ["Skipped by reason", state.get("skipped_by_reason", 0)],
+        ["Skipped included in report", state.get("included_in_report", 0)],
         ["Keep ID3 policy", options.get("keep_id3", "")],
         ["Workers", options.get("workers", "")],
         ["Backup directory", options.get("backup_dir", "")],
@@ -667,9 +799,11 @@ def _results_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
     rows: list[list[object]] = [
         [
             "action",
+            "source",
             "status",
             "reason",
             "path",
+            "mode",
             "message",
             "detail",
             "original_size",
@@ -679,6 +813,8 @@ def _results_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
             "id3_removed",
             "primary_action",
             "backup_path",
+            "checked_at",
+            "modified_at",
             "mutagen_summary",
         ]
     ]
@@ -687,9 +823,11 @@ def _results_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
         rows.append(
             [
                 result.get("action", ""),
+                result.get("source", ""),
                 result.get("status_label", ""),
                 result.get("reason", ""),
                 result.get("path", ""),
+                result.get("mode", ""),
                 result.get("message", ""),
                 result.get("detail", ""),
                 result.get("original_size", 0),
@@ -699,6 +837,8 @@ def _results_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
                 result.get("id3_removed", 0),
                 result.get("primary_action", ""),
                 result.get("backup_path", ""),
+                result.get("checked_at", ""),
+                result.get("modified_at", ""),
                 result.get("mutagen_summary", ""),
             ]
         )
@@ -941,11 +1081,14 @@ def write_text_log(path: Path, payload: dict[str, object]) -> None:
         f"generated_at={payload['generated_at']}",
         f"total_collected={payload['total_collected']}",
         f"processed_count={payload['processed_count']}",
+        f"state_result_count={payload.get('state_result_count', 0)}",
+        f"result_count={payload['result_count']}",
         f"missing_db_files={payload['missing_db_files']}",
         f"state_enabled={state.get('enabled', False)}",
         f"state_file={state.get('path') or ''}",
         f"skipped_from_state={state.get('skipped_from_state', 0)}",
         f"skipped_by_reason={state.get('skipped_by_reason', 0)}",
+        f"state_included_in_report={state.get('included_in_report', 0)}",
     ]
     lines.extend(f"status_count_{status}={count}" for status, count in status_counts.items())
     lines.extend(f"reason_count_{reason}={count}" for reason, count in reason_counts.items())
@@ -1259,6 +1402,36 @@ def state_entry_for_path(state: dict[str, object], path: Path) -> dict[str, obje
     return None
 
 
+def state_entry_text(entry: dict[str, object], key: str) -> str | None:
+    value = entry.get(key)
+    return value if isinstance(value, str) else None
+
+
+def state_entry_int(entry: dict[str, object], key: str) -> int | None:
+    value = entry.get(key)
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    return None
+
+
+def state_entry_status(entry: dict[str, object]) -> str | None:
+    status = state_entry_text(entry, "status")
+    if status is None:
+        return None
+    return status.upper()
+
+
+def state_entry_reason(entry: dict[str, object]) -> str | None:
+    reason = state_entry_text(entry, "reason")
+    if not reason:
+        return None
+    return normalize_reason_filter(reason)
+
+
 def state_entry_current(state: dict[str, object], path: Path, *, apply_changes: bool) -> bool:
     entry = state_entry_for_path(state, path)
     if entry is None:
@@ -1269,8 +1442,13 @@ def state_entry_current(state: dict[str, object], path: Path, *, apply_changes: 
         return False
     if entry.get("size") != stat.st_size or state_modified_at(entry) != int(stat.st_mtime):
         return False
+    status = state_entry_status(entry)
+    if status is None:
+        return False
     if apply_changes:
-        return entry.get("mode") == "apply"
+        if entry.get("mode") == "apply":
+            return status not in {"FAILED", "REPAIRABLE"}
+        return status != "REPAIRABLE"
     return True
 
 
@@ -1284,8 +1462,8 @@ def state_entry_reason_matches(state: dict[str, object], path: Path, reasons: se
         return False
     if entry.get("size") != stat.st_size or state_modified_at(entry) != int(stat.st_mtime):
         return False
-    reason = entry.get("reason")
-    return isinstance(reason, str) and normalize_reason_filter(reason) in reasons
+    reason = state_entry_reason(entry)
+    return reason is not None and reason in reasons
 
 
 def state_modified_at(entry: dict[str, object]) -> int | None:

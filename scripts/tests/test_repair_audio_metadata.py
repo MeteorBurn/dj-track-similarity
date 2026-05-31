@@ -389,6 +389,146 @@ def test_main_writes_audio_repair_report_bundle(monkeypatch, tmp_path: Path, cap
     assert f"log={log_path}" in stdout
 
 
+def test_report_includes_current_state_entries_for_skipped_files(monkeypatch, tmp_path: Path) -> None:
+    repair = _load_repair_module()
+    folder = tmp_path / "library"
+    folder.mkdir()
+    ok_path = folder / "checked.wav"
+    repair_path = folder / "repair.wav"
+    ok_path.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
+    repair_path.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
+    state_path = tmp_path / "state.json"
+    out_dir = tmp_path / "reports"
+
+    def fake_repair_file(path: Path, **_kwargs):
+        if path == repair_path:
+            return repair.FileRepairResult(
+                path=path,
+                status="repairable",
+                message="ok",
+                original_size=20,
+                repaired_size=18,
+                actions=["shrunk oversized data chunk at offset 36 from declared size 100 to 80"],
+            )
+        return repair.FileRepairResult(path=path, status="ok", message="ok", original_size=20, repaired_size=20)
+
+    monkeypatch.setattr(repair, "repair_file", fake_repair_file)
+
+    first_exit = repair.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--no-report"])
+    second_exit = repair.main(
+        ["--folder", str(folder), "--state", str(state_path), "--out-dir", str(out_dir), "--no-file-log"]
+    )
+
+    report_paths = sorted(out_dir.glob("audio_repair_report_*.json"))
+    payload = json.loads(report_paths[0].read_text(encoding="utf-8"))
+    results = {Path(result["path"]): result for result in payload["results"]}
+    assert first_exit == 0
+    assert second_exit == 0
+    assert payload["processed_count"] == 0
+    assert payload["result_count"] == 2
+    assert payload["state"]["skipped_from_state"] == 2
+    assert payload["state"]["included_in_report"] == 2
+    assert payload["status_counts"] == {"ok": 1, "repairable": 1}
+    assert payload["reason_counts"] == {"OVERSIZED_DATA": 1}
+    assert results[ok_path]["source"] == "state"
+    assert results[ok_path]["action"] == "OK"
+    assert results[ok_path]["mode"] == "dry-run"
+    assert results[repair_path]["source"] == "state"
+    assert results[repair_path]["action"] == "REPAIR AVAILABLE"
+    assert results[repair_path]["reason"] == "OVERSIZED_DATA"
+
+
+def test_apply_skips_nonrepairable_dry_run_state_and_reports_repaired_state(
+    monkeypatch, tmp_path: Path
+) -> None:
+    repair = _load_repair_module()
+    folder = tmp_path / "library"
+    folder.mkdir()
+    ok_path = folder / "checked.wav"
+    repair_path = folder / "repair.wav"
+    ok_path.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
+    repair_path.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
+    state_path = tmp_path / "state.json"
+    out_dir = tmp_path / "reports"
+    repeat_out_dir = tmp_path / "repeat-reports"
+    calls: list[tuple[Path, bool]] = []
+
+    def fake_repair_file(path: Path, *, apply_changes: bool, **_kwargs):
+        calls.append((path, apply_changes))
+        if path == repair_path:
+            if apply_changes:
+                path.write_bytes(b"RIFF\x06\x00\x00\x00WAVEfx")
+                return repair.FileRepairResult(
+                    path=path,
+                    status="repaired",
+                    message="ok",
+                    original_size=20,
+                    repaired_size=18,
+                    actions=["shrunk oversized data chunk at offset 36 from declared size 100 to 80"],
+                )
+            return repair.FileRepairResult(
+                path=path,
+                status="repairable",
+                message="ok",
+                original_size=20,
+                repaired_size=18,
+                actions=["shrunk oversized data chunk at offset 36 from declared size 100 to 80"],
+            )
+        return repair.FileRepairResult(path=path, status="ok", message="ok", original_size=20, repaired_size=20)
+
+    monkeypatch.setattr(repair, "repair_file", fake_repair_file)
+
+    dry_run_exit = repair.main(["--folder", str(folder), "--state", str(state_path), "--no-file-log", "--no-report"])
+    apply_exit = repair.main(
+        [
+            "--folder",
+            str(folder),
+            "--state",
+            str(state_path),
+            "--apply",
+            "--out-dir",
+            str(out_dir),
+            "--no-file-log",
+        ]
+    )
+    repeat_apply_exit = repair.main(
+        [
+            "--folder",
+            str(folder),
+            "--state",
+            str(state_path),
+            "--apply",
+            "--out-dir",
+            str(repeat_out_dir),
+            "--no-file-log",
+        ]
+    )
+
+    payload = json.loads(sorted(out_dir.glob("audio_repair_report_*.json"))[0].read_text(encoding="utf-8"))
+    repeat_payload = json.loads(
+        sorted(repeat_out_dir.glob("audio_repair_report_*.json"))[0].read_text(encoding="utf-8")
+    )
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    entries = {entry["title"]: entry for entry in state["files"].values()}
+    repeat_results = {Path(result["path"]): result for result in repeat_payload["results"]}
+    assert dry_run_exit == 0
+    assert apply_exit == 0
+    assert repeat_apply_exit == 0
+    assert calls == [(ok_path, False), (repair_path, False), (repair_path, True)]
+    assert payload["processed_count"] == 1
+    assert payload["result_count"] == 2
+    assert payload["status_counts"] == {"ok": 1, "repaired": 1}
+    assert entries["repair.wav"]["mode"] == "apply"
+    assert entries["repair.wav"]["status"] == "REPAIRED"
+    assert entries["repair.wav"]["message"] == "repair_applied"
+    assert repeat_payload["processed_count"] == 0
+    assert repeat_payload["result_count"] == 2
+    assert repeat_payload["status_counts"] == {"ok": 1, "repaired": 1}
+    assert repeat_results[repair_path]["source"] == "state"
+    assert repeat_results[repair_path]["action"] == "ALREADY REPAIRED"
+    assert repeat_results[repair_path]["mode"] == "apply"
+
+
 def test_xlsx_report_escapes_xml_invalid_control_characters(tmp_path: Path) -> None:
     repair = _load_repair_module()
     xlsx_path = tmp_path / "report.xlsx"

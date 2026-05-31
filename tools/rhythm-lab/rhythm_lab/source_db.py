@@ -76,6 +76,10 @@ class SourceDatabase:
                 ).fetchone()[0]
             )
 
+    def count_liked_tracks(self) -> int:
+        with self.connect() as connection:
+            return int(connection.execute("SELECT COUNT(*) FROM track_likes").fetchone()[0])
+
     def get_track(self, track_id: int) -> Track:
         with self.connect() as connection:
             row = connection.execute(
@@ -136,6 +140,7 @@ class SourceDatabase:
         training_label_keys: tuple[str, ...] = ("broken", "straight"),
         query: str = "",
         syncopated: str = "all",
+        liked: str = "all",
         label: str = "all",
         limit: int = 100,
         offset: int = 0,
@@ -143,6 +148,7 @@ class SourceDatabase:
         where_parts, params = _track_page_filter_sql(
             query=query,
             syncopated=syncopated,
+            liked=liked,
             label=label,
             label_keys=label_keys,
         )
@@ -287,6 +293,7 @@ class SourceDatabase:
                     p.updated_at,
                     p.positive_probability,
                     p.negative_probability,
+                    EXISTS(SELECT 1 FROM track_likes tl WHERE tl.track_id = t.id) AS liked,
                     t.id AS source_row_id,
                     t.path AS source_path,
                     t.artist AS source_artist,
@@ -419,6 +426,7 @@ def _track_page_filter_sql(
     *,
     query: str,
     syncopated: str,
+    liked: str,
     label: str,
     label_keys: tuple[str, ...],
 ) -> tuple[list[str], list[object]]:
@@ -442,6 +450,12 @@ def _track_page_filter_sql(
         where_parts.append("COALESCE(json_extract(t.metadata_json, '$.maest_syncopated_rhythm'), 0) != 1")
     elif syncopated != "all":
         raise ValueError(f"Unknown syncopated filter: {syncopated}")
+    if liked == "yes":
+        where_parts.append("EXISTS (SELECT 1 FROM track_likes tl WHERE tl.track_id = t.id)")
+    elif liked == "no":
+        where_parts.append("NOT EXISTS (SELECT 1 FROM track_likes tl WHERE tl.track_id = t.id)")
+    elif liked != "all":
+        raise ValueError(f"Unknown liked filter: {liked}")
     if label == "unlabeled":
         where_parts.append("rl.label IS NULL")
     elif label in set(label_keys):
@@ -465,6 +479,7 @@ def _track_page_item(row: sqlite3.Row) -> dict[str, object]:
         "musical_key": track.musical_key,
         "genres": track.genres,
         "genre_scores": track.genre_scores,
+        "liked": track.liked,
         "label": row["classifier_label"],
         "label_trained": bool(row["classifier_label_trained"]),
         "maest_syncopated_rhythm": metadata.get("maest_syncopated_rhythm") is True,
@@ -556,6 +571,7 @@ def _prediction_page_item(
         "path": row["source_path"] or row["prediction_path"],
         "artist": row["source_artist"] if row["source_row_id"] is not None else row["prediction_artist"],
         "title": row["source_title"] if row["source_row_id"] is not None else row["prediction_title"],
+        "liked": bool(row["liked"]) if row["source_row_id"] is not None else False,
         "label": row["classifier_label"],
         "label_trained": bool(row["classifier_label_trained"]),
         "predicted_label": row["predicted_label"],

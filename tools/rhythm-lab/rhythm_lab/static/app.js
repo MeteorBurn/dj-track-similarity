@@ -6,6 +6,7 @@ const profileSelectEl = document.getElementById("profileSelect");
 const activeProfileNameEl = document.getElementById("activeProfileName");
 const libraryTabEl = document.getElementById("libraryTab");
 const candidatesTabEl = document.getElementById("candidatesTab");
+const likedTabEl = document.getElementById("likedTab");
 const trainingTabEl = document.getElementById("trainingTab");
 const settingsTabEl = document.getElementById("settingsTab");
 const commonFiltersEl = document.getElementById("commonFilters");
@@ -40,7 +41,7 @@ let offset = 0;
 let total = 0;
 let activeAudio = null;
 let activeView = "library";
-const viewOffsets = { library: 0, candidates: 0, training: 0, settings: 0 };
+const viewOffsets = { library: 0, candidates: 0, liked: 0, training: 0, settings: 0 };
 let loadSequence = 0;
 
 document.getElementById("load").addEventListener("click", () => loadActive({ reset: true }));
@@ -64,6 +65,7 @@ profileSelectEl.addEventListener("change", () => {
 });
 libraryTabEl.addEventListener("click", () => switchView("library"));
 candidatesTabEl.addEventListener("click", () => switchView("candidates"));
+likedTabEl.addEventListener("click", () => switchView("liked"));
 trainingTabEl.addEventListener("click", () => switchView("training"));
 settingsTabEl.addEventListener("click", () => switchView("settings"));
 sourcePathEl.addEventListener("keydown", event => { if (event.key === "Enter") switchSource(sourcePathEl.value).catch(showError); });
@@ -129,6 +131,7 @@ async function setActiveProfile(profileKey, options = {}) {
   offset = 0;
   viewOffsets.library = 0;
   viewOffsets.candidates = 0;
+  viewOffsets.liked = 0;
   if (!options.skipLoad) await loadActive({ reset: true });
 }
 
@@ -245,7 +248,7 @@ async function loadSourceState() {
 
 function applySourceState(data) {
   sourcePathEl.value = data.path || sourcePathEl.value || "";
-  sourceStatusEl.textContent = data.selected ? "loaded read-only" : "no source database";
+  sourceStatusEl.textContent = data.selected ? "loaded read-only + shared likes" : "no source database";
   sourceStatusEl.classList.remove("error");
 }
 
@@ -259,6 +262,7 @@ async function switchView(view) {
   offset = viewOffsets[view] || 0;
   libraryTabEl.classList.toggle("active", view === "library");
   candidatesTabEl.classList.toggle("active", view === "candidates");
+  likedTabEl.classList.toggle("active", view === "liked");
   trainingTabEl.classList.toggle("active", view === "training");
   settingsTabEl.classList.toggle("active", view === "settings");
   commonFiltersEl.hidden = view === "training" || view === "settings";
@@ -273,6 +277,7 @@ async function switchView(view) {
 async function loadActive(options = {}) {
   if (!activeProfile) return;
   if (activeView === "candidates") return loadCandidates(options);
+  if (activeView === "liked") return loadLikedTracks(options);
   if (activeView === "training") return loadTrainingView();
   if (activeView === "settings") return loadSettingsView();
   return loadTracks(options);
@@ -295,7 +300,8 @@ function renderSummary(data) {
     coverageBadge("Tracks", data.tracks || 0, "tracks"),
     coverageBadge("SONARA", data.sonara || 0, "sonara"),
     coverageBadge("MAEST", data.maest || 0, "maest"),
-    coverageBadge("MERT", data.mert || 0, "mert")
+    coverageBadge("MERT", data.mert || 0, "mert"),
+    coverageBadge("Liked", data.liked || 0, "liked")
   ].join("");
   return `
     <span class="summary-group summary-coverage" aria-label="Feature coverage">
@@ -323,6 +329,7 @@ function renderGuidance(summary) {
     <div class="guidance-card"><b>${escapeHtml(activeProfile.name)}</b><span class="meta">${escapeHtml(activeProfile.description || "Profile ready for labeling.")}</span></div>
     <div class="guidance-card"><b>Training labels</b><span class="meta">${trainingCountText}</span></div>
     <div class="guidance-card"><b>Feature coverage</b><span class="meta">SONARA ${summary.sonara || 0} · MAEST ${summary.maest || 0} · MERT ${summary.mert || 0}</span></div>
+    <div class="guidance-card"><b>Liked tracks</b><span class="meta">${summary.liked || 0} shared with DJ Track Similarity</span></div>
     <div class="guidance-card"><b>Next step</b><span class="meta">${nextStepText(counts)}</span></div>`;
 }
 
@@ -359,6 +366,34 @@ async function loadTracks(options = {}) {
   total = data.total;
   offset = data.offset;
   viewOffsets.library = offset;
+  tracksEl.innerHTML = "";
+  data.items.forEach((track, index) => {
+    track.rowNumber = data.offset + index + 1;
+    tracksEl.appendChild(renderTrack(track));
+  });
+  updatePager(data);
+  await loadSummary(sequence);
+  await loadTrainingReadiness();
+}
+
+async function loadLikedTracks(options = {}) {
+  const sequence = ++loadSequence;
+  if (options.reset) offset = 0;
+  viewOffsets.liked = offset;
+  const limit = pageLimit();
+  const params = new URLSearchParams({
+    q: queryEl.value,
+    syncopated: syncopatedEl.value,
+    label: labelEl.value,
+    limit: String(limit),
+    offset: String(offset)
+  });
+  params.set("liked", "yes");
+  const data = await fetch(`/api/profiles/${activeProfile.classifier_key}/tracks?${params}`).then(parseJsonResponse);
+  if (sequence !== loadSequence || activeView !== "liked") return;
+  total = data.total;
+  offset = data.offset;
+  viewOffsets.liked = offset;
   tracksEl.innerHTML = "";
   data.items.forEach((track, index) => {
     track.rowNumber = data.offset + index + 1;
@@ -588,20 +623,37 @@ function trackMarkup(track) {
         <audio controls preload="none" src="/media/${track.id}"></audio>
       </div>
     </div>
-    <div class="actions ${isMulticlassProfile() ? "multiclass-actions" : ""}">${renderLabelButtons(track)}</div>`;
+    <div class="actions">
+      <div class="row-tools">${renderLikeButton(track)}</div>
+      <div class="label-actions ${isMulticlassProfile() ? "multiclass-label-actions" : ""}">${renderLabelButtons(track)}</div>
+    </div>`;
+}
+
+function renderLikeButton(track) {
+  const active = track.liked ? " active intent-liked" : "";
+  const fill = track.liked ? "currentColor" : "none";
+  const title = track.liked ? "Unlike track" : "Like track";
+  return `
+    <button type="button" class="icon-button track-like-button${active}" data-action="like" title="${title}" aria-label="${title}" aria-pressed="${track.liked ? "true" : "false"}">
+      <svg class="lucide lucide-heart" aria-hidden="true" viewBox="0 0 24 24" fill="${fill}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
+      </svg>
+    </button>`;
 }
 
 function renderLabelButtons(track) {
   const buttons = activeProfile.labels.map(label => {
     const active = track.label === label.key ? " active" : "";
-    return `<button type="button" class="${active}" data-label="${escapeHtml(label.key)}">${escapeHtml(label.name)}</button>`;
+    return `<button type="button" class="${active}" data-action="label" data-label="${escapeHtml(label.key)}">${escapeHtml(label.name)}</button>`;
   });
-  buttons.push('<button type="button" data-label="">Clear</button>');
+  buttons.push('<button type="button" data-action="label" data-label="">Clear</button>');
   return buttons.join("");
 }
 
 function wireTrackRow(row, track) {
-  row.querySelectorAll("button").forEach(button => {
+  const likeButton = row.querySelector('[data-action="like"]');
+  if (likeButton) likeButton.addEventListener("click", () => toggleLike(track).catch(showError));
+  row.querySelectorAll('[data-action="label"]').forEach(button => {
     button.addEventListener("click", () => setLabel(track.id, button.dataset.label));
   });
   row.addEventListener("keydown", event => {
@@ -612,6 +664,16 @@ function wireTrackRow(row, track) {
     if (keys[event.key] !== undefined) setLabel(track.id, keys[event.key]);
   });
   wireAudioPreview(row.querySelector("audio"));
+}
+
+async function toggleLike(track) {
+  const response = await fetch(`/api/tracks/${track.id}/liked`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ liked: !track.liked })
+  });
+  await parseJsonResponse(response);
+  await loadActive();
 }
 
 function wireAudioPreview(audio) {

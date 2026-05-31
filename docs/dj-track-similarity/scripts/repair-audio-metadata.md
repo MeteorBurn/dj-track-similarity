@@ -74,15 +74,21 @@ scripts\audio_repair\backups\<filename>.<timestamp>.<suffix>.bak
 The report bundle contains only audio-repair data. It does not include duplicate
 grouping, delete candidates, Rhythm Lab impact, or any `audio_dedup` fields.
 The JSON stores the collected sources, run options, state skips, missing DB-file
-count, `status_counts`, `reason_counts`, `problem_summary`, and one `results`
-entry per processed file. The XLSX workbook is the main review artifact and has
-three sheets:
+count, `processed_count`, `state_result_count`, `result_count`,
+`status_counts`, `reason_counts`, `problem_summary`, and `results`. In folder
+or database mode, current entries skipped from the state file are included in
+the report with `source: "state"` so repeat runs still show the previous
+analysis results instead of an empty report. Files processed during the current
+run use `source: "processed"`.
+
+The XLSX workbook is the main review artifact and has three sheets:
 
 - `Summary`: mode, source counts, processed counts, state skips, status counts,
   and reason counts.
 - `Results`: one row per file with action (`REPAIR AVAILABLE`, `REPAIRED`,
-  `REVIEW MANUALLY`, and so on), status, reason, path, size delta, ID3 counts,
-  primary action, backup path, and Mutagen summary.
+  `ALREADY REPAIRED`, `OK`, `REVIEW MANUALLY`, and so on), source,
+  status, reason, path, mode, size delta, ID3 counts, primary action, backup
+  path, state timestamps, and Mutagen summary.
 - `Problems`: grouped problem summary matching the terminal output.
 
 The structured `.log` mirrors the run-level counts in key-value form for quick
@@ -94,6 +100,8 @@ Recommended workflow:
 2. Review the generated workbook and the status/reason for every `REPAIRABLE`
    entry.
 3. Run `--apply` only for the specific reason or file set you intend to fix.
+   Existing dry-run state is reused: non-repairable checked files are skipped,
+   while `REPAIRABLE` entries remain candidates for repair.
 4. Keep backups enabled unless you already have an external backup.
 
 Examples:
@@ -131,6 +139,19 @@ with `--reason` to re-run apply against only one class of fix, for example:
 
 `--reason` is only valid in folder or database mode (it requires the state
 file). Match the exact reason text shown in the report.
+
+State behavior:
+
+- State files are used only in `--folder` and `--db` mode. Direct path and log
+  runs do not create or reuse state.
+- A state entry is current only while the file size and integer modified time
+  still match the file on disk.
+- Dry-run skips current state entries and reports their stored status/reason.
+- Apply skips current dry-run entries that do not need repair, but still
+  processes current dry-run `REPAIRABLE` entries.
+- After a successful apply repair, the state entry is rewritten with the new
+  file size/modified time, `mode: "apply"`, `status: "REPAIRED"`, and
+  `message: "repair_applied"` so later runs report it as already repaired.
 
 Exit codes:
 

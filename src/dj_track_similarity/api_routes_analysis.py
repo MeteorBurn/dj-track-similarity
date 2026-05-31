@@ -24,6 +24,7 @@ def register_analysis_routes(
 
     @app.post("/api/analysis/jobs")
     def analyze(request: AnalysisJobRequest):
+        classifier_keys = _validated_classifier_keys(request.classifier_keys, promoted_classifiers)
         try:
             config = build_analysis_job_config(
                 models=request.models,
@@ -32,19 +33,22 @@ def register_analysis_routes(
                 top_k=request.top_k,
                 track_batch_size=request.track_batch_size,
                 inference_batch_size=request.inference_batch_size,
+                allow_empty_models=bool(classifier_keys),
             )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
-        classifier_keys = _validated_classifier_keys(request.classifier_keys, promoted_classifiers)
-        return state.require_analysis_jobs().start(
-            models=list(config.models),
-            limit=config.limit,
-            track_batch_size=config.track_batch_size,
-            inference_batch_size=config.inference_batch_size,
-            device=config.device,
-            top_k=config.top_k,
-            classifier_keys=classifier_keys,
-        )
+        try:
+            return state.require_analysis_jobs().start(
+                models=list(config.models),
+                limit=config.limit,
+                track_batch_size=config.track_batch_size,
+                inference_batch_size=config.inference_batch_size,
+                device=config.device,
+                top_k=config.top_k,
+                classifier_keys=classifier_keys,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.get("/api/classifiers")
     def classifiers():

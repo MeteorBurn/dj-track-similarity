@@ -41,7 +41,7 @@ class AnalysisJobRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     limit: int | None = None
-    models: list[str] = Field(default_factory=lambda: list(ANALYSIS_MODEL_ORDER), min_length=1)
+    models: list[str] = Field(default_factory=lambda: list(ANALYSIS_MODEL_ORDER))
     classifier_keys: list[str] = Field(default_factory=list)
     device: str = Field(default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN)
     top_k: int = Field(default=DEFAULT_ANALYSIS_TOP_K, ge=MIN_ANALYSIS_TOP_K, le=MAX_ANALYSIS_TOP_K)

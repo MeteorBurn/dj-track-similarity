@@ -187,7 +187,9 @@ export function stageIndicatorLabel(scanJob: ScanStats | null, analysisJob: Anal
 
 function analysisRuntimeLabel(job: AnalysisJobStatus) {
   if (job.adapter_name === "multi" || job.models?.length) {
-    const models = job.models?.map((model) => model.toUpperCase()).join(", ") || "selected models";
+    const audioModels = job.models?.map((model) => model.toUpperCase()).join(", ");
+    const classifierModels = job.classifier_keys?.map((model) => model.replace(/_/g, " ").toUpperCase()).join(", ");
+    const models = audioModels || classifierModels || "selected models";
     const current = job.current_model ? `now ${job.current_model.toUpperCase()}` : models;
     return `${current} · ${job.device || `${job.device_requested} pending`}`;
   }
@@ -227,8 +229,12 @@ function AnalysisProcessStatus({ job }: { job: AnalysisJobStatus | null }) {
 }
 
 function ModelProgress({ progress }: { progress: AnalysisJobStatus["model_progress"] }) {
-  const models: AnalysisModel[] = ["sonara", "maest", "mert", "clap"];
-  const rows = models.flatMap((model) => {
+  const audioModels: AnalysisModel[] = ["sonara", "maest", "mert", "clap"];
+  const modelKeys = [
+    ...audioModels,
+    ...Object.keys(progress || {}).filter((model) => !audioModels.includes(model as AnalysisModel))
+  ];
+  const rows = modelKeys.flatMap((model) => {
     const item = progress?.[model];
     return item ? [{ model, item }] : [];
   });
@@ -237,7 +243,7 @@ function ModelProgress({ progress }: { progress: AnalysisJobStatus["model_progre
     <div className="analysis-model-progress">
       {rows.map(({ model, item }) => (
         <span key={model}>
-          {model.toUpperCase()} {item.processed}/{item.total} · ok {item.analyzed} · fail {item.failed}
+          {model.replace(/_/g, " ").toUpperCase()} {item.processed}/{item.total} · ok {item.analyzed} · fail {item.failed}
         </span>
       ))}
     </div>

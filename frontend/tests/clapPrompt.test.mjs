@@ -21,26 +21,23 @@ function loadClapPromptModule() {
   return module.exports;
 }
 
-test("clap prompt generator creates Find and Avoid prompts from a preset dictionary", () => {
-  const { clapPromptPresets, generateClapPrompt } = loadClapPromptModule();
+test("clap prompt presets provide direct Find and Avoid text", () => {
+  const { clapPromptPresets } = loadClapPromptModule();
 
   const preset = clapPromptPresets.find((item) => item.key === "vocals_speech");
-  const generated = generateClapPrompt({ currentText: "", presetKey: "vocals_speech" });
 
   assert.ok(preset);
-  assert.match(generated.query, /vocals|speech/i);
-  assert.match(generated.avoidQuery, /instrumental|no vocals/i);
-  assert.deepEqual(generated.positiveQueries, preset.positiveQueries);
-  assert.deepEqual(generated.negativeQueries, preset.negativeQueries);
+  assert.match(preset.query, /vocals|speech|human voice/i);
+  assert.match(preset.avoidQuery, /instrumental|no vocals/i);
+  assert.ok(preset.query.length > 40);
+  assert.ok(preset.avoidQuery.length > 30);
 });
 
-test("clap prompt generator expands existing user text instead of replacing it", () => {
-  const { generateClapPrompt } = loadClapPromptModule();
+test("manual CLAP prompt text becomes one positive and one negative query", () => {
+  const { promptQueriesFromText } = loadClapPromptModule();
 
-  const generated = generateClapPrompt({ currentText: "acid techno", presetKey: "peak_time_club" });
+  const queries = promptQueriesFromText(" acid techno,  rolling bass ", " bright pop, vocals ");
 
-  assert.match(generated.query, /^acid techno,/);
-  assert.match(generated.query, /club|peak/i);
-  assert.ok(generated.negativeQueries.length > 0);
-  assert.notEqual(generated.query, "acid techno");
+  assert.deepEqual([...queries.positiveQueries], ["acid techno, rolling bass"]);
+  assert.deepEqual([...queries.negativeQueries], ["bright pop, vocals"]);
 });

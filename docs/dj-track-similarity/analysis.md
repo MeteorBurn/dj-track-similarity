@@ -19,15 +19,19 @@ Each family writes different SQLite data and supports a different workflow:
 The main audio-analysis workflow is one selected-model job. In the UI, select
 SONARA, MAEST, MERT, and/or CLAP with checkboxes and start one analysis run.
 The same UI block also has a `CLASSIFIERS` checkbox. When selected, promoted
-classifier scoring runs as the final tail of that same analysis job, after all
-selected audio-analysis models finish. CLAP is not a classifier input, but if
-CLAP is selected the classifier tail waits for CLAP too. Only profiles
-discovered from `models/classifiers/*/model.json` are launched. Tracks missing
-the classifier input data are skipped by classifier scoring. In the CLI, use
-`dj-sim analyze --models sonara,maest,mert,clap`; omitting
-`--models` selects all four audio models. A track is eligible when it is
-missing at least one selected model, and existing selected-model results are
-skipped.
+classifier scoring is part of the same analysis job. Classifier candidates are
+tracks missing at least one promoted classifier score. Classifier scoring
+requires SONARA, MAEST, and MERT inputs; those inputs must already exist or be
+selected in the same run. If a classifier candidate is missing one of those
+inputs and the corresponding model is not selected, the job is rejected with a
+clear error instead of silently skipping or auto-selecting models. Scoring runs
+after the selected audio-analysis models finish. CLAP is not a classifier
+input, but if CLAP is selected the classifier step waits for CLAP too. Only
+profiles discovered from `models/classifiers/*/model.json` are launched. In the
+CLI, use `dj-sim analyze --models sonara,maest,mert,clap`; omitting `--models`
+selects all four audio models. A track is eligible when it is missing at least
+one selected model or one selected promoted classifier score, and existing
+selected-model results are skipped.
 
 ### Sonara
 
@@ -137,8 +141,12 @@ outputs:
 - MERT embeddings from `embeddings.embedding_key = "mert"`;
 - MAEST embeddings from `embeddings.embedding_key = "maest"`.
 
-Tracks missing any of those inputs are skipped by the classifier job. Scores are
-stored in `track_classifier_scores` under the profile classifier key.
+When `CLASSIFIERS` is enabled in the UI analysis block, the unified analysis job
+can calculate missing SONARA, MAEST, and MERT inputs only if those models are
+also selected. The standalone `dj-sim analyze-classifier` command does not
+decode audio; it only scores tracks that already have the required inputs and
+skips the rest. Scores are stored in `track_classifier_scores` under the profile
+classifier key.
 
 Use promoted classifiers after you have trained and promoted a profile in
 Rhythm Lab. They are best for personal library concepts that are difficult to

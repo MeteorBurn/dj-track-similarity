@@ -121,9 +121,11 @@ Use `/api/analysis/jobs` before search endpoints when a library has not been
 processed yet. Its request body accepts `models`, `limit`, `device`, `top_k`,
 `track_batch_size`, `inference_batch_size`, and optional `classifier_keys`.
 `models` defaults to all four audio models (`sonara`, `maest`, `mert`, `clap`)
-and must be a non-empty subset. `limit: null` means all eligible tracks;
-positive limits count candidate tracks that are missing at least one selected
-model.
+and must be a subset. It may be an empty list only when `classifier_keys` is
+non-empty, which requests classifier scoring for tracks that already have the
+required inputs. `limit: null` means all eligible tracks; positive limits count
+candidate tracks that are missing at least one selected model or selected
+classifier score.
 
 `track_batch_size` controls how many decoded tracks the job holds and processes
 together. `inference_batch_size` controls MAEST/MERT/CLAP model forward-pass
@@ -136,8 +138,8 @@ status uses `total`, `processed`, `analyzed`, `failed`, and `skipped` for
 track-level counters. `model_progress` keeps per-model counters for model-level
 writes and failures. Status responses expose `track_batch_size` and
 `inference_batch_size`; the legacy response field `batch_size` is not emitted.
-`classifier_keys` echoes any promoted classifier tail requested for the job.
-`current_model` identifies which selected model or classifier tail is currently
+`classifier_keys` echoes any promoted classifier scoring requested for the job.
+`current_model` identifies which selected model or classifier is currently
 running. Empty search results often mean the required Sonara features, MERT
 embeddings, or CLAP embeddings are missing for the candidate tracks.
 
@@ -146,11 +148,12 @@ disk. The UI can start promoted classifier scoring from the same analysis
 control block as the audio models by enabling `CLASSIFIERS`; the frontend sends
 the discovered profile keys as `/api/analysis/jobs` `classifier_keys`. The
 analysis job runs those classifiers after all selected audio models complete.
-If CLAP is selected, the classifier tail waits for CLAP even though classifier
-scoring itself only needs SONARA, MERT, and MAEST inputs. Tracks without those
-required inputs are skipped. The standalone
+If CLAP is selected, the classifier step waits for CLAP even though classifier
+scoring itself only needs SONARA, MERT, and MAEST inputs. Those inputs must
+already exist or the matching audio models must be selected in the same request;
+otherwise `/api/analysis/jobs` returns `400` with a dependency error. The standalone
 `/api/classifiers/{classifier_key}/analyze` endpoint remains for classifier-only
-runs. `/api/classifiers/reset` accepts a list of classifier keys and deletes
+runs that score only already prepared tracks. `/api/classifiers/reset` accepts a list of classifier keys and deletes
 their `track_classifier_scores` rows (an empty list deletes nothing).
 
 The default result limit for `/api/search`, `/api/search/sonara`, and

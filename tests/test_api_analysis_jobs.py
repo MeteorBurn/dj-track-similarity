@@ -127,6 +127,49 @@ def test_api_starts_selected_multi_model_analysis_job(monkeypatch, tmp_path: Pat
     }
 
 
+def test_api_allows_classifier_only_unified_analysis_job(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    LibraryDatabase(db_path)
+    monkeypatch.setattr(api_state, "AnalysisJobManager", SynchronousAnalysisManager)
+    monkeypatch.setattr(
+        api,
+        "promoted_classifiers",
+        lambda: [{"classifier_key": "break_energy", "name": "Break Energy"}],
+    )
+    client = TestClient(api.create_app(db_path))
+
+    response = client.post(
+        "/api/analysis/jobs",
+        json={"models": [], "classifier_keys": ["break_energy"]},
+    )
+
+    assert response.status_code == 200
+    assert SynchronousAnalysisManager.last_request["models"] == []
+    assert SynchronousAnalysisManager.last_request["classifier_keys"] == ["break_energy"]
+
+
+def test_api_rejects_classifier_analysis_when_required_inputs_are_missing(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    track = tmp_path / "missing-inputs.wav"
+    track.write_bytes(b"RIFF0000WAVE")
+    db.upsert_track(path=track, size=track.stat().st_size, mtime=track.stat().st_mtime, metadata={"title": "missing"})
+    monkeypatch.setattr(
+        api,
+        "promoted_classifiers",
+        lambda: [{"classifier_key": "break_energy", "name": "Break Energy"}],
+    )
+    client = TestClient(api.create_app(db_path))
+
+    response = client.post(
+        "/api/analysis/jobs",
+        json={"models": [], "classifier_keys": ["break_energy"]},
+    )
+
+    assert response.status_code == 400
+    assert "SONARA, MAEST, and MERT" in response.json()["detail"]
+
+
 def test_api_defaults_multi_model_analysis_to_all_models(monkeypatch, tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     LibraryDatabase(db_path)

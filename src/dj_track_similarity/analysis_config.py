@@ -62,9 +62,11 @@ def build_analysis_job_config(
     top_k: int = DEFAULT_ANALYSIS_TOP_K,
     track_batch_size: int = DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
     inference_batch_size: int = DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
+    allow_empty_models: bool = False,
 ) -> AnalysisJobConfig:
+    normalized_models = () if allow_empty_models and models is not None and not models else normalize_analysis_models(models)
     return AnalysisJobConfig(
-        models=normalize_analysis_models(models),
+        models=normalized_models,
         limit=limit,
         device=normalize_analysis_device(device),
         top_k=_int_in_range(top_k, name="top_k", minimum=MIN_ANALYSIS_TOP_K, maximum=MAX_ANALYSIS_TOP_K),

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Moon, RefreshCcw, ScrollText, Square, Sun } from "lucide-react";
 import { AnalysisJobStatus, AnalysisModel, api, GenreTagJobStatus, PromotedClassifier, ScanStats, Track } from "./api";
 import { analysisSelectionOrder, isAudioAnalysisModel, type AnalysisSelection } from "./analysisSelection";
-import { clapPromptPresets, defaultClapPromptPresetKey, generateClapPrompt, promptQueriesFromText } from "./clapPrompt";
+import { clapPromptPresets, defaultClapPromptPresetKey, promptQueriesFromText } from "./clapPrompt";
 import type { ConfirmationRequest } from "./confirmation";
 import { ConfirmationDialog, LogFrameDialog } from "./dialogs";
 import { exportDirectoryError } from "./exportView";
@@ -101,8 +101,6 @@ export function App() {
   } = useSearchPlaylist({ onActivity: appendActivity });
   const [clapPresetKey, setClapPresetKey] = useState(defaultClapPromptPresetKey);
   const [clapAvoidQuery, setClapAvoidQuery] = useState("");
-  const [clapGeneratedPositiveQueries, setClapGeneratedPositiveQueries] = useState<string[]>([]);
-  const [clapGeneratedNegativeQueries, setClapGeneratedNegativeQueries] = useState<string[]>([]);
   const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
   const [musicRoot, setMusicRoot] = useState("");
   const [analysisJob, setAnalysisJob] = useState<AnalysisJobStatus | null>(null);
@@ -357,25 +355,6 @@ export function App() {
     });
   }
 
-  function handleTextQueryChange(value: string) {
-    setTextQuery(value);
-    setClapGeneratedPositiveQueries([]);
-  }
-
-  function handleClapAvoidQueryChange(value: string) {
-    setClapAvoidQuery(value);
-    setClapGeneratedNegativeQueries([]);
-  }
-
-  function handleGenerateClapPrompt() {
-    const generated = generateClapPrompt({ currentText: textQuery, presetKey: clapPresetKey });
-    setTextQuery(generated.query);
-    setClapAvoidQuery(generated.avoidQuery);
-    setClapPresetKey(generated.presetKey);
-    setClapGeneratedPositiveQueries(generated.positiveQueries);
-    setClapGeneratedNegativeQueries(generated.negativeQueries);
-  }
-
   async function addVisibleTracksToPlaylist() {
     if (!databasePath || libraryLoading) return;
     setBusy(true);
@@ -420,27 +399,6 @@ export function App() {
         setResults(value);
         appendActivity("ok", "SONARA search завершен", `Найдено: ${value.length}`);
         return `Найдено: ${value.length}`;
-      }
-    );
-  }
-
-  async function startClassifierJobs(message = "CLASSIFIERS analysis запущен") {
-    const available = classifiers;
-    if (!available.length) {
-      setNotice({ kind: "error", text: "Нет promoted classifiers для расчета" });
-      return;
-    }
-    const limit = analysisLimit > 0 ? analysisLimit : undefined;
-    appendActivity("info", message, available.map((classifier) => classifier.name).join(" + "));
-    setProcessLogKind("analysis");
-    setAnalysisJob(null);
-    await run(
-      () => Promise.all(available.map((classifier) => api.analyzeClassifier(classifier.classifier_key, limit))),
-      (jobs) => {
-        const job = jobs[jobs.length - 1];
-        setAnalysisJob(job);
-        appendActivity("ok", "CLASS jobs созданы", jobs.map((item) => `${item.adapter_name} ${item.job_id.slice(0, 8)} · ${item.total}`).join(" · "));
-        return `CLASS jobs: ${jobs.length}`;
       }
     );
   }
@@ -572,22 +530,21 @@ export function App() {
   }
 
   async function handleAnalyzeSelected() {
-    const selectedAudioModels = selectedAnalysisModels.filter(isAudioAnalysisModel);
+    const requestedAudioModels = selectedAnalysisModels.filter(isAudioAnalysisModel);
     const includeClassifiers = selectedAnalysisModels.includes("classifiers");
-    if (!selectedAudioModels.length && !includeClassifiers) {
+    if (!requestedAudioModels.length && !includeClassifiers) {
       setNotice({ kind: "error", text: "Выберите хотя бы одну модель анализа" });
       return;
     }
-    if (!selectedAudioModels.length && includeClassifiers) {
-      await startClassifierJobs();
+    if (!requestedAudioModels.length && includeClassifiers && !classifiers.length) {
+      setNotice({ kind: "error", text: "Нет promoted classifiers для расчета" });
       return;
     }
     const limit = analysisLimit > 0 ? analysisLimit : undefined;
-    const models = [...selectedAudioModels];
+    const models = [...requestedAudioModels];
     const labels = models.map((model) => model.toUpperCase()).join(", ");
-    const startClassifiersAfterAudio = includeClassifiers && classifiers.length > 0;
-    const classifierKeys = startClassifiersAfterAudio ? classifiers.map((classifier) => classifier.classifier_key) : [];
-    const classifierTail = startClassifiersAfterAudio ? " · CLASSIFIERS после выбранных моделей" : "";
+    const classifierKeys = includeClassifiers && classifiers.length > 0 ? classifiers.map((classifier) => classifier.classifier_key) : [];
+    const classifierTail = classifierKeys.length ? " · CLASSIFIERS в этом же job" : "";
     const detail = `${labels}${classifierTail} · ${analysisDevice.toUpperCase()} · tracks ${analysisTrackBatchSize} · inference ${analysisInferenceBatchSize} · ${limit ? `limit ${limit}` : "вся библиотека"}`;
     appendActivity("info", "Анализ выбранных моделей запущен", detail);
     setProcessLogKind("analysis");
@@ -664,13 +621,8 @@ export function App() {
       return;
     }
     const manualQueries = promptQueriesFromText(prompt, clapAvoidQuery);
-    const generatedQueries = generateClapPrompt({ currentText: prompt, presetKey: clapPresetKey });
-    const positiveQueries = clapGeneratedPositiveQueries.length
-      ? clapGeneratedPositiveQueries
-      : generatedQueries.positiveQueries.length ? generatedQueries.positiveQueries : manualQueries.positiveQueries;
-    const negativeQueries = manualQueries.negativeQueries.length
-      ? manualQueries.negativeQueries
-      : clapGeneratedNegativeQueries.length ? clapGeneratedNegativeQueries : generatedQueries.negativeQueries;
+    const positiveQueries = manualQueries.positiveQueries;
+    const negativeQueries = manualQueries.negativeQueries;
     appendActivity("info", "CLAP search запущен", negativeQueries.length ? `${prompt} · avoid ${negativeQueries[0]}` : prompt);
     await run(
       () =>
@@ -943,13 +895,12 @@ export function App() {
         <SearchPlaylistPanel
           seedTracks={seedTracks}
           textQuery={textQuery}
-          onTextQueryChange={handleTextQueryChange}
+          onTextQueryChange={setTextQuery}
           clapAvoidQuery={clapAvoidQuery}
-          onClapAvoidQueryChange={handleClapAvoidQueryChange}
+          onClapAvoidQueryChange={setClapAvoidQuery}
           clapPresetKey={clapPresetKey}
           onClapPresetChange={setClapPresetKey}
           clapPromptPresets={clapPromptPresets}
-          onGenerateClapPrompt={handleGenerateClapPrompt}
           busy={busy || !databasePath}
           filters={filters}
           setFilters={setFilters}

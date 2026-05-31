@@ -1686,7 +1686,7 @@ h2 {
   align-items: end;
   display: grid;
   gap: 6px;
-  grid-template-columns: 37px 37px;
+  grid-template-columns: 37px;
   position: relative;
 }
 

@@ -208,9 +208,11 @@ test("classifiers remain filter sliders but analysis moved to model selection", 
   assert.match(searchSource, /onClassifierMinScoreChange/);
   assert.doesNotMatch(searchSource, /classifier-analyze-button/);
   assert.match(appSource, /selectedAnalysisModels\.includes\("classifiers"\)/);
-  assert.match(appSource, /startClassifierJobs/);
-  assert.match(appSource, /classifierKeys\s*=\s*startClassifiersAfterAudio/);
+  assert.match(appSource, /classifierKeys\s*=\s*includeClassifiers/);
   assert.match(appSource, /classifier_keys:\s*classifierKeys/);
+  assert.doesNotMatch(appSource, /startClassifierJobs/);
+  assert.doesNotMatch(appSource, /api\.analyzeClassifier/);
+  assert.doesNotMatch(appSource, /classifierRequiredModels/);
   assert.doesNotMatch(appSource, /setPendingClassifierAfterAnalysis/);
   assert.match(selectionSource, /analysisSelectionOrder[\s\S]*"classifiers"/);
   assert.match(appSource, /analysisSelectionOrder/);
@@ -283,6 +285,7 @@ test("analysis process status renders per-model progress", () => {
 
   assert.match(source, /model_progress/);
   assert.match(source, /analysis-model-progress/);
+  assert.match(source, /Object\.keys\(progress \|\| \{\}\)/);
   assert.doesNotMatch(source, /api\.sonaraJob/);
   assert.doesNotMatch(source, /api\.genreJob/);
 });
@@ -317,18 +320,21 @@ test("class search tab only shows classifier threshold controls", () => {
   assert.doesNotMatch(classPanel, />\s*Reset\s*</);
 });
 
-test("clap search exposes prompt presets, generation, and adaptive contrast fields", () => {
+test("clap search exposes prompt presets and adaptive contrast fields without prompt generation", () => {
   const searchSource = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
   const apiSource = readFileSync(join(srcDir, "api.ts"), "utf8");
   const schemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "api_schemas.py"), "utf8");
 
   assert.match(searchSource, /clap-presets-button/);
-  assert.match(searchSource, /clap-generate-button/);
+  assert.match(searchSource, /applyClapPromptPreset/);
+  assert.match(searchSource, /document\.addEventListener\("pointerdown"/);
+  assert.match(searchSource, /clapPresetMenuRef/);
+  assert.doesNotMatch(searchSource, /clap-generate-button/);
   assert.match(searchSource, /clap-avoid-input/);
-  assert.match(searchSource, /WandSparkles/);
+  assert.doesNotMatch(searchSource, /WandSparkles/);
   assert.match(searchSource, /ListFilter/);
-  assert.match(appSource, /generateClapPrompt/);
+  assert.doesNotMatch(appSource, /generateClapPrompt/);
   assert.match(appSource, /positive_queries/);
   assert.match(appSource, /negative_queries/);
   assert.match(appSource, /adaptive_contrast:\s*true/);
@@ -337,6 +343,15 @@ test("clap search exposes prompt presets, generation, and adaptive contrast fiel
   assert.match(schemaSource, /positive_queries:\s*list\[str\]/);
   assert.match(schemaSource, /negative_queries:\s*list\[str\]/);
   assert.match(schemaSource, /adaptive_contrast:\s*bool\s*=\s*True/);
+});
+
+test("classifier analysis uses the unified analysis job path", () => {
+  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+
+  assert.match(appSource, /classifier_keys: classifierKeys/);
+  assert.doesNotMatch(appSource, /startClassifierJobs/);
+  assert.doesNotMatch(appSource, /api\.analyzeClassifier/);
+  assert.doesNotMatch(appSource, /classifierRequiredModels/);
 });
 
 test("documentation title click opens the docs in a separate window", () => {

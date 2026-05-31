@@ -26,19 +26,22 @@ def decode_analysis_batch(
     set_current_path: Callable[[str], None],
     record_decode_failure: Callable[[Track, tuple[str, ...], Exception], None],
     mark_track_processed: Callable[[Track], None],
+    should_defer_processed: Callable[[Track], bool] | None = None,
 ) -> list[AnalysisBatchItem]:
     decoded_items: list[AnalysisBatchItem] = []
     for track in batch:
         targets = targets_by_track.get(track.id, ())
         if not targets:
-            mark_track_processed(track)
+            if should_defer_processed is None or not should_defer_processed(track):
+                mark_track_processed(track)
             continue
         set_current_path(track.path)
         try:
             decoded = decode_audio(track.path)
         except Exception as error:
             record_decode_failure(track, targets, error)
-            mark_track_processed(track)
+            if should_defer_processed is None or not should_defer_processed(track):
+                mark_track_processed(track)
             continue
         decoded_items.append(AnalysisBatchItem(track=track, decoded=decoded, models=targets))
     return decoded_items

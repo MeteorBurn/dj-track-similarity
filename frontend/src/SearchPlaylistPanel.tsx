@@ -1,5 +1,5 @@
-import { Dispatch, Fragment, SetStateAction, useEffect, useState } from "react";
-import { Download, FolderOpen, ListFilter, ListMusic, Pause, Play, Search, Tags, Trash2, WandSparkles, X } from "lucide-react";
+import { Dispatch, Fragment, SetStateAction, useEffect, useRef, useState } from "react";
+import { Download, FolderOpen, ListFilter, ListMusic, Pause, Play, Search, Tags, Trash2, X } from "lucide-react";
 import { AnalysisJobStatus, PromotedClassifier, SearchResult, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
 import type { ClapPromptPreset } from "./clapPrompt";
 import { playlistPage } from "./playlistView";
@@ -44,7 +44,6 @@ export function SearchPlaylistPanel({
   clapPresetKey,
   onClapPresetChange,
   clapPromptPresets,
-  onGenerateClapPrompt,
   busy,
   filters,
   setFilters,
@@ -83,7 +82,6 @@ export function SearchPlaylistPanel({
   clapPresetKey: string;
   onClapPresetChange: (value: string) => void;
   clapPromptPresets: ClapPromptPreset[];
-  onGenerateClapPrompt: () => void;
   busy: boolean;
   filters: SearchFiltersState;
   setFilters: Dispatch<SetStateAction<SearchFiltersState>>;
@@ -116,6 +114,7 @@ export function SearchPlaylistPanel({
 }) {
   const [activeSearchTab, setActiveSearchTab] = useState<"sonara" | "mert" | "clap" | "class">("sonara");
   const [clapPresetMenuOpen, setClapPresetMenuOpen] = useState(false);
+  const clapPresetMenuRef = useRef<HTMLDivElement>(null);
   const [playlistOffset, setPlaylistOffset] = useState(0);
   const playlistPageState = playlistPage(playlist, playlistOffset, playlistPageSize);
   useEffect(() => {
@@ -123,6 +122,17 @@ export function SearchPlaylistPanel({
       setPlaylistOffset(playlistPageState.offset);
     }
   }, [playlistOffset, playlistPageState.offset]);
+  useEffect(() => {
+    if (!clapPresetMenuOpen) return;
+    function closePresetMenuOnOutsideClick(event: PointerEvent) {
+      const target = event.target;
+      if (target instanceof Node && !clapPresetMenuRef.current?.contains(target)) {
+        setClapPresetMenuOpen(false);
+      }
+    }
+    document.addEventListener("pointerdown", closePresetMenuOnOutsideClick);
+    return () => document.removeEventListener("pointerdown", closePresetMenuOnOutsideClick);
+  }, [clapPresetMenuOpen]);
   const mixerControls: Array<{ key: keyof SonaraMixerWeights; label: string; title: string }> = [
     { key: "timbre", label: "Timbre", title: helpText.sonaraMixerTimbre },
     { key: "rhythm", label: "Rhythm", title: helpText.sonaraMixerRhythm },
@@ -154,6 +164,13 @@ export function SearchPlaylistPanel({
       sonaraMixer: { timbre: 1, rhythm: 1, dynamics: 0.8, harmonic: 0.8, tempo: 0.35 },
       sonaraModifiers: { energy: 0, valence: 0, acousticness: 0, brightness: 0, rhythm_density: 0, dynamic_range: 0, loudness: 0 }
     }));
+  }
+
+  function applyClapPromptPreset(preset: ClapPromptPreset) {
+    onClapPresetChange(preset.key);
+    onTextQueryChange(preset.query);
+    onClapAvoidQueryChange(preset.avoidQuery);
+    setClapPresetMenuOpen(false);
   }
 
   return (
@@ -269,7 +286,7 @@ export function SearchPlaylistPanel({
                     title={helpText.textPrompt}
                   />
                 </label>
-                <div className="clap-prompt-actions">
+                <div className="clap-prompt-actions" ref={clapPresetMenuRef}>
                   <button
                     className={`icon-button folder-picker clap-presets-button ${clapPresetMenuOpen ? "active" : ""}`}
                     title="Выбрать prompt preset для CLAP"
@@ -280,15 +297,6 @@ export function SearchPlaylistPanel({
                   >
                     <ListFilter size={17} />
                   </button>
-                  <button
-                    className="icon-button folder-picker clap-generate-button"
-                    title="Сгенерировать или расширить CLAP prompt"
-                    aria-label="Сгенерировать или расширить CLAP prompt"
-                    onClick={onGenerateClapPrompt}
-                    type="button"
-                  >
-                    <WandSparkles size={17} />
-                  </button>
                   {clapPresetMenuOpen ? (
                     <div className="clap-preset-menu" role="menu">
                       {clapPromptPresets.map((preset) => (
@@ -296,10 +304,7 @@ export function SearchPlaylistPanel({
                           className={`clap-preset-option-button ${clapPresetKey === preset.key ? "active" : ""}`}
                           key={preset.key}
                           title={`Применить preset: ${preset.label}`}
-                          onClick={() => {
-                            onClapPresetChange(preset.key);
-                            setClapPresetMenuOpen(false);
-                          }}
+                          onClick={() => applyClapPromptPreset(preset)}
                           type="button"
                         >
                           {preset.label}
@@ -309,14 +314,14 @@ export function SearchPlaylistPanel({
                   ) : null}
                 </div>
               </div>
-              <label className="clap-avoid-field" title="Negative CLAP prompt. Type: text. Optional; Generate fills this from the selected preset.">
+              <label className="clap-avoid-field" title="Negative CLAP prompt. Type: text. Optional; presets fill this field directly.">
                 Avoid
                 <input
                   className="clap-avoid-input"
                   value={clapAvoidQuery}
                   onChange={(event) => onClapAvoidQueryChange(event.target.value)}
                   placeholder="bright pop, straight drums, vocals"
-                  title="Negative CLAP prompt. Type: text. Optional; Generate fills this from the selected preset."
+                  title="Negative CLAP prompt. Type: text. Optional; presets fill this field directly."
                 />
               </label>
             </div>

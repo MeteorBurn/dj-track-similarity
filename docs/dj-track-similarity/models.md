@@ -128,17 +128,18 @@ How the app uses it:
 
 Run CLAP when you want to search by mood, instrumentation, energy, or other
 descriptive language. Clear, concrete prompts usually work better than a single
-genre word. In the UI, prompt presets and Generate provide local Find/Avoid
-prompt pairs; Generate expands existing text instead of replacing it.
+genre word. In the UI, prompt presets provide local Find/Avoid pairs and fill
+the Text query and Avoid fields directly.
 
 ## Promoted Classifiers
 
 Promoted classifiers are not audio-analysis models; they are local profiles
-trained in Rhythm Lab that score tracks from already stored SONARA, MERT, and
-MAEST data. Because they read existing analysis instead of decoding audio, run
-Sonara, MERT, and MAEST first for the tracks you want to score. In the UI,
-`CLASSIFIERS` can be selected together with audio models; scoring then runs
-after all selected audio models complete. CLAP is not an input for promoted
-classifiers, but selected CLAP work is still completed before classifier
-scoring starts. See [Analysis](analysis.md) for scoring details and
-[Rhythm Lab](rhythm-lab.md) for training and promotion.
+trained in Rhythm Lab that score tracks from stored SONARA, MERT, and MAEST
+data. In the UI, `CLASSIFIERS` is part of the same selected-model analysis job:
+tracks missing classifier scores become candidates. SONARA, MAEST, and MERT
+must already exist for those tracks or be selected in the same run; otherwise
+the job returns a clear error instead of silently auto-selecting models. CLAP is
+not an input for promoted classifiers, but selected CLAP work is still
+completed before classifier scoring starts. Standalone classifier scoring still
+reads existing analysis only. See [Analysis](analysis.md) for scoring details
+and [Rhythm Lab](rhythm-lab.md) for training and promotion.

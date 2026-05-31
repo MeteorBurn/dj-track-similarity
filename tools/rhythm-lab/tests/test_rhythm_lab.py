@@ -1530,7 +1530,7 @@ def test_web_app_training_tab_adds_bottom_training_stats_card(tmp_path: Path) ->
 
     client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
     script = client.get("/static/app.js").text
-    styles = client.get("/static/styles.css").text
+    styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
 
     assert '<div class="guidance-card training-info-card"><b>Training Stats</b>' in script
     assert "${renderTrainingInformationMetrics(data)}" in script

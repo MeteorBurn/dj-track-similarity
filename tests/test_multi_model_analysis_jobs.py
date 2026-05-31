@@ -177,6 +177,10 @@ def test_multi_model_decode_failure_marks_missing_selected_models_failed(tmp_pat
         ("sonara", "b-undecodable.wav"),
         ("mert", "b-undecodable.wav"),
     ]
+    failure_events = [event for event in status.events if event.level == "error"]
+    assert [(Path(event.path or "").name, event.message, event.model) for event in failure_events] == [
+        ("b-undecodable.wav", "Track decode failed: decode failed", None)
+    ]
     assert runners["sonara"].calls == [["a-good.wav"]]
     assert runners["mert"].calls == [["a-good.wav"]]
 

@@ -165,6 +165,43 @@ def test_ffmpeg_decode_pins_first_audio_stream_and_disables_non_audio(monkeypatc
     assert "-ar" not in command
 
 
+def test_ffmpeg_decode_reports_invalid_audio_stream_when_source_rate_is_unknown(monkeypatch, tmp_path: Path) -> None:
+    audio_path = tmp_path / "broken.flac"
+    audio_path.write_bytes(b"not real flac bytes")
+
+    monkeypatch.setattr(
+        audio_loader,
+        "shutil",
+        SimpleNamespace(which=lambda name: "ffmpeg" if name == "ffmpeg" else None),
+        raising=False,
+    )
+    monkeypatch.setattr(audio_loader, "_source_sample_rate_from_file_metadata", lambda path: None)
+    monkeypatch.setattr(audio_loader, "_source_sample_rate_from_ffprobe", lambda path, *, ffmpeg_path: None)
+
+    with pytest.raises(RuntimeError, match="Invalid audio stream: ffmpeg could not decode audio"):
+        load_decoded_audio(audio_path)
+
+
+def test_ffmpeg_decode_reports_invalid_audio_stream_when_ffmpeg_fails(monkeypatch, tmp_path: Path) -> None:
+    audio_path = tmp_path / "broken.aiff"
+    audio_path.write_bytes(b"not real aiff bytes")
+
+    def fake_run(command, *, check, stdout, stderr):
+        raise subprocess.CalledProcessError(1, command, stderr=b"Invalid data found when processing input")
+
+    monkeypatch.setattr(
+        audio_loader,
+        "shutil",
+        SimpleNamespace(which=lambda name: "ffmpeg" if name == "ffmpeg" else None),
+        raising=False,
+    )
+    monkeypatch.setattr(audio_loader, "_source_sample_rate", lambda path, *, ffmpeg_path: 44_100)
+    monkeypatch.setattr(audio_loader, "subprocess", SimpleNamespace(run=fake_run, PIPE=subprocess.PIPE, CalledProcessError=subprocess.CalledProcessError), raising=False)
+
+    with pytest.raises(RuntimeError, match="Invalid audio stream: ffmpeg could not decode audio"):
+        load_decoded_audio(audio_path)
+
+
 def test_load_decoded_audio_exposes_only_one_decode_mode() -> None:
     assert list(inspect.signature(load_decoded_audio).parameters) == ["path"]
 

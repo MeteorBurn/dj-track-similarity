@@ -15,6 +15,7 @@ from .dependencies import FFMPEG_ENV_VAR
 from .logging_config import analysis_diagnostics_enabled
 
 LOGGER = logging.getLogger(__name__)
+INVALID_AUDIO_STREAM_MESSAGE = "Invalid audio stream: ffmpeg could not decode audio"
 
 
 @dataclass(frozen=True)
@@ -137,14 +138,21 @@ def _load_with_ffmpeg(path: Path) -> tuple[np.ndarray, int, str]:
         result = subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except subprocess.CalledProcessError as error:
         stderr = (error.stderr or b"").decode("utf-8", errors="replace").strip()
-        raise RuntimeError(stderr or f"ffmpeg exited with status {error.returncode}") from error
+        raise RuntimeError(_invalid_audio_stream_message(stderr or f"ffmpeg exited with status {error.returncode}")) from error
     if not result.stdout:
-        raise RuntimeError("ffmpeg produced no decoded audio")
+        raise RuntimeError(_invalid_audio_stream_message("ffmpeg produced no decoded audio"))
     usable = len(result.stdout) - (len(result.stdout) % np.dtype(np.float32).itemsize)
     if usable <= 0:
-        raise RuntimeError("ffmpeg produced an incomplete float32 audio buffer")
+        raise RuntimeError(_invalid_audio_stream_message("ffmpeg produced an incomplete float32 audio buffer"))
     audio = np.frombuffer(result.stdout[:usable], dtype=np.float32)
     return audio.astype(np.float32, copy=False), sample_rate, "ffmpeg decode"
+
+
+def _invalid_audio_stream_message(detail: str | None = None) -> str:
+    detail = (detail or "").strip()
+    if detail:
+        return f"{INVALID_AUDIO_STREAM_MESSAGE}: {detail}"
+    return INVALID_AUDIO_STREAM_MESSAGE
 
 
 def _is_mono_wave(path: Path) -> bool:
@@ -164,7 +172,7 @@ def _source_sample_rate(path: Path, *, ffmpeg_path: str) -> int:
     sample_rate = _source_sample_rate_from_ffprobe(path, ffmpeg_path=ffmpeg_path)
     if sample_rate is not None:
         return sample_rate
-    raise RuntimeError(f"Unable to determine source sample rate before ffmpeg decode: {path}")
+    raise RuntimeError(_invalid_audio_stream_message())
 
 
 def _source_sample_rate_from_file_metadata(path: Path) -> int | None:

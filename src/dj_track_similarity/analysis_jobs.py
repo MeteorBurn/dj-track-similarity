@@ -287,7 +287,14 @@ class AnalysisJobManager:
                 decoded = self._decode_audio(track.path)
             except Exception as error:
                 for model in targets:
-                    self._record_model_failure(job_id, model, track, error)
+                    self._record_model_failure(job_id, model, track, error, emit_event=False)
+                self._append_event(
+                    job_id,
+                    "error",
+                    f"Track decode failed: {exception_summary(error)}",
+                    path=track.path,
+                    track_id=track.id,
+                )
                 self._mark_track_processed(job_id, track)
                 continue
             decoded_items.append(AnalysisBatchItem(track=track, decoded=decoded, models=targets))
@@ -367,7 +374,7 @@ class AnalysisJobManager:
             progress.processed += 1
             progress.analyzed += 1
 
-    def _record_model_failure(self, job_id: str, model: str, track: Track, error: Exception) -> None:
+    def _record_model_failure(self, job_id: str, model: str, track: Track, error: Exception, *, emit_event: bool = True) -> None:
         error_text = exception_summary(error)
         log_failure(
             LOGGER,
@@ -384,7 +391,8 @@ class AnalysisJobManager:
             progress.processed += 1
             progress.failed += 1
             status.errors.append(AnalysisTrackError(track_id=track.id, path=track.path, error=error_text, model=model))
-        self._append_event(job_id, "error", f"Track failed: {error_text}", path=track.path, track_id=track.id, model=model)
+        if emit_event:
+            self._append_event(job_id, "error", f"Track failed: {error_text}", path=track.path, track_id=track.id, model=model)
 
     def _mark_track_processed(self, job_id: str, track: Track) -> None:
         outcome = self._track_outcome(job_id, track.id)

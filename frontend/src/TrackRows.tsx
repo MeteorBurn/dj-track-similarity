@@ -35,7 +35,7 @@ export function TrackList({
             <button className="icon-button track-preview-button" title={trackPreviewActive ? "Pause preview" : "Preview"} aria-label={`${trackPreviewActive ? "Pause" : "Preview"} ${displayTrack(track)}`} onClick={() => onPreview(track)}>
               {trackPreviewActive ? <Pause size={15} /> : <Play size={15} />}
             </button>
-            <div className="track-copy">
+            <div className="track-title-cell">
               <strong>{displayTrack(track)}</strong>
             </div>
             <button className="icon-button track-metadata-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={() => onDetails(track)}><Tags size={15} /></button>
@@ -92,12 +92,12 @@ export function ResultRow({
       <button className="icon-button result-preview-button" title={trackPreviewActive ? "Pause preview" : "Preview"} aria-label={`${trackPreviewActive ? "Pause" : "Preview"} ${displayTrack(track)}`} onClick={() => onPreview(track)}>
         {trackPreviewActive ? <Pause size={15} /> : <Play size={15} />}
       </button>
-      <div className="track-copy">
+      <div className="track-title-cell">
         <strong>{displayTrack(track)}</strong>
       </div>
       <button className="icon-button result-metadata-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={() => onDetails(track)}><Tags size={15} /></button>
       <meter min={0} max={1} value={Math.max(0, Math.min(1, score))} title={breakdownTitle} />
-      <span className="score" title={breakdownTitle}>{score.toFixed(3)}</span>
+      <span className="similarity-score" title={breakdownTitle}>{score.toFixed(3)}</span>
       <button className={`icon-button result-seed-button ${isSeed ? "active" : ""}`} title="Seed" aria-label={`Seed ${displayTrack(track)}`} onClick={() => onSeed(track)}><Search size={15} /></button>
       <button
         className={`icon-button result-playlist-toggle-button ${inPlaylist ? "intent-remove active" : "intent-add"}`}

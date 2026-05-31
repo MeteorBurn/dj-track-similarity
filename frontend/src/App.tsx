@@ -789,8 +789,8 @@ export function App() {
               DJ Track Similarity
             </a>
           </h1>
-          <div className="meta" aria-label="Library analysis summary">
-            <span className="meta-badge meta-badge-total"><span>tracks</span><strong>{librarySummary.tracks}</strong></span>
+          <div className="library-summary" aria-label="Library analysis summary">
+            <span className="library-summary-badge library-summary-total-badge"><span>tracks</span><strong>{librarySummary.tracks}</strong></span>
           </div>
         </div>
         <div className="topbar-actions">

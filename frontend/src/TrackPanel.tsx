@@ -165,8 +165,8 @@ export function TrackPanel({
         >
           <Heart size={16} />
         </button>
-        <button className="secondary-mini library-page-previous-button" title="Предыдущая страница библиотеки" disabled={!canGoBack} onClick={onPreviousPage} type="button">Prev</button>
-        <button className="secondary-mini library-page-next-button" title="Следующая страница библиотеки" disabled={!canGoForward} onClick={onNextPage} type="button">Next</button>
+        <button className="library-page-previous-button" title="Предыдущая страница библиотеки" disabled={!canGoBack} onClick={onPreviousPage} type="button">Prev</button>
+        <button className="library-page-next-button" title="Следующая страница библиотеки" disabled={!canGoForward} onClick={onNextPage} type="button">Next</button>
         <input
           className="library-page-index-input"
           type="number"
@@ -214,7 +214,7 @@ export function TrackPanel({
           <Plus size={16} />
         </button>
       </div>
-      <div className="player library-player">
+      <div className="library-preview-player">
         <span>{preview ? displayTrack(preview) : "Preview"}</span>
         {preview && (
           <audio

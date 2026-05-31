@@ -9,9 +9,7 @@ const styleTokens = new Set([
   "active",
   "icon-button",
   "intent-add",
-  "intent-remove",
-  "primary",
-  "secondary-mini"
+  "intent-remove"
 ]);
 
 function sourceFiles(dir) {
@@ -157,6 +155,31 @@ test("analysis controls use model checkboxes and one selected-run button", () =>
   assert.ok(clapIndex < classifiersIndex);
 });
 
+test("ui class names describe responsibility instead of visual priority", () => {
+  const staleClasses = new Set(["primary", "secondary-mini", "meta", "meta-badge", "track-copy", "filters", "compact-filters", "player", "action-row", "score"]);
+  const failures = [];
+  for (const file of sourceFiles(srcDir)) {
+    const source = readFileSync(file, "utf8");
+    for (const className of source.matchAll(/className=(?:"([^"]+)"|\{`([^`]+)`\})/g)) {
+      const value = className[1] || className[2] || "";
+      for (const token of value.split(/\s+/).filter(Boolean)) {
+        if (staleClasses.has(token)) failures.push(`${file}: ${value}`);
+      }
+    }
+  }
+  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
+  assert.deepEqual(failures, []);
+  for (const className of staleClasses) {
+    assert.doesNotMatch(styles, new RegExp(`\\.${className}(?=[\\s,{:.#])`));
+  }
+  assert.match(styles, /\.library-summary\s*{/);
+  assert.match(styles, /\.track-title-cell\s*{/);
+  assert.match(styles, /\.search-filter-grid\s*{/);
+  assert.match(styles, /\.library-preview-player\s*{/);
+  assert.match(styles, /\.export-action-row\s*{/);
+  assert.match(styles, /\.similarity-score\s*{/);
+});
+
 test("classifiers remain filter sliders but analysis moved to model selection", () => {
   const searchSource = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
@@ -291,10 +314,10 @@ test("library search exposes an explicit LIKE and FTS segmented toggle", () => {
 
 test("track rows do not show analysis availability inside track copy", () => {
   const source = readFileSync(join(srcDir, "TrackRows.tsx"), "utf8");
-  const trackCopyBlocks = [...source.matchAll(/<div className="track-copy">([\s\S]*?)<\/div>/g)].map((match) => match[1]);
+  const trackTitleBlocks = [...source.matchAll(/<div className="track-title-cell">([\s\S]*?)<\/div>/g)].map((match) => match[1]);
 
-  assert.ok(trackCopyBlocks.length >= 2);
-  for (const block of trackCopyBlocks) {
+  assert.ok(trackTitleBlocks.length >= 2);
+  for (const block of trackTitleBlocks) {
     assert.doesNotMatch(block, /trackInfo\(track\)/);
     assert.doesNotMatch(block, /analysisStatusLabel/);
     assert.doesNotMatch(block, /<span>/);
@@ -324,7 +347,7 @@ test("library range status shows only filtered total in the controls row", () =>
 test("library controls share button height and text-only counters", () => {
   const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
   const controlsRule = styles.match(/\.library-view-controls\s*{([\s\S]*?)}/)?.[1] || "";
-  const controlRule = styles.match(/\.library-view-controls \.secondary-mini\s*{([\s\S]*?)}/)?.[1] || "";
+  const controlRule = styles.match(/\.library-view-controls \.library-page-previous-button,[\s\S]*?\.library-view-controls \.library-page-next-button\s*{([\s\S]*?)}/)?.[1] || "";
   const inputRule = styles.match(/\.library-page-index-input\s*{([\s\S]*?)}/)?.[1] || "";
   const pageRule = styles.match(/\.library-page-number-status\s*{([\s\S]*?)}/)?.[1] || "";
   const rangeRule = styles.match(/\.library-range-status\s*{([\s\S]*?)}/)?.[1] || "";

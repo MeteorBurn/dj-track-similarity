@@ -70,8 +70,8 @@ export function ConfirmationDialog({
         <h2 id="confirmation-title">{request.title}</h2>
         <p>{request.message}</p>
         <div className="confirmation-actions">
-          <button className="secondary-mini confirmation-cancel-button" title="Отменить действие" type="button" onClick={onCancel}>Нет</button>
-          <button className="primary confirmation-confirm-button" title="Подтвердить действие" type="button" onClick={onConfirm}>Да</button>
+          <button className="confirmation-cancel-button" title="Отменить действие" type="button" onClick={onCancel}>Нет</button>
+          <button className="confirmation-confirm-button" title="Подтвердить действие" type="button" onClick={onConfirm}>Да</button>
         </div>
       </div>
     </div>

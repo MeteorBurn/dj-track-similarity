@@ -139,7 +139,7 @@ export function LibraryPanel({
         <small>Для чтения метаданных: 1-{maxScanWorkers}</small>
       </div>
       <div className="scan-action-row">
-        <button className="primary scan-start-button" title="Первично прочитать треки через Mutagen и добавить или обновить записи в SQLite" disabled={busy || stageRunning || !canStartScan} onClick={onScan}>
+        <button className="scan-start-button" title="Первично прочитать треки через Mutagen и добавить или обновить записи в SQLite" disabled={busy || stageRunning || !canStartScan} onClick={onScan}>
           <Play size={15} />
           Загрузить треки в базу
         </button>
@@ -245,7 +245,7 @@ export function LibraryPanel({
         <small>MAEST/MERT/CLAP forward pass; RTX 3090 default 24.</small>
       </div>
       <button
-        className="primary analyze-selected-button"
+        className="analyze-selected-button"
         disabled={analysisDisabled || selectedAnalysisModels.length === 0}
         title="Запустить анализ выбранных моделей для треков с отсутствующими результатами"
         onClick={onAnalyzeSelected}

@@ -7,26 +7,26 @@ const appPath = fileURLToPath(new URL("../src/App.tsx", import.meta.url));
 
 test("top header meta renders only total track count as a badge", () => {
   const source = readFileSync(appPath, "utf8");
-  const metaBlock = source.match(/<div className="meta"[^>]*>([\s\S]*?)<\/div>/)?.[1] || "";
+  const summaryBlock = source.match(/<div className="library-summary"[^>]*>([\s\S]*?)<\/div>/)?.[1] || "";
 
-  assert.match(metaBlock, /librarySummary\.tracks/);
-  assert.equal((metaBlock.match(/className="meta-badge/g) || []).length, 1);
-  assert.match(metaBlock, /<span>tracks<\/span>/);
-  assert.match(metaBlock, /<strong>\{librarySummary\.tracks\}<\/strong>/);
-  assert.doesNotMatch(metaBlock, /librarySummary\.sonara/);
-  assert.doesNotMatch(metaBlock, /librarySummary\.maest/);
-  assert.doesNotMatch(metaBlock, /librarySummary\.mert/);
-  assert.doesNotMatch(metaBlock, /librarySummary\.clap/);
-  assert.doesNotMatch(metaBlock, /librarySummary\.classifiers/);
-  assert.doesNotMatch(metaBlock, /librarySummary\.liked/);
-  assert.doesNotMatch(metaBlock, /\|\s*liked/);
+  assert.match(summaryBlock, /librarySummary\.tracks/);
+  assert.equal((summaryBlock.match(/className="library-summary-badge/g) || []).length, 1);
+  assert.match(summaryBlock, /<span>tracks<\/span>/);
+  assert.match(summaryBlock, /<strong>\{librarySummary\.tracks\}<\/strong>/);
+  assert.doesNotMatch(summaryBlock, /librarySummary\.sonara/);
+  assert.doesNotMatch(summaryBlock, /librarySummary\.maest/);
+  assert.doesNotMatch(summaryBlock, /librarySummary\.mert/);
+  assert.doesNotMatch(summaryBlock, /librarySummary\.clap/);
+  assert.doesNotMatch(summaryBlock, /librarySummary\.classifiers/);
+  assert.doesNotMatch(summaryBlock, /librarySummary\.liked/);
+  assert.doesNotMatch(summaryBlock, /\|\s*liked/);
 });
 
 test("analysis model rows render summary counts near each model", () => {
   const appSource = readFileSync(appPath, "utf8");
   const librarySource = readFileSync(fileURLToPath(new URL("../src/LibraryPanel.tsx", import.meta.url)), "utf8");
   const styles = readFileSync(fileURLToPath(new URL("../src/styles.css", import.meta.url)), "utf8");
-  const badgeRule = styles.match(/\.meta-badge\s*{([\s\S]*?)}/)?.[1] || "";
+  const badgeRule = styles.match(/\.library-summary-badge\s*{([\s\S]*?)}/)?.[1] || "";
   const countRule = styles.match(/\.analysis-model-count\s*{([\s\S]*?)}/)?.[1] || "";
 
   assert.match(appSource, /analysisModelCounts/);

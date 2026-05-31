@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 import dj_track_similarity.api as api
 from dj_track_similarity.api import create_app
+from dj_track_similarity.database import LibraryDatabase
 
 
 def test_choose_folder_endpoint_returns_selected_path(monkeypatch, tmp_path: Path) -> None:
@@ -48,7 +49,7 @@ def test_relocate_library_endpoint_returns_dry_run_preview(monkeypatch, tmp_path
     old_file.write_bytes(b"audio")
 
     db_path = tmp_path / "library.sqlite"
-    database = api.LibraryDatabase(db_path)
+    database = LibraryDatabase(db_path)
     track_id = database.upsert_track(path=old_file, size=old_file.stat().st_size, mtime=old_file.stat().st_mtime)
 
     client = TestClient(create_app(db_path))
@@ -60,7 +61,7 @@ def test_relocate_library_endpoint_returns_dry_run_preview(monkeypatch, tmp_path
     assert response.status_code == 200
     assert response.json()["dry_run"] is True
     assert response.json()["tracks_matched"] == 1
-    assert api.LibraryDatabase(db_path).get_track(track_id).path == old_file.as_posix()
+    assert LibraryDatabase(db_path).get_track(track_id).path == old_file.as_posix()
 
 
 def test_removed_analyze_endpoint_is_not_available(tmp_path: Path) -> None:

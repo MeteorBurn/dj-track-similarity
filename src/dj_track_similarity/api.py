@@ -2,243 +2,46 @@ from __future__ import annotations
 
 import logging
 import json
-import threading
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field
 
-from .analysis_config import (
-    ANALYSIS_MODEL_ORDER,
-    DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
-    DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
-    normalize_analysis_models,
+from .analysis_config import normalize_analysis_models
+from .api_schemas import (
+    AnalysisJobRequest,
+    AnalysisResetRequest,
+    ClassifierAnalyzeRequest,
+    ClassifierResetRequest,
+    DatabaseSwitchRequest,
+    ExportRequest,
+    FilteredTracksRequest,
+    GenreTagRequest,
+    RelocateLibraryRequest,
+    ScanRequest,
+    SearchRequest,
+    SonaraSearchRequest,
+    TagRefreshRequest,
+    TextSearchRequest,
+    TrackLikedRequest,
 )
-from .analysis_jobs import AnalysisJobManager
-from .classifier_jobs import ClassifierJobManager
+from .api_state import AppDatabaseState, DatabaseBusy, DatabaseNotSelected
 from .classifier_scoring import promoted_classifiers
-from .database import LibraryDatabase
 from .dependencies import require_ffmpeg
 from .embedding import ClapEmbeddingAdapter
 from .exporter import export_tracks
 from .logging_config import configure_logging
 from .media_preview import transcoded_wav_file_response
-from .scan_jobs import ScanJobManager
 from .search import SearchFilters, SimilaritySearch
 from .sonara_similarity import SonaraSimilaritySearch
-from .tags import GenreTagJobManager, apply_genre_tags_to_tracks
+from .tags import apply_genre_tags_to_tracks
 
 
 LOGGER = logging.getLogger(__name__)
 
 
-class ScanRequest(BaseModel):
-    root: str
-    workers: int = Field(default=1, ge=1, le=64)
-
-
-class TagRefreshRequest(BaseModel):
-    workers: int = Field(default=1, ge=1, le=64)
-
-
-class RelocateLibraryRequest(BaseModel):
-    old_root: str
-    new_root: str
-    apply: bool = False
-
-
-class DatabaseSwitchRequest(BaseModel):
-    path: str
-
-
-class AnalysisJobRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    limit: int | None = None
-    models: list[str] = Field(default_factory=lambda: list(ANALYSIS_MODEL_ORDER), min_length=1)
-    device: str = Field(default="auto", pattern="^(auto|cpu|cuda)$")
-    top_k: int = Field(default=3, ge=1, le=10)
-    track_batch_size: int = Field(default=DEFAULT_ANALYSIS_TRACK_BATCH_SIZE, ge=1, le=64)
-    inference_batch_size: int = Field(default=DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE, ge=1, le=128)
-
-
-class ClassifierAnalyzeRequest(BaseModel):
-    limit: int | None = None
-
-
-class ClassifierResetRequest(BaseModel):
-    classifiers: list[str] = Field(default_factory=list)
-
-
-class AnalysisResetRequest(BaseModel):
-    adapter: str = Field(pattern="^(sonara|maest|mert|clap)$")
-
-
-class SearchRequest(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    seed_track_ids: list[int]
-    lookback_track_ids: list[int] = Field(default_factory=list)
-    limit: int = 5
-    bpm_tolerance: float | None = None
-    key_compatibility: str | None = None
-    energy_min: float | None = None
-    energy_max: float | None = None
-    min_similarity: float | None = None
-    epsilon: float | None = Field(default=None, alias="Epsilon")
-    noise: float = 0.0
-
-
-class SonaraMixerWeights(BaseModel):
-    timbre: float = Field(default=1.0, ge=0.0, le=5.0)
-    rhythm: float = Field(default=1.0, ge=0.0, le=5.0)
-    dynamics: float = Field(default=0.8, ge=0.0, le=5.0)
-    harmonic: float = Field(default=0.8, ge=0.0, le=5.0)
-    tempo: float = Field(default=0.35, ge=0.0, le=5.0)
-
-
-class SonaraModifiers(BaseModel):
-    energy: float = Field(default=0.0, ge=-1.0, le=1.0)
-    valence: float = Field(default=0.0, ge=-1.0, le=1.0)
-    acousticness: float = Field(default=0.0, ge=-1.0, le=1.0)
-    brightness: float = Field(default=0.0, ge=-1.0, le=1.0)
-    rhythm_density: float = Field(default=0.0, ge=-1.0, le=1.0)
-    dynamic_range: float = Field(default=0.0, ge=-1.0, le=1.0)
-    loudness: float = Field(default=0.0, ge=-1.0, le=1.0)
-
-
-class SonaraSearchRequest(BaseModel):
-    seed_track_ids: list[int]
-    lookback_track_ids: list[int] = Field(default_factory=list)
-    limit: int = Field(default=5, ge=1, le=500)
-    mode: str = Field(default="balanced", pattern="^(balanced|vibe|sound|dj_transition|custom)$")
-    min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
-    mixer_weights: SonaraMixerWeights | None = None
-    modifiers: SonaraModifiers | None = None
-
-
-class TextSearchRequest(BaseModel):
-    query: str
-    limit: int = Field(default=5, ge=1, le=500)
-    min_similarity: float | None = None
-    device: str = Field(default="auto", pattern="^(auto|cpu|cuda)$")
-
-
-class FilteredTracksRequest(BaseModel):
-    query: str = ""
-    preset: str = Field(default="all", pattern="^(all|syncopated)$")
-    liked: bool = False
-    classifier_min_scores: dict[str, float] = Field(default_factory=dict)
-
-
-class TrackLikedRequest(BaseModel):
-    liked: bool
-
-
-class ExportRequest(BaseModel):
-    name: str
-    track_ids: list[int]
-    output_dir: str
-    format: str = Field(default="m3u", pattern="^(m3u|csv)$")
-
-
-class GenreTagRequest(BaseModel):
-    track_ids: list[int] | None = None
-
-
-class DatabaseNotSelected(RuntimeError):
-    pass
-
-
-class DatabaseBusy(RuntimeError):
-    pass
-
-
-ACTIVE_JOB_STATES = {"queued", "running"}
 AIFF_PREVIEW_SUFFIXES = {".aif", ".aiff"}
-
-
-class AppDatabaseState:
-    def __init__(self, db_path: str | Path | None) -> None:
-        self._lock = threading.RLock()
-        self.db_path: Path | None = None
-        self.db: LibraryDatabase | None = None
-        self.analysis_jobs: AnalysisJobManager | None = None
-        self.classifier_jobs: ClassifierJobManager | None = None
-        self.scan_jobs: ScanJobManager | None = None
-        self.genre_tag_jobs: GenreTagJobManager | None = None
-        if db_path is not None:
-            self.switch(db_path)
-
-    def current(self) -> dict[str, object]:
-        with self._lock:
-            music_root = self.db.get_library_root() if self.db is not None else None
-            return {
-                "path": str(self.db_path) if self.db_path is not None else None,
-                "selected": self.db is not None,
-                "music_root": music_root,
-            }
-
-    def switch(self, path: str | Path) -> dict[str, object]:
-        selected = Path(path).expanduser()
-        if not str(selected).strip() or not selected.name:
-            raise ValueError("Database path is required")
-        if selected.exists() and selected.is_dir():
-            raise ValueError("Database path must be a file")
-        selected = selected.resolve(strict=False)
-        with self._lock:
-            if self._has_active_jobs():
-                raise DatabaseBusy("Cannot switch database while jobs are running")
-            db = LibraryDatabase(selected)
-            self.db_path = db.path
-            self.db = db
-            self.analysis_jobs = AnalysisJobManager(db)
-            self.classifier_jobs = ClassifierJobManager(db)
-            self.scan_jobs = ScanJobManager(db)
-            self.genre_tag_jobs = GenreTagJobManager(db)
-            return self.current()
-
-    def require_db(self) -> LibraryDatabase:
-        if self.db is None:
-            raise DatabaseNotSelected("Database is not selected")
-        return self.db
-
-    def require_analysis_jobs(self) -> AnalysisJobManager:
-        self.require_db()
-        assert self.analysis_jobs is not None
-        return self.analysis_jobs
-
-    def require_classifier_jobs(self) -> ClassifierJobManager:
-        self.require_db()
-        assert self.classifier_jobs is not None
-        return self.classifier_jobs
-
-    def require_scan_jobs(self) -> ScanJobManager:
-        self.require_db()
-        assert self.scan_jobs is not None
-        return self.scan_jobs
-
-    def require_genre_tag_jobs(self) -> GenreTagJobManager:
-        self.require_db()
-        assert self.genre_tag_jobs is not None
-        return self.genre_tag_jobs
-
-    def _has_active_jobs(self) -> bool:
-        managers = [
-            self.analysis_jobs,
-            self.classifier_jobs,
-            self.scan_jobs,
-            self.genre_tag_jobs,
-        ]
-        for manager in managers:
-            if manager is None:
-                continue
-            latest = manager.latest()
-            if latest is not None and getattr(latest, "state", None) in ACTIVE_JOB_STATES:
-                return True
-        return False
 
 
 def open_folder_dialog() -> Path | None:

@@ -3,6 +3,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import dj_track_similarity.api as api
+import dj_track_similarity.api_state as api_state
 from dj_track_similarity.api import create_app
 from dj_track_similarity.database import LibraryDatabase
 
@@ -114,11 +115,11 @@ def test_database_switch_is_rejected_while_scan_job_is_queued(monkeypatch, tmp_p
     music_root = tmp_path / "music"
     music_root.mkdir()
 
-    def queue_without_running(self: api.ScanJobManager, root: str | Path, *, workers: int = 1):
+    def queue_without_running(self: api_state.ScanJobManager, root: str | Path, *, workers: int = 1):
         job_id = self.create_job(root, workers=workers)
         return self.get(job_id)
 
-    monkeypatch.setattr(api.ScanJobManager, "start", queue_without_running)
+    monkeypatch.setattr(api_state.ScanJobManager, "start", queue_without_running)
     client = TestClient(create_app(db_path))
 
     scan_response = client.post("/api/library/scan", json={"root": str(music_root), "workers": 1})

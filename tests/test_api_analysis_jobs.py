@@ -3,6 +3,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import dj_track_similarity.api as api
+import dj_track_similarity.api_state as api_state
 from dj_track_similarity.database import LibraryDatabase
 
 
@@ -83,7 +84,7 @@ def _status(models, *, track_batch_size=6, inference_batch_size=24, device="cpu"
 def test_api_starts_selected_multi_model_analysis_job(monkeypatch, tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     LibraryDatabase(db_path)
-    monkeypatch.setattr(api, "AnalysisJobManager", SynchronousAnalysisManager)
+    monkeypatch.setattr(api_state, "AnalysisJobManager", SynchronousAnalysisManager)
     client = TestClient(api.create_app(db_path))
 
     response = client.post(
@@ -119,7 +120,7 @@ def test_api_starts_selected_multi_model_analysis_job(monkeypatch, tmp_path: Pat
 def test_api_defaults_multi_model_analysis_to_all_models(monkeypatch, tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     LibraryDatabase(db_path)
-    monkeypatch.setattr(api, "AnalysisJobManager", SynchronousAnalysisManager)
+    monkeypatch.setattr(api_state, "AnalysisJobManager", SynchronousAnalysisManager)
     client = TestClient(api.create_app(db_path))
 
     response = client.post("/api/analysis/jobs", json={})

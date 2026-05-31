@@ -8,6 +8,15 @@ const appSource = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8
 const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const themePath = fileURLToPath(new URL("../src/theme.ts", import.meta.url));
 
+function cssVar(block, name) {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return block.match(new RegExp(`${escapedName}:\\s*([^;]+);`))?.[1] || "";
+}
+
+function darkThemeBlock() {
+  return styles.match(/:root\[data-theme="dark"\]\s*{([\s\S]*?)\n}/)?.[1] || "";
+}
+
 test("theme helper owns persistence and document theme application", () => {
   assert.equal(existsSync(themePath), true);
   const source = readFileSync(themePath, "utf8");
@@ -42,4 +51,17 @@ test("stylesheet defines light tokens and dark theme overrides", () => {
   assert.match(styles, /color-scheme:\s*dark/);
   assert.match(styles, /background:\s*var\(--app-bg\)/);
   assert.match(styles, /\.theme-toggle-button/);
+});
+
+test("dark theme uses a black and blue-cyan palette instead of green", () => {
+  const block = darkThemeBlock();
+
+  assert.equal(cssVar(block, "--app-bg"), "#05070b");
+  assert.equal(cssVar(block, "--surface"), "#0b1018");
+  assert.equal(cssVar(block, "--surface-muted"), "#111827");
+  assert.equal(cssVar(block, "--accent"), "#38bdf8");
+  assert.equal(cssVar(block, "--accent-hover"), "#67e8f9");
+  assert.equal(cssVar(block, "--brand-start"), "#38bdf8");
+  assert.equal(cssVar(block, "--brand-end"), "#2563eb");
+  assert.doesNotMatch(block, /#(?:101411|173a31|172f28|142820|3f7f6f|2f6a5a|1d4b3f|4f936f)\b/i);
 });

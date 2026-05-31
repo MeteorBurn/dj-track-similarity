@@ -279,3 +279,12 @@ test("library controls share button height and text-only counters", () => {
   assert.doesNotMatch(rangeRule, /font-weight:/);
   assert.doesNotMatch(rangeRule, /font-size:/);
 });
+
+test("library panel scrolls its own controls inside the fixed desktop workspace", () => {
+  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
+  const workspaceRule = styles.match(/\.workspace\s*{([\s\S]*?)}/)?.[1] || "";
+  const libraryRule = styles.match(/\.library-panel\s*{([\s\S]*?)}/)?.[1] || "";
+
+  assert.match(workspaceRule, /height:\s*calc\(100vh - 86px\)/);
+  assert.match(libraryRule, /overflow:\s*auto/);
+});

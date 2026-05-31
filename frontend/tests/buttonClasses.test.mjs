@@ -156,7 +156,21 @@ test("analysis controls use model checkboxes and one selected-run button", () =>
 });
 
 test("ui class names describe responsibility instead of visual priority", () => {
-  const staleClasses = new Set(["primary", "secondary-mini", "meta", "meta-badge", "track-copy", "filters", "compact-filters", "player", "action-row", "score"]);
+  const staleClasses = new Set([
+    "primary",
+    "secondary-mini",
+    "meta",
+    "meta-badge",
+    "track-copy",
+    "filters",
+    "compact-filters",
+    "player",
+    "action-row",
+    "score",
+    "analysis-section-title",
+    "search-section",
+    "playlist-section"
+  ]);
   const failures = [];
   for (const file of sourceFiles(srcDir)) {
     const source = readFileSync(file, "utf8");
@@ -175,6 +189,9 @@ test("ui class names describe responsibility instead of visual priority", () => 
   assert.match(styles, /\.library-summary\s*{/);
   assert.match(styles, /\.track-title-cell\s*{/);
   assert.match(styles, /\.search-filter-grid\s*{/);
+  assert.match(styles, /\.analysis-models-heading\s*{/);
+  assert.match(styles, /\.search-workflow-section\s*{/);
+  assert.match(styles, /\.playlist-export-section\s*{/);
   assert.match(styles, /\.library-preview-player\s*{/);
   assert.match(styles, /\.export-action-row\s*{/);
   assert.match(styles, /\.similarity-score\s*{/);

@@ -631,7 +631,7 @@ h2 {
   width: 100%;
 }
 
-.analysis-section-title {
+.analysis-models-heading {
   border-top: 1px solid var(--border-soft);
   color: var(--text);
   display: flex;
@@ -641,12 +641,12 @@ h2 {
   padding-top: 10px;
 }
 
-.analysis-section-title span {
+.analysis-models-heading span {
   font-size: 13px;
   font-weight: 760;
 }
 
-.analysis-section-title small {
+.analysis-models-heading small {
   color: var(--text-muted);
   font-size: 11px;
   line-height: 15px;
@@ -1437,23 +1437,23 @@ h2 {
   overflow: auto;
 }
 
-.search-section {
+.search-workflow-section {
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
   min-height: 0;
 }
 
-.search-section .search-filter-grid {
+.search-workflow-section .search-filter-grid {
   grid-template-columns: repeat(2, minmax(92px, 1fr));
 }
 
-.search-section .results-list {
+.search-workflow-section .results-list {
   flex: 0 0 auto;
   max-height: 160px;
 }
 
-.playlist-section {
+.playlist-export-section {
   border-top: 1px solid var(--border-muted);
   display: flex;
   flex: 0 0 auto;
@@ -1463,7 +1463,7 @@ h2 {
   padding-top: 12px;
 }
 
-.playlist-section .playlist-list {
+.playlist-export-section .playlist-list {
   flex: 1 1 auto;
   max-height: 34vh;
 }
@@ -2111,11 +2111,11 @@ meter {
     grid-column: 1 / -1;
   }
 
-  .search-section .results-list {
+  .search-workflow-section .results-list {
     max-height: 240px;
   }
 
-  .playlist-section .playlist-list {
+  .playlist-export-section .playlist-list {
     max-height: 360px;
   }
 }

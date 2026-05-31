@@ -160,7 +160,7 @@ export function LibraryPanel({
           <Trash2 size={17} />
         </button>
       </div>
-      <div className="analysis-section-title">
+      <div className="analysis-models-heading">
         <span>Анализ моделей</span>
         <small>Один запуск обработает выбранные модели и пропустит уже готовые результаты</small>
       </div>

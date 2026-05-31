@@ -148,7 +148,7 @@ export function SearchPlaylistPanel({
 
   return (
     <aside className="panel search-panel">
-      <section className="search-section">
+      <section className="search-workflow-section">
         <div className="panel-title">
           <Search size={18} />
           <h2>3. Поиск и прослушивание</h2>
@@ -329,7 +329,7 @@ export function SearchPlaylistPanel({
           ))}
         </div>
       </section>
-      <section className="playlist-section">
+      <section className="playlist-export-section">
         <div className="panel-title">
           <ListMusic size={18} />
           <h2>Сет и экспорт</h2>

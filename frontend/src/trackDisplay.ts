@@ -5,10 +5,6 @@ export function displayTrack(track: Track) {
   return track.title || basename(track.path) || track.path;
 }
 
-export function trackInfo(track: Track) {
-  return analysisStatusLabel(track);
-}
-
 export function trackCountLabel(count: number) {
   const lastTwo = count % 100;
   const last = count % 10;
@@ -16,16 +12,6 @@ export function trackCountLabel(count: number) {
   if (last === 1) return "трек";
   if (last >= 2 && last <= 4) return "трека";
   return "треков";
-}
-
-export function analysisStatusLabel(track: Track) {
-  const labels = [
-    trackHasAnalysis(track, "sonara") ? "sonara" : null,
-    trackHasAnalysis(track, "maest") ? "maest" : null,
-    trackHasAnalysis(track, "mert") ? "mert" : null,
-    trackHasAnalysis(track, "clap") ? "clap" : null
-  ].filter(Boolean);
-  return labels.length ? labels.join(" ") : "";
 }
 
 export function trackHasAnalysis(track: Track, adapter: "sonara" | "maest" | "mert" | "clap") {

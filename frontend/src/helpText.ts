@@ -11,6 +11,7 @@ export const helpText = {
   writeMaestGenres: "Перезаписать стандартный Genre/TCON/©gen в аудиофайлах жанрами MAEST. Плееры вроде AIMP будут видеть эти жанры.",
   mertAnalyze: "MERT строит аудио-эмбеддинги. Нужна для поиска похожих треков от выбранных seed-треков.",
   clapAnalyze: "CLAP строит music-focused аудио-эмбеддинги для поиска по текстовому описанию звучания.",
+  classifiersAnalyze: "CLASSIFIERS считает promoted classifier scores для треков, у которых уже есть нужные SONARA, MERT и MAEST данные. Отсутствующие входы будут пропущены.",
   analysisTrackBatchSize: "Сколько треков декодировать и держать в памяти за один job batch. Тип: целое число 1-64. Для этой машины дефолт 6.",
   analysisInferenceBatchSize: "Сколько окон/семплов MAEST, MERT и CLAP прогоняют за один model forward pass. Тип: целое число 1-128. Для RTX 3090 дефолт 24.",
   librarySearch: "Фильтр библиотеки. Формат: текст. Ищет по artist, title, album, path, MAEST genres и syncopated rhythm.",

@@ -40,17 +40,20 @@ classifier score filters.
 
 The CLASS tab contains classifier controls discovered from promoted
 `models/classifiers/*/model.json` metadata. Each promoted classifier can be
-analyzed from the UI, and its slider filters the library and
-add-filtered-tracks workflow by `track_classifier_scores.score`. The top
-header's `CLASS` badge counts tracks that have stored scores for every promoted
-classifier, so two promoted classifiers require two stored classifier scores on
-the same track to add one to the badge.
+filtered with a slider, and that slider filters the library and
+add-filtered-tracks workflow by `track_classifier_scores.score`. Classifier
+scoring itself is launched from the main analysis block with the `CLASSIFIERS`
+checkbox, after any selected audio-analysis models. The analysis model rows show
+coverage counts for SONARA, MAEST, MERT, CLAP, and complete promoted-classifier
+score coverage; the top header keeps only the total track count.
 
 ### SONARA Search
 
 SONARA is the primary explainable seed-search path. It sends selected seed
 tracks, optional lookback tracks, limit, minimum similarity, mixer weights, and
 modifiers to `/api/search/sonara`.
+
+The UI default result limit is `10`.
 
 Mixer weights:
 
@@ -87,6 +90,8 @@ similarity, or overall sound.
 MERT seed search sends seed tracks, lookback tracks, limit, and optional minimum
 similarity to `/api/search`. It ranks tracks in the MERT embedding space.
 
+The UI and API default result limit is `10`.
+
 Use MERT after running `dj-sim analyze --models mert` or the matching selected
 model in the UI analysis job. If results are empty or stale, check whether the
 candidate tracks have MERT embeddings.
@@ -96,6 +101,8 @@ candidate tracks have MERT embeddings.
 CLAP text search sends a text prompt, limit, optional minimum similarity, and
 device to `/api/search/text`. It ranks CLAP audio vectors against a CLAP text
 vector.
+
+The UI and API default result limit is `10`.
 
 Concrete English prompts usually work best:
 
@@ -111,18 +118,18 @@ genre name.
 
 ### CLASS / Classifiers
 
-The CLASS tab is for classifier-driven workflows rather than similarity search.
+The CLASS tab is for classifier-driven filtering workflows rather than
+similarity search.
 It lists promoted classifiers discovered from `models/classifiers/*/model.json`:
 
-- `Analyze <classifier>` starts a cancellable classifier job.
 - Each classifier slider filters the library server-side by stored classifier
   score.
-- The metadata dialog shows classifier scores, confidence, label, feature set,
-  and model file below SONARA features.
+- The metadata dialog shows stored classifier scores below SONARA features.
 
 Promoted classifiers require a promoted model file and feature-complete tracks.
-They do not analyze audio directly; run SONARA, MERT, and MAEST first for the
-tracks you want to score.
+They do not analyze audio directly. Select `CLASSIFIERS` in the main analysis
+block to start cancellable classifier jobs after any selected audio models; run
+SONARA, MERT, and MAEST first for the tracks you want to score.
 
 Use CLASS filters after scoring a promoted classifier. A high score means the
 model thinks the track matches that profile's positive label; it is a workflow

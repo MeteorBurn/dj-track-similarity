@@ -106,7 +106,7 @@ it stops.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/api/analysis/jobs` | Start one selected-model analysis job for SONARA, MAEST, MERT, and/or CLAP. |
+| `POST` | `/api/analysis/jobs` | Start one selected-model audio-analysis job for SONARA, MAEST, MERT, and/or CLAP. |
 | `GET` | `/api/classifiers` | List promoted classifiers from `models/classifiers/*/model.json`. |
 | `POST` | `/api/classifiers/{classifier_key}/analyze` | Start classifier scoring. |
 | `POST` | `/api/classifiers/reset` | Delete stored scores for the given classifier keys. |
@@ -137,8 +137,16 @@ search results often mean the required Sonara features, MERT embeddings, or
 CLAP embeddings are missing for the candidate tracks.
 
 `GET /api/classifiers` needs no database; it discovers promoted profiles on
-disk. `/api/classifiers/reset` accepts a list of classifier keys and deletes
-their `track_classifier_scores` rows (an empty list deletes nothing).
+disk. The UI can start promoted classifier scoring from the same analysis
+control block as the audio models by enabling `CLASSIFIERS`; internally that
+still calls `/api/classifiers/{classifier_key}/analyze` for each discovered
+profile after any selected audio-analysis job finishes. Tracks without the
+required SONARA, MERT, and MAEST inputs are skipped by classifier scoring.
+`/api/classifiers/reset` accepts a list of classifier keys and deletes their
+`track_classifier_scores` rows (an empty list deletes nothing).
+
+The default result limit for `/api/search`, `/api/search/sonara`, and
+`/api/search/text` is `10` when a request omits `limit`.
 
 Reset scope by family:
 

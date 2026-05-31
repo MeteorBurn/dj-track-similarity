@@ -663,7 +663,7 @@ h2 {
   align-items: center;
   display: grid;
   gap: 6px;
-  grid-template-columns: minmax(0, 1fr) 36px minmax(96px, max-content);
+  grid-template-columns: minmax(0, 1fr) max-content 36px minmax(96px, max-content);
   min-width: 0;
   width: 100%;
 }
@@ -702,6 +702,15 @@ h2 {
   width: 15px;
 }
 
+.analysis-model-count {
+  color: var(--text-soft);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  justify-self: end;
+  min-width: 34px;
+  text-align: right;
+}
+
 .analyze-selected-button {
   margin: 0 0 8px;
   min-width: 0;
@@ -727,9 +736,9 @@ h2 {
 }
 
 .classifier-action-row {
-  display: grid;
+  display: flex;
   gap: 6px;
-  grid-template-columns: minmax(0, 1fr) auto;
+  justify-content: flex-end;
 }
 
 .classifier-action-row .primary,
@@ -1843,6 +1852,26 @@ meter {
   line-height: 1.18;
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.analysis-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.analysis-badge {
+  background: var(--surface-muted);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  color: var(--text-muted);
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0;
+  line-height: 1;
+  padding: 4px 7px;
 }
 
 .metadata-grid dt {

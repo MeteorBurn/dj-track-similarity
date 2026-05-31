@@ -1,12 +1,13 @@
 import type { MouseEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { Moon, ScrollText, Sun } from "lucide-react";
+import { Moon, RefreshCcw, ScrollText, Square, Sun } from "lucide-react";
 import { AnalysisJobStatus, AnalysisModel, api, GenreTagJobStatus, PromotedClassifier, ScanStats, Track } from "./api";
+import { defaultAnalysisSelections, isAudioAnalysisModel, type AnalysisSelection } from "./analysisSelection";
 import type { ConfirmationRequest } from "./confirmation";
 import { ConfirmationDialog, LogFrameDialog } from "./dialogs";
 import { exportDirectoryError } from "./exportView";
 import { helpText } from "./helpText";
-import { analysisJobRequest, cancelAnalysisJob, scanSummary } from "./jobUi";
+import { analysisJobRequest, cancelAnalysisJob, scanSummary, stageIndicatorLabel } from "./jobUi";
 import { LibraryPanel } from "./LibraryPanel";
 import { appendVisibleTracksToPlaylist } from "./libraryView";
 import { SearchPlaylistPanel } from "./SearchPlaylistPanel";
@@ -24,7 +25,7 @@ type DeviceMode = "auto" | "cpu" | "cuda";
 type ResetAdapter = AnalysisModel;
 
 const defaultNotice: Notice = { kind: "idle", text: "Готово к работе" };
-const analysisModelOrder: AnalysisModel[] = ["sonara", "maest", "mert", "clap"];
+const analysisModelOrder = defaultAnalysisSelections;
 
 function optimalWorkerLimit() {
   const cores = typeof navigator === "undefined" ? 4 : navigator.hardwareConcurrency || 4;
@@ -81,7 +82,10 @@ export function App() {
     playlistName,
     setPlaylistName,
     preview,
-    setPreview,
+    playingTrackId,
+    togglePreview,
+    markPreviewPlaying,
+    markPreviewPaused,
     metadataTrack,
     setMetadataTrack,
     setSeedTrackMap,
@@ -105,7 +109,8 @@ export function App() {
   const [analysisTrackBatchSize, setAnalysisTrackBatchSize] = useState(6);
   const [analysisInferenceBatchSize, setAnalysisInferenceBatchSize] = useState(24);
   const [analysisDevice, setAnalysisDevice] = useState<DeviceMode>("auto");
-  const [selectedAnalysisModels, setSelectedAnalysisModels] = useState<AnalysisModel[]>(analysisModelOrder);
+  const [selectedAnalysisModels, setSelectedAnalysisModels] = useState<AnalysisSelection[]>(analysisModelOrder);
+  const [pendingClassifierAfterAnalysis, setPendingClassifierAfterAnalysis] = useState(false);
   const [notice, setNotice] = useState<Notice>(defaultNotice);
   const [logFrameOpen, setLogFrameOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme());
@@ -114,7 +119,7 @@ export function App() {
   const [filters, setFilters] = useState({
     minSimilarity: 0,
     lookback: 2,
-    limit: 5,
+    limit: 10,
     sonaraMixer: {
       timbre: 1,
       rhythm: 1,
@@ -145,6 +150,13 @@ export function App() {
     return hasErrorEvent || Boolean(analysisJob?.errors.length) || Boolean(genreTagJob?.errors.length);
   }, [activityLog, analysisJob, genreTagJob, scanJob]);
   const canStartScan = Boolean(databasePath && musicRoot);
+  const analysisModelCounts: Record<AnalysisSelection, number> = {
+    sonara: librarySummary.sonara,
+    maest: librarySummary.maest,
+    mert: librarySummary.mert,
+    clap: librarySummary.clap,
+    classifiers: librarySummary.classifiers
+  };
   const maxScanWorkers = useMemo(() => optimalWorkerLimit(), []);
   const maxAnalysisTrackBatchSize = 64;
   const maxAnalysisInferenceBatchSize = 128;
@@ -199,13 +211,19 @@ export function App() {
         setAnalysisJob(job);
         if (["completed", "cancelled", "failed"].includes(job.state)) {
           void refreshLibrary();
+          if (pendingClassifierAfterAnalysis) {
+            setPendingClassifierAfterAnalysis(false);
+            if (job.state === "completed") {
+              void startClassifierJobs("CLASSIFIERS analysis запущен после выбранных моделей");
+            }
+          }
         }
       }).catch((error) => {
         setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
       });
     }, 1500);
     return () => window.clearInterval(timer);
-  }, [analysisJob?.job_id, analysisJob?.state]);
+  }, [analysisJob?.job_id, analysisJob?.state, pendingClassifierAfterAnalysis]);
 
   useEffect(() => {
     if (!genreTagJob || !["queued", "running"].includes(genreTagJob.state)) return;
@@ -333,7 +351,7 @@ export function App() {
     }
   }
 
-  function toggleAnalysisModel(model: AnalysisModel) {
+  function toggleAnalysisModel(model: AnalysisSelection) {
     setSelectedAnalysisModels((current) => {
       const next = current.includes(model)
         ? current.filter((item) => item !== model)
@@ -392,16 +410,14 @@ export function App() {
     );
   }
 
-  const pairedClassifierKeys = ["break_energy", "live_instrumentation"];
-
-  async function handleClassifierAnalyze() {
-    const available = classifiers.filter((classifier) => pairedClassifierKeys.includes(classifier.classifier_key));
+  async function startClassifierJobs(message = "CLASSIFIERS analysis запущен") {
+    const available = classifiers;
     if (!available.length) {
-      setNotice({ kind: "error", text: "Нет promoted classifiers для Break Energy / Live Instrumentation" });
+      setNotice({ kind: "error", text: "Нет promoted classifiers для расчета" });
       return;
     }
     const limit = analysisLimit > 0 ? analysisLimit : undefined;
-    appendActivity("info", "CLASS analysis запущен", available.map((classifier) => classifier.name).join(" + "));
+    appendActivity("info", message, available.map((classifier) => classifier.name).join(" + "));
     setProcessLogKind("analysis");
     setAnalysisJob(null);
     await run(
@@ -416,7 +432,7 @@ export function App() {
   }
 
   async function handleResetClassifiers() {
-    const available = classifiers.filter((classifier) => pairedClassifierKeys.includes(classifier.classifier_key));
+    const available = classifiers;
     if (!available.length) {
       setNotice({ kind: "error", text: "Нет classifier scores для сброса" });
       return;
@@ -544,18 +560,27 @@ export function App() {
   }
 
   async function handleAnalyzeSelected() {
-    if (!selectedAnalysisModels.length) {
+    const selectedAudioModels = selectedAnalysisModels.filter(isAudioAnalysisModel);
+    const includeClassifiers = selectedAnalysisModels.includes("classifiers");
+    if (!selectedAudioModels.length && !includeClassifiers) {
       setNotice({ kind: "error", text: "Выберите хотя бы одну модель анализа" });
       return;
     }
+    if (!selectedAudioModels.length && includeClassifiers) {
+      await startClassifierJobs();
+      return;
+    }
     const limit = analysisLimit > 0 ? analysisLimit : undefined;
-    const models = [...selectedAnalysisModels];
+    const models = [...selectedAudioModels];
     const labels = models.map((model) => model.toUpperCase()).join(", ");
-    const detail = `${labels} · ${analysisDevice.toUpperCase()} · tracks ${analysisTrackBatchSize} · inference ${analysisInferenceBatchSize} · ${limit ? `limit ${limit}` : "вся библиотека"}`;
+    const startClassifiersAfterAudio = includeClassifiers && classifiers.length > 0;
+    const classifierTail = startClassifiersAfterAudio ? " · CLASSIFIERS после моделей" : "";
+    const detail = `${labels}${classifierTail} · ${analysisDevice.toUpperCase()} · tracks ${analysisTrackBatchSize} · inference ${analysisInferenceBatchSize} · ${limit ? `limit ${limit}` : "вся библиотека"}`;
     appendActivity("info", "Анализ выбранных моделей запущен", detail);
     setProcessLogKind("analysis");
     setAnalysisJob(null);
-    await run(
+    setPendingClassifierAfterAnalysis(false);
+    const job = await run(
       () => api.analysisJobStart({
         models,
         limit: limit ?? null,
@@ -566,10 +591,19 @@ export function App() {
       }),
       (job) => {
         setAnalysisJob(job);
+        if (startClassifiersAfterAudio && ["queued", "running"].includes(job.state)) {
+          setPendingClassifierAfterAnalysis(true);
+        }
+        if (includeClassifiers && !classifiers.length) {
+          appendActivity("warn", "CLASSIFIERS не запущены", "Нет promoted classifier models");
+        }
         appendActivity("ok", "Analysis job создан", `${job.job_id.slice(0, 8)} · ${job.total} треков · tracks ${job.track_batch_size} · inference ${job.inference_batch_size}`);
         return `Analysis job ${job.job_id.slice(0, 8)}: ${job.total} треков`;
       }
     );
+    if (startClassifiersAfterAudio && job?.state === "completed") {
+      await startClassifierJobs("CLASSIFIERS analysis запущен после выбранных моделей");
+    }
   }
 
   async function handleRefreshTags() {
@@ -757,11 +791,6 @@ export function App() {
           </h1>
           <div className="meta" aria-label="Library analysis summary">
             <span className="meta-badge meta-badge-total"><span>tracks</span><strong>{librarySummary.tracks}</strong></span>
-            <span className="meta-badge"><span>sonara</span><strong>{librarySummary.sonara}</strong></span>
-            <span className="meta-badge"><span>maest</span><strong>{librarySummary.maest}</strong></span>
-            <span className="meta-badge"><span>mert</span><strong>{librarySummary.mert}</strong></span>
-            <span className="meta-badge"><span>clap</span><strong>{librarySummary.clap}</strong></span>
-            <span className="meta-badge"><span>class</span><strong>{librarySummary.classifiers}</strong></span>
           </div>
         </div>
         <div className="topbar-actions">
@@ -785,6 +814,19 @@ export function App() {
           >
             <ScrollText size={16} />
           </button>
+          <button
+            className="icon-button stop-button stop-active-stage-button"
+            title="Остановить текущий scan или анализ"
+            aria-label="Остановить текущий scan или анализ"
+            disabled={busy || !stageRunning}
+            onClick={() => void handleStopActiveStage()}
+            type="button"
+          >
+            <Square size={15} />
+          </button>
+          <span className={`process-indicator ${stageRunning ? "running" : ""}`} title={stageIndicatorLabel(scanJob, analysisJob)} aria-label={stageIndicatorLabel(scanJob, analysisJob)}>
+            <RefreshCcw size={17} />
+          </span>
           <div className={`notice ${notice.kind}`}>{notice.text}</div>
         </div>
       </header>
@@ -816,10 +858,7 @@ export function App() {
           maxAnalysisInferenceBatchSize={maxAnalysisInferenceBatchSize}
           adjustAnalysisInferenceBatchSize={adjustAnalysisInferenceBatchSize}
           onAnalysisInferenceBatchSizeChange={setAnalysisInferenceBatchSize}
-          scanJob={scanJob}
-          analysisJob={analysisJob}
           helpText={helpText}
-          onStopActiveStage={() => void handleStopActiveStage()}
           onChooseFolder={() => void handleChooseFolder()}
           onScan={() => void handleScan()}
           onRefreshTags={() => void handleRefreshTags()}
@@ -829,6 +868,8 @@ export function App() {
             message: "Удалить все данные из SQLite базы: треки, анализы, эмбеддинги и текущий сет? Аудиофайлы на диске останутся.",
             onConfirm: () => handleClearDatabase()
           })}
+          classifierAvailable={classifiers.length > 0}
+          analysisCounts={analysisModelCounts}
           selectedAnalysisModels={selectedAnalysisModels}
           onToggleAnalysisModel={toggleAnalysisModel}
           onAnalyzeSelected={() => void handleAnalyzeSelected()}
@@ -836,6 +877,11 @@ export function App() {
             title: `Сбросить ${adapter.toUpperCase()}?`,
             message: `Сбросить результаты ${adapter.toUpperCase()}? Аудиофайлы не трогаем, остальные алгоритмы останутся.`,
             onConfirm: () => handleResetAnalysis(adapter)
+          })}
+          onResetClassifiers={() => requestConfirmation({
+            title: "Сбросить CLASSIFIERS?",
+            message: "Удалить сохраненные promoted classifier scores? Аудиофайлы не трогаем.",
+            onConfirm: () => handleResetClassifiers()
           })}
         />
 
@@ -852,6 +898,7 @@ export function App() {
           librarySortDirection={librarySortDirection}
           onToggleLibrarySortDirection={toggleLibrarySortDirection}
           preview={preview}
+          playingTrackId={playingTrackId}
           tracks={orderedTracks}
           total={libraryTotal}
           offset={libraryOffset}
@@ -869,7 +916,9 @@ export function App() {
           onSeed={addSeed}
           onToggleLiked={(track) => void handleToggleTrackLiked(track)}
           onTogglePlaylist={togglePlaylist}
-          onPreview={setPreview}
+          onPreview={togglePreview}
+          onPreviewPlaying={markPreviewPlaying}
+          onPreviewPaused={markPreviewPaused}
           onDetails={(track) => void handleTrackDetails(track)}
         />
 
@@ -901,15 +950,15 @@ export function App() {
           handleTextSearch={() => void handleTextSearch()}
           handleSonaraSearch={() => void handleSonaraSearch()}
           handleMertSearch={() => void handleMertSearch()}
-          handleClassifierAnalyze={() => void handleClassifierAnalyze()}
           handleResetClassifiers={() => requestConfirmation({
             title: "Сбросить CLASS?",
-            message: "Удалить сохраненные данные Break Energy и Live Instrumentation? Аудиофайлы не трогаем.",
+            message: "Удалить сохраненные promoted classifier scores? Аудиофайлы не трогаем.",
             onConfirm: () => handleResetClassifiers()
           })}
           addSeed={addSeed}
           togglePlaylist={togglePlaylist}
-          setPreview={setPreview}
+          playingTrackId={playingTrackId}
+          setPreview={togglePreview}
           setMetadataTrack={(track) => void handleTrackDetails(track)}
           removeFromPlaylist={removeFromPlaylist}
           handleExport={(format) => void handleExport(format)}

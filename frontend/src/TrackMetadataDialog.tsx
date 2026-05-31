@@ -2,7 +2,7 @@ import { X } from "lucide-react";
 import { Fragment } from "react";
 import { Track } from "./api";
 import { formatMaestGenreLabel, hasMaestSyncopatedRhythm, SYNCOPATED_RHYTHM_LABEL } from "./syncopatedRhythm";
-import { basename, displayTrack } from "./trackDisplay";
+import { basename, displayTrack, trackHasAnalysis } from "./trackDisplay";
 
 const trackTagLabels: Record<string, string> = {
   artist: "Artist",
@@ -73,6 +73,7 @@ export function TrackMetadataDialog({
   const sonaraFeatureGroups = readableSonaraFeatureGroups(track.metadata?.sonara_features);
   const sonaraFeatureCount = sonaraFeatureGroups.reduce((total, group) => total + group.features.length, 0);
   const classifierScores = readableClassifierScores(track);
+  const analysisBadges = readableAnalysisBadges(track);
   const primaryEntries = readablePrimaryTrackInfo(track);
   const metadataEntries = readableTrackTags(track.metadata);
   return (
@@ -81,6 +82,13 @@ export function TrackMetadataDialog({
         <div className="dialog-title">
           <div>
             <h2 className="metadata-track-title">{displayTrack(track)}</h2>
+            {analysisBadges.length ? (
+              <div className="analysis-badge-row">
+                {analysisBadges.map((badge) => (
+                  <span className="analysis-badge" key={badge.key}>{badge.label}</span>
+                ))}
+              </div>
+            ) : null}
           </div>
           <button className="icon-button close-metadata-dialog-button" title="Закрыть" aria-label="Закрыть" onClick={onClose}><X size={15} /></button>
         </div>
@@ -156,6 +164,16 @@ function readableClassifierScores(track: Track) {
     });
   });
   return result;
+}
+
+function readableAnalysisBadges(track: Track) {
+  const badges: Array<{ key: string; label: string }> = (["sonara", "maest", "mert", "clap"] as const)
+    .filter((model) => trackHasAnalysis(track, model))
+    .map((model) => ({ key: model, label: model.toUpperCase() }));
+  if (track.classifier_scores && Object.keys(track.classifier_scores).length) {
+    badges.push({ key: "classifiers", label: "CLASSIFIERS" });
+  }
+  return badges;
 }
 
 function readableClassifierName(key: string) {
@@ -239,7 +257,7 @@ const sonaraFeatureDescriptions: Record<string, string> = {
 const sonaraPlaylistFeatureGroups = [
   {
     title: "Core features",
-    keys: ["bpm", "beats", "onset_frames", "onset_density", "n_beats", "rms_mean", "rms_max", "loudness_lufs", "dynamic_range_db", "spectral_centroid_mean", "zero_crossing_rate", "duration_sec"]
+    keys: ["bpm", "duration_sec", "beats", "onset_frames", "onset_density", "n_beats", "rms_mean", "rms_max", "loudness_lufs", "dynamic_range_db", "spectral_centroid_mean", "zero_crossing_rate"]
   },
   {
     title: "Perceptual features (0.0 - 1.0)",
@@ -295,6 +313,7 @@ function formatFeatureLabel(key: string) {
 function formatSonaraValue(record: Record<string, unknown>, key?: string) {
   const value = record.value;
   if (record.type === "unavailable") return "-";
+  if (key === "bpm" && typeof value === "number") return value.toFixed(2);
   if (record.type === "duration" && typeof value === "number") return formatPlayerDuration(value);
   if (record.type === "ndarray" || record.storage) {
     const shape = Array.isArray(record.shape) ? record.shape.join("x") : "";

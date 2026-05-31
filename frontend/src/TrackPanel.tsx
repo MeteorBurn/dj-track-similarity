@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowDownUp, AudioWaveform, Heart, ListMusic, Plus, Search } from "lucide-react";
 import { Track } from "./api";
 import { likedTracksFilterTitle, libraryCurrentPageNumber, libraryPageCount, librarySearchModeTitle, type LibraryPreset, type LibrarySearchMode, type LibrarySortDirection } from "./libraryView";
@@ -18,6 +18,7 @@ export function TrackPanel({
   librarySortDirection,
   onToggleLibrarySortDirection,
   preview,
+  playingTrackId,
   tracks,
   total,
   offset,
@@ -36,6 +37,8 @@ export function TrackPanel({
   onToggleLiked,
   onTogglePlaylist,
   onPreview,
+  onPreviewPlaying,
+  onPreviewPaused,
   onDetails
 }: {
   query: string;
@@ -50,6 +53,7 @@ export function TrackPanel({
   librarySortDirection: LibrarySortDirection;
   onToggleLibrarySortDirection: () => void;
   preview: Track | null;
+  playingTrackId: number | null;
   tracks: Track[];
   total: number;
   offset: number;
@@ -68,12 +72,15 @@ export function TrackPanel({
   onToggleLiked: (track: Track) => void;
   onTogglePlaylist: (track: Track) => void;
   onPreview: (track: Track) => void;
+  onPreviewPlaying: (trackId: number) => void;
+  onPreviewPaused: (trackId: number) => void;
   onDetails: (track: Track) => void;
 }) {
   const pageCount = libraryPageCount(total);
   const currentPage = libraryCurrentPageNumber(total, offset);
   const syncedPageInput = currentPage ? String(currentPage) : "";
   const [pageInput, setPageInput] = useState(syncedPageInput);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const addVisibleTitle = total === 0
     ? "Нет отфильтрованных треков для добавления"
     : "Добавить все отфильтрованные треки в сет с учетом поиска, preset-фильтра и всех страниц. Уже добавленные треки будут пропущены.";
@@ -82,6 +89,16 @@ export function TrackPanel({
   useEffect(() => {
     setPageInput(syncedPageInput);
   }, [syncedPageInput]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !preview) return;
+    if (playingTrackId === preview.id) {
+      void audio.play().catch(() => undefined);
+    } else {
+      audio.pause();
+    }
+  }, [preview?.id, playingTrackId]);
 
   function submitPageInput() {
     const requestedPage = Number.parseInt(pageInput, 10);
@@ -199,12 +216,22 @@ export function TrackPanel({
       </div>
       <div className="player library-player">
         <span>{preview ? displayTrack(preview) : "Preview"}</span>
-        {preview && <audio controls autoPlay src={`/media/${preview.id}`} />}
+        {preview && (
+          <audio
+            ref={audioRef}
+            controls
+            src={`/media/${preview.id}`}
+            onPlay={() => onPreviewPlaying(preview.id)}
+            onPause={() => onPreviewPaused(preview.id)}
+            onEnded={() => onPreviewPaused(preview.id)}
+          />
+        )}
       </div>
       <TrackList
         tracks={tracks}
         seedSet={seedSet}
         playlistSet={playlistSet}
+        playingTrackId={playingTrackId}
         onSeed={onSeed}
         onToggleLiked={onToggleLiked}
         onTogglePlaylist={onTogglePlaylist}

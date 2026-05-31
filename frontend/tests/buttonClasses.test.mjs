@@ -130,9 +130,13 @@ test("analysis controls use model checkboxes and one selected-run button", () =>
 
   assert.match(source, /analysis-model-checkbox/);
   assert.match(source, /analysis-model-name/);
+  assert.match(source, /analysis-model-count/);
   assert.match(source, /analysis-model-check/);
   assert.match(source, /analyze-selected-button/);
   assert.match(source, />\s*Analyze\s*<\/button>/);
+  assert.match(source, /classifiers/);
+  assert.match(source, /CLASSIFIERS/);
+  assert.match(source, /classifiersAnalyze/);
   assert.doesNotMatch(source, /Analyze selected/);
   assert.match(source, /selectedAnalysisModels/);
   assert.doesNotMatch(source, /onSonaraAnalyze/);
@@ -144,10 +148,25 @@ test("analysis controls use model checkboxes and one selected-run button", () =>
   const resetButtonIndex = source.indexOf("analysis-reset-button");
   const batchSizeIndex = source.indexOf("Embedding batch size");
   const analyzeSelectedIndex = source.indexOf("analyze-selected-button");
+  const clapIndex = source.indexOf('"clap"');
+  const classifiersIndex = source.indexOf('"classifiers"');
 
   assert.ok(modelNameIndex < modelCheckboxIndex);
   assert.ok(modelCheckboxIndex < resetButtonIndex);
   assert.ok(batchSizeIndex < analyzeSelectedIndex);
+  assert.ok(clapIndex < classifiersIndex);
+});
+
+test("classifiers remain filter sliders but analysis moved to model selection", () => {
+  const searchSource = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
+  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+
+  assert.match(searchSource, /classifier-controls/);
+  assert.match(searchSource, /type="range"/);
+  assert.match(searchSource, /onClassifierMinScoreChange/);
+  assert.doesNotMatch(searchSource, /classifier-analyze-button/);
+  assert.match(appSource, /selectedAnalysisModels\.includes\("classifiers"\)/);
+  assert.match(appSource, /startClassifierJobs/);
 });
 
 test("analysis model reset buttons fit inside a full-width row", () => {
@@ -160,7 +179,7 @@ test("analysis model reset buttons fit inside a full-width row", () => {
   assert.doesNotMatch(source, /icon-button\s+analysis-reset-button/);
   assert.match(actionsRule, /align-self:\s*stretch/);
   assert.match(actionsRule, /width:\s*100%/);
-  assert.match(rowRule, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+36px\s+minmax\(96px,\s*max-content\)/);
+  assert.match(rowRule, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+max-content\s+36px\s+minmax\(96px,\s*max-content\)/);
   assert.match(rowRule, /width:\s*100%/);
   assert.doesNotMatch(rowRule, /82px/);
   assert.match(resetRule, /display:\s*inline-flex/);
@@ -175,6 +194,16 @@ test("frontend analysis api uses unified job endpoints only", () => {
   assert.doesNotMatch(source, /\/api\/sonara\/analyze/);
   assert.doesNotMatch(source, /\/api\/genres\/analyze/);
   assert.doesNotMatch(source, /\/api\/analyze"/);
+});
+
+test("model search default limit is ten", () => {
+  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+  const schemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "api_schemas.py"), "utf8");
+
+  assert.match(appSource, /limit:\s*10/);
+  assert.match(schemaSource, /class SearchRequest[\s\S]*limit:\s*int\s*=\s*10/);
+  assert.match(schemaSource, /class SonaraSearchRequest[\s\S]*limit:\s*int\s*=\s*Field\(default=10/);
+  assert.match(schemaSource, /class TextSearchRequest[\s\S]*limit:\s*int\s*=\s*Field\(default=10/);
 });
 
 test("analysis process status renders per-model progress", () => {
@@ -258,6 +287,18 @@ test("library search exposes an explicit LIKE and FTS segmented toggle", () => {
   assert.match(source, /onSearchModeChange\("fts"\)/);
   assert.match(styles, /\.library-search-mode-toggle\s*{/);
   assert.match(styles, /\.library-search-mode-toggle button\s*{/);
+});
+
+test("track rows do not show analysis availability inside track copy", () => {
+  const source = readFileSync(join(srcDir, "TrackRows.tsx"), "utf8");
+  const trackCopyBlocks = [...source.matchAll(/<div className="track-copy">([\s\S]*?)<\/div>/g)].map((match) => match[1]);
+
+  assert.ok(trackCopyBlocks.length >= 2);
+  for (const block of trackCopyBlocks) {
+    assert.doesNotMatch(block, /trackInfo\(track\)/);
+    assert.doesNotMatch(block, /analysisStatusLabel/);
+    assert.doesNotMatch(block, /<span>/);
+  }
 });
 
 test("library search mode active state highlights the active mode text", () => {

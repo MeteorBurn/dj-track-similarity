@@ -56,7 +56,7 @@ class SearchRequest(BaseModel):
 
     seed_track_ids: list[int]
     lookback_track_ids: list[int] = Field(default_factory=list)
-    limit: int = 5
+    limit: int = 10
     bpm_tolerance: float | None = None
     key_compatibility: str | None = None
     energy_min: float | None = None
@@ -87,7 +87,7 @@ class SonaraModifiers(BaseModel):
 class SonaraSearchRequest(BaseModel):
     seed_track_ids: list[int]
     lookback_track_ids: list[int] = Field(default_factory=list)
-    limit: int = Field(default=5, ge=1, le=500)
+    limit: int = Field(default=10, ge=1, le=500)
     mode: str = Field(default="balanced", pattern="^(balanced|vibe|sound|dj_transition|custom)$")
     min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
     mixer_weights: SonaraMixerWeights | None = None
@@ -96,7 +96,7 @@ class SonaraSearchRequest(BaseModel):
 
 class TextSearchRequest(BaseModel):
     query: str
-    limit: int = Field(default=5, ge=1, le=500)
+    limit: int = Field(default=10, ge=1, le=500)
     min_similarity: float | None = None
     device: str = Field(default="auto", pattern="^(auto|cpu|cuda)$")
 

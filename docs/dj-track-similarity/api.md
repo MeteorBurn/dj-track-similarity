@@ -126,7 +126,7 @@ candidate tracks that are missing at least one selected model.
 
 `track_batch_size` controls how many decoded tracks the job holds and processes
 together. `inference_batch_size` controls MAEST/MERT/CLAP model forward-pass
-batches. The default values are `track_batch_size=6` and
+batches. The default values are `track_batch_size=4` and
 `inference_batch_size=24`. The former single `batch_size` request field is no
 longer accepted.
 
@@ -178,6 +178,9 @@ the standard genre field.
 The frontend preview player uses `/media/{track_id}` and starts playback after a
 preview button click. AIFF/AIF responses are transcoded to temporary WAV files
 for browser compatibility and scrubbing support without rewriting source audio.
+If preview preparation fails, for example because FFmpeg rejects a malformed
+file, the endpoint returns HTTP `422` with the FFmpeg error text instead of
+raising an internal traceback.
 
 Use `/api/export` for playlist/report files. Prefer `/api/tags/genres/jobs` for
 genre writes so progress and cancellation are available; the synchronous

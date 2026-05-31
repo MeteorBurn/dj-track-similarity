@@ -55,7 +55,7 @@ Camelot.
 В multi-model задании Sonara запускается после общего per-batch decode и перед
 MAEST, MERT и CLAP. `track_batch_size` ограничивает in-memory batch
 декодированных треков, а `inference_batch_size` ограничивает forward-pass batch
-для MAEST/MERT/CLAP. Значения по умолчанию: `track_batch_size=6` и
+для MAEST/MERT/CLAP. Значения по умолчанию: `track_batch_size=4` и
 `inference_batch_size=24`. Общий decode сохраняет исходный sample rate,
 использует быстрый native mono-WAV путь, когда он сохраняет паритет с FFmpeg, и
 иначе использует FFmpeg для получения mono `float32` audio. Каждый model runner

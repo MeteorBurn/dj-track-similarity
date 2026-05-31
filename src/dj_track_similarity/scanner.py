@@ -91,7 +91,7 @@ def scan_library(db: LibraryDatabase, root: str | Path) -> ScanStats:
 
 def iter_audio_files(root: Path) -> Iterable[Path]:
     for path in sorted(root.rglob("*")):
-        if path.is_file() and path.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS:
+        if path.is_file() and path.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS and not path.name.startswith("._"):
             yield path
 
 

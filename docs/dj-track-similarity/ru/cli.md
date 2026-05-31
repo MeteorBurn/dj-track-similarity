@@ -101,7 +101,7 @@ added=<n> updated=<n> unchanged=<n> skipped=<n>
 ```
 
 `scan` читает метаданные аудио и пишет только в SQLite. Он не изменяет
-аудиофайлы.
+аудиофайлы. AppleDouble resource-fork файлы вроде `._track.aiff` пропускаются.
 
 Используйте эту команду первой для новой базы данных и запускайте её повторно
 после добавления файлов в музыкальную папку. Существующий анализ сохраняется для
@@ -154,7 +154,7 @@ scripts\run_server.cmd
 задании. По умолчанию выбраны все четыре аудиомодели.
 
 ```powershell
-dj-sim analyze --models sonara,maest,mert,clap --device auto --track-batch-size 6 --inference-batch-size 24 --limit 25 --db .\data\library.sqlite
+dj-sim analyze --models sonara,maest,mert,clap --device auto --track-batch-size 4 --inference-batch-size 24 --limit 25 --db .\data\library.sqlite
 ```
 
 Использование:
@@ -172,7 +172,7 @@ dj-sim analyze [OPTIONS]
 | `--models` | comma-separated text | `sonara,maest,mert,clap` | Выбранные модели: `sonara`, `maest`, `mert`, `clap`. |
 | `--device` | text | `auto` | Устройство MAEST/MERT/CLAP: `auto`, `cpu` или `cuda`. |
 | `--top-k` | integer `1..10` | `3` | Число жанровых меток MAEST, сохраняемых для трека. |
-| `--track-batch-size` | integer `1..64` | `6` | Число декодированных треков, удерживаемых и обрабатываемых вместе. |
+| `--track-batch-size` | integer `1..64` | `4` | Число декодированных треков, удерживаемых и обрабатываемых вместе. |
 | `--inference-batch-size` | integer `1..128` | `24` | Размер батча инференса MAEST/MERT/CLAP. |
 | `--diagnostics` | flag | off | Записывать диагностику резервного декодера и таймингов пакетов в файловый лог. |
 | `--help` | flag | off | Показать справку. |
@@ -182,7 +182,7 @@ dj-sim analyze [OPTIONS]
 ```powershell
 dj-sim analyze --db .\data\library.sqlite
 dj-sim analyze --models maest,mert --device cpu --track-batch-size 2 --inference-batch-size 4 --db .\data\library.sqlite
-dj-sim analyze --models clap --device cuda --track-batch-size 6 --inference-batch-size 24 --db .\data\library.sqlite
+dj-sim analyze --models clap --device cuda --track-batch-size 4 --inference-batch-size 24 --db .\data\library.sqlite
 ```
 
 Вывод:

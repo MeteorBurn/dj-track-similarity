@@ -508,6 +508,25 @@ def test_media_endpoint_transcodes_aiff_preview_to_browser_playable_wav(monkeypa
     ]]
 
 
+def test_media_endpoint_reports_preview_transcode_failure_without_traceback(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    track_id = _add_track(db, tmp_path, "broken.aiff", "Artist", "Broken", {})
+
+    def fail_run(command: list[str], *, stderr: int, check: bool) -> subprocess.CompletedProcess[str]:
+        raise subprocess.CalledProcessError(3199971767, command, stderr=b"Invalid data found when processing input")
+
+    monkeypatch.setattr(api_module, "require_ffmpeg", lambda: "ffmpeg-test")
+    monkeypatch.setattr(media_preview_module.subprocess, "run", fail_run)
+
+    response = TestClient(create_app(db_path), raise_server_exceptions=False).get(f"/media/{track_id}")
+
+    assert response.status_code == 422
+    assert "Audio preview failed" in response.json()["detail"]
+    assert "Invalid data found when processing input" in response.json()["detail"]
+    assert "Traceback" not in response.text
+
+
 def _add_track(
     db: LibraryDatabase,
     tmp_path: Path,

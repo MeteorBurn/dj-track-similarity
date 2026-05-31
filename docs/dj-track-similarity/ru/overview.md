@@ -120,6 +120,9 @@ DJ-библиотеки.
 .aif, .aiff, .alac, .flac, .m4a, .mp3, .ogg, .opus, .wav, .wave
 ```
 
+AppleDouble resource-fork файлы вроде `._track.aiff` пропускаются, даже если
+их расширение выглядит как поддерживаемое аудио.
+
 Repair helper поддерживает более широкий diagnostic set, потому что проверяет
 несоответствия контейнера и codec для большего числа форматов. См.
 [Восстановление метаданных](scripts/repair-audio-metadata.md) для

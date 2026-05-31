@@ -221,7 +221,9 @@ export function TrackPanel({
             ref={audioRef}
             controls
             src={`/media/${preview.id}`}
-            onPlay={() => onPreviewPlaying(preview.id)}
+            onPlay={() => {
+              if (playingTrackId === preview.id) onPreviewPlaying(preview.id);
+            }}
             onPause={() => onPreviewPaused(preview.id)}
             onEnded={() => onPreviewPaused(preview.id)}
           />

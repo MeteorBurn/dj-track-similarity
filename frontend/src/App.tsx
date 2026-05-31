@@ -2,7 +2,7 @@ import type { MouseEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { Moon, RefreshCcw, ScrollText, Square, Sun } from "lucide-react";
 import { AnalysisJobStatus, AnalysisModel, api, GenreTagJobStatus, PromotedClassifier, ScanStats, Track } from "./api";
-import { defaultAnalysisSelections, isAudioAnalysisModel, type AnalysisSelection } from "./analysisSelection";
+import { analysisSelectionOrder, defaultAnalysisSelections, isAudioAnalysisModel, type AnalysisSelection } from "./analysisSelection";
 import type { ConfirmationRequest } from "./confirmation";
 import { ConfirmationDialog, LogFrameDialog } from "./dialogs";
 import { exportDirectoryError } from "./exportView";
@@ -25,7 +25,7 @@ type DeviceMode = "auto" | "cpu" | "cuda";
 type ResetAdapter = AnalysisModel;
 
 const defaultNotice: Notice = { kind: "idle", text: "Готово к работе" };
-const analysisModelOrder = defaultAnalysisSelections;
+const analysisModelOrder = analysisSelectionOrder;
 
 function optimalWorkerLimit() {
   const cores = typeof navigator === "undefined" ? 4 : navigator.hardwareConcurrency || 4;
@@ -106,7 +106,7 @@ export function App() {
   const [processLogKind, setProcessLogKind] = useState<"scan" | "analysis" | "genre_tags">("scan");
   const [analysisLimit, setAnalysisLimit] = useState(0);
   const [scanWorkers, setScanWorkers] = useState(4);
-  const [analysisTrackBatchSize, setAnalysisTrackBatchSize] = useState(6);
+  const [analysisTrackBatchSize, setAnalysisTrackBatchSize] = useState(4);
   const [analysisInferenceBatchSize, setAnalysisInferenceBatchSize] = useState(24);
   const [analysisDevice, setAnalysisDevice] = useState<DeviceMode>("auto");
   const [selectedAnalysisModels, setSelectedAnalysisModels] = useState<AnalysisSelection[]>(analysisModelOrder);
@@ -863,7 +863,6 @@ export function App() {
             message: "Удалить все данные из SQLite базы: треки, анализы, эмбеддинги и текущий сет? Аудиофайлы на диске останутся.",
             onConfirm: () => handleClearDatabase()
           })}
-          classifierAvailable={classifiers.length > 0}
           analysisCounts={analysisModelCounts}
           selectedAnalysisModels={selectedAnalysisModels}
           onToggleAnalysisModel={toggleAnalysisModel}

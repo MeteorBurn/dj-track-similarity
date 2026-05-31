@@ -17,7 +17,7 @@ class _FakeStatus:
     current_model = None
     model_progress = {}
     device = "cpu"
-    track_batch_size = 6
+    track_batch_size = 4
     inference_batch_size = 24
     top_k = 3
     avg_seconds_per_track = 0.5
@@ -137,7 +137,7 @@ def test_analyze_cli_accepts_selected_models_and_diagnostics_flag(monkeypatch, t
     assert result.exit_code == 0
     assert "Starting maest,mert analysis" in result.output
     assert _FakeAnalysisManager.last_kwargs["models"] == ["maest", "mert"]
-    assert _FakeAnalysisManager.last_kwargs["track_batch_size"] == 6
+    assert _FakeAnalysisManager.last_kwargs["track_batch_size"] == 4
     assert _FakeAnalysisManager.last_kwargs["inference_batch_size"] == 24
 
 

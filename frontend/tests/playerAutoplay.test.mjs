@@ -17,6 +17,13 @@ test("library preview audio is controlled by explicit play state", () => {
   assert.match(previewAudio, /onPause=/);
 });
 
+test("preview audio play events cannot re-enable a paused track", () => {
+  const source = readFileSync(trackPanelPath, "utf8");
+  const previewAudio = source.match(/<audio\b[\s\S]*?src=\{`\/media\/\$\{preview\.id\}`\}[\s\S]*?\/>/)?.[0] || "";
+
+  assert.match(previewAudio, /onPlay=\{\(\) => \{\s*if \(playingTrackId === preview\.id\) onPreviewPlaying\(preview\.id\);\s*}}/);
+});
+
 test("track preview buttons toggle between play and pause icons", () => {
   const rowsSource = readFileSync(trackRowsPath, "utf8");
   const hookSource = readFileSync(searchHookPath, "utf8");

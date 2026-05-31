@@ -52,7 +52,7 @@ In the multi-model job, Sonara runs after the shared per-batch decode step and
 before MAEST, MERT, and CLAP. `track_batch_size` caps the in-memory decoded
 track batch, while `inference_batch_size` caps MAEST/MERT/CLAP model forward
 passes. The defaults are tuned for the verified local RTX 3090/32 GB setup:
-`track_batch_size=6` and `inference_batch_size=24`. The shared decode keeps
+`track_batch_size=4` and `inference_batch_size=24`. The shared decode keeps
 source sample rate, uses a native mono-WAV fast path when it can preserve FFmpeg
 parity, and otherwise uses FFmpeg to produce mono `float32` audio. Each model
 runner then resamples to its own required rate.

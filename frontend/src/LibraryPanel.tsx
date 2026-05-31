@@ -1,9 +1,9 @@
 import { Cpu, Database, FolderOpen, Minus, Play, Plus, RefreshCcw, Save, Trash2 } from "lucide-react";
 import { AnalysisModel } from "./api";
-import type { AnalysisSelection } from "./analysisSelection";
+import { analysisSelectionOrder, type AnalysisSelection } from "./analysisSelection";
 
 type DeviceMode = "auto" | "cpu" | "cuda";
-const analysisModelOrder: AnalysisSelection[] = ["sonara", "maest", "mert", "clap", "classifiers"];
+const analysisModelOrder = analysisSelectionOrder;
 
 type LibraryHelpText = {
   databasePath: string;
@@ -63,7 +63,6 @@ export function LibraryPanel({
   onRefreshTags,
   onWriteMaestGenres,
   onClearDatabase,
-  classifierAvailable,
   analysisCounts,
   selectedAnalysisModels,
   onToggleAnalysisModel,
@@ -102,7 +101,6 @@ export function LibraryPanel({
   onRefreshTags: () => void;
   onWriteMaestGenres: () => void;
   onClearDatabase: () => void;
-  classifierAvailable: boolean;
   analysisCounts: Record<AnalysisSelection, number>;
   selectedAnalysisModels: AnalysisSelection[];
   onToggleAnalysisModel: (model: AnalysisSelection) => void;
@@ -179,13 +177,13 @@ export function LibraryPanel({
                   className="analysis-model-checkbox"
                   type="checkbox"
                   checked={selectedAnalysisModels.includes(model)}
-                  disabled={busy || stageRunning || (isClassifiers && !classifierAvailable)}
+                  disabled={busy || stageRunning}
                   onChange={() => onToggleAnalysisModel(model)}
                 />
               </label>
               <button
                 className={`analysis-reset-button ${model}-reset-button`}
-                disabled={analysisDisabled || (isClassifiers && !classifierAvailable)}
+                disabled={analysisDisabled}
                 title={`Reset ${label}`}
                 aria-label={`Reset ${label}`}
                 onClick={() => {

@@ -200,6 +200,21 @@ def test_scan_library_indexes_supported_audio_files_and_skips_unchanged(tmp_path
     assert all(track.size > 0 for track in tracks)
 
 
+def test_scan_library_skips_appledouble_resource_fork_audio_names(tmp_path: Path) -> None:
+    music_root = tmp_path / "music"
+    music_root.mkdir()
+    audio = music_root / "01. Lampetee.aiff"
+    resource_fork = music_root / "._01. Lampetee.aiff"
+    audio.write_bytes(b"FORM\x00\x00\x00\x04AIFF")
+    resource_fork.write_bytes(b"not an audio stream")
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+
+    stats = scan_library(db, music_root)
+
+    assert stats.added == 1
+    assert [Path(track.path).name for track in db.list_tracks()] == ["01. Lampetee.aiff"]
+
+
 def test_read_audio_metadata_skips_tag_keys_that_mutagen_rejects(monkeypatch, tmp_path: Path) -> None:
     class RejectingTags(dict):
         def __contains__(self, key: object) -> bool:

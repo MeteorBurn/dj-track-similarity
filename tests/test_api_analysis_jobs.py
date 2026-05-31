@@ -13,7 +13,7 @@ class SynchronousAnalysisManager:
     def __init__(self, db):
         self.db = db
 
-    def start(self, *, models=None, limit=None, device="auto", top_k=3, track_batch_size=6, inference_batch_size=24):
+    def start(self, *, models=None, limit=None, device="auto", top_k=3, track_batch_size=4, inference_batch_size=24):
         type(self).last_request = {
             "models": models,
             "limit": limit,
@@ -46,7 +46,7 @@ class SynchronousAnalysisManager:
         return payload
 
 
-def _status(models, *, track_batch_size=6, inference_batch_size=24, device="cpu", top_k=3):
+def _status(models, *, track_batch_size=4, inference_batch_size=24, device="cpu", top_k=3):
     return {
         "job_id": "job-1",
         "state": "completed",
@@ -127,7 +127,7 @@ def test_api_defaults_multi_model_analysis_to_all_models(monkeypatch, tmp_path: 
     assert response.status_code == 200
     assert response.json()["models"] == ["sonara", "maest", "mert", "clap"]
     assert SynchronousAnalysisManager.last_request["models"] == ["sonara", "maest", "mert", "clap"]
-    assert SynchronousAnalysisManager.last_request["track_batch_size"] == 6
+    assert SynchronousAnalysisManager.last_request["track_batch_size"] == 4
     assert SynchronousAnalysisManager.last_request["inference_batch_size"] == 24
 
 
@@ -139,7 +139,7 @@ def test_real_analysis_job_status_does_not_emit_legacy_batch_size(tmp_path: Path
     assert response.status_code == 200
     payload = response.json()
     assert "batch_size" not in payload
-    assert payload["track_batch_size"] == 6
+    assert payload["track_batch_size"] == 4
     assert payload["inference_batch_size"] == 24
 
 

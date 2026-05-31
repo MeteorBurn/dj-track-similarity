@@ -200,6 +200,8 @@ test("ui class names describe responsibility instead of visual priority", () => 
 test("classifiers remain filter sliders but analysis moved to model selection", () => {
   const searchSource = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+  const selectionSource = readFileSync(join(srcDir, "analysisSelection.ts"), "utf8");
+  const librarySource = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
 
   assert.match(searchSource, /classifier-controls/);
   assert.match(searchSource, /type="range"/);
@@ -207,6 +209,20 @@ test("classifiers remain filter sliders but analysis moved to model selection", 
   assert.doesNotMatch(searchSource, /classifier-analyze-button/);
   assert.match(appSource, /selectedAnalysisModels\.includes\("classifiers"\)/);
   assert.match(appSource, /startClassifierJobs/);
+  assert.match(selectionSource, /analysisSelectionOrder[\s\S]*"classifiers"/);
+  assert.match(appSource, /analysisSelectionOrder/);
+  assert.match(librarySource, /analysisSelectionOrder/);
+  assert.equal(librarySource.includes("classifier" + "Available"), false);
+});
+
+test("analysis controls default to four decoded tracks per batch", () => {
+  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+  const apiSource = readFileSync(join(srcDir, "api.ts"), "utf8");
+  const schemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "analysis_config.py"), "utf8");
+
+  assert.match(appSource, /analysisTrackBatchSize,\s*setAnalysisTrackBatchSize\]\s*=\s*useState\(4\)/);
+  assert.match(apiSource, /track_batch_size:\s*payload\.track_batch_size\s*\?\?\s*4/);
+  assert.match(schemaSource, /DEFAULT_ANALYSIS_TRACK_BATCH_SIZE\s*=\s*4/);
 });
 
 test("analysis model reset buttons fit inside a full-width row", () => {

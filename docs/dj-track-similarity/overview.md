@@ -114,6 +114,9 @@ The main scanner currently indexes these extensions:
 .aif, .aiff, .alac, .flac, .m4a, .mp3, .ogg, .opus, .wav, .wave
 ```
 
+AppleDouble resource-fork files such as `._track.aiff` are skipped even when
+their suffix looks like supported audio.
+
 The repair helper supports a broader diagnostic set because it checks container
 and codec mismatches for more formats. See
 [Metadata Repair](scripts/repair-audio-metadata.md) for that workflow.

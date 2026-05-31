@@ -288,7 +288,7 @@ export const api = {
         limit: payload.limit ?? null,
         device: payload.device ?? "auto",
         top_k: payload.top_k ?? 3,
-        track_batch_size: payload.track_batch_size ?? 6,
+        track_batch_size: payload.track_batch_size ?? 4,
         inference_batch_size: payload.inference_batch_size ?? 24
       })
     }),

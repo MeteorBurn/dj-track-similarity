@@ -1,6 +1,6 @@
 import { Cpu, Database, FolderOpen, Minus, Play, Plus, RefreshCcw, Save, Square, Trash2 } from "lucide-react";
-import { AnalysisJobStatus, AnalysisModel, GenreTagJobStatus, ScanStats } from "./api";
-import { ActivityEvent, stageIndicatorLabel, UnifiedLog } from "./jobUi";
+import { AnalysisJobStatus, AnalysisModel, ScanStats } from "./api";
+import { stageIndicatorLabel } from "./jobUi";
 
 type DeviceMode = "auto" | "cpu" | "cuda";
 const analysisModelOrder: AnalysisModel[] = ["sonara", "maest", "mert", "clap"];
@@ -50,11 +50,8 @@ export function LibraryPanel({
   maxAnalysisBatchSize,
   adjustAnalysisBatchSize,
   onAnalysisBatchSizeChange,
-  processLogKind,
   scanJob,
   analysisJob,
-  genreTagJob,
-  activityLog,
   helpText,
   onStopActiveStage,
   onChooseFolder,
@@ -88,11 +85,8 @@ export function LibraryPanel({
   maxAnalysisBatchSize: number;
   adjustAnalysisBatchSize: (delta: number) => void;
   onAnalysisBatchSizeChange: (value: number) => void;
-  processLogKind: "scan" | "analysis" | "genre_tags";
   scanJob: ScanStats | null;
   analysisJob: AnalysisJobStatus | null;
-  genreTagJob: GenreTagJobStatus | null;
-  activityLog: ActivityEvent[];
   helpText: LibraryHelpText;
   onStopActiveStage: () => void;
   onChooseFolder: () => void;
@@ -238,13 +232,6 @@ export function LibraryPanel({
         <Play size={15} />
         Analyze selected
       </button>
-      <UnifiedLog
-        processKind={processLogKind}
-        scanJob={scanJob}
-        analysisJob={analysisJob}
-        genreTagJob={genreTagJob}
-        events={activityLog}
-      />
     </aside>
   );
 }

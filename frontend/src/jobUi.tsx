@@ -17,17 +17,19 @@ export function UnifiedLog({
   scanJob,
   analysisJob,
   genreTagJob,
-  events
+  events,
+  className = ""
 }: {
   processKind: "scan" | "analysis" | "genre_tags";
   scanJob: ScanStats | null;
   analysisJob: AnalysisJobStatus | null;
   genreTagJob: GenreTagJobStatus | null;
   events: ActivityEvent[];
+  className?: string;
 }) {
   const mergedEvents = unifiedLogEvents(scanJob, analysisJob, genreTagJob, events);
   return (
-    <section className="log-panel">
+    <section className={`log-panel ${className}`.trim()}>
       <div className="log-title">
         <span>Лог</span>
         <span>{mergedEvents.length}</span>

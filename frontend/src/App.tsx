@@ -1,9 +1,10 @@
 import type { MouseEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ScrollText, X } from "lucide-react";
 import { AnalysisJobStatus, AnalysisModel, api, GenreTagJobStatus, LibrarySummary, PromotedClassifier, ScanStats, SearchResult, Track } from "./api";
 import type { ConfirmationRequest } from "./confirmation";
 import { exportDirectoryError } from "./exportView";
-import { ActivityEvent, analysisJobRequest, cancelAnalysisJob, scanSummary } from "./jobUi";
+import { ActivityEvent, analysisJobRequest, cancelAnalysisJob, scanSummary, UnifiedLog } from "./jobUi";
 import { LibraryPanel } from "./LibraryPanel";
 import {
   appendVisibleTracksToPlaylist,
@@ -112,6 +113,7 @@ export function App() {
   const [analysisDevice, setAnalysisDevice] = useState<DeviceMode>("auto");
   const [selectedAnalysisModels, setSelectedAnalysisModels] = useState<AnalysisModel[]>(analysisModelOrder);
   const [notice, setNotice] = useState<Notice>(defaultNotice);
+  const [logFrameOpen, setLogFrameOpen] = useState(false);
   const [confirmation, setConfirmation] = useState<ConfirmationRequest | null>(null);
   const [activityLog, setActivityLog] = useState<ActivityEvent[]>([
     { id: 1, time: Date.now(), level: "info", message: "Интерфейс загружен" }
@@ -148,6 +150,13 @@ export function App() {
   const genreTagRunning = Boolean(genreTagJob && ["queued", "running"].includes(genreTagJob.state));
   const stageRunning = scanRunning || analysisRunning || genreTagRunning;
   const hasTracks = librarySummary.tracks > 0;
+  const logHasErrors = useMemo(() => {
+    const hasErrorEvent = activityLog.some((event) => event.level === "error")
+      || (scanJob?.events || []).some((event) => event.level === "error")
+      || (analysisJob?.events || []).some((event) => event.level === "error")
+      || (genreTagJob?.events || []).some((event) => event.level === "error");
+    return hasErrorEvent || Boolean(analysisJob?.errors.length) || Boolean(genreTagJob?.errors.length);
+  }, [activityLog, analysisJob, genreTagJob, scanJob]);
   const canGoBack = libraryOffset > 0 && !libraryLoading;
   const canGoForward = libraryOffset + tracks.length < libraryTotal && !libraryLoading;
   const canStartScan = Boolean(databasePath && musicRoot);
@@ -868,6 +877,16 @@ export function App() {
           </div>
         </div>
         <div className="topbar-actions">
+          <button
+            className={`icon-button log-frame-button ${logFrameOpen ? "active" : ""} ${logHasErrors ? "has-errors" : ""}`}
+            title="Открыть лог"
+            aria-label="Открыть лог"
+            aria-pressed={logFrameOpen}
+            onClick={() => setLogFrameOpen(true)}
+            type="button"
+          >
+            <ScrollText size={16} />
+          </button>
           <div className={`notice ${notice.kind}`}>{notice.text}</div>
         </div>
       </header>
@@ -895,11 +914,8 @@ export function App() {
           maxAnalysisBatchSize={maxAnalysisBatchSize}
           adjustAnalysisBatchSize={adjustAnalysisBatchSize}
           onAnalysisBatchSizeChange={setAnalysisBatchSize}
-          processLogKind={processLogKind}
           scanJob={scanJob}
           analysisJob={analysisJob}
-          genreTagJob={genreTagJob}
-          activityLog={activityLog}
           helpText={helpText}
           onStopActiveStage={() => void handleStopActiveStage()}
           onChooseFolder={() => void handleChooseFolder()}
@@ -1003,8 +1019,68 @@ export function App() {
           onCancel={() => setConfirmation(null)}
         />
       )}
+      {logFrameOpen && (
+        <LogFrameDialog
+          processLogKind={processLogKind}
+          scanJob={scanJob}
+          analysisJob={analysisJob}
+          genreTagJob={genreTagJob}
+          activityLog={activityLog}
+          onClose={() => setLogFrameOpen(false)}
+        />
+      )}
       <TooltipLayer tooltip={tooltip} />
     </main>
+  );
+}
+
+function LogFrameDialog({
+  processLogKind,
+  scanJob,
+  analysisJob,
+  genreTagJob,
+  activityLog,
+  onClose
+}: {
+  processLogKind: "scan" | "analysis" | "genre_tags";
+  scanJob: ScanStats | null;
+  analysisJob: AnalysisJobStatus | null;
+  genreTagJob: GenreTagJobStatus | null;
+  activityLog: ActivityEvent[];
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="log-frame-backdrop" onClick={onClose}>
+      <section className="log-frame-dialog" role="dialog" aria-modal="true" aria-labelledby="log-frame-title" onClick={(event) => event.stopPropagation()}>
+        <div className="dialog-title log-frame-title">
+          <div>
+            <h2 id="log-frame-title">Лог</h2>
+            <span>События интерфейса, сканирования, анализа и записи жанров</span>
+          </div>
+          <button className="icon-button close-log-frame-button" title="Закрыть лог" aria-label="Закрыть лог" onClick={onClose} type="button">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="log-frame-content">
+          <UnifiedLog
+            processKind={processLogKind}
+            scanJob={scanJob}
+            analysisJob={analysisJob}
+            genreTagJob={genreTagJob}
+            events={activityLog}
+            className="log-frame-panel"
+          />
+        </div>
+      </section>
+    </div>
   );
 }
 

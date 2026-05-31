@@ -133,7 +133,8 @@ longer accepted.
 The analysis job skips selected-model results that already exist. Its top-level
 status uses `total`, `processed`, `analyzed`, `failed`, and `skipped` for
 track-level counters. `model_progress` keeps per-model counters for model-level
-writes and failures.
+writes and failures. Status responses expose `track_batch_size` and
+`inference_batch_size`; the legacy response field `batch_size` is not emitted.
 `current_model` identifies which selected model is currently running. Empty
 search results often mean the required Sonara features, MERT embeddings, or
 CLAP embeddings are missing for the candidate tracks.

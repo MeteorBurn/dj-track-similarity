@@ -278,7 +278,7 @@ def test_multi_model_track_batch_and_inference_batch_are_independent(tmp_path: P
 
     assert status.track_batch_size == 2
     assert status.inference_batch_size == 9
-    assert status.batch_size == 2
+    assert not hasattr(status, "batch_size")
     assert status.workers == 2
     assert created == [("mert", "cpu", 9, 5)]
     assert runners["mert"].calls == [["a.wav", "b.wav"], ["c.wav", "d.wav"], ["e.wav"]]

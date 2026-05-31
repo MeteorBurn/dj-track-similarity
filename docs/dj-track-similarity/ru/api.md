@@ -135,6 +135,8 @@ MAEST/MERT/CLAP. Значения по умолчанию: `track_batch_size=6` 
 Analysis job пропускает результаты выбранных моделей, которые уже существуют.
 Top-level status использует `total`, `processed`, `analyzed`, `failed` и
 `skipped` как track-level counters. `model_progress` хранит per-model counters.
+Status responses отдают `track_batch_size` и `inference_batch_size`; legacy
+response field `batch_size` больше не выводится.
 `current_model` показывает, какая выбранная модель выполняется сейчас. Пустые
 результаты поиска часто означают, что у кандидатов отсутствуют нужные признаки
 Sonara, embeddings MERT или embeddings CLAP.

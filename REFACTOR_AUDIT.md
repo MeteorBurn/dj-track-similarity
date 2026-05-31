@@ -30,5 +30,4 @@ is `C:\db\abstracted.sqlite`; no schema or field changes are approved here.
 
 | Candidate | Decision |
 | --- | --- |
-| `batch_size` compatibility fields in job statuses | Keep for now because frontend `jobUi.tsx` still reads `job.batch_size` as a display fallback and backend/API tests cover the field. Remove only after a focused UI/API contract update. |
 | Current API/CLI negative tests for removed routes/options | Keep as safety guards. |

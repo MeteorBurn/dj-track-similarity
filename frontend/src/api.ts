@@ -131,7 +131,6 @@ export type AnalysisJobStatus = {
   events: Array<{ timestamp: number; level: string; message: string; path?: string | null; track_id?: number | null; model?: string | null }>;
   cancel_requested: boolean;
   workers: number;
-  batch_size: number;
   track_batch_size?: number;
   inference_batch_size?: number;
   top_k?: number;

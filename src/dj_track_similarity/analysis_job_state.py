@@ -66,7 +66,6 @@ class AnalysisJobStatus:
     events: list[AnalysisLogEvent] = field(default_factory=list)
     cancel_requested: bool = False
     workers: int = DEFAULT_ANALYSIS_TRACK_BATCH_SIZE
-    batch_size: int = DEFAULT_ANALYSIS_TRACK_BATCH_SIZE
     track_batch_size: int = DEFAULT_ANALYSIS_TRACK_BATCH_SIZE
     inference_batch_size: int = DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE
     top_k: int = 3
@@ -172,7 +171,6 @@ def copy_analysis_status(status: AnalysisJobStatus) -> AnalysisJobStatus:
         events=list(status.events),
         cancel_requested=status.cancel_requested,
         workers=status.workers,
-        batch_size=status.batch_size,
         track_batch_size=status.track_batch_size,
         inference_batch_size=status.inference_batch_size,
         top_k=status.top_k,

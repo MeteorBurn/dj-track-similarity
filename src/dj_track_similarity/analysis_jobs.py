@@ -111,7 +111,6 @@ class AnalysisJobManager:
             total=len(tracks),
             device_requested=device,
             workers=effective_track_batch_size,
-            batch_size=effective_track_batch_size,
             track_batch_size=effective_track_batch_size,
             inference_batch_size=effective_inference_batch_size,
             top_k=max(1, int(top_k)),

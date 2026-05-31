@@ -17,7 +17,6 @@ class _FakeStatus:
     current_model = None
     model_progress = {}
     device = "cpu"
-    batch_size = 6
     track_batch_size = 6
     inference_batch_size = 24
     top_k = 3
@@ -33,7 +32,6 @@ class _FakeAnalysisManager:
     def create_job(self, **_kwargs):
         type(self).last_kwargs = _kwargs
         if "track_batch_size" in _kwargs:
-            self.status.batch_size = _kwargs["track_batch_size"]
             self.status.track_batch_size = _kwargs["track_batch_size"]
         if "inference_batch_size" in _kwargs:
             self.status.inference_batch_size = _kwargs["inference_batch_size"]

@@ -16,7 +16,11 @@ The backend package lives in `src/dj_track_similarity/`.
 - `db_schema.py` defines the current SQLite schema and validation.
 - `scanner.py` scans folders and reads Mutagen metadata.
 - `scan_jobs.py`, `analysis_jobs.py`, `classifier_jobs.py`, and `tags.py`
-  manage cancellable jobs and status objects.
+  manage cancellable jobs and status objects. Multi-model analysis internals
+  are split further: `analysis_job_state.py` owns progress/status accounting,
+  `analysis_job_batch.py` owns per-batch decode preparation, and
+  `analysis_model_runners.py` owns Sonara, MAEST, MERT, and CLAP runner
+  adapters.
 - `audio_loader.py` provides shared native-first audio loading.
 - `sonara_features.py` extracts the focused Sonara playlist feature set.
 - `sonara_similarity.py` and `sonara_similarity_scoring.py` rank Sonara

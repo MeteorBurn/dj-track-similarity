@@ -27,16 +27,17 @@ paginated browser, and it can be combined with text search, the syncopated
 preset, classifier score filters, and add-filtered-tracks. The library controls
 include an explicit `LIKE` / `FTS` search-mode toggle. `LIKE` is the default
 substring search across artist, title, album, path, and metadata. `FTS` uses
-the token-based SQLite FTS5 index and is faster for broad text queries, but it
-does not match arbitrary substrings inside one token. The add-filtered-tracks
-workflow uses the selected search mode. The library controls also include a
-sort-direction button that reverses the currently loaded page in the browser
-without changing the backend query or stored database order. Pagination
-controls sit on the left side of the library controls after the filter buttons.
-The right side shows the total count for the current library view followed by
-sort-direction and add-visible-tracks controls. The total count and page
-counter reflect the active text search, search mode, preset, liked filter, and
-classifier score filters.
+the token-based SQLite FTS5 index. It can count or narrow token matches much
+faster, but it does not match arbitrary substrings inside one token and very
+common tokens can still spend noticeable time sorting the first page by library
+order. The add-filtered-tracks workflow uses the selected search mode. The
+library controls also include a sort-direction button that reverses the
+currently loaded page in the browser without changing the backend query or
+stored database order. Pagination controls sit on the left side of the library
+controls after the filter buttons. The right side shows the total count for the
+current library view followed by sort-direction and add-visible-tracks controls.
+The total count and page counter reflect the active text search, search mode,
+preset, liked filter, and classifier score filters.
 
 The CLASS tab contains classifier controls discovered from promoted
 `models/classifiers/*/model.json` metadata. Each promoted classifier can be

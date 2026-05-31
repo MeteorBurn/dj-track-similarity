@@ -64,8 +64,10 @@ classifier scores.
 
 The `q` search parameter keeps substring `LIKE` behavior by default. Pass
 `search_mode=fts` to use the explicit token-based FTS5 index instead. FTS is
-faster on broad text queries but does not match arbitrary substrings inside a
-token.
+token-based: it does not match arbitrary substrings inside a token. It is
+usually much faster for counting or narrowing token matches, but the paged
+track response still sorts results by library order, so first-page latency can
+vary for very common terms.
 
 Use `/api/tracks` for paged browsing and `/api/tracks/{track_id}` only when a
 full metadata dialog needs one track. This keeps large libraries responsive.

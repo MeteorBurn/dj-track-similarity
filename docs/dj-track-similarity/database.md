@@ -50,6 +50,12 @@ Stores one row per indexed audio file:
 `metadata_json` must be valid JSON. The schema has triggers to reject invalid
 JSON on insert or update.
 
+The v3 schema includes partial indexes for both missing and present analysis
+flags. These indexes are used by library summary counters and by analyzer
+candidate selection, so running analysis on a mostly complete large library
+does not need to scan the full `tracks` table to find the small set of missing
+SONARA, MAEST, MERT, or CLAP rows.
+
 Use this table to answer "what tracks are in the library?" and "what metadata
 or analysis summaries does the UI show for a row?" The `path` is the link back
 to the local audio file; relocation updates that stored path only when the same
@@ -125,10 +131,12 @@ Stores a derived FTS5 index for explicit token-based library search:
   text.
 
 The default library search still uses substring `LIKE` semantics. FTS is used
-only when the caller explicitly requests `search_mode=fts`. Scan/upsert,
-RefreshTags, MAEST genre saves, Sonara metadata saves, resets that edit metadata,
-library relocation, and clear-library operations maintain the FTS rows in the
-same SQLite write transaction as the related `tracks` update.
+only when the caller explicitly requests `search_mode=fts`. FTS token matching
+can make broad count and filter work much cheaper, but sorted first pages can
+still be dominated by the library-order sort when the token is very common.
+Scan/upsert, RefreshTags, MAEST genre saves, Sonara metadata saves, resets that
+edit metadata, library relocation, and clear-library operations maintain the FTS
+rows in the same SQLite write transaction as the related `tracks` update.
 
 ## Metadata and Analysis Data
 

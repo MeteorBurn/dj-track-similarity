@@ -29,9 +29,7 @@ dj-track-similarity.sqlite
 | --- | --- |
 | Добавить или обновить треки из папки | `dj-sim scan` |
 | Запустить локальный сервер веб-интерфейса/API | `dj-sim serve` |
-| Построить embedding'и MERT или CLAP | `dj-sim analyze` |
-| Построить объяснимые признаки Sonara | `dj-sim analyze-sonara` |
-| Предсказать жанры MAEST и embedding'и MAEST | `dj-sim analyze-genres` |
+| Построить анализ SONARA, MAEST, MERT и/или CLAP | `dj-sim analyze` |
 | Оценить продвинутый классификатор Rhythm Lab | `dj-sim analyze-classifier` |
 | Искать по текстовому запросу CLAP | `dj-sim text-search` |
 | Обновить сохранённые пути после перемещения библиотеки | `dj-sim relocate-library` |
@@ -52,9 +50,8 @@ dj-sim [OPTIONS] COMMAND [ARGS]...
 | `--help` | Показать справку. |
 
 > Примечание: `--db` не является опцией уровня приложения. Она повторяется в
-> каждой команде, которая читает или пишет базу данных. Три команды анализа на
-> основе заданий (`analyze`, `analyze-sonara`, `analyze-genres`) отображают
-> живой индикатор прогресса; команды `scan`, `relocate-library`,
+> каждой команде, которая читает или пишет базу данных. Команда `analyze`
+> отображает живой индикатор прогресса; команды `scan`, `relocate-library`,
 > `analyze-classifier`, `text-search`, `doctor` и `serve` выводят только
 > обычный текст.
 
@@ -64,8 +61,6 @@ dj-sim [OPTIONS] COMMAND [ARGS]...
 scan
 relocate-library
 analyze
-analyze-genres
-analyze-sonara
 analyze-classifier
 doctor
 text-search
@@ -155,10 +150,11 @@ scripts\run_server.cmd
 
 ### `dj-sim analyze`
 
-Строит отсутствующие embedding'и MERT или CLAP.
+Анализирует отсутствующие результаты SONARA, MAEST, MERT и/или CLAP в одном
+задании. По умолчанию выбраны все четыре аудиомодели.
 
 ```powershell
-dj-sim analyze --adapter mert --device auto --batch-size 4 --limit 25 --db .\data\library.sqlite
+dj-sim analyze --models sonara,maest,mert,clap --device auto --track-batch-size 6 --inference-batch-size 24 --limit 25 --db .\data\library.sqlite
 ```
 
 Использование:
@@ -172,109 +168,47 @@ dj-sim analyze [OPTIONS]
 | Опция | Тип | По умолчанию | Описание |
 | --- | --- | --- | --- |
 | `--db` | path | `dj-track-similarity.sqlite` | Путь к базе данных SQLite. |
-| `--limit` | integer | none | Максимальное число отсутствующих embedding'ов для анализа. |
-| `--adapter` | text | `mert` | Адаптер embedding'ов: `mert` или `clap`. |
-| `--device` | text | `auto` | Устройство для embedding'ов: `auto`, `cpu` или `cuda`. |
-| `--batch-size` | integer `1..64` | `4` | Размер пакета инференса embedding'ов. |
+| `--limit` | integer | none | Максимальное число треков-кандидатов для анализа. |
+| `--models` | comma-separated text | `sonara,maest,mert,clap` | Выбранные модели: `sonara`, `maest`, `mert`, `clap`. |
+| `--device` | text | `auto` | Устройство MAEST/MERT/CLAP: `auto`, `cpu` или `cuda`. |
+| `--top-k` | integer `1..10` | `3` | Число жанровых меток MAEST, сохраняемых для трека. |
+| `--track-batch-size` | integer `1..64` | `6` | Число декодированных треков, удерживаемых и обрабатываемых вместе. |
+| `--inference-batch-size` | integer `1..128` | `24` | Размер батча инференса MAEST/MERT/CLAP. |
 | `--diagnostics` | flag | off | Записывать диагностику резервного декодера и таймингов пакетов в файловый лог. |
 | `--help` | flag | off | Показать справку. |
 
 Примеры:
 
 ```powershell
-dj-sim analyze --adapter mert --device cpu --batch-size 2 --db .\data\library.sqlite
-dj-sim analyze --adapter clap --device cuda --batch-size 8 --db .\data\library.sqlite
+dj-sim analyze --db .\data\library.sqlite
+dj-sim analyze --models maest,mert --device cpu --track-batch-size 2 --inference-batch-size 4 --db .\data\library.sqlite
+dj-sim analyze --models clap --device cuda --track-batch-size 6 --inference-batch-size 24 --db .\data\library.sqlite
 ```
 
 Вывод:
 
 ```text
 [########################] 100.0% processed=<n>/<n> analyzed=<n> failed=<n> <rate> tracks/s eta=<time>
-state=<state> total=<n> processed=<n> analyzed=<n> failed=<n> embedding_key=<key> device=<device> batch_size=<n>
+state=<state> total=<n> processed=<n> analyzed=<n> failed=<n> models=<models> device=<device> top_k=<n> track_batch_size=<n> inference_batch_size=<n>
 ```
+
+`processed`, `analyzed` и `failed` — это счётчики на уровне треков. Подробные
+счётчики по моделям доступны в статусе web/API `model_progress`.
 
 `auto` выбирает CUDA, когда PyTorch видит GPU, иначе CPU. Явный `cuda`
 завершается ошибкой, если CUDA недоступна.
 
-Используйте `--adapter mert` для поиска похожести по seed-трекам. Используйте
-`--adapter clap`, когда нужен текстовый поиск CLAP. Если нужен только объяснимый
-поиск по признакам, запустите вместо этого `analyze-sonara`.
+Трек попадает в задание, если у него отсутствует хотя бы одна выбранная модель.
+Уже существующие результаты выбранных моделей пропускаются. Трек декодируется
+один раз на in-memory batch, затем недостающие выбранные модели запускаются в
+порядке SONARA, MAEST, MERT, CLAP.
 
-### `dj-sim analyze-sonara`
-
-Извлекает отсутствующие playlist-признаки Sonara.
-
-```powershell
-dj-sim analyze-sonara --batch-size 4 --limit 25 --db .\data\library.sqlite
-```
-
-Использование:
-
-```text
-dj-sim analyze-sonara [OPTIONS]
-```
-
-Опции:
-
-| Опция | Тип | По умолчанию | Описание |
-| --- | --- | --- | --- |
-| `--db` | path | `dj-track-similarity.sqlite` | Путь к базе данных SQLite. |
-| `--limit` | integer | none | Максимальное число треков без признаков Sonara для анализа. |
-| `--batch-size` | integer `1..64` | `1` | Число параллельных воркеров обработки треков Sonara. |
-| `--diagnostics` | flag | off | Записывать диагностику таймингов анализа в файловый лог. |
-| `--help` | flag | off | Показать справку. |
-
-Вывод:
-
-```text
-[########################] 100.0% processed=<n>/<n> analyzed=<n> failed=<n> <rate> tracks/s eta=<time>
-state=<state> total=<n> processed=<n> analyzed=<n> failed=<n> batch_size=<n>
-```
-
-Для Sonara `batch-size` означает число параллельных воркеров обработки треков.
-
-Используйте эту команду, когда нужны вкладка поиска SONARA, видимые группы
-признаков или поля уровня библиотеки, такие как проанализированные BPM,
-тональность, энергия, танцевальность и громкость.
-
-### `dj-sim analyze-genres`
-
-Извлекает отсутствующие жанровые метки MAEST.
-
-```powershell
-dj-sim analyze-genres --device auto --top-k 3 --batch-size 4 --limit 25 --db .\data\library.sqlite
-```
-
-Использование:
-
-```text
-dj-sim analyze-genres [OPTIONS]
-```
-
-Опции:
-
-| Опция | Тип | По умолчанию | Описание |
-| --- | --- | --- | --- |
-| `--db` | path | `dj-track-similarity.sqlite` | Путь к базе данных SQLite. |
-| `--limit` | integer | none | Максимальное число треков без жанров MAEST для анализа. |
-| `--device` | text | `auto` | Устройство MAEST: `auto`, `cpu` или `cuda`. |
-| `--top-k` | integer `1..10` | `3` | Число жанровых меток MAEST, сохраняемых для трека. |
-| `--batch-size` | integer `1..64` | `4` | Размер пакета инференса MAEST. |
-| `--diagnostics` | flag | off | Записывать диагностику резервного декодера и таймингов пакетов в файловый лог. |
-| `--help` | flag | off | Показать справку. |
-
-Вывод:
-
-```text
-[########################] 100.0% processed=<n>/<n> analyzed=<n> failed=<n> <rate> tracks/s eta=<time>
-state=<state> total=<n> processed=<n> analyzed=<n> failed=<n> embedding_key=maest device=<device> top_k=<n> batch_size=<n>
-```
-
-Анализ MAEST записывает в SQLite жанровые метаданные и вектор embedding'а MAEST.
-
-Используйте эту команду перед просмотром сгенерированных жанров, использованием
-пресета `syncopated` или обучением/оценкой комбинированных профилей
-классификаторов. Сама по себе она не записывает жанровые теги в аудиофайлы.
+Используйте `--models sonara` для вкладки поиска SONARA и видимых групп
+признаков. Используйте `--models maest` перед просмотром сгенерированных жанров,
+пресетом `syncopated` или combined-классификаторами. Используйте `--models mert`
+для seed-track similarity и `--models clap` перед текстовым поиском CLAP.
+MAEST анализ записывает в SQLite жанровые метаданные и embedding, но сам по себе
+не записывает жанровые теги в аудиофайлы.
 
 ### `dj-sim analyze-classifier`
 
@@ -308,9 +242,9 @@ classifier=live_instrumentation scored=<n> skipped=<n> model=<path>
 
 Команда читает существующие данные SONARA, MERT и MAEST. Треки, у которых
 отсутствует какой-либо обязательный вход, пропускаются. Оценки записываются
-(upsert) в `track_classifier_scores`. В отличие от трёх команд-заданий
-`analyze*`, оценка классификатора выполняется синхронно и печатает одну итоговую
-строку вместо живого индикатора прогресса.
+(upsert) в `track_classifier_scores`. В отличие от `dj-sim analyze`, оценка
+классификатора выполняется синхронно и печатает одну итоговую строку вместо
+живого индикатора прогресса.
 
 Используйте эту команду после продвижения модели из Rhythm Lab. Если
 пропускается много треков, сначала выполните для них анализ Sonara, MERT и MAEST.

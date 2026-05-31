@@ -274,6 +274,17 @@ test("non-destructive sonara mixer reset does not request confirmation", () => {
   assert.doesNotMatch(resetBody, /onConfirmAction|ConfirmationRequest/);
 });
 
+test("class search tab only shows classifier threshold controls", () => {
+  const source = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
+  const classPanel = source.match(/\{activeSearchTab === "class" && \(([\s\S]*?)\n        \)\}/)?.[1] || "";
+
+  assert.match(classPanel, /classifier-controls/);
+  assert.match(classPanel, /type="range"/);
+  assert.doesNotMatch(classPanel, /classifier-action-row/);
+  assert.doesNotMatch(classPanel, /classifier-reset-button/);
+  assert.doesNotMatch(classPanel, />\s*Reset\s*</);
+});
+
 test("documentation title click opens the docs in a separate window", () => {
   const source = readFileSync(join(srcDir, "App.tsx"), "utf8");
   const headerLink = source.match(/<a\b[\s\S]*?>\s*DJ Track Similarity\s*<\/a>/)?.[0] || "";

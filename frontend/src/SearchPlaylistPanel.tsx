@@ -62,7 +62,6 @@ export function SearchPlaylistPanel({
   handleTextSearch,
   handleSonaraSearch,
   handleMertSearch,
-  handleResetClassifiers,
   addSeed,
   togglePlaylist,
   playingTrackId,
@@ -96,7 +95,6 @@ export function SearchPlaylistPanel({
   handleTextSearch: () => void;
   handleSonaraSearch: () => void;
   handleMertSearch: () => void;
-  handleResetClassifiers: () => void;
   addSeed: (track: Track) => void;
   togglePlaylist: (track: Track) => void;
   playingTrackId: number | null;
@@ -302,12 +300,6 @@ export function SearchPlaylistPanel({
               {classifierJob && classifierJob.failed > 0 ? (
                 <span className="classifier-job-status">failed {classifierJob.failed}</span>
               ) : null}
-            </div>
-            <div className="classifier-action-row">
-              <button className="analysis-reset-button classifier-reset-button" disabled={busy || classifiers.length === 0} onClick={handleResetClassifiers} title="Reset promoted classifier scores" aria-label="Reset promoted classifier scores">
-                Reset
-                <Trash2 size={14} />
-              </button>
             </div>
           </div>
         )}

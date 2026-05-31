@@ -950,11 +950,6 @@ export function App() {
           handleTextSearch={() => void handleTextSearch()}
           handleSonaraSearch={() => void handleSonaraSearch()}
           handleMertSearch={() => void handleMertSearch()}
-          handleResetClassifiers={() => requestConfirmation({
-            title: "Сбросить CLASS?",
-            message: "Удалить сохраненные promoted classifier scores? Аудиофайлы не трогаем.",
-            onConfirm: () => handleResetClassifiers()
-          })}
           addSeed={addSeed}
           togglePlaylist={togglePlaylist}
           playingTrackId={playingTrackId}

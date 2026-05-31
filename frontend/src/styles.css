@@ -728,23 +728,6 @@ h2 {
   color: var(--danger-deep-text);
 }
 
-.classifier-action-row {
-  display: flex;
-  gap: 6px;
-  justify-content: flex-end;
-}
-
-.classifier-action-row .analysis-reset-button {
-  margin-bottom: 8px;
-  min-height: 34px;
-  padding: 7px 10px;
-}
-
-.classifier-reset-button {
-  min-width: 82px;
-  width: auto;
-}
-
 .confirmation-cancel-button,
 .library-page-previous-button,
 .library-page-next-button,

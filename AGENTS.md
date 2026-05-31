@@ -147,6 +147,13 @@ branches, or history are available.
 - Search UI stays split into SONARA, MERT, and CLAP tabs. SONARA sends custom
   mixer/modifiers to `/api/search/sonara`; MERT seed search uses `/api/search`;
   CLAP text search uses `/api/search/text` and requires `clap` embeddings.
+- SONARA search should read analyzed tracks through
+  `LibraryDatabase.load_sonara_feature_rows()` so repeated searches reuse parsed
+  feature rows. Keep this cache behavior-preserving: do not change scoring math,
+  feature ranges, or result ordering as part of cache/performance work.
+- Invalidate the SONARA feature-row cache whenever track rows, stored metadata,
+  SONARA features, resets, clears, or relocation updates can affect search
+  results.
 - The search/listening panel also has a CLASS tab for classifier controls. It
   discovers promoted local classifier profiles from
   `models/classifiers/*/model.json`. Keep generated classifier assets
@@ -234,8 +241,8 @@ changes:
 ## Code Map
 
 - `src/dj_track_similarity/database.py`: SQLite schema access, path-scoped write
-  serialization, track rows, summaries, embeddings, analysis metadata,
-  relocation, resets, and clear.
+  serialization, track rows, summaries, embeddings, analysis metadata, search
+  caches, relocation, resets, and clear.
 - `src/dj_track_similarity/scanner.py`: supported audio discovery and Mutagen
   metadata extraction.
 - `src/dj_track_similarity/audio_loader.py`: shared standard decoder path.
@@ -250,8 +257,8 @@ changes:
   predictions, feature matrices, training artifacts, and the standalone lab UI.
 - `scripts/audio_dedup/audio_dedup.py`: duplicate-audio candidate reporting and
   explicit confirmed `--apply` cleanup from an existing library database.
-- `src/dj_track_similarity/search.py`, `sonara_similarity.py`: embedding and
-  Sonara search.
+- `src/dj_track_similarity/search.py`, `sonara_similarity.py`: embedding search
+  and Sonara search over cached feature rows.
 - `src/dj_track_similarity/tags.py`, `wave_tags.py`: MAEST-to-standard-genre
   writes and guarded WAV handling.
 - `src/dj_track_similarity/api.py`, `cli.py`: FastAPI and Typer entrypoints.

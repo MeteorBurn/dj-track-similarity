@@ -28,6 +28,8 @@ else who collects, tags, or plays music will find the approach useful too.
   and track inspection.
 - Builds MERT audio embeddings for audio-to-audio similarity search.
 - Builds CLAP audio embeddings for text-to-audio search.
+- Caches stored embedding matrices and parsed SONARA feature rows in memory so
+  repeated interactive searches avoid reloading the same SQLite data.
 - Extracts MAEST genre labels and stores them in the local SQLite database.
 - Scores promoted classifier profiles using existing SONARA, MERT, and MAEST
   analysis data.
@@ -51,6 +53,9 @@ SONARA seed search is the primary explainable search path in the UI. MERT is
 available as a separate seed-search tab, and CLAP is available for text-to-audio
 search after CLAP audio embeddings have been analyzed. MAEST genre analysis is
 available for local genre inspection and optional explicit genre tag writing.
+Repeated SONARA, MERT, and CLAP searches reuse cached in-memory representations
+of stored analysis data where possible; this is a performance detail and should
+not change result scoring.
 The CLASS tab lists promoted classifier profiles after their models have been
 promoted from the auxiliary Rhythm Lab tool into
 `models/classifiers/<artifact-prefix>/model.joblib`. Rhythm Lab lives under
@@ -174,8 +179,9 @@ order:
    enough labeled examples and hard negatives.
 9. `MERT model upgrade` - add a heavier MERT model option after the current
    pipeline is stable.
-10. `Scale improvements` - add an ANN index or cached embedding matrix for
-   larger libraries.
+10. `Scale improvements` - add ANN indexes or other persistent search
+   structures for larger libraries after the current exact-search paths are
+   calibrated.
 
 ## Development
 

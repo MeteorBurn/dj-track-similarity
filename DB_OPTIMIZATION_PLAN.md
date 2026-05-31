@@ -6,6 +6,14 @@ read-only performance checks against `C:\db\abstracted.sqlite`.
 No schema, index, table, or field change is implemented in this branch unless it
 is explicitly approved in a later step.
 
+Latest schema-aware research is documented in
+`DB_SCHEMA_OPTIMIZATION_RESEARCH.md`. The original `track_analysis_state`
+proposal was tested on a copied database and should not be the first
+performance migration: it backfills correctly, but is slower than current
+queries for missing-analysis selection on the current library. The revised
+schema candidate is core-analysis presence flags on `tracks` plus partial
+indexes, after a no-schema classifier-filter query rewrite.
+
 ## Goals
 
 - Keep library browsing, summary counters, search, and missing-analysis
@@ -23,6 +31,9 @@ is explicitly approved in a later step.
 | Library page | Single-digit milliseconds in read-only smoke. |
 | Old combined missing-analysis selection | Around 715 ms in the first read-only baseline. |
 | Two-phase lean missing-analysis selection | Around 108 ms in read-only smoke after using per-model candidate ID queries plus lean candidate rows. |
+| Classifier-filtered library page | Around 300 ms with the current correlated subquery shape; rewritten to start from `track_classifier_scores`, it measured around 0.1 ms on a copied DB. |
+| Core-analysis flag prototype | Missing MAEST/MERT/CLAP/Sonara ids measured around 0.02 ms with `tracks.has_*` flags and partial missing-sort indexes on a copied DB. |
+| `track_analysis_state` prototype | Backfilled exactly, but missing-analysis selectors measured around 72-75 ms and were slower than the existing or flag-based paths. |
 
 ## No-Schema Hot-Path Checkpoint
 
@@ -77,14 +88,22 @@ These require approval before implementation, but have low data-model risk:
 | Composite indexes for classifier-filtered library pages | CLASS filters can combine score thresholds with sorted track pages. | Add targeted indexes after measuring `EXPLAIN QUERY PLAN` on real filter combinations. |
 | FTS5 index for text library search | Current text search uses LIKE-style matching across track fields and metadata-derived text. | Add virtual table plus rebuild trigger or explicit rebuild helper. Needs fallback decision if SQLite build lacks FTS5. |
 
-## Approval-Ready Schema Proposal
+## Deprecated First Schema Proposal
 
-This proposal is prepared for review only. It is not implemented in this branch.
+This proposal is kept for historical context only. It is not implemented in this
+branch and should not be the next performance migration.
 
 ### Proposal A: `track_analysis_state`
 
 Purpose: make missing/stale analysis selection, summary counters, and reset
 checks independent from repeated JSON and `EXISTS` probes.
+
+Research result: source/state backfill counts matched on a copied
+`C:\db\abstracted.sqlite`, but missing-analysis selection stayed an anti-join
+from sorted `tracks` and measured slower than both current queries and the
+prototype `tracks.has_*` partial-index approach. Revisit this table only for
+centralized source freshness or state history, not as the first speed-focused
+migration.
 
 Proposed schema version: `3`.
 
@@ -175,17 +194,23 @@ Start with one migration version, not many small incompatible migrations:
 
 1. Create a copy of `C:\db\abstracted.sqlite` and run all migration tests on the
    copy only.
-2. Add `track_analysis_state` and backfill it from:
-   - `metadata_json.sonara_features`
-   - `metadata_json.maest_genres`
-   - `embeddings.embedding_key`
-   - `track_classifier_scores`
-3. Update writes/resets to maintain `track_analysis_state` in the same
-   transaction as existing metadata/embedding writes.
-4. Move analyzer candidate selection and summary counters to
-   `track_analysis_state`.
-5. Add perf tests comparing old read-only queries against the migrated copy.
-6. Only after that, consider `track_genres` or FTS/search materialization.
+2. Before changing schema, implement the no-schema classifier-filter query
+   rewrite so library pages can use `idx_classifier_scores_lookup`.
+3. If schema changes are approved, add core-analysis presence flags to `tracks`:
+   - `has_sonara_analysis`
+   - `has_maest_embedding`
+   - `has_mert_embedding`
+   - `has_clap_embedding`
+4. Backfill those flags from `metadata_json.sonara_features` and
+   `embeddings.embedding_key`.
+5. Add partial missing-sort indexes and present-count indexes for those flags.
+6. Update writes/resets to maintain the flags in the same transaction as
+   existing metadata/embedding writes.
+7. Move analyzer candidate selection and summary counters to the new flag
+   selectors.
+8. Add perf tests comparing old read-only queries against the migrated copy.
+9. Only after that, consider FTS/search materialization, `track_genres`, or a
+   state/freshness table.
 
 ## Approval Gates
 

@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from dj_track_similarity.classifier_jobs import ClassifierJobManager
-from dj_track_similarity.classifier_scoring import analyze_classifier, default_classifier_model_path
+from dj_track_similarity.classifier_scoring import _embedding_vectors, analyze_classifier, default_classifier_model_path
 from dj_track_similarity.database import LibraryDatabase
 
 
@@ -209,6 +209,17 @@ def test_default_classifier_model_path_points_to_profile_classifier_asset() -> N
     assert default_classifier_model_path("live_instrumentation").as_posix().endswith(
         "models/classifiers/live-instrumentation/model.joblib"
     )
+
+
+def test_classifier_embedding_vector_map_reuses_cached_matrix_rows(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = _track(db, tmp_path, "one.wav")
+    db.save_embedding(track_id, np.asarray([1.0, 2.0], dtype=np.float32), "mert-test", embedding_key="mert")
+    _, matrix = db.load_embedding_matrix("mert")
+
+    vectors = _embedding_vectors(db, "mert")
+
+    assert np.shares_memory(vectors[track_id], matrix)
 
 
 def _track(db: LibraryDatabase, tmp_path: Path, filename: str, title: str | None = None) -> int:

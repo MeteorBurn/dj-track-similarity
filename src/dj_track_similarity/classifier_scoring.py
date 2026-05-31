@@ -214,7 +214,7 @@ def _vector_value(vector: np.ndarray, index_text: str) -> float:
 
 def _embedding_vectors(db: LibraryDatabase, embedding_key: str) -> dict[int, np.ndarray]:
     tracks, matrix = db.load_embedding_matrix(embedding_key)
-    return {track.id: matrix[index].astype(np.float32, copy=True) for index, track in enumerate(tracks)}
+    return {track.id: matrix[index].astype(np.float32, copy=False) for index, track in enumerate(tracks)}
 
 
 def _predict_probabilities(model: object, matrix: np.ndarray, label_order: list[str]) -> list[dict[str, float]]:

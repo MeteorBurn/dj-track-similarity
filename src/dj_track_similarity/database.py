@@ -343,10 +343,9 @@ class LibraryDatabase:
                 ).fetchall()
                 for row in rows:
                     candidate_ids[int(row["id"])] = None
-        if not candidate_ids:
-            return []
-        candidates: list[AnalysisCandidate] = []
-        with self.connect() as connection:
+            if not candidate_ids:
+                return []
+            candidates: list[AnalysisCandidate] = []
             for ids in chunk_ids(tuple(candidate_ids), 500):
                 placeholders = ", ".join("?" for _ in ids)
                 rows = connection.execute(

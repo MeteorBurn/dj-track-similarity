@@ -329,6 +329,25 @@ def test_database_lists_lean_analysis_candidates_with_missing_models(tmp_path: P
     ]
 
 
+def test_database_lists_analysis_candidates_with_one_read_connection(tmp_path: Path) -> None:
+    class CountingDatabase(LibraryDatabase):
+        connect_calls = 0
+
+        def connect(self):
+            self.connect_calls += 1
+            return super().connect()
+
+    db = CountingDatabase(tmp_path / "library.sqlite")
+    db.upsert_track(path=tmp_path / "a-missing-mert.wav", size=10, mtime=1, metadata={"title": "A"})
+    db.upsert_track(path=tmp_path / "b-missing-sonara.wav", size=10, mtime=1, metadata={"title": "B"})
+    db.connect_calls = 0
+
+    candidates = db.list_analysis_candidates(["sonara", "mert"], limit=10)
+
+    assert len(candidates) == 2
+    assert db.connect_calls == 1
+
+
 def test_database_reset_rejects_removed_fake_adapter(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
 

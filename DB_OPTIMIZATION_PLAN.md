@@ -24,6 +24,20 @@ is explicitly approved in a later step.
 | Old combined missing-analysis selection | Around 715 ms in the first read-only baseline. |
 | Two-phase lean missing-analysis selection | Around 108 ms in read-only smoke after using per-model candidate ID queries plus lean candidate rows. |
 
+## No-Schema Hot-Path Checkpoint
+
+Implemented in the current refactor branch without changing `db_schema.py`,
+`CURRENT_SCHEMA_VERSION`, indexes, tables, or fields:
+
+- `LibraryDatabase.list_analysis_candidates()` now uses one read connection for
+  the candidate ID pass and lean candidate row hydration. This removes one
+  SQLite open/close cycle from every analysis job creation while preserving the
+  existing two-phase query shape.
+- Classifier scoring now maps cached embedding matrix rows as NumPy views
+  instead of copying every vector into a separate array. This keeps the current
+  `load_embedding_matrix()` cache contract and reduces memory churn for promoted
+  classifier jobs that need MERT and MAEST matrices.
+
 ## Phase 1: No Schema Changes
 
 These can continue immediately:
@@ -62,6 +76,85 @@ These require approval before implementation, but have low data-model risk:
 | Additional partial indexes for analyzer candidate selection | Current indexes cover Sonara and MAEST JSON presence, but MERT/CLAP missing selection depends on embeddings lookups. Validate whether current `(embedding_key, track_id)` plus PK is enough before adding. | `CREATE INDEX IF NOT EXISTS`, schema version bump only if project policy requires tracking index additions. |
 | Composite indexes for classifier-filtered library pages | CLASS filters can combine score thresholds with sorted track pages. | Add targeted indexes after measuring `EXPLAIN QUERY PLAN` on real filter combinations. |
 | FTS5 index for text library search | Current text search uses LIKE-style matching across track fields and metadata-derived text. | Add virtual table plus rebuild trigger or explicit rebuild helper. Needs fallback decision if SQLite build lacks FTS5. |
+
+## Approval-Ready Schema Proposal
+
+This proposal is prepared for review only. It is not implemented in this branch.
+
+### Proposal A: `track_analysis_state`
+
+Purpose: make missing/stale analysis selection, summary counters, and reset
+checks independent from repeated JSON and `EXISTS` probes.
+
+Proposed schema version: `3`.
+
+Proposed table:
+
+```sql
+CREATE TABLE track_analysis_state (
+    track_id INTEGER NOT NULL,
+    analysis_key TEXT NOT NULL,
+    model_name TEXT,
+    source_size INTEGER NOT NULL,
+    source_mtime REAL NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(track_id, analysis_key),
+    FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_track_analysis_state_key_track
+ON track_analysis_state(analysis_key, track_id);
+```
+
+Backfill sources:
+
+- `sonara`: rows where `json_type(tracks.metadata_json, '$.sonara_features') IS
+  NOT NULL`; `model_name` from `metadata_json.sonara_model`.
+- `maest`: rows from `embeddings.embedding_key = 'maest'`; `model_name` from
+  `embeddings.model_name`.
+- `mert`: rows from `embeddings.embedding_key = 'mert'`; `model_name` from
+  `embeddings.model_name`.
+- `clap`: rows from `embeddings.embedding_key = 'clap'`; `model_name` from
+  `embeddings.model_name`.
+- Promoted classifiers: rows from `track_classifier_scores`; `analysis_key`
+  stored as `classifier:<classifier>`, `model_name` from `model_id`.
+
+Write-path maintenance if approved:
+
+- `save_sonara_features()`, `save_genres()`, and `save_embedding()` upsert the
+  matching state row in the same write transaction as the existing data write.
+- `save_classifier_score()` upserts `classifier:<classifier>`.
+- `reset_analysis()`, `reset_classifier_scores()`, `clear_library()`, and
+  track deletion remove the matching state rows.
+- Scan/upsert can compare `source_size` and `source_mtime` to mark stale state
+  in one place instead of repeating stale logic per analysis family.
+
+Query replacements if approved:
+
+- `list_analysis_candidates()` becomes an anti-join from `tracks` to
+  `track_analysis_state` for each selected `analysis_key`.
+- `library_summary()` can count `analysis_key` groups from
+  `track_analysis_state` and keep `liked` from `track_likes`.
+- Classifier job candidate selection can choose between "missing score" and
+  "feature-complete missing score" explicitly rather than discovering missing
+  MERT/MAEST/Sonara inputs during scoring.
+
+Rollback strategy:
+
+- Run migration only on a copy of `C:\db\abstracted.sqlite` first.
+- Because this table is derived state, rollback is `DROP TABLE
+  track_analysis_state; PRAGMA user_version = 2;` on the copied DB.
+- The original `tracks`, `embeddings`, and `track_classifier_scores` remain the
+  source of truth until the migrated copy passes correctness and performance
+  checks.
+
+Approval request should include:
+
+- The exact migration SQL and Python migration guard.
+- Backfill verification counts for `sonara`, `maest`, `mert`, `clap`, and each
+  promoted classifier.
+- Read-only before/after timings for `list_analysis_candidates()` and
+  `/api/library/summary` on the copied database.
 
 ## Phase 3: New Tables Or Columns
 

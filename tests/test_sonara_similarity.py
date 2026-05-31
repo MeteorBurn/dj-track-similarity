@@ -104,16 +104,15 @@ def test_sonara_search_ignores_camelot_key_and_excludes_missing_features(tmp_pat
     assert missing not in {result.track.id for result in results}
 
 
-def test_seed_and_lookback_build_shared_centroid(tmp_path: Path) -> None:
+def test_sonara_search_uses_only_seed_tracks_as_context(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     seed = _add_sonara_track(db, "seed.wav", {"energy": 1.0, "danceability": 0.2, "valence": 0.2, "acousticness": 0.0})
-    lookback = _add_sonara_track(db, "lookback.wav", {"energy": 0.2, "danceability": 1.0, "valence": 0.2, "acousticness": 0.0})
     bridge = _add_sonara_track(db, "bridge.wav", {"energy": 0.6, "danceability": 0.6, "valence": 0.22, "acousticness": 0.02})
     seed_clone = _add_sonara_track(db, "seed-clone.wav", {"energy": 1.0, "danceability": 0.2, "valence": 0.2, "acousticness": 0.0})
 
-    results = SonaraSimilaritySearch(db).search([seed], lookback_track_ids=[lookback], mode="vibe", limit=5)
+    results = SonaraSimilaritySearch(db).search([seed], mode="vibe", limit=5)
 
-    assert [result.track.id for result in results[:2]] == [bridge, seed_clone]
+    assert [result.track.id for result in results[:2]] == [seed_clone, bridge]
 
 
 def test_custom_mixer_can_prioritize_rhythm_texture_over_dynamics(tmp_path: Path) -> None:

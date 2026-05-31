@@ -77,16 +77,15 @@ def test_search_epsilon_keeps_only_candidates_near_the_best_score(tmp_path: Path
     assert far not in {result.track.id for result in results}
 
 
-def test_search_uses_lookback_tracks_as_additional_context(tmp_path: Path) -> None:
+def test_search_uses_only_seed_tracks_as_context(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     seed = _add_track(db, "seed.wav", [1.0, 0.0, 0.0])
-    lookback = _add_track(db, "lookback.wav", [0.0, 1.0, 0.0])
     bridge = _add_track(db, "bridge.wav", [0.7, 0.7, 0.0])
     seed_clone = _add_track(db, "seed-clone.wav", [1.0, 0.0, 0.0])
 
-    results = SimilaritySearch(db).search([seed], lookback_track_ids=[lookback], limit=10)
+    results = SimilaritySearch(db).search([seed], limit=10)
 
-    assert [result.track.id for result in results[:2]] == [bridge, seed_clone]
+    assert [result.track.id for result in results[:2]] == [seed_clone, bridge]
 
 
 def test_search_noise_changes_near_tie_ranking_but_keeps_similarity_scores(tmp_path: Path) -> None:

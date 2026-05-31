@@ -9,7 +9,6 @@ const playlistPageSize = 200;
 
 export type SearchFiltersState = {
   minSimilarity: number;
-  lookback: number;
   limit: number;
   sonaraMixer: SonaraMixerWeights;
   sonaraModifiers: SonaraModifiers;
@@ -18,7 +17,6 @@ export type SearchFiltersState = {
 type SearchHelpText = {
   textPrompt: string;
   similarity: string;
-  lookback: string;
   limit: string;
   sonaraMixerTimbre: string;
   sonaraMixerRhythm: string;
@@ -224,7 +222,6 @@ export function SearchPlaylistPanel({
             </div>
             <div className="search-filter-grid">
               <label title={helpText.similarity}>Similarity<input type="number" value={filters.minSimilarity} min={0} max={1} step={0.01} title={helpText.similarity} onChange={(event) => setFilters({ ...filters, minSimilarity: Number(event.target.value) })} /></label>
-              <label title={helpText.lookback}>Lookback<input type="number" value={filters.lookback} min={0} max={12} title={helpText.lookback} onChange={(event) => setFilters({ ...filters, lookback: Number(event.target.value) })} /></label>
               <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => setFilters({ ...filters, limit: Number(event.target.value) })} /></label>
             </div>
             <button className="sonara-search-button" title="Найти похожие треки через SONARA по выбранным seed-трекам" disabled={busy || !seeds.length} onClick={handleSonaraSearch}>
@@ -237,7 +234,6 @@ export function SearchPlaylistPanel({
           <div className="search-tab-panel" role="tabpanel">
             <div className="search-filter-grid">
               <label title={helpText.similarity}>Similarity<input type="number" value={filters.minSimilarity} min={0} max={1} step={0.01} title={helpText.similarity} onChange={(event) => setFilters({ ...filters, minSimilarity: Number(event.target.value) })} /></label>
-              <label title={helpText.lookback}>Lookback<input type="number" value={filters.lookback} min={0} max={12} title={helpText.lookback} onChange={(event) => setFilters({ ...filters, lookback: Number(event.target.value) })} /></label>
               <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => setFilters({ ...filters, limit: Number(event.target.value) })} /></label>
             </div>
             <button className="mert-search-button" title="Найти похожие треки через MERT по выбранным seed-трекам" disabled={busy || !seeds.length} onClick={handleMertSearch}>

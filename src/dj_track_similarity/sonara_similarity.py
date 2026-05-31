@@ -30,7 +30,6 @@ class SonaraSimilaritySearch:
         self,
         seed_track_ids: list[int],
         *,
-        lookback_track_ids: list[int] | None = None,
         mode: SonaraSearchMode = "balanced",
         mixer_weights: dict[str, float] | None = None,
         modifiers: dict[str, float] | None = None,
@@ -42,17 +41,16 @@ class SonaraSimilaritySearch:
         if mode not in {"balanced", "vibe", "sound", "dj_transition", "custom"}:
             raise ValueError(f"Unsupported SONARA search mode: {mode}")
 
-        lookback_track_ids = lookback_track_ids or []
         all_tracks = self.db.list_tracks()
-        context_ids = set(seed_track_ids) | set(lookback_track_ids)
+        context_ids = set(seed_track_ids)
         existing_ids = {track.id for track in all_tracks}
-        unknown = [track_id for track_id in list(seed_track_ids) + list(lookback_track_ids) if track_id not in existing_ids]
+        unknown = [track_id for track_id in seed_track_ids if track_id not in existing_ids]
         if unknown:
             raise ValueError(f"Unknown context tracks: {unknown}")
 
         tracks = [ComparableTrack(track, features) for track in all_tracks if (features := sonara_features(track))]
         track_by_id = {item.track.id: item for item in tracks}
-        missing = [track_id for track_id in list(seed_track_ids) + list(lookback_track_ids) if track_id not in track_by_id]
+        missing = [track_id for track_id in seed_track_ids if track_id not in track_by_id]
         if missing:
             raise ValueError(f"Context tracks missing SONARA features: {missing}")
         if not tracks:

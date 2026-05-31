@@ -118,7 +118,6 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [filters, setFilters] = useState({
     minSimilarity: 0,
-    lookback: 2,
     limit: 10,
     sonaraMixer: {
       timbre: 1,
@@ -389,13 +388,11 @@ export function App() {
       setNotice({ kind: "error", text: "Выберите seed-треки" });
       return;
     }
-    const lookbackTrackIds = filters.lookback > 0 ? playlist.slice(-filters.lookback).map((track) => track.id) : [];
-    appendActivity("info", "SONARA search запущен", `custom mixer · ${seeds.length} seed · lookback ${lookbackTrackIds.length}`);
+    appendActivity("info", "SONARA search запущен", `custom mixer · ${seeds.length} seed`);
     await run(
       () =>
         api.sonaraSearch({
           seed_track_ids: seeds,
-          lookback_track_ids: lookbackTrackIds,
           limit: filters.limit,
           mode: "custom",
           mixer_weights: filters.sonaraMixer,
@@ -453,13 +450,11 @@ export function App() {
       setNotice({ kind: "error", text: "Выберите seed-треки" });
       return;
     }
-    const lookbackTrackIds = filters.lookback > 0 ? playlist.slice(-filters.lookback).map((track) => track.id) : [];
-    appendActivity("info", "MERT search запущен", `${seeds.length} seed · lookback ${lookbackTrackIds.length}`);
+    appendActivity("info", "MERT search запущен", `${seeds.length} seed`);
     await run(
       () =>
         api.search({
           seed_track_ids: seeds,
-          lookback_track_ids: lookbackTrackIds,
           limit: filters.limit,
           bpm_tolerance: null,
           key_compatibility: null,

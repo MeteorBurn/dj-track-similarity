@@ -69,10 +69,9 @@ class AnalysisResetRequest(BaseModel):
 
 
 class SearchRequest(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     seed_track_ids: list[int]
-    lookback_track_ids: list[int] = Field(default_factory=list)
     limit: int = 10
     bpm_tolerance: float | None = None
     key_compatibility: str | None = None
@@ -102,8 +101,9 @@ class SonaraModifiers(BaseModel):
 
 
 class SonaraSearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     seed_track_ids: list[int]
-    lookback_track_ids: list[int] = Field(default_factory=list)
     limit: int = Field(default=10, ge=1, le=500)
     mode: str = Field(default="balanced", pattern="^(balanced|vibe|sound|dj_transition|custom)$")
     min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)

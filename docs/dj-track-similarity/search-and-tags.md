@@ -51,8 +51,8 @@ score coverage; the top header keeps only the total track count.
 ### SONARA Search
 
 SONARA is the primary explainable seed-search path. It sends selected seed
-tracks, optional lookback tracks, limit, minimum similarity, mixer weights, and
-modifiers to `/api/search/sonara`.
+tracks, limit, minimum similarity, mixer weights, and modifiers to
+`/api/search/sonara`.
 
 The UI default result limit is `10`.
 
@@ -88,8 +88,8 @@ similarity, or overall sound.
 
 ### MERT Search
 
-MERT seed search sends seed tracks, lookback tracks, limit, and optional minimum
-similarity to `/api/search`. It ranks tracks in the MERT embedding space.
+MERT seed search sends seed tracks, limit, and optional minimum similarity to
+`/api/search`. It ranks tracks in the MERT embedding space.
 
 The UI and API default result limit is `10`.
 

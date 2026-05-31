@@ -65,6 +65,18 @@ def test_sonara_search_endpoint_accepts_custom_mixer_and_modifiers(monkeypatch, 
     assert "modifier_valence" in payload[0]["score_breakdown"]
 
 
+def test_search_endpoints_reject_unknown_context_parameter(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
+    client = TestClient(create_app(tmp_path / "library.sqlite"))
+    unknown_context_key = "extra_context_track_ids"
+
+    mert_response = client.post("/api/search", json={"seed_track_ids": [], unknown_context_key: [1]})
+    sonara_response = client.post("/api/search/sonara", json={"seed_track_ids": [], unknown_context_key: [1]})
+
+    assert mert_response.status_code == 422
+    assert sonara_response.status_code == 422
+
+
 def _add_sonara_track(db: LibraryDatabase, name: str, features: dict[str, object]) -> int:
     path = Path("C:/music") / name
     track_id = db.upsert_track(path=path, size=100, mtime=1, metadata={"title": name})

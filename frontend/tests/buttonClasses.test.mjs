@@ -246,6 +246,19 @@ test("model search default limit is ten", () => {
   assert.match(schemaSource, /class TextSearchRequest[\s\S]*limit:\s*int\s*=\s*Field\(default=10/);
 });
 
+test("model search exposes only current seed controls", () => {
+  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+  const searchSource = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
+  const apiSource = readFileSync(join(srcDir, "api.ts"), "utf8");
+  const schemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "api_schemas.py"), "utf8");
+
+  assert.match(appSource, /seed_track_ids:\s*seeds/);
+  assert.match(searchSource, /handleSonaraSearch/);
+  assert.match(searchSource, /handleMertSearch/);
+  assert.match(apiSource, /seed_track_ids/);
+  assert.match(schemaSource, /seed_track_ids/);
+});
+
 test("analysis process status renders per-model progress", () => {
   const source = readFileSync(join(srcDir, "jobUi.tsx"), "utf8");
 

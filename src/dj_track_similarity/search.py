@@ -29,23 +29,20 @@ class SimilaritySearch:
         self,
         seed_track_ids: list[int],
         *,
-        lookback_track_ids: list[int] | None = None,
         filters: SearchFilters | None = None,
         limit: int = 50,
     ) -> list[SearchResult]:
         if not seed_track_ids:
             raise ValueError("At least one seed track is required")
         filters = filters or SearchFilters()
-        lookback_track_ids = lookback_track_ids or []
         tracks, matrix = self.db.load_embedding_matrix(self.embedding_key)
         if matrix.size == 0:
             return []
 
         seed_set = set(seed_track_ids)
-        lookback_set = set(lookback_track_ids)
-        context_set = seed_set | lookback_set
+        context_set = seed_set
         track_by_id = {track.id: track for track in tracks}
-        missing = [track_id for track_id in list(seed_track_ids) + list(lookback_track_ids) if track_id not in track_by_id]
+        missing = [track_id for track_id in seed_track_ids if track_id not in track_by_id]
         if missing:
             raise ValueError(f"Context tracks missing embeddings: {missing}")
 

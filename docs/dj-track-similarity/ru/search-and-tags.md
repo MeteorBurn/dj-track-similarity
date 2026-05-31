@@ -54,8 +54,8 @@ MAEST, MERT, CLAP и полного покрытия promoted-classifier score; 
 ### Поиск SONARA
 
 SONARA — основной объяснимый путь поиска по seed-трекам. Он отправляет выбранные
-seed-треки, необязательные lookback-треки, лимит, минимальную похожесть, mixer
-weights и modifiers в `/api/search/sonara`.
+seed-треки, лимит, минимальную похожесть, mixer weights и modifiers в
+`/api/search/sonara`.
 
 Лимит результатов UI по умолчанию — `10`.
 
@@ -91,9 +91,9 @@ balanced, vibe, sound, dj_transition, custom
 
 ### Поиск MERT
 
-Поиск MERT по seed-трекам отправляет seed-треки, lookback-треки, лимит и
-необязательную минимальную похожесть в `/api/search`. Он ранжирует треки в
-embedding-пространстве MERT.
+Поиск MERT по seed-трекам отправляет seed-треки, лимит и необязательную
+минимальную похожесть в `/api/search`. Он ранжирует треки в embedding-пространстве
+MERT.
 
 Лимит результатов UI и API по умолчанию — `10`.
 

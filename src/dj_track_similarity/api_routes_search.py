@@ -30,7 +30,6 @@ def register_search_routes(
         try:
             return SimilaritySearch(state.require_db()).search(
                 request.seed_track_ids,
-                lookback_track_ids=request.lookback_track_ids,
                 filters=filters,
                 limit=request.limit,
             )
@@ -42,7 +41,6 @@ def register_search_routes(
         try:
             return SonaraSimilaritySearch(state.require_db()).search(
                 request.seed_track_ids,
-                lookback_track_ids=request.lookback_track_ids,
                 mode=request.mode,  # type: ignore[arg-type]
                 mixer_weights=request.mixer_weights.model_dump() if request.mixer_weights else None,
                 modifiers=request.modifiers.model_dump() if request.modifiers else None,

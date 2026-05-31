@@ -319,7 +319,6 @@ export const api = {
   classifiers: () => request<PromotedClassifier[]>("/api/classifiers"),
   search: (payload: {
     seed_track_ids: number[];
-    lookback_track_ids?: number[];
     limit: number;
     bpm_tolerance?: number | null;
     key_compatibility?: string | null;
@@ -335,7 +334,6 @@ export const api = {
     }),
   sonaraSearch: (payload: {
     seed_track_ids: number[];
-    lookback_track_ids?: number[];
     limit: number;
     mode: SonaraSearchMode;
     mixer_weights?: SonaraMixerWeights | null;

@@ -1,45 +1,34 @@
 import type { MouseEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { Moon, ScrollText, Sun } from "lucide-react";
-import { AnalysisJobStatus, AnalysisModel, api, GenreTagJobStatus, LibrarySummary, PromotedClassifier, ScanStats, SearchResult, Track } from "./api";
+import { AnalysisJobStatus, AnalysisModel, api, GenreTagJobStatus, PromotedClassifier, ScanStats, Track } from "./api";
 import type { ConfirmationRequest } from "./confirmation";
 import { ConfirmationDialog, LogFrameDialog } from "./dialogs";
 import { exportDirectoryError } from "./exportView";
 import { helpText } from "./helpText";
-import { ActivityEvent, analysisJobRequest, cancelAnalysisJob, scanSummary } from "./jobUi";
+import { analysisJobRequest, cancelAnalysisJob, scanSummary } from "./jobUi";
 import { LibraryPanel } from "./LibraryPanel";
-import {
-  appendVisibleTracksToPlaylist,
-  libraryCurrentPageNumber,
-  libraryPageOffsetForNumber,
-  libraryPageSize,
-  orderedLibraryTracks,
-  toggleLikedTracksFilter,
-  type LibraryPreset,
-  type LibrarySortDirection
-} from "./libraryView";
+import { appendVisibleTracksToPlaylist } from "./libraryView";
 import { SearchPlaylistPanel } from "./SearchPlaylistPanel";
 import { TrackMetadataDialog } from "./TrackMetadataDialog";
 import { TrackPanel } from "./TrackPanel";
 import { displayTrack } from "./trackDisplay";
 import { applyTheme, resolveInitialTheme, themeStorageKey, type ThemeMode } from "./theme";
 import { TooltipLayer, useGlobalTooltip } from "./tooltipLayer";
+import { useActivityLog } from "./useActivityLog";
+import { useLibraryState } from "./useLibraryState";
+import { useSearchPlaylist } from "./useSearchPlaylist";
 
 type Notice = { kind: "ok" | "error" | "idle"; text: string };
 type DeviceMode = "auto" | "cpu" | "cuda";
 type ResetAdapter = AnalysisModel;
 
 const defaultNotice: Notice = { kind: "idle", text: "Готово к работе" };
-const emptySummary: LibrarySummary = { tracks: 0, sonara: 0, maest: 0, mert: 0, clap: 0, liked: 0, classifiers: 0 };
 const analysisModelOrder: AnalysisModel[] = ["sonara", "maest", "mert", "clap"];
 
 function optimalWorkerLimit() {
   const cores = typeof navigator === "undefined" ? 4 : navigator.hardwareConcurrency || 4;
   return Math.max(1, Math.min(8, Math.floor(cores / 2) || 1));
-}
-
-function activeClassifierMinScores(scores: Record<string, number>) {
-  return Object.fromEntries(Object.entries(scores).filter(([, value]) => value > 0));
 }
 
 function openDocumentationWindow(event: MouseEvent<HTMLAnchorElement>) {
@@ -49,28 +38,64 @@ function openDocumentationWindow(event: MouseEvent<HTMLAnchorElement>) {
 
 export function App() {
   const tooltip = useGlobalTooltip();
-  const [tracks, setTracks] = useState<Track[]>([]);
-  const [libraryTotal, setLibraryTotal] = useState(0);
-  const [libraryOffset, setLibraryOffset] = useState(0);
-  const [libraryLoading, setLibraryLoading] = useState(false);
-  const [librarySummary, setLibrarySummary] = useState<LibrarySummary>(emptySummary);
-  const [query, setQuery] = useState("");
-  const [libraryPreset, setLibraryPreset] = useState<LibraryPreset>("all");
-  const [librarySortDirection, setLibrarySortDirection] = useState<LibrarySortDirection>("forward");
-  const [likedOnly, setLikedOnly] = useState(false);
-  const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
-  const [classifierMinScores, setClassifierMinScores] = useState<Record<string, number>>({});
   const [databasePath, setDatabasePath] = useState<string | null>(null);
+  const { activityLog, appendActivity } = useActivityLog();
+  const {
+    libraryTotal,
+    libraryOffset,
+    libraryLoading,
+    librarySummary,
+    query,
+    setQuery,
+    searchMode,
+    setSearchMode,
+    libraryPreset,
+    librarySortDirection,
+    likedOnly,
+    classifierMinScores,
+    setClassifierMinScores,
+    orderedTracks,
+    hasTracks,
+    canGoBack,
+    canGoForward,
+    refreshLibrary,
+    resetLibraryState,
+    changeLibraryPage,
+    jumpToLibraryPage,
+    toggleLibraryPreset,
+    toggleLikedOnly,
+    toggleLibrarySortDirection,
+    filteredTracks,
+    updateTrackLiked
+  } = useLibraryState({ databaseSelected: Boolean(databasePath) });
+  const {
+    textQuery,
+    setTextQuery,
+    outputDir,
+    setOutputDir,
+    seeds,
+    results,
+    setResults,
+    playlist,
+    setPlaylist,
+    playlistName,
+    setPlaylistName,
+    preview,
+    setPreview,
+    metadataTrack,
+    setMetadataTrack,
+    setSeedTrackMap,
+    seedSet,
+    playlistSet,
+    seedTracks,
+    addSeed,
+    removeSeed,
+    removeFromPlaylist,
+    togglePlaylist,
+    resetSearchPlaylistState
+  } = useSearchPlaylist({ onActivity: appendActivity });
+  const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
   const [musicRoot, setMusicRoot] = useState("");
-  const [textQuery, setTextQuery] = useState("");
-  const [outputDir, setOutputDir] = useState("");
-  const [seeds, setSeeds] = useState<number[]>([]);
-  const [results, setResults] = useState<SearchResult[]>([]);
-  const [playlist, setPlaylist] = useState<Track[]>([]);
-  const [playlistName, setPlaylistName] = useState("seamless-set");
-  const [preview, setPreview] = useState<Track | null>(null);
-  const [metadataTrack, setMetadataTrack] = useState<Track | null>(null);
-  const [seedTrackMap, setSeedTrackMap] = useState<Record<number, Track>>({});
   const [analysisJob, setAnalysisJob] = useState<AnalysisJobStatus | null>(null);
   const [scanJob, setScanJob] = useState<ScanStats | null>(null);
   const [genreTagJob, setGenreTagJob] = useState<GenreTagJobStatus | null>(null);
@@ -85,9 +110,6 @@ export function App() {
   const [logFrameOpen, setLogFrameOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme());
   const [confirmation, setConfirmation] = useState<ConfirmationRequest | null>(null);
-  const [activityLog, setActivityLog] = useState<ActivityEvent[]>([
-    { id: 1, time: Date.now(), level: "info", message: "Интерфейс загружен" }
-  ]);
   const [busy, setBusy] = useState(false);
   const [filters, setFilters] = useState({
     minSimilarity: 0,
@@ -111,15 +133,10 @@ export function App() {
     }
   });
 
-  const seedSet = useMemo(() => new Set(seeds), [seeds]);
-  const playlistSet = useMemo(() => new Set(playlist.map((track) => track.id)), [playlist]);
-  const orderedTracks = useMemo(() => orderedLibraryTracks(tracks, librarySortDirection), [tracks, librarySortDirection]);
-  const seedTracks = useMemo(() => seeds.map((id) => seedTrackMap[id]).filter(Boolean) as Track[], [seeds, seedTrackMap]);
   const scanRunning = Boolean(scanJob?.state && ["queued", "running"].includes(scanJob.state));
   const analysisRunning = Boolean(analysisJob && ["queued", "running"].includes(analysisJob.state));
   const genreTagRunning = Boolean(genreTagJob && ["queued", "running"].includes(genreTagJob.state));
   const stageRunning = scanRunning || analysisRunning || genreTagRunning;
-  const hasTracks = librarySummary.tracks > 0;
   const logHasErrors = useMemo(() => {
     const hasErrorEvent = activityLog.some((event) => event.level === "error")
       || (scanJob?.events || []).some((event) => event.level === "error")
@@ -127,8 +144,6 @@ export function App() {
       || (genreTagJob?.events || []).some((event) => event.level === "error");
     return hasErrorEvent || Boolean(analysisJob?.errors.length) || Boolean(genreTagJob?.errors.length);
   }, [activityLog, analysisJob, genreTagJob, scanJob]);
-  const canGoBack = libraryOffset > 0 && !libraryLoading;
-  const canGoForward = libraryOffset + tracks.length < libraryTotal && !libraryLoading;
   const canStartScan = Boolean(databasePath && musicRoot);
   const maxScanWorkers = useMemo(() => optimalWorkerLimit(), []);
   const maxAnalysisTrackBatchSize = 64;
@@ -153,7 +168,7 @@ export function App() {
       void refreshLibrary(0);
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [query, libraryPreset, likedOnly, classifierMinScores, databasePath]);
+  }, [query, searchMode, libraryPreset, likedOnly, classifierMinScores, databasePath]);
 
   useEffect(() => {
     if (!scanJob?.job_id || !["queued", "running"].includes(scanJob.state || "")) return;
@@ -270,17 +285,9 @@ export function App() {
   }
 
   function resetDatabaseScopedState() {
-    setTracks([]);
-    setLibraryTotal(0);
-    setLibraryOffset(0);
-    setLibrarySummary(emptySummary);
+    resetLibraryState();
     setMusicRoot("");
-    setSeeds([]);
-    setResults([]);
-    setPlaylist([]);
-    setPreview(null);
-    setMetadataTrack(null);
-    setSeedTrackMap({});
+    resetSearchPlaylistState();
     setScanJob(null);
     setAnalysisJob(null);
     setGenreTagJob(null);
@@ -303,13 +310,6 @@ export function App() {
     }
   }
 
-  function appendActivity(level: ActivityEvent["level"], message: string, detail?: string) {
-    setActivityLog((current) => [
-      { id: Date.now() + Math.random(), time: Date.now(), level, message, detail },
-      ...current
-    ].slice(0, 80));
-  }
-
   function requestConfirmation(request: ConfirmationRequest) {
     setConfirmation(request);
   }
@@ -319,47 +319,6 @@ export function App() {
     if (!pending) return;
     setConfirmation(null);
     void pending.onConfirm();
-  }
-
-  async function refreshLibrary(nextOffset = libraryOffset, databaseSelected = Boolean(databasePath)) {
-    if (!databaseSelected) {
-      setTracks([]);
-      setLibraryTotal(0);
-      setLibraryOffset(0);
-      setLibrarySummary(emptySummary);
-      return;
-    }
-    setLibraryLoading(true);
-    try {
-      const [page, summary] = await Promise.all([
-        api.tracks({
-          query,
-          preset: libraryPreset,
-          liked: likedOnly,
-          classifierMinScores: activeClassifierMinScores(classifierMinScores),
-          limit: libraryPageSize,
-          offset: nextOffset
-        }),
-        api.librarySummary()
-      ]);
-      setTracks(page.items);
-      setLibraryTotal(page.total);
-      setLibraryOffset(page.offset);
-      setLibrarySummary(summary);
-    } finally {
-      setLibraryLoading(false);
-    }
-  }
-
-  function changeLibraryPage(delta: number) {
-    const currentPage = libraryCurrentPageNumber(libraryTotal, libraryOffset, libraryPageSize);
-    const nextOffset = libraryPageOffsetForNumber(currentPage + delta, libraryTotal, libraryPageSize);
-    void refreshLibrary(nextOffset);
-  }
-
-  function jumpToLibraryPage(pageNumber: number) {
-    const nextOffset = libraryPageOffsetForNumber(pageNumber, libraryTotal, libraryPageSize);
-    void refreshLibrary(nextOffset);
   }
 
   async function handleTrackDetails(track: Track) {
@@ -374,51 +333,6 @@ export function App() {
     }
   }
 
-  function addSeed(track: Track) {
-    setSeedTrackMap((current) => ({ ...current, [track.id]: track }));
-    setSeeds((current) => (current.includes(track.id) ? current : [...current, track.id]));
-  }
-
-  function removeSeed(trackId: number) {
-    setSeedTrackMap((current) => {
-      const next = { ...current };
-      delete next[trackId];
-      return next;
-    });
-    setSeeds((current) => current.filter((id) => id !== trackId));
-  }
-
-  function addToPlaylist(track: Track) {
-    if (!playlistSet.has(track.id)) {
-      appendActivity("ok", "Добавлен в сет", displayTrack(track));
-    }
-    setPlaylist((current) => (current.some((item) => item.id === track.id) ? current : [...current, track]));
-  }
-
-  function removeFromPlaylist(trackId: number) {
-    const removed = playlist.find((track) => track.id === trackId);
-    if (removed) {
-      appendActivity("warn", "Убран из сета", displayTrack(removed));
-    }
-    setPlaylist((current) => current.filter((track) => track.id !== trackId));
-  }
-
-  function togglePlaylist(track: Track) {
-    if (playlistSet.has(track.id)) {
-      removeFromPlaylist(track.id);
-    } else {
-      addToPlaylist(track);
-    }
-  }
-
-  function toggleLibraryPreset(preset: LibraryPreset) {
-    setLibraryPreset((current) => (current === preset ? "all" : preset));
-  }
-
-  function toggleLikedOnly() {
-    setLikedOnly((current) => toggleLikedTracksFilter(current));
-  }
-
   function toggleAnalysisModel(model: AnalysisModel) {
     setSelectedAnalysisModels((current) => {
       const next = current.includes(model)
@@ -428,20 +342,11 @@ export function App() {
     });
   }
 
-  function toggleLibrarySortDirection() {
-    setLibrarySortDirection((current) => (current === "forward" ? "reverse" : "forward"));
-  }
-
   async function addVisibleTracksToPlaylist() {
     if (!databasePath || libraryLoading) return;
     setBusy(true);
     try {
-      const filtered = await api.filteredTracks({
-        query,
-        preset: libraryPreset,
-        liked: likedOnly,
-        classifierMinScores: activeClassifierMinScores(classifierMinScores)
-      });
+      const filtered = await filteredTracks();
       const matchingTracks = filtered.items;
       const nextPlaylist = appendVisibleTracksToPlaylist(playlist, matchingTracks);
       const added = nextPlaylist.length - playlist.length;
@@ -687,12 +592,8 @@ export function App() {
     await run(
       () => api.clearDatabase(),
       (value) => {
-        setTracks([]);
-        setSeeds([]);
-        setResults([]);
-        setPlaylist([]);
-        setPreview(null);
-        setMetadataTrack(null);
+        resetLibraryState();
+        resetSearchPlaylistState();
         setScanJob(null);
         setAnalysisJob(null);
         const detail = `${value.tracks_deleted} треков · ${value.embeddings_deleted} эмбеддингов`;
@@ -817,10 +718,7 @@ export function App() {
     const nextLiked = !track.liked;
     try {
       const updated = await api.setTrackLiked(track.id, nextLiked);
-      setTracks((current) => {
-        if (likedOnly && !updated.liked) return current.filter((item) => item.id !== updated.id);
-        return current.map((item) => (item.id === updated.id ? { ...item, liked: updated.liked } : item));
-      });
+      updateTrackLiked(updated);
       setPlaylist((current) => current.map((item) => (item.id === updated.id ? { ...item, liked: updated.liked } : item)));
       setResults((current) => current.map((item) => (
         item.track.id === updated.id ? { ...item, track: { ...item.track, liked: updated.liked } } : item
@@ -828,11 +726,6 @@ export function App() {
       setSeedTrackMap((current) => (
         current[updated.id] ? { ...current, [updated.id]: { ...current[updated.id], liked: updated.liked } } : current
       ));
-      setLibrarySummary((current) => ({
-        ...current,
-        liked: Math.max(0, current.liked + (updated.liked ? 1 : -1))
-      }));
-      setLibraryTotal((current) => (likedOnly && !updated.liked ? Math.max(0, current - 1) : current));
       appendActivity(updated.liked ? "ok" : "warn", updated.liked ? "Трек лайкнут" : "Лайк снят", displayTrack(updated));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -949,6 +842,8 @@ export function App() {
         <TrackPanel
           query={query}
           onQueryChange={setQuery}
+          searchMode={searchMode}
+          onSearchModeChange={setSearchMode}
           libraryPreset={libraryPreset}
           onToggleLibraryPreset={toggleLibraryPreset}
           likedOnly={likedOnly}

@@ -246,6 +246,20 @@ test("library controls keep pagination left and actions pinned right", () => {
   assert.ok(sortIndex < addIndex);
 });
 
+test("library search exposes an explicit LIKE and FTS segmented toggle", () => {
+  const source = readFileSync(join(srcDir, "TrackPanel.tsx"), "utf8");
+  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
+
+  assert.match(source, /library-search-mode-toggle/);
+  assert.match(source, /library-search-like-button/);
+  assert.match(source, /library-search-fts-button/);
+  assert.match(source, /searchMode === "like"/);
+  assert.match(source, /searchMode === "fts"/);
+  assert.match(source, /onSearchModeChange\("fts"\)/);
+  assert.match(styles, /\.library-search-mode-toggle\s*{/);
+  assert.match(styles, /\.library-search-mode-toggle button\s*{/);
+});
+
 test("library range status shows only filtered total in the controls row", () => {
   const source = readFileSync(join(srcDir, "TrackPanel.tsx"), "utf8");
   const titleActions = source.match(/<div className="panel-title-actions track-panel-actions">([\s\S]*?)<\/div>/)?.[1] || "";

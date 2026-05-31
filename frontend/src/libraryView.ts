@@ -2,6 +2,7 @@ import type { Track } from "./api";
 
 export type LibraryPreset = "all" | "syncopated";
 export type LibrarySortDirection = "forward" | "reverse";
+export type LibrarySearchMode = "like" | "fts";
 
 export const libraryPageSize = 200;
 
@@ -13,6 +14,16 @@ export function appendVisibleTracksToPlaylist(playlist: Track[], visibleTracks: 
 
 export function toggleLikedTracksFilter(current: boolean) {
   return !current;
+}
+
+export function toggleLibrarySearchMode(current: LibrarySearchMode): LibrarySearchMode {
+  return current === "like" ? "fts" : "like";
+}
+
+export function librarySearchModeTitle(mode: LibrarySearchMode) {
+  return mode === "like"
+    ? "Substring LIKE search. Finds partial text inside artist, title, album, path, and metadata."
+    : "FTS token search. Faster on broad text queries, but does not match arbitrary substrings inside one token.";
 }
 
 export function orderedLibraryTracks(tracks: Track[], direction: LibrarySortDirection) {

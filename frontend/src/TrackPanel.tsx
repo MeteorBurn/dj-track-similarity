@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { ArrowDownUp, AudioWaveform, Heart, ListMusic, Plus, Search } from "lucide-react";
 import { Track } from "./api";
-import { likedTracksFilterTitle, libraryCurrentPageNumber, libraryPageCount, type LibraryPreset, type LibrarySortDirection } from "./libraryView";
+import { likedTracksFilterTitle, libraryCurrentPageNumber, libraryPageCount, librarySearchModeTitle, type LibraryPreset, type LibrarySearchMode, type LibrarySortDirection } from "./libraryView";
 import { TrackList } from "./TrackRows";
 import { displayTrack } from "./trackDisplay";
 
 export function TrackPanel({
   query,
   onQueryChange,
+  searchMode,
+  onSearchModeChange,
   libraryPreset,
   onToggleLibraryPreset,
   likedOnly,
@@ -38,6 +40,8 @@ export function TrackPanel({
 }: {
   query: string;
   onQueryChange: (value: string) => void;
+  searchMode: LibrarySearchMode;
+  onSearchModeChange: (mode: LibrarySearchMode) => void;
   libraryPreset: LibraryPreset;
   onToggleLibraryPreset: (preset: LibraryPreset) => void;
   likedOnly: boolean;
@@ -99,6 +103,28 @@ export function TrackPanel({
       <div className="search-input">
         <Search size={16} />
         <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="artist, title, genre, path" title={librarySearchHelp} />
+        <div className="library-search-mode-toggle" role="group" aria-label="Library search mode">
+          <button
+            className={`library-search-like-button ${searchMode === "like" ? "active" : ""}`}
+            title={librarySearchModeTitle("like")}
+            aria-label="LIKE search"
+            aria-pressed={searchMode === "like"}
+            onClick={() => onSearchModeChange("like")}
+            type="button"
+          >
+            LIKE
+          </button>
+          <button
+            className={`library-search-fts-button ${searchMode === "fts" ? "active" : ""}`}
+            title={librarySearchModeTitle("fts")}
+            aria-label="FTS search"
+            aria-pressed={searchMode === "fts"}
+            onClick={() => onSearchModeChange("fts")}
+            type="button"
+          >
+            FTS
+          </button>
+        </div>
       </div>
       <div className="library-view-controls">
         <button

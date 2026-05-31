@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 from typing import Iterable
 
-from .db_library_queries import build_track_filter_sql, track_order_sql
+from .db_library_queries import build_track_filter_sql, combine_where_condition, split_primary_classifier_filter, track_order_sql
 from .db_repository_utils import (
     DEFAULT_EMBEDDING_KEY,
     LIBRARY_ROOT_SETTING_KEY,
@@ -184,28 +184,60 @@ class TrackRepository:
     ) -> dict[str, object]:
         fields = TRACK_SELECT_FIELDS if include_metadata else TRACK_SLIM_SELECT_FIELDS
         thresholds = dict(classifier_min_scores or {})
+        primary_classifier, remaining_thresholds = split_primary_classifier_filter(thresholds)
         where_sql, params = build_track_filter_sql(
             query=query,
             preset=preset,
             liked_only=liked_only,
-            classifier_min_scores=thresholds,
+            classifier_min_scores=remaining_thresholds if primary_classifier else thresholds,
         )
         order_sql = track_order_sql(classifier_min_scores=thresholds)
         bounded_limit = max(1, min(500, int(limit)))
         bounded_offset = max(0, int(offset))
         with self.connect() as connection:
-            total = int(connection.execute(f"SELECT COUNT(*) FROM tracks t {where_sql}", params).fetchone()[0])
-            rows = connection.execute(
-                f"""
-                SELECT {fields}
-                FROM tracks t
-                LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
-                {where_sql}
-                ORDER BY {order_sql}
-                LIMIT ? OFFSET ?
-                """,
-                (embedding_key, *params, bounded_limit, bounded_offset),
-            ).fetchall()
+            if primary_classifier:
+                classifier, threshold = primary_classifier
+                classifier_where = combine_where_condition(
+                    "primary_cs.classifier = ? AND primary_cs.score >= ?",
+                    where_sql,
+                )
+                classifier_params = (classifier, threshold, *params)
+                total = int(
+                    connection.execute(
+                        f"""
+                        SELECT COUNT(*)
+                        FROM track_classifier_scores primary_cs
+                        JOIN tracks t ON t.id = primary_cs.track_id
+                        {classifier_where}
+                        """,
+                        classifier_params,
+                    ).fetchone()[0]
+                )
+                rows = connection.execute(
+                    f"""
+                    SELECT {fields}
+                    FROM track_classifier_scores primary_cs
+                    JOIN tracks t ON t.id = primary_cs.track_id
+                    LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
+                    {classifier_where}
+                    ORDER BY primary_cs.score DESC, COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
+                    LIMIT ? OFFSET ?
+                    """,
+                    (embedding_key, *classifier_params, bounded_limit, bounded_offset),
+                ).fetchall()
+            else:
+                total = int(connection.execute(f"SELECT COUNT(*) FROM tracks t {where_sql}", params).fetchone()[0])
+                rows = connection.execute(
+                    f"""
+                    SELECT {fields}
+                    FROM tracks t
+                    LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
+                    {where_sql}
+                    ORDER BY {order_sql}
+                    LIMIT ? OFFSET ?
+                    """,
+                    (embedding_key, *params, bounded_limit, bounded_offset),
+                ).fetchall()
         return {
             "items": [self._row_to_track(row, include_metadata=include_metadata) for row in rows],
             "total": total,
@@ -225,24 +257,43 @@ class TrackRepository:
     ) -> dict[str, object]:
         fields = TRACK_SELECT_FIELDS if include_metadata else TRACK_SLIM_SELECT_FIELDS
         thresholds = dict(classifier_min_scores or {})
+        primary_classifier, remaining_thresholds = split_primary_classifier_filter(thresholds)
         where_sql, params = build_track_filter_sql(
             query=query,
             preset=preset,
             liked_only=liked_only,
-            classifier_min_scores=thresholds,
+            classifier_min_scores=remaining_thresholds if primary_classifier else thresholds,
         )
         order_sql = track_order_sql(classifier_min_scores=thresholds)
         with self.connect() as connection:
-            rows = connection.execute(
-                f"""
-                SELECT {fields}
-                FROM tracks t
-                LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
-                {where_sql}
-                ORDER BY {order_sql}
-                """,
-                (embedding_key, *params),
-            ).fetchall()
+            if primary_classifier:
+                classifier, threshold = primary_classifier
+                classifier_where = combine_where_condition(
+                    "primary_cs.classifier = ? AND primary_cs.score >= ?",
+                    where_sql,
+                )
+                rows = connection.execute(
+                    f"""
+                    SELECT {fields}
+                    FROM track_classifier_scores primary_cs
+                    JOIN tracks t ON t.id = primary_cs.track_id
+                    LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
+                    {classifier_where}
+                    ORDER BY primary_cs.score DESC, COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
+                    """,
+                    (embedding_key, classifier, threshold, *params),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    f"""
+                    SELECT {fields}
+                    FROM tracks t
+                    LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
+                    {where_sql}
+                    ORDER BY {order_sql}
+                    """,
+                    (embedding_key, *params),
+                ).fetchall()
         tracks = [self._row_to_track(row, include_metadata=include_metadata) for row in rows]
         return {"items": tracks, "total": len(tracks)}
 

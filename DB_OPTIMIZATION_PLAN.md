@@ -14,6 +14,11 @@ queries for missing-analysis selection on the current library. The revised
 schema candidate is core-analysis presence flags on `tracks` plus partial
 indexes, after a no-schema classifier-filter query rewrite.
 
+Implementation checkpoint: the no-schema classifier-filter query rewrite is now
+implemented. Classifier-filtered library pages start from
+`track_classifier_scores` and use the existing `idx_classifier_scores_lookup`
+index instead of scanning `tracks`.
+
 ## Goals
 
 - Keep library browsing, summary counters, search, and missing-analysis

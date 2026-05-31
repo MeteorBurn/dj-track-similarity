@@ -1,6 +1,22 @@
 from __future__ import annotations
 
 
+def split_primary_classifier_filter(
+    classifier_min_scores: dict[str, float] | None,
+) -> tuple[tuple[str, float] | None, dict[str, float]]:
+    items = list((classifier_min_scores or {}).items())
+    if not items:
+        return None, {}
+    classifier, threshold = items[0]
+    return (str(classifier), float(threshold)), {str(key): float(value) for key, value in items[1:]}
+
+
+def combine_where_condition(condition_sql: str, where_sql: str) -> str:
+    if not where_sql:
+        return f"WHERE {condition_sql}"
+    return f"WHERE {condition_sql} AND {where_sql.removeprefix('WHERE ').strip()}"
+
+
 def build_track_filter_sql(
     *,
     query: str,

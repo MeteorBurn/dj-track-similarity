@@ -103,6 +103,14 @@ class LibraryDatabase:
             else:
                 self._embedding_matrix_cache.pop(embedding_key, None)
 
+    def _invalidate_embedding_cache_keys(self, embedding_keys: Iterable[str]) -> None:
+        keys = tuple(dict.fromkeys(key for key in embedding_keys if key))
+        if not keys:
+            return
+        with self._cache_lock:
+            for key in keys:
+                self._embedding_matrix_cache.pop(key, None)
+
     def get_track_by_path(self, path: str | Path) -> Track | None:
         with self.connect() as connection:
             row = connection.execute(
@@ -213,7 +221,8 @@ class LibraryDatabase:
                 ),
             )
             row = connection.execute("SELECT id FROM tracks WHERE path = ?", (normalized,)).fetchone()
-        self._invalidate_embedding_cache()
+            embedding_keys = _embedding_keys_for_track(connection, int(row["id"])) if row is not None else ()
+        self._invalidate_embedding_cache_keys(embedding_keys)
         if row is None:
             raise RuntimeError(f"Failed to upsert track: {normalized}")
         return int(row["id"])
@@ -338,7 +347,8 @@ class LibraryDatabase:
                 )
             else:
                 connection.execute("DELETE FROM track_likes WHERE track_id = ?", (int(track_id),))
-        self._invalidate_embedding_cache()
+            embedding_keys = _embedding_keys_for_track(connection, int(track_id))
+        self._invalidate_embedding_cache_keys(embedding_keys)
         return self.get_track(track_id)
 
     def list_analysis_candidates(self, models: Iterable[str], *, limit: int | None = None) -> list[AnalysisCandidate]:
@@ -529,7 +539,8 @@ class LibraryDatabase:
                 "UPDATE tracks SET metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (metadata_to_json(metadata, sort_keys=False), track_id),
             )
-        self._invalidate_embedding_cache()
+            embedding_keys = _embedding_keys_for_track(connection, track_id)
+        self._invalidate_embedding_cache_keys(embedding_keys)
 
     def save_sonara_features(
         self,
@@ -566,7 +577,8 @@ class LibraryDatabase:
                     track_id,
                 ),
             )
-        self._invalidate_embedding_cache()
+            embedding_keys = _embedding_keys_for_track(connection, track_id)
+        self._invalidate_embedding_cache_keys(embedding_keys)
 
     def refresh_track_file_metadata(
         self,
@@ -617,7 +629,8 @@ class LibraryDatabase:
                     track_id,
                 ),
             )
-        self._invalidate_embedding_cache()
+            embedding_keys = _embedding_keys_for_track(connection, track_id)
+        self._invalidate_embedding_cache_keys(embedding_keys)
 
     def _metadata_for_track_update(self, connection: sqlite3.Connection, track_id: int) -> dict[str, object]:
         row = connection.execute("SELECT metadata_json FROM tracks WHERE id = ?", (track_id,)).fetchone()
@@ -737,6 +750,7 @@ class LibraryDatabase:
         if old_root_text == new_root_text:
             raise ValueError("Old and new library roots must be different")
 
+        embedding_keys_to_invalidate: set[str] = set()
         with self._write_lock if apply else _nullcontext(), self.connect() as connection:
             rows = connection.execute("SELECT id, path FROM tracks ORDER BY id").fetchall()
             existing_by_path = {str(row["path"]).casefold(): int(row["id"]) for row in rows}
@@ -784,12 +798,13 @@ class LibraryDatabase:
                 if missing_files:
                     raise ValueError("Cannot relocate library because one or more target files are missing")
                 for change in changes:
+                    embedding_keys_to_invalidate.update(_embedding_keys_for_track(connection, int(change["track_id"])))
                     connection.execute(
                         "UPDATE tracks SET path = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                         (change["new_path"], change["track_id"]),
                     )
         if apply and changes:
-            self._invalidate_embedding_cache()
+            self._invalidate_embedding_cache_keys(embedding_keys_to_invalidate)
 
         return {
             "old_root": old_root_text,
@@ -804,6 +819,7 @@ class LibraryDatabase:
 
     def _reset_metadata_analysis(self, adapter: str, keys: tuple[str, ...]) -> dict[str, object]:
         updated = 0
+        embedding_keys_to_invalidate: set[str] = set()
         with self._write_lock, self.connect() as connection:
             rows = connection.execute("SELECT id, metadata_json FROM tracks").fetchall()
             for row in rows:
@@ -816,9 +832,10 @@ class LibraryDatabase:
                     "UPDATE tracks SET metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                     (metadata_to_json(metadata), row["id"]),
                 )
+                embedding_keys_to_invalidate.update(_embedding_keys_for_track(connection, int(row["id"])))
                 updated += 1
         if updated:
-            self._invalidate_embedding_cache()
+            self._invalidate_embedding_cache_keys(embedding_keys_to_invalidate)
         return {"adapter": adapter, "tracks_updated": updated, "embeddings_deleted": 0}
 
     def _reset_metadata_and_embedding_analysis(
@@ -829,6 +846,7 @@ class LibraryDatabase:
         embedding_key: str,
     ) -> dict[str, object]:
         updated = 0
+        embedding_keys_to_invalidate: set[str] = set()
         with self._write_lock, self.connect() as connection:
             rows = connection.execute("SELECT id, metadata_json FROM tracks").fetchall()
             for row in rows:
@@ -841,15 +859,17 @@ class LibraryDatabase:
                     "UPDATE tracks SET metadata_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                     (metadata_to_json(metadata), row["id"]),
                 )
+                embedding_keys_to_invalidate.update(_embedding_keys_for_track(connection, int(row["id"])))
                 updated += 1
             cursor = connection.execute("DELETE FROM embeddings WHERE embedding_key = ?", (embedding_key,))
             deleted = cursor.rowcount
         if updated or deleted:
-            self._invalidate_embedding_cache()
+            self._invalidate_embedding_cache_keys((*embedding_keys_to_invalidate, embedding_key))
         return {"adapter": adapter, "tracks_updated": updated, "embeddings_deleted": deleted}
 
     def _reset_sonara_analysis(self) -> dict[str, object]:
         updated = 0
+        embedding_keys_to_invalidate: set[str] = set()
         keys = ("sonara_features", "sonara_features_file", "sonara_model")
         with self._write_lock, self.connect() as connection:
             rows = connection.execute("SELECT id, metadata_json FROM tracks").fetchall()
@@ -879,9 +899,10 @@ class LibraryDatabase:
                         row["id"],
                     ),
                 )
+                embedding_keys_to_invalidate.update(_embedding_keys_for_track(connection, int(row["id"])))
                 updated += 1
         if updated:
-            self._invalidate_embedding_cache()
+            self._invalidate_embedding_cache_keys(embedding_keys_to_invalidate)
         return {"adapter": "sonara", "tracks_updated": updated, "embeddings_deleted": 0}
 
     def load_embedding_matrix(self, embedding_key: str = DEFAULT_EMBEDDING_KEY) -> tuple[list[Track], np.ndarray]:
@@ -946,6 +967,14 @@ def _limit_sql(limit: int | None) -> tuple[str, tuple[int, ...]]:
     if limit is None:
         return "", ()
     return "LIMIT ?", (max(0, int(limit)),)
+
+
+def _embedding_keys_for_track(connection: sqlite3.Connection, track_id: int) -> tuple[str, ...]:
+    rows = connection.execute(
+        "SELECT embedding_key FROM embeddings WHERE track_id = ?",
+        (int(track_id),),
+    ).fetchall()
+    return tuple(str(row["embedding_key"]) for row in rows)
 
 
 def _track_filter_sql(

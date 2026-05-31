@@ -264,6 +264,34 @@ def test_database_stores_multiple_embedding_spaces_per_track(tmp_path: Path) -> 
     assert track.analyses == ["mert", "clap"]
 
 
+def test_database_keeps_embedding_matrix_cache_when_unembedded_track_changes(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    embedded_id = db.upsert_track(path=tmp_path / "embedded.wav", size=10, mtime=1, metadata={"title": "Embedded"})
+    plain_id = db.upsert_track(path=tmp_path / "plain.wav", size=10, mtime=1, metadata={"title": "Plain"})
+    db.save_embedding(embedded_id, np.array([1, 0, 0], dtype=np.float32), "mert-model", 3, embedding_key="mert")
+
+    cached = db.load_embedding_matrix("mert")
+    db.set_track_liked(plain_id, True)
+    db.upsert_track(path=tmp_path / "new.wav", size=10, mtime=1, metadata={"title": "New"})
+
+    assert db.load_embedding_matrix("mert") is cached
+
+
+def test_database_invalidates_only_changed_track_embedding_keys(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    mert_id = db.upsert_track(path=tmp_path / "mert.wav", size=10, mtime=1, metadata={"title": "Mert"})
+    clap_id = db.upsert_track(path=tmp_path / "clap.wav", size=10, mtime=1, metadata={"title": "Clap"})
+    db.save_embedding(mert_id, np.array([1, 0, 0], dtype=np.float32), "mert-model", 3, embedding_key="mert")
+    db.save_embedding(clap_id, np.array([0, 1, 0], dtype=np.float32), "clap-model", 3, embedding_key="clap")
+
+    db.load_embedding_matrix("mert")
+    cached_clap = db.load_embedding_matrix("clap")
+    db.save_sonara_features(mert_id, {"energy": {"value": 0.8}}, energy=0.8, model_name="sonara")
+
+    assert "mert" not in db._embedding_matrix_cache
+    assert db.load_embedding_matrix("clap") is cached_clap
+
+
 def test_database_resets_embedding_analysis_independently(tmp_path: Path) -> None:
     import numpy as np
 

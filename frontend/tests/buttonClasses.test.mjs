@@ -148,6 +148,24 @@ test("analysis controls use model checkboxes and one selected-run button", () =>
   assert.ok(batchSizeIndex < analyzeSelectedIndex);
 });
 
+test("analysis model reset buttons fit inside a full-width row", () => {
+  const source = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
+  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
+  const actionsRule = styles.match(/\.analysis-actions\s*{([\s\S]*?)}/)?.[1] || "";
+  const rowRule = styles.match(/\.analysis-model-row\s*{([\s\S]*?)}/)?.[1] || "";
+  const resetRule = styles.match(/\.analysis-reset-button\s*{([\s\S]*?)}/)?.[1] || "";
+
+  assert.doesNotMatch(source, /icon-button\s+analysis-reset-button/);
+  assert.match(actionsRule, /align-self:\s*stretch/);
+  assert.match(actionsRule, /width:\s*100%/);
+  assert.match(rowRule, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+36px\s+minmax\(96px,\s*max-content\)/);
+  assert.match(rowRule, /width:\s*100%/);
+  assert.doesNotMatch(rowRule, /82px/);
+  assert.match(resetRule, /display:\s*inline-flex/);
+  assert.match(resetRule, /min-width:\s*96px/);
+  assert.match(resetRule, /white-space:\s*nowrap/);
+});
+
 test("frontend analysis api uses unified job endpoints only", () => {
   const source = readFileSync(join(srcDir, "api.ts"), "utf8");
 

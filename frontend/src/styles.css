@@ -360,10 +360,12 @@ h2 {
 }
 
 .analysis-actions {
+  align-self: stretch;
   display: grid;
   gap: 6px;
   grid-template-columns: minmax(0, 1fr);
   margin-bottom: 8px;
+  width: 100%;
 }
 
 .analysis-section-title {
@@ -391,8 +393,9 @@ h2 {
   align-items: center;
   display: grid;
   gap: 6px;
-  grid-template-columns: minmax(0, 1fr) 34px 82px;
+  grid-template-columns: minmax(0, 1fr) 36px minmax(96px, max-content);
   min-width: 0;
+  width: 100%;
 }
 
 .analysis-model-name {
@@ -436,11 +439,14 @@ h2 {
 }
 
 .analysis-reset-button {
+  display: inline-flex;
   color: #9a3d25;
   font-size: 12px;
   gap: 4px;
   min-height: 34px;
-  padding: 4px 7px;
+  min-width: 96px;
+  padding: 4px 10px;
+  white-space: nowrap;
   width: 100%;
 }
 

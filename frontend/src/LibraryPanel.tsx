@@ -183,7 +183,7 @@ export function LibraryPanel({
                 />
               </label>
               <button
-                className={`icon-button analysis-reset-button ${model}-reset-button`}
+                className={`analysis-reset-button ${model}-reset-button`}
                 disabled={analysisDisabled}
                 title={`Reset ${label}`}
                 aria-label={`Reset ${label}`}

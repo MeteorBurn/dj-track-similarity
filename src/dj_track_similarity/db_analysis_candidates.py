@@ -19,17 +19,14 @@ def clean_analysis_models(models: Iterable[str]) -> list[str]:
 
 def missing_analysis_ids_sql(model: str, limit_sql: str) -> str:
     if model == "sonara":
-        where_sql = "json_type(t.metadata_json, '$.sonara_features') IS NULL"
-        join_sql = ""
+        where_sql = "t.has_sonara_analysis = 0"
     elif model in {"maest", "mert", "clap"}:
-        where_sql = "e.track_id IS NULL"
-        join_sql = "LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?"
+        where_sql = f"t.has_{model}_embedding = 0"
     else:
         raise ValueError(f"Unknown analysis model: {model}")
     return f"""
         SELECT t.id
         FROM tracks t
-        {join_sql}
         WHERE {where_sql}
         ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
         {limit_sql}
@@ -37,8 +34,6 @@ def missing_analysis_ids_sql(model: str, limit_sql: str) -> str:
 
 
 def missing_analysis_ids_params(model: str, limit_params: tuple[int, ...]) -> tuple[object, ...]:
-    if model in {"maest", "mert", "clap"}:
-        return (model, *limit_params)
     return limit_params
 
 
@@ -52,10 +47,10 @@ def analysis_candidate_select_sql(placeholders: str) -> str:
         SELECT
             t.id, t.path, t.size, t.mtime, t.artist, t.title, t.album,
             t.bpm, t.musical_key, t.energy, t.duration,
-            json_type(t.metadata_json, '$.sonara_features') IS NOT NULL AS has_sonara,
-            EXISTS(SELECT 1 FROM embeddings maest_e WHERE maest_e.track_id = t.id AND maest_e.embedding_key = 'maest') AS has_maest,
-            EXISTS(SELECT 1 FROM embeddings mert_e WHERE mert_e.track_id = t.id AND mert_e.embedding_key = 'mert') AS has_mert,
-            EXISTS(SELECT 1 FROM embeddings clap_e WHERE clap_e.track_id = t.id AND clap_e.embedding_key = 'clap') AS has_clap
+            t.has_sonara_analysis = 1 AS has_sonara,
+            t.has_maest_embedding = 1 AS has_maest,
+            t.has_mert_embedding = 1 AS has_mert,
+            t.has_clap_embedding = 1 AS has_clap
         FROM tracks t
         WHERE t.id IN ({placeholders})
         """

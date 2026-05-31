@@ -101,15 +101,16 @@ class TrackRepository:
         energy = optional_float(energy)
         duration = optional_float(duration) if duration is not None else optional_float(metadata.get("duration"))
         metadata_json = metadata_to_json(metadata)
+        has_sonara_analysis = 1 if metadata.get("sonara_features") is not None else 0
 
         with self._write_lock, self.connect() as connection:
             connection.execute(
                 """
                 INSERT INTO tracks (
                     path, size, mtime, artist, title, album, bpm, musical_key,
-                    energy, duration, metadata_json
+                    energy, duration, has_sonara_analysis, metadata_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(path) DO UPDATE SET
                     size = excluded.size,
                     mtime = excluded.mtime,
@@ -120,6 +121,7 @@ class TrackRepository:
                     musical_key = excluded.musical_key,
                     energy = excluded.energy,
                     duration = excluded.duration,
+                    has_sonara_analysis = excluded.has_sonara_analysis,
                     metadata_json = excluded.metadata_json,
                     updated_at = CURRENT_TIMESTAMP
                 """,
@@ -134,6 +136,7 @@ class TrackRepository:
                     musical_key,
                     energy,
                     duration,
+                    has_sonara_analysis,
                     metadata_json,
                 ),
             )

@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.db_schema import CURRENT_SCHEMA_VERSION
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "optimize_database.py"
@@ -56,17 +57,21 @@ def test_optimize_database_script_optimizes_current_schema_without_project_impor
         embedding_keys = [row[0] for row in connection.execute("SELECT embedding_key FROM embeddings ORDER BY embedding_key")]
         integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
 
-    assert version == 2
+    assert version == CURRENT_SCHEMA_VERSION
     assert "library_settings" in tables
     assert "track_classifier_scores" in tables
     assert embedding_keys == ["mert"]
     assert {
         "idx_tracks_sort_artist_title_path",
-        "idx_tracks_sonara_present",
-        "idx_tracks_maest_present",
         "idx_tracks_syncopated_sort",
-        "idx_tracks_sonara_missing_sort",
-        "idx_tracks_maest_missing_sort",
+        "idx_tracks_missing_sonara_flag_sort",
+        "idx_tracks_missing_maest_embedding_flag_sort",
+        "idx_tracks_missing_mert_embedding_flag_sort",
+        "idx_tracks_missing_clap_embedding_flag_sort",
+        "idx_tracks_present_sonara_flag",
+        "idx_tracks_present_maest_embedding_flag",
+        "idx_tracks_present_mert_embedding_flag",
+        "idx_tracks_present_clap_embedding_flag",
     }.issubset(track_indexes)
     assert "idx_embeddings_key_track" in embedding_indexes
     assert "idx_classifier_scores_lookup" in classifier_indexes

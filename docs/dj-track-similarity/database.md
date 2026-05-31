@@ -6,7 +6,19 @@ reset removes, or why one search mode needs a particular analysis pass first.
 
 ## SQLite Specification
 
-The current schema version is `2`.
+The current schema version is `3`.
+
+Existing schema version `2` library databases are not migrated automatically by
+the app. Run the standalone migration script first, with dry-run as the default
+mode:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\migrate_database_v3.py --db .\data\library.sqlite
+.\.venv\Scripts\python.exe scripts\migrate_database_v3.py --db .\data\library.sqlite --apply
+```
+
+The script creates an online SQLite backup before `--apply`. Close the running
+app before applying the migration to the same database.
 
 The database is local user state. Normal scan, analysis, search, reset, clear,
 and relocation workflows modify SQLite records only; they do not rewrite audio
@@ -24,6 +36,11 @@ Stores one row per indexed audio file:
 - `artist`, `title`, `album`: selected file metadata.
 - `bpm`, `musical_key`, `energy`, `duration`: working fields used by the UI and
   analysis flows.
+- `has_sonara_analysis`, `has_maest_embedding`, `has_mert_embedding`,
+  `has_clap_embedding`: derived presence flags maintained by analysis writes
+  and resets. They speed up library summary counters and missing-analysis
+  candidate selection. They represent stored analysis presence, not a
+  stale/fresh policy.
 - `metadata_json`: JSON object for Mutagen fields and model-derived metadata.
 - `created_at`, `updated_at`: local row timestamps.
 

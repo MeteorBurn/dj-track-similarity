@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from .db_repository_utils import MAEST_EMBEDDING_KEY
-
-
 class SummaryRepository:
     def library_summary(self, classifier_keys: Iterable[str] | None = None) -> dict[str, int]:
         cleaned_classifier_keys = sorted({key.strip() for key in (classifier_keys or []) if key.strip()})
@@ -14,22 +11,37 @@ class SummaryRepository:
                 connection.execute(
                     """
                     SELECT COUNT(*)
-                    FROM tracks INDEXED BY idx_tracks_sonara_present
-                    WHERE json_type(metadata_json, '$.sonara_features') IS NOT NULL
+                    FROM tracks INDEXED BY idx_tracks_present_sonara_flag
+                    WHERE has_sonara_analysis = 1
                     """
                 ).fetchone()[0]
             )
             maest = int(
                 connection.execute(
-                    "SELECT COUNT(DISTINCT track_id) FROM embeddings WHERE embedding_key = ?",
-                    (MAEST_EMBEDDING_KEY,),
+                    """
+                    SELECT COUNT(*)
+                    FROM tracks INDEXED BY idx_tracks_present_maest_embedding_flag
+                    WHERE has_maest_embedding = 1
+                    """
                 ).fetchone()[0]
             )
             mert = int(
-                connection.execute("SELECT COUNT(DISTINCT track_id) FROM embeddings WHERE embedding_key = ?", ("mert",)).fetchone()[0]
+                connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM tracks INDEXED BY idx_tracks_present_mert_embedding_flag
+                    WHERE has_mert_embedding = 1
+                    """
+                ).fetchone()[0]
             )
             clap = int(
-                connection.execute("SELECT COUNT(DISTINCT track_id) FROM embeddings WHERE embedding_key = ?", ("clap",)).fetchone()[0]
+                connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM tracks INDEXED BY idx_tracks_present_clap_embedding_flag
+                    WHERE has_clap_embedding = 1
+                    """
+                ).fetchone()[0]
             )
             liked = int(connection.execute("SELECT COUNT(*) FROM track_likes").fetchone()[0])
             classifiers = 0

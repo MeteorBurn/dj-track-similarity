@@ -24,6 +24,13 @@ from .metadata_payload import clean_maest_genre_label, metadata_from_json, metad
 from .models import AnalysisCandidate, Track
 
 
+EMBEDDING_PRESENCE_FLAG_COLUMNS = {
+    "maest": "has_maest_embedding",
+    "mert": "has_mert_embedding",
+    "clap": "has_clap_embedding",
+}
+
+
 class AnalysisRepository:
     def list_analysis_candidates(self, models: Iterable[str], *, limit: int | None = None) -> list[AnalysisCandidate]:
         selected = clean_analysis_models(models)
@@ -119,6 +126,9 @@ class AnalysisRepository:
                 """,
                 (track_id, embedding_key, model_name, actual_dim, normalized.astype(np.float32).tobytes()),
             )
+            flag_column = EMBEDDING_PRESENCE_FLAG_COLUMNS.get(embedding_key)
+            if flag_column is not None:
+                connection.execute(f"UPDATE tracks SET {flag_column} = 1 WHERE id = ?", (track_id,))
         self._invalidate_embedding_cache(embedding_key)
 
     def save_genres(self, track_id: int, genres: list[dict[str, object]], *, model_name: str) -> None:
@@ -161,6 +171,7 @@ class AnalysisRepository:
                     musical_key = COALESCE(?, musical_key),
                     energy = COALESCE(?, energy),
                     duration = COALESCE(?, duration),
+                    has_sonara_analysis = 1,
                     metadata_json = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
@@ -183,6 +194,8 @@ class AnalysisRepository:
             with self._write_lock, self.connect() as connection:
                 cursor = connection.execute("DELETE FROM embeddings WHERE embedding_key = ?", (adapter,))
                 deleted = cursor.rowcount
+                flag_column = EMBEDDING_PRESENCE_FLAG_COLUMNS[adapter]
+                connection.execute(f"UPDATE tracks SET {flag_column} = 0 WHERE {flag_column} != 0")
             self._invalidate_embedding_cache(adapter)
             return {"adapter": adapter, "tracks_updated": 0, "embeddings_deleted": deleted}
         if adapter == "maest":
@@ -190,6 +203,7 @@ class AnalysisRepository:
                 adapter,
                 ("maest_genres", "maest_model", "maest_syncopated_rhythm"),
                 embedding_key=MAEST_EMBEDDING_KEY,
+                flag_column=EMBEDDING_PRESENCE_FLAG_COLUMNS[MAEST_EMBEDDING_KEY],
             )
         if adapter == "sonara":
             return self._reset_sonara_analysis()
@@ -310,6 +324,7 @@ class AnalysisRepository:
         keys: tuple[str, ...],
         *,
         embedding_key: str,
+        flag_column: str,
     ) -> dict[str, object]:
         updated = 0
         embedding_keys_to_invalidate: set[str] = set()
@@ -329,6 +344,7 @@ class AnalysisRepository:
                 updated += 1
             cursor = connection.execute("DELETE FROM embeddings WHERE embedding_key = ?", (embedding_key,))
             deleted = cursor.rowcount
+            connection.execute(f"UPDATE tracks SET {flag_column} = 0 WHERE {flag_column} != 0")
         if updated or deleted:
             self._invalidate_embedding_cache_keys((*embedding_keys_to_invalidate, embedding_key))
         return {"adapter": adapter, "tracks_updated": updated, "embeddings_deleted": deleted}
@@ -367,6 +383,7 @@ class AnalysisRepository:
                 )
                 embedding_keys_to_invalidate.update(_embedding_keys_for_track(connection, int(row["id"])))
                 updated += 1
+            connection.execute("UPDATE tracks SET has_sonara_analysis = 0 WHERE has_sonara_analysis != 0")
         if updated:
             self._invalidate_embedding_cache_keys(embedding_keys_to_invalidate)
         return {"adapter": "sonara", "tracks_updated": updated, "embeddings_deleted": 0}

@@ -19,6 +19,11 @@ implemented. Classifier-filtered library pages start from
 `track_classifier_scores` and use the existing `idx_classifier_scores_lookup`
 index instead of scanning `tracks`.
 
+Implementation checkpoint: schema version `3` is now implemented in app code
+for new/current databases without runtime migration compatibility. Existing
+schema version `2` databases are upgraded only by the separate
+`scripts/migrate_database_v3.py` maintenance script.
+
 ## Goals
 
 - Keep library browsing, summary counters, search, and missing-analysis
@@ -201,7 +206,7 @@ Start with one migration version, not many small incompatible migrations:
    copy only.
 2. Before changing schema, implement the no-schema classifier-filter query
    rewrite so library pages can use `idx_classifier_scores_lookup`.
-3. If schema changes are approved, add core-analysis presence flags to `tracks`:
+3. Add core-analysis presence flags to `tracks`:
    - `has_sonara_analysis`
    - `has_maest_embedding`
    - `has_mert_embedding`

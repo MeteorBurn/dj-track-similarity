@@ -150,7 +150,7 @@ export function LibraryPanel({
           Загрузить треки в базу
         </button>
         <button className="icon-button refresh-tags-button" disabled={busy || stageRunning || !hasTracks} title={helpText.refreshTags} aria-label="Обновить теги" onClick={onRefreshTags}>
-          <RefreshCcw size={15} />
+          <RefreshCcw size={17} />
         </button>
         <button
           className="icon-button genre-save-button"
@@ -160,10 +160,10 @@ export function LibraryPanel({
           onClick={onWriteMaestGenres}
           type="button"
         >
-          <Save size={15} />
+          <Save size={17} />
         </button>
         <button className="icon-button stop-button database-clear-button" disabled={busy || stageRunning || !hasTracks} title={helpText.clearDatabase} aria-label="Удалить все данные из базы" onClick={onClearDatabase}>
-          <Trash2 size={15} />
+          <Trash2 size={17} />
         </button>
       </div>
       <div className="analysis-section-title">

@@ -816,26 +816,19 @@ h2 {
   width: 100%;
 }
 
+.scan-action-row .icon-button {
+  width: 42px;
+}
+
 .scan-action-row .refresh-tags-button {
   background: var(--accent-soft-bg);
   border-color: var(--accent-soft-border);
   color: var(--accent);
-  min-height: 34px;
-  width: 42px;
 }
 
 .scan-action-row .refresh-tags-button:hover:not(:disabled) {
   border-color: var(--accent-border-hover);
   color: var(--accent-hover);
-}
-
-.scan-action-row .genre-save-button {
-  min-height: 34px;
-  width: 42px;
-}
-
-.scan-action-row .database-clear-button {
-  width: 42px;
 }
 
 .stop-button {

@@ -42,6 +42,7 @@ class BatchMaestModel:
     def __init__(self) -> None:
         self.calls: list[tuple[tuple[int, ...], bool]] = []
         self.melspectrogram = MovableModule()
+        self.offset = 0
 
     def init_melspectrogram(self):
         return None
@@ -64,15 +65,18 @@ class BatchMaestModel:
             [5.0, 50.0],
             [6.0, 60.0],
         ]
-        return torch.tensor(rows[: audio.shape[0]]), torch.tensor(embedding_rows[: audio.shape[0]])
+        start = self.offset
+        end = start + audio.shape[0]
+        self.offset = end
+        return torch.tensor(rows[start:end]), torch.tensor(embedding_rows[start:end])
 
     def predict_labels(self, audio):
         raise AssertionError("MAEST batch inference must not use predict_labels")
 
 
 class BatchMaestAdapter(MaestGenreAdapter):
-    def __init__(self) -> None:
-        super().__init__(device="cpu", top_k=2)
+    def __init__(self, *, inference_batch_size: int = 32) -> None:
+        super().__init__(device="cpu", top_k=2, inference_batch_size=inference_batch_size)
         self.fake_model = BatchMaestModel()
 
     def _load_model(self) -> None:
@@ -101,6 +105,21 @@ def test_maest_predict_batch_uses_model_logits_per_track(monkeypatch) -> None:
     assert batches[1][0]["score"] == pytest.approx(torch.sigmoid(torch.tensor([3.0, 2.0, 1.0])).mean().item())
     assert batches[1][1]["label"] == "B"
     assert batches[1][1]["score"] == pytest.approx(torch.sigmoid(torch.tensor([1.0, 1.0, 1.0])).mean().item())
+    assert [[item["label"] for item in row] for row in batches] == [["B", "C"], ["A", "B"]]
+    np.testing.assert_allclose(adapter.embedding_for_path("a.wav"), np.asarray([2.0, 20.0], dtype=np.float32))
+    np.testing.assert_allclose(adapter.embedding_for_path("b.wav"), np.asarray([5.0, 50.0], dtype=np.float32))
+
+
+def test_maest_predict_batch_chunks_prepared_windows(monkeypatch) -> None:
+    def fake_load_audio(path, *, torchaudio_module=None):
+        return np.full(16000 * 120, 1.0, dtype=np.float32), 16000, "fake"
+
+    monkeypatch.setattr(genres, "load_audio_mono", fake_load_audio)
+    adapter = BatchMaestAdapter(inference_batch_size=2)
+
+    batches = adapter.predict_batch(["a.wav", "b.wav"])
+
+    assert adapter.fake_model.calls == [((2, 480000), False), ((2, 480000), False), ((2, 480000), False)]
     assert [[item["label"] for item in row] for row in batches] == [["B", "C"], ["A", "B"]]
     np.testing.assert_allclose(adapter.embedding_for_path("a.wav"), np.asarray([2.0, 20.0], dtype=np.float32))
     np.testing.assert_allclose(adapter.embedding_for_path("b.wav"), np.asarray([5.0, 50.0], dtype=np.float32))

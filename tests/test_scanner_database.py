@@ -419,6 +419,21 @@ def test_database_stores_metadata_json_without_non_finite_numbers(tmp_path: Path
     assert db.get_track(track_id).energy is None
 
 
+def test_database_rejects_non_finite_embedding_vectors(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = db.upsert_track(path=tmp_path / "track.wav", size=10, mtime=1, metadata={"title": "Track"})
+
+    for vector in (
+        np.asarray([1.0, np.nan, 0.0], dtype=np.float32),
+        np.asarray([1.0, np.inf, 0.0], dtype=np.float32),
+        np.asarray([1.0, -np.inf, 0.0], dtype=np.float32),
+    ):
+        with pytest.raises(ValueError, match="finite"):
+            db.save_embedding(track_id, vector, "mert-test", embedding_key="mert")
+
+    assert db.load_embedding_matrix("mert")[0] == []
+
+
 def test_database_resets_metadata_backed_analyses(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_id = db.upsert_track(

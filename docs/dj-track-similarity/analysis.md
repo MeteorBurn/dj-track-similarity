@@ -45,9 +45,10 @@ raw Sonara key data and does not derive Camelot notation.
 
 In the multi-model job, Sonara runs after the shared per-batch decode step and
 before MAEST, MERT, and CLAP. `batch_size` caps the in-memory track batch used
-by the selected models. The shared decode uses FFmpeg to produce mono `float32`
-audio at the source sample rate; each model runner then resamples to its own
-required rate.
+by the selected models. The shared decode keeps source sample rate, uses a
+native mono-WAV fast path when it can preserve FFmpeg parity, and otherwise uses
+FFmpeg to produce mono `float32` audio. Each model runner then resamples to its
+own required rate.
 
 Run Sonara early if you are unsure where to start. It is the most transparent
 analysis family because the UI can show and mix its feature groups directly.
@@ -71,7 +72,8 @@ analyzes up to three 30-second windows per track:
 Impossible or duplicate windows are clamped and deduplicated. Per-label
 activations are averaged across windows, then the top labels are stored. MAEST
 embedding rows are averaged across the same windows and stored under embedding
-key `maest`.
+key `maest`. Window inference is internally chunked so a large track batch does
+not force every MAEST window into one model call.
 
 MAEST analysis itself does not modify audio files. The separate genre-save
 action can later write stored MAEST labels into standard audio genre tags.

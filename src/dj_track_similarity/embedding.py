@@ -106,7 +106,14 @@ class MertEmbeddingAdapter:
             with torch.inference_mode():
                 outputs = self._model(**inputs, output_hidden_states=True)
             hidden = torch.stack(outputs.hidden_states[-4:]).mean(dim=0)
-            pooled = hidden.mean(dim=1).detach().cpu().numpy().astype(np.float32)
+            attention_mask = inputs.get("attention_mask")
+            feature_mask_for = getattr(self._model, "_get_feature_vector_attention_mask", None)
+            if attention_mask is not None and callable(feature_mask_for):
+                feature_mask = feature_mask_for(hidden.shape[1], attention_mask)
+                pooled_tensor = _masked_time_mean(hidden, feature_mask)
+            else:
+                pooled_tensor = hidden.mean(dim=1)
+            pooled = pooled_tensor.detach().cpu().numpy().astype(np.float32)
             pooled_windows.extend([pooled[index] for index in range(pooled.shape[0])])
         inference_seconds = time.perf_counter() - inference_started
         self.last_batch_timing = {
@@ -219,7 +226,7 @@ class ClapEmbeddingAdapter:
             window_indices = []
             for window in windows:
                 window_indices.append(len(all_windows))
-                all_windows.append(_pad_or_trim_audio_window(window.cpu().numpy(), window_size))
+                all_windows.append(_repeatpad_or_trim_audio_window(window.cpu().numpy(), window_size))
             track_windows.append(window_indices)
         prepare_seconds = time.perf_counter() - prepare_started
 
@@ -294,11 +301,23 @@ def _normalize_rows(matrix: np.ndarray) -> list[np.ndarray]:
     vectors = []
     for row in matrix:
         vector = np.asarray(row, dtype=np.float32).reshape(-1)
+        if not np.isfinite(vector).all():
+            raise ValueError("Model produced a non-finite vector")
         norm = np.linalg.norm(vector)
-        if norm == 0:
+        if not np.isfinite(norm) or norm == 0:
             raise ValueError("Model produced a zero vector")
         vectors.append(vector / norm)
     return vectors
+
+
+def _masked_time_mean(hidden, feature_mask):
+    if tuple(feature_mask.shape) != tuple(hidden.shape[:2]):
+        raise ValueError(
+            f"MERT feature mask shape {tuple(feature_mask.shape)} does not match hidden states {tuple(hidden.shape[:2])}"
+        )
+    mask = feature_mask.to(device=hidden.device, dtype=hidden.dtype).unsqueeze(-1)
+    counts = mask.sum(dim=1).clamp_min(1.0)
+    return (hidden * mask).sum(dim=1) / counts
 
 
 def _array_output_to_numpy(output) -> np.ndarray:
@@ -314,6 +333,21 @@ def _pad_or_trim_audio_window(audio: np.ndarray, target_samples: int) -> np.ndar
     if window.shape[0] < target_samples:
         return np.pad(window, (0, target_samples - window.shape[0]))
     return window
+
+
+def _repeatpad_or_trim_audio_window(audio: np.ndarray, target_samples: int) -> np.ndarray:
+    window = np.asarray(audio, dtype=np.float32).reshape(-1)
+    if window.shape[0] > target_samples:
+        return window[:target_samples]
+    if window.shape[0] == target_samples:
+        return window
+    if window.shape[0] == 0:
+        return np.zeros(target_samples, dtype=np.float32)
+    repeat_count = int(target_samples / window.shape[0])
+    repeated = np.tile(window, repeat_count)
+    if repeated.shape[0] < target_samples:
+        repeated = np.pad(repeated, (0, target_samples - repeated.shape[0]))
+    return repeated[:target_samples].astype(np.float32, copy=False)
 
 
 def _select_windows_torch(waveform, sample_rate: int, window_seconds: float, max_windows: int, torch):

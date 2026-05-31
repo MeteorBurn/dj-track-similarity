@@ -534,8 +534,10 @@ class LibraryDatabase:
         embedding_key: str = DEFAULT_EMBEDDING_KEY,
     ) -> None:
         normalized = np.asarray(vector, dtype=np.float32).reshape(-1)
+        if not np.isfinite(normalized).all():
+            raise ValueError("Embedding vector must contain only finite values")
         norm = float(np.linalg.norm(normalized))
-        if norm == 0:
+        if not np.isfinite(norm) or norm == 0:
             raise ValueError("Embedding vector must not be zero")
         normalized = normalized / norm
         actual_dim = int(dim or normalized.shape[0])

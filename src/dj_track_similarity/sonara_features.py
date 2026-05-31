@@ -103,6 +103,16 @@ def analyze_and_store_sonara_features_from_audio(
     *,
     sonara_module: Any | None = None,
 ) -> SonaraFeatureResult:
+    analysis, elapsed = analyze_sonara_features_from_audio(decoded, sonara_module=sonara_module)
+    _store_sonara_analysis(db, track, analysis)
+    return SonaraFeatureResult(track.id, track.path, elapsed)
+
+
+def analyze_sonara_features_from_audio(
+    decoded: DecodedAudio,
+    *,
+    sonara_module: Any | None = None,
+) -> tuple[dict[str, object], float]:
     sonara = sonara_module or _import_sonara()
     started = time.perf_counter()
     audio = np.asarray(decoded.audio, dtype=np.float32)
@@ -113,8 +123,7 @@ def analyze_and_store_sonara_features_from_audio(
         audio = np.asarray(resample(audio, orig_sr=decoded.sample_rate, target_sr=22050), dtype=np.float32)
     analysis = dict(sonara.analyze_signal(audio, sr=22050, mode=SONARA_ANALYSIS_MODE))
     elapsed = time.perf_counter() - started
-    _store_sonara_analysis(db, track, analysis)
-    return SonaraFeatureResult(track.id, track.path, elapsed)
+    return analysis, elapsed
 
 
 def _store_sonara_analysis(db: LibraryDatabase, track: Track, analysis: dict[str, object]) -> None:

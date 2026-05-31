@@ -6,7 +6,11 @@ import numpy as np
 
 from dj_track_similarity.audio_loader import DecodedAudio
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.sonara_features import analyze_and_store_sonara_features, analyze_and_store_sonara_features_from_audio
+from dj_track_similarity.sonara_features import (
+    analyze_and_store_sonara_features,
+    analyze_and_store_sonara_features_from_audio,
+    analyze_sonara_features_from_audio,
+)
 
 
 class FakeSonara:
@@ -177,6 +181,16 @@ def test_analyze_sonara_uses_shared_decoded_audio_without_file_decode(tmp_path: 
     assert result.elapsed_seconds >= 0
     assert track.bpm == 126.4
     assert track.analyses == ["sonara"]
+
+
+def test_analyze_sonara_features_from_audio_is_pure_compute() -> None:
+    decoded = DecodedAudio(path="shared.wav", audio=np.ones(22050, dtype=np.float32), sample_rate=22050, detail="shared")
+
+    analysis, elapsed = analyze_sonara_features_from_audio(decoded, sonara_module=FakeSonara)
+
+    assert elapsed >= 0
+    assert analysis["bpm"] == 126.4
+    assert analysis["key"] == "A minor"
 
 
 def test_analyze_sonara_falls_back_to_signal_for_truncated_wav(tmp_path: Path) -> None:

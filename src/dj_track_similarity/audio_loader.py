@@ -26,7 +26,14 @@ class DecodedAudio:
 
 
 def load_decoded_audio(path: str | Path) -> DecodedAudio:
-    audio, sample_rate, detail = _load_with_ffmpeg(Path(path))
+    audio_path = Path(path)
+    if _is_mono_wave(audio_path):
+        try:
+            audio, sample_rate, detail = _load_with_wave(audio_path)
+            return DecodedAudio(path=str(path), audio=audio, sample_rate=sample_rate, detail=detail)
+        except Exception as error:
+            _log_decoder_failure("wave", audio_path, error)
+    audio, sample_rate, detail = _load_with_ffmpeg(audio_path)
     return DecodedAudio(path=str(path), audio=audio, sample_rate=sample_rate, detail=detail)
 
 
@@ -110,8 +117,14 @@ def _load_with_ffmpeg(path: Path) -> tuple[np.ndarray, int, str]:
         ffmpeg,
         "-v",
         "error",
+        "-nostdin",
         "-i",
         str(path),
+        "-map",
+        "0:a:0",
+        "-vn",
+        "-sn",
+        "-dn",
         "-f",
         "f32le",
         "-acodec",
@@ -132,6 +145,16 @@ def _load_with_ffmpeg(path: Path) -> tuple[np.ndarray, int, str]:
         raise RuntimeError("ffmpeg produced an incomplete float32 audio buffer")
     audio = np.frombuffer(result.stdout[:usable], dtype=np.float32)
     return audio.astype(np.float32, copy=False), sample_rate, "ffmpeg decode"
+
+
+def _is_mono_wave(path: Path) -> bool:
+    if path.suffix.lower() not in {".wav", ".wave"}:
+        return False
+    try:
+        with wave.open(str(path), "rb") as audio:
+            return audio.getnchannels() == 1
+    except Exception:
+        return False
 
 
 def _source_sample_rate(path: Path, *, ffmpeg_path: str) -> int:

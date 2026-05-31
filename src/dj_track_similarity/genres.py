@@ -18,10 +18,11 @@ class MaestGenreAdapter:
     analysis_offset_seconds = 60.0
     analysis_window_ratios = (0.38, 0.72)
 
-    def __init__(self, device: str | None = None, top_k: int = 3) -> None:
+    def __init__(self, device: str | None = None, top_k: int = 3, inference_batch_size: int = 8) -> None:
         self.requested_device = device or "auto"
         self.device_name = None if self.requested_device == "auto" else self.requested_device
         self.top_k = max(1, int(top_k))
+        self.inference_batch_size = max(1, int(inference_batch_size))
         self._model = None
         self._torch = None
         self._torchaudio = None
@@ -75,12 +76,19 @@ class MaestGenreAdapter:
         torch = self._torch
         assert torch is not None and self._model is not None
         device = self._device()
-        audio_batch = torch.stack(prepared, dim=0).to(device)
         _move_maest_runtime_modules(self._model, device)
 
         inference_started = time.perf_counter()
+        rows: list[list[float]] = []
+        embedding_rows: list[np.ndarray] = []
         with torch.inference_mode():
-            logits, embeddings = self._model(audio_batch, melspectrogram_input=False)
+            for start in range(0, len(prepared), self.inference_batch_size):
+                chunk = prepared[start : start + self.inference_batch_size]
+                audio_batch = torch.stack(chunk, dim=0).to(device)
+                logits, embeddings = self._model(audio_batch, melspectrogram_input=False)
+                activations = torch.sigmoid(logits)
+                rows.extend(_to_score_rows(activations, expected_rows=len(chunk)))
+                embedding_rows.extend(_embedding_rows(embeddings, expected_rows=len(chunk)))
         inference_seconds = time.perf_counter() - inference_started
         self.last_batch_timing = {
             "prepare_seconds": prepare_seconds,
@@ -90,9 +98,6 @@ class MaestGenreAdapter:
             "windows": len(prepared),
         }
 
-        activations = torch.sigmoid(logits)
-        rows = _to_score_rows(activations, expected_rows=len(prepared))
-        embedding_rows = _embedding_rows(embeddings, expected_rows=len(prepared))
         self._embeddings_by_path = self._average_embeddings_by_path(paths, embedding_rows, window_track_indexes)
         averaged_rows = _average_window_rows(rows, window_track_indexes, expected_tracks=len(paths))
         label_values = [str(label) for label in getattr(self._model, "labels")]

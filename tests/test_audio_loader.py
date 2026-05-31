@@ -31,6 +31,16 @@ def _write_pcm_wav(path: Path, *, sample_rate: int = 44_100) -> bytes:
     return samples.tobytes()
 
 
+def _write_mono_pcm_wav(path: Path, *, sample_rate: int = 44_100) -> bytes:
+    samples = np.array([0, 1024, -2048, 4096], dtype="<i2")
+    with wave.open(str(path), "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(sample_rate)
+        audio.writeframes(samples.tobytes())
+    return samples.tobytes()
+
+
 def _make_malformed_wave(path: Path) -> None:
     with wave.open(str(path), "wb") as audio:
         audio.setnchannels(2)
@@ -103,6 +113,56 @@ def test_load_decoded_audio_preserves_native_sample_rate(monkeypatch, tmp_path: 
     assert result.sample_rate == 44_100
     assert np.allclose(result.audio, decoded)
     assert "-ar" not in commands[0]
+
+
+def test_load_decoded_audio_uses_native_backend_for_mono_wav(monkeypatch, tmp_path: Path) -> None:
+    audio_path = tmp_path / "track.wav"
+    _write_mono_pcm_wav(audio_path, sample_rate=44_100)
+
+    def fail_ffmpeg(path):
+        raise AssertionError("mono WAV shared decode should not spawn ffmpeg")
+
+    monkeypatch.setattr(audio_loader, "_load_with_ffmpeg", fail_ffmpeg)
+
+    result = load_decoded_audio(audio_path)
+
+    assert result.sample_rate == 44_100
+    assert result.audio.dtype == np.float32
+    assert result.audio.shape == (4,)
+    assert "native wave decode" in result.detail
+
+
+def test_ffmpeg_decode_pins_first_audio_stream_and_disables_non_audio(monkeypatch, tmp_path: Path) -> None:
+    audio_path = tmp_path / "track.mp3"
+    audio_path.write_bytes(b"not real mp3 bytes")
+    decoded = np.array([0.1, -0.2, 0.3], dtype=np.float32)
+    commands = []
+
+    def fake_run(command, *, check, stdout, stderr):
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout=decoded.tobytes(), stderr=b"")
+
+    monkeypatch.setattr(
+        audio_loader,
+        "shutil",
+        SimpleNamespace(which=lambda name: "ffmpeg" if name == "ffmpeg" else None),
+        raising=False,
+    )
+    monkeypatch.setattr(audio_loader, "_source_sample_rate", lambda path, *, ffmpeg_path: 44_100)
+    monkeypatch.setattr(audio_loader, "subprocess", SimpleNamespace(run=fake_run, PIPE=subprocess.PIPE), raising=False)
+
+    audio, sample_rate, detail = load_audio_mono(audio_path)
+
+    assert sample_rate == 44_100
+    assert np.allclose(audio, decoded)
+    assert "ffmpeg decode" in detail
+    command = commands[0]
+    assert "-nostdin" in command
+    assert command[command.index("-map") + 1] == "0:a:0"
+    assert "-vn" in command
+    assert "-sn" in command
+    assert "-dn" in command
+    assert "-ar" not in command
 
 
 def test_load_decoded_audio_exposes_only_one_decode_mode() -> None:

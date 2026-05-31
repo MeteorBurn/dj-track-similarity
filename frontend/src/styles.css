@@ -883,6 +883,11 @@ h2 {
   border-left: 1px solid var(--button-border);
 }
 
+.library-search-mode-toggle button.active {
+  background: transparent;
+  color: var(--accent-hover);
+}
+
 .library-view-controls {
   align-items: center;
   display: flex;

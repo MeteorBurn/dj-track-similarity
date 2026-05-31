@@ -260,6 +260,14 @@ test("library search exposes an explicit LIKE and FTS segmented toggle", () => {
   assert.match(styles, /\.library-search-mode-toggle button\s*{/);
 });
 
+test("library search mode active state highlights the active mode text", () => {
+  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
+  const activeRule = styles.match(/\.library-search-mode-toggle button\.active\s*{([\s\S]*?)}/)?.[1] || "";
+
+  assert.match(activeRule, /background:\s*transparent;/);
+  assert.match(activeRule, /color:\s*var\(--accent-hover\);/);
+});
+
 test("library range status shows only filtered total in the controls row", () => {
   const source = readFileSync(join(srcDir, "TrackPanel.tsx"), "utf8");
   const titleActions = source.match(/<div className="panel-title-actions track-panel-actions">([\s\S]*?)<\/div>/)?.[1] || "";

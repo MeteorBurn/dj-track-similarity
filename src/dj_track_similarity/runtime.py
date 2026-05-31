@@ -6,6 +6,8 @@ import sys
 from dataclasses import dataclass
 from typing import Any
 
+from .analysis_config import normalize_analysis_device
+
 
 @dataclass(frozen=True)
 class TorchRuntimeInfo:
@@ -21,9 +23,7 @@ class TorchRuntimeInfo:
 
 
 def select_torch_device(torch_module: Any, requested_device: str | None) -> str:
-    requested = (requested_device or "auto").strip().lower()
-    if requested not in {"auto", "cpu", "cuda"}:
-        raise ValueError(f"Unknown torch device: {requested_device}")
+    requested = normalize_analysis_device(requested_device)
     if requested == "cpu":
         return "cpu"
     if requested == "cuda":

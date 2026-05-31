@@ -140,6 +140,14 @@ def test_api_rejects_legacy_analysis_batch_size(tmp_path: Path) -> None:
     assert response.status_code == 422
 
 
+def test_api_rejects_unknown_analysis_device(tmp_path: Path) -> None:
+    client = TestClient(api.create_app(tmp_path / "library.sqlite"))
+
+    response = client.post("/api/analysis/jobs", json={"models": ["mert"], "device": "gpu"})
+
+    assert response.status_code == 422
+
+
 def test_old_individual_analysis_start_endpoints_are_removed(tmp_path: Path) -> None:
     client = TestClient(api.create_app(tmp_path / "library.sqlite"))
 

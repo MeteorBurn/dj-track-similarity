@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 from fastapi import FastAPI, HTTPException
 
-from .analysis_config import normalize_analysis_models
+from .analysis_config import build_analysis_job_config
 from .api_schemas import AnalysisJobRequest, AnalysisResetRequest, ClassifierAnalyzeRequest, ClassifierResetRequest
 from .api_state import AppDatabaseState
 
@@ -25,16 +25,23 @@ def register_analysis_routes(
     @app.post("/api/analysis/jobs")
     def analyze(request: AnalysisJobRequest):
         try:
-            models = list(normalize_analysis_models(request.models))
+            config = build_analysis_job_config(
+                models=request.models,
+                limit=request.limit,
+                device=request.device,
+                top_k=request.top_k,
+                track_batch_size=request.track_batch_size,
+                inference_batch_size=request.inference_batch_size,
+            )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         return state.require_analysis_jobs().start(
-            models=models,
-            limit=request.limit,
-            track_batch_size=request.track_batch_size,
-            inference_batch_size=request.inference_batch_size,
-            device=request.device,
-            top_k=request.top_k,
+            models=list(config.models),
+            limit=config.limit,
+            track_batch_size=config.track_batch_size,
+            inference_batch_size=config.inference_batch_size,
+            device=config.device,
+            top_k=config.top_k,
         )
 
     @app.get("/api/classifiers")

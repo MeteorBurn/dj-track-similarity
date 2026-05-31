@@ -3,9 +3,18 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from .analysis_config import (
+    ANALYSIS_DEVICE_PATTERN,
     ANALYSIS_MODEL_ORDER,
+    DEFAULT_ANALYSIS_DEVICE,
     DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
+    DEFAULT_ANALYSIS_TOP_K,
     DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
+    MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
+    MAX_ANALYSIS_TOP_K,
+    MAX_ANALYSIS_TRACK_BATCH_SIZE,
+    MIN_ANALYSIS_INFERENCE_BATCH_SIZE,
+    MIN_ANALYSIS_TOP_K,
+    MIN_ANALYSIS_TRACK_BATCH_SIZE,
 )
 
 
@@ -33,10 +42,18 @@ class AnalysisJobRequest(BaseModel):
 
     limit: int | None = None
     models: list[str] = Field(default_factory=lambda: list(ANALYSIS_MODEL_ORDER), min_length=1)
-    device: str = Field(default="auto", pattern="^(auto|cpu|cuda)$")
-    top_k: int = Field(default=3, ge=1, le=10)
-    track_batch_size: int = Field(default=DEFAULT_ANALYSIS_TRACK_BATCH_SIZE, ge=1, le=64)
-    inference_batch_size: int = Field(default=DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE, ge=1, le=128)
+    device: str = Field(default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN)
+    top_k: int = Field(default=DEFAULT_ANALYSIS_TOP_K, ge=MIN_ANALYSIS_TOP_K, le=MAX_ANALYSIS_TOP_K)
+    track_batch_size: int = Field(
+        default=DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
+        ge=MIN_ANALYSIS_TRACK_BATCH_SIZE,
+        le=MAX_ANALYSIS_TRACK_BATCH_SIZE,
+    )
+    inference_batch_size: int = Field(
+        default=DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
+        ge=MIN_ANALYSIS_INFERENCE_BATCH_SIZE,
+        le=MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
+    )
 
 
 class ClassifierAnalyzeRequest(BaseModel):
@@ -98,7 +115,7 @@ class TextSearchRequest(BaseModel):
     query: str
     limit: int = Field(default=10, ge=1, le=500)
     min_similarity: float | None = None
-    device: str = Field(default="auto", pattern="^(auto|cpu|cuda)$")
+    device: str = Field(default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN)
 
 
 class FilteredTracksRequest(BaseModel):

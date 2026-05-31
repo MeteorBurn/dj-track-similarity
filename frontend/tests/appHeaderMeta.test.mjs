@@ -50,6 +50,8 @@ test("topbar log and process controls are separate actions", () => {
   const actionsBlock = appSource.match(/<div className="topbar-actions">([\s\S]*?)<\/div>/)?.[1] || "";
   const dialogRule = styles.match(/\.log-frame-dialog\s*{([\s\S]*?)}/)?.[1] || "";
   const contentRule = styles.match(/\.log-frame-content\s*{([\s\S]*?)}/)?.[1] || "";
+  const iconButtonRule = styles.match(/button\.icon-button\s*{([\s\S]*?)}/)?.[1] || "";
+  const processIndicatorRule = styles.match(/\.process-indicator\s*{([\s\S]*?)}/)?.[1] || "";
 
   assert.match(appSource, /logFrameOpen/);
   assert.match(dialogSource, /function LogFrameDialog/);
@@ -60,6 +62,8 @@ test("topbar log and process controls are separate actions", () => {
   assert.doesNotMatch(librarySource, /stop-active-stage-button/);
   assert.doesNotMatch(librarySource, /UnifiedLog/);
   assert.match(styles, /\.log-frame-button/);
+  assert.match(iconButtonRule, /width:\s*34px/);
+  assert.match(processIndicatorRule, /width:\s*34px/);
   assert.match(dialogRule, /width:\s*min\(1120px,\s*calc\(100vw - 32px\)\)/);
   assert.match(dialogRule, /height:\s*min\(760px,\s*calc\(100vh - 48px\)\)/);
   assert.match(contentRule, /flex:\s*1 1 auto/);

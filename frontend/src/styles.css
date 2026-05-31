@@ -779,6 +779,7 @@ h2 {
 
 .process-indicator {
   align-items: center;
+  aspect-ratio: 1;
   background: var(--button-bg);
   border: 1px solid var(--button-border);
   border-radius: 6px;
@@ -786,7 +787,7 @@ h2 {
   display: inline-flex;
   justify-content: center;
   min-height: 34px;
-  width: 42px;
+  width: 34px;
 }
 
 .process-indicator.running {

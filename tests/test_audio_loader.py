@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 import dj_track_similarity.audio_loader as audio_loader
-from dj_track_similarity.audio_loader import load_audio_mono, torch_compatible_audio
+from dj_track_similarity.audio_loader import load_audio_mono, load_decoded_audio, torch_compatible_audio
 from dj_track_similarity.logging_config import set_analysis_diagnostics_enabled
 
 
@@ -75,6 +75,32 @@ def test_load_audio_mono_reads_normal_wav_with_native_backend(tmp_path: Path) ->
     assert audio.dtype == np.float32
     assert audio.shape == (4,)
     assert "native" in detail
+
+
+def test_load_decoded_audio_uses_48khz_ffmpeg_base_decode(monkeypatch, tmp_path: Path) -> None:
+    audio_path = tmp_path / "track.wav"
+    _write_pcm_wav(audio_path, sample_rate=44_100)
+    decoded = np.array([0.1, -0.2, 0.3], dtype=np.float32)
+    commands = []
+
+    def fake_run(command, *, check, stdout, stderr):
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout=decoded.tobytes(), stderr=b"")
+
+    monkeypatch.setattr(
+        audio_loader,
+        "shutil",
+        SimpleNamespace(which=lambda name: "ffmpeg" if name == "ffmpeg" else None),
+        raising=False,
+    )
+    monkeypatch.setattr(audio_loader, "subprocess", SimpleNamespace(run=fake_run, PIPE=subprocess.PIPE), raising=False)
+
+    result = load_decoded_audio(audio_path)
+
+    assert result.path == str(audio_path)
+    assert result.sample_rate == 48_000
+    assert np.allclose(result.audio, decoded)
+    assert commands[0][commands[0].index("-ar") + 1] == "48000"
 
 
 def test_torch_compatible_audio_copies_readonly_float32_buffers() -> None:

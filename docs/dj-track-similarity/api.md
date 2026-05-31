@@ -26,10 +26,10 @@ These shared conventions apply across the API:
 | Job `state` | One of `queued`, `running`, `completed`, `cancelled`, or `failed`. |
 | `latest` job endpoints | Return `null` when no job of that family has run yet. |
 
-Long-running work (scan, tag refresh, embedding/Sonara/MAEST analysis,
-classifier scoring, genre tag jobs) is started by a `POST` that returns an
-initial job-status object. The frontend then polls the matching `jobs/latest`
-or `jobs/{job_id}` endpoint and can request cooperative cancellation.
+Long-running work (scan, tag refresh, multi-model audio analysis, classifier
+scoring, genre tag jobs) is started by a `POST` that returns an initial
+job-status object. The frontend then polls the matching `jobs/latest` or
+`jobs/{job_id}` endpoint and can request cooperative cancellation.
 
 ### Database
 
@@ -83,15 +83,9 @@ missing target files.
 | `GET` | `/api/library/scan/jobs/latest` | Return latest scan or tag-refresh job. |
 | `GET` | `/api/library/scan/jobs/{job_id}` | Return one scan job. |
 | `POST` | `/api/library/scan/jobs/{job_id}/cancel` | Request scan cancellation. |
-| `GET` | `/api/analyze/jobs/latest` | Return latest MERT/CLAP analysis job. |
-| `GET` | `/api/analyze/jobs/{job_id}` | Return one MERT/CLAP analysis job. |
-| `POST` | `/api/analyze/jobs/{job_id}/cancel` | Request MERT/CLAP cancellation. |
-| `GET` | `/api/sonara/analyze/jobs/latest` | Return latest Sonara job. |
-| `GET` | `/api/sonara/analyze/jobs/{job_id}` | Return one Sonara job. |
-| `POST` | `/api/sonara/analyze/jobs/{job_id}/cancel` | Request Sonara cancellation. |
-| `GET` | `/api/genres/analyze/jobs/latest` | Return latest MAEST job. |
-| `GET` | `/api/genres/analyze/jobs/{job_id}` | Return one MAEST job. |
-| `POST` | `/api/genres/analyze/jobs/{job_id}/cancel` | Request MAEST cancellation. |
+| `GET` | `/api/analysis/jobs/latest` | Return latest multi-model audio analysis job. |
+| `GET` | `/api/analysis/jobs/{job_id}` | Return one multi-model audio analysis job. |
+| `POST` | `/api/analysis/jobs/{job_id}/cancel` | Request multi-model analysis cancellation. |
 | `GET` | `/api/classifiers/{classifier_key}/analyze/jobs/latest` | Return latest classifier job. |
 | `GET` | `/api/classifiers/{classifier_key}/analyze/jobs/{job_id}` | Return one classifier job. |
 | `POST` | `/api/classifiers/{classifier_key}/analyze/jobs/{job_id}/cancel` | Request classifier cancellation. |
@@ -107,9 +101,7 @@ it stops.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/api/analyze` | Start MERT or CLAP embedding analysis. |
-| `POST` | `/api/sonara/analyze` | Start Sonara feature analysis. |
-| `POST` | `/api/genres/analyze` | Start MAEST genre analysis. |
+| `POST` | `/api/analysis/jobs` | Start one selected-model analysis job for SONARA, MAEST, MERT, and/or CLAP. |
 | `GET` | `/api/classifiers` | List promoted classifiers from `models/classifiers/*/model.json`. |
 | `POST` | `/api/classifiers/{classifier_key}/analyze` | Start classifier scoring. |
 | `POST` | `/api/classifiers/reset` | Delete stored scores for the given classifier keys. |
@@ -118,9 +110,19 @@ it stops.
 | `POST` | `/api/search/sonara` | Search with Sonara features. |
 | `POST` | `/api/search/text` | Search CLAP audio vectors from text. |
 
-Use the analysis endpoints before search endpoints when a library has not been
-processed yet. Empty search results often mean the required Sonara features,
-MERT embeddings, or CLAP embeddings are missing for the candidate tracks.
+Use `/api/analysis/jobs` before search endpoints when a library has not been
+processed yet. Its request body accepts `models`, `limit`, `device`,
+`batch_size`, and `top_k`. `models` defaults to all four audio models
+(`sonara`, `maest`, `mert`, `clap`) and must be a non-empty subset. `limit:
+null` means all eligible tracks; positive limits count candidate tracks that
+are missing at least one selected model.
+
+The analysis job skips selected-model results that already exist. Its status
+uses `total` and `processed` for candidate tracks, `analyzed` and `failed` for
+model-level writes or failures, and `model_progress` for per-model counters.
+`current_model` identifies which selected model is currently running. Empty
+search results often mean the required Sonara features, MERT embeddings, or
+CLAP embeddings are missing for the candidate tracks.
 
 `GET /api/classifiers` needs no database; it discovers promoted profiles on
 disk. `/api/classifiers/reset` accepts a list of classifier keys and deletes

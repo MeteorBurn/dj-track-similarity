@@ -11,9 +11,8 @@ The backend package lives in `src/dj_track_similarity/`.
 - `database.py` owns SQLite access and all database mutations.
 - `db_schema.py` defines the current SQLite schema and validation.
 - `scanner.py` scans folders and reads Mutagen metadata.
-- `scan_jobs.py`, `analysis_jobs.py`, `sonara_jobs.py`, `genre_jobs.py`,
-  `classifier_jobs.py`, and `tags.py` manage cancellable jobs and status
-  objects.
+- `scan_jobs.py`, `analysis_jobs.py`, `classifier_jobs.py`, and `tags.py`
+  manage cancellable jobs and status objects.
 - `audio_loader.py` provides shared native-first audio loading.
 - `sonara_features.py` extracts the focused Sonara playlist feature set.
 - `sonara_similarity.py` and `sonara_similarity_scoring.py` rank Sonara
@@ -135,11 +134,8 @@ process.
 CLI analysis commands can also write diagnostic timing lines to the file log
 when `--diagnostics` is passed on the command or
 `DJ_TRACK_SIMILARITY_ANALYSIS_DIAGNOSTICS=1` is set. These include batch-level
-`prepare_seconds`, `decode_seconds`, `inference_seconds`, `save_seconds`,
-`total_seconds`, `tracks_per_second`, track count, and window count for
-MERT/CLAP and MAEST. Sonara diagnostics log per-track `total_seconds` and
-`tracks_per_second`, because its internal decode and feature extraction are
-handled inside Sonara. Audio loading also logs decoder fallback details by path:
-failed decoders such as `torchaudio`, `wave`, or `ffmpeg`, their error text, and
-the fallback decoder that eventually succeeded when one does. This diagnostic
-logging is off by default.
+model timing, `tracks_per_second`, track count, and window count where the
+selected adapter exposes those details. Audio loading also logs decoder
+fallback details by path: failed decoders such as `torchaudio`, `wave`, or
+`ffmpeg`, their error text, and the fallback decoder that eventually succeeded
+when one does. This diagnostic logging is off by default.

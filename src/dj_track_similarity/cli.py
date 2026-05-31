@@ -8,17 +8,15 @@ from typing import Optional
 
 import typer
 
-from .analysis_jobs import AnalysisJobManager
+from .analysis_jobs import ANALYSIS_MODEL_ORDER, AnalysisJobManager
 from .classifier_scoring import analyze_classifier as run_classifier_analysis
 from .database import LibraryDatabase
 from .dependencies import require_ffmpeg
 from .embedding import ClapEmbeddingAdapter
-from .genre_jobs import GenreAnalysisJobManager
 from .logging_config import configure_logging, set_analysis_diagnostics_enabled
 from .runtime import get_torch_runtime_info, recommended_torch_index
 from .scanner import scan_library
 from .search import SearchFilters, SimilaritySearch
-from .sonara_jobs import SonaraFeatureJobManager
 
 
 app = typer.Typer(help="Local dj-track-similarity utility.")
@@ -118,6 +116,21 @@ def _format_eta_seconds(seconds: float | None) -> str:
     return f"{secs}s"
 
 
+def _parse_analysis_models(value: str) -> list[str]:
+    selected: list[str] = []
+    for item in value.split(","):
+        model = item.strip().lower()
+        if not model:
+            continue
+        if model not in ANALYSIS_MODEL_ORDER:
+            raise typer.BadParameter(f"Unknown analysis model: {item}")
+        if model not in selected:
+            selected.append(model)
+    if not selected:
+        raise typer.BadParameter("At least one analysis model must be selected")
+    return [model for model in ANALYSIS_MODEL_ORDER if model in selected]
+
+
 @app.command()
 def scan(music_root: Path, db_path: Optional[Path] = typer.Option(None, "--db")) -> None:
     stats = scan_library(_db(db_path), music_root)
@@ -154,66 +167,27 @@ def relocate_library(
 def analyze(
     db_path: Optional[Path] = typer.Option(None, "--db"),
     limit: Optional[int] = typer.Option(None, "--limit"),
-    adapter: str = typer.Option("mert", "--adapter", help="Embedding adapter: mert or clap. clap uses the LAION music checkpoint."),
+    models: str = typer.Option(",".join(ANALYSIS_MODEL_ORDER), "--models", help="Comma-separated analysis models: sonara,maest,mert,clap."),
     device: str = typer.Option("auto", "--device", help="Embedding device: auto, cpu, or cuda."),
-    batch_size: int = typer.Option(4, "--batch-size", min=1, max=64, help="Embedding inference batch size."),
+    top_k: int = typer.Option(3, "--top-k", min=1, max=10, help="Number of MAEST genre labels to store per track."),
+    batch_size: int = typer.Option(4, "--batch-size", min=1, max=64, help="Shared decode and model inference batch size."),
     diagnostics: bool = typer.Option(False, "--diagnostics", help="Write decoder fallback and batch timing diagnostics to the file log."),
 ) -> None:
     set_analysis_diagnostics_enabled(diagnostics)
+    selected_models = _parse_analysis_models(models)
     manager = AnalysisJobManager(_db(db_path))
     job_id = manager.create_job(
-        adapter_name=adapter,
-        limit=limit,
-        device=device,
-        batch_size=batch_size,
-    )
-    status = _run_cli_job_with_progress(manager, job_id, label=adapter)
-    typer.echo(
-        f"state={status.state} total={status.total} processed={status.processed} "
-        f"analyzed={status.analyzed} failed={status.failed} embedding_key={status.embedding_key} "
-        f"device={status.device} batch_size={status.batch_size}"
-    )
-
-
-@app.command("analyze-genres")
-def analyze_genres(
-    db_path: Optional[Path] = typer.Option(None, "--db"),
-    limit: Optional[int] = typer.Option(None, "--limit"),
-    device: str = typer.Option("auto", "--device", help="MAEST device: auto, cpu, or cuda."),
-    top_k: int = typer.Option(3, "--top-k", min=1, max=10, help="Number of MAEST genre labels to store per track."),
-    batch_size: int = typer.Option(4, "--batch-size", min=1, max=64, help="MAEST inference batch size."),
-    diagnostics: bool = typer.Option(False, "--diagnostics", help="Write decoder fallback and batch timing diagnostics to the file log."),
-) -> None:
-    set_analysis_diagnostics_enabled(diagnostics)
-    manager = GenreAnalysisJobManager(_db(db_path))
-    job_id = manager.create_job(
+        models=selected_models,
         limit=limit,
         device=device,
         top_k=top_k,
         batch_size=batch_size,
     )
-    status = _run_cli_job_with_progress(manager, job_id, label="maest")
+    status = _run_cli_job_with_progress(manager, job_id, label=",".join(selected_models))
     typer.echo(
         f"state={status.state} total={status.total} processed={status.processed} "
-        f"analyzed={status.analyzed} failed={status.failed} embedding_key={status.embedding_key} "
+        f"analyzed={status.analyzed} failed={status.failed} models={','.join(status.models)} "
         f"device={status.device} top_k={status.top_k} batch_size={status.batch_size}"
-    )
-
-
-@app.command("analyze-sonara")
-def analyze_sonara(
-    db_path: Optional[Path] = typer.Option(None, "--db"),
-    limit: Optional[int] = typer.Option(None, "--limit"),
-    batch_size: int = typer.Option(1, "--batch-size", min=1, max=64, help="Parallel Sonara track workers."),
-    diagnostics: bool = typer.Option(False, "--diagnostics", help="Write analysis timing diagnostics to the file log."),
-) -> None:
-    set_analysis_diagnostics_enabled(diagnostics)
-    manager = SonaraFeatureJobManager(_db(db_path))
-    job_id = manager.create_job(limit=limit, batch_size=batch_size)
-    status = _run_cli_job_with_progress(manager, job_id, label="sonara")
-    typer.echo(
-        f"state={status.state} total={status.total} processed={status.processed} "
-        f"analyzed={status.analyzed} failed={status.failed} batch_size={status.batch_size}"
     )
 
 

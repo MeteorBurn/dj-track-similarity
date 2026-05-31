@@ -82,9 +82,9 @@ similarity, or overall sound.
 MERT seed search sends seed tracks, lookback tracks, limit, and optional minimum
 similarity to `/api/search`. It ranks tracks in the MERT embedding space.
 
-Use MERT after running `dj-sim analyze --adapter mert` or the matching UI
-analysis job. If results are empty or stale, check whether the candidate tracks
-have MERT embeddings.
+Use MERT after running `dj-sim analyze --models mert` or the matching selected
+model in the UI analysis job. If results are empty or stale, check whether the
+candidate tracks have MERT embeddings.
 
 ### CLAP Text Search
 

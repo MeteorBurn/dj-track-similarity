@@ -16,6 +16,12 @@ Each family writes different SQLite data and supports a different workflow:
 | CLAP | Builds music audio embeddings and text vectors. | You want text-to-audio search from descriptive prompts. |
 | Promoted classifiers | Scores tracks with a local model trained in Rhythm Lab. | You want a reusable custom signal such as vocal presence, live instrumentation, or another profile-specific label. |
 
+The main audio-analysis workflow is one selected-model job. In the UI, select
+SONARA, MAEST, MERT, and/or CLAP with checkboxes and start one analysis run. In
+the CLI, use `dj-sim analyze --models sonara,maest,mert,clap`; omitting
+`--models` selects all four. A track is eligible when it is missing at least
+one selected model, and existing selected-model results are skipped.
+
 ### Sonara
 
 Sonara is used in playlist mode as a fast explainable feature pass. It stores
@@ -37,8 +43,9 @@ Stored groups and keys:
 Sonara BPM and key are analyzed values, not copied from file tags. The app keeps
 raw Sonara key data and does not derive Camelot notation.
 
-The CLI and UI call Sonara with `batch_size` as parallel track workers, not as a
-neural-network inference batch.
+In the multi-model job, Sonara runs after the shared per-batch decode step and
+before MAEST, MERT, and CLAP. `batch_size` caps the in-memory track batch used
+by the selected models.
 
 Run Sonara early if you are unsure where to start. It is the most transparent
 analysis family because the UI can show and mix its feature groups directly.

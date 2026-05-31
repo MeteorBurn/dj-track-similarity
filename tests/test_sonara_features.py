@@ -1,18 +1,12 @@
 import json
-import logging
 from pathlib import Path
-import threading
-import time
 import wave
 
 import numpy as np
-from fastapi.testclient import TestClient
 
-import dj_track_similarity.api as api
+from dj_track_similarity.audio_loader import DecodedAudio
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.logging_config import set_analysis_diagnostics_enabled
-from dj_track_similarity.sonara_features import analyze_and_store_sonara_features
-from dj_track_similarity.sonara_jobs import SonaraFeatureJobManager
+from dj_track_similarity.sonara_features import analyze_and_store_sonara_features, analyze_and_store_sonara_features_from_audio
 
 
 class FakeSonara:
@@ -60,6 +54,7 @@ class FakeSonara:
 
     @staticmethod
     def analyze_signal(y, sr: int = 22050, mode: str = "playlist"):
+        assert sr == 22050
         return FakeSonara.analyze_file("from-signal", sr=sr, mode=mode)
 
     @staticmethod
@@ -164,74 +159,24 @@ def test_analyze_and_store_sonara_features_writes_metadata_and_json_dump(tmp_pat
     assert "sonara_features_file" not in track.metadata
 
 
-class SynchronousSonaraManager:
-    last_batch_size = None
+def test_analyze_sonara_uses_shared_decoded_audio_without_file_decode(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    audio_path = tmp_path / "Artist - Shared.wav"
+    audio_path.write_bytes(b"not decoded by sonara")
+    track_id = db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": "Shared"})
+    decoded = DecodedAudio(path=str(audio_path), audio=np.ones(22050, dtype=np.float32), sample_rate=22050, detail="shared")
 
-    def __init__(self, db, *args, **kwargs):
-        self.db = db
+    result = analyze_and_store_sonara_features_from_audio(
+        db,
+        db.get_track(track_id),
+        decoded,
+        sonara_module=FakeSonara,
+    )
 
-    def start(self, *, limit=None, batch_size=1):
-        type(self).last_batch_size = batch_size
-        tracks = self.db.list_tracks()
-        if limit is not None:
-            tracks = tracks[:limit]
-        for track in tracks:
-            analyze_and_store_sonara_features(self.db, track, sonara_module=FakeSonara)
-        return {
-            "job_id": "sonara-job-1",
-            "state": "completed",
-            "adapter_name": "sonara",
-            "embedding_key": "sonara",
-            "model_name": "sonara-playlist-lab",
-            "device": "cpu",
-            "device_requested": "cpu",
-            "total": len(tracks),
-            "processed": len(tracks),
-            "analyzed": len(tracks),
-            "failed": 0,
-            "current_path": None,
-            "started_at": 1,
-            "finished_at": 2,
-            "avg_seconds_per_track": 1,
-            "errors": [],
-            "events": [],
-            "cancel_requested": False,
-            "workers": batch_size,
-            "batch_size": batch_size,
-        }
-
-    def latest(self):
-        return None
-
-    def get(self, job_id):
-        raise KeyError(job_id)
-
-    def cancel(self, job_id):
-        raise KeyError(job_id)
-
-
-def test_api_runs_sonara_analysis_and_returns_track_features(monkeypatch, tmp_path: Path) -> None:
-    db_path = tmp_path / "library.sqlite"
-    audio_path = tmp_path / "track.wav"
-    _write_wav(audio_path)
-    db = LibraryDatabase(db_path)
-    db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": "Track"})
-    monkeypatch.setattr(api, "SonaraFeatureJobManager", SynchronousSonaraManager)
-
-    client = TestClient(api.create_app(db_path))
-    response = client.post("/api/sonara/analyze", json={"limit": 1, "batch_size": 3})
-
-    assert response.status_code == 200
-    assert response.json()["adapter_name"] == "sonara"
-    assert response.json()["batch_size"] == 3
-    assert response.json()["workers"] == 3
-    assert SynchronousSonaraManager.last_batch_size == 3
-    tracks = client.get("/api/tracks?include_metadata=true").json()["items"]
-    assert tracks[0]["bpm"] == 126.4
-    assert tracks[0]["musical_key"] == "A minor"
-    assert tracks[0]["analyses"] == ["sonara"]
-    assert "camelot_key" not in tracks[0]["metadata"]["sonara_features"]
-    assert "description" not in tracks[0]["metadata"]["sonara_features"]["key"]
+    track = db.get_track(track_id)
+    assert result.elapsed_seconds >= 0
+    assert track.bpm == 126.4
+    assert track.analyses == ["sonara"]
 
 
 def test_analyze_sonara_falls_back_to_signal_for_truncated_wav(tmp_path: Path) -> None:
@@ -254,107 +199,3 @@ def test_analyze_sonara_falls_back_to_signal_for_truncated_wav(tmp_path: Path) -
     assert track.musical_key == "A minor"
     assert track.metadata["sonara_features"]["energy"]["value"] == 0.74
     assert "decode_path" not in track.metadata["sonara_features"]
-
-
-def test_sonara_limit_counts_tracks_without_sonara_features(monkeypatch, tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_ids = []
-    for name in ["a.wav", "b.wav", "c.wav", "d.wav"]:
-        audio_path = tmp_path / name
-        _write_wav(audio_path)
-        track_ids.append(
-            db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": name})
-        )
-    db.save_sonara_features(track_ids[0], {"bpm": {"value": 120}}, model_name="sonara-test")
-    processed: list[str] = []
-
-    def fake_analyze(db, track):
-        processed.append(Path(track.path).name)
-        db.save_sonara_features(track.id, {"bpm": {"value": 121}}, model_name="sonara-test")
-
-    monkeypatch.setattr("dj_track_similarity.sonara_jobs.analyze_and_store_sonara_features", fake_analyze)
-
-    def fail_if_full_track_scan(**_kwargs):
-        raise AssertionError("sonara job creation must use SQL-level missing SONARA selection")
-
-    monkeypatch.setattr(db, "list_tracks", fail_if_full_track_scan)
-
-    status = SonaraFeatureJobManager(db).run_sync(limit=2)
-
-    assert status.total == 2
-    assert status.analyzed == 2
-    assert processed == ["b.wav", "c.wav"]
-
-
-def test_sonara_batch_size_runs_tracks_in_parallel(monkeypatch, tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    for name in ["a.wav", "b.wav", "c.wav"]:
-        audio_path = tmp_path / name
-        _write_wav(audio_path)
-        db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": name})
-    active = 0
-    max_active = 0
-    lock = threading.Lock()
-
-    def fake_analyze(db, track):
-        nonlocal active, max_active
-        with lock:
-            active += 1
-            max_active = max(max_active, active)
-        time.sleep(0.05)
-        db.save_sonara_features(track.id, {"bpm": {"value": 121}}, model_name="sonara-test")
-        with lock:
-            active -= 1
-
-    monkeypatch.setattr("dj_track_similarity.sonara_jobs.analyze_and_store_sonara_features", fake_analyze)
-
-    status = SonaraFeatureJobManager(db).run_sync(batch_size=2)
-
-    assert status.state == "completed"
-    assert status.total == 3
-    assert status.analyzed == 3
-    assert status.workers == 2
-    assert status.batch_size == 2
-    assert max_active == 2
-
-
-def test_sonara_job_logs_track_timing_when_diagnostics_enabled(monkeypatch, tmp_path: Path, caplog) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    audio_path = tmp_path / "a.wav"
-    _write_wav(audio_path)
-    db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": "a.wav"})
-
-    def fake_analyze(db, track):
-        db.save_sonara_features(track.id, {"bpm": {"value": 121}}, model_name="sonara-test")
-
-    monkeypatch.setattr("dj_track_similarity.sonara_jobs.analyze_and_store_sonara_features", fake_analyze)
-    manager = SonaraFeatureJobManager(db)
-
-    set_analysis_diagnostics_enabled(True)
-    try:
-        with caplog.at_level(logging.INFO, logger="dj_track_similarity.sonara_jobs"):
-            manager.run_sync()
-    finally:
-        set_analysis_diagnostics_enabled(None)
-
-    assert "Sonara track timing" in caplog.text
-    assert "track_id=" in caplog.text
-    assert "total_seconds=" in caplog.text
-    assert "tracks_per_second=" in caplog.text
-
-
-def test_sonara_job_suppresses_track_timing_by_default(monkeypatch, tmp_path: Path, caplog) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    audio_path = tmp_path / "a.wav"
-    _write_wav(audio_path)
-    db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": "a.wav"})
-
-    def fake_analyze(db, track):
-        db.save_sonara_features(track.id, {"bpm": {"value": 121}}, model_name="sonara-test")
-
-    monkeypatch.setattr("dj_track_similarity.sonara_jobs.analyze_and_store_sonara_features", fake_analyze)
-
-    with caplog.at_level(logging.INFO, logger="dj_track_similarity.sonara_jobs"):
-        SonaraFeatureJobManager(db).run_sync()
-
-    assert "Sonara track timing" not in caplog.text

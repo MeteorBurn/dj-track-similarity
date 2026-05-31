@@ -7,7 +7,7 @@ import time
 
 import numpy as np
 
-from .audio_loader import load_audio_mono, torch_compatible_audio
+from .audio_loader import DecodedAudio, load_audio_mono, torch_compatible_audio
 from .runtime import select_torch_device
 
 
@@ -34,10 +34,6 @@ class MaestGenreAdapter:
 
     def predict_batch(self, paths: list[str | Path]) -> list[list[dict[str, float | str]]]:
         self._load_model()
-        torch = self._torch
-        torchaudio = self._torchaudio
-        assert torch is not None and torchaudio is not None and self._model is not None
-
         prepared = []
         window_track_indexes: list[int] = []
         decode_seconds = 0.0
@@ -48,6 +44,36 @@ class MaestGenreAdapter:
             prepared.extend(windows)
             window_track_indexes.extend([track_index] * len(windows))
         prepare_seconds = time.perf_counter() - prepare_started
+        return self._predict_prepared_batch([str(path) for path in paths], prepared, window_track_indexes, decode_seconds, prepare_seconds)
+
+    def predict_decoded_batch(self, decoded_items: list[DecodedAudio]) -> list[list[dict[str, float | str]]]:
+        self._load_model()
+        prepared = []
+        window_track_indexes: list[int] = []
+        prepare_started = time.perf_counter()
+        for track_index, decoded in enumerate(decoded_items):
+            windows = self._prepare_audio_windows_from_audio(decoded.path, decoded.audio, decoded.sample_rate)
+            prepared.extend(windows)
+            window_track_indexes.extend([track_index] * len(windows))
+        prepare_seconds = time.perf_counter() - prepare_started
+        return self._predict_prepared_batch(
+            [str(decoded.path) for decoded in decoded_items],
+            prepared,
+            window_track_indexes,
+            0.0,
+            prepare_seconds,
+        )
+
+    def _predict_prepared_batch(
+        self,
+        paths: list[str],
+        prepared: list[object],
+        window_track_indexes: list[int],
+        decode_seconds: float,
+        prepare_seconds: float,
+    ) -> list[list[dict[str, float | str]]]:
+        torch = self._torch
+        assert torch is not None and self._model is not None
         device = self._device()
         audio_batch = torch.stack(prepared, dim=0).to(device)
         _move_maest_runtime_modules(self._model, device)
@@ -82,9 +108,8 @@ class MaestGenreAdapter:
         return self._prepare_audio_windows_with_timing(path)[0]
 
     def _prepare_audio_windows_with_timing(self, path: str | Path):
-        torch = self._torch
         torchaudio = self._torchaudio
-        assert torch is not None and torchaudio is not None
+        assert torchaudio is not None
 
         decode_started = time.perf_counter()
         audio_values, sample_rate, _decode_detail = load_audio_mono(
@@ -93,13 +118,21 @@ class MaestGenreAdapter:
             target_sample_rate=16000,
         )
         decode_seconds = time.perf_counter() - decode_started
+        return self._prepare_audio_windows_from_audio(path, audio_values, sample_rate), decode_seconds
+
+    def _prepare_audio_windows_from_audio(self, path: str | Path, audio_values: np.ndarray, sample_rate: int):
+        torch = self._torch
+        torchaudio = self._torchaudio
+        assert torch is not None
         audio = torch.from_numpy(torch_compatible_audio(audio_values)).unsqueeze(0)
         if sample_rate != 16000:
+            if torchaudio is None:
+                raise RuntimeError(f"MAEST shared-audio analysis requires torchaudio resampling: {path}")
             audio = torchaudio.transforms.Resample(sample_rate, 16000)(audio)
         audio = audio.squeeze(0)
         target_samples = int(16000 * maest_input_seconds(self.model_name))
         if audio.numel() < target_samples:
-            return [torch.nn.functional.pad(audio, (0, target_samples - audio.numel()))], decode_seconds
+            return [torch.nn.functional.pad(audio, (0, target_samples - audio.numel()))]
 
         starts = _analysis_window_starts(
             audio.numel() / 16000,
@@ -114,7 +147,7 @@ class MaestGenreAdapter:
             if segment.numel() < target_samples:
                 segment = torch.nn.functional.pad(segment, (0, target_samples - segment.numel()))
             windows.append(segment)
-        return windows or [audio[:target_samples]], decode_seconds
+        return windows or [audio[:target_samples]]
 
     def _load_model(self) -> None:
         if self._model is not None:

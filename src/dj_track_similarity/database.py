@@ -381,6 +381,41 @@ class LibraryDatabase:
             ).fetchall()
         return [self._row_to_track(row, include_metadata=False) for row in rows]
 
+    def list_tracks_missing_any_analysis(self, models: Iterable[str], *, limit: int | None = None) -> list[Track]:
+        selected = _clean_analysis_models(models)
+        if not selected:
+            return []
+        missing_terms: list[str] = []
+        for model in selected:
+            if model == "sonara":
+                missing_terms.append("json_type(t.metadata_json, '$.sonara_features') IS NULL")
+            elif model in {"maest", "mert", "clap"}:
+                missing_terms.append(
+                    """
+                    NOT EXISTS (
+                        SELECT 1
+                        FROM embeddings missing_e
+                        WHERE missing_e.track_id = t.id
+                          AND missing_e.embedding_key = ?
+                    )
+                    """
+                )
+        limit_sql, limit_params = _limit_sql(limit)
+        params = [DEFAULT_EMBEDDING_KEY, *(model for model in selected if model in {"maest", "mert", "clap"}), *limit_params]
+        with self.connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT {TRACK_SLIM_SELECT_FIELDS}
+                FROM tracks t
+                LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
+                WHERE {" OR ".join(f"({term})" for term in missing_terms)}
+                ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
+                {limit_sql}
+                """,
+                tuple(params),
+            ).fetchall()
+        return [self._row_to_track(row, include_metadata=False) for row in rows]
+
     def list_tracks_missing_classifier(self, classifier: str, *, limit: int | None = None) -> list[Track]:
         limit_sql, params = _limit_sql(limit)
         with self.connect() as connection:
@@ -953,6 +988,17 @@ def _limit_sql(limit: int | None) -> tuple[str, tuple[int, ...]]:
     if limit is None:
         return "", ()
     return "LIMIT ?", (max(0, int(limit)),)
+
+
+def _clean_analysis_models(models: Iterable[str]) -> list[str]:
+    allowed = {"sonara", "maest", "mert", "clap"}
+    selected: list[str] = []
+    for model in models:
+        text = str(model).strip().lower()
+        if text not in allowed or text in selected:
+            continue
+        selected.append(text)
+    return selected
 
 
 def _track_filter_sql(

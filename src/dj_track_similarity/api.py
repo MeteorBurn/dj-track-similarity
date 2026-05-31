@@ -13,19 +13,17 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.background import BackgroundTask
 
-from .analysis_jobs import AnalysisJobManager
+from .analysis_jobs import ANALYSIS_MODEL_ORDER, AnalysisJobManager
 from .classifier_jobs import ClassifierJobManager
 from .classifier_scoring import promoted_classifiers
 from .database import LibraryDatabase
 from .dependencies import require_ffmpeg
 from .embedding import ClapEmbeddingAdapter
 from .exporter import export_tracks
-from .genre_jobs import GenreAnalysisJobManager
 from .logging_config import configure_logging
 from .scan_jobs import ScanJobManager
 from .search import SearchFilters, SimilaritySearch
 from .sonara_similarity import SonaraSimilaritySearch
-from .sonara_jobs import SonaraFeatureJobManager
 from .tags import GenreTagJobManager, apply_genre_tags_to_tracks
 
 
@@ -51,24 +49,12 @@ class DatabaseSwitchRequest(BaseModel):
     path: str
 
 
-class AnalyzeRequest(BaseModel):
+class AnalysisJobRequest(BaseModel):
     limit: int | None = None
-    adapter: str = Field(default="mert", pattern="^(mert|clap)$")
-    device: str = Field(default="auto", pattern="^(auto|cpu|cuda)$")
-    batch_size: int = Field(default=4, ge=1, le=64)
-    workers: int | None = Field(default=None, ge=1, le=64)
-
-
-class GenreAnalyzeRequest(BaseModel):
-    limit: int | None = None
+    models: list[str] = Field(default_factory=lambda: list(ANALYSIS_MODEL_ORDER), min_length=1)
     device: str = Field(default="auto", pattern="^(auto|cpu|cuda)$")
     top_k: int = Field(default=3, ge=1, le=10)
     batch_size: int = Field(default=4, ge=1, le=64)
-
-
-class SonaraAnalyzeRequest(BaseModel):
-    limit: int | None = None
-    batch_size: int = Field(default=1, ge=1, le=64)
 
 
 class ClassifierAnalyzeRequest(BaseModel):
@@ -173,9 +159,7 @@ class AppDatabaseState:
         self.db_path: Path | None = None
         self.db: LibraryDatabase | None = None
         self.analysis_jobs: AnalysisJobManager | None = None
-        self.genre_jobs: GenreAnalysisJobManager | None = None
         self.classifier_jobs: ClassifierJobManager | None = None
-        self.sonara_jobs: SonaraFeatureJobManager | None = None
         self.scan_jobs: ScanJobManager | None = None
         self.genre_tag_jobs: GenreTagJobManager | None = None
         if db_path is not None:
@@ -204,9 +188,7 @@ class AppDatabaseState:
             self.db_path = db.path
             self.db = db
             self.analysis_jobs = AnalysisJobManager(db)
-            self.genre_jobs = GenreAnalysisJobManager(db)
             self.classifier_jobs = ClassifierJobManager(db)
-            self.sonara_jobs = SonaraFeatureJobManager(db)
             self.scan_jobs = ScanJobManager(db)
             self.genre_tag_jobs = GenreTagJobManager(db)
             return self.current()
@@ -220,16 +202,6 @@ class AppDatabaseState:
         self.require_db()
         assert self.analysis_jobs is not None
         return self.analysis_jobs
-
-    def require_genre_jobs(self) -> GenreAnalysisJobManager:
-        self.require_db()
-        assert self.genre_jobs is not None
-        return self.genre_jobs
-
-    def require_sonara_jobs(self) -> SonaraFeatureJobManager:
-        self.require_db()
-        assert self.sonara_jobs is not None
-        return self.sonara_jobs
 
     def require_classifier_jobs(self) -> ClassifierJobManager:
         self.require_db()
@@ -249,9 +221,7 @@ class AppDatabaseState:
     def _has_active_jobs(self) -> bool:
         managers = [
             self.analysis_jobs,
-            self.genre_jobs,
             self.classifier_jobs,
-            self.sonara_jobs,
             self.scan_jobs,
             self.genre_tag_jobs,
         ]
@@ -451,19 +421,19 @@ def create_app(
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
-    @app.post("/api/analyze")
-    def analyze(request: AnalyzeRequest):
+    @app.post("/api/analysis/jobs")
+    def analyze(request: AnalysisJobRequest):
+        try:
+            models = _valid_analysis_models(request.models)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
         return state.require_analysis_jobs().start(
-            adapter_name=request.adapter,
+            models=models,
             limit=request.limit,
             batch_size=request.batch_size,
-            workers=request.workers,
             device=request.device,
+            top_k=request.top_k,
         )
-
-    @app.post("/api/sonara/analyze")
-    def analyze_sonara(request: SonaraAnalyzeRequest):
-        return state.require_sonara_jobs().start(limit=request.limit, batch_size=request.batch_size)
 
     @app.get("/api/classifiers")
     def classifiers():
@@ -495,66 +465,21 @@ def create_app(
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
-    @app.get("/api/sonara/analyze/jobs/latest")
-    def latest_sonara_job():
-        return state.require_sonara_jobs().latest()
-
-    @app.get("/api/sonara/analyze/jobs/{job_id}")
-    def sonara_job(job_id: str):
-        try:
-            return state.require_sonara_jobs().get(job_id)
-        except KeyError as error:
-            raise HTTPException(status_code=404, detail=str(error)) from error
-
-    @app.post("/api/sonara/analyze/jobs/{job_id}/cancel")
-    def cancel_sonara_job(job_id: str):
-        try:
-            return state.require_sonara_jobs().cancel(job_id)
-        except KeyError as error:
-            raise HTTPException(status_code=404, detail=str(error)) from error
-
-    @app.get("/api/analyze/jobs/latest")
+    @app.get("/api/analysis/jobs/latest")
     def latest_analyze_job():
         return state.require_analysis_jobs().latest()
 
-    @app.get("/api/analyze/jobs/{job_id}")
+    @app.get("/api/analysis/jobs/{job_id}")
     def analyze_job(job_id: str):
         try:
             return state.require_analysis_jobs().get(job_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
-    @app.post("/api/analyze/jobs/{job_id}/cancel")
+    @app.post("/api/analysis/jobs/{job_id}/cancel")
     def cancel_analyze_job(job_id: str):
         try:
             return state.require_analysis_jobs().cancel(job_id)
-        except KeyError as error:
-            raise HTTPException(status_code=404, detail=str(error)) from error
-
-    @app.post("/api/genres/analyze")
-    def analyze_genres(request: GenreAnalyzeRequest):
-        return state.require_genre_jobs().start(
-            limit=request.limit,
-            device=request.device,
-            top_k=request.top_k,
-            batch_size=request.batch_size,
-        )
-
-    @app.get("/api/genres/analyze/jobs/latest")
-    def latest_genre_job():
-        return state.require_genre_jobs().latest()
-
-    @app.get("/api/genres/analyze/jobs/{job_id}")
-    def genre_job(job_id: str):
-        try:
-            return state.require_genre_jobs().get(job_id)
-        except KeyError as error:
-            raise HTTPException(status_code=404, detail=str(error)) from error
-
-    @app.post("/api/genres/analyze/jobs/{job_id}/cancel")
-    def cancel_genre_job(job_id: str):
-        try:
-            return state.require_genre_jobs().cancel(job_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
@@ -710,6 +635,19 @@ def _valid_classifier_min_scores(scores: dict[str, float]) -> dict[str, float]:
             raise HTTPException(status_code=422, detail=f"Classifier threshold out of range: {classifier}")
         result[str(classifier)] = score
     return result
+
+
+def _valid_analysis_models(models: list[str]) -> list[str]:
+    selected: list[str] = []
+    for model in models:
+        text = str(model).strip().lower()
+        if text not in ANALYSIS_MODEL_ORDER:
+            raise ValueError(f"Unknown analysis model: {model}")
+        if text not in selected:
+            selected.append(text)
+    if not selected:
+        raise ValueError("At least one analysis model must be selected")
+    return [model for model in ANALYSIS_MODEL_ORDER if model in selected]
 
 
 def _transcoded_wav_file_response(path: Path, ffmpeg_path: str) -> FileResponse:

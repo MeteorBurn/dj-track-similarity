@@ -6,7 +6,7 @@ from typing import Protocol
 
 import numpy as np
 
-from .audio_loader import load_audio_mono, torch_compatible_audio
+from .audio_loader import DecodedAudio, load_audio_mono, torch_compatible_audio
 from .runtime import select_torch_device
 
 
@@ -56,10 +56,8 @@ class MertEmbeddingAdapter:
         assert torch is not None and torchaudio is not None and self._model is not None and self._processor is not None
 
         target_rate = int(self._processor.sampling_rate)
-        track_windows: list[list[int]] = []
-        all_windows = []
         decode_seconds = 0.0
-        prepare_started = time.perf_counter()
+        decoded_items: list[DecodedAudio] = []
         for path in paths:
             decode_started = time.perf_counter()
             audio, sample_rate, _decode_detail = load_audio_mono(
@@ -68,13 +66,31 @@ class MertEmbeddingAdapter:
                 target_sample_rate=target_rate,
             )
             decode_seconds += time.perf_counter() - decode_started
-            waveform = torch.from_numpy(torch_compatible_audio(audio)).unsqueeze(0)
-            if sample_rate != target_rate:
-                waveform = torchaudio.transforms.Resample(sample_rate, target_rate)(waveform)
+            decoded_items.append(DecodedAudio(path=str(path), audio=audio, sample_rate=sample_rate, detail="adapter decode"))
+        return self._embed_decoded_items(decoded_items, target_rate=target_rate, decode_seconds=decode_seconds)
+
+    def embed_decoded_batch(self, decoded_items: list[DecodedAudio]) -> list[np.ndarray]:
+        self._load_model()
+        assert self._processor is not None
+        return self._embed_decoded_items(decoded_items, target_rate=int(self._processor.sampling_rate), decode_seconds=0.0)
+
+    def _embed_decoded_items(self, decoded_items: list[DecodedAudio], *, target_rate: int, decode_seconds: float) -> list[np.ndarray]:
+        torch = self._torch
+        torchaudio = self._torchaudio
+        assert torch is not None and self._model is not None and self._processor is not None
+        track_windows: list[list[int]] = []
+        all_windows = []
+        prepare_started = time.perf_counter()
+        for decoded in decoded_items:
+            waveform = torch.from_numpy(torch_compatible_audio(decoded.audio)).unsqueeze(0)
+            if decoded.sample_rate != target_rate:
+                if torchaudio is None:
+                    raise RuntimeError(f"MERT shared-audio analysis requires torchaudio resampling: {decoded.path}")
+                waveform = torchaudio.transforms.Resample(decoded.sample_rate, target_rate)(waveform)
             waveform = waveform.squeeze(0)
             windows = _select_windows_torch(waveform, target_rate, self.window_seconds, self.max_windows, torch)
             if not windows:
-                raise ValueError(f"No audio windows could be extracted: {path}")
+                raise ValueError(f"No audio windows could be extracted: {decoded.path}")
             window_indices = []
             for window in windows:
                 window_indices.append(len(all_windows))
@@ -98,16 +114,16 @@ class MertEmbeddingAdapter:
             "prepare_seconds": prepare_seconds,
             "decode_seconds": decode_seconds,
             "inference_seconds": inference_seconds,
-            "tracks": len(paths),
+            "tracks": len(decoded_items),
             "windows": len(all_windows),
         }
 
         vectors = []
-        for path, indices in zip(paths, track_windows):
+        for decoded, indices in zip(decoded_items, track_windows):
             vector = np.mean(np.vstack([pooled_windows[index] for index in indices]), axis=0).astype(np.float32)
             norm = np.linalg.norm(vector)
             if norm == 0:
-                raise ValueError(f"Model produced a zero vector: {path}")
+                raise ValueError(f"Model produced a zero vector: {decoded.path}")
             vectors.append(vector / norm)
         return vectors
 
@@ -167,11 +183,8 @@ class ClapEmbeddingAdapter:
         assert torch is not None and torchaudio is not None and self._model is not None
 
         target_rate = 48_000
-        window_size = max(1, int(target_rate * self.window_seconds))
-        track_windows: list[list[int]] = []
-        all_windows = []
         decode_seconds = 0.0
-        prepare_started = time.perf_counter()
+        decoded_items: list[DecodedAudio] = []
         for path in paths:
             decode_started = time.perf_counter()
             audio, sample_rate, _decode_detail = load_audio_mono(
@@ -180,13 +193,31 @@ class ClapEmbeddingAdapter:
                 target_sample_rate=target_rate,
             )
             decode_seconds += time.perf_counter() - decode_started
-            waveform = torch.from_numpy(torch_compatible_audio(audio)).unsqueeze(0)
-            if sample_rate != target_rate:
-                waveform = torchaudio.transforms.Resample(sample_rate, target_rate)(waveform)
+            decoded_items.append(DecodedAudio(path=str(path), audio=audio, sample_rate=sample_rate, detail="adapter decode"))
+        return self._embed_decoded_items(decoded_items, target_rate=target_rate, decode_seconds=decode_seconds)
+
+    def embed_decoded_batch(self, decoded_items: list[DecodedAudio]) -> list[np.ndarray]:
+        self._load_model()
+        return self._embed_decoded_items(decoded_items, target_rate=48_000, decode_seconds=0.0)
+
+    def _embed_decoded_items(self, decoded_items: list[DecodedAudio], *, target_rate: int, decode_seconds: float) -> list[np.ndarray]:
+        torch = self._torch
+        torchaudio = self._torchaudio
+        assert torch is not None and self._model is not None
+        window_size = max(1, int(target_rate * self.window_seconds))
+        track_windows: list[list[int]] = []
+        all_windows = []
+        prepare_started = time.perf_counter()
+        for decoded in decoded_items:
+            waveform = torch.from_numpy(torch_compatible_audio(decoded.audio)).unsqueeze(0)
+            if decoded.sample_rate != target_rate:
+                if torchaudio is None:
+                    raise RuntimeError(f"CLAP shared-audio analysis requires torchaudio resampling: {decoded.path}")
+                waveform = torchaudio.transforms.Resample(decoded.sample_rate, target_rate)(waveform)
             waveform = waveform.squeeze(0)
             windows = _select_windows_torch(waveform, target_rate, self.window_seconds, self.max_windows, torch)
             if not windows:
-                raise ValueError(f"No audio windows could be extracted: {path}")
+                raise ValueError(f"No audio windows could be extracted: {decoded.path}")
             window_indices = []
             for window in windows:
                 window_indices.append(len(all_windows))
@@ -206,7 +237,7 @@ class ClapEmbeddingAdapter:
             "prepare_seconds": prepare_seconds,
             "decode_seconds": decode_seconds,
             "inference_seconds": inference_seconds,
-            "tracks": len(paths),
+            "tracks": len(decoded_items),
             "windows": len(all_windows),
         }
 

@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 
-from .audio_loader import load_audio_mono
+from .audio_loader import DecodedAudio, load_audio_mono
 from .database import LibraryDatabase
 from .models import Track
 
@@ -91,12 +91,37 @@ def analyze_and_store_sonara_features(
     sonara = sonara_module or _import_sonara()
     started = time.perf_counter()
     analysis = _analyze_file_or_signal(sonara, track.path)
+    elapsed = time.perf_counter() - started
+    _store_sonara_analysis(db, track, analysis)
+    return SonaraFeatureResult(track.id, track.path, elapsed)
 
+
+def analyze_and_store_sonara_features_from_audio(
+    db: LibraryDatabase,
+    track: Track,
+    decoded: DecodedAudio,
+    *,
+    sonara_module: Any | None = None,
+) -> SonaraFeatureResult:
+    sonara = sonara_module or _import_sonara()
+    started = time.perf_counter()
+    audio = np.asarray(decoded.audio, dtype=np.float32)
+    if decoded.sample_rate != 22050:
+        resample = getattr(sonara, "resample", None)
+        if not callable(resample):
+            raise RuntimeError("sonara shared-audio analysis requires sonara.resample for non-22050 Hz input")
+        audio = np.asarray(resample(audio, orig_sr=decoded.sample_rate, target_sr=22050), dtype=np.float32)
+    analysis = dict(sonara.analyze_signal(audio, sr=22050, mode=SONARA_ANALYSIS_MODE))
+    elapsed = time.perf_counter() - started
+    _store_sonara_analysis(db, track, analysis)
+    return SonaraFeatureResult(track.id, track.path, elapsed)
+
+
+def _store_sonara_analysis(db: LibraryDatabase, track: Track, analysis: dict[str, object]) -> None:
     features: dict[str, object] = {}
     for key in PLAYLIST_FEATURE_KEYS:
         if key in analysis:
             features[key] = _feature_payload(analysis[key])
-    elapsed = time.perf_counter() - started
 
     db.save_sonara_features(
         track.id,
@@ -107,7 +132,6 @@ def analyze_and_store_sonara_features(
         duration=_optional_float(analysis.get("duration_sec")),
         model_name=SONARA_MODEL_NAME,
     )
-    return SonaraFeatureResult(track.id, track.path, elapsed)
 
 
 def _import_sonara():

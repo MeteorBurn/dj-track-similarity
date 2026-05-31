@@ -125,6 +125,35 @@ test("scan action row reserves one line for all scan controls", () => {
   assert.equal(declaredIconColumns, controlCount - 1);
 });
 
+test("analysis controls use model checkboxes and one selected-run button", () => {
+  const source = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
+
+  assert.match(source, /analysis-model-checkbox/);
+  assert.match(source, /analyze-selected-button/);
+  assert.match(source, /selectedAnalysisModels/);
+  assert.doesNotMatch(source, /onSonaraAnalyze/);
+  assert.doesNotMatch(source, /onGenreAnalyze/);
+  assert.doesNotMatch(source, /onAnalyze: \(adapter/);
+});
+
+test("frontend analysis api uses unified job endpoints only", () => {
+  const source = readFileSync(join(srcDir, "api.ts"), "utf8");
+
+  assert.match(source, /\/api\/analysis\/jobs/);
+  assert.doesNotMatch(source, /\/api\/sonara\/analyze/);
+  assert.doesNotMatch(source, /\/api\/genres\/analyze/);
+  assert.doesNotMatch(source, /\/api\/analyze"/);
+});
+
+test("analysis process status renders per-model progress", () => {
+  const source = readFileSync(join(srcDir, "jobUi.tsx"), "utf8");
+
+  assert.match(source, /model_progress/);
+  assert.match(source, /analysis-model-progress/);
+  assert.doesNotMatch(source, /api\.sonaraJob/);
+  assert.doesNotMatch(source, /api\.genreJob/);
+});
+
 test("destructive actions use the in-app confirmation dialog", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
 

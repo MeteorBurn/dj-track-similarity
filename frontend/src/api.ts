@@ -60,6 +60,8 @@ export type LibrarySummary = {
   classifiers: number;
 };
 
+export type AnalysisModel = "sonara" | "maest" | "mert" | "clap";
+
 export type SonaraSearchMode = "balanced" | "vibe" | "sound" | "dj_transition" | "custom";
 
 export type SonaraMixerWeights = {
@@ -103,6 +105,16 @@ export type AnalysisJobStatus = {
   state: "queued" | "running" | "completed" | "cancelled" | "failed";
   adapter_name: string;
   embedding_key: string;
+  models?: AnalysisModel[];
+  current_model?: AnalysisModel | null;
+  model_progress?: Partial<Record<AnalysisModel, {
+    total: number;
+    processed: number;
+    analyzed: number;
+    failed: number;
+    skipped: number;
+    current_path?: string | null;
+  }>>;
   model_name?: string | null;
   device?: string | null;
   device_requested: "auto" | "cpu" | "cuda";
@@ -115,8 +127,8 @@ export type AnalysisJobStatus = {
   started_at?: number | null;
   finished_at?: number | null;
   avg_seconds_per_track?: number | null;
-  errors: Array<{ track_id: number; path: string; error: string }>;
-  events: Array<{ timestamp: number; level: string; message: string; path?: string | null; track_id?: number | null }>;
+  errors: Array<{ track_id: number; path: string; error: string; model?: string | null }>;
+  events: Array<{ timestamp: number; level: string; message: string; path?: string | null; track_id?: number | null; model?: string | null }>;
   cancel_requested: boolean;
   workers: number;
   batch_size: number;
@@ -258,20 +270,21 @@ export const api = {
       method: "POST",
       body: JSON.stringify({})
     }),
-  analyze: (adapter: "mert" | "clap", limit?: number, device: "auto" | "cpu" | "cuda" = "auto", batch_size = 4) =>
-    request<AnalysisJobStatus>("/api/analyze", {
+  analysisJobStart: (payload: { models?: AnalysisModel[]; limit?: number | null; device?: "auto" | "cpu" | "cuda"; top_k?: number; batch_size?: number } = {}) =>
+    request<AnalysisJobStatus>("/api/analysis/jobs", {
       method: "POST",
-      body: JSON.stringify({ adapter, limit: limit || null, device, batch_size })
+      body: JSON.stringify({
+        models: payload.models,
+        limit: payload.limit ?? null,
+        device: payload.device ?? "auto",
+        top_k: payload.top_k ?? 3,
+        batch_size: payload.batch_size ?? 4
+      })
     }),
-  analyzeSonara: (limit?: number, batch_size = 1) =>
-    request<AnalysisJobStatus>("/api/sonara/analyze", {
-      method: "POST",
-      body: JSON.stringify({ limit: limit || null, batch_size })
-    }),
-  sonaraJob: (jobId: string) => request<AnalysisJobStatus>(`/api/sonara/analyze/jobs/${jobId}`),
-  latestSonaraJob: () => request<AnalysisJobStatus | null>("/api/sonara/analyze/jobs/latest"),
-  cancelSonaraJob: (jobId: string) =>
-    request<AnalysisJobStatus>(`/api/sonara/analyze/jobs/${jobId}/cancel`, {
+  analysisJob: (jobId: string) => request<AnalysisJobStatus>(`/api/analysis/jobs/${jobId}`),
+  latestAnalysisJob: () => request<AnalysisJobStatus | null>("/api/analysis/jobs/latest"),
+  cancelAnalysisJob: (jobId: string) =>
+    request<AnalysisJobStatus>(`/api/analysis/jobs/${jobId}/cancel`, {
       method: "POST",
       body: JSON.stringify({})
     }),
@@ -293,25 +306,6 @@ export const api = {
       body: JSON.stringify({})
     }),
   classifiers: () => request<PromotedClassifier[]>("/api/classifiers"),
-  analyzeJob: (jobId: string) => request<AnalysisJobStatus>(`/api/analyze/jobs/${jobId}`),
-  latestAnalyzeJob: () => request<AnalysisJobStatus | null>("/api/analyze/jobs/latest"),
-  cancelAnalyzeJob: (jobId: string) =>
-    request<AnalysisJobStatus>(`/api/analyze/jobs/${jobId}/cancel`, {
-      method: "POST",
-      body: JSON.stringify({})
-    }),
-  analyzeGenres: (limit?: number, device: "auto" | "cpu" | "cuda" = "auto", top_k = 3, batch_size = 4) =>
-    request<AnalysisJobStatus>("/api/genres/analyze", {
-      method: "POST",
-      body: JSON.stringify({ limit: limit || null, device, top_k, batch_size })
-    }),
-  genreJob: (jobId: string) => request<AnalysisJobStatus>(`/api/genres/analyze/jobs/${jobId}`),
-  latestGenreJob: () => request<AnalysisJobStatus | null>("/api/genres/analyze/jobs/latest"),
-  cancelGenreJob: (jobId: string) =>
-    request<AnalysisJobStatus>(`/api/genres/analyze/jobs/${jobId}/cancel`, {
-      method: "POST",
-      body: JSON.stringify({})
-    }),
   search: (payload: {
     seed_track_ids: number[];
     lookback_track_ids?: number[];

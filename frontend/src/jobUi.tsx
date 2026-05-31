@@ -1,6 +1,4 @@
-import { Trash2 } from "lucide-react";
-import { ReactNode } from "react";
-import { AnalysisJobStatus, api, GenreTagJobStatus, ScanStats } from "./api";
+import { AnalysisJobStatus, AnalysisModel, api, GenreTagJobStatus, ScanStats } from "./api";
 import { basename, formatEta } from "./trackDisplay";
 
 export type ActivityEvent = { id: number; time: number; level: "info" | "ok" | "warn" | "error"; message: string; detail?: string };
@@ -104,46 +102,13 @@ function unifiedLogEvents(
 }
 
 export function analysisJobRequest(job: AnalysisJobStatus) {
-  if (job.adapter_name === "sonara") return api.sonaraJob(job.job_id);
-  if (job.adapter_name === "maest") return api.genreJob(job.job_id);
-  if (!["mert", "clap"].includes(job.adapter_name)) return api.classifierJob(job.adapter_name, job.job_id);
-  return api.analyzeJob(job.job_id);
+  if (job.adapter_name === "multi" || job.models?.length) return api.analysisJob(job.job_id);
+  return api.classifierJob(job.adapter_name, job.job_id);
 }
 
 export function cancelAnalysisJob(job: AnalysisJobStatus) {
-  if (job.adapter_name === "sonara") return api.cancelSonaraJob(job.job_id);
-  if (job.adapter_name === "maest") return api.cancelGenreJob(job.job_id);
-  if (!["mert", "clap"].includes(job.adapter_name)) return api.cancelClassifierJob(job.adapter_name, job.job_id);
-  return api.cancelAnalyzeJob(job.job_id);
-}
-
-export function AnalysisButton({
-  label,
-  icon,
-  disabled,
-  title,
-  onRun,
-  onReset
-}: {
-  label: string;
-  icon: ReactNode;
-  disabled: boolean;
-  title?: string;
-  onRun: () => void;
-  onReset: () => void;
-}) {
-  return (
-    <div className="analysis-button-pair">
-      <button className="primary analysis-run-button" disabled={disabled} title={title} onClick={onRun}>
-        {icon}
-        {label}
-      </button>
-      <button className="analysis-reset-button" disabled={disabled} title={`Reset ${label}`} aria-label={`Reset ${label}`} onClick={onReset}>
-        Reset
-        <Trash2 size={14} />
-      </button>
-    </div>
-  );
+  if (job.adapter_name === "multi" || job.models?.length) return api.cancelAnalysisJob(job.job_id);
+  return api.cancelClassifierJob(job.adapter_name, job.job_id);
 }
 
 function ScanProcessStatus({ job }: { job: ScanStats | null }) {
@@ -219,6 +184,11 @@ export function stageIndicatorLabel(scanJob: ScanStats | null, analysisJob: Anal
 }
 
 function analysisRuntimeLabel(job: AnalysisJobStatus) {
+  if (job.adapter_name === "multi" || job.models?.length) {
+    const models = job.models?.map((model) => model.toUpperCase()).join(", ") || "selected models";
+    const current = job.current_model ? `now ${job.current_model.toUpperCase()}` : models;
+    return `${current} · ${job.device || `${job.device_requested} pending`}`;
+  }
   const model = job.model_name || job.adapter_name;
   return `${model} · ${job.device || `${job.device_requested} pending`}`;
 }
@@ -247,7 +217,26 @@ function AnalysisProcessStatus({ job }: { job: AnalysisJobStatus | null }) {
       </div>
       {job.avg_seconds_per_track != null && <span className="analysis-muted">{job.avg_seconds_per_track.toFixed(2)} s/track{etaSeconds ? ` · ETA ${formatEta(etaSeconds)}` : ""}</span>}
       {job.current_path && <span className="analysis-current">Сейчас: {basename(job.current_path)}</span>}
-      {job.errors.length > 0 && <span className="analysis-error">{job.errors[0].path}: {job.errors[0].error}</span>}
+      {job.model_progress && <ModelProgress progress={job.model_progress} />}
+      {job.errors.length > 0 && <span className="analysis-error">{job.errors[0].model ? `${job.errors[0].model}: ` : ""}{job.errors[0].path}: {job.errors[0].error}</span>}
+    </div>
+  );
+}
+
+function ModelProgress({ progress }: { progress: AnalysisJobStatus["model_progress"] }) {
+  const models: AnalysisModel[] = ["sonara", "maest", "mert", "clap"];
+  const rows = models.flatMap((model) => {
+    const item = progress?.[model];
+    return item ? [{ model, item }] : [];
+  });
+  if (!rows.length) return null;
+  return (
+    <div className="analysis-model-progress">
+      {rows.map(({ model, item }) => (
+        <span key={model}>
+          {model.toUpperCase()} {item.processed}/{item.total} · ok {item.analyzed} · fail {item.failed}
+        </span>
+      ))}
     </div>
   );
 }

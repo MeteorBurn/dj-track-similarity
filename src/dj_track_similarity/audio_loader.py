@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 import os
 from pathlib import Path
@@ -13,7 +14,21 @@ from .dependencies import FFMPEG_ENV_VAR
 from .logging_config import analysis_diagnostics_enabled
 
 DEFAULT_FFMPEG_SAMPLE_RATE = 16_000
+DEFAULT_SHARED_DECODE_SAMPLE_RATE = 48_000
 LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class DecodedAudio:
+    path: str
+    audio: np.ndarray
+    sample_rate: int
+    detail: str
+
+
+def load_decoded_audio(path: str | Path, *, target_sample_rate: int = DEFAULT_SHARED_DECODE_SAMPLE_RATE) -> DecodedAudio:
+    audio, sample_rate, detail = _load_with_ffmpeg(Path(path), target_sample_rate=target_sample_rate)
+    return DecodedAudio(path=str(path), audio=audio, sample_rate=sample_rate, detail=detail)
 
 
 def load_audio_mono(

@@ -5,6 +5,7 @@ import pytest
 import torch
 
 import dj_track_similarity.genres as genres
+from dj_track_similarity.audio_loader import DecodedAudio
 from dj_track_similarity.genres import MaestGenreAdapter, _move_maest_runtime_modules
 
 
@@ -100,6 +101,25 @@ def test_maest_predict_batch_uses_model_logits_per_track(monkeypatch) -> None:
     assert batches[1][0]["score"] == pytest.approx(torch.sigmoid(torch.tensor([3.0, 2.0, 1.0])).mean().item())
     assert batches[1][1]["label"] == "B"
     assert batches[1][1]["score"] == pytest.approx(torch.sigmoid(torch.tensor([1.0, 1.0, 1.0])).mean().item())
+    assert [[item["label"] for item in row] for row in batches] == [["B", "C"], ["A", "B"]]
+    np.testing.assert_allclose(adapter.embedding_for_path("a.wav"), np.asarray([2.0, 20.0], dtype=np.float32))
+    np.testing.assert_allclose(adapter.embedding_for_path("b.wav"), np.asarray([5.0, 50.0], dtype=np.float32))
+
+
+def test_maest_predict_decoded_batch_uses_shared_audio_without_loading_paths(monkeypatch) -> None:
+    def fail_load_audio(*_args, **_kwargs):
+        raise AssertionError("shared multi-model analysis must not reload paths for MAEST")
+
+    monkeypatch.setattr(genres, "load_audio_mono", fail_load_audio)
+    adapter = BatchMaestAdapter()
+    decoded = [
+        DecodedAudio(path="a.wav", audio=np.full(16000 * 120, 1.0, dtype=np.float32), sample_rate=16000, detail="shared"),
+        DecodedAudio(path="b.wav", audio=np.full(16000 * 120, 2.0, dtype=np.float32), sample_rate=16000, detail="shared"),
+    ]
+
+    batches = adapter.predict_decoded_batch(decoded)
+
+    assert adapter.fake_model.calls == [((6, 480000), False)]
     assert [[item["label"] for item in row] for row in batches] == [["B", "C"], ["A", "B"]]
     np.testing.assert_allclose(adapter.embedding_for_path("a.wav"), np.asarray([2.0, 20.0], dtype=np.float32))
     np.testing.assert_allclose(adapter.embedding_for_path("b.wav"), np.asarray([5.0, 50.0], dtype=np.float32))

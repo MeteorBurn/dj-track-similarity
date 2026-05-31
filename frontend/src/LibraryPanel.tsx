@@ -1,10 +1,9 @@
 import { Cpu, Database, FolderOpen, Gauge, Minus, Play, Plus, RefreshCcw, Save, Search, Square, Tags, Trash2, Wand2 } from "lucide-react";
-import { AnalysisJobStatus, GenreTagJobStatus, ScanStats } from "./api";
-import { ActivityEvent, AnalysisButton, stageIndicatorLabel, UnifiedLog } from "./jobUi";
+import { AnalysisJobStatus, AnalysisModel, GenreTagJobStatus, ScanStats } from "./api";
+import { ActivityEvent, stageIndicatorLabel, UnifiedLog } from "./jobUi";
 
 type DeviceMode = "auto" | "cpu" | "cuda";
-type AnalysisAdapter = "mert" | "clap";
-type ResetAdapter = "sonara" | "maest" | "mert" | "clap";
+const analysisModelOrder: AnalysisModel[] = ["sonara", "maest", "mert", "clap"];
 
 type LibraryHelpText = {
   databasePath: string;
@@ -20,6 +19,13 @@ type LibraryHelpText = {
   analyzeLimit: string;
   analysisDevice: string;
   analysisBatchSize: string;
+};
+
+const analysisModelHelpKey: Record<AnalysisModel, keyof LibraryHelpText> = {
+  sonara: "sonaraAnalyze",
+  maest: "maestAnalyze",
+  mert: "mertAnalyze",
+  clap: "clapAnalyze"
 };
 
 export function LibraryPanel({
@@ -56,9 +62,9 @@ export function LibraryPanel({
   onRefreshTags,
   onWriteMaestGenres,
   onClearDatabase,
-  onSonaraAnalyze,
-  onGenreAnalyze,
-  onAnalyze,
+  selectedAnalysisModels,
+  onToggleAnalysisModel,
+  onAnalyzeSelected,
   onResetAnalysis
 }: {
   databasePath: string | null;
@@ -94,11 +100,12 @@ export function LibraryPanel({
   onRefreshTags: () => void;
   onWriteMaestGenres: () => void;
   onClearDatabase: () => void;
-  onSonaraAnalyze: () => void;
-  onGenreAnalyze: () => void;
-  onAnalyze: (adapter: AnalysisAdapter) => void;
-  onResetAnalysis: (adapter: ResetAdapter) => void;
+  selectedAnalysisModels: AnalysisModel[];
+  onToggleAnalysisModel: (model: AnalysisModel) => void;
+  onAnalyzeSelected: () => void;
+  onResetAnalysis: (adapter: AnalysisModel) => void;
 }) {
+  const analysisDisabled = busy || stageRunning || !hasTracks;
   return (
     <aside className="panel library-panel">
       <div className="panel-title">
@@ -158,13 +165,47 @@ export function LibraryPanel({
       </div>
       <div className="analysis-section-title">
         <span>Анализ моделей</span>
-        <small>Запуск отдельных алгоритмов для текущей базы</small>
+        <small>Один запуск обработает выбранные модели и пропустит уже готовые результаты</small>
       </div>
       <div className="analysis-actions">
-        <AnalysisButton label="SONARA" icon={<Gauge size={16} />} disabled={busy || stageRunning || !hasTracks} title={helpText.sonaraAnalyze} onRun={onSonaraAnalyze} onReset={() => onResetAnalysis("sonara")} />
-        <AnalysisButton label="MAEST" icon={<Tags size={16} />} disabled={busy || stageRunning || !hasTracks} title={helpText.maestAnalyze} onRun={onGenreAnalyze} onReset={() => onResetAnalysis("maest")} />
-        <AnalysisButton label="MERT" icon={<Wand2 size={16} />} disabled={busy || stageRunning || !hasTracks} title={helpText.mertAnalyze} onRun={() => onAnalyze("mert")} onReset={() => onResetAnalysis("mert")} />
-        <AnalysisButton label="CLAP" icon={<Search size={16} />} disabled={busy || stageRunning || !hasTracks} title={helpText.clapAnalyze} onRun={() => onAnalyze("clap")} onReset={() => onResetAnalysis("clap")} />
+        {analysisModelOrder.map((model) => {
+          const label = model.toUpperCase();
+          return (
+            <div className="analysis-model-row" key={model}>
+              <label className="analysis-model-label" title={helpText[analysisModelHelpKey[model]]}>
+                <input
+                  className="analysis-model-checkbox"
+                  type="checkbox"
+                  checked={selectedAnalysisModels.includes(model)}
+                  disabled={busy || stageRunning}
+                  onChange={() => onToggleAnalysisModel(model)}
+                />
+                {analysisModelIcon(model)}
+                <span>{label}</span>
+              </label>
+              <button
+                className={`icon-button analysis-reset-button ${model}-reset-button`}
+                disabled={analysisDisabled}
+                title={`Reset ${label}`}
+                aria-label={`Reset ${label}`}
+                onClick={() => onResetAnalysis(model)}
+                type="button"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          );
+        })}
+        <button
+          className="primary analyze-selected-button"
+          disabled={analysisDisabled || selectedAnalysisModels.length === 0}
+          title="Запустить анализ выбранных моделей для треков с отсутствующими результатами"
+          onClick={onAnalyzeSelected}
+          type="button"
+        >
+          <Play size={15} />
+          Analyze selected
+        </button>
       </div>
       <label className="analysis-limit" title={helpText.analyzeLimit}>
         Analyze limit
@@ -206,4 +247,11 @@ export function LibraryPanel({
       />
     </aside>
   );
+}
+
+function analysisModelIcon(model: AnalysisModel) {
+  if (model === "sonara") return <Gauge size={16} />;
+  if (model === "maest") return <Tags size={16} />;
+  if (model === "mert") return <Wand2 size={16} />;
+  return <Search size={16} />;
 }

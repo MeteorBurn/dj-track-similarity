@@ -29,9 +29,7 @@ database and therefore accepts no `--db`.
 | --- | --- |
 | Add or refresh tracks from a folder | `dj-sim scan` |
 | Start the local web UI/API server | `dj-sim serve` |
-| Build MERT or CLAP embeddings | `dj-sim analyze` |
-| Build explainable Sonara features | `dj-sim analyze-sonara` |
-| Predict MAEST genres and MAEST embeddings | `dj-sim analyze-genres` |
+| Build SONARA, MAEST, MERT, and/or CLAP analysis | `dj-sim analyze` |
 | Score a promoted Rhythm Lab classifier | `dj-sim analyze-classifier` |
 | Search with a CLAP text prompt | `dj-sim text-search` |
 | Update stored paths after moving a library | `dj-sim relocate-library` |
@@ -52,10 +50,9 @@ App-level options (Typer built-ins, not a shared `--db`):
 | `--help` | Show help. |
 
 > Note: `--db` is not an app-level option. It is repeated on each command that
-> reads or writes a database. The three job-based analysis commands (`analyze`,
-> `analyze-sonara`, `analyze-genres`) render a live progress bar; `scan`,
-> `relocate-library`, `analyze-classifier`, `text-search`, `doctor`, and `serve`
-> print plain output only.
+> reads or writes a database. The job-based `analyze` command renders a live
+> progress bar; `scan`, `relocate-library`, `analyze-classifier`,
+> `text-search`, `doctor`, and `serve` print plain output only.
 
 Commands:
 
@@ -63,8 +60,6 @@ Commands:
 scan
 relocate-library
 analyze
-analyze-genres
-analyze-sonara
 analyze-classifier
 doctor
 text-search
@@ -153,10 +148,11 @@ metadata review.
 
 ### `dj-sim analyze`
 
-Build missing MERT or CLAP embeddings.
+Analyze missing SONARA, MAEST, MERT, and/or CLAP results in one job. By
+default, all four audio models are selected.
 
 ```powershell
-dj-sim analyze --adapter mert --device auto --batch-size 4 --limit 25 --db .\data\library.sqlite
+dj-sim analyze --models sonara,maest,mert,clap --device auto --batch-size 4 --limit 25 --db .\data\library.sqlite
 ```
 
 Usage:
@@ -170,109 +166,44 @@ Options:
 | Option | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `--db` | path | `dj-track-similarity.sqlite` | SQLite database path. |
-| `--limit` | integer | none | Maximum number of missing embeddings to analyze. |
-| `--adapter` | text | `mert` | Embedding adapter: `mert` or `clap`. |
-| `--device` | text | `auto` | Embedding device: `auto`, `cpu`, or `cuda`. |
-| `--batch-size` | integer `1..64` | `4` | Embedding inference batch size. |
+| `--limit` | integer | none | Maximum number of candidate tracks to analyze. |
+| `--models` | comma-separated text | `sonara,maest,mert,clap` | Selected analysis models. Valid values: `sonara`, `maest`, `mert`, `clap`. |
+| `--device` | text | `auto` | MAEST/MERT/CLAP device: `auto`, `cpu`, or `cuda`. |
+| `--top-k` | integer `1..10` | `3` | Number of MAEST genre labels to store per track. |
+| `--batch-size` | integer `1..64` | `4` | Shared decoded-track batch and inference batch cap. |
 | `--diagnostics` | flag | off | Write decoder fallback and batch timing diagnostics to the file log. |
 | `--help` | flag | off | Show help. |
 
 Examples:
 
 ```powershell
-dj-sim analyze --adapter mert --device cpu --batch-size 2 --db .\data\library.sqlite
-dj-sim analyze --adapter clap --device cuda --batch-size 8 --db .\data\library.sqlite
+dj-sim analyze --db .\data\library.sqlite
+dj-sim analyze --models maest,mert --device cpu --batch-size 2 --db .\data\library.sqlite
+dj-sim analyze --models clap --device cuda --batch-size 8 --db .\data\library.sqlite
 ```
 
 Output:
 
 ```text
 [########################] 100.0% processed=<n>/<n> analyzed=<n> failed=<n> <rate> tracks/s eta=<time>
-state=<state> total=<n> processed=<n> analyzed=<n> failed=<n> embedding_key=<key> device=<device> batch_size=<n>
+state=<state> total=<n> processed=<n> analyzed=<n> failed=<n> models=<models> device=<device> top_k=<n> batch_size=<n>
 ```
 
 `auto` chooses CUDA when PyTorch sees a GPU, otherwise CPU. Explicit `cuda`
 fails if CUDA is unavailable.
 
-Use `--adapter mert` for seed-track similarity. Use `--adapter clap` when you
-want CLAP text search. If you only need explainable feature search, run
-`analyze-sonara` instead.
+Candidate selection is per track: a track enters the job if it is missing at
+least one selected model. Existing selected-model results are skipped, and
+tracks missing only unselected models are ignored. The job decodes each track
+once per in-memory batch, then runs the missing selected models in this order:
+SONARA, MAEST, MERT, CLAP.
 
-### `dj-sim analyze-sonara`
-
-Extract missing Sonara playlist features.
-
-```powershell
-dj-sim analyze-sonara --batch-size 4 --limit 25 --db .\data\library.sqlite
-```
-
-Usage:
-
-```text
-dj-sim analyze-sonara [OPTIONS]
-```
-
-Options:
-
-| Option | Type | Default | Meaning |
-| --- | --- | --- | --- |
-| `--db` | path | `dj-track-similarity.sqlite` | SQLite database path. |
-| `--limit` | integer | none | Maximum number of tracks missing Sonara features to analyze. |
-| `--batch-size` | integer `1..64` | `1` | Parallel Sonara track workers. |
-| `--diagnostics` | flag | off | Write analysis timing diagnostics to the file log. |
-| `--help` | flag | off | Show help. |
-
-Output:
-
-```text
-[########################] 100.0% processed=<n>/<n> analyzed=<n> failed=<n> <rate> tracks/s eta=<time>
-state=<state> total=<n> processed=<n> analyzed=<n> failed=<n> batch_size=<n>
-```
-
-Sonara `batch-size` means parallel track workers.
-
-Use this when you want the SONARA search tab, visible feature groups, or
-library-level fields such as analyzed BPM, key, energy, danceability, and
-loudness.
-
-### `dj-sim analyze-genres`
-
-Extract missing MAEST genre labels.
-
-```powershell
-dj-sim analyze-genres --device auto --top-k 3 --batch-size 4 --limit 25 --db .\data\library.sqlite
-```
-
-Usage:
-
-```text
-dj-sim analyze-genres [OPTIONS]
-```
-
-Options:
-
-| Option | Type | Default | Meaning |
-| --- | --- | --- | --- |
-| `--db` | path | `dj-track-similarity.sqlite` | SQLite database path. |
-| `--limit` | integer | none | Maximum number of tracks missing MAEST genres to analyze. |
-| `--device` | text | `auto` | MAEST device: `auto`, `cpu`, or `cuda`. |
-| `--top-k` | integer `1..10` | `3` | Number of MAEST genre labels to store per track. |
-| `--batch-size` | integer `1..64` | `4` | MAEST inference batch size. |
-| `--diagnostics` | flag | off | Write decoder fallback and batch timing diagnostics to the file log. |
-| `--help` | flag | off | Show help. |
-
-Output:
-
-```text
-[########################] 100.0% processed=<n>/<n> analyzed=<n> failed=<n> <rate> tracks/s eta=<time>
-state=<state> total=<n> processed=<n> analyzed=<n> failed=<n> embedding_key=maest device=<device> top_k=<n> batch_size=<n>
-```
-
-MAEST analysis writes SQLite genre metadata and a MAEST embedding vector.
-
-Use this before reviewing generated genres, using the `syncopated` preset, or
-training/scoring combined classifier profiles. It does not write genre tags to
-audio files by itself.
+Use `--models sonara` for the SONARA search tab and visible feature groups.
+Use `--models maest` before reviewing generated genres, using the `syncopated`
+preset, or training/scoring combined classifier profiles. Use `--models mert`
+for seed-track similarity and `--models clap` before CLAP text search. MAEST
+analysis writes SQLite genre metadata and a MAEST embedding vector; it does not
+write genre tags to audio files by itself.
 
 ### `dj-sim analyze-classifier`
 

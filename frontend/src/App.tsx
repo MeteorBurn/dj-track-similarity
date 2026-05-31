@@ -1,6 +1,6 @@
 import type { MouseEvent } from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { AnalysisJobStatus, api, GenreTagJobStatus, LibrarySummary, PromotedClassifier, ScanStats, SearchResult, Track } from "./api";
+import { AnalysisJobStatus, AnalysisModel, api, GenreTagJobStatus, LibrarySummary, PromotedClassifier, ScanStats, SearchResult, Track } from "./api";
 import type { ConfirmationRequest } from "./confirmation";
 import { exportDirectoryError } from "./exportView";
 import { ActivityEvent, analysisJobRequest, cancelAnalysisJob, scanSummary } from "./jobUi";
@@ -23,11 +23,11 @@ import { placeTooltip, RectLike, TooltipPosition } from "./tooltip";
 
 type Notice = { kind: "ok" | "error" | "idle"; text: string };
 type DeviceMode = "auto" | "cpu" | "cuda";
-type AnalysisAdapter = "mert" | "clap";
-type ResetAdapter = "sonara" | "maest" | "mert" | "clap";
+type ResetAdapter = AnalysisModel;
 
 const defaultNotice: Notice = { kind: "idle", text: "Готово к работе" };
 const emptySummary: LibrarySummary = { tracks: 0, sonara: 0, maest: 0, mert: 0, clap: 0, liked: 0, classifiers: 0 };
+const analysisModelOrder: AnalysisModel[] = ["sonara", "maest", "mert", "clap"];
 
 const helpText = {
   databasePath: "SQLite база проекта. Формат: путь к .sqlite файлу. Выбери существующую базу или укажи новый .sqlite файл для создания.",
@@ -36,7 +36,7 @@ const helpText = {
   scanWorkers: "Параллельное чтение метаданных при сканировании. Тип: целое число. Диапазон зависит от CPU, обычно 1-8.",
   refreshTags: "Перечитать только file tags через Mutagen для уже найденных треков. Пути, Sonara, MAEST, MERT и CLAP не трогаются.",
   clearDatabase: "Удалить все записи из SQLite: треки, эмбеддинги и анализы. Текущий сет в интерфейсе будет очищен. Аудиофайлы на диске не трогаются.",
-  analysisDevice: "Устройство для MERT/CLAP. Значения: AUTO, CPU, CUDA. AUTO выберет CUDA, если PyTorch видит GPU, иначе CPU.",
+  analysisDevice: "Устройство для MAEST/MERT/CLAP. Значения: AUTO, CPU, CUDA. AUTO выберет CUDA, если PyTorch видит GPU, иначе CPU.",
   sonaraAnalyze: "SONARA считает BPM, key и музыкальные признаки. Нужна для базового описания трека и будущих DJ-фильтров. Параллельность берется из Embedding batch size.",
   maestAnalyze: "MAEST определяет жанровые метки. Нужна для жанровой навигации и проверки характера библиотеки. Batch берется из Embedding batch size.",
   writeMaestGenres: "Перезаписать стандартный Genre/TCON/©gen в аудиофайлах жанрами MAEST. Плееры вроде AIMP будут видеть эти жанры.",
@@ -110,6 +110,7 @@ export function App() {
   const [scanWorkers, setScanWorkers] = useState(4);
   const [analysisBatchSize, setAnalysisBatchSize] = useState(4);
   const [analysisDevice, setAnalysisDevice] = useState<DeviceMode>("auto");
+  const [selectedAnalysisModels, setSelectedAnalysisModels] = useState<AnalysisModel[]>(analysisModelOrder);
   const [notice, setNotice] = useState<Notice>(defaultNotice);
   const [confirmation, setConfirmation] = useState<ConfirmationRequest | null>(null);
   const [activityLog, setActivityLog] = useState<ActivityEvent[]>([
@@ -256,15 +257,9 @@ export function App() {
           setProcessLogKind("scan");
         }
       }).catch(() => undefined),
-      api.latestAnalyzeJob().then((job) => {
+      api.latestAnalysisJob().then((job) => {
         if (job) {
           setAnalysisJob(job);
-          if (["queued", "running"].includes(job.state)) setProcessLogKind("analysis");
-        }
-      }).catch(() => undefined),
-      api.latestSonaraJob().then((job) => {
-        if (job) {
-          setAnalysisJob((current) => (current && ["queued", "running"].includes(current.state) ? current : job));
           if (["queued", "running"].includes(job.state)) setProcessLogKind("analysis");
         }
       }).catch(() => undefined),
@@ -276,12 +271,6 @@ export function App() {
           }
         }).catch(() => undefined)
       ),
-      api.latestGenreJob().then((job) => {
-        if (job) {
-          setAnalysisJob((current) => (current && ["queued", "running"].includes(current.state) ? current : job));
-          if (["queued", "running"].includes(job.state)) setProcessLogKind("analysis");
-        }
-      }).catch(() => undefined),
       api.genreTagJobLatest().then((job) => {
         if (job) {
           setGenreTagJob(job);
@@ -439,6 +428,15 @@ export function App() {
 
   function toggleLikedOnly() {
     setLikedOnly((current) => toggleLikedTracksFilter(current));
+  }
+
+  function toggleAnalysisModel(model: AnalysisModel) {
+    setSelectedAnalysisModels((current) => {
+      const next = current.includes(model)
+        ? current.filter((item) => item !== model)
+        : [...current, model];
+      return analysisModelOrder.filter((item) => next.includes(item));
+    });
   }
 
   function toggleLibrarySortDirection() {
@@ -651,18 +649,24 @@ export function App() {
     );
   }
 
-  async function handleAnalyze(adapter: AnalysisAdapter) {
+  async function handleAnalyzeSelected() {
+    if (!selectedAnalysisModels.length) {
+      setNotice({ kind: "error", text: "Выберите хотя бы одну модель анализа" });
+      return;
+    }
     const limit = analysisLimit > 0 ? analysisLimit : undefined;
-    const detail = `${analysisDevice.toUpperCase()} · batch ${analysisBatchSize} · ${limit ? `limit ${limit}` : "вся библиотека"}`;
-    appendActivity("info", `${adapter.toUpperCase()} анализ запущен`, detail);
+    const models = [...selectedAnalysisModels];
+    const labels = models.map((model) => model.toUpperCase()).join(", ");
+    const detail = `${labels} · ${analysisDevice.toUpperCase()} · batch ${analysisBatchSize} · ${limit ? `limit ${limit}` : "вся библиотека"}`;
+    appendActivity("info", "Анализ выбранных моделей запущен", detail);
     setProcessLogKind("analysis");
     setAnalysisJob(null);
     await run(
-      () => api.analyze(adapter, limit, analysisDevice, analysisBatchSize),
+      () => api.analysisJobStart({ models, limit: limit ?? null, device: analysisDevice, top_k: 3, batch_size: analysisBatchSize }),
       (job) => {
         setAnalysisJob(job);
         appendActivity("ok", "Analysis job создан", `${job.job_id.slice(0, 8)} · ${job.total} треков · batch ${job.batch_size}`);
-        return `${adapter.toUpperCase()} job ${job.job_id.slice(0, 8)}: ${job.total} треков`;
+        return `Analysis job ${job.job_id.slice(0, 8)}: ${job.total} треков`;
       }
     );
   }
@@ -702,22 +706,6 @@ export function App() {
     );
   }
 
-  async function handleSonaraAnalyze() {
-    const limit = analysisLimit > 0 ? analysisLimit : undefined;
-    const detail = `batch ${analysisBatchSize} · ${limit ? `limit ${limit}` : "вся библиотека"} · SQLite metadata`;
-    appendActivity("info", "SONARA lab анализ запущен", detail);
-    setProcessLogKind("analysis");
-    setAnalysisJob(null);
-    await run(
-      () => api.analyzeSonara(limit, analysisBatchSize),
-      (job) => {
-        setAnalysisJob(job);
-        appendActivity("ok", "SONARA job создан", `${job.job_id.slice(0, 8)} · ${job.total} треков · batch ${job.batch_size}`);
-        return `SONARA job ${job.job_id.slice(0, 8)}: ${job.total} треков`;
-      }
-    );
-  }
-
   async function handleResetAnalysis(adapter: ResetAdapter) {
     const label = adapter.toUpperCase();
     appendActivity("warn", `${label} reset запущен`, "Точечная очистка результатов анализа");
@@ -727,22 +715,6 @@ export function App() {
         void refreshLibrary();
         appendActivity("ok", `${label} reset завершен`, `tracks ${result.tracks_updated} · embeddings ${result.embeddings_deleted}`);
         return `${label}: очищено tracks ${result.tracks_updated}, embeddings ${result.embeddings_deleted}`;
-      }
-    );
-  }
-
-  async function handleGenreAnalyze() {
-    const limit = analysisLimit > 0 ? analysisLimit : undefined;
-    const detail = `${analysisDevice.toUpperCase()} · batch ${analysisBatchSize} · top 3 genres · ${limit ? `limit ${limit}` : "вся библиотека"}`;
-    appendActivity("info", "MAEST анализ жанров запущен", detail);
-    setProcessLogKind("analysis");
-    setAnalysisJob(null);
-    await run(
-      () => api.analyzeGenres(limit, analysisDevice, 3, analysisBatchSize),
-      (job) => {
-        setAnalysisJob(job);
-        appendActivity("ok", "MAEST job создан", `${job.job_id.slice(0, 8)} · ${job.total} треков · batch ${job.batch_size} · top 3`);
-        return `MAEST job ${job.job_id.slice(0, 8)}: ${job.total} треков`;
       }
     );
   }
@@ -939,9 +911,9 @@ export function App() {
             message: "Удалить все данные из SQLite базы: треки, анализы, эмбеддинги и текущий сет? Аудиофайлы на диске останутся.",
             onConfirm: () => handleClearDatabase()
           })}
-          onSonaraAnalyze={() => void handleSonaraAnalyze()}
-          onGenreAnalyze={() => void handleGenreAnalyze()}
-          onAnalyze={(adapter) => void handleAnalyze(adapter)}
+          selectedAnalysisModels={selectedAnalysisModels}
+          onToggleAnalysisModel={toggleAnalysisModel}
+          onAnalyzeSelected={() => void handleAnalyzeSelected()}
           onResetAnalysis={(adapter) => requestConfirmation({
             title: `Сбросить ${adapter.toUpperCase()}?`,
             message: `Сбросить результаты ${adapter.toUpperCase()}? Аудиофайлы не трогаем, остальные алгоритмы останутся.`,

@@ -3,6 +3,7 @@ import pytest
 
 import dj_track_similarity.cli as cli
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.logging_config import set_analysis_diagnostics_enabled
 
 
 class _FakeStatus:
@@ -11,7 +12,10 @@ class _FakeStatus:
     processed = 3
     analyzed = 2
     failed = 1
-    embedding_key = "mert"
+    embedding_key = "multi"
+    models = ["sonara", "maest", "mert", "clap"]
+    current_model = None
+    model_progress = {}
     device = "cpu"
     batch_size = 4
     top_k = 3
@@ -19,10 +23,13 @@ class _FakeStatus:
 
 
 class _FakeAnalysisManager:
+    last_kwargs = {}
+
     def __init__(self, db):
         self.status = _FakeStatus()
 
     def create_job(self, **_kwargs):
+        type(self).last_kwargs = _kwargs
         return "job-1"
 
     def run_job(self, _job_id):
@@ -79,74 +86,38 @@ def test_analyze_cli_does_not_expose_removed_fake_option():
     assert "No such option" in result.output
 
 
-@pytest.mark.parametrize("adapter", ["mert", "clap"])
-def test_analyze_cli_prints_live_progress(monkeypatch, tmp_path, adapter):
+def test_analyze_cli_prints_live_progress_for_default_models(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "AnalysisJobManager", _FakeAnalysisManager)
     db_path = tmp_path / "library.sqlite"
 
-    result = CliRunner().invoke(cli.app, ["analyze", "--adapter", adapter, "--db", str(db_path)])
+    result = CliRunner().invoke(cli.app, ["analyze", "--db", str(db_path)])
 
     assert result.exit_code == 0
-    assert f"Starting {adapter} analysis" in result.output
+    assert "Starting sonara,maest,mert,clap analysis" in result.output
     assert "processed=3/3" in result.output
     assert "tracks/s" in result.output
     assert "eta=" in result.output
     assert "state=completed" in result.output
+    assert "models=sonara,maest,mert,clap" in result.output
 
 
-def test_analyze_cli_accepts_diagnostics_flag(monkeypatch, tmp_path):
+def test_analyze_cli_accepts_selected_models_and_diagnostics_flag(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "AnalysisJobManager", _FakeAnalysisManager)
     db_path = tmp_path / "library.sqlite"
 
-    result = CliRunner().invoke(cli.app, ["analyze", "--adapter", "mert", "--diagnostics", "--db", str(db_path)])
+    try:
+        result = CliRunner().invoke(cli.app, ["analyze", "--models", "maest,mert", "--diagnostics", "--db", str(db_path)])
+    finally:
+        set_analysis_diagnostics_enabled(None)
 
     assert result.exit_code == 0
-    assert "Starting mert analysis" in result.output
+    assert "Starting maest,mert analysis" in result.output
+    assert _FakeAnalysisManager.last_kwargs["models"] == ["maest", "mert"]
 
 
-def test_analyze_genres_cli_accepts_diagnostics_flag(monkeypatch, tmp_path):
-    monkeypatch.setattr(cli, "GenreAnalysisJobManager", _FakeGenreManager)
-    db_path = tmp_path / "library.sqlite"
+@pytest.mark.parametrize("command", [["analyze", "--adapter", "mert"], ["analyze-genres"], ["analyze-sonara"]])
+def test_removed_individual_analysis_cli_paths_are_not_available(command):
+    result = CliRunner().invoke(cli.app, command)
 
-    result = CliRunner().invoke(cli.app, ["analyze-genres", "--diagnostics", "--db", str(db_path)])
-
-    assert result.exit_code == 0
-    assert "Starting maest analysis" in result.output
-
-
-def test_analyze_sonara_cli_accepts_diagnostics_flag(monkeypatch, tmp_path):
-    monkeypatch.setattr(cli, "SonaraFeatureJobManager", _FakeAnalysisManager)
-    db_path = tmp_path / "library.sqlite"
-
-    result = CliRunner().invoke(cli.app, ["analyze-sonara", "--diagnostics", "--db", str(db_path)])
-
-    assert result.exit_code == 0
-    assert "Starting sonara analysis" in result.output
-
-
-def test_analyze_genres_cli_prints_live_progress(monkeypatch, tmp_path):
-    monkeypatch.setattr(cli, "GenreAnalysisJobManager", _FakeGenreManager)
-    db_path = tmp_path / "library.sqlite"
-
-    result = CliRunner().invoke(cli.app, ["analyze-genres", "--db", str(db_path)])
-
-    assert result.exit_code == 0
-    assert "Starting maest analysis" in result.output
-    assert "processed=3/3" in result.output
-    assert "tracks/s" in result.output
-    assert "eta=" in result.output
-    assert "embedding_key=maest" in result.output
-
-
-def test_analyze_sonara_cli_prints_live_progress(monkeypatch, tmp_path):
-    monkeypatch.setattr(cli, "SonaraFeatureJobManager", _FakeAnalysisManager)
-    db_path = tmp_path / "library.sqlite"
-
-    result = CliRunner().invoke(cli.app, ["analyze-sonara", "--db", str(db_path)])
-
-    assert result.exit_code == 0
-    assert "Starting sonara analysis" in result.output
-    assert "processed=3/3" in result.output
-    assert "tracks/s" in result.output
-    assert "eta=" in result.output
-    assert "state=completed" in result.output
+    assert result.exit_code != 0
+    assert "No such" in result.output

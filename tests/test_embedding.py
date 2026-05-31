@@ -2,7 +2,10 @@ import sys
 import types
 
 import numpy as np
+import torch
 
+import dj_track_similarity.embedding as embedding
+from dj_track_similarity.audio_loader import DecodedAudio
 from dj_track_similarity.embedding import ClapEmbeddingAdapter, _array_output_to_numpy, _pad_or_trim_audio_window, adapter_factories
 
 
@@ -96,3 +99,41 @@ def test_pad_or_trim_audio_window_returns_fixed_length_float32() -> None:
     assert _pad_or_trim_audio_window(np.array([1.0, 2.0]), 4).tolist() == [1.0, 2.0, 0.0, 0.0]
     assert _pad_or_trim_audio_window(np.array([1.0, 2.0, 3.0, 4.0]), 2).tolist() == [1.0, 2.0]
     assert _pad_or_trim_audio_window(np.array([1, 2], dtype=np.int16), 2).dtype == np.float32
+
+
+class FakeClapAudioModel:
+    def __init__(self) -> None:
+        self.batch_shapes: list[tuple[int, ...]] = []
+
+    def get_audio_embedding_from_data(self, x, use_tensor=False):
+        self.batch_shapes.append(tuple(x.shape))
+        return np.asarray([[1.0, 0.0, 0.0] for _ in range(x.shape[0])], dtype=np.float32)
+
+
+class SharedAudioClapAdapter(ClapEmbeddingAdapter):
+    def __init__(self) -> None:
+        super().__init__(device="cpu", window_seconds=1.0, max_windows=1, inference_batch_size=4)
+        self.fake_model = FakeClapAudioModel()
+
+    def _load_model(self) -> None:
+        self._torch = torch
+        self._torchaudio = None
+        self.device = "cpu"
+        self._model = self.fake_model
+
+
+def test_clap_embed_decoded_batch_uses_shared_audio_without_loading_paths(monkeypatch) -> None:
+    def fail_load_audio(*_args, **_kwargs):
+        raise AssertionError("shared multi-model analysis must not reload paths for CLAP")
+
+    monkeypatch.setattr(embedding, "load_audio_mono", fail_load_audio)
+    adapter = SharedAudioClapAdapter()
+    decoded = [
+        DecodedAudio(path="a.wav", audio=np.ones(48_000, dtype=np.float32), sample_rate=48_000, detail="shared"),
+        DecodedAudio(path="b.wav", audio=np.ones(48_000, dtype=np.float32), sample_rate=48_000, detail="shared"),
+    ]
+
+    vectors = adapter.embed_decoded_batch(decoded)
+
+    assert [vector.tolist() for vector in vectors] == [[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]]
+    assert adapter.fake_model.batch_shapes == [(2, 48000)]

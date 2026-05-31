@@ -150,6 +150,7 @@ class AnalysisRepository:
             upsert_track_search_fts(connection, track_id)
             embedding_keys = _embedding_keys_for_track(connection, track_id)
         self._invalidate_embedding_cache_keys(embedding_keys)
+        self._invalidate_sonara_feature_cache()
 
     def save_sonara_features(
         self,
@@ -190,6 +191,7 @@ class AnalysisRepository:
             upsert_track_search_fts(connection, track_id)
             embedding_keys = _embedding_keys_for_track(connection, track_id)
         self._invalidate_embedding_cache_keys(embedding_keys)
+        self._invalidate_sonara_feature_cache()
 
     def reset_analysis(self, adapter: str) -> dict[str, object]:
         adapter = adapter.strip().lower()
@@ -222,6 +224,7 @@ class AnalysisRepository:
             connection.execute("DELETE FROM tracks")
             rebuild_track_search_fts(connection)
         self._invalidate_embedding_cache()
+        self._invalidate_sonara_feature_cache()
         return counts
 
     def save_classifier_score(
@@ -321,6 +324,7 @@ class AnalysisRepository:
                 updated += 1
         if updated:
             self._invalidate_embedding_cache_keys(embedding_keys_to_invalidate)
+            self._invalidate_sonara_feature_cache()
         return {"adapter": adapter, "tracks_updated": updated, "embeddings_deleted": 0}
 
     def _reset_metadata_and_embedding_analysis(
@@ -353,6 +357,7 @@ class AnalysisRepository:
             connection.execute(f"UPDATE tracks SET {flag_column} = 0 WHERE {flag_column} != 0")
         if updated or deleted:
             self._invalidate_embedding_cache_keys((*embedding_keys_to_invalidate, embedding_key))
+            self._invalidate_sonara_feature_cache()
         return {"adapter": adapter, "tracks_updated": updated, "embeddings_deleted": deleted}
 
     def _reset_sonara_analysis(self) -> dict[str, object]:
@@ -393,6 +398,7 @@ class AnalysisRepository:
             connection.execute("UPDATE tracks SET has_sonara_analysis = 0 WHERE has_sonara_analysis != 0")
         if updated:
             self._invalidate_embedding_cache_keys(embedding_keys_to_invalidate)
+            self._invalidate_sonara_feature_cache()
         return {"adapter": "sonara", "tracks_updated": updated, "embeddings_deleted": 0}
 
     def load_embedding_matrix(self, embedding_key: str = DEFAULT_EMBEDDING_KEY) -> tuple[list[Track], np.ndarray]:
@@ -421,6 +427,37 @@ class AnalysisRepository:
         result = (tracks, np.vstack(vectors).astype(np.float32))
         with self._cache_lock:
             self._embedding_matrix_cache[embedding_key] = result
+        return result
+
+    def load_sonara_feature_rows(self) -> tuple[list[Track], list[dict[str, object]]]:
+        with self._cache_lock:
+            cached = self._sonara_feature_row_cache
+            if cached is not None:
+                return cached
+        with self.connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT {TRACK_SELECT_FIELDS}
+                FROM tracks t
+                LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
+                WHERE t.has_sonara_analysis = 1
+                ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
+                """,
+                (DEFAULT_EMBEDDING_KEY,),
+            ).fetchall()
+        tracks: list[Track] = []
+        features_by_track: list[dict[str, object]] = []
+        for row in rows:
+            track = self._row_to_track(row, include_metadata=True)
+            metadata = track.metadata or {}
+            features = metadata.get("sonara_features")
+            if not isinstance(features, dict):
+                continue
+            tracks.append(track)
+            features_by_track.append(features)
+        result = (tracks, features_by_track)
+        with self._cache_lock:
+            self._sonara_feature_row_cache = result
         return result
 
     def embedding_vector(self, track_id: int, embedding_key: str = DEFAULT_EMBEDDING_KEY) -> np.ndarray | None:

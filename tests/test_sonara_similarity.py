@@ -236,6 +236,43 @@ def test_custom_mixer_reads_wrapped_sonara_feature_values(tmp_path: Path) -> Non
     assert [result.track.id for result in results] == [rhythm_close, dynamics_close]
 
 
+def test_sonara_search_reuses_cached_feature_rows_without_full_track_scan(monkeypatch, tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed = _add_sonara_track(db, "seed.wav", {"energy": 0.8, "danceability": 0.8, "valence": 0.2, "acousticness": 0.1})
+    close = _add_sonara_track(db, "close.wav", {"energy": 0.78, "danceability": 0.79, "valence": 0.22, "acousticness": 0.12})
+    far = _add_sonara_track(db, "far.wav", {"energy": 0.2, "danceability": 0.3, "valence": 0.8, "acousticness": 0.7})
+
+    searcher = SonaraSimilaritySearch(db)
+    cold_results = searcher.search([seed], mode="vibe", limit=5)
+
+    def fail_full_track_scan(*_args, **_kwargs):
+        raise AssertionError("SONARA search must use cached feature rows instead of a full track scan")
+
+    monkeypatch.setattr(db, "list_tracks", fail_full_track_scan)
+    warm_results = searcher.search([seed], mode="vibe", limit=5)
+
+    assert [result.track.id for result in cold_results] == [close, far]
+    assert [result.track.id for result in warm_results] == [close, far]
+    assert [result.score for result in warm_results] == [result.score for result in cold_results]
+
+
+def test_sonara_feature_row_cache_refreshes_after_sonara_write(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = _add_sonara_track(db, "track.wav", {"energy": 0.2, "danceability": 0.3, "valence": 0.4, "acousticness": 0.5})
+
+    _tracks, first_features = db.load_sonara_feature_rows()
+    db.save_sonara_features(
+        track_id,
+        {"energy": 0.9, "danceability": 0.8, "valence": 0.7, "acousticness": 0.1},
+        energy=0.9,
+        model_name="sonara-test",
+    )
+    _tracks, refreshed_features = db.load_sonara_feature_rows()
+
+    assert first_features[0]["energy"] == 0.2
+    assert refreshed_features[0]["energy"] == 0.9
+
+
 def test_sonara_search_reports_context_tracks_without_features(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     seed = db.upsert_track(path=Path("C:/music/seed.wav"), size=100, mtime=1, metadata={"title": "seed"})

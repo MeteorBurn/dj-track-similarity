@@ -146,6 +146,7 @@ class TrackRepository:
                 upsert_track_search_fts(connection, int(row["id"]))
             embedding_keys = _embedding_keys_for_track(connection, int(row["id"])) if row is not None else ()
         self._invalidate_embedding_cache_keys(embedding_keys)
+        self._invalidate_sonara_feature_cache()
         if row is None:
             raise RuntimeError(f"Failed to upsert track: {normalized}")
         return int(row["id"])
@@ -346,6 +347,7 @@ class TrackRepository:
                 connection.execute("DELETE FROM track_likes WHERE track_id = ?", (int(track_id),))
             embedding_keys = _embedding_keys_for_track(connection, int(track_id))
         self._invalidate_embedding_cache_keys(embedding_keys)
+        self._invalidate_sonara_feature_cache()
         return self.get_track(track_id)
 
     def list_track_paths(self) -> list[tuple[int, str]]:
@@ -421,6 +423,7 @@ class TrackRepository:
             upsert_track_search_fts(connection, track_id)
             embedding_keys = _embedding_keys_for_track(connection, track_id)
         self._invalidate_embedding_cache_keys(embedding_keys)
+        self._invalidate_sonara_feature_cache()
 
     def _metadata_for_track_update(self, connection: sqlite3.Connection, track_id: int) -> dict[str, object]:
         row = connection.execute("SELECT metadata_json FROM tracks WHERE id = ?", (track_id,)).fetchone()
@@ -490,6 +493,7 @@ class TrackRepository:
                     upsert_track_search_fts(connection, int(change["track_id"]))
         if apply and changes:
             self._invalidate_embedding_cache_keys(embedding_keys_to_invalidate)
+            self._invalidate_sonara_feature_cache()
 
         return {
             "old_root": old_root_text,

@@ -31,6 +31,7 @@ class LibraryDatabase(TrackRepository, AnalysisRepository, SummaryRepository):
         self._write_lock = write_lock_for_path(self.path)
         self._cache_lock = threading.Lock()
         self._embedding_matrix_cache: dict[str, tuple[list[Track], np.ndarray]] = {}
+        self._sonara_feature_row_cache: tuple[list[Track], list[dict[str, object]]] | None = None
         self._ensure_schema()
 
     def connect(self) -> sqlite3.Connection:
@@ -53,3 +54,7 @@ class LibraryDatabase(TrackRepository, AnalysisRepository, SummaryRepository):
         with self._cache_lock:
             for key in keys:
                 self._embedding_matrix_cache.pop(key, None)
+
+    def _invalidate_sonara_feature_cache(self) -> None:
+        with self._cache_lock:
+            self._sonara_feature_row_cache = None

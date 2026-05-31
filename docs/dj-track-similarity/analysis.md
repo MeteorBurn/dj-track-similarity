@@ -24,13 +24,14 @@ tracks missing at least one promoted classifier score. Classifier scoring
 requires SONARA, MAEST, and MERT inputs; those inputs must already exist or be
 selected in the same run. If a classifier candidate is missing one of those
 inputs and the corresponding model is not selected, the job is rejected with a
-clear error instead of silently skipping or auto-selecting models. Scoring runs
-after the selected audio-analysis models finish. CLAP is not a classifier
-input, but if CLAP is selected the classifier step waits for CLAP too. Only
-profiles discovered from `models/classifiers/*/model.json` are launched. In the
-CLI, use `dj-sim analyze --models sonara,maest,mert,clap`; omitting `--models`
-selects all four audio models. A track is eligible when it is missing at least
-one selected model or one selected promoted classifier score, and existing
+clear error instead of silently skipping or auto-selecting models. Classifier
+scoring runs per decoded track batch after the selected audio-analysis models
+needed for that batch finish. CLAP is not a classifier input, but if CLAP is
+selected the classifier step waits for that batch's CLAP work too. Only profiles
+discovered from `models/classifiers/*/model.json` are launched. In the CLI, use
+`dj-sim analyze --models sonara,maest,mert,clap`; omitting `--models` selects
+all four audio models. A track is eligible when it is missing at least one
+selected model or one selected promoted classifier score, and existing
 selected-model results are skipped.
 
 ### Sonara

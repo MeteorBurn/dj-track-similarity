@@ -263,6 +263,7 @@ class AnalysisJobManager:
         self._append_event(job_id, "info", "Analysis started")
         runners: dict[str, AnalysisModelRunner] = {}
         failed_model_inits: dict[str, str] = {}
+        scorers: dict[str, Any] = {}
 
         for batch in chunks(tracks, max(1, status.track_batch_size)):
             if self.get(job_id).cancel_requested:
@@ -274,9 +275,13 @@ class AnalysisJobManager:
                 self._update(job_id, state="cancelled", finished_at=time.time(), current_path=None, current_model=None)
                 self._append_event(job_id, "warn", "Analysis cancelled")
                 return self.get(job_id)
-
-        if classifier_targets_by_track and not self._run_classifier_stage(job_id, classifier_targets_by_track):
-            return self.get(job_id)
+            batch_classifier_targets = {
+                track.id: classifier_targets_by_track[track.id]
+                for track in batch
+                if track.id in classifier_targets_by_track
+            }
+            if batch_classifier_targets and not self._run_classifier_stage(job_id, batch_classifier_targets, scorers):
+                return self.get(job_id)
 
         finished = time.time()
         final = self.get(job_id)
@@ -292,8 +297,12 @@ class AnalysisJobManager:
         self._append_event(job_id, "info", "Analysis completed")
         return self.get(job_id)
 
-    def _run_classifier_stage(self, job_id: str, classifier_targets_by_track: Mapping[int, tuple[str, ...]]) -> bool:
-        scorers: dict[str, Any] = {}
+    def _run_classifier_stage(
+        self,
+        job_id: str,
+        classifier_targets_by_track: Mapping[int, tuple[str, ...]],
+        scorers: dict[str, Any],
+    ) -> bool:
         for track_id, classifier_keys in classifier_targets_by_track.items():
             if self.get(job_id).cancel_requested:
                 self._update(job_id, state="cancelled", finished_at=time.time(), current_path=None, current_model=None)

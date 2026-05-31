@@ -422,3 +422,17 @@ class AnalysisRepository:
         with self._cache_lock:
             self._embedding_matrix_cache[embedding_key] = result
         return result
+
+    def embedding_vector(self, track_id: int, embedding_key: str = DEFAULT_EMBEDDING_KEY) -> np.ndarray | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT vector
+                FROM embeddings
+                WHERE track_id = ? AND embedding_key = ?
+                """,
+                (int(track_id), embedding_key),
+            ).fetchone()
+        if row is None:
+            return None
+        return np.frombuffer(row["vector"], dtype=np.float32).copy()

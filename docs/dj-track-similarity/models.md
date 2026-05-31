@@ -139,7 +139,7 @@ data. In the UI, `CLASSIFIERS` is part of the same selected-model analysis job:
 tracks missing classifier scores become candidates. SONARA, MAEST, and MERT
 must already exist for those tracks or be selected in the same run; otherwise
 the job returns a clear error instead of silently auto-selecting models. CLAP is
-not an input for promoted classifiers, but selected CLAP work is still
-completed before classifier scoring starts. Standalone classifier scoring still
-reads existing analysis only. See [Analysis](analysis.md) for scoring details
+not an input for promoted classifiers, but selected CLAP work for each decoded
+track batch is still completed before classifier scoring runs for that batch.
+Standalone classifier scoring still reads existing analysis only. See [Analysis](analysis.md) for scoring details
 and [Rhythm Lab](rhythm-lab.md) for training and promotion.

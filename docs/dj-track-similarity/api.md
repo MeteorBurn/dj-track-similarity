@@ -147,11 +147,12 @@ embeddings, or CLAP embeddings are missing for the candidate tracks.
 disk. The UI can start promoted classifier scoring from the same analysis
 control block as the audio models by enabling `CLASSIFIERS`; the frontend sends
 the discovered profile keys as `/api/analysis/jobs` `classifier_keys`. The
-analysis job runs those classifiers after all selected audio models complete.
-If CLAP is selected, the classifier step waits for CLAP even though classifier
-scoring itself only needs SONARA, MERT, and MAEST inputs. Those inputs must
-already exist or the matching audio models must be selected in the same request;
-otherwise `/api/analysis/jobs` returns `400` with a dependency error. The standalone
+analysis job runs those classifiers per decoded track batch after the selected
+audio models for that batch complete. If CLAP is selected, the classifier step
+waits for CLAP in that batch even though classifier scoring itself only needs
+SONARA, MERT, and MAEST inputs. Those inputs must already exist or the matching
+audio models must be selected in the same request; otherwise `/api/analysis/jobs`
+returns `400` with a dependency error. The standalone
 `/api/classifiers/{classifier_key}/analyze` endpoint remains for classifier-only
 runs that score only already prepared tracks. `/api/classifiers/reset` accepts a list of classifier keys and deletes
 their `track_classifier_scores` rows (an empty list deletes nothing).

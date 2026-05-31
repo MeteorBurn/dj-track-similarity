@@ -7,7 +7,12 @@ import numpy as np
 import pytest
 
 from dj_track_similarity.classifier_jobs import ClassifierJobManager
-from dj_track_similarity.classifier_scoring import _embedding_vectors, analyze_classifier, default_classifier_model_path
+from dj_track_similarity.classifier_scoring import (
+    ClassifierScorer,
+    _embedding_vectors,
+    analyze_classifier,
+    default_classifier_model_path,
+)
 from dj_track_similarity.database import LibraryDatabase
 
 
@@ -257,6 +262,19 @@ def test_classifier_embedding_vector_map_reuses_cached_matrix_rows(tmp_path: Pat
     vectors = _embedding_vectors(db, "mert")
 
     assert np.shares_memory(vectors[track_id], matrix)
+
+
+def test_classifier_scorer_loads_embeddings_created_after_scorer_initialization(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = _track(db, tmp_path, "later-ready.wav")
+    db.save_sonara_features(track_id, {"bpm": {"type": "float", "value": 128.0}}, model_name="sonara-test")
+    model_path = _write_model(tmp_path / "model.joblib")
+    scorer = ClassifierScorer(db, classifier="break_energy", model_path=model_path)
+
+    db.save_embedding(track_id, np.asarray([1.0], dtype=np.float32), "mert-test", embedding_key="mert")
+    db.save_embedding(track_id, np.asarray([1.0], dtype=np.float32), "maest-test", embedding_key="maest")
+
+    assert scorer.score_track(db.get_track(track_id)) == {"broken": 0.87, "straight": 0.13}
 
 
 def _track(db: LibraryDatabase, tmp_path: Path, filename: str, title: str | None = None) -> int:

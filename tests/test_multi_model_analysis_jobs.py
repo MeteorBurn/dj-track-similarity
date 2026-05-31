@@ -206,6 +206,37 @@ def test_multi_model_job_scores_classifiers_after_all_selected_audio_models_comp
     assert any(event.message == "Classifier analyzed" and event.model == "break_energy" for event in status.events)
 
 
+def test_multi_model_job_scores_classifiers_after_each_audio_batch_completes(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    _track(db, tmp_path, "a-candidate.wav")
+    _track(db, tmp_path, "b-candidate.wav")
+    order: list[str] = []
+    runners = {
+        model: FakeModelRunner(model, order=order)
+        for model in ("sonara", "maest", "mert", "clap")
+    }
+    decoder = DecodeRecorder()
+    manager = AnalysisJobManager(
+        db,
+        model_runners=runners,
+        decode_audio=decoder,
+        track_batch_size=1,
+        classifier_scorer_factory=lambda classifier: FakeClassifierScorer(db, classifier, order),
+    )
+
+    status = manager.run_sync(
+        models=["sonara", "maest", "mert", "clap"],
+        classifier_keys=["break_energy"],
+        device="cpu",
+        track_batch_size=1,
+    )
+
+    second_sonara_index = [index for index, step in enumerate(order) if step == "sonara"][1]
+    first_classifier_save_index = order.index("break_energy:save")
+    assert status.state == "completed"
+    assert first_classifier_save_index < second_sonara_index
+
+
 def test_multi_model_job_scores_classifiers_after_selected_required_models_when_clap_not_selected(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_id = _track(db, tmp_path, "a-candidate.wav")

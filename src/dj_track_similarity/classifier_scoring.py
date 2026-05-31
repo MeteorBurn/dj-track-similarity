@@ -112,6 +112,8 @@ class ClassifierScorer:
         if not self.label_order:
             raise ValueError(f"{self.classifier_key} model artifact does not contain label_order")
         self.positive_label = str(self.payload.get("positive_label") or self.label_order[0])
+        self.needs_mert = any(name.startswith("mert:") for name in self.feature_names)
+        self.needs_maest = any(name.startswith("maest:") for name in self.feature_names)
         self.mert_vectors = _embedding_vectors(db, "mert")
         self.maest_vectors = _embedding_vectors(db, "maest")
 
@@ -120,6 +122,7 @@ class ClassifierScorer:
         return str(self.path)
 
     def score_track(self, track: Track) -> dict[str, float] | None:
+        self._load_recent_embedding_vectors(track.id)
         row = _track_feature_row(
             track,
             self.feature_names,
@@ -129,6 +132,16 @@ class ClassifierScorer:
         if row is None:
             return None
         return _predict_probabilities(self.model, row.reshape(1, -1), self.label_order)[0]
+
+    def _load_recent_embedding_vectors(self, track_id: int) -> None:
+        if self.needs_mert and track_id not in self.mert_vectors:
+            vector = self.db.embedding_vector(track_id, "mert")
+            if vector is not None:
+                self.mert_vectors[track_id] = vector.astype(np.float32, copy=False)
+        if self.needs_maest and track_id not in self.maest_vectors:
+            vector = self.db.embedding_vector(track_id, "maest")
+            if vector is not None:
+                self.maest_vectors[track_id] = vector.astype(np.float32, copy=False)
 
     def save_score(self, track: Track, probabilities: dict[str, float]) -> None:
         score = float(probabilities.get(self.positive_label, 0.0))

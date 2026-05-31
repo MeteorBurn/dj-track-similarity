@@ -84,14 +84,16 @@ function unifiedLogEvents(
     message: event.message,
     detail: event.path ? basename(event.path) : undefined
   }));
-  const analysisEvents: UnifiedLogEvent[] = (analysisJob?.events || []).map((event, index) => ({
-    id: `analysis-${event.timestamp}-${index}`,
-    timeMs: event.timestamp * 1000,
-    level: event.level as ActivityEvent["level"],
-    source: "analysis",
-    message: event.message,
-    detail: event.path ? basename(event.path) : undefined
-  }));
+  const analysisEvents: UnifiedLogEvent[] = (analysisJob?.events || [])
+    .filter((event) => !isPerClassifierAnalysisEvent(event.message))
+    .map((event, index) => ({
+      id: `analysis-${event.timestamp}-${index}`,
+      timeMs: event.timestamp * 1000,
+      level: event.level as ActivityEvent["level"],
+      source: "analysis",
+      message: event.message,
+      detail: event.path ? basename(event.path) : undefined
+    }));
   const genreTagEvents: UnifiedLogEvent[] = (genreTagJob?.events || []).map((event, index) => ({
     id: `genre-tags-${event.timestamp}-${index}`,
     timeMs: event.timestamp * 1000,
@@ -101,6 +103,10 @@ function unifiedLogEvents(
     detail: event.path ? basename(event.path) : undefined
   }));
   return [...uiEvents, ...scanEvents, ...analysisEvents, ...genreTagEvents].sort((left, right) => right.timeMs - left.timeMs).slice(0, 120);
+}
+
+function isPerClassifierAnalysisEvent(message: string) {
+  return message === "Classifier analyzed" || /\bclassification (started|completed)$/.test(message);
 }
 
 export function analysisJobRequest(job: AnalysisJobStatus) {

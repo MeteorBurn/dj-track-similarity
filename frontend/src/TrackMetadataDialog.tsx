@@ -257,11 +257,11 @@ const sonaraFeatureDescriptions: Record<string, string> = {
 const sonaraPlaylistFeatureGroups = [
   {
     title: "Core",
-    keys: ["bpm", "duration_sec", "beats", "onset_frames", "onset_density", "n_beats", "rms_mean", "rms_max", "spectral_centroid_mean", "zero_crossing_rate"]
+    keys: ["duration_sec", "bpm", "beats", "onset_frames", "onset_density", "n_beats", "spectral_centroid_mean", "zero_crossing_rate", "rms_mean", "rms_max", "loudness_lufs", "dynamic_range_db"]
   },
   {
     title: "Perceptual",
-    keys: ["energy", "danceability", "valence", "acousticness", "loudness_lufs", "dynamic_range_db"]
+    keys: ["energy", "danceability", "valence", "acousticness"]
   },
   {
     title: "Tonal",
@@ -319,8 +319,9 @@ function formatSonaraValue(record: Record<string, unknown>, key?: string) {
   }
   if (typeof value === "number") {
     if (key === "onset_density") return `${formatNumber(value)}/sec`;
-    if (key === "loudness_lufs") return `${formatNumber(value)} LUFS`;
-    if (key === "dynamic_range_db") return `${formatNumber(value)} dB`;
+    if (key === "chord_change_rate") return `${formatNumber(value)}/sec`;
+    if (key === "loudness_lufs") return `${value.toFixed(2)} LUFS`;
+    if (key === "dynamic_range_db") return `${value.toFixed(2)} dB`;
     return formatNumber(value);
   }
   if (Array.isArray(value)) return `${value.length} values`;

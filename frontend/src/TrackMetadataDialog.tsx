@@ -256,23 +256,19 @@ const sonaraFeatureDescriptions: Record<string, string> = {
 
 const sonaraPlaylistFeatureGroups = [
   {
-    title: "Core features",
-    keys: ["bpm", "duration_sec", "beats", "onset_frames", "onset_density", "n_beats", "rms_mean", "rms_max", "loudness_lufs", "dynamic_range_db", "spectral_centroid_mean", "zero_crossing_rate"]
+    title: "Core",
+    keys: ["bpm", "duration_sec", "beats", "onset_frames", "onset_density", "n_beats", "rms_mean", "rms_max", "spectral_centroid_mean", "zero_crossing_rate"]
   },
   {
-    title: "Perceptual features (0.0 - 1.0)",
-    keys: ["energy", "danceability", "valence", "acousticness"]
+    title: "Perceptual",
+    keys: ["energy", "danceability", "valence", "acousticness", "loudness_lufs", "dynamic_range_db"]
   },
   {
-    title: "Musical key",
-    keys: ["key", "key_confidence"]
+    title: "Tonal",
+    keys: ["key", "key_confidence", "predominant_chord", "chord_change_rate", "dissonance"]
   },
   {
-    title: "Tonal analysis",
-    keys: ["predominant_chord", "chord_change_rate", "dissonance"]
-  },
-  {
-    title: "Spectral features",
+    title: "Spectral",
     keys: ["spectral_bandwidth_mean", "spectral_rolloff_mean", "spectral_flatness_mean", "spectral_contrast_mean", "mfcc_mean", "chroma_mean"]
   }
 ] as const;
@@ -323,6 +319,8 @@ function formatSonaraValue(record: Record<string, unknown>, key?: string) {
   }
   if (typeof value === "number") {
     if (key === "onset_density") return `${formatNumber(value)}/sec`;
+    if (key === "loudness_lufs") return `${formatNumber(value)} LUFS`;
+    if (key === "dynamic_range_db") return `${formatNumber(value)} dB`;
     return formatNumber(value);
   }
   if (Array.isArray(value)) return `${value.length} values`;

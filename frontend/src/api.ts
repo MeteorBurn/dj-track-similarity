@@ -186,6 +186,13 @@ export type DatabaseSelection = {
   music_root?: string | null;
 };
 
+export type RhythmLabLaunchResult = {
+  url: string;
+  already_running: boolean;
+  pid?: number;
+  source_db?: string | null;
+};
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
@@ -271,6 +278,11 @@ export const api = {
     }),
   chooseFolder: () =>
     request<{ path: string | null }>("/api/dialog/folder", {
+      method: "POST",
+      body: JSON.stringify({})
+    }),
+  launchRhythmLab: () =>
+    request<RhythmLabLaunchResult>("/api/rhythm-lab/launch", {
       method: "POST",
       body: JSON.stringify({})
     }),

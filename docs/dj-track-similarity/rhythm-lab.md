@@ -92,6 +92,18 @@ will refuse to open it until the duplicate names are resolved.
 
 ## Quick Start
 
+From the main `dj-track-similarity` UI, use the Rhythm Lab flask button in the
+top toolbar. It starts the Rhythm Lab server on port `8777`, passes the current
+selected SQLite database as the read-only source database when one is selected,
+and opens:
+
+```text
+http://127.0.0.1:8777/
+```
+
+If Rhythm Lab is already listening on that port, the button reuses the running
+server and opens the same URL.
+
 Run from the repository root:
 
 ```powershell

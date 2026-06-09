@@ -56,7 +56,7 @@ test("topbar log and process controls are separate actions", () => {
   assert.match(appSource, /logFrameOpen/);
   assert.match(dialogSource, /function LogFrameDialog/);
   assert.match(dialogSource, /<UnifiedLog[\s\S]*className="log-frame-panel"/);
-  assert.match(actionsBlock, /log-frame-button[\s\S]*stop-active-stage-button[\s\S]*process-indicator[\s\S]*notice/);
+  assert.match(actionsBlock, /log-frame-button[\s\S]*rhythm-lab-launch-button[\s\S]*stop-active-stage-button[\s\S]*process-indicator[\s\S]*notice/);
   assert.doesNotMatch(actionsBlock.match(/<button[\s\S]*?log-frame-button[\s\S]*?>/)?.[0] || "", /process-indicator/);
   assert.doesNotMatch(librarySource, /process-indicator/);
   assert.doesNotMatch(librarySource, /stop-active-stage-button/);

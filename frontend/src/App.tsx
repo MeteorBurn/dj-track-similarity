@@ -1,7 +1,7 @@
 import type { MouseEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { Moon, RefreshCcw, ScrollText, Square, Sun } from "lucide-react";
-import { AnalysisJobStatus, AnalysisModel, api, GenreTagJobStatus, PromotedClassifier, ScanStats, Track } from "./api";
+import { FlaskConical, Moon, RefreshCcw, ScrollText, Square, Sun } from "lucide-react";
+import { AnalysisJobStatus, AnalysisModel, api, GenreTagJobStatus, PromotedClassifier, RhythmLabLaunchResult, ScanStats, Track } from "./api";
 import { analysisSelectionOrder, isAudioAnalysisModel, type AnalysisSelection } from "./analysisSelection";
 import { clapPromptPresets, defaultClapPromptPresetKey, promptQueriesFromText } from "./clapPrompt";
 import type { ConfirmationRequest } from "./confirmation";
@@ -36,6 +36,14 @@ function optimalWorkerLimit() {
 function openDocumentationWindow(event: MouseEvent<HTMLAnchorElement>) {
   const opened = window.open("/docs/", "_blank", "noopener,noreferrer");
   if (opened) event.preventDefault();
+}
+
+function openRhythmLabWindow(result: RhythmLabLaunchResult, pendingWindow: Window | null) {
+  if (pendingWindow) {
+    pendingWindow.location.href = result.url;
+    return pendingWindow;
+  }
+  return window.open(result.url, "_blank", "noopener,noreferrer");
 }
 
 export function App() {
@@ -751,6 +759,23 @@ export function App() {
     setTheme((current) => current === "dark" ? "light" : "dark");
   }
 
+  async function handleLaunchRhythmLab() {
+    const pendingWindow = window.open("about:blank", "_blank");
+    if (pendingWindow) pendingWindow.opener = null;
+    try {
+      const result = await api.launchRhythmLab();
+      const opened = openRhythmLabWindow(result, pendingWindow);
+      const status = result.already_running ? "Rhythm Lab уже запущен" : "Rhythm Lab запущен";
+      setNotice({ kind: "ok", text: opened ? status : `${status}: ${result.url}` });
+      appendActivity("ok", status, result.source_db ? `source ${result.source_db}` : result.url);
+    } catch (error) {
+      pendingWindow?.close();
+      const message = error instanceof Error ? error.message : String(error);
+      setNotice({ kind: "error", text: message });
+      appendActivity("error", "Не удалось запустить Rhythm Lab", message);
+    }
+  }
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -784,6 +809,15 @@ export function App() {
             type="button"
           >
             <ScrollText size={16} />
+          </button>
+          <button
+            className="icon-button rhythm-lab-launch-button"
+            title="Запустить Rhythm Lab"
+            aria-label="Запустить Rhythm Lab"
+            onClick={() => void handleLaunchRhythmLab()}
+            type="button"
+          >
+            <FlaskConical size={16} />
           </button>
           <button
             className="icon-button stop-button stop-active-stage-button"

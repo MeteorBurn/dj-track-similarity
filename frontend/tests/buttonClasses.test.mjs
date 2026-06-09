@@ -364,6 +364,20 @@ test("documentation title click opens the docs in a separate window", () => {
   assert.match(headerLink, /onClick=\{openDocumentationWindow\}/);
 });
 
+test("topbar rhythm lab launch button opens the lab in a separate window", () => {
+  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+  const apiSource = readFileSync(join(srcDir, "api.ts"), "utf8");
+  const actionsBlock = appSource.match(/<div className="topbar-actions">([\s\S]*?)<\/div>/)?.[1] || "";
+
+  assert.match(apiSource, /launchRhythmLab:\s*\(\)\s*=>/);
+  assert.match(apiSource, /\/api\/rhythm-lab\/launch/);
+  assert.match(appSource, /function openRhythmLabWindow/);
+  assert.match(appSource, /api\.launchRhythmLab\(\)/);
+  assert.match(appSource, /window\.open\("about:blank", "_blank"\)/);
+  assert.match(appSource, /pendingWindow\.location\.href = result\.url/);
+  assert.match(actionsBlock, /rhythm-lab-launch-button[\s\S]*stop-active-stage-button/);
+});
+
 test("library controls keep pagination left and actions pinned right", () => {
   const source = readFileSync(join(srcDir, "TrackPanel.tsx"), "utf8");
   const titleActions = source.match(/<div className="panel-title-actions track-panel-actions">([\s\S]*?)<\/div>/)?.[1] || "";

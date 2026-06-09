@@ -25,7 +25,7 @@ analysis families and the local lab:
 | Group | Installs | Enables |
 | --- | --- | --- |
 | `sonara` | Sonara support | Sonara playlist feature extraction and SONARA search. |
-| `ml` | PyTorch/Torchaudio/Torchvision/TorchCodec, Transformers, Hugging Face Hub, LAION-CLAP, MAEST | MAEST genre analysis, MERT embeddings, CLAP audio/text embeddings. |
+| `ml` | PyTorch/Torchaudio/Torchvision/TorchCodec, nnaudio, Transformers, Hugging Face Hub, LAION-CLAP, MAEST | MAEST genre analysis, MERT embeddings, CLAP audio/text embeddings. |
 | `rhythm-lab` | scikit-learn | Local classifier training and benchmarking in Rhythm Lab. |
 | `dev` | pytest, Ruff | Tests and linting. |
 
@@ -55,6 +55,7 @@ The verified Windows CUDA stack is:
 | Torchaudio | `2.11.0` |
 | Torchvision | `0.26.0` |
 | TorchCodec | `0.13.0` |
+| nnaudio | installed by the `ml` extra |
 | NumPy | `>=1.26,<2.0` |
 | PyTorch wheel index | `https://download.pytorch.org/whl/cu130` |
 
@@ -72,7 +73,9 @@ train Rhythm Lab classifier profiles.
 
 > Warning: keep the PyTorch, Torchaudio, Torchvision, and TorchCodec versions
 > synchronized with the CUDA wheel index above, and keep `numpy` below `2.0`.
-> Mixing versions is the most common cause of import or decode failures.
+> The `ml` extra also installs nnaudio from the normal Python package index.
+> Mixing PyTorch-family versions is the most common cause of import or decode
+> failures.
 
 ## FFmpeg
 

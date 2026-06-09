@@ -96,7 +96,8 @@ python -m pip install -e ".[sonara,ml,rhythm-lab,dev]"
 ```
 
 For CUDA analysis on Windows, use the synchronized PyTorch stack that has been
-tested with this project:
+tested with this project. The final editable install also adds the remaining
+ML packages, including `nnaudio`:
 
 ```powershell
 python -m pip install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/cu130
@@ -198,7 +199,8 @@ python -m pip install -e ".[sonara,ml,rhythm-lab,dev]"
 ```
 
 The current ML dependency set is pinned to PyTorch `2.11.0`, Torchaudio
-`2.11.0`, Torchvision `0.26.0`, TorchCodec `0.13.0`, and `numpy>=1.26,<2.0`.
+`2.11.0`, Torchvision `0.26.0`, TorchCodec `0.13.0`, includes `nnaudio`, and
+keeps `numpy>=1.26,<2.0`.
 Use `dj-sim doctor` to confirm CUDA visibility before long analysis runs.
 
 Run backend tests:

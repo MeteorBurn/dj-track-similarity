@@ -114,9 +114,9 @@ branches, or history are available.
 - Server startup requires `ffmpeg` on `PATH` or `DJ_TRACK_SIMILARITY_FFMPEG`;
   keep missing-ffmpeg errors clear and actionable.
 - The verified Windows CUDA ML stack is PyTorch `2.11.0`, Torchaudio
-  `2.11.0`, Torchvision `0.26.0`, TorchCodec `0.13.0`, CUDA wheel index
-  `cu130`, and `numpy>=1.26,<2.0`. Keep these synchronized unless a deliberate
-  dependency upgrade is being tested.
+  `2.11.0`, Torchvision `0.26.0`, TorchCodec `0.13.0`, nnaudio, CUDA wheel
+  index `cu130`, and `numpy>=1.26,<2.0`. Keep the PyTorch-family packages
+  synchronized unless a deliberate dependency upgrade is being tested.
 - TorchCodec-backed Torchaudio decoding on Windows requires an FFmpeg shared
   build with DLLs on `PATH`; the verified portable build is GyanD
   `ffmpeg 8.1.1-full_build-shared` under `C:\Utils\tools\ffmpeg\bin`.

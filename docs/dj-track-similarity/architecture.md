@@ -65,7 +65,8 @@ Optional groups:
 
 - `sonara`: installs Sonara support.
 - `ml`: installs the synchronized PyTorch/Torchaudio/Torchvision/TorchCodec
-  stack, Transformers, Hugging Face Hub, LAION-CLAP, and MAEST support.
+  stack, nnaudio, Transformers, Hugging Face Hub, LAION-CLAP, and MAEST
+  support.
 - `rhythm-lab`: installs scikit-learn for local classifier training and
   benchmarking in Rhythm Lab.
 - `dev`: installs pytest and Ruff.
@@ -83,6 +84,7 @@ The verified Windows CUDA stack is:
 - Torchaudio `2.11.0`
 - Torchvision `0.26.0`
 - TorchCodec `0.13.0`
+- nnaudio, installed by the `ml` extra
 - NumPy `>=1.26,<2.0`
 - PyTorch wheel index `https://download.pytorch.org/whl/cu130`
 

@@ -18,7 +18,7 @@ from .classifier_scoring import promoted_classifiers
 from .dependencies import require_ffmpeg
 from .embedding import ClapEmbeddingAdapter
 from .logging_config import configure_logging
-from .rhythm_lab_launcher import launch_rhythm_lab
+from .rhythm_lab_launcher import launch_rhythm_lab, rhythm_lab_status, stop_rhythm_lab
 
 
 LOGGER = logging.getLogger(__name__)
@@ -95,7 +95,13 @@ def create_app(
     register_analysis_routes(app, state, promoted_classifiers=promoted_classifiers)
     register_search_routes(app, state, clap_embedding_adapter=ClapEmbeddingAdapter)
     register_tags_export_routes(app, state, open_folder_dialog=open_folder_dialog)
-    register_rhythm_lab_routes(app, state, launch_rhythm_lab=launch_rhythm_lab)
+    register_rhythm_lab_routes(
+        app,
+        state,
+        launch_rhythm_lab=launch_rhythm_lab,
+        stop_rhythm_lab=stop_rhythm_lab,
+        rhythm_lab_status=rhythm_lab_status,
+    )
 
     package_path = Path(__file__).resolve()
     docs_candidates = [

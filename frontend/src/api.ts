@@ -189,8 +189,16 @@ export type DatabaseSelection = {
 export type RhythmLabLaunchResult = {
   url: string;
   already_running: boolean;
+  managed?: boolean;
   pid?: number;
   source_db?: string | null;
+};
+
+export type RhythmLabStatus = {
+  url: string;
+  running: boolean;
+  managed: boolean;
+  stopped?: boolean;
 };
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -283,6 +291,11 @@ export const api = {
     }),
   launchRhythmLab: () =>
     request<RhythmLabLaunchResult>("/api/rhythm-lab/launch", {
+      method: "POST",
+      body: JSON.stringify({})
+    }),
+  stopRhythmLab: () =>
+    request<RhythmLabStatus>("/api/rhythm-lab/stop", {
       method: "POST",
       body: JSON.stringify({})
     }),

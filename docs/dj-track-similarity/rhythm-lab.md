@@ -104,6 +104,12 @@ http://127.0.0.1:8777/
 If Rhythm Lab is already listening on that port, the button reuses the running
 server and opens the same URL.
 
+Use the adjacent Rhythm Lab power button in the same toolbar to stop the
+managed hidden Rhythm Lab server. The stop button terminates the process that
+was started by the main app through its stored PID. If port `8777` is occupied
+by a manually started or otherwise unmanaged server, the main app reports that
+state instead of killing an unrelated process.
+
 Run from the repository root:
 
 ```powershell

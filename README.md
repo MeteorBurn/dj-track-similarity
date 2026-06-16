@@ -123,6 +123,15 @@ There is also a Windows helper script:
 scripts\run_server.cmd
 ```
 
+For local-network access from another device on the same LAN, use:
+
+```powershell
+run_server_lan.cmd
+```
+
+It activates `.venv`, binds the UI server to `0.0.0.0:8765`, and prints the
+LAN URL to try from another device.
+
 `ffmpeg` must be available on `PATH` or through `DJ_TRACK_SIMILARITY_FFMPEG`
 for server startup and robust audio decoding. On Windows, TorchCodec-backed
 Torchaudio decoding needs a shared FFmpeg build with DLLs on `PATH`; the

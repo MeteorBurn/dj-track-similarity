@@ -142,6 +142,16 @@ There is also a Windows helper:
 scripts\run_server.cmd
 ```
 
+For local-network access from another device on the same LAN, use:
+
+```powershell
+run_server_lan.cmd
+```
+
+It activates `.venv`, starts `dj-sim serve --host 0.0.0.0 --port 8765`, and
+prints the LAN URL to try from another device. Windows Firewall may still need
+to allow Python for inbound local-network connections.
+
 Use `serve` when you want the browser workflow: paged browsing, playback
 preview, analysis controls, search tabs, classifier filters, exports, and
 metadata review.

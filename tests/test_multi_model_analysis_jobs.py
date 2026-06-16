@@ -304,6 +304,46 @@ def test_multi_model_job_tracks_classifier_only_work_as_unified_progress(tmp_pat
     assert order == ["break_energy:score", "break_energy:save"]
 
 
+def test_multi_model_job_scores_only_missing_new_classifier_when_old_scores_exist(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = _track(db, tmp_path, "a-classifier-ready.wav")
+    for model in ("sonara", "maest", "mert"):
+        _mark_analyzed(db, track_id, model)
+    db.save_classifier_score(
+        track_id,
+        classifier="break_energy",
+        score=0.81,
+        label="high",
+        confidence=0.81,
+        probabilities={"positive": 0.81, "negative": 0.19},
+        feature_set="combined",
+        model_id="old-break-energy",
+    )
+    order: list[str] = []
+    manager = AnalysisJobManager(
+        db,
+        model_runners={},
+        decode_audio=DecodeRecorder(),
+        track_batch_size=1,
+        classifier_scorer_factory=lambda classifier: FakeClassifierScorer(db, classifier, order),
+    )
+
+    status = manager.run_sync(
+        models=[],
+        classifier_keys=["break_energy", "abstract_edge"],
+        device="cpu",
+        track_batch_size=1,
+    )
+
+    assert status.state == "completed"
+    assert status.total == 1
+    assert status.model_progress["break_energy"].total == 0
+    assert status.model_progress["abstract_edge"].total == 1
+    assert order == ["abstract_edge:score", "abstract_edge:save"]
+    assert db.classifier_score(track_id, "break_energy")["model_id"] == "old-break-energy"
+    assert db.classifier_score(track_id, "abstract_edge")["score"] == 0.9
+
+
 def test_multi_model_job_rejects_classifier_candidates_missing_unselected_required_models(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_id = _track(db, tmp_path, "a-needs-classifier-dependencies.wav")

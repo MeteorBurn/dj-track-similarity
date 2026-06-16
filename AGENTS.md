@@ -96,6 +96,10 @@ branches, or history are available.
 - Promoted classifier scoring is database-only. It must read existing SONARA
   features plus MERT and MAEST embeddings, then write only
   `track_classifier_scores`; it must not decode audio or modify audio files.
+- Promoted classifier scoring must stay scoped by `classifier_key`. Adding or
+  promoting a new classifier should score only missing rows for that classifier
+  and must not require deleting or recomputing stored scores for other promoted
+  classifiers.
 - Rhythm Lab must never write to source audio files. It opens the main project
   SQLite database read-only for browsing, analysis metadata, training inputs,
   and preview. Its only source-database write path is the explicit liked-track
@@ -158,6 +162,9 @@ branches, or history are available.
   discovers promoted local classifier profiles from
   `models/classifiers/*/model.json`. Keep generated classifier assets
   (`model.joblib`, `model.json`) out of git.
+- The CLASS tab may expose per-classifier scoring controls. Those controls
+  should call the single-classifier scoring path for that promoted profile and
+  should preserve scores belonging to other classifier keys.
 - Promoted classifier scores are stored in `track_classifier_scores` with their
   profile `classifier_key`. The user-facing score is the promoted model's
   positive-label probability stored as `score`; per-label probabilities remain

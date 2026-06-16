@@ -42,11 +42,14 @@ preset, liked filter, and classifier score filters.
 The CLASS tab contains classifier controls discovered from promoted
 `models/classifiers/*/model.json` metadata. Each promoted classifier can be
 filtered with a slider, and that slider filters the library and
-add-filtered-tracks workflow by `track_classifier_scores.score`. Classifier
-scoring itself is launched from the main analysis block with the `CLASSIFIERS`
-checkbox, after any selected audio-analysis models. The analysis model rows show
-coverage counts for SONARA, MAEST, MERT, CLAP, and complete promoted-classifier
-score coverage; the top header keeps only the total track count.
+add-filtered-tracks workflow by `track_classifier_scores.score`. Each
+classifier row also has its own score button. Use that button after promoting a
+new Rhythm Lab profile when you want to score only that classifier's missing
+rows without deleting or recomputing scores for older promoted classifiers.
+The main analysis block can still run the `CLASSIFIERS` checkbox after any
+selected audio-analysis models. The analysis model rows show coverage counts
+for SONARA, MAEST, MERT, CLAP, and complete promoted-classifier score coverage;
+the top header keeps only the total track count.
 
 ### SONARA Search
 
@@ -134,12 +137,16 @@ It lists promoted classifiers discovered from `models/classifiers/*/model.json`:
 
 - Each classifier slider filters the library server-side by stored classifier
   score.
+- Each classifier's play button starts a job for only that classifier key and
+  only tracks missing that classifier score.
 - The metadata dialog shows stored classifier scores below SONARA features.
 
 Promoted classifiers require a promoted model file and feature-complete tracks.
 They do not analyze audio directly. Select `CLASSIFIERS` in the main analysis
-block to start cancellable classifier jobs after any selected audio models; run
-SONARA, MERT, and MAEST first for the tracks you want to score.
+block to start cancellable classifier jobs after any selected audio models, or
+use the per-classifier play button in the CLASS tab for a classifier-only
+missing-score pass. Run SONARA, MERT, and MAEST first for the tracks you want to
+score.
 
 Use CLASS filters after scoring a promoted classifier. A high score means the
 model thinks the track matches that profile's positive label; it is a workflow

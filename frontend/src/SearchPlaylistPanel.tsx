@@ -61,6 +61,7 @@ export function SearchPlaylistPanel({
   classifiers,
   classifierMinScores,
   onClassifierMinScoreChange,
+  onAnalyzeClassifier,
   classifierJob,
   removeSeed,
   handleTextSearch,
@@ -99,6 +100,7 @@ export function SearchPlaylistPanel({
   classifiers: PromotedClassifier[];
   classifierMinScores: Record<string, number>;
   onClassifierMinScoreChange: (classifier: string, value: number) => void;
+  onAnalyzeClassifier: (classifier: PromotedClassifier) => void;
   classifierJob: AnalysisJobStatus | null;
   removeSeed: (trackId: number) => void;
   handleTextSearch: () => void;
@@ -345,6 +347,19 @@ export function SearchPlaylistPanel({
                   <Fragment key={classifier.classifier_key}>
                     <div className="custom-control-header" title={title}>
                       <span>{classifier.name}</span>
+                      <button
+                        className="icon-button classifier-analyze-button"
+                        title={`Score missing ${classifier.name} classifier results only`}
+                        aria-label={`Score missing ${classifier.name} classifier results only`}
+                        disabled={busy}
+                        onClick={() => onAnalyzeClassifier(classifier)}
+                        type="button"
+                      >
+                        <Play size={15} />
+                      </button>
+                    </div>
+                    <div className="classifier-action-row">
+                      <span title={title}>{classifier.classifier_key}</span>
                     </div>
                     <label className="range-control" title={title}>
                       <span>

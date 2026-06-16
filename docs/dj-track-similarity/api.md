@@ -153,9 +153,12 @@ waits for CLAP in that batch even though classifier scoring itself only needs
 SONARA, MERT, and MAEST inputs. Those inputs must already exist or the matching
 audio models must be selected in the same request; otherwise `/api/analysis/jobs`
 returns `400` with a dependency error. The standalone
-`/api/classifiers/{classifier_key}/analyze` endpoint remains for classifier-only
-runs that score only already prepared tracks. `/api/classifiers/reset` accepts a list of classifier keys and deletes
-their `track_classifier_scores` rows (an empty list deletes nothing).
+`/api/classifiers/{classifier_key}/analyze` endpoint is used by the CLASS tab's
+per-classifier score button. It starts a classifier-only run for that single
+classifier key and only tracks missing that classifier score, so promoting a new
+profile does not require deleting or recomputing older classifier scores.
+`/api/classifiers/reset` accepts a list of classifier keys and deletes their
+`track_classifier_scores` rows (an empty list deletes nothing).
 
 The default result limit for `/api/search`, `/api/search/sonara`, and
 `/api/search/text` is `10` when a request omits `limit`.

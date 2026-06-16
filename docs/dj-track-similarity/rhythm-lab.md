@@ -349,6 +349,13 @@ app can score a promoted profile with:
 dj-sim analyze-classifier live_instrumentation --db .\data\library.sqlite
 ```
 
+In the main web UI, open the CLASS tab and use the play button on a specific
+promoted classifier row to score only that classifier's missing rows. This is
+the usual path after promoting a new profile because existing scores for older
+promoted classifiers are preserved. The broader `CLASSIFIERS` checkbox in the
+main analysis block can still score all selected promoted classifiers, but it
+also skips stored scores that already exist.
+
 The user-facing score is the classifier probability for the profile's positive
 training label. Because UI displays can round probabilities, a value shown as
 `1.0000` may be slightly below mathematical `1.0`. Use thresholds such as

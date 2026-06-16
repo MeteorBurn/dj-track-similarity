@@ -428,6 +428,25 @@ export function App() {
     );
   }
 
+  async function handleAnalyzeClassifier(classifier: PromotedClassifier) {
+    const limit = analysisLimit > 0 ? analysisLimit : undefined;
+    appendActivity("info", "CLASSIFIER analyze запущен", `${classifier.name} · только missing scores`);
+    setProcessLogKind("analysis");
+    setAnalysisJob(null);
+    await run(
+      async () => {
+        const promotedClassifiers = await api.classifiers();
+        setClassifiers(promotedClassifiers);
+        return api.analyzeClassifier(classifier.classifier_key, limit);
+      },
+      (job) => {
+        setAnalysisJob(job);
+        appendActivity("ok", "Classifier job создан", `${classifier.name} · ${job.job_id.slice(0, 8)} · ${job.total} треков`);
+        return `${classifier.name}: ${job.total} missing треков`;
+      }
+    );
+  }
+
   async function handleMertSearch() {
     if (!seeds.length) {
       setNotice({ kind: "error", text: "Выберите seed-треки" });
@@ -976,6 +995,7 @@ export function App() {
           onClassifierMinScoreChange={(classifier, value) =>
             setClassifierMinScores((current) => ({ ...current, [classifier]: value }))
           }
+          onAnalyzeClassifier={handleAnalyzeClassifier}
           classifierJob={classifiers.some((classifier) => classifier.classifier_key === analysisJob?.adapter_name) ? analysisJob : null}
           removeSeed={removeSeed}
           handleTextSearch={() => void handleTextSearch()}

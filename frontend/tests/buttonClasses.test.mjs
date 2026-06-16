@@ -316,9 +316,9 @@ test("class search tab shows classifier threshold and scoped analysis controls",
 
   assert.match(classPanel, /classifier-controls/);
   assert.match(classPanel, /type="range"/);
-  assert.match(classPanel, /classifier-action-row/);
   assert.match(classPanel, /classifier-analyze-button/);
   assert.doesNotMatch(classPanel, /classifier-reset-button/);
+  assert.doesNotMatch(classPanel, /classifier-action-row/);
   assert.doesNotMatch(classPanel, />\s*Reset\s*</);
 });
 

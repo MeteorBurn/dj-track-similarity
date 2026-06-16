@@ -1591,14 +1591,6 @@ h2 {
   font-size: 12px;
 }
 
-.classifier-action-row {
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.2;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
 .classifier-analyze-button {
   flex: 0 0 28px;
 }

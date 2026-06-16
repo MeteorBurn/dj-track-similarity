@@ -358,9 +358,6 @@ export function SearchPlaylistPanel({
                         <Play size={15} />
                       </button>
                     </div>
-                    <div className="classifier-action-row">
-                      <span title={title}>{classifier.classifier_key}</span>
-                    </div>
                     <label className="range-control" title={title}>
                       <span>
                         <em>{value.toFixed(2)}</em>

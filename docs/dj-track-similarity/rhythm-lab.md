@@ -128,8 +128,9 @@ selected source DB is opened read-only except for explicit liked-track
 changes. No classifier profile is selected at startup; choose an existing
 profile or create one before loading tracks.
 
-Use the UI for labeling and review. Use the CLI for training, prediction export,
-promotion, and permanent profile deletion.
+Use the UI for labeling, review, train-refresh, and promoting a trained combined
+model. Use the CLI for repeatable batch training, prediction export, promotion,
+and permanent profile deletion.
 
 ## Labeling UI
 
@@ -257,7 +258,11 @@ Promote the latest combined model for any profile into the main project:
 .\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
-This copies the latest `<artifact-prefix>-combined-*.joblib` artifact to
+The Rhythm Lab toolbar also exposes a promote button next to the train-refresh
+button. It is enabled only after the active profile has an existing trained
+combined model artifact. The button uses the same promotion path as the CLI.
+
+Promotion copies the latest `<artifact-prefix>-combined-*.joblib` artifact to
 `models/classifiers/<artifact-prefix>/model.joblib` and writes local metadata to
 `models/classifiers/<artifact-prefix>/model.json`. The metadata is written from
 the selected profile and artifact payload (`classifier_key`, profile name,

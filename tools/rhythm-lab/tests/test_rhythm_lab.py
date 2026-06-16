@@ -901,6 +901,79 @@ def test_web_app_training_readiness_initializes_checkpoint_from_existing_combine
     assert blocked.status_code == 400
 
 
+def test_web_app_promote_requires_trained_combined_artifact(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    source_path = tmp_path / "source.sqlite"
+    LibraryDatabase(source_path)
+    labels_path = tmp_path / "labels.sqlite"
+    RhythmLabDatabase(labels_path).update_profile("break_energy", artifact_dir=tmp_path / "artifacts" / "break-energy")
+    target_root = tmp_path / "models" / "classifiers"
+    client = TestClient(create_app(source_path, labels_db_path=labels_path, classifier_target_root=target_root))
+
+    response = client.post("/api/profiles/break_energy/promote")
+
+    assert response.status_code == 400
+    assert "Train a combined model before promoting" in response.json()["detail"]
+    assert not target_root.exists()
+
+
+def test_web_app_promote_copies_latest_trained_combined_model(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    source_path = tmp_path / "source.sqlite"
+    LibraryDatabase(source_path)
+    labels_path = tmp_path / "labels.sqlite"
+    labels = RhythmLabDatabase(labels_path)
+    labels.set_label(101, "broken")
+    labels.set_label(102, "straight")
+    artifacts = tmp_path / "artifacts" / "break-energy"
+    artifacts.mkdir(parents=True)
+    latest = artifacts / "break-energy-combined-20260524T130000Z.joblib"
+    joblib.dump(
+        {
+            "classifier_key": "break_energy",
+            "feature_set": "combined",
+            "feature_names": ["tempo", "energy"],
+            "label_order": ["broken", "straight"],
+            "positive_label": "broken",
+            "model": object(),
+        },
+        latest,
+    )
+    labels.update_profile("break_energy", artifact_dir=artifacts)
+    labels.record_training_checkpoint({"broken": 1, "straight": 1}, model_artifact=latest)
+    target_root = tmp_path / "models" / "classifiers"
+    client = TestClient(create_app(source_path, labels_db_path=labels_path, classifier_target_root=target_root))
+
+    response = client.post("/api/profiles/break_energy/promote")
+
+    assert response.status_code == 200
+    target = target_root / "break-energy"
+    assert response.json()["model_path"] == str(target / "model.joblib")
+    assert response.json()["metadata_path"] == str(target / "model.json")
+    assert joblib.load(target / "model.joblib")["feature_set"] == "combined"
+    metadata = json.loads((target / "model.json").read_text(encoding="utf-8"))
+    assert metadata["classifier_key"] == "break_energy"
+    assert metadata["feature_set"] == "combined"
+    assert metadata["feature_count"] == 2
+    assert metadata["source_artifact"] == str(latest)
+    assert metadata["trained_label_counts"] == {"broken": 1, "straight": 1}
+
+
+def test_static_ui_promote_button_sits_after_train_refresh_and_is_wired() -> None:
+    html = (LAB_ROOT / "rhythm_lab" / "static" / "index.html").read_text(encoding="utf-8")
+    script = (LAB_ROOT / "rhythm_lab" / "static" / "app.js").read_text(encoding="utf-8")
+
+    train_index = html.index('id="trainRefresh"')
+    promote_index = html.index('id="promoteClassifier"')
+
+    assert promote_index > train_index
+    assert 'class="icon-button promote-classifier"' in html
+    assert 'promoteClassifierEl.addEventListener("click", () => promoteClassifier().catch(showError));' in script
+    assert "promoteClassifierEl.disabled = !canPromote;" in script
+
+
 def test_artifact_cleanup_keeps_recent_files_per_feature_and_protected_artifact(tmp_path: Path) -> None:
     from rhythm_lab.web_app import cleanup_training_artifacts
 
@@ -1207,8 +1280,8 @@ def test_web_app_serves_static_profile_ui_without_hardcoded_label_buttons(tmp_pa
     script = client.get("/static/app.js").text
     styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
 
-    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260531" />' in html
-    assert '<script src="/static/app.js?v=rhythm-lab-20260531" defer></script>' in html
+    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260616" />' in html
+    assert '<script src="/static/app.js?v=rhythm-lab-20260616" defer></script>' in html
     assert 'id="profileSelect"' in html
     assert "/api/profiles" in script
     assert "function renderLabelButtons" in script

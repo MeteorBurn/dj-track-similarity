@@ -320,6 +320,11 @@ main {
   background: rgba(240, 184, 74, 0.14);
 }
 
+.promote-classifier {
+  border-color: rgba(88, 214, 141, 0.5);
+  background: rgba(88, 214, 141, 0.14);
+}
+
 .candidate-filters-placeholder > * {
   visibility: hidden;
   pointer-events: none;

@@ -18,6 +18,7 @@ const candidateMinBrokenEl = document.getElementById("candidateMinBroken");
 const candidateMinPositiveEl = document.getElementById("candidateMinPositive");
 const refreshCandidatesEl = document.getElementById("refreshCandidates");
 const trainRefreshEl = document.getElementById("trainRefresh");
+const promoteClassifierEl = document.getElementById("promoteClassifier");
 const archiveProfileEl = document.getElementById("archiveProfile");
 const refreshCandidatesStatusEl = document.getElementById("refreshCandidatesStatus");
 const summaryEl = document.getElementById("summary");
@@ -80,6 +81,7 @@ candidateMinPositiveEl.addEventListener("change", () => {
 });
 refreshCandidatesEl.addEventListener("click", () => refreshCandidates().catch(showError));
 trainRefreshEl.addEventListener("click", () => trainRefresh().catch(showError));
+promoteClassifierEl.addEventListener("click", () => promoteClassifier().catch(showError));
 pageSizeEl.addEventListener("change", () => loadActive({ reset: true }));
 pageNumberEl.addEventListener("change", () => jumpToPage());
 pageNumberEl.addEventListener("keydown", event => { if (event.key === "Enter") jumpToPage(); });
@@ -157,11 +159,14 @@ function clearActiveProfile() {
   archiveProfileEl.disabled = true;
   refreshCandidatesEl.disabled = true;
   trainRefreshEl.disabled = true;
+  promoteClassifierEl.disabled = true;
 }
 
 function renderProfileControls() {
   archiveProfileEl.disabled = false;
   refreshCandidatesEl.disabled = false;
+  promoteClassifierEl.disabled = true;
+  promoteClassifierEl.title = "Train a combined model before promoting";
   labelEl.innerHTML = "";
   addOption(labelEl, "all", "all labels");
   addOption(labelEl, "unlabeled", "unlabeled");
@@ -460,6 +465,7 @@ async function trainRefresh() {
   if (!window.confirm(`Train a new ${activeProfile.name} model, then refresh candidates?`)) return;
   trainRefreshEl.disabled = true;
   refreshCandidatesEl.disabled = true;
+  promoteClassifierEl.disabled = true;
   refreshCandidatesStatusEl.textContent = "training...";
   try {
     const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/training/train-refresh`, { method: "POST" });
@@ -473,17 +479,37 @@ async function trainRefresh() {
   }
 }
 
+async function promoteClassifier() {
+  if (promoteClassifierEl.disabled) return;
+  if (!window.confirm(`Promote the latest ${activeProfile.name} combined model to the main app?`)) return;
+  promoteClassifierEl.disabled = true;
+  refreshCandidatesStatusEl.textContent = "promoting...";
+  try {
+    const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/promote`, { method: "POST" });
+    const data = await parseRefreshResponse(response);
+    refreshCandidatesStatusEl.textContent = `promoted ${fileName(data.model_path)} · metadata ${fileName(data.metadata_path)}`;
+  } finally {
+    await loadTrainingReadiness();
+  }
+}
+
 async function loadTrainingReadiness() {
   const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/training/readiness`);
   const data = await response.json();
   if (!response.ok) {
     trainRefreshEl.disabled = true;
+    promoteClassifierEl.disabled = true;
     return;
   }
   trainRefreshEl.disabled = !data.ready;
   trainRefreshEl.title = data.ready
     ? "Train a new model, then refresh candidates"
     : `Need balanced new labels. Added: ${formatLabelCounts(data.added)}.`;
+  const canPromote = Boolean(data.model_artifact || data.artifact_summary?.latest_combined);
+  promoteClassifierEl.disabled = !canPromote;
+  promoteClassifierEl.title = canPromote
+    ? "Promote latest combined model to main app"
+    : "Train a combined model before promoting";
   return data;
 }
 

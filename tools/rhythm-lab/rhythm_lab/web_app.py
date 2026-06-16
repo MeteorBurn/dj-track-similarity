@@ -15,6 +15,7 @@ from starlette.background import BackgroundTask
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.dependencies import require_ffmpeg
 
+from .cli import DEFAULT_CLASSIFIER_TARGET_ROOT, PromotionError, promote_profile_model
 from .lab_db import ClassifierProfile, RhythmLabDatabase
 from .predictions import apply_model_to_lab
 from .source_db import SourceDatabase
@@ -128,10 +129,16 @@ def open_existing_database_file_dialog() -> Path | None:
     return Path(selected) if selected else None
 
 
-def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str | Path) -> FastAPI:
+def create_app(
+    source_db_path: str | Path | None = None,
+    *,
+    labels_db_path: str | Path,
+    classifier_target_root: str | Path | None = None,
+) -> FastAPI:
     labels_path = Path(labels_db_path)
     labels_db = RhythmLabDatabase(labels_path)
     source_state = SourceDatabaseState(source_db_path)
+    target_root = Path(classifier_target_root) if classifier_target_root is not None else DEFAULT_CLASSIFIER_TARGET_ROOT
     app = FastAPI(title="Rhythm Lab")
 
     def profile_db(profile_key: str) -> RhythmLabDatabase:
@@ -449,6 +456,34 @@ def create_app(source_db_path: str | Path | None = None, *, labels_db_path: str 
             **result,
             "deleted_old_predictions": deleted,
             "artifact_cleanup": cleanup,
+        }
+
+    @app.post("/api/profiles/{profile_key}/promote")
+    def promote_profile(profile_key: str):
+        profile = profile_or_404(profile_key)
+        readiness = _training_readiness(profile_db(profile.classifier_key), artifact_dir=Path(profile.artifact_dir), profile=profile)
+        artifact_summary = readiness.get("artifact_summary")
+        latest_combined = artifact_summary.get("latest_combined") if isinstance(artifact_summary, dict) else None
+        if not latest_combined:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Train a combined model before promoting {profile.name}.",
+            )
+        try:
+            result = promote_profile_model(
+                labels_path,
+                profile.classifier_key,
+                artifact_path=Path(str(latest_combined)),
+                target_root=target_root,
+            )
+        except PromotionError as error:
+            LOGGER.exception("%s promotion failed", profile.name)
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return {
+            "classifier_key": profile.classifier_key,
+            "model_path": str(result["model_path"]),
+            "metadata_path": str(result["metadata_path"]),
+            "source_artifact": str(result["source_artifact"]),
         }
 
     @app.get("/media/{track_id}")

@@ -19,6 +19,8 @@ from .sonara_similarity_scoring import unwrap_feature_value
 SET_BUILDER_MODES = {"similar_crate", "weird_adjacent", "balanced_set", "discovery"}
 SET_BUILDER_SEED_MODES = {"manual", "auto"}
 SET_BUILDER_ENERGY_CURVES = {"warmup", "balanced", "peak", "wave"}
+SET_BUILDER_BPM_MODES = {"general", "low_to_high", "high_to_low"}
+SET_BUILDER_BPM_CHANGES = {"slow", "medium", "fast"}
 REQUIRED_EMBEDDINGS = ("mert", "maest", "clap")
 DEFAULT_MODEL_WEIGHTS = {
     "mert": 0.30,
@@ -36,6 +38,14 @@ SQLITE_IN_CHUNK_SIZE = 500
 ARTIST_SET_MAX_TRACKS = 1
 PREFILTER_ARTIST_POOL_MULTIPLIER = 8
 SEQUENCE_ARTIST_POOL_MULTIPLIER = 4
+BPM_MIN = 20.0
+BPM_MAX = 300.0
+BPM_CURVE_WEIGHTS = {
+    "similar_crate": 0.12,
+    "weird_adjacent": 0.14,
+    "balanced_set": 0.20,
+    "discovery": 0.16,
+}
 SONARA_GROUP_WEIGHTS = {
     "rhythm": 1.0,
     "dynamics": 1.1,
@@ -98,6 +108,10 @@ class SetBuilderConfig:
     limit: int = 24
     diversity: float = 0.35
     energy_curve: str = "balanced"
+    bpm_mode: str = "general"
+    bpm_change: str = "medium"
+    bpm_start: float | None = None
+    bpm_target: float | None = None
     classifier_targets: dict[str, float] = field(default_factory=dict)
     classifier_avoid: dict[str, float] = field(default_factory=dict)
     classifier_curves: dict[str, dict[str, float]] = field(default_factory=dict)
@@ -132,6 +146,14 @@ class _ScoredCandidate:
     model_scores: dict[str, float]
 
 
+@dataclass(frozen=True)
+class _BpmPlan:
+    mode: str
+    change: str
+    start: float
+    target: float
+
+
 class SmartSetBuilder:
     def __init__(self, db: LibraryDatabase) -> None:
         self.db = db
@@ -159,11 +181,13 @@ class SmartSetBuilder:
         if cleaned.seed_mode == "auto":
             if not candidates:
                 raise ValueError("No feature-complete tracks are available for Smart Set Builder")
-            seed_ids = self._auto_seed_ids(candidates, cleaned, rng, sonara_centrality=sonara_centrality)
+            auto_bpm_plan = _bpm_plan(cleaned, candidates, [])
+            seed_ids = self._auto_seed_ids(candidates, cleaned, rng, sonara_centrality=sonara_centrality, bpm_plan=auto_bpm_plan)
         missing_hydrated_seeds = [track_id for track_id in seed_ids if track_id not in candidate_by_id]
         if missing_hydrated_seeds:
             raise ValueError(f"Seed tracks missing required analysis: {missing_hydrated_seeds}")
         seeds = [candidate_by_id[track_id] for track_id in seed_ids]
+        bpm_plan = _bpm_plan(cleaned, candidates, seeds)
 
         ranges = _numeric_ranges(candidates)
         context = _build_context(seeds, ranges)
@@ -173,7 +197,7 @@ class SmartSetBuilder:
             if candidate.track.id not in seed_ids
         ]
         scored = [item for item in scored if item is not None]
-        ordered_items = self._ordered_items(seeds, scored, cleaned, ranges, rng)
+        ordered_items = self._ordered_items(seeds, scored, cleaned, ranges, rng, bpm_plan)
 
         return {
             "mode": cleaned.mode,
@@ -354,6 +378,7 @@ class SmartSetBuilder:
         rng: np.random.Generator,
         *,
         sonara_centrality: dict[int, float] | None = None,
+        bpm_plan: _BpmPlan | None = None,
     ) -> list[int]:
         count = max(1, min(5, int(config.auto_seed_count)))
         if len(candidates) < count:
@@ -381,7 +406,11 @@ class SmartSetBuilder:
                         continue
                     if not allow_near_duplicate and seeds and max(_fast_diversity_similarity(candidate, seed, ranges) for seed in seeds) > 0.995:
                         continue
-                    scored_options.append((candidate, _auto_anchor_selection_score(candidate, centrality_score, seeds, ranges, config.mode)))
+                    score = _auto_anchor_selection_score(candidate, centrality_score, seeds, ranges, config.mode)
+                    if bpm_plan is not None:
+                        bpm_score = _bpm_curve_score(candidate, bpm_plan, len(seeds), count)
+                        score = score * 0.82 + bpm_score * 0.18
+                    scored_options.append((candidate, score))
                 if scored_options or not seeds:
                     break
             if not scored_options:
@@ -456,6 +485,7 @@ class SmartSetBuilder:
         config: SetBuilderConfig,
         ranges: dict[str, tuple[float, float]],
         rng: np.random.Generator,
+        bpm_plan: _BpmPlan | None,
     ) -> list[dict[str, object]]:
         items: list[dict[str, object]] = []
         previous: _Candidate | None = None
@@ -497,7 +527,7 @@ class SmartSetBuilder:
             sequence_options = [
                 (
                     item,
-                    self._sequence_score(item, previous, selected_sequence, position, target_count, config, ranges)
+                    self._sequence_score(item, previous, selected_sequence, position, target_count, config, ranges, bpm_plan)
                     + _artist_pressure_score(item.candidate, remaining) * 0.035,
                 )
                 for item in valid_remaining
@@ -510,10 +540,12 @@ class SmartSetBuilder:
             )
             transition = _transition(previous, selected.candidate)
             curve_score = _classifier_curve_score(selected.candidate.track, config, position, target_count)
+            bpm_curve_score = _bpm_curve_score(selected.candidate, bpm_plan, position, target_count)
             diversity_score = _diversity_score(selected.candidate, selected_sequence, ranges)
             breakdown = dict(selected.breakdown)
             breakdown["transition"] = transition["confidence"]
             breakdown["classifier_curve"] = curve_score
+            breakdown["bpm_curve"] = bpm_curve_score
             breakdown["diversity"] = diversity_score
             reason = _reason(selected, config, transition, curve_score)
             items.append(_item(selected.candidate, reason, final_score, breakdown, selected.sonara_groups, transition))
@@ -540,22 +572,52 @@ class SmartSetBuilder:
         target_count: int,
         config: SetBuilderConfig,
         ranges: dict[str, tuple[float, float]],
+        bpm_plan: _BpmPlan | None,
     ) -> float:
         transition_score = _transition(previous, item.candidate)["confidence"]
         curve_score = _energy_curve_score(item.candidate, config.energy_curve, position, target_count)
         classifier_curve = _classifier_curve_score(item.candidate.track, config, position, target_count)
+        bpm_curve = _bpm_curve_score(item.candidate, bpm_plan, position, target_count)
         diversity_score = _diversity_score(item.candidate, selected_sequence, ranges)
         diversity_weight = config.diversity * 0.10
+        bpm_weight = _bpm_curve_weight(config.mode, bpm_plan)
         if config.mode == "balanced_set":
-            score = item.base_score * (0.68 - diversity_weight) + transition_score * 0.20 + curve_score * 0.07 + classifier_curve * 0.05 + diversity_score * diversity_weight
+            score = (
+                item.base_score * (0.68 - diversity_weight - bpm_weight)
+                + transition_score * 0.20
+                + curve_score * 0.07
+                + classifier_curve * 0.05
+                + bpm_curve * bpm_weight
+                + diversity_score * diversity_weight
+            )
         elif config.mode == "weird_adjacent":
             weird = min(1.0, item.breakdown["model_disagreement"] * 3.0)
-            score = item.base_score * (0.72 - diversity_weight) + weird * 0.18 + transition_score * 0.06 + classifier_curve * 0.04 + diversity_score * diversity_weight
+            score = (
+                item.base_score * (0.72 - diversity_weight - bpm_weight)
+                + weird * 0.18
+                + transition_score * 0.06
+                + classifier_curve * 0.04
+                + bpm_curve * bpm_weight
+                + diversity_score * diversity_weight
+            )
         elif config.mode == "discovery":
             uncertainty = 1.0 - abs(item.base_score - 0.5) * 2.0
-            score = item.base_score * (0.70 - diversity_weight) + max(0.0, uncertainty) * 0.15 + transition_score * 0.08 + classifier_curve * 0.07 + diversity_score * diversity_weight
+            score = (
+                item.base_score * (0.70 - diversity_weight - bpm_weight)
+                + max(0.0, uncertainty) * 0.15
+                + transition_score * 0.08
+                + classifier_curve * 0.07
+                + bpm_curve * bpm_weight
+                + diversity_score * diversity_weight
+            )
         else:
-            score = item.base_score * (0.88 - diversity_weight) + transition_score * 0.06 + classifier_curve * 0.06 + diversity_score * diversity_weight
+            score = (
+                item.base_score * (0.88 - diversity_weight - bpm_weight)
+                + transition_score * 0.06
+                + classifier_curve * 0.06
+                + bpm_curve * bpm_weight
+                + diversity_score * diversity_weight
+            )
         return _bounded(score)
 
 
@@ -582,12 +644,18 @@ def _clean_config(config: SetBuilderConfig) -> SetBuilderConfig:
     seed_mode = config.seed_mode.strip()
     mode = config.mode.strip()
     energy_curve = config.energy_curve.strip()
+    bpm_mode = config.bpm_mode.strip()
+    bpm_change = config.bpm_change.strip()
     if seed_mode not in SET_BUILDER_SEED_MODES:
         raise ValueError(f"Unsupported seed mode: {seed_mode}")
     if mode not in SET_BUILDER_MODES:
         raise ValueError(f"Unsupported set builder mode: {mode}")
     if energy_curve not in SET_BUILDER_ENERGY_CURVES:
         raise ValueError(f"Unsupported energy curve: {energy_curve}")
+    if bpm_mode not in SET_BUILDER_BPM_MODES:
+        raise ValueError(f"Unsupported BPM mode: {bpm_mode}")
+    if bpm_change not in SET_BUILDER_BPM_CHANGES:
+        raise ValueError(f"Unsupported BPM change mode: {bpm_change}")
     return SetBuilderConfig(
         seed_mode=seed_mode,
         seed_track_ids=list(dict.fromkeys(int(track_id) for track_id in config.seed_track_ids)),
@@ -596,11 +664,26 @@ def _clean_config(config: SetBuilderConfig) -> SetBuilderConfig:
         limit=max(1, min(500, int(config.limit))),
         diversity=max(0.0, min(1.0, float(config.diversity))),
         energy_curve=energy_curve,
+        bpm_mode=bpm_mode,
+        bpm_change=bpm_change,
+        bpm_start=_clean_bpm_value(config.bpm_start, "bpm_start"),
+        bpm_target=_clean_bpm_value(config.bpm_target, "bpm_target"),
         classifier_targets=_clean_score_map(config.classifier_targets),
         classifier_avoid=_clean_score_map(config.classifier_avoid),
         classifier_curves=_clean_curves(config.classifier_curves),
         random_seed=None if config.random_seed is None else int(config.random_seed),
     )
+
+
+def _clean_bpm_value(value: float | None, name: str) -> float | None:
+    if value is None:
+        return None
+    cleaned = optional_float(value)
+    if cleaned is None or not np.isfinite(cleaned):
+        raise ValueError(f"Invalid {name}: {value}")
+    if not BPM_MIN <= cleaned <= BPM_MAX:
+        raise ValueError(f"{name} must be between {BPM_MIN:g} and {BPM_MAX:g}")
+    return float(cleaned)
 
 
 def _clean_score_map(values: dict[str, float]) -> dict[str, float]:
@@ -1297,6 +1380,84 @@ def _track_energy(candidate: _Candidate) -> float | None:
     return _bounded(value) if value is not None else None
 
 
+def _bpm_plan(config: SetBuilderConfig, candidates: list[_Candidate], seeds: list[_Candidate]) -> _BpmPlan | None:
+    if config.bpm_mode == "general":
+        return None
+    bpms = [
+        bpm
+        for candidate in candidates
+        if (bpm := _usable_bpm(_track_bpm(candidate))) is not None
+    ]
+    if not bpms:
+        return None
+    seed_bpm = _usable_bpm(_track_bpm(seeds[0])) if seeds else None
+    if config.bpm_mode == "low_to_high":
+        start = _first_bpm(config.bpm_start, seed_bpm, min(bpms))
+        target = config.bpm_target if config.bpm_target is not None else max(bpms)
+        if target < start:
+            start, target = target, start
+    else:
+        start = _first_bpm(config.bpm_start, seed_bpm, max(bpms))
+        target = config.bpm_target if config.bpm_target is not None else min(bpms)
+        if target > start:
+            start, target = target, start
+    return _BpmPlan(mode=config.bpm_mode, change=config.bpm_change, start=float(start), target=float(target))
+
+
+def _first_bpm(*values: float | None) -> float:
+    for value in values:
+        if value is not None:
+            return float(value)
+    raise ValueError("No BPM value available")
+
+
+def _bpm_curve_weight(mode: str, bpm_plan: _BpmPlan | None) -> float:
+    if bpm_plan is None:
+        return 0.0
+    return BPM_CURVE_WEIGHTS.get(mode, 0.14)
+
+
+def _bpm_curve_score(candidate: _Candidate, bpm_plan: _BpmPlan | None, position: int, target_count: int) -> float:
+    if bpm_plan is None:
+        return 0.5
+    bpm = _usable_bpm(_track_bpm(candidate))
+    if bpm is None:
+        return 0.5
+    desired = _bpm_curve_target(bpm_plan, position, target_count)
+    tolerance = _bpm_curve_tolerance(bpm_plan)
+    return _bounded(1.0 - abs(bpm - desired) / tolerance)
+
+
+def _bpm_curve_target(bpm_plan: _BpmPlan, position: int, target_count: int) -> float:
+    progress = 0.0 if target_count <= 1 else position / max(target_count - 1, 1)
+    shaped = _bpm_curve_progress(progress, bpm_plan.change)
+    return bpm_plan.start + (bpm_plan.target - bpm_plan.start) * shaped
+
+
+def _bpm_curve_progress(progress: float, change: str) -> float:
+    progress = _bounded(progress)
+    if change == "slow":
+        return float(progress**1.6)
+    if change == "fast":
+        return float(1.0 - (1.0 - progress) ** 1.6)
+    return float(progress)
+
+
+def _bpm_curve_tolerance(bpm_plan: _BpmPlan) -> float:
+    span = abs(bpm_plan.target - bpm_plan.start)
+    base = {"slow": 8.0, "medium": 12.0, "fast": 18.0}.get(bpm_plan.change, 12.0)
+    return max(base, span / 8.0)
+
+
+def _usable_bpm(value: float | None) -> float | None:
+    if value is None or not np.isfinite(value):
+        return None
+    bpm = float(value)
+    if not BPM_MIN <= bpm <= BPM_MAX:
+        return None
+    return bpm
+
+
 def _transition(previous: _Candidate | None, candidate: _Candidate) -> dict[str, object]:
     if previous is None:
         return {
@@ -1443,6 +1604,7 @@ def _seed_breakdown(transition: dict[str, object]) -> dict[str, float]:
         "consensus": 1.0,
         "transition": float(transition["confidence"]),
         "classifier_curve": 0.5,
+        "bpm_curve": 1.0,
         "diversity": 0.0,
     }
 

@@ -160,15 +160,20 @@ branches, or history are available.
 - Smart Set Builder requires stored MERT, MAEST, and CLAP audio embeddings plus
   stored SONARA features. It may use MAEST embeddings, but must not use MAEST
   genre labels for track selection. BPM/key are soft transition-ordering
-  signals: prefer file tags first, then SONARA fallback. Promoted classifiers
-  are optional stored-score modifiers only; missing classifier scores stay
-  neutral. Keep the artist guard strict: at most one track per known artist in
-  one preview.
+  signals: prefer file tags first, then SONARA fallback. Its default
+  `bpm_mode=general` keeps those normal transition rules only; explicit
+  `low_to_high` or `high_to_low` adds an actual-BPM trajectory with
+  `bpm_change=slow|medium|fast` and optional `bpm_start` / `bpm_target`, whose
+  missing values are inferred from the first seed/anchor and library BPM range.
+  Keep half/double tempo matching for transition compatibility, not for the
+  actual-BPM trajectory. Promoted classifiers are optional stored-score
+  modifiers only; missing classifier scores stay neutral. Keep the artist guard
+  strict: at most one track per known artist in one preview.
 - SET UI controls should stay explicitly labelled with hover help for purpose,
   type/format, and range. Current user-facing controls include `Seed source`,
   `Set mode`, `Track limit`, `Auto anchors`, `Energy curve`, `Diversity`,
-  classifier `Target boost`, `Avoid cut`, `Curve start`, `Curve end`, and
-  `Reset sliders`.
+  `BPM mode`, `BPM change`, `Start BPM`, `Target BPM`, classifier
+  `Target boost`, `Avoid cut`, `Curve start`, `Curve end`, and `Reset sliders`.
 - SONARA search should read analyzed tracks through
   `LibraryDatabase.load_sonara_feature_rows()` so repeated searches reuse parsed
   feature rows. Keep this cache behavior-preserving: do not change scoring math,

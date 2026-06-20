@@ -1,6 +1,6 @@
 import { Dispatch, Fragment, SetStateAction, useEffect, useRef, useState } from "react";
 import { Download, FolderOpen, ListFilter, ListMusic, Pause, Play, RotateCcw, Search, Tags, Trash2, X } from "lucide-react";
-import { AnalysisJobStatus, PromotedClassifier, SearchResult, SetBuilderEnergyCurve, SetBuilderGeneratePayload, SetBuilderMode, SetBuilderSeedMode, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
+import { AnalysisJobStatus, PromotedClassifier, SearchResult, SetBuilderBpmChange, SetBuilderBpmMode, SetBuilderEnergyCurve, SetBuilderGeneratePayload, SetBuilderMode, SetBuilderSeedMode, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
 import type { ClapPromptPreset } from "./clapPrompt";
 import { playlistPage } from "./playlistView";
 import { resetSetBuilderSliders, setBuilderDefaultCurve, setBuilderDefaultDiversity } from "./setBuilderControls";
@@ -101,6 +101,42 @@ const setEnergyCurveOptions: Array<SelectOption<SetBuilderEnergyCurve>> = [
   }
 ];
 
+const setBpmModeOptions: Array<SelectOption<SetBuilderBpmMode>> = [
+  {
+    value: "general",
+    label: "General BPM - transition",
+    title: "General BPM: не задает отдельную BPM-драматургию. Темп используется только как обычная soft transition compatibility вместе с key."
+  },
+  {
+    value: "low_to_high",
+    label: "Low to high - climb",
+    title: "Low to high: строит сет от более низкого BPM к более высокому. Start/Target BPM можно оставить пустыми для авто-вывода."
+  },
+  {
+    value: "high_to_low",
+    label: "High to low - descend",
+    title: "High to low: строит сет от более высокого BPM к более низкому. Start/Target BPM можно оставить пустыми для авто-вывода."
+  }
+];
+
+const setBpmChangeOptions: Array<SelectOption<SetBuilderBpmChange>> = [
+  {
+    value: "slow",
+    label: "Slow - late change",
+    title: "Slow: BPM меняется осторожно в начале и сильнее ближе к концу."
+  },
+  {
+    value: "medium",
+    label: "Medium - linear",
+    title: "Medium: BPM меняется примерно равномерно по всей последовательности."
+  },
+  {
+    value: "fast",
+    label: "Fast - early change",
+    title: "Fast: BPM быстрее сдвигается к целевому диапазону в первой части сета."
+  }
+];
+
 export function SearchPlaylistPanel({
   seedTracks,
   textQuery,
@@ -193,6 +229,10 @@ export function SearchPlaylistPanel({
   const [setBuilderLimit, setSetBuilderLimit] = useState(24);
   const [setBuilderDiversity, setSetBuilderDiversity] = useState(setBuilderDefaultDiversity);
   const [setEnergyCurve, setSetEnergyCurve] = useState<SetBuilderEnergyCurve>("balanced");
+  const [setBpmMode, setSetBpmMode] = useState<SetBuilderBpmMode>("general");
+  const [setBpmChange, setSetBpmChange] = useState<SetBuilderBpmChange>("medium");
+  const [setBpmStart, setSetBpmStart] = useState("");
+  const [setBpmTarget, setSetBpmTarget] = useState("");
   const [setAutoSeedCount, setSetAutoSeedCount] = useState(5);
   const [setClassifierTargets, setSetClassifierTargets] = useState<Record<string, number>>({});
   const [setClassifierAvoid, setSetClassifierAvoid] = useState<Record<string, number>>({});
@@ -233,9 +273,14 @@ export function SearchPlaylistPanel({
   const setSeedModeTitle = optionTitle(setSeedModeOptions, setSeedMode);
   const setBuilderModeTitle = optionTitle(setBuilderModeOptions, setBuilderMode);
   const setEnergyCurveTitle = optionTitle(setEnergyCurveOptions, setEnergyCurve);
+  const setBpmModeTitle = optionTitle(setBpmModeOptions, setBpmMode);
+  const setBpmChangeTitle = optionTitle(setBpmChangeOptions, setBpmChange);
   const setBuilderLimitTitle = "Сколько треков вернуть в preview. Тип: целое число 1-500. Default: 24. Seeds/anchors входят в это число.";
   const setAutoSeedCountTitle = "Сколько случайных связанных anchors выбрать в Auto mode. Тип: целое число 1-5. Каждый запуск пересэмпливает anchors.";
   const setBuilderDiversityTitle = "Насколько активно раздвигать похожие кандидаты. Тип: число 0.00-1.00. 0 = ближе к anchors, 1 = больше разнообразия при сохранении связи.";
+  const setBpmStartTitle = "Start BPM для явной BPM-кривой. Тип: число 20-300 или пусто = взять из первого seed/anchor, затем из библиотеки.";
+  const setBpmTargetTitle = "Target BPM для явной BPM-кривой. Тип: число 20-300 или пусто = вывести из доступного диапазона библиотеки.";
+  const bpmControlsDisabled = setBpmMode === "general";
 
   function setSonaraMixerValue(key: keyof SonaraMixerWeights, value: number) {
     setFilters((current) => ({ ...current, sonaraMixer: { ...current.sonaraMixer, [key]: value } }));
@@ -277,7 +322,9 @@ export function SearchPlaylistPanel({
   }
 
   function generateSetBuilder() {
-    handleSetBuilderGenerate({
+    const bpmStart = optionalNumberInput(setBpmStart);
+    const bpmTarget = optionalNumberInput(setBpmTarget);
+    const payload: SetBuilderGeneratePayload = {
       seed_mode: setSeedMode,
       seed_track_ids: setSeedMode === "manual" ? seeds : [],
       auto_seed_count: setAutoSeedCount,
@@ -285,10 +332,17 @@ export function SearchPlaylistPanel({
       limit: setBuilderLimit,
       diversity: setBuilderDiversity,
       energy_curve: setEnergyCurve,
+      bpm_mode: setBpmMode,
+      bpm_change: setBpmChange,
       classifier_targets: compactScoreMap(setClassifierTargets),
       classifier_avoid: compactScoreMap(setClassifierAvoid),
       classifier_curves: compactCurves(setClassifierCurves)
-    });
+    };
+    if (setBpmMode !== "general") {
+      if (bpmStart !== undefined) payload.bpm_start = bpmStart;
+      if (bpmTarget !== undefined) payload.bpm_target = bpmTarget;
+    }
+    handleSetBuilderGenerate(payload);
   }
 
   function applyClapPromptPreset(preset: ClapPromptPreset) {
@@ -370,6 +424,30 @@ export function SearchPlaylistPanel({
                   Diversity
                   <input type="number" value={setBuilderDiversity} min={0} max={1} step={0.05} title={setBuilderDiversityTitle} onChange={(event) => setSetBuilderDiversity(Number(event.target.value))} />
                 </label>
+                <label title={setBpmModeTitle}>
+                  BPM mode
+                  <select value={setBpmMode} title={setBpmModeTitle} onChange={(event) => setSetBpmMode(event.target.value as SetBuilderBpmMode)}>
+                    {setBpmModeOptions.map((option) => (
+                      <option key={option.value} value={option.value} title={option.title}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label title={setBpmChangeTitle}>
+                  BPM change
+                  <select value={setBpmChange} title={setBpmChangeTitle} disabled={bpmControlsDisabled} onChange={(event) => setSetBpmChange(event.target.value as SetBuilderBpmChange)}>
+                    {setBpmChangeOptions.map((option) => (
+                      <option key={option.value} value={option.value} title={option.title}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <label title={setBpmStartTitle}>
+                  Start BPM
+                  <input type="number" value={setBpmStart} min={20} max={300} step={1} placeholder="auto" title={setBpmStartTitle} disabled={bpmControlsDisabled} onChange={(event) => setSetBpmStart(event.target.value)} />
+                </label>
+                <label title={setBpmTargetTitle}>
+                  Target BPM
+                  <input type="number" value={setBpmTarget} min={20} max={300} step={1} placeholder="auto" title={setBpmTargetTitle} disabled={bpmControlsDisabled} onChange={(event) => setSetBpmTarget(event.target.value)} />
+                </label>
               </div>
               {classifiers.length ? (
                 <div className="classifier-controls set-classifier-controls">
@@ -415,7 +493,7 @@ export function SearchPlaylistPanel({
                 <ListMusic size={17} />
                 Add preview
               </button>
-              <button className="set-builder-reset-sliders-button" title="Reset only SET sliders: diversity and classifier target/avoid/curve values. Seed source, mode, limit, anchors and energy curve stay unchanged." onClick={resetSetBuilderSliderControls} type="button">
+              <button className="set-builder-reset-sliders-button" title="Reset only SET sliders: diversity and classifier target/avoid/curve values. Seed source, mode, limit, anchors, energy curve and BPM controls stay unchanged." onClick={resetSetBuilderSliderControls} type="button">
                 <RotateCcw size={17} />
                 Reset sliders
               </button>
@@ -716,6 +794,13 @@ function setClassifierCurveEndHelp(classifier: PromotedClassifier) {
 
 function compactScoreMap(values: Record<string, number>) {
   return Object.fromEntries(Object.entries(values).filter(([, value]) => value > 0));
+}
+
+function optionalNumberInput(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function compactCurves(values: Record<string, { start: number; end: number }>) {

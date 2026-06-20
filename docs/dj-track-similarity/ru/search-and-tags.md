@@ -87,18 +87,27 @@ SET может работать от двух источников:
   `Wave - rise/fall`.
 - `Diversity`: `0.00-1.00`; ниже = ближе к anchors, выше = шире подборка при
   сохранении правил режима.
+- `BPM mode`: `General BPM - transition` оставляет только обычное мягкое
+  transition-правило; `Low to high - climb` и `High to low - descend` добавляют
+  явную траекторию темпа.
+- `BPM change`: `Slow - late change`, `Medium - linear` или
+  `Fast - early change`; активно только для явных BPM modes.
+- `Start BPM` и `Target BPM`: необязательные значения `20-300`. Пустое поле
+  выводится из первого seed/anchor и analyzed BPM-диапазона библиотеки.
 - Ползунки классификаторов: `Target boost`, `Avoid cut`, `Curve start` и
   `Curve end` используют сохранённые promoted-classifier scores как
   необязательные bias-сигналы.
 - `Reset sliders`: сбрасывает только `Diversity` и classifier sliders; seed
-  source, mode, limit, auto anchors и energy curve не меняются.
+  source, mode, limit, auto anchors, energy curve и BPM controls не меняются.
 
 Builder требует сохранённые SONARA features и MERT, MAEST, CLAP audio
 embeddings. Он использует MAEST embeddings, но не использует MAEST genre labels
 для выбора треков. BPM/key влияют только как мягкий сигнал порядка переходов:
-сначала берутся file tags, затем SONARA fallback. Classifier controls читают
-только сохранённые строки `track_classifier_scores`; SET не запускает scoring
-классификаторов.
+сначала берутся file tags, затем SONARA fallback. Явный BPM mode добавляет
+отдельную actual-BPM curve поверх transition compatibility, поэтому сет можно
+вести от медленного к быстрому или от быстрого к медленному, сохраняя выбранный
+режим SET. Classifier controls читают только сохранённые строки
+`track_classifier_scores`; SET не запускает scoring классификаторов.
 
 Сгенерированная последовательность также соблюдает строгий artist guard: один
 известный исполнитель может появиться в одном SET preview максимум один раз.

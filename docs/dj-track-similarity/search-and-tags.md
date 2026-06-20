@@ -86,10 +86,18 @@ The SET controls are deliberately explicit:
   `Wave - rise/fall`.
 - `Diversity`: `0.00-1.00`; lower values stay closer to anchors, higher values
   widen the set while preserving the mode constraints.
+- `BPM mode`: `General BPM - transition` keeps only the normal soft transition
+  rule; `Low to high - climb` and `High to low - descend` add an explicit tempo
+  trajectory.
+- `BPM change`: `Slow - late change`, `Medium - linear`, or
+  `Fast - early change`; active only for explicit BPM modes.
+- `Start BPM` and `Target BPM`: optional `20-300` values. Leave either field
+  empty to infer it from the first seed/anchor and the analyzed library range.
 - Classifier sliders: `Target boost`, `Avoid cut`, `Curve start`, and
   `Curve end` use stored promoted-classifier scores as optional bias signals.
 - `Reset sliders`: resets only SET diversity and classifier sliders; seed
-  source, mode, limit, anchor count, and energy curve stay unchanged.
+  source, mode, limit, anchor count, energy curve, and BPM controls stay
+  unchanged.
 
 The builder requires stored SONARA features plus MERT, MAEST, and CLAP audio
 embeddings. Its SONARA pass uses a broad set of saved features: rhythm/tempo,
@@ -102,9 +110,12 @@ rerunning the same controls can produce a different set while still following
 the selected mode.
 
 BPM and key affect ordering as soft transition signals. File tags are preferred
-first, with SONARA BPM/key as fallback when tags are missing. Classifier
-controls in the SET tab can boost target classifier scores, avoid unwanted
-scores, or shape a start-to-end mood curve. These controls read stored
+first, with SONARA BPM/key as fallback when tags are missing. Explicit BPM mode
+adds a separate actual-BPM curve on top of that transition compatibility, so a
+set can be pushed from slow to fast or fast to slow while still obeying the
+selected SET mode. Classifier controls in the SET tab can boost target
+classifier scores, avoid unwanted scores, or shape a start-to-end mood curve.
+These controls read stored
 `track_classifier_scores`; the SET tab does not launch classifier analysis.
 The generated sequence also applies a strict artist guard: a known artist can
 appear at most once in one SET preview. Manual seed tracks are preserved as

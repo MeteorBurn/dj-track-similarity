@@ -22,7 +22,8 @@ The first version works without training a new model:
 - use promoted classifier scores such as `abstract_edge`, `break_energy`, or
   `voice_presence` as optional target, avoid, or mood-curve signals;
 - use file-tag BPM/key first, with SONARA fallback, as soft transition-ordering
-  signals rather than core vibe ranking.
+  signals rather than core vibe ranking, with optional explicit BPM trajectories
+  for slow-to-fast or fast-to-slow sets.
 
 Suggested modes:
 
@@ -47,6 +48,11 @@ Implemented controls:
   `Wave - rise/fall`;
 - `Diversity`: how far the list may widen from the anchor zone while still
   following the selected mode;
+- `BPM mode`: `General BPM - transition`, `Low to high - climb`, or
+  `High to low - descend`;
+- `BPM change`: slow, medium, or fast tempo movement across the preview;
+- `Start BPM` and `Target BPM`: optional explicit tempo endpoints; empty values
+  are inferred from the first seed/anchor and the library BPM range;
 - classifier `Target boost`, `Avoid cut`, `Curve start`, and `Curve end`
   sliders;
 - `Reset sliders`, which resets only diversity and classifier sliders;
@@ -75,6 +81,10 @@ Input fields:
 - `mode`
 - `diversity`
 - `energy_curve`
+- `bpm_mode`
+- `bpm_change`
+- `bpm_start`
+- `bpm_target`
 - `classifier_targets`
 - `classifier_avoid`
 - `classifier_curves`

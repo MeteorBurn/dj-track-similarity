@@ -120,6 +120,33 @@ def test_set_builder_endpoint_accepts_single_random_auto_anchor(monkeypatch, tmp
     assert len(payload["items"]) == 4
 
 
+def test_set_builder_endpoint_accepts_bpm_trajectory_controls(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    seed_id = _complete_track(db, tmp_path, "seed.wav", [1, 0])
+    for index in range(3):
+        _complete_track(db, tmp_path, f"candidate-{index}.wav", [1, index / 10])
+
+    response = TestClient(create_app(db_path)).post(
+        "/api/set-builder/generate",
+        json={
+            "seed_mode": "manual",
+            "seed_track_ids": [seed_id],
+            "limit": 4,
+            "bpm_mode": "low_to_high",
+            "bpm_change": "slow",
+            "bpm_start": 90,
+            "bpm_target": 150,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["seed_track_ids"] == [seed_id]
+    assert len(payload["items"]) == 4
+
+
 def test_set_builder_endpoint_reports_missing_seed_features(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
     db_path = tmp_path / "library.sqlite"

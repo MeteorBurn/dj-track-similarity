@@ -183,6 +183,14 @@ Request fields:
 - `limit`: preview length, default `24`.
 - `diversity`: `0.0-1.0`, used during ordering.
 - `energy_curve`: `warmup`, `balanced`, `peak`, or `wave`.
+- `bpm_mode`: `general`, `low_to_high`, or `high_to_low`. `general`
+  keeps the older soft BPM/key transition behavior without a separate tempo
+  trajectory.
+- `bpm_change`: `slow`, `medium`, or `fast`, used only when `bpm_mode` is not
+  `general`.
+- `bpm_start`, `bpm_target`: optional `20-300` BPM values for the tempo
+  trajectory. When omitted, the builder infers them from the first seed/anchor
+  and the available library BPM range.
 - `classifier_targets`, `classifier_avoid`: maps from promoted
   `classifier_key` to a `0.0-1.0` threshold.
 - `classifier_curves`: maps from promoted `classifier_key` to `{start, end}`
@@ -199,12 +207,14 @@ Tracks missing any required MERT, MAEST, CLAP, or SONARA input are excluded
 from candidate generation. Missing classifier scores are allowed: they simply
 produce neutral classifier contribution and lower classifier confidence in the
 score explanation. BPM/key ordering is soft and uses file tags first, with
-SONARA values as fallback. The ordered preview also applies a strict artist
-guard: each known artist may appear at most once in one preview. Manual seeds
-are included as `seed_anchor` items, but duplicate known artists among manual
-seeds are rejected. Auto anchors and non-seed positions are sampled from
-mode-scored pools, so repeated calls without `random_seed` can return different
-related sets.
+SONARA values as fallback. If an explicit BPM mode is selected, actual track
+BPM also contributes an ordered low-to-high or high-to-low tempo curve; missing
+BPM stays neutral rather than excluding the track. The ordered preview also
+applies a strict artist guard: each known artist may appear at most once in one
+preview. Manual seeds are included as `seed_anchor` items, but duplicate known
+artists among manual seeds are rejected. Auto anchors and non-seed positions are
+sampled from mode-scored pools, so repeated calls without `random_seed` can
+return different related sets.
 
 `POST /api/search/text` accepts `query`, `limit`, optional `min_similarity`,
 and optional `device`. It also accepts adaptive contrast fields:

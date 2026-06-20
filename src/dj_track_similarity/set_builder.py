@@ -1619,7 +1619,7 @@ def _item(
 ) -> dict[str, object]:
     return {
         "candidate": candidate,
-        "track": candidate.track,
+        "track": replace(candidate.track, bpm=_track_bpm(candidate)),
         "reason": reason,
         "score": _bounded(score),
         "score_breakdown": {key: round(float(value), 6) for key, value in breakdown.items()},

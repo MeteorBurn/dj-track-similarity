@@ -201,7 +201,9 @@ Request fields:
 The response includes `seed_track_ids`, feature coverage counters, and ordered
 `items`. Each item has a `track`, `reason`, `score`, `score_breakdown`,
 `sonara_groups`, `classifier_scores`, and transition metadata. Seeds or auto
-anchors are included in the returned sequence with `reason=seed_anchor`.
+anchors are included in the returned sequence with `reason=seed_anchor`. In
+SET preview items, `track.bpm` is the effective BPM used by SET ordering:
+file-tag BPM first, then SONARA fallback only when the tag is missing.
 
 Tracks missing any required MERT, MAEST, CLAP, or SONARA input are excluded
 from candidate generation. Missing classifier scores are allowed: they simply

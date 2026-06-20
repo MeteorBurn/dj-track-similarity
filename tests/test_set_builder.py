@@ -627,6 +627,56 @@ def test_bpm_mode_infers_missing_start_and_target_from_seed_and_library(tmp_path
     assert "bpm_curve" in result["items"][1]["score_breakdown"]
 
 
+def test_set_builder_prefers_tag_bpm_over_sonara_bpm_for_curve_and_response(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed_id = _complete_track(
+        db,
+        tmp_path,
+        "seed-tag-110-sonara-130.wav",
+        metadata={"artist": "Seed Artist", "title": "Seed", "bpm": 110, "key": "8A"},
+        features=_features(bpm=130, energy=0.45),
+        vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
+    )
+    tag_match_id = _complete_track(
+        db,
+        tmp_path,
+        "tag-117-sonara-130.wav",
+        metadata={"artist": "Tag Artist", "title": "Tag BPM", "bpm": 117, "key": "8A"},
+        features=_features(bpm=130, energy=0.50),
+        vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
+    )
+    fallback_id = _complete_track(
+        db,
+        tmp_path,
+        "no-tag-sonara-130.wav",
+        metadata={"artist": "Fallback Artist", "title": "SONARA BPM", "key": "8A"},
+        features=_features(bpm=130, energy=0.50),
+        vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
+    )
+
+    stored_tag_match = db.get_track(tag_match_id)
+    assert stored_tag_match.bpm == 130
+
+    result = SmartSetBuilder(db).generate(
+        SetBuilderConfig(
+            seed_mode="manual",
+            seed_track_ids=[seed_id],
+            mode="balanced_set",
+            limit=3,
+            bpm_mode="low_to_high",
+            bpm_change="medium",
+            bpm_start=110,
+            bpm_target=117,
+            random_seed=7,
+        )
+    )
+
+    assert [item["track"].id for item in result["items"]] == [seed_id, tag_match_id, fallback_id]
+    assert result["items"][0]["track"].bpm == 110
+    assert result["items"][1]["track"].bpm == 117
+    assert result["items"][2]["track"].bpm == 130
+
+
 def test_bpm_mode_uses_preview_length_not_candidate_pool_for_tempo_curve(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     seed_id = _complete_track(

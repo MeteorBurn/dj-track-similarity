@@ -191,7 +191,10 @@ MAEST и CLAP audio embeddings, сохранённые SONARA playlist features 
 Ответ включает `seed_track_ids`, счётчики покрытия признаков и ordered `items`.
 Каждый item содержит `track`, `reason`, `score`, `score_breakdown`,
 `sonara_groups`, `classifier_scores` и transition metadata. Seeds или auto
-anchors входят в возвращённую последовательность с `reason=seed_anchor`.
+anchors входят в возвращённую последовательность с `reason=seed_anchor`. В SET
+preview items поле `track.bpm` — это effective BPM, который использовал SET
+ordering: сначала file-tag BPM, затем SONARA fallback только если тег
+отсутствует.
 
 Треки без обязательных MERT, MAEST, CLAP или SONARA inputs исключаются из
 генерации кандидатов. Отсутствующие classifier scores допустимы: они дают

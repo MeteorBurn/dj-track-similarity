@@ -461,26 +461,38 @@ class SmartSetBuilder:
         previous: _Candidate | None = None
         seen_duplicates: set[str] = set()
         artist_counts: Counter[str] = Counter()
-        for seed in seeds:
-            if not _artist_allowed(seed, previous, artist_counts):
-                raise ValueError("Seed tracks violate artist spacing limits: avoid adjacent tracks by the same artist and use at most 3 tracks per artist")
-            transition = _transition(previous, seed)
-            items.append(_item(seed, "seed_anchor", 1.0, _seed_breakdown(transition), {}, transition))
-            previous = seed
-            seen_duplicates.add(seed.duplicate_key)
-            _record_artist(seed, artist_counts)
 
+        seed_artist_counts = Counter(artist for artist in (_artist_key(seed.track) for seed in seeds) if artist is not None)
+        if any(count > ARTIST_SET_MAX_TRACKS for count in seed_artist_counts.values()):
+            raise ValueError("Seed tracks violate artist spacing limits: avoid adjacent tracks by the same artist and use at most 3 tracks per artist")
+
+        seed_duplicates = {seed.duplicate_key for seed in seeds}
+        pending_seeds = list(seeds)
         scored_pool = _sequence_candidate_pool(scored_candidates, config.limit, len(seeds))
-        remaining = [item for item in scored_pool if item.candidate.duplicate_key not in seen_duplicates]
-        selected_sequence = list(seeds)
+        remaining = [item for item in scored_pool if item.candidate.duplicate_key not in seed_duplicates]
+        selected_sequence: list[_Candidate] = []
         target_count = max(config.limit, len(seeds) + len(remaining))
-        while remaining and len(items) < config.limit:
+
+        while len(items) < config.limit and (pending_seeds or remaining):
             position = len(items)
+            if pending_seeds and _artist_allowed(pending_seeds[0], previous, artist_counts):
+                seed = pending_seeds.pop(0)
+                transition = _transition(previous, seed)
+                items.append(_item(seed, "seed_anchor", 1.0, _seed_breakdown(transition), {}, transition))
+                previous = seed
+                selected_sequence.append(seed)
+                seen_duplicates.add(seed.duplicate_key)
+                _record_artist(seed, artist_counts)
+                remaining = [item for item in remaining if item.candidate.duplicate_key not in seen_duplicates]
+                continue
+
             valid_remaining = [
                 item for item in remaining
                 if _artist_allowed(item.candidate, previous, artist_counts)
             ]
             if not valid_remaining:
+                if pending_seeds:
+                    raise ValueError("Seed tracks violate artist spacing limits: avoid adjacent tracks by the same artist and use at most 3 tracks per artist")
                 break
             sequence_options = [
                 (
@@ -510,6 +522,8 @@ class SmartSetBuilder:
             seen_duplicates.add(selected.candidate.duplicate_key)
             _record_artist(selected.candidate, artist_counts)
             remaining = [item for item in remaining if item.candidate.duplicate_key not in seen_duplicates]
+        if pending_seeds:
+            raise ValueError("Seed tracks violate artist spacing limits: avoid adjacent tracks by the same artist and use at most 3 tracks per artist")
         public_items: list[dict[str, object]] = []
         for index, item in enumerate(items, start=1):
             public_item = {key: value for key, value in item.items() if key != "candidate"}

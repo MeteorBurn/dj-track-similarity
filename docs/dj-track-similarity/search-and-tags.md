@@ -108,7 +108,9 @@ scores, or shape a start-to-end mood curve. These controls read stored
 `track_classifier_scores`; the SET tab does not launch classifier analysis.
 The generated sequence also applies an artist spacing guard: tracks by the same
 known artist are not placed back-to-back, and one artist can appear at most
-three times in the preview.
+three times in the preview. Manual seed tracks are preserved as `seed_anchor`
+items, but they can be interleaved with generated tracks when needed to satisfy
+that artist spacing rule.
 
 Each preview row exposes a reason such as `seed_anchor`, `similar_to_seed`,
 `bridge`, `weird_adjacent`, `discovery`, `classifier_match`, or `mood_shift`.

@@ -151,7 +151,8 @@ branches, or history are available.
 - Search UI stays split into SET, SONARA, MERT, CLAP, and CLASS tabs. SET calls
   `/api/set-builder/generate` and must stay a read-only preview generator:
   manual mode uses `1-5` selected seed tracks, auto mode samples `1-5` random
-  but related feature-complete anchors on each generation, and the preview is
+  but related feature-complete anchors on each generation, manual seeds may be
+  interleaved with generated tracks to satisfy artist spacing, and the preview is
   added to the current set only through an explicit user action. SONARA sends
   custom mixer/modifiers to `/api/search/sonara`; MERT seed search uses
   `/api/search`; CLAP text search uses `/api/search/text` and requires `clap`

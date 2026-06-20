@@ -201,9 +201,10 @@ produce neutral classifier contribution and lower classifier confidence in the
 score explanation. BPM/key ordering is soft and uses file tags first, with
 SONARA values as fallback. The ordered preview also avoids adjacent repeats of
 the same known artist and limits each known artist to at most three preview
-positions. Auto anchors and non-seed positions are sampled from mode-scored
-pools, so repeated calls without `random_seed` can return different related
-sets.
+positions. Manual seeds are included as `seed_anchor` items, but they may be
+interleaved with generated tracks to satisfy those artist-spacing rules. Auto
+anchors and non-seed positions are sampled from mode-scored pools, so repeated
+calls without `random_seed` can return different related sets.
 
 `POST /api/search/text` accepts `query`, `limit`, optional `min_similarity`,
 and optional `device`. It also accepts adaptive contrast fields:

@@ -56,6 +56,9 @@ The generated result explains why each track was selected, for example
 `seed_anchor`, `similar_to_seed`, `bridge`, `weird_adjacent`, `discovery`,
 `classifier_match`, or `mood_shift`, and exposes the underlying MERT, MAEST,
 CLAP, SONARA group, classifier, and transition scores for manual review.
+Manual seeds remain marked as `seed_anchor`, but the builder may place generated
+tracks between them when needed to avoid adjacent tracks by the same known
+artist.
 
 Possible API shape:
 

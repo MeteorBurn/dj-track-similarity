@@ -96,6 +96,7 @@ def test_set_builder_classifier_targets_avoid_curves_and_missing_scores_are_soft
             classifier_targets={"break_energy": 0.8},
             classifier_avoid={"voice_presence": 0.6},
             classifier_curves={"break_energy": {"start": 0.4, "end": 0.9}},
+            random_seed=2,
         )
     )
 
@@ -286,6 +287,46 @@ def test_set_builder_does_not_place_same_artist_consecutively(tmp_path: Path) ->
     artists = [item["track"].artist for item in result["items"]]
 
     assert len(artists) == 6
+    assert all(current != previous for previous, current in zip(artists, artists[1:]))
+
+
+def test_manual_same_artist_seeds_are_interleaved_with_candidates(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    first_seed_id = _complete_track(
+        db,
+        tmp_path,
+        "seed-a.wav",
+        metadata={"artist": "Repeat Artist", "title": "Seed A"},
+        features=_features(energy=0.60),
+        vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
+    )
+    second_seed_id = _complete_track(
+        db,
+        tmp_path,
+        "seed-b.wav",
+        metadata={"artist": "Repeat Artist", "title": "Seed B"},
+        features=_features(energy=0.61),
+        vectors={"mert": [0.99, 0.01], "maest": [0.99, 0.01], "clap": [0.99, 0.01]},
+    )
+    for index in range(3):
+        _complete_track(
+            db,
+            tmp_path,
+            f"separator-{index}.wav",
+            metadata={"artist": f"Other Artist {index}", "title": f"Separator {index}"},
+            features=_features(energy=0.55 - index / 100),
+            vectors={"mert": [0.97, 0.03 + index / 100], "maest": [0.97, 0.03 + index / 100], "clap": [0.97, 0.03 + index / 100]},
+        )
+
+    result = SmartSetBuilder(db).generate(
+        SetBuilderConfig(seed_mode="manual", seed_track_ids=[first_seed_id, second_seed_id], limit=4, random_seed=7)
+    )
+    ids = [item["track"].id for item in result["items"]]
+    artists = [item["track"].artist for item in result["items"]]
+
+    assert first_seed_id in ids
+    assert second_seed_id in ids
+    assert ids.index(first_seed_id) < ids.index(second_seed_id)
     assert all(current != previous for previous, current in zip(artists, artists[1:]))
 
 

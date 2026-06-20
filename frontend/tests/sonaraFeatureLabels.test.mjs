@@ -101,12 +101,12 @@ test("mutagen bpm and key labels omit tag suffix", () => {
   assert.doesNotMatch(source, /"Key tag"/);
 });
 
-test("metadata dialog moves SONARA duration after BPM and formats BPM with two decimals", () => {
+test("metadata dialog keeps SONARA core duration before BPM and formats BPM with two decimals", () => {
   const source = readFileSync(dialogPath, "utf8");
-  const coreGroup = source.match(/title:\s*"Core features",[\s\S]*?keys:\s*\[([^\]]+)\]/)?.[1] || "";
+  const coreGroup = source.match(/title:\s*"Core",[\s\S]*?keys:\s*\[([^\]]+)\]/)?.[1] || "";
 
-  assert.ok(coreGroup.indexOf('"bpm"') < coreGroup.indexOf('"duration_sec"'));
-  assert.ok(coreGroup.indexOf('"duration_sec"') < coreGroup.indexOf('"beats"'));
+  assert.ok(coreGroup.indexOf('"duration_sec"') < coreGroup.indexOf('"bpm"'));
+  assert.ok(coreGroup.indexOf('"bpm"') < coreGroup.indexOf('"beats"'));
   assert.match(source, /if \(key === "bpm" && typeof value === "number"\) return value\.toFixed\(2\);/);
 });
 

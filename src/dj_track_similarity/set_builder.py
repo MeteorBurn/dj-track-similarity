@@ -33,6 +33,9 @@ PREFILTER_POOL_FACTOR = 50
 PREFILTER_POOL_MIN = 1000
 PREFILTER_POOL_MAX = 3000
 SQLITE_IN_CHUNK_SIZE = 500
+ARTIST_SET_MAX_TRACKS = 3
+PREFILTER_ARTIST_POOL_MULTIPLIER = 8
+SEQUENCE_ARTIST_POOL_MULTIPLIER = 4
 SONARA_GROUP_WEIGHTS = {
     "rhythm": 1.0,
     "dynamics": 1.1,
@@ -363,22 +366,34 @@ class SmartSetBuilder:
         centrality.sort(key=lambda item: (-item[1], item[0].track.artist or "", item[0].track.title or "", item[0].track.path))
         seeds: list[_Candidate] = []
         seen_keys: set[str] = set()
+        artist_counts: Counter[str] = Counter()
         for candidate, _score in centrality:
             if candidate.duplicate_key in seen_keys:
+                continue
+            if not _artist_allowed(candidate, seeds[-1] if seeds else None, artist_counts):
                 continue
             if seeds and max(_fast_diversity_similarity(candidate, seed, ranges) for seed in seeds) > 0.995:
                 continue
             seeds.append(candidate)
             seen_keys.add(candidate.duplicate_key)
+            _record_artist(candidate, artist_counts)
             if len(seeds) >= count:
                 break
         if len(seeds) < count:
             for candidate, _score in centrality:
                 if candidate in seeds:
                     continue
+                if candidate.duplicate_key in seen_keys:
+                    continue
+                if not _artist_allowed(candidate, seeds[-1] if seeds else None, artist_counts):
+                    continue
                 seeds.append(candidate)
+                seen_keys.add(candidate.duplicate_key)
+                _record_artist(candidate, artist_counts)
                 if len(seeds) >= count:
                     break
+        if len(seeds) < count:
+            raise ValueError(f"Auto seed mode could not choose {count} artist-diverse anchors")
         return [candidate.track.id for candidate in seeds]
 
     def _score_candidate(
@@ -440,11 +455,15 @@ class SmartSetBuilder:
         items: list[dict[str, object]] = []
         previous: _Candidate | None = None
         seen_duplicates: set[str] = set()
+        artist_counts: Counter[str] = Counter()
         for seed in seeds:
+            if not _artist_allowed(seed, previous, artist_counts):
+                raise ValueError("Seed tracks violate artist spacing limits: avoid adjacent tracks by the same artist and use at most 3 tracks per artist")
             transition = _transition(previous, seed)
             items.append(_item(seed, "seed_anchor", 1.0, _seed_breakdown(transition), {}, transition))
             previous = seed
             seen_duplicates.add(seed.duplicate_key)
+            _record_artist(seed, artist_counts)
 
         scored_pool = _sequence_candidate_pool(scored_candidates, config.limit, len(seeds))
         remaining = [item for item in scored_pool if item.candidate.duplicate_key not in seen_duplicates]
@@ -452,8 +471,14 @@ class SmartSetBuilder:
         target_count = max(config.limit, len(seeds) + len(remaining))
         while remaining and len(items) < config.limit:
             position = len(items)
+            valid_remaining = [
+                item for item in remaining
+                if _artist_allowed(item.candidate, previous, artist_counts)
+            ]
+            if not valid_remaining:
+                break
             selected = max(
-                remaining,
+                valid_remaining,
                 key=lambda item: self._sequence_score(item, previous, selected_sequence, position, target_count, config, ranges),
             )
             transition = _transition(previous, selected.candidate)
@@ -469,6 +494,7 @@ class SmartSetBuilder:
             previous = selected.candidate
             selected_sequence.append(selected.candidate)
             seen_duplicates.add(selected.candidate.duplicate_key)
+            _record_artist(selected.candidate, artist_counts)
             remaining = [item for item in remaining if item.candidate.duplicate_key not in seen_duplicates]
         public_items: list[dict[str, object]] = []
         for index, item in enumerate(items, start=1):
@@ -739,8 +765,26 @@ def _prefilter_light_candidates(
         )
     )
 
+    return _select_light_pool(scored, pool_size), sonara_centrality
+
+
+def _select_light_pool(scored: list[tuple[float, _LightCandidate]], pool_size: int) -> list[_LightCandidate]:
     selected: list[_LightCandidate] = []
     seen_duplicates: set[str] = set()
+    artist_counts: Counter[str] = Counter()
+    per_artist_limit = max(ARTIST_SET_MAX_TRACKS * PREFILTER_ARTIST_POOL_MULTIPLIER, pool_size // 20)
+    for _score, candidate in scored:
+        if candidate.duplicate_key in seen_duplicates:
+            continue
+        artist_key = _artist_key(candidate.track)
+        if artist_key and artist_counts[artist_key] >= per_artist_limit:
+            continue
+        selected.append(candidate)
+        seen_duplicates.add(candidate.duplicate_key)
+        if artist_key:
+            artist_counts[artist_key] += 1
+        if len(selected) >= pool_size:
+            return selected
     for _score, candidate in scored:
         if candidate.duplicate_key in seen_duplicates:
             continue
@@ -748,7 +792,7 @@ def _prefilter_light_candidates(
         seen_duplicates.add(candidate.duplicate_key)
         if len(selected) >= pool_size:
             break
-    return selected, sonara_centrality
+    return selected
 
 
 def _numeric_ranges(candidates: list[_Candidate]) -> dict[str, tuple[float, float]]:
@@ -985,7 +1029,7 @@ def _sequence_candidate_pool(scored_candidates: list[_ScoredCandidate], limit: i
     )
     if len(scored_candidates) <= pool_size:
         return scored_candidates
-    return sorted(
+    sorted_candidates = sorted(
         scored_candidates,
         key=lambda item: (
             item.base_score,
@@ -995,7 +1039,30 @@ def _sequence_candidate_pool(scored_candidates: list[_ScoredCandidate], limit: i
             item.candidate.track.path,
         ),
         reverse=True,
-    )[:pool_size]
+    )
+    return _select_scored_pool(sorted_candidates, pool_size)
+
+
+def _select_scored_pool(scored: list[_ScoredCandidate], pool_size: int) -> list[_ScoredCandidate]:
+    selected: list[_ScoredCandidate] = []
+    artist_counts: Counter[str] = Counter()
+    per_artist_limit = max(ARTIST_SET_MAX_TRACKS * SEQUENCE_ARTIST_POOL_MULTIPLIER, pool_size // 20)
+    for item in scored:
+        artist_key = _artist_key(item.candidate.track)
+        if artist_key and artist_counts[artist_key] >= per_artist_limit:
+            continue
+        selected.append(item)
+        if artist_key:
+            artist_counts[artist_key] += 1
+        if len(selected) >= pool_size:
+            return selected
+    for item in scored:
+        if item in selected:
+            continue
+        selected.append(item)
+        if len(selected) >= pool_size:
+            break
+    return selected
 
 
 def _classifier_modifiers(track: Track, config: SetBuilderConfig) -> tuple[float, float, float]:
@@ -1251,6 +1318,26 @@ def _duplicate_key(track: Track) -> str:
     if artist or title:
         return f"{artist}|{title}"
     return Path(track.path).stem.casefold()
+
+
+def _artist_key(track: Track) -> str | None:
+    artist = (track.artist or "").strip().casefold()
+    return artist or None
+
+
+def _artist_allowed(candidate: _Candidate, previous: _Candidate | None, artist_counts: Counter[str]) -> bool:
+    artist = _artist_key(candidate.track)
+    if artist is None:
+        return True
+    if previous is not None and _artist_key(previous.track) == artist:
+        return False
+    return artist_counts[artist] < ARTIST_SET_MAX_TRACKS
+
+
+def _record_artist(candidate: _Candidate, artist_counts: Counter[str]) -> None:
+    artist = _artist_key(candidate.track)
+    if artist is not None:
+        artist_counts[artist] += 1
 
 
 def _bounded(value: float) -> float:

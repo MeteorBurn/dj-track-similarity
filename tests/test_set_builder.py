@@ -217,6 +217,106 @@ def test_ordering_diversity_does_not_recompute_full_sonara_similarity(tmp_path: 
     assert sonara_similarity_calls == candidate_count
 
 
+def test_set_builder_does_not_place_same_artist_consecutively(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed_id = _complete_track(
+        db,
+        tmp_path,
+        "seed.wav",
+        metadata={"artist": "Seed Artist", "title": "Seed"},
+        vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
+    )
+    for index in range(3):
+        _complete_track(
+            db,
+            tmp_path,
+            f"repeat-{index}.wav",
+            metadata={"artist": "Repeat Artist", "title": f"Repeat {index}"},
+            features=_features(energy=0.50 + index / 100),
+            vectors={"mert": [1, index / 100], "maest": [1, index / 100], "clap": [1, index / 100]},
+        )
+    for index in range(2):
+        _complete_track(
+            db,
+            tmp_path,
+            f"other-{index}.wav",
+            metadata={"artist": f"Other Artist {index}", "title": f"Other {index}"},
+            features=_features(energy=0.45 - index / 100, spectral_centroid=1700 + index * 10),
+            vectors={"mert": [0.96, 0.04 + index / 100], "maest": [0.96, 0.04 + index / 100], "clap": [0.96, 0.04 + index / 100]},
+        )
+
+    result = SmartSetBuilder(db).generate(SetBuilderConfig(seed_mode="manual", seed_track_ids=[seed_id], limit=6))
+    artists = [item["track"].artist for item in result["items"]]
+
+    assert len(artists) == 6
+    assert all(current != previous for previous, current in zip(artists, artists[1:]))
+
+
+def test_set_builder_limits_artist_to_three_tracks_in_sequence(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed_id = _complete_track(
+        db,
+        tmp_path,
+        "seed.wav",
+        metadata={"artist": "Repeat Artist", "title": "Seed"},
+        vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
+    )
+    for index in range(6):
+        _complete_track(
+            db,
+            tmp_path,
+            f"repeat-{index}.wav",
+            metadata={"artist": "Repeat Artist", "title": f"Repeat {index}"},
+            features=_features(energy=0.50 + index / 100),
+            vectors={"mert": [1, index / 100], "maest": [1, index / 100], "clap": [1, index / 100]},
+        )
+    for index in range(4):
+        _complete_track(
+            db,
+            tmp_path,
+            f"other-{index}.wav",
+            metadata={"artist": f"Other Artist {index}", "title": f"Other {index}"},
+            features=_features(energy=0.40 - index / 100, spectral_centroid=1800 + index * 10),
+            vectors={"mert": [0.94, 0.06 + index / 100], "maest": [0.94, 0.06 + index / 100], "clap": [0.94, 0.06 + index / 100]},
+        )
+
+    result = SmartSetBuilder(db).generate(SetBuilderConfig(seed_mode="manual", seed_track_ids=[seed_id], limit=7))
+    artists = [item["track"].artist for item in result["items"]]
+
+    assert len(artists) == 7
+    assert artists.count("Repeat Artist") == 3
+    assert all(current != previous for previous, current in zip(artists, artists[1:]))
+
+
+def test_auto_mode_anchors_respect_artist_spacing_and_cap(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    for index in range(7):
+        _complete_track(
+            db,
+            tmp_path,
+            f"dominant-{index}.wav",
+            metadata={"artist": "Dominant Artist", "title": f"Dominant {index}"},
+            features=_features(energy=0.50 + index / 100, onset_density=0.40 + index / 100),
+            vectors={"mert": [1, index / 4], "maest": [1, index / 4], "clap": [1, index / 4]},
+        )
+    for index in range(5):
+        _complete_track(
+            db,
+            tmp_path,
+            f"other-{index}.wav",
+            metadata={"artist": f"Other Artist {index}", "title": f"Other {index}"},
+            features=_features(energy=0.45 - index / 100, onset_density=0.35 - index / 100),
+            vectors={"mert": [0.9, 0.2 + index / 6], "maest": [0.9, 0.2 + index / 6], "clap": [0.9, 0.2 + index / 6]},
+        )
+
+    result = SmartSetBuilder(db).generate(SetBuilderConfig(seed_mode="auto", auto_seed_count=5, limit=8))
+    seed_artists = [item["track"].artist for item in result["items"] if item["reason"] == "seed_anchor"]
+
+    assert len(seed_artists) == 5
+    assert seed_artists.count("Dominant Artist") <= 3
+    assert all(current != previous for previous, current in zip(seed_artists, seed_artists[1:]))
+
+
 def test_set_builder_prefilters_before_loading_embedding_vectors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     seed_id = _complete_track(db, tmp_path, "seed.wav", vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]})

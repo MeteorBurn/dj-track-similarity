@@ -195,7 +195,9 @@ Tracks missing any required MERT, MAEST, CLAP, or SONARA input are excluded
 from candidate generation. Missing classifier scores are allowed: they simply
 produce neutral classifier contribution and lower classifier confidence in the
 score explanation. BPM/key ordering is soft and uses file tags first, with
-SONARA values as fallback.
+SONARA values as fallback. The ordered preview also avoids adjacent repeats of
+the same known artist and limits each known artist to at most three preview
+positions.
 
 `POST /api/search/text` accepts `query`, `limit`, optional `min_similarity`,
 and optional `device`. It also accepts adaptive contrast fields:

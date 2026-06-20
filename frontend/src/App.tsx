@@ -1,7 +1,7 @@
 import type { MouseEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { FlaskConical, Moon, Power, RefreshCcw, ScrollText, Square, Sun } from "lucide-react";
-import { AnalysisJobStatus, AnalysisModel, api, GenreTagJobStatus, PromotedClassifier, RhythmLabLaunchResult, ScanStats, Track } from "./api";
+import { AnalysisJobStatus, AnalysisModel, api, GenreTagJobStatus, PromotedClassifier, RhythmLabLaunchResult, ScanStats, SetBuilderGeneratePayload, Track } from "./api";
 import { analysisSelectionOrder, isAudioAnalysisModel, type AnalysisSelection } from "./analysisSelection";
 import { clapPromptPresets, defaultClapPromptPresetKey, promptQueriesFromText } from "./clapPrompt";
 import type { ConfirmationRequest } from "./confirmation";
@@ -84,6 +84,7 @@ export function App() {
     outputDir,
     setOutputDir,
     seeds,
+    setSeeds,
     results,
     setResults,
     playlist,
@@ -671,6 +672,49 @@ export function App() {
     );
   }
 
+  async function handleSetBuilderGenerate(payload: SetBuilderGeneratePayload) {
+    if (payload.seed_mode === "manual" && !payload.seed_track_ids.length) {
+      setNotice({ kind: "error", text: "Выберите seed-треки для SET" });
+      return;
+    }
+    appendActivity("info", "SET builder запущен", `${payload.mode} · ${payload.seed_mode}`);
+    await run(
+      () => api.setBuilderGenerate(payload),
+      (value) => {
+        setResults(value.items);
+        setSeeds(value.seed_track_ids);
+        const anchorTracks = value.items
+          .filter((item) => value.seed_track_ids.includes(item.track.id))
+          .map((item) => item.track);
+        setSeedTrackMap((current) => {
+          const next = { ...current };
+          for (const track of anchorTracks) {
+            next[track.id] = track;
+          }
+          return next;
+        });
+        appendActivity("ok", "SET builder завершен", `${value.items.length} треков · eligible ${value.coverage.eligible_tracks}`);
+        return `SET: ${value.items.length} треков`;
+      }
+    );
+  }
+
+  function handleAddGeneratedSetToPlaylist() {
+    if (!results.length) {
+      setNotice({ kind: "error", text: "Нет SET preview для добавления" });
+      return;
+    }
+    const nextPlaylist = appendVisibleTracksToPlaylist(playlist, results.map((item) => item.track));
+    const added = nextPlaylist.length - playlist.length;
+    if (!added) {
+      setNotice({ kind: "idle", text: "Все треки preview уже в сете" });
+      return;
+    }
+    setPlaylist(nextPlaylist);
+    appendActivity("ok", "SET preview добавлен в сет", `${added} новых`);
+    setNotice({ kind: "ok", text: `Добавлено в сет: ${added}` });
+  }
+
   async function handleCancelAnalyze() {
     if (!analysisJob) return;
     await run(
@@ -1001,6 +1045,8 @@ export function App() {
           handleTextSearch={() => void handleTextSearch()}
           handleSonaraSearch={() => void handleSonaraSearch()}
           handleMertSearch={() => void handleMertSearch()}
+          handleSetBuilderGenerate={(payload) => void handleSetBuilderGenerate(payload)}
+          addGeneratedSetToPlaylist={handleAddGeneratedSetToPlaylist}
           addSeed={addSeed}
           togglePlaylist={togglePlaylist}
           playingTrackId={playingTrackId}

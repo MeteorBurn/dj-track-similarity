@@ -71,6 +71,10 @@ export function ResultRow({
   track,
   score,
   scoreBreakdown,
+  reason,
+  sonaraGroups,
+  classifierScores,
+  transition,
   playingTrackId,
   isSeed,
   inPlaylist,
@@ -82,10 +86,19 @@ export function ResultRow({
   track: Track;
   score: number;
   scoreBreakdown?: Record<string, number> | null;
+  reason?: string;
+  sonaraGroups?: Record<string, number>;
+  classifierScores?: Record<string, number>;
+  transition?: {
+    from_track_id?: number | null;
+    bpm_delta?: number | null;
+    key_relation?: string;
+    confidence: number;
+  };
   isSeed: boolean;
   inPlaylist: boolean;
 }) {
-  const breakdownTitle = scoreBreakdownTitle(scoreBreakdown);
+  const breakdownTitle = scoreBreakdownTitle(scoreBreakdown, sonaraGroups, classifierScores, transition);
   const trackPreviewActive = playingTrackId === track.id;
   return (
     <div className="result-row">
@@ -94,6 +107,9 @@ export function ResultRow({
       </button>
       <div className="track-title-cell">
         <strong>{displayTrack(track)}</strong>
+        {reason ? (
+          <span className="result-reason-chip" title={breakdownTitle}>{reason.replaceAll("_", " ")}</span>
+        ) : null}
       </div>
       <button className="icon-button result-metadata-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={() => onDetails(track)}><Tags size={15} /></button>
       <meter min={0} max={1} value={Math.max(0, Math.min(1, score))} title={breakdownTitle} />
@@ -111,9 +127,32 @@ export function ResultRow({
   );
 }
 
-function scoreBreakdownTitle(scoreBreakdown?: Record<string, number> | null) {
-  if (!scoreBreakdown || !Object.keys(scoreBreakdown).length) return "Similarity score";
-  return Object.entries(scoreBreakdown)
+function scoreBreakdownTitle(
+  scoreBreakdown?: Record<string, number> | null,
+  sonaraGroups?: Record<string, number>,
+  classifierScores?: Record<string, number>,
+  transition?: { from_track_id?: number | null; bpm_delta?: number | null; key_relation?: string; confidence: number }
+) {
+  const lines: string[] = [];
+  if (scoreBreakdown && Object.keys(scoreBreakdown).length) {
+    lines.push(...Object.entries(scoreBreakdown)
     .map(([key, value]) => `${key.replaceAll("_", " ")}: ${value.toFixed(3)}`)
-    .join("\n");
+    );
+  }
+  if (sonaraGroups && Object.keys(sonaraGroups).length) {
+    lines.push(...Object.entries(sonaraGroups)
+      .map(([key, value]) => `sonara ${key.replaceAll("_", " ")}: ${value.toFixed(3)}`)
+    );
+  }
+  if (classifierScores && Object.keys(classifierScores).length) {
+    lines.push(...Object.entries(classifierScores)
+      .map(([key, value]) => `classifier ${key.replaceAll("_", " ")}: ${value.toFixed(3)}`)
+    );
+  }
+  if (transition) {
+    lines.push(`transition: ${transition.confidence.toFixed(3)}`);
+    if (transition.key_relation) lines.push(`key: ${transition.key_relation}`);
+    if (transition.bpm_delta != null) lines.push(`bpm delta: ${transition.bpm_delta.toFixed(2)}`);
+  }
+  return lines.length ? lines.join("\n") : "Similarity score";
 }

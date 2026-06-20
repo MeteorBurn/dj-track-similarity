@@ -1,24 +1,28 @@
 # Ideas
 
-This page captures larger workflow ideas that are not implemented yet. Treat
-them as product notes, not as current behavior or API contracts.
+This page captures larger workflow ideas and staged product notes. Some ideas
+may have a first implementation while later workflow extensions remain
+exploratory.
 
 ## Smart Set Builder From Seed Tracks
 
-Add a dedicated UI workflow that generates a varied DJ set candidate list from
-3-10 selected seed tracks. The goal is not just "more similar tracks"; it should
-act as a curator over existing analysis models and produce a useful sequence for
+The first Smart Set Builder version adds a dedicated SET tab that generates an
+ordered DJ set preview from either `1-5` manual seed tracks or `3-5` auto
+anchors chosen by the backend. The goal is not just "more similar tracks"; it
+acts as a curator over existing analysis models and produces a sequence for
 listening, digging, or set preparation.
 
-The first version could work without training a new model:
+The first version works without training a new model:
 
 - use MERT similarity for musical/audio closeness;
-- use MAEST labels for genre and texture hints;
-- use SONARA features for BPM, energy, and rhythmic compatibility;
+- use MAEST embeddings, but not MAEST genre labels, for audio-model agreement;
+- use CLAP audio embeddings from stored analysis, without a text prompt;
+- use a broad SONARA feature block for rhythm, dynamics, perception, tonal
+  texture, spectral/timbre values, and saved array summaries;
 - use promoted classifier scores such as `abstract_edge`, `break_energy`, or
-  `voice_presence` as preference and exclusion signals;
-- exclude tracks that are already labelled, liked, reviewed, or recently shown
-  when the user wants discovery rather than confirmation.
+  `voice_presence` as optional target, avoid, or mood-curve signals;
+- use file-tag BPM/key first, with SONARA fallback, as soft transition-ordering
+  signals rather than core vibe ranking.
 
 Suggested modes:
 
@@ -32,19 +36,18 @@ Suggested modes:
 - `discovery`: allow riskier candidates and reserve part of the list for
   low-confidence tracks that could reveal useful new classifier positives.
 
-Useful controls:
+Implemented controls:
 
-- seed track picker;
-- target length;
+- manual or auto seed source;
+- target length, defaulting to 24;
 - diversity amount;
 - energy curve such as warmup, balanced, peak, or wave;
-- classifier targets and avoid rules;
-- exclude liked, labelled, reviewed, or already exported tracks;
-- optional BPM/key compatibility constraints.
+- classifier targets, avoid rules, and start/end classifier curves.
 
-The generated result should explain why each track was selected, for example
-`similar_to_seed`, `bridge`, `weird_adjacent`, or `classifier_match`, and expose
-the underlying MERT/MAEST/SONARA/classifier scores for manual review.
+The generated result explains why each track was selected, for example
+`seed_anchor`, `similar_to_seed`, `bridge`, `weird_adjacent`, `discovery`,
+`classifier_match`, or `mood_shift`, and exposes the underlying MERT, MAEST,
+CLAP, SONARA group, classifier, and transition scores for manual review.
 
 Possible API shape:
 
@@ -54,22 +57,25 @@ POST /api/set-builder/generate
 
 Input fields:
 
+- `seed_mode`
 - `seed_track_ids`
+- `auto_seed_count`
 - `limit`
 - `mode`
 - `diversity`
 - `energy_curve`
 - `classifier_targets`
-- `exclude_reviewed`
+- `classifier_avoid`
+- `classifier_curves`
 
 Output fields:
 
-- ranked track rows;
+- ordered track rows;
 - selection reason;
-- similarity and diversity scores;
+- similarity, SONARA group, transition, classifier, and diversity scores;
 - relevant classifier scores;
-- optional set-order metadata such as energy step or bridge target.
+- set-order transition metadata.
 
 Later extensions could send selected tracks to Rhythm Lab, mark them as reviewed,
-export M3U/XLSX lists, or save generated sessions for iterative active-learning
-loops.
+export XLSX lists, exclude already reviewed/exported tracks, or save generated
+sessions for iterative active-learning loops.

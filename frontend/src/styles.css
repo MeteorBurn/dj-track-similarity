@@ -1537,6 +1537,21 @@ h2 {
   white-space: nowrap;
 }
 
+.result-reason-chip {
+  align-self: flex-start;
+  border: 1px solid var(--border-muted);
+  border-radius: 999px;
+  color: var(--text-muted);
+  display: inline-block;
+  font-size: 11px;
+  line-height: 1;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 3px 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .row-index {
   color: var(--text-soft);
   font-size: 12px;
@@ -1553,7 +1568,7 @@ h2 {
 .search-tabs {
   display: grid;
   gap: 8px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   margin: 10px 0 12px;
 }
 
@@ -1584,6 +1599,33 @@ h2 {
   display: grid;
   gap: 8px;
   padding: 8px;
+}
+
+.set-builder-controls {
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+}
+
+.set-builder-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.set-classifier-controls {
+  border-color: var(--border-muted);
+  padding: 8px;
+}
+
+.set-classifier-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.set-builder-actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .classifier-job-status {
@@ -1795,6 +1837,9 @@ h2 {
 
 .scan-start-button:hover:not(:disabled),
 .analyze-selected-button:hover:not(:disabled),
+.set-builder-generate-button:hover:not(:disabled),
+.set-builder-add-all-button:hover:not(:disabled),
+.set-builder-reset-sliders-button:hover:not(:disabled),
 .sonara-search-button:hover:not(:disabled),
 .mert-search-button:hover:not(:disabled),
 .clap-text-search-button:hover:not(:disabled),

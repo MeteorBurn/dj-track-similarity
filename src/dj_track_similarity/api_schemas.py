@@ -125,6 +125,28 @@ class TextSearchRequest(BaseModel):
     device: str = Field(default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN)
 
 
+class SetBuilderClassifierCurve(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    start: float = Field(default=0.5, ge=0.0, le=1.0)
+    end: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class SetBuilderGenerateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    seed_mode: str = Field(default="manual", pattern="^(manual|auto)$")
+    seed_track_ids: list[int] = Field(default_factory=list)
+    auto_seed_count: int = Field(default=5, ge=3, le=5)
+    mode: str = Field(default="balanced_set", pattern="^(similar_crate|weird_adjacent|balanced_set|discovery)$")
+    limit: int = Field(default=24, ge=1, le=500)
+    diversity: float = Field(default=0.35, ge=0.0, le=1.0)
+    energy_curve: str = Field(default="balanced", pattern="^(warmup|balanced|peak|wave)$")
+    classifier_targets: dict[str, float] = Field(default_factory=dict)
+    classifier_avoid: dict[str, float] = Field(default_factory=dict)
+    classifier_curves: dict[str, SetBuilderClassifierCurve] = Field(default_factory=dict)
+
+
 class FilteredTracksRequest(BaseModel):
     query: str = ""
     search_mode: str = Field(default="like", pattern="^(like|fts)$")

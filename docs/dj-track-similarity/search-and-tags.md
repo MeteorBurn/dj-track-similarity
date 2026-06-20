@@ -13,6 +13,7 @@ Choose the tab by intent:
 
 | Tab | What it does | Use when |
 | --- | --- | --- |
+| SET | Generates an ordered Smart Set Builder preview from manual seeds or auto anchors. | You want a DJ-oriented sequence candidate, not just a single-model search result. |
 | SONARA | Searches with explainable playlist features and custom mixer weights. | You want DJ-transition candidates and control over rhythm, tempo, timbre, dynamics, or harmonic balance. |
 | MERT | Searches from selected seed tracks in MERT embedding space. | You want audio-model similarity without tuning feature weights. |
 | CLAP | Searches CLAP audio embeddings from a text prompt. | You know the sound or mood you want, but do not have a seed track. |
@@ -50,6 +51,43 @@ The main analysis block can still run the `CLASSIFIERS` checkbox after any
 selected audio-analysis models. The analysis model rows show coverage counts
 for SONARA, MAEST, MERT, CLAP, and complete promoted-classifier score coverage;
 the top header keeps only the total track count.
+
+### SET / Smart Set Builder
+
+The SET tab calls `/api/set-builder/generate` and shows an ordered preview that
+can be added to the current set. It does not replace or append to the set until
+you use the preview action.
+
+SET can run from:
+
+- manual seeds: `1-5` selected seed tracks;
+- auto anchors: `3-5` feature-complete tracks chosen by the backend.
+
+The four modes are:
+
+- `similar_crate`: stay close to the seed or anchor zone.
+- `weird_adjacent`: keep relevance but allow stranger neighboring material.
+- `balanced_set`: prefer bridge tracks, softer transitions, and less repeated
+  adjacent texture.
+- `discovery`: reserve more room for lower-confidence candidates that may be
+  worth checking.
+
+The builder requires stored SONARA features plus MERT, MAEST, and CLAP audio
+embeddings. Its SONARA pass uses a broad set of saved features: rhythm/tempo,
+dynamics, perception, tonal texture, spectral/timbre values, and saved summary
+statistics for larger arrays such as MFCC and chroma. It uses MAEST embeddings
+but does not use MAEST genre labels for choosing tracks.
+
+BPM and key affect ordering as soft transition signals. File tags are preferred
+first, with SONARA BPM/key as fallback when tags are missing. Classifier
+controls in the SET tab can boost target classifier scores, avoid unwanted
+scores, or shape a start-to-end mood curve. These controls read stored
+`track_classifier_scores`; the SET tab does not launch classifier analysis.
+
+Each preview row exposes a reason such as `seed_anchor`, `similar_to_seed`,
+`bridge`, `weird_adjacent`, `discovery`, `classifier_match`, or `mood_shift`.
+Hover the score to inspect model scores, SONARA group scores, classifier scores,
+and transition confidence.
 
 ### SONARA Search
 

@@ -116,6 +116,7 @@ it stops.
 | `POST` | `/api/search` | Search in MERT embedding space. |
 | `POST` | `/api/search/sonara` | Search with Sonara features. |
 | `POST` | `/api/search/text` | Search CLAP audio vectors from text. |
+| `POST` | `/api/set-builder/generate` | Generate an ordered Smart Set Builder preview from manual seeds or auto anchors. |
 
 Use `/api/analysis/jobs` before search endpoints when a library has not been
 processed yet. Its request body accepts `models`, `limit`, `device`, `top_k`,
@@ -164,6 +165,37 @@ rows (an empty list deletes nothing).
 
 The default result limit for `/api/search`, `/api/search/sonara`, and
 `/api/search/text` is `10` when a request omits `limit`.
+
+`POST /api/set-builder/generate` is a read-only set preview endpoint. It does
+not run audio analysis, score classifiers, save sessions, write tags, or modify
+audio files. It uses only stored MERT, MAEST, and CLAP audio embeddings,
+stored SONARA playlist features, and optional stored promoted-classifier scores.
+MAEST genre labels are not part of candidate selection.
+
+Request fields:
+
+- `seed_mode`: `manual` or `auto`. Manual mode requires `1-5`
+  `seed_track_ids`; auto mode chooses `3-5` anchors from feature-complete
+  tracks.
+- `mode`: `similar_crate`, `weird_adjacent`, `balanced_set`, or `discovery`.
+- `limit`: preview length, default `24`.
+- `diversity`: `0.0-1.0`, used during ordering.
+- `energy_curve`: `warmup`, `balanced`, `peak`, or `wave`.
+- `classifier_targets`, `classifier_avoid`: maps from promoted
+  `classifier_key` to a `0.0-1.0` threshold.
+- `classifier_curves`: maps from promoted `classifier_key` to `{start, end}`
+  target intensity values.
+
+The response includes `seed_track_ids`, feature coverage counters, and ordered
+`items`. Each item has a `track`, `reason`, `score`, `score_breakdown`,
+`sonara_groups`, `classifier_scores`, and transition metadata. Seeds or auto
+anchors are included in the returned sequence with `reason=seed_anchor`.
+
+Tracks missing any required MERT, MAEST, CLAP, or SONARA input are excluded
+from candidate generation. Missing classifier scores are allowed: they simply
+produce neutral classifier contribution and lower classifier confidence in the
+score explanation. BPM/key ordering is soft and uses file tags first, with
+SONARA values as fallback.
 
 `POST /api/search/text` accepts `query`, `limit`, optional `min_similarity`,
 and optional `device`. It also accepts adaptive contrast fields:

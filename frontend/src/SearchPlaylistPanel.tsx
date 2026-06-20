@@ -1,8 +1,9 @@
 import { Dispatch, Fragment, SetStateAction, useEffect, useRef, useState } from "react";
-import { Download, FolderOpen, ListFilter, ListMusic, Pause, Play, Search, Tags, Trash2, X } from "lucide-react";
-import { AnalysisJobStatus, PromotedClassifier, SearchResult, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
+import { Download, FolderOpen, ListFilter, ListMusic, Pause, Play, RotateCcw, Search, Tags, Trash2, X } from "lucide-react";
+import { AnalysisJobStatus, PromotedClassifier, SearchResult, SetBuilderEnergyCurve, SetBuilderGeneratePayload, SetBuilderMode, SetBuilderSeedMode, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
 import type { ClapPromptPreset } from "./clapPrompt";
 import { playlistPage } from "./playlistView";
+import { resetSetBuilderSliders, setBuilderDefaultCurve, setBuilderDefaultDiversity } from "./setBuilderControls";
 import { ResultRow } from "./TrackRows";
 import { displayTrack } from "./trackDisplay";
 
@@ -67,6 +68,8 @@ export function SearchPlaylistPanel({
   handleTextSearch,
   handleSonaraSearch,
   handleMertSearch,
+  handleSetBuilderGenerate,
+  addGeneratedSetToPlaylist,
   addSeed,
   togglePlaylist,
   playingTrackId,
@@ -106,6 +109,8 @@ export function SearchPlaylistPanel({
   handleTextSearch: () => void;
   handleSonaraSearch: () => void;
   handleMertSearch: () => void;
+  handleSetBuilderGenerate: (payload: SetBuilderGeneratePayload) => void;
+  addGeneratedSetToPlaylist: () => void;
   addSeed: (track: Track) => void;
   togglePlaylist: (track: Track) => void;
   playingTrackId: number | null;
@@ -114,10 +119,19 @@ export function SearchPlaylistPanel({
   removeFromPlaylist: (trackId: number) => void;
   handleExport: (format: "m3u" | "csv") => void;
 }) {
-  const [activeSearchTab, setActiveSearchTab] = useState<"sonara" | "mert" | "clap" | "class">("sonara");
+  const [activeSearchTab, setActiveSearchTab] = useState<"set" | "sonara" | "mert" | "clap" | "class">("sonara");
   const [clapPresetMenuOpen, setClapPresetMenuOpen] = useState(false);
   const clapPresetMenuRef = useRef<HTMLDivElement>(null);
   const [playlistOffset, setPlaylistOffset] = useState(0);
+  const [setSeedMode, setSetSeedMode] = useState<SetBuilderSeedMode>("manual");
+  const [setBuilderMode, setSetBuilderMode] = useState<SetBuilderMode>("balanced_set");
+  const [setBuilderLimit, setSetBuilderLimit] = useState(24);
+  const [setBuilderDiversity, setSetBuilderDiversity] = useState(setBuilderDefaultDiversity);
+  const [setEnergyCurve, setSetEnergyCurve] = useState<SetBuilderEnergyCurve>("balanced");
+  const [setAutoSeedCount, setSetAutoSeedCount] = useState(5);
+  const [setClassifierTargets, setSetClassifierTargets] = useState<Record<string, number>>({});
+  const [setClassifierAvoid, setSetClassifierAvoid] = useState<Record<string, number>>({});
+  const [setClassifierCurves, setSetClassifierCurves] = useState<Record<string, { start: number; end: number }>>({});
   const playlistPageState = playlistPage(playlist, playlistOffset, playlistPageSize);
   useEffect(() => {
     if (playlistPageState.offset !== playlistOffset) {
@@ -168,6 +182,44 @@ export function SearchPlaylistPanel({
     }));
   }
 
+  function setSetBuilderClassifierTarget(classifier: string, value: number) {
+    setSetClassifierTargets((current) => ({ ...current, [classifier]: value }));
+  }
+
+  function setSetBuilderClassifierAvoid(classifier: string, value: number) {
+    setSetClassifierAvoid((current) => ({ ...current, [classifier]: value }));
+  }
+
+  function setSetBuilderClassifierCurveValue(classifier: string, key: "start" | "end", value: number) {
+    setSetClassifierCurves((current) => ({
+      ...current,
+      [classifier]: { start: current[classifier]?.start ?? 0.5, end: current[classifier]?.end ?? 0.5, [key]: value }
+    }));
+  }
+
+  function resetSetBuilderSliderControls() {
+    const next = resetSetBuilderSliders();
+    setSetBuilderDiversity(next.diversity);
+    setSetClassifierTargets(next.classifierTargets);
+    setSetClassifierAvoid(next.classifierAvoid);
+    setSetClassifierCurves(next.classifierCurves);
+  }
+
+  function generateSetBuilder() {
+    handleSetBuilderGenerate({
+      seed_mode: setSeedMode,
+      seed_track_ids: setSeedMode === "manual" ? seeds : [],
+      auto_seed_count: setAutoSeedCount,
+      mode: setBuilderMode,
+      limit: setBuilderLimit,
+      diversity: setBuilderDiversity,
+      energy_curve: setEnergyCurve,
+      classifier_targets: compactScoreMap(setClassifierTargets),
+      classifier_avoid: compactScoreMap(setClassifierAvoid),
+      classifier_curves: compactCurves(setClassifierCurves)
+    });
+  }
+
   function applyClapPromptPreset(preset: ClapPromptPreset) {
     onClapPresetChange(preset.key);
     onTextQueryChange(preset.query);
@@ -191,6 +243,9 @@ export function SearchPlaylistPanel({
           ))}
         </div>
         <div className="search-tabs" role="tablist" aria-label="Search model">
+          <button className={`model-search-tab ${activeSearchTab === "set" ? "active" : ""}`} title="Smart Set Builder" onClick={() => setActiveSearchTab("set")} role="tab" aria-selected={activeSearchTab === "set"} type="button">
+            SET
+          </button>
           <button className={`model-search-tab ${activeSearchTab === "sonara" ? "active" : ""}`} title="SONARA similarity search" onClick={() => setActiveSearchTab("sonara")} role="tab" aria-selected={activeSearchTab === "sonara"} type="button">
             SONARA
           </button>
@@ -204,6 +259,99 @@ export function SearchPlaylistPanel({
             CLASS
           </button>
         </div>
+        {activeSearchTab === "set" && (
+          <div className="search-tab-panel" role="tabpanel">
+            <div className="set-builder-controls">
+              <div className="search-filter-grid set-builder-grid">
+                <label title="Seed source for Smart Set Builder. Manual uses selected seed chips; Auto chooses anchors from feature-complete tracks.">
+                  Seed
+                  <select value={setSeedMode} onChange={(event) => setSetSeedMode(event.target.value as SetBuilderSeedMode)}>
+                    <option value="manual">Manual</option>
+                    <option value="auto">Auto</option>
+                  </select>
+                </label>
+                <label title="Generation mode for the ordered set preview.">
+                  Mode
+                  <select value={setBuilderMode} onChange={(event) => setSetBuilderMode(event.target.value as SetBuilderMode)}>
+                    <option value="similar_crate">Similar crate</option>
+                    <option value="weird_adjacent">Weird adjacent</option>
+                    <option value="balanced_set">Balanced set</option>
+                    <option value="discovery">Discovery</option>
+                  </select>
+                </label>
+                <label title="Target preview length. Type: integer 1-500. Default: 24.">
+                  Limit
+                  <input type="number" value={setBuilderLimit} min={1} max={500} onChange={(event) => setSetBuilderLimit(Number(event.target.value))} />
+                </label>
+                <label title="Auto anchor count. Type: integer 3-5.">
+                  Anchors
+                  <input type="number" value={setAutoSeedCount} min={3} max={5} onChange={(event) => setSetAutoSeedCount(Number(event.target.value))} />
+                </label>
+                <label title="Energy trajectory for ordering.">
+                  Energy
+                  <select value={setEnergyCurve} onChange={(event) => setSetEnergyCurve(event.target.value as SetBuilderEnergyCurve)}>
+                    <option value="balanced">Balanced</option>
+                    <option value="warmup">Warmup</option>
+                    <option value="peak">Peak</option>
+                    <option value="wave">Wave</option>
+                  </select>
+                </label>
+                <label title="Diversity level. Type: number 0.00-1.00.">
+                  Diversity
+                  <input type="number" value={setBuilderDiversity} min={0} max={1} step={0.05} onChange={(event) => setSetBuilderDiversity(Number(event.target.value))} />
+                </label>
+              </div>
+              {classifiers.length ? (
+                <div className="classifier-controls set-classifier-controls">
+                  {classifiers.map((classifier) => {
+                    const target = setClassifierTargets[classifier.classifier_key] || 0;
+                    const avoid = setClassifierAvoid[classifier.classifier_key] || 0;
+                    const curve = setClassifierCurves[classifier.classifier_key] || setBuilderDefaultCurve;
+                    return (
+                      <Fragment key={classifier.classifier_key}>
+                        <div className="custom-control-header" title={classifierHelp(classifier)}>
+                          <span>{classifier.name}</span>
+                        </div>
+                        <div className="range-grid set-classifier-grid">
+                          <label className="range-control" title={`Target threshold for ${classifier.name}.`}>
+                            <span><strong>Target</strong><em>{target.toFixed(2)}</em></span>
+                            <input type="range" min={0} max={1} step={0.05} value={target} onChange={(event) => setSetBuilderClassifierTarget(classifier.classifier_key, Number(event.target.value))} />
+                          </label>
+                          <label className="range-control" title={`Avoid threshold for ${classifier.name}.`}>
+                            <span><strong>Avoid</strong><em>{avoid.toFixed(2)}</em></span>
+                            <input type="range" min={0} max={1} step={0.05} value={avoid} onChange={(event) => setSetBuilderClassifierAvoid(classifier.classifier_key, Number(event.target.value))} />
+                          </label>
+                          <label className="range-control" title={`Start intensity for ${classifier.name}.`}>
+                            <span><strong>Start</strong><em>{curve.start.toFixed(2)}</em></span>
+                            <input type="range" min={0} max={1} step={0.05} value={curve.start} onChange={(event) => setSetBuilderClassifierCurveValue(classifier.classifier_key, "start", Number(event.target.value))} />
+                          </label>
+                          <label className="range-control" title={`End intensity for ${classifier.name}.`}>
+                            <span><strong>End</strong><em>{curve.end.toFixed(2)}</em></span>
+                            <input type="range" min={0} max={1} step={0.05} value={curve.end} onChange={(event) => setSetBuilderClassifierCurveValue(classifier.classifier_key, "end", Number(event.target.value))} />
+                          </label>
+                        </div>
+                      </Fragment>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+            <div className="set-builder-actions">
+              <button className="set-builder-generate-button" title="Generate ordered Smart Set Builder preview" disabled={busy || (setSeedMode === "manual" && !seeds.length)} onClick={generateSetBuilder} type="button">
+                <Search size={17} />
+                Generate
+              </button>
+              <button className="set-builder-add-all-button" title="Add the current preview sequence to the set" disabled={busy || !results.length} onClick={addGeneratedSetToPlaylist} type="button">
+                <ListMusic size={17} />
+                Add preview
+              </button>
+              <button className="set-builder-reset-sliders-button" title="Reset SET diversity and classifier sliders" onClick={resetSetBuilderSliderControls} type="button">
+                <RotateCcw size={17} />
+                Reset sliders
+              </button>
+            </div>
+          </div>
+        )}
         {activeSearchTab === "sonara" && (
           <div className="search-tab-panel" role="tabpanel">
             <div className="sonara-custom-controls">
@@ -382,12 +530,16 @@ export function SearchPlaylistPanel({
           </div>
         )}
         <div className="results-list">
-          {results.map(({ track, score, score_breakdown }) => (
+          {results.map(({ track, score, score_breakdown, reason, sonara_groups, classifier_scores, transition }) => (
             <ResultRow
               key={track.id}
               track={track}
               score={score}
               scoreBreakdown={score_breakdown}
+              reason={reason}
+              sonaraGroups={sonara_groups}
+              classifierScores={classifier_scores}
+              transition={transition}
               playingTrackId={playingTrackId}
               isSeed={seedSet.has(track.id)}
               inPlaylist={playlistSet.has(track.id)}
@@ -465,4 +617,14 @@ function formatSigned(value: number) {
 function classifierHelp(classifier: PromotedClassifier) {
   const label = classifier.positive_label ? ` Positive label: ${classifier.positive_label}.` : "";
   return `Minimum ${classifier.name}. Type: number 0.00-1.00. Filters tracks by stored promoted classifier score.${label}`;
+}
+
+function compactScoreMap(values: Record<string, number>) {
+  return Object.fromEntries(Object.entries(values).filter(([, value]) => value > 0));
+}
+
+function compactCurves(values: Record<string, { start: number; end: number }>) {
+  return Object.fromEntries(
+    Object.entries(values).filter(([, value]) => value.start !== 0.5 || value.end !== 0.5)
+  );
 }

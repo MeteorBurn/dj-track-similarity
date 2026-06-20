@@ -29,9 +29,19 @@ export type Track = {
 };
 
 export type SearchResult = {
+  position?: number;
   track: Track;
   score: number;
   score_breakdown?: Record<string, number> | null;
+  reason?: string;
+  sonara_groups?: Record<string, number>;
+  classifier_scores?: Record<string, number>;
+  transition?: {
+    from_track_id?: number | null;
+    bpm_delta?: number | null;
+    key_relation?: string;
+    confidence: number;
+  };
 };
 
 export type TrackPage = {
@@ -63,6 +73,10 @@ export type LibrarySummary = {
 export type AnalysisModel = "sonara" | "maest" | "mert" | "clap";
 
 export type SonaraSearchMode = "balanced" | "vibe" | "sound" | "dj_transition" | "custom";
+
+export type SetBuilderSeedMode = "manual" | "auto";
+export type SetBuilderMode = "similar_crate" | "weird_adjacent" | "balanced_set" | "discovery";
+export type SetBuilderEnergyCurve = "warmup" | "balanced" | "peak" | "wave";
 
 export type SonaraMixerWeights = {
   timbre: number;
@@ -199,6 +213,34 @@ export type RhythmLabStatus = {
   running: boolean;
   managed: boolean;
   stopped?: boolean;
+};
+
+export type SetBuilderGeneratePayload = {
+  seed_mode: SetBuilderSeedMode;
+  seed_track_ids: number[];
+  auto_seed_count: number;
+  mode: SetBuilderMode;
+  limit: number;
+  diversity: number;
+  energy_curve: SetBuilderEnergyCurve;
+  classifier_targets?: Record<string, number>;
+  classifier_avoid?: Record<string, number>;
+  classifier_curves?: Record<string, { start: number; end: number }>;
+};
+
+export type SetBuilderGenerateResult = {
+  mode: SetBuilderMode;
+  seed_mode: SetBuilderSeedMode;
+  seed_track_ids: number[];
+  coverage: {
+    tracks: number;
+    eligible_tracks: number;
+    missing_mert: number;
+    missing_maest: number;
+    missing_clap: number;
+    missing_sonara: number;
+  };
+  items: SearchResult[];
 };
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -383,6 +425,11 @@ export const api = {
     device?: "auto" | "cpu" | "cuda";
   }) =>
     request<SearchResult[]>("/api/search/text", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  setBuilderGenerate: (payload: SetBuilderGeneratePayload) =>
+    request<SetBuilderGenerateResult>("/api/set-builder/generate", {
       method: "POST",
       body: JSON.stringify(payload)
     }),

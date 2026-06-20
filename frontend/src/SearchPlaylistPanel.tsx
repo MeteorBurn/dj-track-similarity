@@ -285,7 +285,7 @@ export function SearchPlaylistPanel({
                 </label>
                 <label title="Auto anchor count. Type: integer 3-5.">
                   Anchors
-                  <input type="number" value={setAutoSeedCount} min={3} max={5} onChange={(event) => setSetAutoSeedCount(Number(event.target.value))} />
+                  <input type="number" value={setAutoSeedCount} min={1} max={5} onChange={(event) => setSetAutoSeedCount(Number(event.target.value))} />
                 </label>
                 <label title="Energy trajectory for ordering.">
                   Energy

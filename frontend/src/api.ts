@@ -226,6 +226,7 @@ export type SetBuilderGeneratePayload = {
   classifier_targets?: Record<string, number>;
   classifier_avoid?: Record<string, number>;
   classifier_curves?: Record<string, { start: number; end: number }>;
+  random_seed?: number;
 };
 
 export type SetBuilderGenerateResult = {

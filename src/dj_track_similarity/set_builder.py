@@ -101,6 +101,7 @@ class SetBuilderConfig:
     classifier_targets: dict[str, float] = field(default_factory=dict)
     classifier_avoid: dict[str, float] = field(default_factory=dict)
     classifier_curves: dict[str, dict[str, float]] = field(default_factory=dict)
+    random_seed: int | None = None
 
 
 @dataclass(frozen=True)
@@ -137,6 +138,7 @@ class SmartSetBuilder:
 
     def generate(self, config: SetBuilderConfig) -> dict[str, object]:
         cleaned = _clean_config(config)
+        rng = _random_generator(cleaned.random_seed)
         manual_seed_ids = _manual_seed_ids(cleaned.seed_track_ids) if cleaned.seed_mode == "manual" else []
         light_candidates, coverage = self._load_light_candidates(cleaned)
 
@@ -157,7 +159,7 @@ class SmartSetBuilder:
         if cleaned.seed_mode == "auto":
             if not candidates:
                 raise ValueError("No feature-complete tracks are available for Smart Set Builder")
-            seed_ids = self._auto_seed_ids(candidates, cleaned.auto_seed_count, sonara_centrality=sonara_centrality)
+            seed_ids = self._auto_seed_ids(candidates, cleaned, rng, sonara_centrality=sonara_centrality)
         missing_hydrated_seeds = [track_id for track_id in seed_ids if track_id not in candidate_by_id]
         if missing_hydrated_seeds:
             raise ValueError(f"Seed tracks missing required analysis: {missing_hydrated_seeds}")
@@ -171,7 +173,7 @@ class SmartSetBuilder:
             if candidate.track.id not in seed_ids
         ]
         scored = [item for item in scored if item is not None]
-        ordered_items = self._ordered_items(seeds, scored, cleaned, ranges)
+        ordered_items = self._ordered_items(seeds, scored, cleaned, ranges, rng)
 
         return {
             "mode": cleaned.mode,
@@ -348,11 +350,12 @@ class SmartSetBuilder:
     def _auto_seed_ids(
         self,
         candidates: list[_Candidate],
-        requested_count: int,
+        config: SetBuilderConfig,
+        rng: np.random.Generator,
         *,
         sonara_centrality: dict[int, float] | None = None,
     ) -> list[int]:
-        count = max(3, min(5, int(requested_count)))
+        count = max(1, min(5, int(config.auto_seed_count)))
         if len(candidates) < count:
             raise ValueError(f"Auto seed mode requires at least {count} feature-complete tracks")
         ranges = _numeric_ranges(candidates)
@@ -367,31 +370,32 @@ class SmartSetBuilder:
         seeds: list[_Candidate] = []
         seen_keys: set[str] = set()
         artist_counts: Counter[str] = Counter()
-        for candidate, _score in centrality:
-            if candidate.duplicate_key in seen_keys:
-                continue
-            if not _artist_allowed(candidate, seeds[-1] if seeds else None, artist_counts):
-                continue
-            if seeds and max(_fast_diversity_similarity(candidate, seed, ranges) for seed in seeds) > 0.995:
-                continue
-            seeds.append(candidate)
-            seen_keys.add(candidate.duplicate_key)
-            _record_artist(candidate, artist_counts)
-            if len(seeds) >= count:
-                break
-        if len(seeds) < count:
-            for candidate, _score in centrality:
-                if candidate in seeds:
-                    continue
-                if candidate.duplicate_key in seen_keys:
-                    continue
-                if not _artist_allowed(candidate, seeds[-1] if seeds else None, artist_counts):
-                    continue
-                seeds.append(candidate)
-                seen_keys.add(candidate.duplicate_key)
-                _record_artist(candidate, artist_counts)
-                if len(seeds) >= count:
+        while len(seeds) < count:
+            scored_options: list[tuple[_Candidate, float]] = []
+            for allow_near_duplicate in (False, True):
+                scored_options = []
+                for candidate, centrality_score in centrality:
+                    if candidate.duplicate_key in seen_keys:
+                        continue
+                    if not _artist_allowed(candidate, seeds[-1] if seeds else None, artist_counts):
+                        continue
+                    if not allow_near_duplicate and seeds and max(_fast_diversity_similarity(candidate, seed, ranges) for seed in seeds) > 0.995:
+                        continue
+                    scored_options.append((candidate, _auto_anchor_selection_score(candidate, centrality_score, seeds, ranges, config.mode)))
+                if scored_options or not seeds:
                     break
+            if not scored_options:
+                break
+            selected = _sample_scored_candidate(
+                scored_options,
+                rng,
+                mode=config.mode,
+                pool_size=_auto_anchor_sample_pool_size(config.mode, count, len(scored_options)),
+                force_sample=True,
+            )
+            seeds.append(selected)
+            seen_keys.add(selected.duplicate_key)
+            _record_artist(selected, artist_counts)
         if len(seeds) < count:
             raise ValueError(f"Auto seed mode could not choose {count} artist-diverse anchors")
         return [candidate.track.id for candidate in seeds]
@@ -451,6 +455,7 @@ class SmartSetBuilder:
         scored_candidates: list[_ScoredCandidate],
         config: SetBuilderConfig,
         ranges: dict[str, tuple[float, float]],
+        rng: np.random.Generator,
     ) -> list[dict[str, object]]:
         items: list[dict[str, object]] = []
         previous: _Candidate | None = None
@@ -477,9 +482,19 @@ class SmartSetBuilder:
             ]
             if not valid_remaining:
                 break
-            selected = max(
-                valid_remaining,
-                key=lambda item: self._sequence_score(item, previous, selected_sequence, position, target_count, config, ranges),
+            sequence_options = [
+                (
+                    item,
+                    self._sequence_score(item, previous, selected_sequence, position, target_count, config, ranges)
+                    + _artist_pressure_score(item.candidate, remaining) * 0.035,
+                )
+                for item in valid_remaining
+            ]
+            selected, final_score = _sample_scored_item(
+                sequence_options,
+                rng,
+                mode=config.mode,
+                pool_size=_sequence_sample_pool_size(config.mode, len(sequence_options)),
             )
             transition = _transition(previous, selected.candidate)
             curve_score = _classifier_curve_score(selected.candidate.track, config, position, target_count)
@@ -489,7 +504,6 @@ class SmartSetBuilder:
             breakdown["classifier_curve"] = curve_score
             breakdown["diversity"] = diversity_score
             reason = _reason(selected, config, transition, curve_score)
-            final_score = self._sequence_score(selected, previous, selected_sequence, position, target_count, config, ranges)
             items.append(_item(selected.candidate, reason, final_score, breakdown, selected.sonara_groups, transition))
             previous = selected.candidate
             selected_sequence.append(selected.candidate)
@@ -563,7 +577,7 @@ def _clean_config(config: SetBuilderConfig) -> SetBuilderConfig:
     return SetBuilderConfig(
         seed_mode=seed_mode,
         seed_track_ids=list(dict.fromkeys(int(track_id) for track_id in config.seed_track_ids)),
-        auto_seed_count=max(3, min(5, int(config.auto_seed_count))),
+        auto_seed_count=max(1, min(5, int(config.auto_seed_count))),
         mode=mode,
         limit=max(1, min(500, int(config.limit))),
         diversity=max(0.0, min(1.0, float(config.diversity))),
@@ -571,6 +585,7 @@ def _clean_config(config: SetBuilderConfig) -> SetBuilderConfig:
         classifier_targets=_clean_score_map(config.classifier_targets),
         classifier_avoid=_clean_score_map(config.classifier_avoid),
         classifier_curves=_clean_curves(config.classifier_curves),
+        random_seed=None if config.random_seed is None else int(config.random_seed),
     )
 
 
@@ -601,6 +616,10 @@ def _manual_seed_ids(seed_track_ids: list[int]) -> list[int]:
     if not 1 <= len(seed_ids) <= 5:
         raise ValueError("Manual set builder requires 1-5 seed tracks")
     return seed_ids
+
+
+def _random_generator(seed: int | None) -> np.random.Generator:
+    return np.random.default_rng(seed)
 
 
 def _uses_classifier_config(config: SetBuilderConfig) -> bool:
@@ -1008,6 +1027,128 @@ def _auto_anchor_centrality(
     return _bounded(embedding_score * 0.7 + sonara_score * 0.3)
 
 
+def _auto_anchor_selection_score(
+    candidate: _Candidate,
+    centrality_score: float,
+    selected: list[_Candidate],
+    ranges: dict[str, tuple[float, float]],
+    mode: str,
+) -> float:
+    if not selected:
+        return _bounded(centrality_score)
+    relatedness = max(_fast_diversity_similarity(candidate, seed, ranges) for seed in selected)
+    if mode == "similar_crate":
+        score = centrality_score * 0.35 + relatedness * 0.65
+    elif mode == "weird_adjacent":
+        diversity = 1.0 - relatedness
+        score = centrality_score * 0.38 + relatedness * 0.47 + diversity * 0.15
+    elif mode == "discovery":
+        score = centrality_score * 0.55 + relatedness * 0.45
+    else:
+        score = centrality_score * 0.45 + relatedness * 0.55
+    return _bounded(score)
+
+
+def _auto_anchor_sample_pool_size(mode: str, count: int, total: int) -> int:
+    if mode == "similar_crate":
+        factor, floor, ceiling = 18, 16, 100
+    elif mode == "weird_adjacent":
+        factor, floor, ceiling = 45, 40, 240
+    elif mode == "discovery":
+        factor, floor, ceiling = 60, 50, 320
+    else:
+        factor, floor, ceiling = 32, 28, 180
+    return min(total, max(floor, count * factor), ceiling)
+
+
+def _sequence_sample_pool_size(mode: str, total: int) -> int:
+    if mode == "similar_crate":
+        return min(total, 8)
+    if mode == "weird_adjacent":
+        return min(total, 24)
+    if mode == "discovery":
+        return min(total, 28)
+    return min(total, 14)
+
+
+def _sampling_temperature(mode: str) -> float:
+    if mode == "similar_crate":
+        return 0.025
+    if mode == "weird_adjacent":
+        return 0.06
+    if mode == "discovery":
+        return 0.08
+    return 0.025
+
+
+def _sampling_margin(mode: str) -> float:
+    if mode == "similar_crate":
+        return 0.008
+    if mode == "weird_adjacent":
+        return 0.015
+    if mode == "discovery":
+        return 0.02
+    return 0.006
+
+
+def _sample_scored_candidate(
+    options: list[tuple[_Candidate, float]],
+    rng: np.random.Generator,
+    *,
+    mode: str,
+    pool_size: int,
+    force_sample: bool = False,
+) -> _Candidate:
+    ranked = sorted(
+        options,
+        key=lambda item: (
+            -item[1],
+            item[0].track.artist or "",
+            item[0].track.title or "",
+            item[0].track.path,
+        ),
+    )[: max(1, pool_size)]
+    index = _sample_ranked_index([score for _candidate, score in ranked], rng, mode=mode, force_sample=force_sample)
+    return ranked[index][0]
+
+
+def _sample_scored_item(
+    options: list[tuple[_ScoredCandidate, float]],
+    rng: np.random.Generator,
+    *,
+    mode: str,
+    pool_size: int,
+) -> tuple[_ScoredCandidate, float]:
+    ranked = sorted(
+        options,
+        key=lambda item: (
+            -item[1],
+            item[0].breakdown.get("consensus", 0.0),
+            item[0].candidate.track.artist or "",
+            item[0].candidate.track.title or "",
+            item[0].candidate.track.path,
+        ),
+    )[: max(1, pool_size)]
+    index = _sample_ranked_index([score for _item, score in ranked], rng, mode=mode, force_sample=False)
+    return ranked[index]
+
+
+def _sample_ranked_index(scores: list[float], rng: np.random.Generator, *, mode: str, force_sample: bool) -> int:
+    if len(scores) <= 1:
+        return 0
+    cleaned = np.asarray([_bounded(score) for score in scores], dtype=np.float64)
+    if not force_sample and cleaned[0] - cleaned[1] >= _sampling_margin(mode):
+        return 0
+    logits = (cleaned - float(np.max(cleaned))) / _sampling_temperature(mode)
+    weights = np.exp(np.clip(logits, -60.0, 0.0))
+    weight_sum = float(np.sum(weights))
+    if not np.isfinite(weight_sum) or weight_sum <= 0:
+        probabilities = np.full(len(scores), 1.0 / len(scores), dtype=np.float64)
+    else:
+        probabilities = weights / weight_sum
+    return int(rng.choice(len(scores), p=probabilities))
+
+
 def _normalize(value: float, value_range: tuple[float, float]) -> float | None:
     lower, upper = value_range
     if upper == lower:
@@ -1338,6 +1479,21 @@ def _record_artist(candidate: _Candidate, artist_counts: Counter[str]) -> None:
     artist = _artist_key(candidate.track)
     if artist is not None:
         artist_counts[artist] += 1
+
+
+def _artist_pressure_score(candidate: _Candidate, remaining: list[_ScoredCandidate]) -> float:
+    artist = _artist_key(candidate.track)
+    if artist is None:
+        return 0.0
+    counts: Counter[str] = Counter()
+    for item in remaining:
+        item_artist = _artist_key(item.candidate.track)
+        if item_artist is not None:
+            counts[item_artist] += 1
+    max_count = max(counts.values(), default=0)
+    if max_count <= 1:
+        return 0.0
+    return _bounded((counts[artist] - 1) / max_count)
 
 
 def _bounded(value: float) -> float:

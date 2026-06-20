@@ -61,7 +61,7 @@ you use the preview action.
 SET can run from:
 
 - manual seeds: `1-5` selected seed tracks;
-- auto anchors: `3-5` feature-complete tracks chosen by the backend.
+- auto anchors: `1-5` related feature-complete tracks sampled by the backend.
 
 The four modes are:
 
@@ -77,6 +77,10 @@ embeddings. Its SONARA pass uses a broad set of saved features: rhythm/tempo,
 dynamics, perception, tonal texture, spectral/timbre values, and saved summary
 statistics for larger arrays such as MFCC and chroma. It uses MAEST embeddings
 but does not use MAEST genre labels for choosing tracks.
+Auto mode samples from high-scoring related anchor candidates each time you
+generate. The sequence itself is also sampled from mode-scored candidates, so
+rerunning the same controls can produce a different set while still following
+the selected mode.
 
 BPM and key affect ordering as soft transition signals. File tags are preferred
 first, with SONARA BPM/key as fallback when tags are missing. Classifier

@@ -111,11 +111,18 @@ def test_set_builder_classifier_targets_avoid_curves_and_missing_scores_are_soft
     assert missing_item["score_breakdown"]["classifier_confidence"] < target_item["score_breakdown"]["classifier_confidence"]
 
 
-def test_auto_mode_is_deterministic_and_excludes_feature_incomplete_tracks(tmp_path: Path) -> None:
+def test_auto_mode_uses_random_seed_and_excludes_feature_incomplete_tracks(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     ids = [
-        _complete_track(db, tmp_path, f"complete-{index}.wav", vectors={"mert": [1, index / 10], "maest": [1, index / 10], "clap": [1, index / 10]})
-        for index in range(1, 6)
+        _complete_track(
+            db,
+            tmp_path,
+            f"complete-{index}.wav",
+            metadata={"artist": f"Artist {index}", "title": f"Complete {index}"},
+            features=_features(energy=0.35 + index / 100, onset_density=0.25 + index / 100),
+            vectors={"mert": [1, index / 20], "maest": [1, index / 20], "clap": [1, index / 20]},
+        )
+        for index in range(1, 13)
     ]
     incomplete_id = _track(db, tmp_path, "missing-clap.wav", metadata={"title": "Missing CLAP"})
     db.save_sonara_features(incomplete_id, _features(), bpm=128, musical_key="8A", energy=0.5)
@@ -123,10 +130,12 @@ def test_auto_mode_is_deterministic_and_excludes_feature_incomplete_tracks(tmp_p
     db.save_embedding(incomplete_id, np.asarray([1.0, 0.0], dtype=np.float32), "maest-test", embedding_key="maest")
 
     builder = SmartSetBuilder(db)
-    first = builder.generate(SetBuilderConfig(seed_mode="auto", auto_seed_count=3, limit=5))
-    second = builder.generate(SetBuilderConfig(seed_mode="auto", auto_seed_count=3, limit=5))
+    first = builder.generate(SetBuilderConfig(seed_mode="auto", auto_seed_count=3, limit=5, random_seed=11))
+    second = builder.generate(SetBuilderConfig(seed_mode="auto", auto_seed_count=3, limit=5, random_seed=11))
+    different_seed = builder.generate(SetBuilderConfig(seed_mode="auto", auto_seed_count=3, limit=5, random_seed=12))
 
     assert [item["track"].id for item in first["items"]] == [item["track"].id for item in second["items"]]
+    assert first["seed_track_ids"] != different_seed["seed_track_ids"]
     assert incomplete_id not in [item["track"].id for item in first["items"]]
     assert set(first["seed_track_ids"]).issubset(ids)
     assert len(first["seed_track_ids"]) == 3
@@ -215,6 +224,34 @@ def test_ordering_diversity_does_not_recompute_full_sonara_similarity(tmp_path: 
     SmartSetBuilder(db).generate(SetBuilderConfig(seed_mode="manual", seed_track_ids=[seed_id], limit=5))
 
     assert sonara_similarity_calls == candidate_count
+
+
+def test_set_builder_ordering_uses_random_seed_for_candidate_sequence(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed_id = _complete_track(
+        db,
+        tmp_path,
+        "seed.wav",
+        metadata={"artist": "Seed Artist", "title": "Seed"},
+        vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
+    )
+    for index in range(12):
+        _complete_track(
+            db,
+            tmp_path,
+            f"candidate-{index:02d}.wav",
+            metadata={"artist": f"Candidate Artist {index}", "title": f"Candidate {index}"},
+            features=_features(energy=0.50, onset_density=0.40, spectral_centroid=1500.0),
+            vectors={"mert": [1, 0.01], "maest": [1, 0.01], "clap": [1, 0.01]},
+        )
+
+    first = SmartSetBuilder(db).generate(SetBuilderConfig(seed_mode="manual", seed_track_ids=[seed_id], limit=8, random_seed=21))
+    second = SmartSetBuilder(db).generate(SetBuilderConfig(seed_mode="manual", seed_track_ids=[seed_id], limit=8, random_seed=22))
+
+    first_ids = [item["track"].id for item in first["items"]]
+    second_ids = [item["track"].id for item in second["items"]]
+    assert first_ids[0] == second_ids[0] == seed_id
+    assert first_ids != second_ids
 
 
 def test_set_builder_does_not_place_same_artist_consecutively(tmp_path: Path) -> None:

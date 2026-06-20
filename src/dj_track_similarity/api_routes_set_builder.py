@@ -29,6 +29,7 @@ def register_set_builder_routes(
             classifier_targets=request.classifier_targets,
             classifier_avoid=request.classifier_avoid,
             classifier_curves={key: value.model_dump() for key, value in request.classifier_curves.items()},
+            random_seed=request.random_seed,
         )
         try:
             return SmartSetBuilder(state.require_db()).generate(config)

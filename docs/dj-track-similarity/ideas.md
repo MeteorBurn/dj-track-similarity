@@ -39,6 +39,8 @@ Suggested modes:
 Implemented controls:
 
 - manual or auto seed source;
+- randomized auto anchors, with optional `random_seed` only for reproducing a
+  specific run;
 - target length, defaulting to 24;
 - diversity amount;
 - energy curve such as warmup, balanced, peak, or wave;
@@ -67,6 +69,7 @@ Input fields:
 - `classifier_targets`
 - `classifier_avoid`
 - `classifier_curves`
+- `random_seed`
 
 Output fields:
 

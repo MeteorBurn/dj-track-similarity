@@ -175,8 +175,8 @@ MAEST genre labels are not part of candidate selection.
 Request fields:
 
 - `seed_mode`: `manual` or `auto`. Manual mode requires `1-5`
-  `seed_track_ids`; auto mode chooses `3-5` anchors from feature-complete
-  tracks.
+  `seed_track_ids`; auto mode samples `1-5` related anchors from
+  feature-complete tracks.
 - `mode`: `similar_crate`, `weird_adjacent`, `balanced_set`, or `discovery`.
 - `limit`: preview length, default `24`.
 - `diversity`: `0.0-1.0`, used during ordering.
@@ -185,6 +185,8 @@ Request fields:
   `classifier_key` to a `0.0-1.0` threshold.
 - `classifier_curves`: maps from promoted `classifier_key` to `{start, end}`
   target intensity values.
+- `random_seed`: optional integer for reproducing one randomized generation.
+  Omit it for a fresh randomized auto/ordering pass.
 
 The response includes `seed_track_ids`, feature coverage counters, and ordered
 `items`. Each item has a `track`, `reason`, `score`, `score_breakdown`,
@@ -197,7 +199,9 @@ produce neutral classifier contribution and lower classifier confidence in the
 score explanation. BPM/key ordering is soft and uses file tags first, with
 SONARA values as fallback. The ordered preview also avoids adjacent repeats of
 the same known artist and limits each known artist to at most three preview
-positions.
+positions. Auto anchors and non-seed positions are sampled from mode-scored
+pools, so repeated calls without `random_seed` can return different related
+sets.
 
 `POST /api/search/text` accepts `query`, `limit`, optional `min_similarity`,
 and optional `device`. It also accepts adaptive contrast fields:

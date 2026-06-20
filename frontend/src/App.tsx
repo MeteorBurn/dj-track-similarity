@@ -429,20 +429,20 @@ export function App() {
   }
 
   async function handleAnalyzeClassifier(classifier: PromotedClassifier) {
-    const limit = analysisLimit > 0 ? analysisLimit : undefined;
-    appendActivity("info", "CLASSIFIER analyze запущен", `${classifier.name} · только missing scores`);
+    appendActivity("info", "CLASSIFIER пересчет запущен", `${classifier.name} · reset scores + analyze`);
     setProcessLogKind("analysis");
     setAnalysisJob(null);
     await run(
       async () => {
+        await api.resetClassifiers([classifier.classifier_key]);
         const promotedClassifiers = await api.classifiers();
         setClassifiers(promotedClassifiers);
-        return api.analyzeClassifier(classifier.classifier_key, limit);
+        return api.analyzeClassifier(classifier.classifier_key);
       },
       (job) => {
         setAnalysisJob(job);
         appendActivity("ok", "Classifier job создан", `${classifier.name} · ${job.job_id.slice(0, 8)} · ${job.total} треков`);
-        return `${classifier.name}: ${job.total} missing треков`;
+        return `${classifier.name}: ${job.total} треков к пересчету`;
       }
     );
   }

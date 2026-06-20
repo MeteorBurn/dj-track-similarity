@@ -349,8 +349,8 @@ export function SearchPlaylistPanel({
                       <span>{classifier.name}</span>
                       <button
                         className="icon-button classifier-analyze-button"
-                        title={`Score missing ${classifier.name} classifier results only`}
-                        aria-label={`Score missing ${classifier.name} classifier results only`}
+                        title={`Reset and rescore all ${classifier.name} classifier results`}
+                        aria-label={`Reset and rescore all ${classifier.name} classifier results`}
                         disabled={busy}
                         onClick={() => onAnalyzeClassifier(classifier)}
                         type="button"

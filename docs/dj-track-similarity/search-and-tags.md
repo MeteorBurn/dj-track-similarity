@@ -137,16 +137,16 @@ It lists promoted classifiers discovered from `models/classifiers/*/model.json`:
 
 - Each classifier slider filters the library server-side by stored classifier
   score.
-- Each classifier's play button starts a job for only that classifier key and
-  only tracks missing that classifier score.
+- Each classifier's play button resets stored scores for that classifier key and
+  then starts a job for that classifier only.
 - The metadata dialog shows stored classifier scores below SONARA features.
 
 Promoted classifiers require a promoted model file and feature-complete tracks.
 They do not analyze audio directly. Select `CLASSIFIERS` in the main analysis
 block to start cancellable classifier jobs after any selected audio models, or
-use the per-classifier play button in the CLASS tab for a classifier-only
-missing-score pass. Run SONARA, MERT, and MAEST first for the tracks you want to
-score.
+use the per-classifier play button in the CLASS tab for a full recalculation of
+one classifier across all eligible tracks. Run SONARA, MERT, and MAEST first
+for the tracks you want to score.
 
 Use CLASS filters after scoring a promoted classifier. A high score means the
 model thinks the track matches that profile's positive label; it is a workflow

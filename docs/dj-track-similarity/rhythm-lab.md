@@ -350,11 +350,13 @@ dj-sim analyze-classifier live_instrumentation --db .\data\library.sqlite
 ```
 
 In the main web UI, open the CLASS tab and use the play button on a specific
-promoted classifier row to score only that classifier's missing rows. This is
-the usual path after promoting a new profile because existing scores for older
-promoted classifiers are preserved. The broader `CLASSIFIERS` checkbox in the
-main analysis block can still score all selected promoted classifiers, but it
-also skips stored scores that already exist.
+promoted classifier row to fully recalculate that classifier. The button first
+deletes stored `track_classifier_scores` rows for that `classifier_key`, then
+starts a classifier-only scoring job for all eligible tracks; it does not use
+the analysis limit field. Scores for other promoted classifiers are preserved.
+The broader `CLASSIFIERS` checkbox in the main analysis block can still score
+all selected promoted classifiers, but it skips stored scores that already
+exist.
 
 The user-facing score is the classifier probability for the profile's positive
 training label. Because UI displays can round probabilities, a value shown as

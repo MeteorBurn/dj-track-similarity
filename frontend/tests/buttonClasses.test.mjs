@@ -221,6 +221,19 @@ test("class tab exposes per-classifier missing-score analysis controls", () => {
   assert.equal(librarySource.includes("classifier" + "Available"), false);
 });
 
+test("per-classifier analyze button resets that classifier before scoring", () => {
+  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+  const handler = appSource.match(/async function handleAnalyzeClassifier[\s\S]*?async function handleMertSearch/)?.[0] || "";
+
+  const resetIndex = handler.indexOf("api.resetClassifiers([classifier.classifier_key])");
+  const analyzeIndex = handler.indexOf("api.analyzeClassifier(classifier.classifier_key)");
+
+  assert.notEqual(resetIndex, -1);
+  assert.notEqual(analyzeIndex, -1);
+  assert.ok(resetIndex < analyzeIndex);
+  assert.doesNotMatch(handler, /analysisLimit/);
+});
+
 test("analysis controls default to four decoded tracks per batch", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
   const apiSource = readFileSync(join(srcDir, "api.ts"), "utf8");

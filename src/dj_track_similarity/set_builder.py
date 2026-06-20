@@ -408,8 +408,8 @@ class SmartSetBuilder:
                         continue
                     score = _auto_anchor_selection_score(candidate, centrality_score, seeds, ranges, config.mode)
                     if bpm_plan is not None:
-                        bpm_score = _bpm_curve_score(candidate, bpm_plan, len(seeds), count)
-                        score = score * 0.82 + bpm_score * 0.18
+                        bpm_score = _bpm_curve_score(candidate, bpm_plan, len(seeds), max(config.limit, count))
+                        score = score * 0.45 + bpm_score * 0.55
                     scored_options.append((candidate, score))
                 if scored_options or not seeds:
                     break
@@ -501,7 +501,7 @@ class SmartSetBuilder:
         scored_pool = _sequence_candidate_pool(scored_candidates, config.limit, len(seeds))
         remaining = [item for item in scored_pool if item.candidate.duplicate_key not in seed_duplicates]
         selected_sequence: list[_Candidate] = []
-        target_count = max(config.limit, len(seeds) + len(remaining))
+        target_count = max(config.limit, len(seeds))
 
         while len(items) < config.limit and (pending_seeds or remaining):
             position = len(items)

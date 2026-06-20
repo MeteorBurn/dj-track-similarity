@@ -627,6 +627,124 @@ def test_bpm_mode_infers_missing_start_and_target_from_seed_and_library(tmp_path
     assert "bpm_curve" in result["items"][1]["score_breakdown"]
 
 
+def test_bpm_mode_uses_preview_length_not_candidate_pool_for_tempo_curve(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed_id = _complete_track(
+        db,
+        tmp_path,
+        "seed-110.wav",
+        metadata={"artist": "Seed Artist", "title": "Seed", "bpm": 110, "key": "8A"},
+        features=_features(bpm=110, energy=0.45),
+        vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
+    )
+    early_id = _complete_track(
+        db,
+        tmp_path,
+        "candidate-117.wav",
+        metadata={"artist": "Early Artist", "title": "Early", "bpm": 117, "key": "8A"},
+        features=_features(bpm=117, energy=0.50),
+        vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
+    )
+    middle_id = _complete_track(
+        db,
+        tmp_path,
+        "candidate-123.wav",
+        metadata={"artist": "Middle Artist", "title": "Middle", "bpm": 123, "key": "8A"},
+        features=_features(bpm=123, energy=0.55),
+        vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
+    )
+    late_id = _complete_track(
+        db,
+        tmp_path,
+        "candidate-130.wav",
+        metadata={"artist": "Late Artist", "title": "Late", "bpm": 130, "key": "8A"},
+        features=_features(bpm=130, energy=0.60),
+        vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
+    )
+    for index in range(40):
+        _complete_track(
+            db,
+            tmp_path,
+            f"pool-{index}.wav",
+            metadata={"artist": f"Pool Artist {index}", "title": f"Pool {index}", "bpm": 125, "key": "8A"},
+            features=_features(bpm=125, energy=0.52),
+            vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
+        )
+
+    result = SmartSetBuilder(db).generate(
+        SetBuilderConfig(
+            seed_mode="manual",
+            seed_track_ids=[seed_id],
+            mode="balanced_set",
+            limit=4,
+            diversity=0.0,
+            bpm_mode="low_to_high",
+            bpm_change="medium",
+            bpm_start=110,
+            bpm_target=130,
+            random_seed=7,
+        )
+    )
+
+    assert [item["track"].id for item in result["items"]] == [seed_id, early_id, middle_id, late_id]
+    assert result["items"][-1]["score_breakdown"]["bpm_curve"] > 0.8
+
+
+def test_auto_bpm_mode_prefers_tempo_curve_anchors_over_central_pool(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    low_id = _complete_track(
+        db,
+        tmp_path,
+        "anchor-110.wav",
+        metadata={"artist": "Low Artist", "title": "Low", "bpm": 110, "key": "8A"},
+        features=_features(bpm=110, energy=0.10, danceability=0.20, onset_density=0.10, spectral_centroid=900),
+        vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
+    )
+    mid_id = _complete_track(
+        db,
+        tmp_path,
+        "anchor-120.wav",
+        metadata={"artist": "Mid Artist", "title": "Mid", "bpm": 120, "key": "8A"},
+        features=_features(bpm=120, energy=0.50, danceability=0.50, onset_density=0.40, spectral_centroid=1500),
+        vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
+    )
+    high_id = _complete_track(
+        db,
+        tmp_path,
+        "anchor-130.wav",
+        metadata={"artist": "High Artist", "title": "High", "bpm": 130, "key": "8A"},
+        features=_features(bpm=130, energy=0.90, danceability=0.80, onset_density=0.70, spectral_centroid=2100),
+        vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
+    )
+    for index in range(24):
+        _complete_track(
+            db,
+            tmp_path,
+            f"central-{index}.wav",
+            metadata={"artist": f"Central Artist {index}", "title": f"Central {index}", "bpm": 125, "key": "8A"},
+            features=_features(bpm=125, energy=0.50, danceability=0.50, onset_density=0.40, spectral_centroid=1500),
+            vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
+        )
+
+    result = SmartSetBuilder(db).generate(
+        SetBuilderConfig(
+            seed_mode="auto",
+            auto_seed_count=3,
+            mode="balanced_set",
+            limit=6,
+            diversity=0.0,
+            bpm_mode="low_to_high",
+            bpm_change="medium",
+            bpm_start=110,
+            bpm_target=130,
+            random_seed=1,
+        )
+    )
+
+    assert result["seed_track_ids"] == [low_id, mid_id, high_id]
+    assert [item["track"].id for item in result["items"][:3]] == [low_id, mid_id, high_id]
+
+
 def test_manual_mode_rejects_invalid_seed_counts(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
 

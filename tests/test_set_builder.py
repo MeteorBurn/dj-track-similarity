@@ -255,7 +255,7 @@ def test_set_builder_ordering_uses_random_seed_for_candidate_sequence(tmp_path: 
     assert first_ids != second_ids
 
 
-def test_set_builder_does_not_place_same_artist_consecutively(tmp_path: Path) -> None:
+def test_set_builder_uses_each_known_artist_once_in_sequence(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     seed_id = _complete_track(
         db,
@@ -283,14 +283,14 @@ def test_set_builder_does_not_place_same_artist_consecutively(tmp_path: Path) ->
             vectors={"mert": [0.96, 0.04 + index / 100], "maest": [0.96, 0.04 + index / 100], "clap": [0.96, 0.04 + index / 100]},
         )
 
-    result = SmartSetBuilder(db).generate(SetBuilderConfig(seed_mode="manual", seed_track_ids=[seed_id], limit=6))
+    result = SmartSetBuilder(db).generate(SetBuilderConfig(seed_mode="manual", seed_track_ids=[seed_id], limit=4, random_seed=2))
     artists = [item["track"].artist for item in result["items"]]
 
-    assert len(artists) == 6
-    assert all(current != previous for previous, current in zip(artists, artists[1:]))
+    assert len(artists) == 4
+    assert len(artists) == len(set(artists))
 
 
-def test_manual_same_artist_seeds_are_interleaved_with_candidates(tmp_path: Path) -> None:
+def test_manual_same_artist_seeds_are_rejected(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     first_seed_id = _complete_track(
         db,
@@ -318,19 +318,13 @@ def test_manual_same_artist_seeds_are_interleaved_with_candidates(tmp_path: Path
             vectors={"mert": [0.97, 0.03 + index / 100], "maest": [0.97, 0.03 + index / 100], "clap": [0.97, 0.03 + index / 100]},
         )
 
-    result = SmartSetBuilder(db).generate(
-        SetBuilderConfig(seed_mode="manual", seed_track_ids=[first_seed_id, second_seed_id], limit=4, random_seed=7)
-    )
-    ids = [item["track"].id for item in result["items"]]
-    artists = [item["track"].artist for item in result["items"]]
-
-    assert first_seed_id in ids
-    assert second_seed_id in ids
-    assert ids.index(first_seed_id) < ids.index(second_seed_id)
-    assert all(current != previous for previous, current in zip(artists, artists[1:]))
+    with pytest.raises(ValueError):
+        SmartSetBuilder(db).generate(
+            SetBuilderConfig(seed_mode="manual", seed_track_ids=[first_seed_id, second_seed_id], limit=4, random_seed=7)
+        )
 
 
-def test_set_builder_limits_artist_to_three_tracks_in_sequence(tmp_path: Path) -> None:
+def test_set_builder_skips_repeat_artist_candidates(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     seed_id = _complete_track(
         db,
@@ -358,15 +352,15 @@ def test_set_builder_limits_artist_to_three_tracks_in_sequence(tmp_path: Path) -
             vectors={"mert": [0.94, 0.06 + index / 100], "maest": [0.94, 0.06 + index / 100], "clap": [0.94, 0.06 + index / 100]},
         )
 
-    result = SmartSetBuilder(db).generate(SetBuilderConfig(seed_mode="manual", seed_track_ids=[seed_id], limit=7))
+    result = SmartSetBuilder(db).generate(SetBuilderConfig(seed_mode="manual", seed_track_ids=[seed_id], limit=5, random_seed=2))
     artists = [item["track"].artist for item in result["items"]]
 
-    assert len(artists) == 7
-    assert artists.count("Repeat Artist") == 3
-    assert all(current != previous for previous, current in zip(artists, artists[1:]))
+    assert len(artists) == 5
+    assert artists.count("Repeat Artist") == 1
+    assert len(artists) == len(set(artists))
 
 
-def test_auto_mode_anchors_respect_artist_spacing_and_cap(tmp_path: Path) -> None:
+def test_auto_mode_anchors_use_each_known_artist_once(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     for index in range(7):
         _complete_track(
@@ -391,8 +385,8 @@ def test_auto_mode_anchors_respect_artist_spacing_and_cap(tmp_path: Path) -> Non
     seed_artists = [item["track"].artist for item in result["items"] if item["reason"] == "seed_anchor"]
 
     assert len(seed_artists) == 5
-    assert seed_artists.count("Dominant Artist") <= 3
-    assert all(current != previous for previous, current in zip(seed_artists, seed_artists[1:]))
+    assert seed_artists.count("Dominant Artist") <= 1
+    assert len(seed_artists) == len(set(seed_artists))
 
 
 def test_set_builder_prefilters_before_loading_embedding_vectors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

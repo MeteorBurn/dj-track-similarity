@@ -106,11 +106,10 @@ first, with SONARA BPM/key as fallback when tags are missing. Classifier
 controls in the SET tab can boost target classifier scores, avoid unwanted
 scores, or shape a start-to-end mood curve. These controls read stored
 `track_classifier_scores`; the SET tab does not launch classifier analysis.
-The generated sequence also applies an artist spacing guard: tracks by the same
-known artist are not placed back-to-back, and one artist can appear at most
-three times in the preview. Manual seed tracks are preserved as `seed_anchor`
-items, but they can be interleaved with generated tracks when needed to satisfy
-that artist spacing rule.
+The generated sequence also applies a strict artist guard: a known artist can
+appear at most once in one SET preview. Manual seed tracks are preserved as
+`seed_anchor` items, but manual seeds with the same known artist are rejected
+instead of being separated by generated tracks.
 
 Each preview row exposes a reason such as `seed_anchor`, `similar_to_seed`,
 `bridge`, `weird_adjacent`, `discovery`, `classifier_match`, or `mood_shift`.

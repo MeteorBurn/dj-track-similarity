@@ -33,7 +33,7 @@ PREFILTER_POOL_FACTOR = 50
 PREFILTER_POOL_MIN = 1000
 PREFILTER_POOL_MAX = 3000
 SQLITE_IN_CHUNK_SIZE = 500
-ARTIST_SET_MAX_TRACKS = 3
+ARTIST_SET_MAX_TRACKS = 1
 PREFILTER_ARTIST_POOL_MULTIPLIER = 8
 SEQUENCE_ARTIST_POOL_MULTIPLIER = 4
 SONARA_GROUP_WEIGHTS = {
@@ -464,7 +464,7 @@ class SmartSetBuilder:
 
         seed_artist_counts = Counter(artist for artist in (_artist_key(seed.track) for seed in seeds) if artist is not None)
         if any(count > ARTIST_SET_MAX_TRACKS for count in seed_artist_counts.values()):
-            raise ValueError("Seed tracks violate artist spacing limits: avoid adjacent tracks by the same artist and use at most 3 tracks per artist")
+            raise ValueError("Seed tracks violate artist spacing limits: use at most 1 track per known artist")
 
         seed_duplicates = {seed.duplicate_key for seed in seeds}
         pending_seeds = list(seeds)
@@ -492,7 +492,7 @@ class SmartSetBuilder:
             ]
             if not valid_remaining:
                 if pending_seeds:
-                    raise ValueError("Seed tracks violate artist spacing limits: avoid adjacent tracks by the same artist and use at most 3 tracks per artist")
+                    raise ValueError("Seed tracks violate artist spacing limits: use at most 1 track per known artist")
                 break
             sequence_options = [
                 (
@@ -523,7 +523,7 @@ class SmartSetBuilder:
             _record_artist(selected.candidate, artist_counts)
             remaining = [item for item in remaining if item.candidate.duplicate_key not in seen_duplicates]
         if pending_seeds:
-            raise ValueError("Seed tracks violate artist spacing limits: avoid adjacent tracks by the same artist and use at most 3 tracks per artist")
+            raise ValueError("Seed tracks violate artist spacing limits: use at most 1 track per known artist")
         public_items: list[dict[str, object]] = []
         for index, item in enumerate(items, start=1):
             public_item = {key: value for key, value in item.items() if key != "candidate"}

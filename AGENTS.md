@@ -151,9 +151,9 @@ branches, or history are available.
 - Search UI stays split into SET, SONARA, MERT, CLAP, and CLASS tabs. SET calls
   `/api/set-builder/generate` and must stay a read-only preview generator:
   manual mode uses `1-5` selected seed tracks, auto mode samples `1-5` random
-  but related feature-complete anchors on each generation, manual seeds may be
-  interleaved with generated tracks to satisfy artist spacing, and the preview is
-  added to the current set only through an explicit user action. SONARA sends
+  but related feature-complete anchors on each generation, manual seeds with the
+  same known artist are rejected, and the preview is added to the current set
+  only through an explicit user action. SONARA sends
   custom mixer/modifiers to `/api/search/sonara`; MERT seed search uses
   `/api/search`; CLAP text search uses `/api/search/text` and requires `clap`
   embeddings.
@@ -162,8 +162,8 @@ branches, or history are available.
   genre labels for track selection. BPM/key are soft transition-ordering
   signals: prefer file tags first, then SONARA fallback. Promoted classifiers
   are optional stored-score modifiers only; missing classifier scores stay
-  neutral. Keep the artist spacing guard: no adjacent tracks by the same known
-  artist and at most three appearances per known artist in one preview.
+  neutral. Keep the artist guard strict: at most one track per known artist in
+  one preview.
 - SET UI controls should stay explicitly labelled with hover help for purpose,
   type/format, and range. Current user-facing controls include `Seed source`,
   `Set mode`, `Track limit`, `Auto anchors`, `Energy curve`, `Diversity`,

@@ -41,6 +41,8 @@
 - [Web API](api.md): FastAPI endpoints, которые использует frontend.
 - [Разработка](development.md): команды настройки и рекомендации по
   фокусной проверке.
+- [Идеи](ideas.md): крупные еще не реализованные рабочие процессы,
+  включая экспериментальный set-building и active-learning концепции.
 
 ## Rhythm Lab
 

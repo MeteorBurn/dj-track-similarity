@@ -26,6 +26,7 @@ const enSidebar = [
       { text: "Overview", link: "/overview.html" },
       { text: "Architecture", link: "/architecture.html" },
       { text: "Database", link: "/database.html" },
+      { text: "Ideas", link: "/ideas.html" },
       { text: "Development", link: "/development.html" }
     ]
   },
@@ -63,6 +64,7 @@ const ruSidebar = [
       { text: "Обзор", link: "/ru/overview.html" },
       { text: "Архитектура", link: "/ru/architecture.html" },
       { text: "База данных", link: "/ru/database.html" },
+      { text: "Идеи", link: "/ru/ideas.html" },
       { text: "Разработка", link: "/ru/development.html" }
     ]
   },

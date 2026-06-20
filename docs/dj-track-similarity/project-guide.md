@@ -35,6 +35,8 @@ for day-to-day DJ workflow guidance.
 - [Web API](api.md): FastAPI endpoints used by the frontend.
 - [Development](development.md): setup commands and focused
   verification guidance.
+- [Ideas](ideas.md): larger workflow ideas that are not implemented yet,
+  including experimental set-building and active-learning concepts.
 
 ## Rhythm Lab
 

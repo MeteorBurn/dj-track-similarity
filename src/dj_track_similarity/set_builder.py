@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import json
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from math import inf
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,7 @@ from typing import Any
 import numpy as np
 
 from .database import LibraryDatabase
+from .db_schema import TRACK_CLASSIFIER_SCORES_FIELD
 from .metadata_payload import optional_float, string_or_none
 from .models import Track
 from .sonara_similarity_scoring import unwrap_feature_value
@@ -24,6 +26,13 @@ DEFAULT_MODEL_WEIGHTS = {
     "maest": 0.18,
     "sonara_broad": 0.30,
 }
+SEQUENCE_POOL_FACTOR = 20
+SEQUENCE_POOL_MIN = 256
+SEQUENCE_POOL_MAX = 512
+PREFILTER_POOL_FACTOR = 50
+PREFILTER_POOL_MIN = 1000
+PREFILTER_POOL_MAX = 3000
+SQLITE_IN_CHUNK_SIZE = 500
 SONARA_GROUP_WEIGHTS = {
     "rhythm": 1.0,
     "dynamics": 1.1,
@@ -65,6 +74,16 @@ SONARA_NUMERIC_FIELDS: dict[str, tuple[str, float]] = {
     "chroma_mean.summary.mean": ("tonal", 0.7),
     "chroma_mean.summary.std": ("tonal", 0.55),
 }
+QUICK_DIVERSITY_FIELDS = (
+    "energy",
+    "danceability",
+    "valence",
+    "acousticness",
+    "onset_density",
+    "spectral_centroid_mean",
+    "spectral_flatness_mean",
+    "dynamic_range_db",
+)
 
 
 @dataclass(frozen=True)
@@ -79,6 +98,15 @@ class SetBuilderConfig:
     classifier_targets: dict[str, float] = field(default_factory=dict)
     classifier_avoid: dict[str, float] = field(default_factory=dict)
     classifier_curves: dict[str, dict[str, float]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class _LightCandidate:
+    track: Track
+    sonara_features: dict[str, object]
+    sonara_values: dict[str, float]
+    text_values: dict[str, str]
+    duplicate_key: str
 
 
 @dataclass(frozen=True)
@@ -107,20 +135,33 @@ class SmartSetBuilder:
     def generate(self, config: SetBuilderConfig) -> dict[str, object]:
         cleaned = _clean_config(config)
         manual_seed_ids = _manual_seed_ids(cleaned.seed_track_ids) if cleaned.seed_mode == "manual" else []
-        candidates, coverage = self._load_candidates()
+        light_candidates, coverage = self._load_light_candidates(cleaned)
 
-        candidate_by_id = {candidate.track.id: candidate for candidate in candidates}
+        light_by_id = {candidate.track.id: candidate for candidate in light_candidates}
         if cleaned.seed_mode == "manual":
             seed_ids = manual_seed_ids
-            self._validate_manual_seeds(seed_ids, candidate_by_id)
+            self._validate_manual_seeds(seed_ids, light_by_id)
+            seed_light_candidates = [light_by_id[track_id] for track_id in seed_ids]
+            prefiltered, _sonara_centrality = _prefilter_light_candidates(light_candidates, seed_light_candidates, cleaned)
+            hydrate_ids = _ordered_unique([*seed_ids, *(candidate.track.id for candidate in prefiltered)])
         else:
+            if not light_candidates:
+                raise ValueError("No feature-complete tracks are available for Smart Set Builder")
+            prefiltered, sonara_centrality = _prefilter_light_candidates(light_candidates, [], cleaned)
+            hydrate_ids = [candidate.track.id for candidate in prefiltered]
+        candidates = self._hydrate_candidates([light_by_id[track_id] for track_id in hydrate_ids if track_id in light_by_id])
+        candidate_by_id = {candidate.track.id: candidate for candidate in candidates}
+        if cleaned.seed_mode == "auto":
             if not candidates:
                 raise ValueError("No feature-complete tracks are available for Smart Set Builder")
-            seed_ids = self._auto_seed_ids(candidates, cleaned.auto_seed_count)
+            seed_ids = self._auto_seed_ids(candidates, cleaned.auto_seed_count, sonara_centrality=sonara_centrality)
+        missing_hydrated_seeds = [track_id for track_id in seed_ids if track_id not in candidate_by_id]
+        if missing_hydrated_seeds:
+            raise ValueError(f"Seed tracks missing required analysis: {missing_hydrated_seeds}")
         seeds = [candidate_by_id[track_id] for track_id in seed_ids]
 
         ranges = _numeric_ranges(candidates)
-        context = _Context(seeds=seeds, ranges=ranges)
+        context = _build_context(seeds, ranges)
         scored = [
             self._score_candidate(candidate, context, cleaned)
             for candidate in candidates
@@ -138,29 +179,60 @@ class SmartSetBuilder:
         }
 
     def _load_candidates(self) -> tuple[list[_Candidate], dict[str, int]]:
-        all_tracks = self.db.list_tracks(include_metadata=False)
-        all_track_ids = {track.id for track in all_tracks}
-        embedding_maps: dict[str, dict[int, np.ndarray]] = {}
-        for key in REQUIRED_EMBEDDINGS:
-            tracks, matrix = self.db.load_embedding_matrix(key)
-            embedding_maps[key] = {track.id: matrix[index].astype(np.float32, copy=False) for index, track in enumerate(tracks)}
+        light_candidates, coverage = self._load_light_candidates()
+        return self._hydrate_candidates(light_candidates), coverage
 
-        sonara_tracks, sonara_rows = self.db.load_sonara_feature_rows()
-        sonara_by_id = {track.id: (track, features) for track, features in zip(sonara_tracks, sonara_rows)}
-
-        eligible_ids = set(sonara_by_id)
-        for key in REQUIRED_EMBEDDINGS:
-            eligible_ids &= set(embedding_maps[key])
-
-        candidates: list[_Candidate] = []
-        for track_id in sorted(eligible_ids):
-            track, features = sonara_by_id[track_id]
-            values, text_values = _sonara_values(features)
+    def _load_light_candidates(self, config: SetBuilderConfig | None = None) -> tuple[list[_LightCandidate], dict[str, int]]:
+        summary = self.db.library_summary()
+        classifier_scores_field = TRACK_CLASSIFIER_SCORES_FIELD if config and _uses_classifier_config(config) else "NULL AS classifier_scores_json"
+        numeric_paths, numeric_slices = _json_path_plan(SONARA_NUMERIC_FIELDS)
+        text_paths, text_slices = _json_path_plan(("predominant_chord", "key"))
+        metadata_paths = ("$.bpm[0]", "$.bpm", "$.key[0]", "$.key", "$.initialkey[0]", "$.initialkey")
+        with self.db.connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT
+                    t.id, t.path, t.size, t.mtime, t.artist, t.title, t.album,
+                    t.bpm, t.musical_key, t.energy, t.duration,
+                    EXISTS(SELECT 1 FROM track_likes tl WHERE tl.track_id = t.id) AS liked,
+                    {_json_extract_sql("t.metadata_json", numeric_paths)} AS sonara_values_json,
+                    {_json_extract_sql("t.metadata_json", text_paths)} AS sonara_text_json,
+                    {_json_extract_sql("t.metadata_json", metadata_paths)} AS metadata_values_json,
+                    {classifier_scores_field}
+                FROM tracks t
+                WHERE t.has_sonara_analysis = 1
+                  AND t.has_mert_embedding = 1
+                  AND t.has_maest_embedding = 1
+                  AND t.has_clap_embedding = 1
+                ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
+                """
+            ).fetchall()
+        candidates: list[_LightCandidate] = []
+        for row in rows:
+            values = _values_from_json_row(row["sonara_values_json"], numeric_slices)
+            text_values, sonara_features = _text_and_feature_values_from_json_row(row["sonara_text_json"], text_slices)
+            metadata = _metadata_from_json_row(row["metadata_values_json"])
+            track = Track(
+                id=int(row["id"]),
+                path=str(row["path"]),
+                size=int(row["size"]),
+                mtime=float(row["mtime"]),
+                artist=row["artist"],
+                title=row["title"],
+                album=row["album"],
+                bpm=row["bpm"],
+                musical_key=row["musical_key"],
+                energy=row["energy"],
+                duration=row["duration"],
+                liked=bool(row["liked"]),
+                metadata=metadata,
+                classifier_scores=_classifier_scores_from_json(row["classifier_scores_json"]),
+                analyses=["sonara", "maest", "mert", "clap"],
+            )
             candidates.append(
-                _Candidate(
+                _LightCandidate(
                     track=track,
-                    vectors={key: embedding_maps[key][track_id] for key in REQUIRED_EMBEDDINGS},
-                    sonara_features=features,
+                    sonara_features=sonara_features,
                     sonara_values=values,
                     text_values=text_values,
                     duplicate_key=_duplicate_key(track),
@@ -168,16 +240,92 @@ class SmartSetBuilder:
             )
 
         coverage = {
-            "tracks": len(all_track_ids),
+            "tracks": int(summary["tracks"]),
             "eligible_tracks": len(candidates),
-            "missing_mert": len(all_track_ids - set(embedding_maps["mert"])),
-            "missing_maest": len(all_track_ids - set(embedding_maps["maest"])),
-            "missing_clap": len(all_track_ids - set(embedding_maps["clap"])),
-            "missing_sonara": len(all_track_ids - set(sonara_by_id)),
+            "missing_mert": max(0, int(summary["tracks"]) - int(summary["mert"])),
+            "missing_maest": max(0, int(summary["tracks"]) - int(summary["maest"])),
+            "missing_clap": max(0, int(summary["tracks"]) - int(summary["clap"])),
+            "missing_sonara": max(0, int(summary["tracks"]) - int(summary["sonara"])),
         }
         return candidates, coverage
 
-    def _validate_manual_seeds(self, seed_ids: list[int], candidate_by_id: dict[int, _Candidate]) -> None:
+    def _hydrate_candidates(self, light_candidates: list[_LightCandidate]) -> list[_Candidate]:
+        track_ids = _ordered_unique([candidate.track.id for candidate in light_candidates])
+        embedding_maps = self._load_embedding_maps_for_ids(track_ids)
+        classifier_scores_by_id = self._load_classifier_scores_for_ids(track_ids)
+        candidates: list[_Candidate] = []
+        for light in light_candidates:
+            track_id = light.track.id
+            if not all(track_id in embedding_maps[key] for key in REQUIRED_EMBEDDINGS):
+                continue
+            track = replace(
+                light.track,
+                classifier_scores=classifier_scores_by_id.get(track_id, light.track.classifier_scores),
+            )
+            candidates.append(
+                _Candidate(
+                    track=track,
+                    vectors={key: embedding_maps[key][track_id] for key in REQUIRED_EMBEDDINGS},
+                    sonara_features=light.sonara_features,
+                    sonara_values=light.sonara_values,
+                    text_values=light.text_values,
+                    duplicate_key=light.duplicate_key,
+                )
+            )
+        return candidates
+
+    def _load_embedding_maps_for_ids(self, track_ids: list[int]) -> dict[str, dict[int, np.ndarray]]:
+        cleaned_ids = _ordered_unique(track_ids)
+        embedding_maps: dict[str, dict[int, np.ndarray]] = {key: {} for key in REQUIRED_EMBEDDINGS}
+        if not cleaned_ids:
+            return embedding_maps
+        with self.db.connect() as connection:
+            for key in REQUIRED_EMBEDDINGS:
+                for chunk in _chunks(cleaned_ids, SQLITE_IN_CHUNK_SIZE):
+                    placeholders = ", ".join("?" for _ in chunk)
+                    rows = connection.execute(
+                        f"""
+                        SELECT track_id, vector
+                        FROM embeddings
+                        WHERE embedding_key = ?
+                          AND track_id IN ({placeholders})
+                        """,
+                        (key, *chunk),
+                    ).fetchall()
+                    for row in rows:
+                        embedding_maps[key][int(row["track_id"])] = np.frombuffer(row["vector"], dtype=np.float32).copy()
+        return embedding_maps
+
+    def _load_classifier_scores_for_ids(self, track_ids: list[int]) -> dict[int, dict[str, dict[str, object]]]:
+        cleaned_ids = _ordered_unique(track_ids)
+        scores_by_id: dict[int, dict[str, dict[str, object]]] = {}
+        if not cleaned_ids:
+            return scores_by_id
+        with self.db.connect() as connection:
+            for chunk in _chunks(cleaned_ids, SQLITE_IN_CHUNK_SIZE):
+                placeholders = ", ".join("?" for _ in chunk)
+                rows = connection.execute(
+                    f"""
+                    SELECT track_id, classifier, score, label, confidence, probabilities_json, feature_set, model_id, analyzed_at
+                    FROM track_classifier_scores
+                    WHERE track_id IN ({placeholders})
+                    """,
+                    tuple(chunk),
+                ).fetchall()
+                for row in rows:
+                    track_id = int(row["track_id"])
+                    scores_by_id.setdefault(track_id, {})[str(row["classifier"])] = {
+                        "score": float(row["score"]),
+                        "label": row["label"],
+                        "confidence": float(row["confidence"]),
+                        "probabilities": _json_object(row["probabilities_json"]),
+                        "feature_set": row["feature_set"],
+                        "model_id": row["model_id"],
+                        "analyzed_at": row["analyzed_at"],
+                    }
+        return scores_by_id
+
+    def _validate_manual_seeds(self, seed_ids: list[int], candidate_by_id: dict[int, _LightCandidate]) -> None:
         missing = [track_id for track_id in seed_ids if track_id not in candidate_by_id]
         if not missing:
             return
@@ -194,14 +342,22 @@ class SmartSetBuilder:
             raise ValueError(f"Unknown seed tracks: {unknown}")
         raise ValueError(f"Seed tracks missing required analysis: {missing_analysis}")
 
-    def _auto_seed_ids(self, candidates: list[_Candidate], requested_count: int) -> list[int]:
+    def _auto_seed_ids(
+        self,
+        candidates: list[_Candidate],
+        requested_count: int,
+        *,
+        sonara_centrality: dict[int, float] | None = None,
+    ) -> list[int]:
         count = max(3, min(5, int(requested_count)))
         if len(candidates) < count:
             raise ValueError(f"Auto seed mode requires at least {count} feature-complete tracks")
         ranges = _numeric_ranges(candidates)
-        global_context = _Context(seeds=candidates, ranges=ranges)
+        if sonara_centrality is None:
+            sonara_centrality = _global_sonara_centrality_scores(candidates, ranges)
+        embedding_centroids = _embedding_centroids(candidates)
         centrality = [
-            (candidate, _sonara_similarity(candidate, global_context)[0])
+            (candidate, _auto_anchor_centrality(candidate, sonara_centrality, embedding_centroids))
             for candidate in candidates
         ]
         centrality.sort(key=lambda item: (-item[1], item[0].track.artist or "", item[0].track.title or "", item[0].track.path))
@@ -210,7 +366,7 @@ class SmartSetBuilder:
         for candidate, _score in centrality:
             if candidate.duplicate_key in seen_keys:
                 continue
-            if seeds and max(_combined_similarity(candidate, seed, ranges) for seed in seeds) > 0.995:
+            if seeds and max(_fast_diversity_similarity(candidate, seed, ranges) for seed in seeds) > 0.995:
                 continue
             seeds.append(candidate)
             seen_keys.add(candidate.duplicate_key)
@@ -290,7 +446,8 @@ class SmartSetBuilder:
             previous = seed
             seen_duplicates.add(seed.duplicate_key)
 
-        remaining = [item for item in scored_candidates if item.candidate.duplicate_key not in seen_duplicates]
+        scored_pool = _sequence_candidate_pool(scored_candidates, config.limit, len(seeds))
+        remaining = [item for item in scored_pool if item.candidate.duplicate_key not in seen_duplicates]
         selected_sequence = list(seeds)
         target_count = max(config.limit, len(seeds) + len(remaining))
         while remaining and len(items) < config.limit:
@@ -352,6 +509,19 @@ class SmartSetBuilder:
 class _Context:
     seeds: list[_Candidate]
     ranges: dict[str, tuple[float, float]]
+    embedding_centroids: dict[str, np.ndarray] = field(default_factory=dict)
+    sonara_centroid: dict[str, float] = field(default_factory=dict)
+    chord_context: set[str] = field(default_factory=set)
+
+
+def _build_context(seeds: list[_Candidate], ranges: dict[str, tuple[float, float]]) -> _Context:
+    return _Context(
+        seeds=seeds,
+        ranges=ranges,
+        embedding_centroids=_embedding_centroids(seeds),
+        sonara_centroid=_sonara_centroid(seeds, ranges),
+        chord_context=_text_context(seeds, "predominant_chord"),
+    )
 
 
 def _clean_config(config: SetBuilderConfig) -> SetBuilderConfig:
@@ -407,6 +577,180 @@ def _manual_seed_ids(seed_track_ids: list[int]) -> list[int]:
     return seed_ids
 
 
+def _uses_classifier_config(config: SetBuilderConfig) -> bool:
+    return bool(config.classifier_targets or config.classifier_avoid or config.classifier_curves)
+
+
+def _ordered_unique(values: list[int]) -> list[int]:
+    return list(dict.fromkeys(int(value) for value in values))
+
+
+def _chunks(values: list[int], size: int):
+    for index in range(0, len(values), size):
+        yield values[index : index + size]
+
+
+def _json_path_plan(fields) -> tuple[tuple[str, ...], dict[str, slice]]:
+    paths: list[str] = []
+    slices: dict[str, slice] = {}
+    for field in fields:
+        start = len(paths)
+        parts = str(field).split(".")
+        if len(parts) == 3 and parts[1] == "summary":
+            paths.append(f"$.sonara_features.{parts[0]}.summary.{parts[2]}")
+        else:
+            paths.extend((f"$.sonara_features.{field}.value", f"$.sonara_features.{field}"))
+        slices[str(field)] = slice(start, len(paths))
+    return tuple(paths), slices
+
+
+def _json_extract_sql(column: str, paths) -> str:
+    quoted = ", ".join(f"'{path}'" for path in paths)
+    return f"json_extract({column}, {quoted})"
+
+
+def _json_array(raw: object) -> list[object]:
+    if raw is None:
+        return []
+    try:
+        parsed = json.loads(str(raw))
+    except (TypeError, json.JSONDecodeError):
+        return []
+    return parsed if isinstance(parsed, list) else [parsed]
+
+
+def _json_object(raw: object) -> dict[str, object]:
+    if raw is None:
+        return {}
+    try:
+        parsed = json.loads(str(raw))
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _first_present(values: list[object], value_slice: slice) -> object | None:
+    for value in values[value_slice]:
+        if value is not None:
+            return value
+    return None
+
+
+def _values_from_json_row(raw: object, slices: dict[str, slice]) -> dict[str, float]:
+    row_values = _json_array(raw)
+    values: dict[str, float] = {}
+    for key, value_slice in slices.items():
+        number = optional_float(unwrap_feature_value(_first_present(row_values, value_slice)))
+        if number is not None:
+            values[key] = number
+    return values
+
+
+def _text_and_feature_values_from_json_row(raw: object, slices: dict[str, slice]) -> tuple[dict[str, str], dict[str, object]]:
+    row_values = _json_array(raw)
+    text_values: dict[str, str] = {}
+    sonara_features: dict[str, object] = {}
+    for key, value_slice in slices.items():
+        text = string_or_none(unwrap_feature_value(_first_present(row_values, value_slice)))
+        if not text:
+            continue
+        if key == "predominant_chord":
+            text_values[key] = text.casefold()
+        elif key == "key":
+            sonara_features[key] = text
+    return text_values, sonara_features
+
+
+def _metadata_from_json_row(raw: object) -> dict[str, object]:
+    row_values = _json_array(raw)
+    metadata: dict[str, object] = {}
+    bpm = _first_present(row_values, slice(0, 2))
+    key = _first_present(row_values, slice(2, 4))
+    initial_key = _first_present(row_values, slice(4, 6))
+    if bpm is not None:
+        metadata["bpm"] = bpm
+    if key is not None:
+        metadata["key"] = key
+    if initial_key is not None:
+        metadata["initialkey"] = initial_key
+    return metadata
+
+
+def _classifier_scores_from_json(raw: object) -> dict[str, dict[str, object]] | None:
+    if raw is None:
+        return None
+    try:
+        parsed = json.loads(str(raw))
+    except (TypeError, json.JSONDecodeError):
+        return None
+    return parsed if isinstance(parsed, dict) and parsed else None
+
+
+def _prefilter_light_candidates(
+    candidates: list[_LightCandidate],
+    seed_candidates: list[_LightCandidate],
+    config: SetBuilderConfig,
+) -> tuple[list[_LightCandidate], dict[int, float]]:
+    if not candidates:
+        return [], {}
+
+    seed_ids = {candidate.track.id for candidate in seed_candidates}
+    available = [candidate for candidate in candidates if candidate.track.id not in seed_ids]
+    if not available:
+        return [], {}
+
+    pool_size = min(
+        len(available),
+        max(PREFILTER_POOL_MIN, max(config.limit, config.auto_seed_count) * PREFILTER_POOL_FACTOR),
+        PREFILTER_POOL_MAX,
+    )
+    ranges = _numeric_ranges(candidates)
+    sonara_centrality: dict[int, float] = {}
+
+    if seed_candidates:
+        seed_centroid = _sonara_centroid(seed_candidates, ranges)
+        chord_context = _text_context(seed_candidates, "predominant_chord")
+        seed_scores = _sonara_similarity_scores_to_centroid(available, ranges, seed_centroid, chord_context)
+
+        def sonara_score(candidate: _LightCandidate) -> float:
+            return seed_scores.get(candidate.track.id, 0.0)
+
+    else:
+        sonara_centrality = _global_sonara_centrality_scores(candidates, ranges)
+
+        def sonara_score(candidate: _LightCandidate) -> float:
+            return sonara_centrality.get(candidate.track.id, 0.0)
+
+    scored: list[tuple[float, _LightCandidate]] = []
+    for candidate in available:
+        target, avoid, confidence = _classifier_modifiers(candidate.track, config)
+        score = sonara_score(candidate)
+        score += target * 0.08 + avoid * 0.08
+        if config.classifier_targets or config.classifier_avoid or config.classifier_curves:
+            score += (confidence - 1.0) * 0.03
+        scored.append((score, candidate))
+
+    scored.sort(
+        key=lambda item: (
+            -item[0],
+            item[1].track.artist or "",
+            item[1].track.title or "",
+            item[1].track.path,
+        )
+    )
+
+    selected: list[_LightCandidate] = []
+    seen_duplicates: set[str] = set()
+    for _score, candidate in scored:
+        if candidate.duplicate_key in seen_duplicates:
+            continue
+        selected.append(candidate)
+        seen_duplicates.add(candidate.duplicate_key)
+        if len(selected) >= pool_size:
+            break
+    return selected, sonara_centrality
+
+
 def _numeric_ranges(candidates: list[_Candidate]) -> dict[str, tuple[float, float]]:
     observed: dict[str, list[float]] = {}
     for candidate in candidates:
@@ -446,6 +790,9 @@ def _feature_number(features: dict[str, object], path: str) -> float | None:
 
 
 def _embedding_similarity(candidate: _Candidate, context: _Context, key: str) -> float:
+    cached = context.embedding_centroids.get(key)
+    if cached is not None:
+        return _bounded(float(candidate.vectors[key] @ cached))
     centroid = np.mean([seed.vectors[key] for seed in context.seeds], axis=0)
     norm = float(np.linalg.norm(centroid))
     if norm <= 0:
@@ -455,19 +802,101 @@ def _embedding_similarity(candidate: _Candidate, context: _Context, key: str) ->
 
 
 def _sonara_similarity(candidate: _Candidate, context: _Context) -> tuple[float | None, dict[str, float]]:
-    seed_centroid = _sonara_centroid(context.seeds, context.ranges)
+    seed_centroid = context.sonara_centroid or _sonara_centroid(context.seeds, context.ranges)
+    chord_context = context.chord_context or _text_context(context.seeds, "predominant_chord")
+    return _sonara_similarity_to_centroid(candidate, context.ranges, seed_centroid, chord_context)
+
+
+def _global_sonara_centrality_scores(candidates: list[_Candidate], ranges: dict[str, tuple[float, float]]) -> dict[int, float]:
+    seed_centroid = _sonara_centroid(candidates, ranges)
+    chord_context = _text_context(candidates, "predominant_chord")
+    return _sonara_similarity_scores_to_centroid(candidates, ranges, seed_centroid, chord_context)
+
+
+def _sonara_similarity_scores_to_centroid(
+    candidates: list[_Candidate],
+    ranges: dict[str, tuple[float, float]],
+    seed_centroid: dict[str, float],
+    chord_context: set[str],
+) -> dict[int, float]:
+    if not candidates:
+        return {}
+    group_score_sums = {
+        group: np.zeros(len(candidates), dtype=np.float32)
+        for group in SONARA_GROUP_WEIGHTS
+    }
+    group_weight_sums = {
+        group: np.zeros(len(candidates), dtype=np.float32)
+        for group in SONARA_GROUP_WEIGHTS
+    }
+    for key, centroid in seed_centroid.items():
+        value_range = ranges.get(key)
+        if value_range is None:
+            continue
+        lower, upper = value_range
+        raw_values = np.array(
+            [candidate.sonara_values.get(key, np.nan) for candidate in candidates],
+            dtype=np.float32,
+        )
+        mask = np.isfinite(raw_values)
+        if not np.any(mask):
+            continue
+        if upper == lower:
+            normalized = np.full(len(candidates), np.nan, dtype=np.float32)
+            normalized[mask] = 0.5
+        else:
+            normalized = (raw_values - lower) / (upper - lower)
+        scores = np.maximum(0.0, 1.0 - np.abs(normalized - centroid))
+        scores[~mask] = 0.0
+        group, weight = SONARA_NUMERIC_FIELDS[key]
+        group_score_sums[group] += scores * weight
+        group_weight_sums[group][mask] += weight
+
+    if chord_context:
+        tonal_scores = group_score_sums["tonal"]
+        tonal_weights = group_weight_sums["tonal"]
+        for index, candidate in enumerate(candidates):
+            candidate_chord = candidate.text_values.get("predominant_chord")
+            if candidate_chord:
+                tonal_scores[index] += 0.35 if candidate_chord in chord_context else 0.0
+                tonal_weights[index] += 0.35
+
+    weighted_total = np.zeros(len(candidates), dtype=np.float32)
+    weight_total = np.zeros(len(candidates), dtype=np.float32)
+    for group, group_weight in SONARA_GROUP_WEIGHTS.items():
+        group_weights = group_weight_sums[group]
+        mask = group_weights > 0
+        if not np.any(mask):
+            continue
+        group_scores = np.zeros(len(candidates), dtype=np.float32)
+        group_scores[mask] = group_score_sums[group][mask] / group_weights[mask]
+        weighted_total[mask] += group_scores[mask] * group_weight
+        weight_total[mask] += group_weight
+
+    scores: dict[int, float] = {}
+    mask = weight_total > 0
+    for index, candidate in enumerate(candidates):
+        scores[candidate.track.id] = _bounded(float(weighted_total[index] / weight_total[index])) if mask[index] else 0.0
+    return scores
+
+
+def _sonara_similarity_to_centroid(
+    candidate: _Candidate,
+    ranges: dict[str, tuple[float, float]],
+    seed_centroid: dict[str, float],
+    chord_context: set[str],
+) -> tuple[float | None, dict[str, float]]:
     group_scores: dict[str, list[tuple[float, float]]] = {group: [] for group in SONARA_GROUP_WEIGHTS}
     for key, value in candidate.sonara_values.items():
-        if key not in seed_centroid or key not in context.ranges:
+        if key not in seed_centroid or key not in ranges:
             continue
-        normalized = _normalize(value, context.ranges[key])
+        normalized = _normalize(value, ranges[key])
         if normalized is None:
             continue
         group, weight = SONARA_NUMERIC_FIELDS[key]
         score = max(0.0, 1.0 - abs(normalized - seed_centroid[key]))
         group_scores[group].append((score, weight))
 
-    chord_context = _text_context(context.seeds, "predominant_chord")
     candidate_chord = candidate.text_values.get("predominant_chord")
     if chord_context and candidate_chord:
         group_scores["tonal"].append((1.0 if candidate_chord in chord_context else 0.0, 0.35))
@@ -511,6 +940,30 @@ def _text_context(seeds: list[_Candidate], key: str) -> set[str]:
     return {value for value, count in counts.items() if count == most_common_count}
 
 
+def _embedding_centroids(candidates: list[_Candidate]) -> dict[str, np.ndarray]:
+    centroids: dict[str, np.ndarray] = {}
+    for key in REQUIRED_EMBEDDINGS:
+        centroid = np.mean([candidate.vectors[key] for candidate in candidates], axis=0)
+        norm = float(np.linalg.norm(centroid))
+        if norm > 0:
+            centroids[key] = centroid / norm
+    return centroids
+
+
+def _auto_anchor_centrality(
+    candidate: _Candidate,
+    sonara_centrality: dict[int, float],
+    embedding_centroids: dict[str, np.ndarray],
+) -> float:
+    embedding_scores = [
+        _bounded(float(candidate.vectors[key] @ centroid))
+        for key, centroid in embedding_centroids.items()
+    ]
+    embedding_score = float(np.mean(embedding_scores)) if embedding_scores else 0.0
+    sonara_score = sonara_centrality.get(candidate.track.id, 0.0)
+    return _bounded(embedding_score * 0.7 + sonara_score * 0.3)
+
+
 def _normalize(value: float, value_range: tuple[float, float]) -> float | None:
     lower, upper = value_range
     if upper == lower:
@@ -519,6 +972,30 @@ def _normalize(value: float, value_range: tuple[float, float]) -> float | None:
     if not np.isfinite(normalized):
         return None
     return float(normalized)
+
+
+def _sequence_candidate_pool(scored_candidates: list[_ScoredCandidate], limit: int, seed_count: int) -> list[_ScoredCandidate]:
+    remaining_slots = max(0, int(limit) - int(seed_count))
+    if remaining_slots <= 0 or not scored_candidates:
+        return []
+    pool_size = min(
+        len(scored_candidates),
+        max(SEQUENCE_POOL_MIN, remaining_slots * SEQUENCE_POOL_FACTOR),
+        SEQUENCE_POOL_MAX,
+    )
+    if len(scored_candidates) <= pool_size:
+        return scored_candidates
+    return sorted(
+        scored_candidates,
+        key=lambda item: (
+            item.base_score,
+            item.breakdown.get("consensus", 0.0),
+            item.candidate.track.artist or "",
+            item.candidate.track.title or "",
+            item.candidate.track.path,
+        ),
+        reverse=True,
+    )[:pool_size]
 
 
 def _classifier_modifiers(track: Track, config: SetBuilderConfig) -> tuple[float, float, float]:
@@ -695,8 +1172,26 @@ def _combined_similarity(candidate: _Candidate, seed: _Candidate, ranges: dict[s
 def _diversity_score(candidate: _Candidate, selected: list[_Candidate], ranges: dict[str, tuple[float, float]]) -> float:
     if not selected:
         return 0.5
-    nearest = max(_combined_similarity(candidate, item, ranges) for item in selected)
+    nearest = max(_fast_diversity_similarity(candidate, item, ranges) for item in selected)
     return _bounded(1.0 - nearest)
+
+
+def _fast_diversity_similarity(candidate: _Candidate, selected: _Candidate, ranges: dict[str, tuple[float, float]]) -> float:
+    embedding_score = float(np.mean([_bounded(float(candidate.vectors[key] @ selected.vectors[key])) for key in REQUIRED_EMBEDDINGS]))
+    sonara_scores: list[float] = []
+    for key in QUICK_DIVERSITY_FIELDS:
+        value = candidate.sonara_values.get(key)
+        selected_value = selected.sonara_values.get(key)
+        value_range = ranges.get(key)
+        if value is None or selected_value is None or value_range is None:
+            continue
+        normalized = _normalize(value, value_range)
+        selected_normalized = _normalize(selected_value, value_range)
+        if normalized is None or selected_normalized is None:
+            continue
+        sonara_scores.append(max(0.0, 1.0 - abs(normalized - selected_normalized)))
+    sonara_score = float(np.mean(sonara_scores)) if sonara_scores else 0.5
+    return _bounded(embedding_score * 0.8 + sonara_score * 0.2)
 
 
 def _reason(item: _ScoredCandidate, config: SetBuilderConfig, transition: dict[str, object], classifier_curve: float) -> str:

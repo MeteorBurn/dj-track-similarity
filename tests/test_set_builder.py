@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from dj_track_similarity.database import LibraryDatabase
+import dj_track_similarity.set_builder as set_builder_module
 from dj_track_similarity.set_builder import SetBuilderConfig, SmartSetBuilder
 
 
@@ -129,6 +130,138 @@ def test_auto_mode_is_deterministic_and_excludes_feature_incomplete_tracks(tmp_p
     assert incomplete_id not in [item["track"].id for item in first["items"]]
     assert set(first["seed_track_ids"]).issubset(ids)
     assert len(first["seed_track_ids"]) == 3
+
+
+def test_auto_mode_computes_global_sonara_centrality_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    ids = [
+        _complete_track(
+            db,
+            tmp_path,
+            f"complete-{index}.wav",
+            features=_features(energy=0.35 + index / 100, onset_density=0.25 + index / 100),
+            vectors={"mert": [1, index / 20], "maest": [1, index / 20], "clap": [1, index / 20]},
+        )
+        for index in range(8)
+    ]
+    original_sonara_centroid = set_builder_module._sonara_centroid
+    global_centroid_calls = 0
+
+    def counting_sonara_centroid(seeds, ranges):
+        nonlocal global_centroid_calls
+        if len(seeds) == len(ids):
+            global_centroid_calls += 1
+        return original_sonara_centroid(seeds, ranges)
+
+    monkeypatch.setattr(set_builder_module, "_sonara_centroid", counting_sonara_centroid)
+
+    SmartSetBuilder(db).generate(SetBuilderConfig(seed_mode="auto", auto_seed_count=3, limit=3))
+
+    assert global_centroid_calls == 1
+
+
+def test_ordering_uses_bounded_candidate_pool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed_id = _complete_track(db, tmp_path, "seed.wav", vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]})
+    for index in range(80):
+        _complete_track(
+            db,
+            tmp_path,
+            f"candidate-{index:02d}.wav",
+            features=_features(energy=0.25 + index / 200, onset_density=0.20 + index / 300),
+            vectors={"mert": [1, index / 100], "maest": [1, index / 100], "clap": [1, index / 100]},
+        )
+    monkeypatch.setattr(set_builder_module, "SEQUENCE_POOL_MIN", 12, raising=False)
+    monkeypatch.setattr(set_builder_module, "SEQUENCE_POOL_FACTOR", 2, raising=False)
+    monkeypatch.setattr(set_builder_module, "SEQUENCE_POOL_MAX", 12, raising=False)
+    original_sequence_score = SmartSetBuilder._sequence_score
+    sequence_score_calls = 0
+
+    def counting_sequence_score(self, *args, **kwargs):
+        nonlocal sequence_score_calls
+        sequence_score_calls += 1
+        return original_sequence_score(self, *args, **kwargs)
+
+    monkeypatch.setattr(SmartSetBuilder, "_sequence_score", counting_sequence_score)
+
+    result = SmartSetBuilder(db).generate(SetBuilderConfig(seed_mode="manual", seed_track_ids=[seed_id], limit=6))
+
+    assert len(result["items"]) == 6
+    assert sequence_score_calls <= 84
+
+
+def test_ordering_diversity_does_not_recompute_full_sonara_similarity(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed_id = _complete_track(db, tmp_path, "seed.wav", vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]})
+    candidate_count = 10
+    for index in range(candidate_count):
+        _complete_track(
+            db,
+            tmp_path,
+            f"candidate-{index:02d}.wav",
+            features=_features(energy=0.3 + index / 100, onset_density=0.2 + index / 100),
+            vectors={"mert": [1, index / 50], "maest": [1, index / 50], "clap": [1, index / 50]},
+        )
+    original_sonara_similarity = set_builder_module._sonara_similarity
+    sonara_similarity_calls = 0
+
+    def counting_sonara_similarity(*args, **kwargs):
+        nonlocal sonara_similarity_calls
+        sonara_similarity_calls += 1
+        return original_sonara_similarity(*args, **kwargs)
+
+    monkeypatch.setattr(set_builder_module, "_sonara_similarity", counting_sonara_similarity)
+
+    SmartSetBuilder(db).generate(SetBuilderConfig(seed_mode="manual", seed_track_ids=[seed_id], limit=5))
+
+    assert sonara_similarity_calls == candidate_count
+
+
+def test_set_builder_prefilters_before_loading_embedding_vectors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed_id = _complete_track(db, tmp_path, "seed.wav", vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]})
+    for index in range(30):
+        _complete_track(
+            db,
+            tmp_path,
+            f"candidate-{index:02d}.wav",
+            features=_features(energy=0.3 + index / 100, onset_density=0.2 + index / 100),
+            vectors={"mert": [1, index / 50], "maest": [1, index / 50], "clap": [1, index / 50]},
+        )
+    monkeypatch.setattr(set_builder_module, "PREFILTER_POOL_MIN", 8, raising=False)
+    monkeypatch.setattr(set_builder_module, "PREFILTER_POOL_FACTOR", 2, raising=False)
+    monkeypatch.setattr(set_builder_module, "PREFILTER_POOL_MAX", 8, raising=False)
+
+    def fail_full_embedding_matrix(_embedding_key: str):
+        raise AssertionError("set builder must not load the full embedding matrix")
+
+    monkeypatch.setattr(db, "load_embedding_matrix", fail_full_embedding_matrix)
+
+    result = SmartSetBuilder(db).generate(SetBuilderConfig(seed_mode="manual", seed_track_ids=[seed_id], limit=5))
+
+    assert len(result["items"]) == 5
+
+
+def test_set_builder_loads_light_candidates_without_full_sonara_rows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed_id = _complete_track(db, tmp_path, "seed.wav", vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]})
+    for index in range(12):
+        _complete_track(
+            db,
+            tmp_path,
+            f"candidate-{index:02d}.wav",
+            features=_features(energy=0.25 + index / 100, onset_density=0.18 + index / 100),
+            vectors={"mert": [1, index / 40], "maest": [1, index / 40], "clap": [1, index / 40]},
+        )
+
+    def fail_full_sonara_rows():
+        raise AssertionError("set builder must not load full SONARA feature rows")
+
+    monkeypatch.setattr(db, "load_sonara_feature_rows", fail_full_sonara_rows)
+
+    result = SmartSetBuilder(db).generate(SetBuilderConfig(seed_mode="manual", seed_track_ids=[seed_id], limit=5))
+
+    assert len(result["items"]) == 5
 
 
 def test_balanced_mode_prefers_soft_bpm_key_transition_when_scores_are_close(tmp_path: Path) -> None:

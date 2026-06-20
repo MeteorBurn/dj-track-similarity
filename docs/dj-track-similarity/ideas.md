@@ -7,10 +7,10 @@ exploratory.
 ## Smart Set Builder From Seed Tracks
 
 The first Smart Set Builder version adds a dedicated SET tab that generates an
-ordered DJ set preview from either `1-5` manual seed tracks or `3-5` auto
-anchors chosen by the backend. The goal is not just "more similar tracks"; it
-acts as a curator over existing analysis models and produces a sequence for
-listening, digging, or set preparation.
+ordered DJ set preview from either `1-5` manual seed tracks or `1-5` random
+but related auto anchors chosen by the backend on each generation. The goal is
+not just "more similar tracks"; it acts as a curator over existing analysis
+models and produces a sequence for listening, digging, or set preparation.
 
 The first version works without training a new model:
 
@@ -38,13 +38,19 @@ Suggested modes:
 
 Implemented controls:
 
-- manual or auto seed source;
-- randomized auto anchors, with optional `random_seed` only for reproducing a
-  specific run;
-- target length, defaulting to 24;
-- diversity amount;
-- energy curve such as warmup, balanced, peak, or wave;
-- classifier targets, avoid rules, and start/end classifier curves.
+- `Seed source`: manual selected seeds or auto random related anchors;
+- `Set mode`: `Similar crate - close`, `Weird adjacent - odd`,
+  `Balanced set - flow`, or `Discovery - wide`;
+- `Track limit`: target length, defaulting to 24;
+- `Auto anchors`: `1-5` anchors used only in auto mode;
+- `Energy curve`: `Balanced - steady`, `Warmup - build`, `Peak - intense`, or
+  `Wave - rise/fall`;
+- `Diversity`: how far the list may widen from the anchor zone while still
+  following the selected mode;
+- classifier `Target boost`, `Avoid cut`, `Curve start`, and `Curve end`
+  sliders;
+- `Reset sliders`, which resets only diversity and classifier sliders;
+- optional API-only `random_seed` for reproducing a specific randomized run.
 
 The generated result explains why each track was selected, for example
 `seed_anchor`, `similar_to_seed`, `bridge`, `weird_adjacent`, `discovery`,

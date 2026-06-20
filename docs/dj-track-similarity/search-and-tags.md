@@ -65,12 +65,31 @@ SET can run from:
 
 The four modes are:
 
-- `similar_crate`: stay close to the seed or anchor zone.
-- `weird_adjacent`: keep relevance but allow stranger neighboring material.
-- `balanced_set`: prefer bridge tracks, softer transitions, and less repeated
-  adjacent texture.
-- `discovery`: reserve more room for lower-confidence candidates that may be
-  worth checking.
+- `similar_crate` (`Similar crate - close`): stay close to the seed or anchor
+  zone.
+- `weird_adjacent` (`Weird adjacent - odd`): keep relevance but allow stranger
+  neighboring material.
+- `balanced_set` (`Balanced set - flow`): prefer bridge tracks, softer
+  transitions, and less repeated adjacent texture.
+- `discovery` (`Discovery - wide`): reserve more room for lower-confidence
+  candidates that may be worth checking.
+
+The SET controls are deliberately explicit:
+
+- `Seed source`: `Manual - selected` keeps the selected seed chips fixed;
+  `Auto - random related` samples related anchors on every run.
+- `Set mode`: chooses the scoring personality listed above.
+- `Track limit`: preview length, default `24`; seed or anchor positions count
+  toward this number.
+- `Auto anchors`: number of random related anchors in auto mode, `1-5`.
+- `Energy curve`: `Balanced - steady`, `Warmup - build`, `Peak - intense`, or
+  `Wave - rise/fall`.
+- `Diversity`: `0.00-1.00`; lower values stay closer to anchors, higher values
+  widen the set while preserving the mode constraints.
+- Classifier sliders: `Target boost`, `Avoid cut`, `Curve start`, and
+  `Curve end` use stored promoted-classifier scores as optional bias signals.
+- `Reset sliders`: resets only SET diversity and classifier sliders; seed
+  source, mode, limit, anchor count, and energy curve stay unchanged.
 
 The builder requires stored SONARA features plus MERT, MAEST, and CLAP audio
 embeddings. Its SONARA pass uses a broad set of saved features: rhythm/tempo,

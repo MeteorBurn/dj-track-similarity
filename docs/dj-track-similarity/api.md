@@ -177,6 +177,8 @@ Request fields:
 - `seed_mode`: `manual` or `auto`. Manual mode requires `1-5`
   `seed_track_ids`; auto mode samples `1-5` related anchors from
   feature-complete tracks.
+- `seed_track_ids`: manual seed track IDs. Ignored in auto mode.
+- `auto_seed_count`: number of related anchors to sample in auto mode, `1-5`.
 - `mode`: `similar_crate`, `weird_adjacent`, `balanced_set`, or `discovery`.
 - `limit`: preview length, default `24`.
 - `diversity`: `0.0-1.0`, used during ordering.

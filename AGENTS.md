@@ -148,9 +148,26 @@ branches, or history are available.
   unavailable.
 - In the UI, `Analyze limit = 0` means whole library. Positive limits count
   missing results for the selected analysis family.
-- Search UI stays split into SONARA, MERT, and CLAP tabs. SONARA sends custom
-  mixer/modifiers to `/api/search/sonara`; MERT seed search uses `/api/search`;
-  CLAP text search uses `/api/search/text` and requires `clap` embeddings.
+- Search UI stays split into SET, SONARA, MERT, CLAP, and CLASS tabs. SET calls
+  `/api/set-builder/generate` and must stay a read-only preview generator:
+  manual mode uses `1-5` selected seed tracks, auto mode samples `1-5` random
+  but related feature-complete anchors on each generation, and the preview is
+  added to the current set only through an explicit user action. SONARA sends
+  custom mixer/modifiers to `/api/search/sonara`; MERT seed search uses
+  `/api/search`; CLAP text search uses `/api/search/text` and requires `clap`
+  embeddings.
+- Smart Set Builder requires stored MERT, MAEST, and CLAP audio embeddings plus
+  stored SONARA features. It may use MAEST embeddings, but must not use MAEST
+  genre labels for track selection. BPM/key are soft transition-ordering
+  signals: prefer file tags first, then SONARA fallback. Promoted classifiers
+  are optional stored-score modifiers only; missing classifier scores stay
+  neutral. Keep the artist spacing guard: no adjacent tracks by the same known
+  artist and at most three appearances per known artist in one preview.
+- SET UI controls should stay explicitly labelled with hover help for purpose,
+  type/format, and range. Current user-facing controls include `Seed source`,
+  `Set mode`, `Track limit`, `Auto anchors`, `Energy curve`, `Diversity`,
+  classifier `Target boost`, `Avoid cut`, `Curve start`, `Curve end`, and
+  `Reset sliders`.
 - SONARA search should read analyzed tracks through
   `LibraryDatabase.load_sonara_feature_rows()` so repeated searches reuse parsed
   feature rows. Keep this cache behavior-preserving: do not change scoring math,

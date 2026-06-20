@@ -118,6 +118,7 @@ CLI-команду `dj-sim relocate-library` или прямым вызовом 
 | `POST` | `/api/search` | Поиск в пространстве embedding MERT. |
 | `POST` | `/api/search/sonara` | Поиск по признакам Sonara. |
 | `POST` | `/api/search/text` | Поиск по аудиовекторам CLAP из текста. |
+| `POST` | `/api/set-builder/generate` | Сгенерировать упорядоченный preview Smart Set Builder из manual seeds или auto anchors. |
 
 Используйте `/api/analysis/jobs` перед эндпоинтами поиска, если библиотека ещё
 не обработана. Request body принимает `models`, `limit`, `device`, `top_k`,
@@ -152,6 +153,47 @@ analysis control block, что и аудиомодели, через `CLASSIFIER
 
 Default result limit для `/api/search`, `/api/search/sonara` и
 `/api/search/text` равен `10`, если request не передаёт `limit`.
+
+`POST /api/set-builder/generate` — read-only endpoint для preview сета. Он не
+запускает audio analysis, не считает classifiers, не сохраняет sessions, не
+пишет теги и не меняет аудиофайлы. Он использует только сохранённые MERT,
+MAEST и CLAP audio embeddings, сохранённые SONARA playlist features и
+необязательные сохранённые promoted-classifier scores. MAEST genre labels не
+участвуют в выборе кандидатов.
+
+Поля запроса:
+
+- `seed_mode`: `manual` или `auto`. Manual mode требует `1-5`
+  `seed_track_ids`; auto mode выбирает `1-5` связанных anchors из
+  feature-complete tracks.
+- `seed_track_ids`: ID manual seed-треков. В auto mode игнорируется.
+- `auto_seed_count`: сколько связанных anchors выбрать в auto mode, `1-5`.
+- `mode`: `similar_crate`, `weird_adjacent`, `balanced_set` или `discovery`.
+- `limit`: длина preview, по умолчанию `24`.
+- `diversity`: `0.0-1.0`, используется при упорядочивании.
+- `energy_curve`: `warmup`, `balanced`, `peak` или `wave`.
+- `classifier_targets`, `classifier_avoid`: карты от promoted
+  `classifier_key` к threshold `0.0-1.0`.
+- `classifier_curves`: карты от promoted `classifier_key` к `{start, end}`
+  целевым значениям intensity.
+- `random_seed`: необязательное целое число для воспроизведения одной
+  randomized generation. Не передавайте его, если нужен свежий случайный
+  auto/ordering pass.
+
+Ответ включает `seed_track_ids`, счётчики покрытия признаков и ordered `items`.
+Каждый item содержит `track`, `reason`, `score`, `score_breakdown`,
+`sonara_groups`, `classifier_scores` и transition metadata. Seeds или auto
+anchors входят в возвращённую последовательность с `reason=seed_anchor`.
+
+Треки без обязательных MERT, MAEST, CLAP или SONARA inputs исключаются из
+генерации кандидатов. Отсутствующие classifier scores допустимы: они дают
+нейтральный вклад классификатора и более низкую classifier confidence в
+объяснении score. BPM/key ordering мягкий: сначала используются file tags, при
+их отсутствии — SONARA fallback. Ordered preview также не ставит подряд треки
+одного известного исполнителя и ограничивает одного известного исполнителя
+тремя позициями в preview. Auto anchors и остальные позиции семплируются из
+mode-scored pools, поэтому повторные вызовы без `random_seed` могут возвращать
+разные, но связанные сеты.
 
 Область сброса по семействам:
 

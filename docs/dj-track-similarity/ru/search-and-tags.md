@@ -13,6 +13,7 @@
 
 | Вкладка | Что делает | Когда использовать |
 | --- | --- | --- |
+| SET | Генерирует упорядоченный preview Smart Set Builder из manual seeds или auto anchors. | Нужна DJ-ориентированная последовательность, а не одиночная выдача одной модели. |
 | SONARA | Ищет по объяснимым признакам плейлиста и пользовательским mixer weights. | Нужны кандидаты для DJ-перехода и контроль над rhythm, tempo, timbre, dynamics или harmonic balance. |
 | MERT | Ищет от выбранных seed-треков в embedding-пространстве MERT. | Нужна похожесть по аудиомодели без настройки весов признаков. |
 | CLAP | Ищет по embedding-ам аудио CLAP на основе текстового запроса. | Вы знаете нужное звучание или настроение, но seed-трека нет. |
@@ -50,6 +51,58 @@ metadata продвинутых моделей `models/classifiers/*/model.json`
 аудиомоделей. Строки analysis model показывают coverage counts для SONARA,
 MAEST, MERT, CLAP и полного покрытия promoted-classifier score; верхний header
 оставляет только общее количество треков.
+
+### SET / Smart Set Builder
+
+Вкладка SET вызывает `/api/set-builder/generate` и показывает упорядоченный
+preview. Он не заменяет и не дописывает текущий сет автоматически: треки
+попадают в сет только после явного действия `Add preview`.
+
+SET может работать от двух источников:
+
+- manual seeds: `1-5` выбранных seed-треков;
+- auto anchors: `1-5` случайных, но связанных feature-complete anchors,
+  которые backend пересэмпливает при каждом запуске.
+
+Режимы SET:
+
+- `similar_crate` (`Similar crate - close`): держаться близко к seed/anchor
+  зоне.
+- `weird_adjacent` (`Weird adjacent - odd`): сохранять связь, но разрешать
+  более странный соседний материал.
+- `balanced_set` (`Balanced set - flow`): предпочитать bridge-треки, мягкие
+  переходы и меньше повторения соседней фактуры.
+- `discovery` (`Discovery - wide`): оставлять больше места для рискованных
+  кандидатов, которые стоит проверить вручную.
+
+Основные настройки SET:
+
+- `Seed source`: `Manual - selected` фиксирует выбранные seed chips;
+  `Auto - random related` каждый запуск выбирает новые связанные anchors.
+- `Set mode`: выбирает характер scoring из списка режимов выше.
+- `Track limit`: длина preview, по умолчанию `24`; seed/anchor позиции входят
+  в это число.
+- `Auto anchors`: количество random related anchors в auto mode, `1-5`.
+- `Energy curve`: `Balanced - steady`, `Warmup - build`, `Peak - intense` или
+  `Wave - rise/fall`.
+- `Diversity`: `0.00-1.00`; ниже = ближе к anchors, выше = шире подборка при
+  сохранении правил режима.
+- Ползунки классификаторов: `Target boost`, `Avoid cut`, `Curve start` и
+  `Curve end` используют сохранённые promoted-classifier scores как
+  необязательные bias-сигналы.
+- `Reset sliders`: сбрасывает только `Diversity` и classifier sliders; seed
+  source, mode, limit, auto anchors и energy curve не меняются.
+
+Builder требует сохранённые SONARA features и MERT, MAEST, CLAP audio
+embeddings. Он использует MAEST embeddings, но не использует MAEST genre labels
+для выбора треков. BPM/key влияют только как мягкий сигнал порядка переходов:
+сначала берутся file tags, затем SONARA fallback. Classifier controls читают
+только сохранённые строки `track_classifier_scores`; SET не запускает scoring
+классификаторов.
+
+Сгенерированная последовательность также соблюдает artist guard: известный
+исполнитель не ставится подряд, а один известный исполнитель может появиться в
+preview не больше трёх раз.
 
 ### Поиск SONARA
 

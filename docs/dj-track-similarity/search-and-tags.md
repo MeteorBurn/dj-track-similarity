@@ -60,8 +60,9 @@ you use the preview action.
 
 SET can run from:
 
-- manual seeds: `1-5` selected seed tracks;
-- auto anchors: `1-5` related feature-complete tracks sampled by the backend.
+- manual seeds: `1-5` selected seed tracks distributed as waypoint anchors;
+- auto anchors: `1-5` related feature-complete waypoint anchors sampled by
+  the backend.
 
 The four modes are:
 
@@ -74,16 +75,23 @@ The four modes are:
 - `discovery` (`Discovery - wide`): reserve more room for lower-confidence
   candidates that may be worth checking.
 
-The SET controls are deliberately explicit:
+The SET controls are split into a short Basic surface and a collapsed Advanced
+surface. Basic keeps the normal generation path visible:
 
-- `Seed source`: `Manual - selected` keeps the selected seed chips fixed;
-  `Auto - random related` samples related anchors on every run.
+- `Seed source`: `Manual - selected` keeps selected seed chips and distributes
+  them as waypoint anchors; `Auto - random related` samples related waypoint
+  anchors on every run.
 - `Set mode`: chooses the scoring personality listed above.
 - `Track limit`: preview length, default `24`; seed or anchor positions count
-  toward this number.
-- `Auto anchors`: number of random related anchors in auto mode, `1-5`.
+  toward this number and are spaced across the preview.
 - `Energy curve`: `Balanced - steady`, `Warmup - build`, `Peak - intense`, or
   `Wave - rise/fall`.
+- `Auto anchors`: number of random related waypoint anchors in auto mode,
+  `1-5`; this control is shown only when `Seed source` is
+  `Auto - random related`.
+
+Advanced keeps optional bias and trajectory controls out of the default view:
+
 - `Diversity`: `0.00-1.00`; lower values stay closer to anchors, higher values
   widen the set while preserving the mode constraints.
 - `BPM mode`: `General BPM - transition` keeps only the normal soft transition
@@ -104,10 +112,12 @@ embeddings. Its SONARA pass uses a broad set of saved features: rhythm/tempo,
 dynamics, perception, tonal texture, spectral/timbre values, and saved summary
 statistics for larger arrays such as MFCC and chroma. It uses MAEST embeddings
 but does not use MAEST genre labels for choosing tracks.
-Auto mode samples from high-scoring related anchor candidates each time you
-generate. The sequence itself is also sampled from mode-scored candidates, so
-rerunning the same controls can produce a different set while still following
-the selected mode.
+Auto mode samples from high-scoring related waypoint anchor candidates each time
+you generate, then places those anchors at evenly spaced positions in the
+preview. Generated bridge, discovery, or mood-shift candidates fill the gaps
+between anchors. The sequence itself is also sampled from mode-scored
+candidates, so rerunning the same controls can produce a different set while
+still following the selected mode.
 
 BPM and key affect ordering as soft transition signals. File tags are preferred
 first, with SONARA BPM/key as fallback when tags are missing. Explicit BPM mode
@@ -115,12 +125,15 @@ adds a separate actual-BPM curve on top of that transition compatibility, so a
 set can be pushed from slow to fast or fast to slow while still obeying the
 selected SET mode. Classifier controls in the SET tab can boost target
 classifier scores, avoid unwanted scores, or shape a start-to-end mood curve.
-These controls read stored
-`track_classifier_scores`; the SET tab does not launch classifier analysis.
+When active, these controls also bias auto-anchor selection before the ordered
+preview is filled. These controls read stored `track_classifier_scores`; the SET
+tab does not launch classifier analysis.
+Classifier `Target boost` and `Avoid cut` values at `0` are treated as disabled,
+and a `Curve start` / `Curve end` pair of `0.50 -> 0.50` is treated as neutral.
 The generated sequence also applies a strict artist guard: a known artist can
 appear at most once in one SET preview. Manual seed tracks are preserved as
-`seed_anchor` items, but manual seeds with the same known artist are rejected
-instead of being separated by generated tracks.
+distributed `seed_anchor` waypoint items, but manual seeds with the same known
+artist are rejected instead of being separated by generated tracks.
 
 Each preview row exposes a reason such as `seed_anchor`, `similar_to_seed`,
 `bridge`, `weird_adjacent`, `discovery`, `classifier_match`, or `mood_shift`.

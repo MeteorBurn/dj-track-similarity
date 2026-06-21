@@ -1613,6 +1613,30 @@ h2 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.set-builder-basic-controls {
+  margin-bottom: 0;
+}
+
+.set-builder-advanced-header {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.set-builder-advanced-toggle-button {
+  min-height: 32px;
+}
+
+.set-builder-advanced-controls {
+  border-top: 1px solid var(--border-muted);
+  display: grid;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.set-builder-advanced-grid {
+  margin: 0;
+}
+
 .set-classifier-controls {
   border-color: var(--border-muted);
   padding: 8px;
@@ -1625,7 +1649,7 @@ h2 {
 .set-builder-actions {
   display: grid;
   gap: 8px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .classifier-job-status {

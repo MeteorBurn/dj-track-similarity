@@ -51,7 +51,7 @@ const setSeedModeOptions: Array<SelectOption<SetBuilderSeedMode>> = [
   {
     value: "auto",
     label: "Auto - random related",
-    title: "Auto: каждый запуск случайно выбирает 1-5 связанных feature-complete anchors и строит сет вокруг них."
+    title: "Auto: каждый запуск случайно выбирает 1-5 связанных feature-complete waypoint anchors и распределяет их по SET preview."
   }
 ];
 
@@ -221,6 +221,7 @@ export function SearchPlaylistPanel({
   handleExport: (format: "m3u" | "csv") => void;
 }) {
   const [activeSearchTab, setActiveSearchTab] = useState<"set" | "sonara" | "mert" | "clap" | "class">("sonara");
+  const [setAdvancedControlsOpen, setSetAdvancedControlsOpen] = useState(false);
   const [clapPresetMenuOpen, setClapPresetMenuOpen] = useState(false);
   const clapPresetMenuRef = useRef<HTMLDivElement>(null);
   const [playlistOffset, setPlaylistOffset] = useState(0);
@@ -275,8 +276,8 @@ export function SearchPlaylistPanel({
   const setEnergyCurveTitle = optionTitle(setEnergyCurveOptions, setEnergyCurve);
   const setBpmModeTitle = optionTitle(setBpmModeOptions, setBpmMode);
   const setBpmChangeTitle = optionTitle(setBpmChangeOptions, setBpmChange);
-  const setBuilderLimitTitle = "Сколько треков вернуть в preview. Тип: целое число 1-500. Default: 24. Seeds/anchors входят в это число.";
-  const setAutoSeedCountTitle = "Сколько случайных связанных anchors выбрать в Auto mode. Тип: целое число 1-5. Каждый запуск пересэмпливает anchors.";
+  const setBuilderLimitTitle = "Сколько треков вернуть в preview. Тип: целое число 1-500. Default: 24. Seeds/anchors входят в это число и размещаются как waypoint-позиции.";
+  const setAutoSeedCountTitle = "Сколько случайных связанных waypoint anchors выбрать в Auto mode. Тип: целое число 1-5. Каждый запуск пересэмпливает anchors.";
   const setBuilderDiversityTitle = "Насколько активно раздвигать похожие кандидаты. Тип: число 0.00-1.00. 0 = ближе к anchors, 1 = больше разнообразия при сохранении связи.";
   const setBpmStartTitle = "Start BPM для явной BPM-кривой. Тип: число 20-300 или пусто = взять из первого seed/anchor, затем из библиотеки.";
   const setBpmTargetTitle = "Target BPM для явной BPM-кривой. Тип: число 20-300 или пусто = вывести из доступного диапазона библиотеки.";
@@ -387,7 +388,7 @@ export function SearchPlaylistPanel({
         {activeSearchTab === "set" && (
           <div className="search-tab-panel" role="tabpanel">
             <div className="set-builder-controls">
-              <div className="search-filter-grid set-builder-grid">
+              <div className="search-filter-grid set-builder-grid set-builder-basic-controls">
                 <label title={setSeedModeTitle}>
                   Seed source
                   <select value={setSeedMode} title={setSeedModeTitle} onChange={(event) => setSetSeedMode(event.target.value as SetBuilderSeedMode)}>
@@ -408,10 +409,6 @@ export function SearchPlaylistPanel({
                   Track limit
                   <input type="number" value={setBuilderLimit} min={1} max={500} title={setBuilderLimitTitle} onChange={(event) => setSetBuilderLimit(Number(event.target.value))} />
                 </label>
-                <label title={setAutoSeedCountTitle}>
-                  Auto anchors
-                  <input type="number" value={setAutoSeedCount} min={1} max={5} title={setAutoSeedCountTitle} onChange={(event) => setSetAutoSeedCount(Number(event.target.value))} />
-                </label>
                 <label title={setEnergyCurveTitle}>
                   Energy curve
                   <select value={setEnergyCurve} title={setEnergyCurveTitle} onChange={(event) => setSetEnergyCurve(event.target.value as SetBuilderEnergyCurve)}>
@@ -420,82 +417,106 @@ export function SearchPlaylistPanel({
                     ))}
                   </select>
                 </label>
-                <label title={setBuilderDiversityTitle}>
-                  Diversity
-                  <input type="number" value={setBuilderDiversity} min={0} max={1} step={0.05} title={setBuilderDiversityTitle} onChange={(event) => setSetBuilderDiversity(Number(event.target.value))} />
-                </label>
-                <label title={setBpmModeTitle}>
-                  BPM mode
-                  <select value={setBpmMode} title={setBpmModeTitle} onChange={(event) => setSetBpmMode(event.target.value as SetBuilderBpmMode)}>
-                    {setBpmModeOptions.map((option) => (
-                      <option key={option.value} value={option.value} title={option.title}>{option.label}</option>
-                    ))}
-                  </select>
-                </label>
-                <label title={setBpmChangeTitle}>
-                  BPM change
-                  <select value={setBpmChange} title={setBpmChangeTitle} disabled={bpmControlsDisabled} onChange={(event) => setSetBpmChange(event.target.value as SetBuilderBpmChange)}>
-                    {setBpmChangeOptions.map((option) => (
-                      <option key={option.value} value={option.value} title={option.title}>{option.label}</option>
-                    ))}
-                  </select>
-                </label>
-                <label title={setBpmStartTitle}>
-                  Start BPM
-                  <input type="number" value={setBpmStart} min={20} max={300} step={1} placeholder="auto" title={setBpmStartTitle} disabled={bpmControlsDisabled} onChange={(event) => setSetBpmStart(event.target.value)} />
-                </label>
-                <label title={setBpmTargetTitle}>
-                  Target BPM
-                  <input type="number" value={setBpmTarget} min={20} max={300} step={1} placeholder="auto" title={setBpmTargetTitle} disabled={bpmControlsDisabled} onChange={(event) => setSetBpmTarget(event.target.value)} />
-                </label>
+                {setSeedMode === "auto" && (
+                  <label title={setAutoSeedCountTitle}>
+                    Auto anchors
+                    <input type="number" value={setAutoSeedCount} min={1} max={5} title={setAutoSeedCountTitle} onChange={(event) => setSetAutoSeedCount(Number(event.target.value))} />
+                  </label>
+                )}
               </div>
-              {classifiers.length ? (
-                <div className="classifier-controls set-classifier-controls">
-                  {classifiers.map((classifier) => {
-                    const target = setClassifierTargets[classifier.classifier_key] || 0;
-                    const avoid = setClassifierAvoid[classifier.classifier_key] || 0;
-                    const curve = setClassifierCurves[classifier.classifier_key] || setBuilderDefaultCurve;
-                    return (
-                      <Fragment key={classifier.classifier_key}>
-                        <div className="custom-control-header" title={setClassifierHelp(classifier)}>
-                          <span>{classifier.name}</span>
-                        </div>
-                        <div className="range-grid set-classifier-grid">
-                          <label className="range-control" title={setClassifierTargetHelp(classifier)}>
-                            <span><strong>Target boost</strong><em>{target.toFixed(2)}</em></span>
-                            <input type="range" min={0} max={1} step={0.05} value={target} title={setClassifierTargetHelp(classifier)} onChange={(event) => setSetBuilderClassifierTarget(classifier.classifier_key, Number(event.target.value))} />
-                          </label>
-                          <label className="range-control" title={setClassifierAvoidHelp(classifier)}>
-                            <span><strong>Avoid cut</strong><em>{avoid.toFixed(2)}</em></span>
-                            <input type="range" min={0} max={1} step={0.05} value={avoid} title={setClassifierAvoidHelp(classifier)} onChange={(event) => setSetBuilderClassifierAvoid(classifier.classifier_key, Number(event.target.value))} />
-                          </label>
-                          <label className="range-control" title={setClassifierCurveStartHelp(classifier)}>
-                            <span><strong>Curve start</strong><em>{curve.start.toFixed(2)}</em></span>
-                            <input type="range" min={0} max={1} step={0.05} value={curve.start} title={setClassifierCurveStartHelp(classifier)} onChange={(event) => setSetBuilderClassifierCurveValue(classifier.classifier_key, "start", Number(event.target.value))} />
-                          </label>
-                          <label className="range-control" title={setClassifierCurveEndHelp(classifier)}>
-                            <span><strong>Curve end</strong><em>{curve.end.toFixed(2)}</em></span>
-                            <input type="range" min={0} max={1} step={0.05} value={curve.end} title={setClassifierCurveEndHelp(classifier)} onChange={(event) => setSetBuilderClassifierCurveValue(classifier.classifier_key, "end", Number(event.target.value))} />
-                          </label>
-                        </div>
-                      </Fragment>
-                    );
-                  })}
+              <div className="set-builder-advanced-header">
+                <button
+                  className="set-builder-advanced-toggle-button"
+                  type="button"
+                  aria-expanded={setAdvancedControlsOpen}
+                  title="Показать или скрыть расширенные настройки SET: diversity, BPM trajectory, classifier sliders и reset."
+                  onClick={() => setSetAdvancedControlsOpen((current) => !current)}
+                >
+                  <ListFilter size={17} />
+                  {setAdvancedControlsOpen ? "Hide advanced" : "Advanced"}
+                </button>
+              </div>
+              {setAdvancedControlsOpen ? (
+                <div className="set-builder-advanced-controls">
+                  <div className="search-filter-grid set-builder-grid set-builder-advanced-grid">
+                    <label title={setBuilderDiversityTitle}>
+                      Diversity
+                      <input type="number" value={setBuilderDiversity} min={0} max={1} step={0.05} title={setBuilderDiversityTitle} onChange={(event) => setSetBuilderDiversity(Number(event.target.value))} />
+                    </label>
+                    <label title={setBpmModeTitle}>
+                      BPM mode
+                      <select value={setBpmMode} title={setBpmModeTitle} onChange={(event) => setSetBpmMode(event.target.value as SetBuilderBpmMode)}>
+                        {setBpmModeOptions.map((option) => (
+                          <option key={option.value} value={option.value} title={option.title}>{option.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label title={setBpmChangeTitle}>
+                      BPM change
+                      <select value={setBpmChange} title={setBpmChangeTitle} disabled={bpmControlsDisabled} onChange={(event) => setSetBpmChange(event.target.value as SetBuilderBpmChange)}>
+                        {setBpmChangeOptions.map((option) => (
+                          <option key={option.value} value={option.value} title={option.title}>{option.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label title={setBpmStartTitle}>
+                      Start BPM
+                      <input type="number" value={setBpmStart} min={20} max={300} step={1} placeholder="auto" title={setBpmStartTitle} disabled={bpmControlsDisabled} onChange={(event) => setSetBpmStart(event.target.value)} />
+                    </label>
+                    <label title={setBpmTargetTitle}>
+                      Target BPM
+                      <input type="number" value={setBpmTarget} min={20} max={300} step={1} placeholder="auto" title={setBpmTargetTitle} disabled={bpmControlsDisabled} onChange={(event) => setSetBpmTarget(event.target.value)} />
+                    </label>
+                  </div>
+                  {classifiers.length ? (
+                    <div className="classifier-controls set-classifier-controls">
+                      {classifiers.map((classifier) => {
+                        const target = setClassifierTargets[classifier.classifier_key] || 0;
+                        const avoid = setClassifierAvoid[classifier.classifier_key] || 0;
+                        const curve = setClassifierCurves[classifier.classifier_key] || setBuilderDefaultCurve;
+                        return (
+                          <Fragment key={classifier.classifier_key}>
+                            <div className="custom-control-header" title={setClassifierHelp(classifier)}>
+                              <span>{classifier.name}</span>
+                            </div>
+                            <div className="range-grid set-classifier-grid">
+                              <label className="range-control" title={setClassifierTargetHelp(classifier)}>
+                                <span><strong>Target boost</strong><em>{target.toFixed(2)}</em></span>
+                                <input type="range" min={0} max={1} step={0.05} value={target} title={setClassifierTargetHelp(classifier)} onChange={(event) => setSetBuilderClassifierTarget(classifier.classifier_key, Number(event.target.value))} />
+                              </label>
+                              <label className="range-control" title={setClassifierAvoidHelp(classifier)}>
+                                <span><strong>Avoid cut</strong><em>{avoid.toFixed(2)}</em></span>
+                                <input type="range" min={0} max={1} step={0.05} value={avoid} title={setClassifierAvoidHelp(classifier)} onChange={(event) => setSetBuilderClassifierAvoid(classifier.classifier_key, Number(event.target.value))} />
+                              </label>
+                              <label className="range-control" title={setClassifierCurveStartHelp(classifier)}>
+                                <span><strong>Curve start</strong><em>{curve.start.toFixed(2)}</em></span>
+                                <input type="range" min={0} max={1} step={0.05} value={curve.start} title={setClassifierCurveStartHelp(classifier)} onChange={(event) => setSetBuilderClassifierCurveValue(classifier.classifier_key, "start", Number(event.target.value))} />
+                              </label>
+                              <label className="range-control" title={setClassifierCurveEndHelp(classifier)}>
+                                <span><strong>Curve end</strong><em>{curve.end.toFixed(2)}</em></span>
+                                <input type="range" min={0} max={1} step={0.05} value={curve.end} title={setClassifierCurveEndHelp(classifier)} onChange={(event) => setSetBuilderClassifierCurveValue(classifier.classifier_key, "end", Number(event.target.value))} />
+                              </label>
+                            </div>
+                          </Fragment>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                  <button className="set-builder-reset-sliders-button" title="Reset only SET sliders: diversity and classifier target/avoid/curve values. Seed source, mode, limit, anchors, energy curve and BPM controls stay unchanged." onClick={resetSetBuilderSliderControls} type="button">
+                    <RotateCcw size={17} />
+                    Reset sliders
+                  </button>
                 </div>
               ) : null}
             </div>
             <div className="set-builder-actions">
-              <button className="set-builder-generate-button" title="Build a new ordered SET preview. Auto mode resamples related anchors on every run; Manual mode keeps selected seeds." disabled={busy || (setSeedMode === "manual" && !seeds.length)} onClick={generateSetBuilder} type="button">
+              <button className="set-builder-generate-button" title="Build a new ordered SET preview. Auto mode resamples related waypoint anchors on every run; Manual mode distributes selected seeds as waypoints." disabled={busy || (setSeedMode === "manual" && !seeds.length)} onClick={generateSetBuilder} type="button">
                 <Search size={17} />
                 Generate
               </button>
               <button className="set-builder-add-all-button" title="Add all tracks from the current SET preview to the current set. It does not replace existing set tracks." disabled={busy || !results.length} onClick={addGeneratedSetToPlaylist} type="button">
                 <ListMusic size={17} />
                 Add preview
-              </button>
-              <button className="set-builder-reset-sliders-button" title="Reset only SET sliders: diversity and classifier target/avoid/curve values. Seed source, mode, limit, anchors, energy curve and BPM controls stay unchanged." onClick={resetSetBuilderSliderControls} type="button">
-                <RotateCcw size={17} />
-                Reset sliders
               </button>
             </div>
           </div>
@@ -772,24 +793,24 @@ function optionTitle<T extends string>(options: Array<SelectOption<T>>, value: T
 }
 
 function setClassifierHelp(classifier: PromotedClassifier) {
-  const label = classifier.positive_label ? ` Positive label: ${classifier.positive_label}.` : "";
-  return `SET bias for ${classifier.name}. Uses stored promoted classifier scores only; missing scores stay neutral.${label}`;
+  const label = classifier.positive_label ? ` Положительная метка: ${classifier.positive_label}.` : "";
+  return `Смещение SET для ${classifier.name}. Использует только сохраненные promoted classifier scores; отсутствующие scores остаются нейтральными.${label}`;
 }
 
 function setClassifierTargetHelp(classifier: PromotedClassifier) {
-  return `Target boost for ${classifier.name}. Type: number 0.00-1.00. Tracks at or above this stored score are boosted; 0 disables this target.`;
+  return `Target boost для ${classifier.name}. Тип: число 0.00-1.00. Треки с сохраненным score на этом уровне или выше получают усиление; 0 отключает этот target.`;
 }
 
 function setClassifierAvoidHelp(classifier: PromotedClassifier) {
-  return `Avoid cut for ${classifier.name}. Type: number 0.00-1.00. Tracks at or above this stored score are down-ranked; 0 disables this avoid rule.`;
+  return `Avoid cut для ${classifier.name}. Тип: число 0.00-1.00. Треки с сохраненным score на этом уровне или выше понижаются в ранжировании; 0 отключает это avoid-правило.`;
 }
 
 function setClassifierCurveStartHelp(classifier: PromotedClassifier) {
-  return `Curve start for ${classifier.name}. Type: number 0.00-1.00. Desired classifier intensity near the beginning of the generated set; 0.50 is neutral.`;
+  return `Curve start для ${classifier.name}. Тип: число 0.00-1.00. Желаемая интенсивность classifier-сигнала в начале сгенерированного SET; 0.50 нейтрально.`;
 }
 
 function setClassifierCurveEndHelp(classifier: PromotedClassifier) {
-  return `Curve end for ${classifier.name}. Type: number 0.00-1.00. Desired classifier intensity near the end of the generated set; 0.50 is neutral.`;
+  return `Curve end для ${classifier.name}. Тип: число 0.00-1.00. Желаемая интенсивность classifier-сигнала в конце сгенерированного SET; 0.50 нейтрально.`;
 }
 
 function compactScoreMap(values: Record<string, number>) {

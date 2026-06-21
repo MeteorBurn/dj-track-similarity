@@ -6,8 +6,10 @@ import numpy as np
 from fastapi.testclient import TestClient
 
 import dj_track_similarity.api as api
+from dj_track_similarity.api_schemas import SetBuilderGenerateRequest
 from dj_track_similarity.api import create_app
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.set_builder import SetBuilderConfig
 
 
 def test_set_builder_endpoint_generates_ordered_preview(monkeypatch, tmp_path: Path) -> None:
@@ -46,6 +48,26 @@ def test_set_builder_endpoint_generates_ordered_preview(monkeypatch, tmp_path: P
     assert payload["items"][1]["classifier_scores"]["break_energy"] == 0.91
     assert payload["items"][1]["score_breakdown"]["classifier_target"] > 0
     assert payload["coverage"]["eligible_tracks"] == 2
+
+
+def test_set_builder_api_defaults_match_backend_config() -> None:
+    request = SetBuilderGenerateRequest()
+    config = SetBuilderConfig()
+
+    assert request.seed_mode == config.seed_mode == "manual"
+    assert request.seed_track_ids == config.seed_track_ids == []
+    assert request.auto_seed_count == config.auto_seed_count == 5
+    assert request.mode == config.mode == "balanced_set"
+    assert request.limit == config.limit == 24
+    assert request.diversity == config.diversity == 0.35
+    assert request.energy_curve == config.energy_curve == "balanced"
+    assert request.bpm_mode == config.bpm_mode == "general"
+    assert request.bpm_change == config.bpm_change == "medium"
+    assert request.bpm_start == config.bpm_start is None
+    assert request.bpm_target == config.bpm_target is None
+    assert request.classifier_targets == config.classifier_targets == {}
+    assert request.classifier_avoid == config.classifier_avoid == {}
+    assert request.classifier_curves == config.classifier_curves == {}
 
 
 def test_set_builder_endpoint_rejects_invalid_manual_seed_count(monkeypatch, tmp_path: Path) -> None:

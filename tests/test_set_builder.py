@@ -112,6 +112,36 @@ def test_set_builder_classifier_targets_avoid_curves_and_missing_scores_are_soft
     assert missing_item["score_breakdown"]["classifier_confidence"] < target_item["score_breakdown"]["classifier_confidence"]
 
 
+def test_set_builder_drops_neutral_classifier_controls(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed_id = _complete_track(db, tmp_path, "seed.wav", vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]})
+    high_id = _complete_track(db, tmp_path, "high-classifier.wav", vectors={"mert": [0.99, 0.01], "maest": [0.99, 0.01], "clap": [0.99, 0.01]})
+    low_id = _complete_track(db, tmp_path, "low-classifier.wav", vectors={"mert": [0.98, 0.02], "maest": [0.98, 0.02], "clap": [0.98, 0.02]})
+    _score(db, high_id, "break_energy", 0.95)
+    _score(db, low_id, "break_energy", 0.10)
+
+    default_result = SmartSetBuilder(db).generate(
+        SetBuilderConfig(seed_mode="manual", seed_track_ids=[seed_id], limit=3, random_seed=5)
+    )
+    neutral_result = SmartSetBuilder(db).generate(
+        SetBuilderConfig(
+            seed_mode="manual",
+            seed_track_ids=[seed_id],
+            limit=3,
+            classifier_targets={"break_energy": 0.0},
+            classifier_avoid={"break_energy": 0.0},
+            classifier_curves={"break_energy": {"start": 0.5, "end": 0.5}},
+            random_seed=5,
+        )
+    )
+
+    assert [item["track"].id for item in neutral_result["items"]] == [item["track"].id for item in default_result["items"]]
+    for item in neutral_result["items"][1:]:
+        assert item["score_breakdown"]["classifier_target"] == 0.0
+        assert item["score_breakdown"]["classifier_avoid"] == 0.0
+        assert item["score_breakdown"]["classifier_curve"] == 0.5
+
+
 def test_auto_mode_uses_random_seed_and_excludes_feature_incomplete_tracks(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     ids = [
@@ -387,6 +417,107 @@ def test_auto_mode_anchors_use_each_known_artist_once(tmp_path: Path) -> None:
     assert len(seed_artists) == 5
     assert seed_artists.count("Dominant Artist") <= 1
     assert len(seed_artists) == len(set(seed_artists))
+
+
+def test_manual_mode_distributes_selected_seeds_across_preview(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed_ids = [
+        _complete_track(
+            db,
+            tmp_path,
+            f"seed-{index}.wav",
+            metadata={"artist": f"Seed Artist {index}", "title": f"Seed {index}", "bpm": 120 + index * 4, "key": "8A"},
+            features=_features(bpm=120 + index * 4, energy=0.45 + index * 0.05, onset_density=0.35 + index * 0.05),
+            vectors={"mert": [1, index / 20], "maest": [1, index / 20], "clap": [1, index / 20]},
+        )
+        for index in range(3)
+    ]
+    for index in range(8):
+        _complete_track(
+            db,
+            tmp_path,
+            f"manual-bridge-{index}.wav",
+            metadata={"artist": f"Manual Bridge Artist {index}", "title": f"Manual Bridge {index}", "bpm": 122 + index, "key": "8A"},
+            features=_features(bpm=122 + index, energy=0.50, onset_density=0.42),
+            vectors={"mert": [1, 0.05], "maest": [1, 0.05], "clap": [1, 0.05]},
+        )
+
+    result = SmartSetBuilder(db).generate(
+        SetBuilderConfig(seed_mode="manual", seed_track_ids=seed_ids, mode="balanced_set", limit=7, random_seed=3)
+    )
+
+    seed_positions = [item["position"] for item in result["items"] if item["reason"] == "seed_anchor"]
+    assert seed_positions == [1, 4, 7]
+
+
+def test_auto_mode_distributes_anchors_across_preview(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    [
+        _complete_track(
+            db,
+            tmp_path,
+            f"anchor-{index}.wav",
+            metadata={"artist": f"Anchor Artist {index}", "title": f"Anchor {index}", "bpm": 120 + index * 4, "key": "8A"},
+            features=_features(bpm=120 + index * 4, energy=0.45 + index * 0.05, onset_density=0.35 + index * 0.05),
+            vectors={"mert": [1, index / 20], "maest": [1, index / 20], "clap": [1, index / 20]},
+        )
+        for index in range(3)
+    ]
+    for index in range(8):
+        _complete_track(
+            db,
+            tmp_path,
+            f"bridge-{index}.wav",
+            metadata={"artist": f"Bridge Artist {index}", "title": f"Bridge {index}", "bpm": 122 + index, "key": "8A"},
+            features=_features(bpm=122 + index, energy=0.50, onset_density=0.42),
+            vectors={"mert": [1, 0.05], "maest": [1, 0.05], "clap": [1, 0.05]},
+        )
+
+    result = SmartSetBuilder(db).generate(
+        SetBuilderConfig(seed_mode="auto", auto_seed_count=3, mode="balanced_set", limit=7, random_seed=3)
+    )
+
+    anchor_positions = [item["position"] for item in result["items"] if item["reason"] == "seed_anchor"]
+    assert anchor_positions == [1, 4, 7]
+
+
+def test_auto_anchor_selection_uses_classifier_targets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    neutral_id = _complete_track(
+        db,
+        tmp_path,
+        "neutral.wav",
+        metadata={"artist": "Neutral Artist", "title": "Neutral"},
+        vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
+    )
+    target_id = _complete_track(
+        db,
+        tmp_path,
+        "target.wav",
+        metadata={"artist": "Target Artist", "title": "Target"},
+        vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
+    )
+    _score(db, neutral_id, "break_energy", 0.10)
+    _score(db, target_id, "break_energy", 0.95)
+    observed_scores: list[dict[int, float]] = []
+
+    def capture_auto_anchor_options(options, rng, *, mode, pool_size, force_sample=False):
+        observed_scores.append({candidate.track.id: score for candidate, score in options})
+        return max(options, key=lambda item: item[1])[0]
+
+    monkeypatch.setattr(set_builder_module, "_sample_scored_candidate", capture_auto_anchor_options)
+
+    result = SmartSetBuilder(db).generate(
+        SetBuilderConfig(
+            seed_mode="auto",
+            auto_seed_count=1,
+            limit=2,
+            classifier_targets={"break_energy": 0.8},
+        )
+    )
+
+    assert observed_scores[0][target_id] > observed_scores[0][neutral_id]
+    assert result["seed_track_ids"] == [target_id]
 
 
 def test_set_builder_prefilters_before_loading_embedding_vectors(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -792,7 +923,7 @@ def test_auto_bpm_mode_prefers_tempo_curve_anchors_over_central_pool(tmp_path: P
     )
 
     assert result["seed_track_ids"] == [low_id, mid_id, high_id]
-    assert [item["track"].id for item in result["items"][:3]] == [low_id, mid_id, high_id]
+    assert [result["items"][index]["track"].id for index in (0, 2, 5)] == [low_id, mid_id, high_id]
 
 
 def test_manual_mode_rejects_invalid_seed_counts(tmp_path: Path) -> None:

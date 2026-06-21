@@ -39,13 +39,19 @@ Suggested modes:
 
 Implemented controls:
 
-- `Seed source`: manual selected seeds or auto random related anchors;
+- `Seed source`: manual selected waypoint seeds or auto random related
+  waypoint anchors;
 - `Set mode`: `Similar crate - close`, `Weird adjacent - odd`,
   `Balanced set - flow`, or `Discovery - wide`;
-- `Track limit`: target length, defaulting to 24;
-- `Auto anchors`: `1-5` anchors used only in auto mode;
+- `Track limit`: target length, defaulting to 24, with seeds/anchors counting
+  toward that length and spaced across the preview;
 - `Energy curve`: `Balanced - steady`, `Warmup - build`, `Peak - intense`, or
   `Wave - rise/fall`;
+- `Auto anchors`: `1-5` waypoint anchors shown only in auto mode;
+
+Advanced controls keep the less common shaping knobs available without making
+the default SET workflow too dense:
+
 - `Diversity`: how far the list may widen from the anchor zone while still
   following the selected mode;
 - `BPM mode`: `General BPM - transition`, `Low to high - climb`, or
@@ -65,6 +71,8 @@ CLAP, SONARA group, classifier, and transition scores for manual review.
 Manual seeds remain marked as `seed_anchor`, but the artist guard is strict:
 one known artist can appear at most once in a generated SET preview, so
 duplicate known artists in manual seeds are rejected.
+Auto anchors use the same `seed_anchor` reason and are distributed as route
+waypoints instead of being front-loaded at the beginning of the preview.
 
 Possible API shape:
 

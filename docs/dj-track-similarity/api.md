@@ -175,10 +175,11 @@ MAEST genre labels are not part of candidate selection.
 Request fields:
 
 - `seed_mode`: `manual` or `auto`. Manual mode requires `1-5`
-  `seed_track_ids`; auto mode samples `1-5` related anchors from
-  feature-complete tracks.
+  `seed_track_ids` and distributes them as waypoint anchors; auto mode samples
+  `1-5` related waypoint anchors from feature-complete tracks.
 - `seed_track_ids`: manual seed track IDs. Ignored in auto mode.
-- `auto_seed_count`: number of related anchors to sample in auto mode, `1-5`.
+- `auto_seed_count`: number of related waypoint anchors to sample in auto mode,
+  `1-5`.
 - `mode`: `similar_crate`, `weird_adjacent`, `balanced_set`, or `discovery`.
 - `limit`: preview length, default `24`.
 - `diversity`: `0.0-1.0`, used during ordering.
@@ -192,18 +193,20 @@ Request fields:
   trajectory. When omitted, the builder infers them from the first seed/anchor
   and the available library BPM range.
 - `classifier_targets`, `classifier_avoid`: maps from promoted
-  `classifier_key` to a `0.0-1.0` threshold.
+  `classifier_key` to a `0.0-1.0` threshold. Values at `0.0` are ignored so
+  neutral UI sliders do not activate classifier bias.
 - `classifier_curves`: maps from promoted `classifier_key` to `{start, end}`
-  target intensity values.
+  target intensity values. A neutral `{start: 0.5, end: 0.5}` curve is ignored.
 - `random_seed`: optional integer for reproducing one randomized generation.
   Omit it for a fresh randomized auto/ordering pass.
 
 The response includes `seed_track_ids`, feature coverage counters, and ordered
 `items`. Each item has a `track`, `reason`, `score`, `score_breakdown`,
 `sonara_groups`, `classifier_scores`, and transition metadata. Seeds or auto
-anchors are included in the returned sequence with `reason=seed_anchor`. In
-SET preview items, `track.bpm` is the effective BPM used by SET ordering:
-file-tag BPM first, then SONARA fallback only when the tag is missing.
+anchors are included in the returned sequence with `reason=seed_anchor` and are
+distributed through the ordered preview as waypoint items. In SET preview items,
+`track.bpm` is the effective BPM used by SET ordering: file-tag BPM first, then
+SONARA fallback only when the tag is missing.
 
 Tracks missing any required MERT, MAEST, CLAP, or SONARA input are excluded
 from candidate generation. Missing classifier scores are allowed: they simply
@@ -211,12 +214,13 @@ produce neutral classifier contribution and lower classifier confidence in the
 score explanation. BPM/key ordering is soft and uses file tags first, with
 SONARA values as fallback. If an explicit BPM mode is selected, actual track
 BPM also contributes an ordered low-to-high or high-to-low tempo curve; missing
-BPM stays neutral rather than excluding the track. The ordered preview also
-applies a strict artist guard: each known artist may appear at most once in one
-preview. Manual seeds are included as `seed_anchor` items, but duplicate known
-artists among manual seeds are rejected. Auto anchors and non-seed positions are
-sampled from mode-scored pools, so repeated calls without `random_seed` can
-return different related sets.
+BPM stays neutral rather than excluding the track. Active classifier target,
+avoid, and curve controls also bias auto-anchor selection, using stored scores
+only. The ordered preview also applies a strict artist guard: each known artist
+may appear at most once in one preview. Manual seeds are included as distributed
+`seed_anchor` waypoint items, but duplicate known artists among manual seeds are
+rejected. Auto anchors and non-seed positions are sampled from mode-scored pools,
+so repeated calls without `random_seed` can return different related sets.
 
 `POST /api/search/text` accepts `query`, `limit`, optional `min_similarity`,
 and optional `device`. It also accepts adaptive contrast fields:

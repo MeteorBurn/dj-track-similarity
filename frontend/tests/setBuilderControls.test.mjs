@@ -41,3 +41,30 @@ test("set builder slider reset clears classifier maps and restores defaults", as
   assert.notEqual(first.classifierAvoid, second.classifierAvoid);
   assert.notEqual(first.classifierCurves, second.classifierCurves);
 });
+
+test("set builder UI keeps basic controls separate from advanced controls", () => {
+  const source = readFileSync(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /set-builder-basic-controls/);
+  assert.match(source, /set-builder-advanced-toggle-button/);
+  assert.match(source, /aria-expanded=\{setAdvancedControlsOpen\}/);
+  assert.match(source, /set-builder-advanced-controls/);
+});
+
+test("set builder auto anchors are only visible in auto seed mode", () => {
+  const source = readFileSync(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /setSeedMode === "auto" && \(/);
+  assert.match(source, /Auto anchors/);
+});
+
+test("set builder advanced section owns diversity bpm classifier and reset controls", () => {
+  const source = readFileSync(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url), "utf8");
+  const advanced = source.match(/className="set-builder-advanced-controls"[\s\S]*?className="set-builder-generate-button"/)?.[0] || "";
+
+  assert.match(advanced, /Diversity/);
+  assert.match(advanced, /BPM mode/);
+  assert.match(advanced, /Start BPM/);
+  assert.match(advanced, /set-classifier-controls/);
+  assert.match(advanced, /Reset sliders/);
+});

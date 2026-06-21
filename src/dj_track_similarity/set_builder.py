@@ -46,6 +46,9 @@ BPM_CURVE_WEIGHTS = {
     "balanced_set": 0.20,
     "discovery": 0.16,
 }
+CLASSIFIER_BIAS_WEIGHT = 0.08
+CLASSIFIER_CONFIDENCE_WEIGHT = 0.03
+ARTIST_PRESSURE_WEIGHT = 0.035
 SONARA_GROUP_WEIGHTS = {
     "rhythm": 1.0,
     "dynamics": 1.1,
@@ -384,6 +387,8 @@ class SmartSetBuilder:
         if len(candidates) < count:
             raise ValueError(f"Auto seed mode requires at least {count} feature-complete tracks")
         ranges = _numeric_ranges(candidates)
+        anchor_positions = _anchor_positions(config.limit, count)
+        target_count = max(config.limit, count)
         if sonara_centrality is None:
             sonara_centrality = _global_sonara_centrality_scores(candidates, ranges)
         embedding_centroids = _embedding_centroids(candidates)
@@ -407,9 +412,11 @@ class SmartSetBuilder:
                     if not allow_near_duplicate and seeds and max(_fast_diversity_similarity(candidate, seed, ranges) for seed in seeds) > 0.995:
                         continue
                     score = _auto_anchor_selection_score(candidate, centrality_score, seeds, ranges, config.mode)
+                    anchor_position = anchor_positions[len(seeds)] if len(seeds) < len(anchor_positions) else len(seeds)
                     if bpm_plan is not None:
-                        bpm_score = _bpm_curve_score(candidate, bpm_plan, len(seeds), max(config.limit, count))
+                        bpm_score = _bpm_curve_score(candidate, bpm_plan, anchor_position, target_count)
                         score = score * 0.45 + bpm_score * 0.55
+                    score = _auto_anchor_classifier_adjusted_score(candidate, score, config, anchor_position, target_count)
                     scored_options.append((candidate, score))
                 if scored_options or not seeds:
                     break
@@ -450,16 +457,9 @@ class SmartSetBuilder:
             + model_scores["maest_embedding"] * DEFAULT_MODEL_WEIGHTS["maest"]
             + sonara_score * DEFAULT_MODEL_WEIGHTS["sonara_broad"]
         )
-        base += classifier_target * 0.08
-        base += classifier_avoid * 0.08
+        base += _classifier_bias_delta(classifier_target, classifier_avoid)
         disagreement = float(np.std(list(model_scores.values()) + [sonara_score]))
-        if config.mode == "weird_adjacent":
-            base = base * 0.88 + min(1.0, disagreement * 3.0) * 0.12
-        elif config.mode == "discovery":
-            uncertainty = 1.0 - abs(base - 0.5) * 2.0
-            base = base * 0.88 + max(0.0, uncertainty) * 0.12
-        elif config.mode == "similar_crate":
-            base = base * 0.96 + max(0.0, 1.0 - disagreement) * 0.04
+        base = _mode_adjusted_base_score(base, disagreement, config.mode)
 
         breakdown = {
             **model_scores,
@@ -491,6 +491,8 @@ class SmartSetBuilder:
         previous: _Candidate | None = None
         seen_duplicates: set[str] = set()
         artist_counts: Counter[str] = Counter()
+        anchor_positions = _anchor_positions(config.limit, len(seeds))
+        next_seed_index = 0
 
         seed_artist_counts = Counter(artist for artist in (_artist_key(seed.track) for seed in seeds) if artist is not None)
         if any(count > ARTIST_SET_MAX_TRACKS for count in seed_artist_counts.values()):
@@ -505,30 +507,46 @@ class SmartSetBuilder:
 
         while len(items) < config.limit and (pending_seeds or remaining):
             position = len(items)
-            if pending_seeds and _artist_allowed(pending_seeds[0], previous, artist_counts):
+            if pending_seeds and next_seed_index < len(anchor_positions) and position >= anchor_positions[next_seed_index]:
                 seed = pending_seeds.pop(0)
+                if not _artist_allowed(seed, previous, artist_counts):
+                    raise ValueError("Seed tracks violate artist spacing limits: use at most 1 track per known artist")
                 transition = _transition(previous, seed)
                 items.append(_item(seed, "seed_anchor", 1.0, _seed_breakdown(transition), {}, transition))
                 previous = seed
                 selected_sequence.append(seed)
                 seen_duplicates.add(seed.duplicate_key)
                 _record_artist(seed, artist_counts)
+                next_seed_index += 1
                 remaining = [item for item in remaining if item.candidate.duplicate_key not in seen_duplicates]
                 continue
 
+            pending_seed_artists = _pending_seed_artists(pending_seeds)
             valid_remaining = [
                 item for item in remaining
                 if _artist_allowed(item.candidate, previous, artist_counts)
+                and not _uses_pending_seed_artist(item.candidate, pending_seed_artists)
             ]
             if not valid_remaining:
                 if pending_seeds:
-                    raise ValueError("Seed tracks violate artist spacing limits: use at most 1 track per known artist")
+                    seed = pending_seeds.pop(0)
+                    if not _artist_allowed(seed, previous, artist_counts):
+                        raise ValueError("Seed tracks violate artist spacing limits: use at most 1 track per known artist")
+                    transition = _transition(previous, seed)
+                    items.append(_item(seed, "seed_anchor", 1.0, _seed_breakdown(transition), {}, transition))
+                    previous = seed
+                    selected_sequence.append(seed)
+                    seen_duplicates.add(seed.duplicate_key)
+                    _record_artist(seed, artist_counts)
+                    next_seed_index += 1
+                    remaining = [item for item in remaining if item.candidate.duplicate_key not in seen_duplicates]
+                    continue
                 break
             sequence_options = [
                 (
                     item,
                     self._sequence_score(item, previous, selected_sequence, position, target_count, config, ranges, bpm_plan)
-                    + _artist_pressure_score(item.candidate, remaining) * 0.035,
+                    + _artist_pressure_score(item.candidate, remaining) * ARTIST_PRESSURE_WEIGHT,
                 )
                 for item in valid_remaining
             ]
@@ -690,8 +708,9 @@ def _clean_score_map(values: dict[str, float]) -> dict[str, float]:
     cleaned: dict[str, float] = {}
     for key, value in values.items():
         name = str(key).strip()
-        if name:
-            cleaned[name] = max(0.0, min(1.0, float(value)))
+        score = max(0.0, min(1.0, float(value)))
+        if name and score > 0.0:
+            cleaned[name] = score
     return cleaned
 
 
@@ -701,11 +720,27 @@ def _clean_curves(values: dict[str, dict[str, float]]) -> dict[str, dict[str, fl
         name = str(key).strip()
         if not name:
             continue
-        cleaned[name] = {
-            "start": max(0.0, min(1.0, float(curve.get("start", 0.5)))),
-            "end": max(0.0, min(1.0, float(curve.get("end", 0.5)))),
-        }
+        start = max(0.0, min(1.0, float(curve.get("start", 0.5))))
+        end = max(0.0, min(1.0, float(curve.get("end", 0.5))))
+        if start == 0.5 and end == 0.5:
+            continue
+        cleaned[name] = {"start": start, "end": end}
     return cleaned
+
+
+def _classifier_bias_delta(classifier_target: float, classifier_avoid: float) -> float:
+    return (classifier_target + classifier_avoid) * CLASSIFIER_BIAS_WEIGHT
+
+
+def _mode_adjusted_base_score(base: float, disagreement: float, mode: str) -> float:
+    if mode == "weird_adjacent":
+        return base * 0.88 + min(1.0, disagreement * 3.0) * 0.12
+    if mode == "discovery":
+        uncertainty = 1.0 - abs(base - 0.5) * 2.0
+        return base * 0.88 + max(0.0, uncertainty) * 0.12
+    if mode == "similar_crate":
+        return base * 0.96 + max(0.0, 1.0 - disagreement) * 0.04
+    return base
 
 
 def _manual_seed_ids(seed_track_ids: list[int]) -> list[int]:
@@ -867,9 +902,9 @@ def _prefilter_light_candidates(
     for candidate in available:
         target, avoid, confidence = _classifier_modifiers(candidate.track, config)
         score = sonara_score(candidate)
-        score += target * 0.08 + avoid * 0.08
+        score += _classifier_bias_delta(target, avoid)
         if config.classifier_targets or config.classifier_avoid or config.classifier_curves:
-            score += (confidence - 1.0) * 0.03
+            score += (confidence - 1.0) * CLASSIFIER_CONFIDENCE_WEIGHT
         scored.append((score, candidate))
 
     scored.sort(
@@ -1146,6 +1181,27 @@ def _auto_anchor_selection_score(
     return _bounded(score)
 
 
+def _auto_anchor_classifier_adjusted_score(
+    candidate: _Candidate,
+    base_score: float,
+    config: SetBuilderConfig,
+    position: int,
+    target_count: int,
+) -> float:
+    if not _uses_classifier_config(config):
+        return base_score
+    target, avoid, confidence = _classifier_modifiers(candidate.track, config)
+    preference_values: list[float] = []
+    if config.classifier_targets or config.classifier_avoid:
+        preference_values.append(_bounded(0.5 + (target + avoid) * 0.5))
+    if config.classifier_curves:
+        preference_values.append(_classifier_curve_score(candidate.track, config, position, target_count))
+    preference = float(np.mean(preference_values)) if preference_values else 0.5
+    adjusted = base_score * 0.90 + preference * 0.10
+    adjusted += (confidence - 1.0) * CLASSIFIER_CONFIDENCE_WEIGHT
+    return adjusted
+
+
 def _auto_anchor_sample_pool_size(mode: str, count: int, total: int) -> int:
     if mode == "similar_crate":
         factor, floor, ceiling = 18, 16, 100
@@ -1279,6 +1335,16 @@ def _sequence_candidate_pool(scored_candidates: list[_ScoredCandidate], limit: i
         reverse=True,
     )
     return _select_scored_pool(sorted_candidates, pool_size)
+
+
+def _anchor_positions(limit: int, seed_count: int) -> list[int]:
+    if seed_count <= 0:
+        return []
+    target_count = max(int(limit), int(seed_count))
+    if seed_count == 1:
+        return [0]
+    last_position = max(0, target_count - 1)
+    return [int(round(index * last_position / (seed_count - 1))) for index in range(seed_count)]
 
 
 def _select_scored_pool(scored: list[_ScoredCandidate], pool_size: int) -> list[_ScoredCandidate]:
@@ -1649,6 +1715,15 @@ def _artist_allowed(candidate: _Candidate, previous: _Candidate | None, artist_c
     if previous is not None and _artist_key(previous.track) == artist:
         return False
     return artist_counts[artist] < ARTIST_SET_MAX_TRACKS
+
+
+def _pending_seed_artists(pending_seeds: list[_Candidate]) -> set[str]:
+    return {artist for seed in pending_seeds if (artist := _artist_key(seed.track)) is not None}
+
+
+def _uses_pending_seed_artist(candidate: _Candidate, pending_seed_artists: set[str]) -> bool:
+    artist = _artist_key(candidate.track)
+    return artist is not None and artist in pending_seed_artists
 
 
 def _record_artist(candidate: _Candidate, artist_counts: Counter[str]) -> None:

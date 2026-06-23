@@ -218,6 +218,14 @@ recorded candidate pools with weighted RRF over stored source ranks. If pair
 feedback exists it includes validation metrics; without labels it still reports
 rankings with `label_status: "insufficient_data"` and no quality claim.
 
+The local Web API exposes the same evaluation data under `/api/evaluation/*`.
+The API summary endpoint reads only these v4 tables, manual feedback endpoints
+write only the optional audit/validation rows described above, and the automatic
+source-profile/apply-score-profile endpoints are read-only diagnostics over
+stored analysis and recorded candidate pools. They do not scan report
+directories, do not write score-profile artifact files, and do not change
+production search scoring.
+
 ## Metadata and Analysis Data
 
 The app deliberately separates file tags from computed values.

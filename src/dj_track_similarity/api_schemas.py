@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .analysis_config import (
     ANALYSIS_DEVICE_PATTERN,
@@ -18,6 +18,11 @@ from .analysis_config import (
     MIN_ANALYSIS_TOP_K,
     MIN_ANALYSIS_TRACK_BATCH_SIZE,
 )
+
+
+EvaluationSource = Literal["mert", "maest", "sonara"]
+EvaluationTrackId = Annotated[int, Field(ge=1)]
+EvaluationTopK = Annotated[int, Field(ge=1, le=100)]
 
 
 class ScanRequest(BaseModel):
@@ -181,3 +186,56 @@ class ExportRequest(BaseModel):
 
 class GenreTagRequest(BaseModel):
     track_ids: list[int] | None = None
+
+
+class EvaluationPairFeedbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    seed_track_id: int = Field(ge=1)
+    candidate_track_id: int = Field(ge=1)
+    rating: int = Field(ge=0, le=3)
+    reason_tags: list[str] = Field(default_factory=list)
+    notes: str | None = None
+    source: str = Field(default="manual", min_length=1)
+
+
+class EvaluationTransitionFeedbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    outgoing_track_id: int = Field(ge=1)
+    incoming_track_id: int = Field(ge=1)
+    rating: int = Field(ge=0, le=3)
+    risk_tags: list[str] = Field(default_factory=list)
+    notes: str | None = None
+    source: str = Field(default="manual", min_length=1)
+
+
+class EvaluationSourceProfileRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    seed_track_ids: list[EvaluationTrackId] | None = Field(default=None, max_length=200)
+    sample_count: int = Field(default=50, ge=1, le=200)
+    sources: list[EvaluationSource] = Field(default_factory=lambda: ["mert", "maest", "sonara"], min_length=1, max_length=8)
+    per_source: int = Field(default=30, ge=1, le=100)
+    top_k: list[EvaluationTopK] = Field(default_factory=lambda: [10], min_length=1, max_length=5)
+    random_seed: int = 123
+    profile_name: str | None = None
+    include_profile: bool = True
+
+
+class EvaluationApplyScoreProfileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    profile: dict[str, Any] | None = None
+    weights: dict[str, float] | None = None
+    name: str | None = None
+    k: list[EvaluationTopK] = Field(default_factory=lambda: [5, 10], min_length=1, max_length=5)
+    rrf_k: int = Field(default=60, ge=1, le=1000)
+
+    @model_validator(mode="after")
+    def require_profile_or_weights(self) -> "EvaluationApplyScoreProfileRequest":
+        has_profile = self.profile is not None
+        has_weights = self.weights is not None
+        if has_profile == has_weights:
+            raise ValueError("Provide exactly one of profile or weights")
+        return self

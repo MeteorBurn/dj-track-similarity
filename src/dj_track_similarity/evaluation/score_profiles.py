@@ -102,6 +102,12 @@ def load_score_profile(path: str | Path) -> ScoreProfile:
     return profile
 
 
+def score_profile_from_dict(payload: Mapping[str, Any]) -> ScoreProfile:
+    profile = _score_profile_from_mapping(payload)
+    validate_score_profile(profile)
+    return profile
+
+
 def save_score_profile(profile: ScoreProfile, path: str | Path) -> None:
     validate_score_profile(profile)
     output_path = Path(path)

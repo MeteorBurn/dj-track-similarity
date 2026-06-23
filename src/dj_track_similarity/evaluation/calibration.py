@@ -246,7 +246,7 @@ def _rrf_samples(
 ) -> tuple[CalibrationSample, ...]:
     samples: list[CalibrationSample] = []
     for session in _candidate_pool_sessions(sessions):
-        variant = _build_session_variants(session, feedback_map, rrf_k).get("fusion:rrf_all")
+        variant = _build_session_variants(session, feedback_map, rrf_k, None).get("fusion:rrf_all")
         if variant is None or variant.judged_results <= 0:
             continue
         scores_by_track_id = _minmax_rank_scores(variant.ranked_candidates)

@@ -22,6 +22,7 @@ These shared conventions apply across the API:
 | --- | --- |
 | `400` `DatabaseNotSelected` | A database-aware endpoint was called before a database was selected. Select one with `/api/database/switch` first. |
 | `409` `DatabaseBusy` | A database switch was attempted while a job was `queued` or `running`. Wait for or cancel the job, then retry. |
+| `409` current schema required | The selected SQLite file is not the current schema version. Evaluation endpoints require schema v4. |
 | `404` | Unknown track, job, or media id. |
 | Job `state` | One of `queued`, `running`, `completed`, `cancelled`, or `failed`. |
 | `latest` job endpoints | Return `null` when no job of that family has run yet. |
@@ -256,6 +257,59 @@ Reset scope by family:
 | `/api/analysis/reset` `maest` | `maest_*` metadata keys plus `maest` embeddings. |
 | `/api/analysis/reset` `mert` / `clap` | Embeddings of that key. |
 | `/api/classifiers/reset` | `track_classifier_scores` rows for the listed classifier keys. |
+
+### Evaluation API
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/evaluation/summary` | Return row counts for v4 evaluation tables. |
+| `POST` | `/api/evaluation/feedback/pair` | Upsert optional manual audit feedback for one seed/candidate pair. |
+| `POST` | `/api/evaluation/feedback/transition` | Append optional manual audit feedback for one outgoing/incoming transition. |
+| `POST` | `/api/evaluation/run/source-profile` | Run the automatic unsupervised source-profile diagnostic in-process. |
+| `POST` | `/api/evaluation/run/apply-score-profile` | Apply an inline score profile to recorded candidate pools. |
+| `GET` | `/api/evaluation/reports/latest` | Return persisted `calibration_runs` rows, if any. |
+
+These endpoints are for local evaluation diagnostics only. They do not read or
+modify audio files, do not train classifiers, do not use Rhythm Lab labels or
+liked tracks as ground truth, and do not change production search endpoints,
+scoring, or weights.
+
+`/api/evaluation/summary` returns `schema_version` plus counts for
+`search_sessions`, `search_result_events`, `track_pair_feedback`,
+`transition_feedback`, and `calibration_runs`. Evaluation endpoints require a
+selected current schema v4 database; older databases return a clear schema error.
+
+Pair feedback accepts `seed_track_id`, `candidate_track_id`, `rating` (`0-3`),
+optional `reason_tags`, optional `notes`, and `source` (default `manual`). The
+same `(seed_track_id, candidate_track_id, source)` row is updated when submitted
+again. Transition feedback accepts `outgoing_track_id`, `incoming_track_id`,
+`rating` (`0-3`), optional `risk_tags`, optional `notes`, and `source` (default
+`manual`) and appends a new audit row. Manual feedback is optional audit and
+validation data, not classifier training data and not required by the automatic
+source-profile path.
+
+`/api/evaluation/run/source-profile` accepts optional `seed_track_ids`; when they
+are omitted, it samples `sample_count` seeds (default `50`) with `random_seed`
+(default `123`). It also accepts `sources` (default `mert`, `maest`, `sonara`),
+`per_source` (default `30`), `top_k` (default `[10]`), optional `profile_name`,
+and `include_profile` (default `true`). The response contains `source_profile`
+diagnostics and, when the diagnostic status is `ok` and `include_profile` is
+true, a compact `score_profile` JSON object with
+`weight_kind: "unsupervised_internal_profile"`. The API does not write a score
+profile artifact file and does not record candidate-pool sessions by default.
+
+`/api/evaluation/run/apply-score-profile` accepts either a complete inline
+`profile` object or normalized `weights` plus an optional `name`, along with `k`
+(default `[5, 10]`) and `rrf_k` (default `60`). It applies the score profile to
+already recorded candidate pools in SQLite and returns the same kind of report as
+the CLI `apply-score-profile` command. Without pair feedback it still ranks the
+candidate pools, but reports `label_status: "insufficient_data"` and makes no
+claim about human taste.
+
+`/api/evaluation/reports/latest` deliberately does not scan arbitrary report
+directories. CLI JSON reports are local filesystem artifacts; the API only
+returns persisted `calibration_runs` rows from the selected database, or a
+`no_persisted_reports` summary when none exist.
 
 ### Export, Tags, Dialogs, Media
 

@@ -294,6 +294,86 @@ export type SetBuilderGenerateResult = {
   items: SearchResult[];
 };
 
+export type EvaluationSummary = {
+  schema_version: number;
+  counts: {
+    search_sessions: number;
+    search_result_events: number;
+    track_pair_feedback: number;
+    transition_feedback: number;
+    calibration_runs: number;
+  };
+};
+
+export type EvaluationPairFeedbackPayload = {
+  seed_track_id: number;
+  candidate_track_id: number;
+  rating: 0 | 1 | 2 | 3;
+  reason_tags?: string[];
+  notes?: string | null;
+  source?: string;
+};
+
+export type EvaluationTransitionFeedbackPayload = {
+  outgoing_track_id: number;
+  incoming_track_id: number;
+  rating: 0 | 1 | 2 | 3;
+  risk_tags?: string[];
+  notes?: string | null;
+  source?: string;
+};
+
+export type EvaluationScoreProfile = {
+  name: string;
+  profile_kind: "unsupervised_source_profile";
+  weight_kind: "unsupervised_internal_profile";
+  sources: string[];
+  weights: Record<string, number>;
+  created_at: string;
+  source_report_summary: Record<string, unknown>;
+  limitations: string[];
+  version: number;
+};
+
+export type EvaluationSourceProfilePayload = {
+  seed_track_ids?: number[] | null;
+  sample_count?: number;
+  sources?: string[];
+  per_source?: number;
+  top_k?: number[];
+  random_seed?: number;
+  profile_name?: string | null;
+  include_profile?: boolean;
+};
+
+export type EvaluationSourceProfileResult = {
+  source_profile: Record<string, unknown>;
+  score_profile?: EvaluationScoreProfile | null;
+};
+
+export type EvaluationApplyScoreProfilePayload = {
+  profile?: EvaluationScoreProfile | Record<string, unknown> | null;
+  weights?: Record<string, number> | null;
+  name?: string | null;
+  k?: number[];
+  rrf_k?: number;
+};
+
+export type EvaluationFeedbackResult = Record<string, unknown> & { id: number; rating: number; source: string };
+
+export type EvaluationLatestReports = {
+  status: "ok" | "no_persisted_reports";
+  summary: string;
+  calibration_runs: Array<{
+    id: number;
+    profile_name: string;
+    search_mode: string;
+    config: Record<string, unknown>;
+    metrics: Record<string, unknown>;
+    created_at: string;
+  }>;
+};
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
@@ -496,6 +576,28 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  evaluationSummary: () => request<EvaluationSummary>("/api/evaluation/summary"),
+  evaluationPairFeedback: (payload: EvaluationPairFeedbackPayload) =>
+    request<EvaluationFeedbackResult>("/api/evaluation/feedback/pair", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  evaluationTransitionFeedback: (payload: EvaluationTransitionFeedbackPayload) =>
+    request<EvaluationFeedbackResult>("/api/evaluation/feedback/transition", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  evaluationSourceProfile: (payload: EvaluationSourceProfilePayload = {}) =>
+    request<EvaluationSourceProfileResult>("/api/evaluation/run/source-profile", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  evaluationApplyScoreProfile: (payload: EvaluationApplyScoreProfilePayload) =>
+    request<Record<string, unknown>>("/api/evaluation/run/apply-score-profile", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  evaluationLatestReports: () => request<EvaluationLatestReports>("/api/evaluation/reports/latest"),
   exportPlaylist: (name: string, track_ids: number[], output_dir: string, format: "m3u" | "csv") =>
     request<{ path: string }>("/api/export", {
       method: "POST",

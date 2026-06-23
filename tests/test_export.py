@@ -83,9 +83,11 @@ def test_export_endpoint_writes_current_track_list_without_saving_playlist(tmp_p
     assert "playlist_tracks" not in tables
 
 
-def test_saved_playlist_endpoint_is_not_available(tmp_path: Path) -> None:
+def test_saved_playlist_endpoint_is_absent(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path / "library.sqlite"))
 
     response = client.post("/api/playlists", json={"name": "old", "track_ids": []})
 
-    assert response.status_code == 404
+    # Unknown POST routes may return 405 when the built frontend static mount is
+    # present; the contract here is that no saved-playlist API accepts the call.
+    assert response.status_code in {404, 405}

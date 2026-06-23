@@ -78,21 +78,23 @@ The four modes are:
 The SET controls are split into a short Basic surface and a collapsed Advanced
 surface. Basic keeps the normal generation path visible:
 
-- `Seed source`: `Manual - selected` keeps selected seed chips and distributes
-  them as waypoint anchors; `Auto - random start` samples the first anchor from
-  the full feature-complete library on every run, then builds a related route.
+- `Seed source`: a two-option toggle. `Manual - selected` keeps selected seed
+  chips and distributes them as waypoint anchors; `Auto - random start` samples
+  the first anchor from the full feature-complete library on every run, then
+  builds a related route.
+- `Auto anchors`: number of waypoint anchors in auto mode, `1-5`; this control
+  stays visible beside `Seed source` and is disabled until `Seed source` is
+  `Auto - random start`.
 - `Set mode`: chooses the scoring personality listed above.
-- `Track limit`: preview length, default `24`; seed or anchor positions count
-  toward this number and are spaced across the preview.
 - `Energy curve`: `Balanced - steady`, `Warmup - build`, `Peak - intense`, or
   `Wave - rise/fall`.
-- `Auto anchors`: number of waypoint anchors in auto mode, `1-5`; this
-  control is shown only when `Seed source` is `Auto - random start`.
+- `Track limit`: preview length, default `24`; seed or anchor positions count
+  toward this number and are spaced across the preview.
+- `Diversity`: `0.00-1.00`; lower values stay closer to anchors, higher values
+  widen the set while preserving the mode constraints.
 
 Advanced keeps optional bias and trajectory controls out of the default view:
 
-- `Diversity`: `0.00-1.00`; lower values stay closer to anchors, higher values
-  widen the set while preserving the mode constraints.
 - `BPM mode`: `General BPM - transition` keeps only the normal soft transition
   rule; `Low to high - climb` and `High to low - descend` add an explicit tempo
   trajectory.

@@ -281,6 +281,8 @@ export function SearchPlaylistPanel({
   const setBuilderDiversityTitle = "Насколько активно раздвигать похожие кандидаты. Тип: число 0.00-1.00. 0 = ближе к anchors, 1 = больше разнообразия при сохранении связи.";
   const setBpmStartTitle = "Start BPM для явной BPM-кривой. Тип: число 20-300 или пусто = взять из первого seed/anchor, затем из библиотеки.";
   const setBpmTargetTitle = "Target BPM для явной BPM-кривой. Тип: число 20-300 или пусто = вывести из доступного диапазона библиотеки.";
+  const autoSeedCountDisabled = setSeedMode !== "auto";
+  const autoSeedCountControlTitle = autoSeedCountDisabled ? `${setAutoSeedCountTitle} Активно только когда выбран Auto - random start.` : setAutoSeedCountTitle;
   const bpmControlsDisabled = setBpmMode === "general";
 
   function setSonaraMixerValue(key: keyof SonaraMixerWeights, value: number) {
@@ -388,48 +390,63 @@ export function SearchPlaylistPanel({
         {activeSearchTab === "set" && (
           <div className="search-tab-panel" role="tabpanel">
             <div className="set-builder-controls">
-              <div className="search-filter-grid set-builder-grid set-builder-basic-controls">
-                <label title={setSeedModeTitle}>
-                  Seed source
-                  <select value={setSeedMode} title={setSeedModeTitle} onChange={(event) => setSetSeedMode(event.target.value as SetBuilderSeedMode)}>
-                    {setSeedModeOptions.map((option) => (
-                      <option key={option.value} value={option.value} title={option.title}>{option.label}</option>
-                    ))}
-                  </select>
-                </label>
-                <label title={setBuilderModeTitle}>
-                  Set mode
-                  <select value={setBuilderMode} title={setBuilderModeTitle} onChange={(event) => setSetBuilderMode(event.target.value as SetBuilderMode)}>
-                    {setBuilderModeOptions.map((option) => (
-                      <option key={option.value} value={option.value} title={option.title}>{option.label}</option>
-                    ))}
-                  </select>
-                </label>
-                <label title={setBuilderLimitTitle}>
-                  Track limit
-                  <input type="number" value={setBuilderLimit} min={1} max={500} title={setBuilderLimitTitle} onChange={(event) => setSetBuilderLimit(Number(event.target.value))} />
-                </label>
-                <label title={setEnergyCurveTitle}>
-                  Energy curve
-                  <select value={setEnergyCurve} title={setEnergyCurveTitle} onChange={(event) => setSetEnergyCurve(event.target.value as SetBuilderEnergyCurve)}>
-                    {setEnergyCurveOptions.map((option) => (
-                      <option key={option.value} value={option.value} title={option.title}>{option.label}</option>
-                    ))}
-                  </select>
-                </label>
-                {setSeedMode === "auto" && (
-                  <label title={setAutoSeedCountTitle}>
+              <div className="set-builder-basic-controls">
+                <div className="set-builder-seed-row">
+                  <div className="set-builder-seed-source-control" title={setSeedModeTitle}>
+                    <span>Seed source</span>
+                    <div className="segmented set-builder-seed-toggle" role="group" aria-label="Seed source">
+                      {setSeedModeOptions.map((option) => (
+                        <button
+                          key={option.value}
+                          className={setSeedMode === option.value ? "active" : ""}
+                          title={option.title}
+                          aria-pressed={setSeedMode === option.value}
+                          onClick={() => setSetSeedMode(option.value)}
+                          type="button"
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <label className={`set-builder-auto-anchors-control ${autoSeedCountDisabled ? "disabled-filter" : ""}`} title={autoSeedCountControlTitle}>
                     Auto anchors
-                    <input type="number" value={setAutoSeedCount} min={1} max={5} title={setAutoSeedCountTitle} onChange={(event) => setSetAutoSeedCount(Number(event.target.value))} />
+                    <input type="number" value={setAutoSeedCount} min={1} max={5} title={autoSeedCountControlTitle} disabled={autoSeedCountDisabled} onChange={(event) => setSetAutoSeedCount(Number(event.target.value))} />
                   </label>
-                )}
+                </div>
+                <div className="search-filter-grid set-builder-grid set-builder-basic-grid">
+                  <label title={setBuilderModeTitle}>
+                    Set mode
+                    <select value={setBuilderMode} title={setBuilderModeTitle} onChange={(event) => setSetBuilderMode(event.target.value as SetBuilderMode)}>
+                      {setBuilderModeOptions.map((option) => (
+                        <option key={option.value} value={option.value} title={option.title}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label title={setEnergyCurveTitle}>
+                    Energy curve
+                    <select value={setEnergyCurve} title={setEnergyCurveTitle} onChange={(event) => setSetEnergyCurve(event.target.value as SetBuilderEnergyCurve)}>
+                      {setEnergyCurveOptions.map((option) => (
+                        <option key={option.value} value={option.value} title={option.title}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label title={setBuilderLimitTitle}>
+                    Track limit
+                    <input type="number" value={setBuilderLimit} min={1} max={500} title={setBuilderLimitTitle} onChange={(event) => setSetBuilderLimit(Number(event.target.value))} />
+                  </label>
+                  <label title={setBuilderDiversityTitle}>
+                    Diversity
+                    <input type="number" value={setBuilderDiversity} min={0} max={1} step={0.05} title={setBuilderDiversityTitle} onChange={(event) => setSetBuilderDiversity(Number(event.target.value))} />
+                  </label>
+                </div>
               </div>
               <div className="set-builder-advanced-header">
                 <button
                   className="set-builder-advanced-toggle-button"
                   type="button"
                   aria-expanded={setAdvancedControlsOpen}
-                  title="Показать или скрыть расширенные настройки SET: diversity, BPM trajectory, classifier sliders и reset."
+                  title="Показать или скрыть расширенные настройки SET: BPM trajectory, classifier sliders и reset."
                   onClick={() => setSetAdvancedControlsOpen((current) => !current)}
                 >
                   <ListFilter size={17} />
@@ -439,10 +456,6 @@ export function SearchPlaylistPanel({
               {setAdvancedControlsOpen ? (
                 <div className="set-builder-advanced-controls">
                   <div className="search-filter-grid set-builder-grid set-builder-advanced-grid">
-                    <label title={setBuilderDiversityTitle}>
-                      Diversity
-                      <input type="number" value={setBuilderDiversity} min={0} max={1} step={0.05} title={setBuilderDiversityTitle} onChange={(event) => setSetBuilderDiversity(Number(event.target.value))} />
-                    </label>
                     <label title={setBpmModeTitle}>
                       BPM mode
                       <select value={setBpmMode} title={setBpmModeTitle} onChange={(event) => setSetBpmMode(event.target.value as SetBuilderBpmMode)}>

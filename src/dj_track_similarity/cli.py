@@ -37,6 +37,7 @@ from .evaluation.calibration import build_calibration_report, calibration_record
 from .evaluation.candidates import export_candidate_pools, write_candidate_pool_csv
 from .evaluation.labels import load_pair_feedback_labels, load_transition_feedback_labels
 from .evaluation.reports import build_search_evaluation_report
+from .evaluation.risk_sweep import build_risk_penalty_sweep_report
 from .evaluation.score_profiles import (
     build_score_profile_application_report,
     build_score_profile_from_source_report,
@@ -555,6 +556,44 @@ def evaluation_apply_score_profile(
         f"status={report['status']} label_status={report['label_status']} output={output_path} "
         f"profile={report['profile_name']} ranked_sessions={report['ranked_session_count']} "
         f"judged_results={report['judged_results']} weights={weights_text}"
+    )
+
+
+@eval_app.command("sweep-risk-penalty")
+def evaluation_sweep_risk_penalty(
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+    profile_path: Path = typer.Option(..., "--profile", exists=True, dir_okay=False, readable=True),
+    output_path: Path = typer.Option(..., "--output", dir_okay=False, writable=True),
+    weights: Optional[list[float]] = typer.Option(None, "--weight", help="Transition-risk penalty weight from 0.0 to 1.0. Repeat for a sweep."),
+    k: Optional[list[int]] = typer.Option(None, "--k", min=1, help="Metric/diagnostic cutoff. Repeat for multiple values."),
+    rrf_k: int = typer.Option(60, "--rrf-k", min=1, help="RRF smoothing constant for weighted source-rank fusion."),
+) -> None:
+    try:
+        profile = load_score_profile(profile_path)
+        report = build_risk_penalty_sweep_report(
+            _evaluation_db(db_path),
+            profile,
+            weights=weights,
+            k_values=k or [5, 10],
+            rrf_k=rrf_k,
+        )
+        _write_json_report(output_path, report)
+    except ValueError as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+
+    counts = report["counts"]
+    best_text = ""
+    if "best_by_metric" in report:
+        precision_metric = f"mean_precision_at_{report['k_values'][0]}"
+        best = report["best_by_metric"].get(precision_metric)
+        if best is not None:
+            best_text = f" best_{precision_metric}_weight={best['transition_risk_weight']:g}"
+    typer.echo(
+        f"status={report['status']} label_status={report['label_status']} output={output_path} "
+        f"profile={report['profile_name']} ranked_sessions={counts['ranked_session_count']} "
+        f"judged_results={counts['judged_results']} weights={','.join(str(weight) for weight in report['risk_weights'])}"
+        f"{best_text}"
     )
 
 

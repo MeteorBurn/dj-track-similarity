@@ -226,6 +226,13 @@ zero, the preview normalizes raw RRF scores within the candidate set and sorts b
 `adjusted_score = normalized_rrf_score - transition_risk_weight * transition_risk`;
 missing risk applies no penalty.
 
+Before settling on a non-zero `Risk penalty`, use the CLI report
+`dj-sim eval sweep-risk-penalty --profile <json> --weight ...` against recorded
+candidate pools. Unlabeled sweeps provide only internal diagnostics such as
+average transition risk at K and source-count coverage; labeled sweeps can compare
+NDCG, MAP, MRR, precision, bad-suggestion rate, and hit rate. The report makes no
+best-weight claim unless explicit evaluation pair feedback is present.
+
 Treat the displayed score as a weighted rank-fusion preview only. It is not
 confidence, probability, or a calibrated human-taste estimate. Each result also
 includes `transition_risk` and `transition_diagnostics` built from stored

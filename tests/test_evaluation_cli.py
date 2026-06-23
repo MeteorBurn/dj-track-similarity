@@ -251,6 +251,75 @@ def test_eval_apply_score_profile_cli_includes_metrics_with_pair_feedback(tmp_pa
     assert report["metrics"]["mean_precision_at_1"] == 1.0
 
 
+def test_eval_sweep_risk_penalty_cli_writes_json_summary(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    output_path = tmp_path / "risk_sweep.json"
+    profile_path = tmp_path / "score_profile.json"
+    db = LibraryDatabase(db_path)
+    seed_id = db.upsert_track(path=tmp_path / "seed.wav", size=10, mtime=1)
+    risky_id = db.upsert_track(path=tmp_path / "risky.wav", size=10, mtime=1)
+    safe_id = db.upsert_track(path=tmp_path / "safe.wav", size=10, mtime=1)
+    _write_score_profile(profile_path, {"mert": 1.0})
+    session_id = db.create_search_session("evaluation_weighted_candidate_pool", [seed_id], {"feedback_source": "manual", "sources": ["mert"]})
+    db.record_search_result_event(session_id, risky_id, rank=1, total_score=0.0, score_breakdown={"sources": {"mert": {"rank": 1}}, "transition_risk": 1.0})
+    db.record_search_result_event(session_id, safe_id, rank=2, total_score=0.0, score_breakdown={"sources": {"mert": {"rank": 2}}, "transition_risk": 0.0})
+    db.upsert_track_pair_feedback(seed_id, safe_id, 3, source="manual")
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "eval",
+            "sweep-risk-penalty",
+            "--db",
+            str(db_path),
+            "--profile",
+            str(profile_path),
+            "--output",
+            str(output_path),
+            "--weight",
+            "0",
+            "--weight",
+            "1",
+            "--k",
+            "1",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "label_status=ok" in result.output
+    assert "best_mean_precision_at_1_weight=1" in result.output
+    report = json.loads(output_path.read_text(encoding="utf-8"))
+    assert report["best_by_metric"]["mean_precision_at_1"]["transition_risk_weight"] == 1.0
+    assert report["variants"]["transition_risk_weight:1"]["ranked_sessions"][0]["ranked_candidate_track_ids"] == [safe_id, risky_id]
+
+
+def test_eval_sweep_risk_penalty_cli_rejects_invalid_weight(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    output_path = tmp_path / "risk_sweep.json"
+    profile_path = tmp_path / "score_profile.json"
+    LibraryDatabase(db_path)
+    _write_score_profile(profile_path, {"mert": 1.0})
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "eval",
+            "sweep-risk-penalty",
+            "--db",
+            str(db_path),
+            "--profile",
+            str(profile_path),
+            "--output",
+            str(output_path),
+            "--weight",
+            "1.5",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "weight must be between 0 and 1" in result.output
+
+
 def test_eval_profile_sources_cli_writes_score_profile_output(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     output_path = tmp_path / "source_profile.json"

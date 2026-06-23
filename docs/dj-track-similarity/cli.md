@@ -317,6 +317,7 @@ dj-sim eval import-transition-feedback --db .\data\library_v4.sqlite --input .\l
 dj-sim eval profile-sources --db .\data\library_v4.sqlite --seed-sample .\labels\seed_sample.csv --output .\reports\source_profile.json --profile-output .\reports\score_profile_auto.json --profile-name auto_source_profile --source mert --source maest --source sonara --per-source 30 --random-seed 123
 dj-sim eval export-weighted-candidates --db .\data\library_v4.sqlite --profile .\reports\score_profile_auto.json --output .\labels\weighted_candidate_pool.csv --seed-sample .\labels\seed_sample.csv --per-source 30 --random-seed 123 --rrf-k 60
 dj-sim eval apply-score-profile --db .\data\library_v4.sqlite --profile .\reports\score_profile_auto.json --output .\reports\score_profile_apply.json --k 5 --k 10 --rrf-k 60
+dj-sim eval sweep-risk-penalty --db .\data\library_v4.sqlite --profile .\reports\score_profile_auto.json --output .\reports\risk_penalty_sweep.json --weight 0 --weight 0.25 --weight 0.5 --weight 1.0 --k 5 --k 10 --rrf-k 60
 dj-sim eval run-ablation --db .\data\library_v4.sqlite --output .\reports\ablation.json --k 5 --k 10 --rrf-k 60 --score-profile .\reports\score_profile_auto.json
 dj-sim eval run-calibration --db .\data\library_v4.sqlite --output .\reports\calibration.json --score-mode rrf --bins 10 --min-samples 30 --accepted-threshold 2
 dj-sim eval report --db .\data\library_v4.sqlite --output .\reports\evaluation.json --k 5 --k 10
@@ -365,12 +366,18 @@ manual ground truth:
    feedback exists, the report includes the same ranking metrics as ablation; if
    no labels exist, it still reports rankings with
    `label_status: "insufficient_data"` and makes no quality claim.
-8. Run `dj-sim eval run-ablation --score-profile <json>` to compare recorded
+8. Run `dj-sim eval sweep-risk-penalty --profile <json>` before choosing a
+   non-zero transition-risk penalty. It applies the same score profile to
+   recorded candidate pools across repeated `--weight` values and reports
+   top-K risk/source diagnostics even when no labels exist. If imported pair
+   feedback is available, it also includes ranking metrics and `best_by_metric`;
+   otherwise it makes no best-weight claim.
+9. Run `dj-sim eval run-ablation --score-profile <json>` to compare recorded
    source contributions and the weighted RRF profile on the labeled candidate
    pools.
-9. Run `dj-sim eval run-calibration` for diagnostic score/relevance calibration
+10. Run `dj-sim eval run-calibration` for diagnostic score/relevance calibration
    summaries once enough labeled candidate rows exist.
-10. Run `dj-sim eval report` for the general recorded-session report.
+11. Run `dj-sim eval report` for the general recorded-session report.
 
 `run-ablation` evaluates only recorded candidate-pool events and imported pair
 feedback. It builds single-source variants for `mert`, `maest`, and `sonara` when
@@ -392,6 +399,22 @@ default, does not use raw source scores as comparable weights, and does not chan
 runtime search endpoints or scoring. Manual feedback is optional validation only;
 when no labels exist, the report status can still be `ok` while
 `label_status` remains `insufficient_data`.
+
+`sweep-risk-penalty` is the report-only transition-risk tuning path. It reads the
+same recorded candidate-pool events, applies the score profile, then repeats the
+ranking with each `--weight` by using
+`normalized_rrf_score - weight * transition_risk`. It prefers stored
+`transition_risk` fields from weighted candidate-pool events and falls back to
+recomputing lightweight diagnostics from stored track BPM/key/energy/source-count
+metadata when older events did not record risk. With no pair feedback, the JSON
+still includes `ranked_sessions`, `average_transition_risk_at_k`,
+`source_count_at_k`, score quantiles, and `label_status: "insufficient_data"`,
+but no `best_by_metric`. With labels, it adds NDCG, MAP, MRR, precision, bad
+suggestion rate, and hit-rate metrics using the same unjudged-as-non-relevant
+policy as `apply-score-profile`, then reports `best_by_metric`. The command is
+for comparing report evidence before choosing a preview penalty; it is not
+AutoMix, beatgrid/cue detection, probability calibration, or a production search
+scoring change.
 
 `export-weighted-candidates` is the fresh-pool automatic-profile preview path. It
 loads the same score profile artifact, generates candidates from the requested
@@ -612,6 +635,29 @@ ranked candidates, limitations, and a note that the profile is automatic interna
 score weighting rather than calibrated confidence. Metrics are included only when
 matching pair feedback labels exist.
 
+Usage:
+
+```text
+dj-sim eval sweep-risk-penalty [OPTIONS]
+```
+
+Options:
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--db` | path | `dj-track-similarity.sqlite` | Schema v4 SQLite database path. |
+| `--profile` | JSON path | required | Score profile artifact created by `profile-sources --profile-output`. |
+| `--output` | JSON path | required | Risk-penalty sweep report to create. |
+| `--weight` | number `0.0-1.0` | `0`, `0.25`, `0.5`, `1.0` | Transition-risk penalty weight. Repeat for a sweep. |
+| `--k` | integer `>=1` | `5`, `10` | Metric and diagnostic cutoff. Repeat for multiple values. |
+| `--rrf-k` | integer `>=1` | `60` | RRF smoothing constant for weighted source-rank fusion. |
+| `--help` | flag | off | Show help. |
+
+The sweep report includes one variant per weight, per-session ranked candidates,
+top-K transition-risk/source-count diagnostics, and score distributions. Ranking
+metrics and `best_by_metric` appear only when matching pair feedback exists; an
+unlabeled sweep is diagnostics-only and deliberately does not name a best weight.
+
 Pair feedback CSV columns:
 
 ```text
@@ -651,6 +697,7 @@ import-transition-feedback
 profile-sources
 export-weighted-candidates
 apply-score-profile
+sweep-risk-penalty
 run-ablation
 build-score-profile
 run-calibration

@@ -216,7 +216,7 @@ SONARA, MAEST, MERT, CLAP.
 
 Use `--models sonara` for the SONARA search tab and visible feature groups.
 Use `--models maest` before reviewing generated genres, using the `syncopated`
-preset, or training/scoring combined classifier profiles. Use `--models mert`
+preset, or scoring promoted combined Rhythm Lab classifiers. Use `--models mert`
 for seed-track similarity and `--models clap` before CLAP text search. MAEST
 analysis writes SQLite genre metadata and a MAEST embedding vector; it does not
 write genre tags to audio files by itself.
@@ -314,8 +314,9 @@ dj-sim eval export-seed-sample --db .\data\library_v4.sqlite --output .\labels\s
 dj-sim eval export-candidates --db .\data\library_v4.sqlite --output .\labels\candidate_pool.csv --seed-track-id 42 --source mert --source sonara --source maest --per-source 10 --random-seed 123
 dj-sim eval import-pair-feedback --db .\data\library_v4.sqlite --input .\labels\pair_feedback.csv
 dj-sim eval import-transition-feedback --db .\data\library_v4.sqlite --input .\labels\transition_feedback.jsonl
-dj-sim eval profile-sources --db .\data\library_v4.sqlite --seed-sample .\labels\seed_sample.csv --output .\reports\source_profile.json --source mert --source maest --source sonara --per-source 30 --random-seed 123
-dj-sim eval run-ablation --db .\data\library_v4.sqlite --output .\reports\ablation.json --k 5 --k 10 --rrf-k 60
+dj-sim eval profile-sources --db .\data\library_v4.sqlite --seed-sample .\labels\seed_sample.csv --output .\reports\source_profile.json --profile-output .\reports\score_profile_auto.json --profile-name auto_source_profile --source mert --source maest --source sonara --per-source 30 --random-seed 123
+dj-sim eval apply-score-profile --db .\data\library_v4.sqlite --profile .\reports\score_profile_auto.json --output .\reports\score_profile_apply.json --k 5 --k 10 --rrf-k 60
+dj-sim eval run-ablation --db .\data\library_v4.sqlite --output .\reports\ablation.json --k 5 --k 10 --rrf-k 60 --score-profile .\reports\score_profile_auto.json
 dj-sim eval run-calibration --db .\data\library_v4.sqlite --output .\reports\calibration.json --score-mode rrf --bins 10 --min-samples 30 --accepted-threshold 2
 dj-sim eval report --db .\data\library_v4.sqlite --output .\reports\evaluation.json --k 5 --k 10
 ```
@@ -323,12 +324,21 @@ dj-sim eval report --db .\data\library_v4.sqlite --output .\reports\evaluation.j
 For automatic source diagnostics, run `profile-sources` first. It samples or
 reads seed IDs, asks each selected source for top candidates, and computes
 coverage, top-K overlap/Jaccard, rank agreement, RRF-style consensus support,
-conflict rates, score quantiles, and normalized recommended weights from
+conflict rates, score quantiles, and normalized internal weights from
 internal agreement/coverage/stability. The JSON has
 `profile_kind: "unsupervised_source_profile"` and
 `weight_kind: "unsupervised_internal_profile"`. These weights are not trained,
 not probability calibration, and not proof of human DJ taste without external
 validation.
+
+When `profile-sources` is run with `--profile-output`, it also writes a reusable
+score profile JSON artifact with `profile_kind: "unsupervised_source_profile"`,
+`weight_kind: "unsupervised_internal_profile"`, `sources`, and normalized
+`weights`. This is not classifier training, probability calibration, or proof of
+human taste; it is an unsupervised internal weighting profile based on coverage,
+agreement, consensus, and conflicts in the current analysis data. Score profiles
+are JSON artifacts under a path you choose, such as `reports/experiments/`, and
+schema v4 does not add a database table for them.
 
 Candidate-pool export is the recommended first step when collecting optional new
 manual ground truth:
@@ -340,13 +350,20 @@ manual ground truth:
 3. Open the generated candidate CSV and fill `rating`, `reason_tags`, and `notes`
    by hand.
 4. Import the completed file with `dj-sim eval import-pair-feedback`.
-5. Run `dj-sim eval profile-sources` any time you want automatic unsupervised
-   source reliability diagnostics from existing analysis data.
-6. Run `dj-sim eval run-ablation` to compare recorded source contributions on
-   the labeled candidate pools.
-7. Run `dj-sim eval run-calibration` for diagnostic score/relevance calibration
+5. Run `dj-sim eval profile-sources --profile-output <json>` any time you want
+   automatic unsupervised source reliability diagnostics and a schema-validated
+   score profile artifact from existing analysis data.
+6. Run `dj-sim eval apply-score-profile --profile <json>` to rank recorded
+   candidate pools with weighted RRF over per-source ranks. If imported pair
+   feedback exists, the report includes the same ranking metrics as ablation; if
+   no labels exist, it still reports rankings with
+   `label_status: "insufficient_data"` and makes no quality claim.
+7. Run `dj-sim eval run-ablation --score-profile <json>` to compare recorded
+   source contributions and the weighted RRF profile on the labeled candidate
+   pools.
+8. Run `dj-sim eval run-calibration` for diagnostic score/relevance calibration
    summaries once enough labeled candidate rows exist.
-8. Run `dj-sim eval report` for the general recorded-session report.
+9. Run `dj-sim eval report` for the general recorded-session report.
 
 `run-ablation` evaluates only recorded candidate-pool events and imported pair
 feedback. It builds single-source variants for `mert`, `maest`, and `sonara` when
@@ -355,7 +372,19 @@ leave-one-out RRF variants that remove one source at a time. RRF is used because
 raw source scores are not calibrated or directly comparable across models; the
 ablation report uses recorded per-source ranks, or derives a source-local rank
 from scores only when no rank was recorded. It does not tune production weights
-or change runtime search behavior.
+or change runtime search behavior. With `--score-profile`, it also adds a
+`fusion:weighted_rrf:<profile_name>` diagnostic variant using
+`sum(weight[source] * (1 / (rrf_k + rank)))`. Missing sources contribute `0`, and
+the variant uses ranks rather than raw source scores.
+
+`apply-score-profile` is the direct automatic-profile path: it loads the JSON
+artifact, reads recorded `search_sessions` / `search_result_events`, extracts
+source ranks from `score_breakdown` / `sources_json`, and ranks candidates with
+`sum(weight[source] * (1 / (rrf_k + rank)))`. It does not write to SQLite by
+default, does not use raw source scores as comparable weights, and does not change
+runtime search endpoints or scoring. Manual feedback is optional validation only;
+when no labels exist, the report status can still be `ok` while
+`label_status` remains `insufficient_data`.
 
 `report` summarizes recorded sessions against the imported ratings.
 
@@ -365,8 +394,8 @@ column becomes the seed list. Without `--seed-sample`, the command samples up to
 `--sample-count` tracks internally with the same deterministic sampler but allows
 partial analysis coverage so missing-source rates remain visible. It compares
 sources by ranks rather than raw scores because MERT, MAEST, and SONARA scores
-use different scales. A source with no sampled coverage gets recommended weight
-`0` and a warning. Missing analysis for one source does not stop other selected
+use different scales. A source with no sampled coverage gets normalized internal
+weight `0` and a warning. Missing analysis for one source does not stop other selected
 sources from being profiled.
 
 `run-calibration` is report-only diagnostics over manual pair feedback. It treats
@@ -465,6 +494,8 @@ Options:
 | --- | --- | --- | --- |
 | `--db` | path | `dj-track-similarity.sqlite` | Schema v4 SQLite database path. |
 | `--output` | JSON path | required | Source-profile report to create. |
+| `--profile-output` | JSON path | none | Optional score profile artifact to create from this source-profile run. |
+| `--profile-name` | text | `auto-source-profile` | Optional score profile name when `--profile-output` is used. |
 | `--seed-sample` | CSV path | none | Optional CSV with a `track_id` column from `export-seed-sample`. |
 | `--source` | text | `mert`, `maest`, `sonara` | Candidate source. Repeat for a subset. |
 | `--sample-count` | integer `>=1` | `50` | Seeds to sample internally when `--seed-sample` is omitted. |
@@ -478,6 +509,50 @@ The source-profile JSON includes `status`, `profile_kind`, `sources`,
 `warnings`, and `limitations`. The `limitations` field explicitly states that
 the output is an internal consistency/source reliability diagnostic, not a
 calibrated probability or production confidence score.
+
+Usage:
+
+```text
+dj-sim eval build-score-profile [OPTIONS]
+```
+
+Options:
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--source-profile-report` | JSON path | required | Report created by `profile-sources`. |
+| `--output` | JSON path | required | Score profile artifact to create. |
+| `--name` | text | required | Profile name used in weighted RRF variant names. |
+| `--rrf-k` | integer `>=1` | `60` | Accepted for command-line continuity; apply-time `--rrf-k` controls weighted RRF. |
+| `--help` | flag | off | Show help. |
+
+The score profile JSON includes `name`, `profile_kind`, `weight_kind`, `sources`,
+normalized `weights`, `created_at`, a compact `source_report_summary`,
+`limitations`, and `version`. Loading rejects negative, non-finite,
+non-normalized, missing, or unknown source weights.
+
+Usage:
+
+```text
+dj-sim eval apply-score-profile [OPTIONS]
+```
+
+Options:
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--db` | path | `dj-track-similarity.sqlite` | Schema v4 SQLite database path. |
+| `--profile` | JSON path | required | Score profile artifact created by `profile-sources --profile-output`. |
+| `--output` | JSON path | required | Application report to create. |
+| `--k` | integer `>=1` | `5`, `10` | Metric cutoff when optional pair labels exist. Repeat for multiple values. |
+| `--rrf-k` | integer `>=1` | `60` | RRF smoothing constant for weighted source-rank fusion. |
+| `--help` | flag | off | Show help. |
+
+The apply report includes `status`, `label_status`, `profile_name`,
+`profile_kind`, `weight_kind`, `weights`, session/ranking counts, per-session
+ranked candidates, limitations, and a note that the profile is automatic internal
+score weighting rather than calibrated confidence. Metrics are included only when
+matching pair feedback labels exist.
 
 Pair feedback CSV columns:
 
@@ -516,7 +591,9 @@ export-candidates
 import-pair-feedback
 import-transition-feedback
 profile-sources
+apply-score-profile
 run-ablation
+build-score-profile
 run-calibration
 report
 ```
@@ -529,7 +606,9 @@ ranking metrics for each requested `--k` cutoff.
 `run-ablation` writes a JSON-safe file with `status`, `counts`, per-variant
 metrics, and deltas versus `fusion:rrf_all`. If recorded candidate pools or
 matching imported pair labels are missing, the report status is
-`insufficient_data`.
+`insufficient_data`. With `--score-profile`, it still includes the weighted RRF
+variant metadata and rankings when recorded candidate-pool events exist, even if
+there are no labels yet.
 
 `run-calibration` writes a JSON-safe file with `status`, `calibration_status`,
 `score_mode`, `score_kind`, accepted-label counts, Brier score, log loss, ECE,
@@ -539,9 +618,13 @@ samples exist. Supported `--score-mode` values are `rank-percentile`, `rrf`, and
 diagnostic score, not as calibrated confidence.
 
 `profile-sources` writes a JSON-safe file with coverage, pairwise agreement,
-consensus/conflict diagnostics, source score quantiles, and recommended
+consensus/conflict diagnostics, source score quantiles, and normalized
 unsupervised internal weights. It does not record evaluation rows, read Rhythm
 Lab labels or `track_likes`, train classifiers, or write audio files.
+
+`apply-score-profile` applies those normalized internal weights as a
+schema-validated JSON score profile artifact to recorded candidate pools. It does not write to SQLite, train
+a classifier, calibrate probabilities, or affect production search endpoints.
 
 ### `dj-sim relocate-library`
 

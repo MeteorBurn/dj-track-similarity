@@ -16,6 +16,7 @@ from .metrics import (
     precision_at_k,
 )
 from .reports import RELEVANCE_THRESHOLD
+from .score_profiles import LABEL_POLICY, ScoreProfile, rank_candidates_with_profile, score_profile_to_dict
 
 if TYPE_CHECKING:
     from dj_track_similarity.database import LibraryDatabase
@@ -55,12 +56,18 @@ class RankedCandidate:
 @dataclass(frozen=True)
 class SessionVariant:
     ranked_candidates: tuple[RankedCandidate, ...]
+    relevances_for_metrics: tuple[int, ...]
     judged_relevances: tuple[int, ...]
     judged_candidate_track_ids: tuple[int, ...]
+    unjudged_candidate_track_ids: tuple[int, ...]
 
     @property
     def judged_results(self) -> int:
         return len(self.judged_relevances)
+
+    @property
+    def unjudged_results(self) -> int:
+        return len(self.unjudged_candidate_track_ids)
 
 
 def build_source_ablation_report(
@@ -68,22 +75,26 @@ def build_source_ablation_report(
     *,
     k_values: Sequence[int] = DEFAULT_K_VALUES,
     rrf_k: int = DEFAULT_RRF_K,
+    score_profile: ScoreProfile | None = None,
 ) -> dict[str, Any]:
     clean_k_values = _clean_k_values(k_values)
     clean_rrf_k = _positive_int(rrf_k, "rrf_k")
+    clean_score_profile = _clean_score_profile(score_profile)
     sessions = _candidate_pool_sessions(db.list_search_sessions_with_events())
     feedback_map = db.get_pair_feedback_map()
     session_variants = {
-        session.session_id: _build_session_variants(session, feedback_map, clean_rrf_k) for session in sessions
+        session.session_id: _build_session_variants(session, feedback_map, clean_rrf_k, clean_score_profile) for session in sessions
     }
     variant_names = _variant_names(session_variants)
     baseline_metrics = _aggregate_variant_metrics(session_variants, "fusion:rrf_all", clean_k_values)
+    score_profile_variant_name = _score_profile_variant_name(clean_score_profile) if clean_score_profile is not None else None
     variants = {
         variant_name: _variant_report(
             variant_name,
             session_variants,
             clean_k_values,
             baseline_metrics,
+            score_profile=clean_score_profile if variant_name == score_profile_variant_name else None,
         )
         for variant_name in variant_names
     }
@@ -92,6 +103,8 @@ def build_source_ablation_report(
         "status": "ok" if counts["judged_results"] > 0 else "insufficient_data",
         "k_values": list(clean_k_values),
         "rrf_k": clean_rrf_k,
+        "label_policy": LABEL_POLICY,
+        "score_profile": _score_profile_report_metadata(clean_score_profile),
         "counts": counts,
         "variants": variants,
         "sessions": [_session_report(session, session_variants.get(session.session_id, {})) for session in sessions],
@@ -174,6 +187,7 @@ def _build_session_variants(
     session: CandidatePoolSession,
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
     rrf_k: int,
+    score_profile: ScoreProfile | None,
 ) -> dict[str, SessionVariant]:
     source_ranks = _source_ranks(session.candidate_events)
     if not source_ranks:
@@ -186,6 +200,8 @@ def _build_session_variants(
     }
     sources_seen = tuple(source for source in ALLOWED_CANDIDATE_SOURCES if source in source_ranks)
     variants["fusion:rrf_all"] = _rrf_ranking(source_ranks, sources_seen, rrf_k)
+    if score_profile is not None:
+        variants[_score_profile_variant_name(score_profile)] = _weighted_rrf_ranking(source_ranks, score_profile, rrf_k)
     if len(sources_seen) >= 2:
         for removed_source in sources_seen:
             kept_sources = tuple(source for source in sources_seen if source != removed_source)
@@ -255,23 +271,51 @@ def _rrf_ranking(
     )
 
 
+def _weighted_rrf_ranking(
+    source_ranks: Mapping[str, Mapping[int, int]],
+    score_profile: ScoreProfile,
+    rrf_k: int,
+) -> tuple[RankedCandidate, ...]:
+    candidate_contributions = _candidate_contributions_from_source_ranks(source_ranks)
+    return tuple(
+        RankedCandidate(candidate_track_id=candidate.candidate_track_id, rank_score=candidate.rank_score)
+        for candidate in rank_candidates_with_profile(candidate_contributions, score_profile, rrf_k=rrf_k)
+    )
+
+
+def _candidate_contributions_from_source_ranks(source_ranks: Mapping[str, Mapping[int, int]]) -> dict[int, dict[str, dict[str, int]]]:
+    candidate_contributions: dict[int, dict[str, dict[str, int]]] = {}
+    for source, ranks in source_ranks.items():
+        for candidate_track_id, rank in ranks.items():
+            candidate_contributions.setdefault(candidate_track_id, {})[source] = {"rank": rank}
+    return candidate_contributions
+
+
 def _session_variant(
     ranked_candidates: Sequence[RankedCandidate],
     session: CandidatePoolSession,
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
 ) -> SessionVariant:
+    relevances_for_metrics: list[int] = []
     judged_relevances: list[int] = []
     judged_candidate_track_ids: list[int] = []
+    unjudged_candidate_track_ids: list[int] = []
     for candidate in ranked_candidates:
         label = _matching_label(session.seed_track_ids, candidate.candidate_track_id, session.feedback_source, feedback_map)
         if label is None:
+            relevances_for_metrics.append(0)
+            unjudged_candidate_track_ids.append(candidate.candidate_track_id)
             continue
-        judged_relevances.append(int(label["rating"]))
+        rating = int(label["rating"])
+        relevances_for_metrics.append(rating)
+        judged_relevances.append(rating)
         judged_candidate_track_ids.append(candidate.candidate_track_id)
     return SessionVariant(
         ranked_candidates=tuple(ranked_candidates),
+        relevances_for_metrics=tuple(relevances_for_metrics),
         judged_relevances=tuple(judged_relevances),
         judged_candidate_track_ids=tuple(judged_candidate_track_ids),
+        unjudged_candidate_track_ids=tuple(unjudged_candidate_track_ids),
     )
 
 
@@ -331,20 +375,27 @@ def _variant_report(
     session_variants: Mapping[int, Mapping[str, SessionVariant]],
     k_values: Sequence[int],
     baseline_metrics: Mapping[str, float | int],
+    *,
+    score_profile: ScoreProfile | None = None,
 ) -> dict[str, Any]:
     metrics = _aggregate_variant_metrics(session_variants, variant_name, k_values)
-    return {
+    report = {
         "type": variant_name.split(":", 1)[0],
-        "sources": _variant_sources(variant_name),
+        "sources": _variant_sources(variant_name, score_profile),
         "counts": _variant_counts(session_variants, variant_name),
         "metrics": metrics,
         "delta_vs_fusion_rrf_all": _metric_deltas(metrics, baseline_metrics),
     }
+    if score_profile is not None:
+        report["score_profile"] = _score_profile_report_metadata(score_profile)
+    return report
 
 
-def _variant_sources(variant_name: str) -> list[str]:
+def _variant_sources(variant_name: str, score_profile: ScoreProfile | None = None) -> list[str]:
     if variant_name.startswith("source:"):
         return [variant_name.split(":", 1)[1]]
+    if variant_name.startswith("fusion:weighted_rrf:") and score_profile is not None:
+        return [source for source in score_profile.sources if score_profile.weights[source] > 0]
     if variant_name == "fusion:rrf_all":
         return list(ALLOWED_CANDIDATE_SOURCES)
     if variant_name.startswith("fusion:rrf_without_"):
@@ -359,7 +410,7 @@ def _aggregate_variant_metrics(
     k_values: Sequence[int],
 ) -> dict[str, float]:
     relevance_lists = [
-        list(variant.judged_relevances)
+        list(variant.relevances_for_metrics)
         for variants in session_variants.values()
         if (variant := variants.get(variant_name)) is not None and variant.judged_results > 0
     ]
@@ -404,13 +455,15 @@ def _empty_metrics(k_values: Sequence[int]) -> dict[str, float]:
 def _variant_counts(
     session_variants: Mapping[int, Mapping[str, SessionVariant]],
     variant_name: str,
-) -> dict[str, int]:
+) -> dict[str, Any]:
     variants = [variants[variant_name] for variants in session_variants.values() if variant_name in variants]
     return {
         "sessions_total": len(variants),
         "sessions_with_labels": sum(1 for variant in variants if variant.judged_results > 0),
         "judged_results": sum(variant.judged_results for variant in variants),
+        "unjudged_results": sum(variant.unjudged_results for variant in variants),
         "candidate_count": sum(len(variant.ranked_candidates) for variant in variants),
+        "label_policy": LABEL_POLICY,
     }
 
 
@@ -434,7 +487,9 @@ def _report_counts(
         "sessions_total": len(sessions),
         "sessions_with_labels": sum(1 for variant in baseline_variants if variant.judged_results > 0),
         "judged_results": sum(variant.judged_results for variant in baseline_variants),
+        "unjudged_results": sum(variant.unjudged_results for variant in baseline_variants),
         "candidate_count": sum(len(session.candidate_events) for session in sessions),
+        "label_policy": LABEL_POLICY,
         "sources_seen": _sources_seen(sessions),
     }
 
@@ -445,6 +500,22 @@ def _sources_seen(sessions: Sequence[CandidatePoolSession]) -> list[str]:
         for source in ALLOWED_CANDIDATE_SOURCES
         if any(source in event.source_contributions for session in sessions for event in session.candidate_events)
     ]
+
+
+def _clean_score_profile(score_profile: ScoreProfile | None) -> ScoreProfile | None:
+    if score_profile is None:
+        return None
+    return ScoreProfile(**score_profile_to_dict(score_profile))
+
+
+def _score_profile_variant_name(score_profile: ScoreProfile) -> str:
+    return f"fusion:weighted_rrf:{score_profile.name}"
+
+
+def _score_profile_report_metadata(score_profile: ScoreProfile | None) -> dict[str, Any] | None:
+    if score_profile is None:
+        return None
+    return score_profile_to_dict(score_profile)
 
 
 def _session_report(
@@ -461,10 +532,14 @@ def _session_report(
         "variants": {
             variant_name: {
                 "candidate_count": len(variant.ranked_candidates),
+                "label_policy": LABEL_POLICY,
                 "judged_results": variant.judged_results,
+                "unjudged_results": variant.unjudged_results,
                 "ranked_candidate_track_ids": [candidate.candidate_track_id for candidate in variant.ranked_candidates],
                 "judged_candidate_track_ids": list(variant.judged_candidate_track_ids),
+                "unjudged_candidate_track_ids": list(variant.unjudged_candidate_track_ids),
                 "judged_relevances": list(variant.judged_relevances),
+                "relevances_for_metrics": list(variant.relevances_for_metrics),
             }
             for variant_name, variant in sorted(variants.items())
         },

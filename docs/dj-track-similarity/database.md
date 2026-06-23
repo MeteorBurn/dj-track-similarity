@@ -110,13 +110,17 @@ tags.
 
 ### `track_classifier_scores`
 
-Stores derived classifier outputs by track and classifier key:
+Stores derived outputs from promoted Rhythm Lab classifier profiles by track and
+classifier key. It is not used for `dj-sim eval profile-sources` automatic score
+profiles, which remain JSON report artifacts outside SQLite:
 
 - `track_id`: references `tracks.id`.
 - `classifier`: classifier key such as `live_instrumentation`.
 - `score`: primary user-facing score used for filtering.
 - `label`: coarse label such as `high`, `medium`, or `low`.
-- `confidence`: maximum class probability.
+- `confidence`: maximum class probability from that promoted classifier output;
+  it is not calibrated confidence and is unrelated to automatic source-profile
+  weights.
 - `probabilities_json`: classifier probabilities keyed by the profile's
   training labels.
 - `feature_set`: feature family used by the classifier artifact, currently
@@ -163,7 +167,8 @@ calibration work:
   same source updates the same row.
 - `transition_feedback`: append-only ratings and risk tags for outgoing/incoming
   transition pairs.
-- `calibration_runs`: saved calibration profile/config/metrics JSON snapshots.
+- `calibration_runs`: diagnostic/report-only calibration profile/config/metrics
+  JSON snapshots.
 
 These rows are app evaluation data only. They are not Rhythm Lab classifier
 labels, not `track_likes`, and not file tags. Foreign keys cascade when related
@@ -171,8 +176,9 @@ local `tracks` or `search_sessions` rows are removed. Recording evaluation data
 updates SQLite only and never writes to audio files.
 
 Manual pair and transition feedback can be imported with `dj-sim eval` commands
-from CSV or JSONL files. They are optional validation/audit inputs, not
-classifier training data and not required for automatic source profiling.
+from CSV or JSONL files. These CSVs/JSONL files are optional audit and validation
+inputs, not classifier training data, and automatic source profiling does not
+require them.
 Search-quality reports use only explicit evaluation feedback plus already
 recorded search sessions/result events; likes and Rhythm Lab labels are not
 treated as ground truth by default.
@@ -196,9 +202,21 @@ weights or thresholds.
 `dj-sim eval profile-sources` is the automatic unsupervised source profiling
 path. It reads existing MERT, MAEST, and SONARA analysis data for sampled seeds,
 computes coverage, rank agreement, RRF-style consensus support, conflicts, score
-quantiles, and normalized recommended internal weights. It does not write to the
+quantiles, and normalized internal source weights. It does not write to the
 database, does not use manual labels as required ground truth, does not calibrate
 probabilities, and does not prove human DJ taste without external validation.
+
+`dj-sim eval profile-sources --profile-output <json>` saves those normalized
+internal weights as a schema-validated JSON score profile artifact, usually under
+`reports/experiments/` or another user-selected reports path. Schema validation
+checks the artifact shape only; it is not external validation of human DJ taste.
+Score profiles are not stored in SQLite in schema v4, do not create a schema v5
+migration, do not train classifiers, and do not change production search
+endpoints.
+`dj-sim eval apply-score-profile --profile <json>` applies the artifact to
+recorded candidate pools with weighted RRF over stored source ranks. If pair
+feedback exists it includes validation metrics; without labels it still reports
+rankings with `label_status: "insufficient_data"` and no quality claim.
 
 ## Metadata and Analysis Data
 

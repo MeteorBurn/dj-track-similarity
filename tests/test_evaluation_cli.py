@@ -86,6 +86,208 @@ def test_eval_run_ablation_cli_writes_json_summary(tmp_path: Path) -> None:
     assert "fusion:rrf_all" in report["variants"]
 
 
+def test_eval_build_score_profile_cli_writes_profile_artifact(tmp_path: Path) -> None:
+    source_report_path = tmp_path / "source_profile.json"
+    output_path = tmp_path / "score_profile.json"
+    source_report_path.write_text(json.dumps(_source_profile_report({"mert": 0.75, "maest": 0.25})), encoding="utf-8")
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "eval",
+            "build-score-profile",
+            "--source-profile-report",
+            str(source_report_path),
+            "--output",
+            str(output_path),
+            "--name",
+            "auto",
+            "--rrf-k",
+            "60",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "profile=auto" in result.output
+    profile = json.loads(output_path.read_text(encoding="utf-8"))
+    assert profile["profile_kind"] == "unsupervised_source_profile"
+    assert profile["weight_kind"] == "unsupervised_internal_profile"
+    assert profile["weights"]["mert"] == 0.75
+    assert profile["weights"]["maest"] == 0.25
+
+
+def test_eval_run_ablation_cli_with_score_profile_includes_weighted_variant(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    output_path = tmp_path / "ablation.json"
+    score_profile_path = tmp_path / "score_profile.json"
+    score_profile_path.write_text(
+        json.dumps(
+            {
+                "name": "maest_auto",
+                "profile_kind": "unsupervised_source_profile",
+                "weight_kind": "unsupervised_internal_profile",
+                "sources": ["mert", "maest"],
+                "weights": {"mert": 0.1, "maest": 0.9},
+                "created_at": "2026-06-23T00:00:00Z",
+                "source_report_summary": {"status": "ok"},
+                "limitations": [
+                    "This is an unsupervised automatic internal score profile.",
+                    "These weights are not probability or calibrated confidence.",
+                    "This profile is not human ground truth.",
+                ],
+                "version": 1,
+            },
+        ),
+        encoding="utf-8",
+    )
+    db = LibraryDatabase(db_path)
+    seed_id = db.upsert_track(path=tmp_path / "seed.wav", size=10, mtime=1)
+    candidate_id = db.upsert_track(path=tmp_path / "candidate.wav", size=10, mtime=1)
+    session_id = db.create_search_session("evaluation_candidate_pool", [seed_id], {"feedback_source": "manual"})
+    db.record_search_result_event(
+        session_id,
+        candidate_id,
+        rank=1,
+        total_score=0.0,
+        score_breakdown={"sources": {"mert": {"rank": 2}, "maest": {"rank": 1}}},
+    )
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "eval",
+            "run-ablation",
+            "--db",
+            str(db_path),
+            "--output",
+            str(output_path),
+            "--k",
+            "1",
+            "--score-profile",
+            str(score_profile_path),
+        ],
+    )
+
+    assert result.exit_code == 0
+    report = json.loads(output_path.read_text(encoding="utf-8"))
+    assert report["score_profile"]["name"] == "maest_auto"
+    assert "fusion:weighted_rrf:maest_auto" in report["variants"]
+
+
+def test_eval_apply_score_profile_cli_reports_rankings_without_labels(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    output_path = tmp_path / "apply.json"
+    profile_path = tmp_path / "score_profile.json"
+    db = LibraryDatabase(db_path)
+    seed_id = db.upsert_track(path=tmp_path / "seed.wav", size=10, mtime=1)
+    candidate_a = db.upsert_track(path=tmp_path / "candidate_a.wav", size=10, mtime=1)
+    candidate_b = db.upsert_track(path=tmp_path / "candidate_b.wav", size=10, mtime=1)
+    _write_score_profile(profile_path, {"mert": 0.1, "maest": 0.9})
+    session_id = db.create_search_session("evaluation_candidate_pool", [seed_id], {"feedback_source": "manual"})
+    db.record_search_result_event(session_id, candidate_a, rank=1, total_score=0.0, score_breakdown={"sources": {"mert": {"rank": 1}, "maest": {"rank": 20}}})
+    db.record_search_result_event(session_id, candidate_b, rank=2, total_score=0.0, score_breakdown={"sources": {"maest": {"rank": 1}}})
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "eval",
+            "apply-score-profile",
+            "--db",
+            str(db_path),
+            "--profile",
+            str(profile_path),
+            "--output",
+            str(output_path),
+            "--k",
+            "1",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "status=ok" in result.output
+    assert "label_status=insufficient_data" in result.output
+    report = json.loads(output_path.read_text(encoding="utf-8"))
+    assert report["label_status"] == "insufficient_data"
+    assert "metrics" not in report
+    assert report["ranked_sessions"][0]["ranked_candidate_track_ids"] == [candidate_b, candidate_a]
+
+
+def test_eval_apply_score_profile_cli_includes_metrics_with_pair_feedback(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    output_path = tmp_path / "apply.json"
+    profile_path = tmp_path / "score_profile.json"
+    db = LibraryDatabase(db_path)
+    seed_id = db.upsert_track(path=tmp_path / "seed.wav", size=10, mtime=1)
+    candidate_a = db.upsert_track(path=tmp_path / "candidate_a.wav", size=10, mtime=1)
+    candidate_b = db.upsert_track(path=tmp_path / "candidate_b.wav", size=10, mtime=1)
+    _write_score_profile(profile_path, {"mert": 0.1, "maest": 0.9})
+    session_id = db.create_search_session("evaluation_candidate_pool", [seed_id], {"feedback_source": "manual"})
+    db.record_search_result_event(session_id, candidate_a, rank=1, total_score=0.0, score_breakdown={"sources": {"mert": {"rank": 1}, "maest": {"rank": 20}}})
+    db.record_search_result_event(session_id, candidate_b, rank=2, total_score=0.0, score_breakdown={"sources": {"maest": {"rank": 1}}})
+    db.upsert_track_pair_feedback(seed_id, candidate_a, 0, source="manual")
+    db.upsert_track_pair_feedback(seed_id, candidate_b, 3, source="manual")
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "eval",
+            "apply-score-profile",
+            "--db",
+            str(db_path),
+            "--profile",
+            str(profile_path),
+            "--output",
+            str(output_path),
+            "--k",
+            "1",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "label_status=ok" in result.output
+    report = json.loads(output_path.read_text(encoding="utf-8"))
+    assert report["judged_results"] == 2
+    assert report["metrics"]["mean_ndcg_at_1"] == 1.0
+    assert report["metrics"]["mean_precision_at_1"] == 1.0
+
+
+def test_eval_profile_sources_cli_writes_score_profile_output(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    output_path = tmp_path / "source_profile.json"
+    profile_path = tmp_path / "score_profile.json"
+    seed_sample_path = tmp_path / "seed_sample.csv"
+    seed_id, _candidate_ids = _build_candidate_export_library(db_path, tmp_path)
+    seed_sample_path.write_text(f"track_id\n{seed_id}\n", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "eval",
+            "profile-sources",
+            "--db",
+            str(db_path),
+            "--seed-sample",
+            str(seed_sample_path),
+            "--output",
+            str(output_path),
+            "--profile-output",
+            str(profile_path),
+            "--profile-name",
+            "auto-test",
+            "--source",
+            "mert",
+            "--per-source",
+            "2",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "score_profile=auto-test" in result.output
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    assert profile["name"] == "auto-test"
+    assert profile["weights"] == {"mert": 1.0}
+
+
 def test_eval_export_candidates_cli_writes_csv_without_recording_sessions(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     output_path = tmp_path / "candidates.csv"
@@ -294,3 +496,41 @@ def _save_cli_seed_sample_analysis(db: LibraryDatabase, track_id: int) -> None:
 def _read_csv_rows(path: Path) -> list[dict[str, str]]:
     with path.open("r", encoding="utf-8", newline="") as file:
         return list(csv.DictReader(file))
+
+
+def _write_score_profile(path: Path, weights: dict[str, float]) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "name": "auto",
+                "profile_kind": "unsupervised_source_profile",
+                "weight_kind": "unsupervised_internal_profile",
+                "sources": list(weights),
+                "weights": weights,
+                "created_at": "2026-06-23T00:00:00Z",
+                "source_report_summary": {"status": "ok"},
+                "limitations": [
+                    "This is an unsupervised automatic internal score profile.",
+                    "These weights are not probability or calibrated confidence.",
+                    "This profile is not human ground truth.",
+                ],
+                "version": 1,
+            },
+        ),
+        encoding="utf-8",
+    )
+
+
+def _source_profile_report(weights: dict[str, float]) -> dict[str, object]:
+    return {
+        "status": "ok",
+        "profile_kind": "unsupervised_source_profile",
+        "weight_kind": "unsupervised_internal_profile",
+        "sources": list(weights),
+        "seed_count": 1,
+        "per_source": {},
+        "consensus": {},
+        "recommended_weights": {"weight_kind": "unsupervised_internal_profile", "weights": weights, "note": "test"},
+        "warnings": [],
+        "limitations": [],
+    }

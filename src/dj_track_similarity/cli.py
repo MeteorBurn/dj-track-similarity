@@ -37,6 +37,12 @@ from .evaluation.calibration import build_calibration_report, calibration_record
 from .evaluation.candidates import export_candidate_pools, write_candidate_pool_csv
 from .evaluation.labels import load_pair_feedback_labels, load_transition_feedback_labels
 from .evaluation.reports import build_search_evaluation_report
+from .evaluation.score_profiles import (
+    build_score_profile_application_report,
+    build_score_profile_from_source_report,
+    load_score_profile,
+    save_score_profile,
+)
 from .evaluation.seed_sampling import export_seed_sample, write_seed_sample_csv
 from .evaluation.source_profile import build_source_profile, load_seed_track_ids_from_csv
 from .logging_config import configure_logging, set_analysis_diagnostics_enabled
@@ -75,6 +81,16 @@ def _evaluation_db(path: Optional[Path]) -> LibraryDatabase:
 def _write_json_report(path: Path, report: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _load_json_object(path: Path, description: str) -> dict[str, object]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ValueError(f"{description} JSON is invalid: {error.msg}") from error
+    if not isinstance(payload, dict):
+        raise ValueError(f"{description} JSON must be an object")
+    return payload
 
 
 def _run_cli_job_with_progress(manager: object, job_id: str, *, label: str, poll_interval: float = 0.5):
@@ -317,9 +333,11 @@ def evaluation_run_ablation(
     output_path: Path = typer.Option(..., "--output", dir_okay=False, writable=True),
     k: Optional[list[int]] = typer.Option(None, "--k", min=1, help="Metric cutoff. Repeat for multiple values."),
     rrf_k: int = typer.Option(60, "--rrf-k", min=1, help="RRF smoothing constant for source-rank fusion."),
+    score_profile_path: Optional[Path] = typer.Option(None, "--score-profile", exists=True, dir_okay=False, readable=True, help="Optional score profile JSON for weighted RRF diagnostics."),
 ) -> None:
     try:
-        report = build_source_ablation_report(_evaluation_db(db_path), k_values=k or [5, 10], rrf_k=rrf_k)
+        score_profile = load_score_profile(score_profile_path) if score_profile_path is not None else None
+        report = build_source_ablation_report(_evaluation_db(db_path), k_values=k or [5, 10], rrf_k=rrf_k, score_profile=score_profile)
         _write_json_report(output_path, report)
     except ValueError as error:
         typer.secho(str(error), err=True, fg=typer.colors.RED)
@@ -330,6 +348,26 @@ def evaluation_run_ablation(
         f"sessions_with_labels={counts['sessions_with_labels']} judged_results={counts['judged_results']} "
         f"sources_seen={','.join(counts['sources_seen'])}"
     )
+
+
+@eval_app.command("build-score-profile")
+def evaluation_build_score_profile(
+    source_profile_report_path: Path = typer.Option(..., "--source-profile-report", exists=True, dir_okay=False, readable=True),
+    output_path: Path = typer.Option(..., "--output", dir_okay=False, writable=True),
+    name: str = typer.Option(..., "--name", help="Score profile artifact name."),
+    rrf_k: int = typer.Option(60, "--rrf-k", min=1, help="RRF smoothing constant for weighted RRF."),
+) -> None:
+    try:
+        source_report = _load_json_object(source_profile_report_path, "Source profile report")
+        _ = rrf_k
+        score_profile = build_score_profile_from_source_report(source_report, name=name)
+        save_score_profile(score_profile, output_path)
+    except ValueError as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+
+    weights_text = ",".join(f"{source}={float(weight):.4f}" for source, weight in sorted(score_profile.weights.items()))
+    typer.echo(f"profile={score_profile.name} output={output_path} weight_kind={score_profile.weight_kind} weights={weights_text}")
 
 
 @eval_app.command("run-calibration")
@@ -379,6 +417,8 @@ def evaluation_run_calibration(
 def evaluation_profile_sources(
     db_path: Optional[Path] = typer.Option(None, "--db"),
     output_path: Path = typer.Option(..., "--output", dir_okay=False, writable=True),
+    profile_output_path: Optional[Path] = typer.Option(None, "--profile-output", dir_okay=False, writable=True, help="Optional score profile JSON artifact to create from this report."),
+    profile_name: str = typer.Option("auto-source-profile", "--profile-name", help="Score profile name when --profile-output is used."),
     seed_sample_path: Optional[Path] = typer.Option(None, "--seed-sample", exists=True, dir_okay=False, readable=True),
     sources: Optional[list[str]] = typer.Option(None, "--source", help="Candidate source: mert, maest, or sonara. Repeat for multiple sources."),
     sample_count: int = typer.Option(50, "--sample-count", min=1, help="Seed count to sample when --seed-sample is not provided."),
@@ -399,6 +439,10 @@ def evaluation_profile_sources(
             random_seed=random_seed,
         )
         _write_json_report(output_path, report)
+        score_profile = None
+        if profile_output_path is not None:
+            score_profile = build_score_profile_from_source_report(report, name=profile_name)
+            save_score_profile(score_profile, profile_output_path)
     except (KeyError, ValueError, sqlite3.IntegrityError) as error:
         typer.secho(str(error), err=True, fg=typer.colors.RED)
         raise typer.Exit(1) from error
@@ -410,6 +454,32 @@ def evaluation_profile_sources(
     typer.echo(
         f"status={report['status']} output={output_path} seed_count={report['seed_count']} "
         f"weight_kind={report['weight_kind']} weights={weights_text} warnings={len(report['warnings'])}"
+    )
+    if score_profile is not None:
+        typer.echo(f"score_profile={score_profile.name} profile_output={profile_output_path}")
+
+
+@eval_app.command("apply-score-profile")
+def evaluation_apply_score_profile(
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+    profile_path: Path = typer.Option(..., "--profile", exists=True, dir_okay=False, readable=True),
+    output_path: Path = typer.Option(..., "--output", dir_okay=False, writable=True),
+    k: Optional[list[int]] = typer.Option(None, "--k", min=1, help="Metric cutoff. Repeat for multiple values."),
+    rrf_k: int = typer.Option(60, "--rrf-k", min=1, help="RRF smoothing constant for weighted source-rank fusion."),
+) -> None:
+    try:
+        profile = load_score_profile(profile_path)
+        report = build_score_profile_application_report(_evaluation_db(db_path), profile, k_values=k or [5, 10], rrf_k=rrf_k)
+        _write_json_report(output_path, report)
+    except ValueError as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+
+    weights_text = ",".join(f"{source}={float(weight):.4f}" for source, weight in sorted(report["weights"].items()))
+    typer.echo(
+        f"status={report['status']} label_status={report['label_status']} output={output_path} "
+        f"profile={report['profile_name']} ranked_sessions={report['ranked_session_count']} "
+        f"judged_results={report['judged_results']} weights={weights_text}"
     )
 
 

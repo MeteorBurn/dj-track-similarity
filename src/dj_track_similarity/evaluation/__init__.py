@@ -6,6 +6,7 @@ __all__ = [
     "labels",
     "metrics",
     "reports",
+    "score_profiles",
     "seed_sampling",
     "source_profile",
 ]

@@ -39,8 +39,8 @@ Suggested modes:
 
 Implemented controls:
 
-- `Seed source`: manual selected waypoint seeds or auto random related
-  waypoint anchors;
+- `Seed source`: manual selected waypoint seeds or auto random-start waypoint
+  anchors;
 - `Set mode`: `Similar crate - close`, `Weird adjacent - odd`,
   `Balanced set - flow`, or `Discovery - wide`;
 - `Track limit`: target length, defaulting to 24, with seeds/anchors counting
@@ -73,6 +73,9 @@ one known artist can appear at most once in a generated SET preview, so
 duplicate known artists in manual seeds are rejected.
 Auto anchors use the same `seed_anchor` reason and are distributed as route
 waypoints instead of being front-loaded at the beginning of the preview.
+The first auto anchor is sampled from the full feature-complete library before
+the related candidate prefilter runs; later anchors and bridge tracks follow
+from that starting point.
 
 Possible API shape:
 

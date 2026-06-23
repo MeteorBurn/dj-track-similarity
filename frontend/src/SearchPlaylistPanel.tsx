@@ -50,8 +50,8 @@ const setSeedModeOptions: Array<SelectOption<SetBuilderSeedMode>> = [
   },
   {
     value: "auto",
-    label: "Auto - random related",
-    title: "Auto: каждый запуск случайно выбирает 1-5 связанных feature-complete waypoint anchors и распределяет их по SET preview."
+    label: "Auto - random start",
+    title: "Auto: первый anchor выбирается из всей feature-complete library, затем SET строит связанные waypoint anchors и bridge tracks."
   }
 ];
 
@@ -277,7 +277,7 @@ export function SearchPlaylistPanel({
   const setBpmModeTitle = optionTitle(setBpmModeOptions, setBpmMode);
   const setBpmChangeTitle = optionTitle(setBpmChangeOptions, setBpmChange);
   const setBuilderLimitTitle = "Сколько треков вернуть в preview. Тип: целое число 1-500. Default: 24. Seeds/anchors входят в это число и размещаются как waypoint-позиции.";
-  const setAutoSeedCountTitle = "Сколько случайных связанных waypoint anchors выбрать в Auto mode. Тип: целое число 1-5. Каждый запуск пересэмпливает anchors.";
+  const setAutoSeedCountTitle = "Сколько waypoint anchors использовать в Auto mode. Тип: целое число 1-5. Первый anchor стартует из всей feature-complete library; остальные подбираются вокруг маршрута.";
   const setBuilderDiversityTitle = "Насколько активно раздвигать похожие кандидаты. Тип: число 0.00-1.00. 0 = ближе к anchors, 1 = больше разнообразия при сохранении связи.";
   const setBpmStartTitle = "Start BPM для явной BPM-кривой. Тип: число 20-300 или пусто = взять из первого seed/anchor, затем из библиотеки.";
   const setBpmTargetTitle = "Target BPM для явной BPM-кривой. Тип: число 20-300 или пусто = вывести из доступного диапазона библиотеки.";
@@ -510,7 +510,7 @@ export function SearchPlaylistPanel({
               ) : null}
             </div>
             <div className="set-builder-actions">
-              <button className="set-builder-generate-button" title="Build a new ordered SET preview. Auto mode resamples related waypoint anchors on every run; Manual mode distributes selected seeds as waypoints." disabled={busy || (setSeedMode === "manual" && !seeds.length)} onClick={generateSetBuilder} type="button">
+              <button className="set-builder-generate-button" title="Build a new ordered SET preview. Auto mode samples the first anchor from the full eligible library, then builds a related route; Manual mode distributes selected seeds as waypoints." disabled={busy || (setSeedMode === "manual" && !seeds.length)} onClick={generateSetBuilder} type="button">
                 <Search size={17} />
                 Generate
               </button>

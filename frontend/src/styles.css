@@ -546,7 +546,7 @@ h2 {
 .workspace {
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(240px, 0.92fr) minmax(280px, 1.18fr) minmax(240px, 0.96fr);
+  grid-template-columns: minmax(240px, 0.82fr) minmax(280px, 1.04fr) minmax(360px, 1.24fr);
   height: calc(100vh - 86px);
   margin: 0 auto;
   max-width: 1680px;
@@ -1433,8 +1433,9 @@ h2 {
 }
 
 .search-workflow-section .results-list {
-  flex: 0 0 auto;
-  max-height: 160px;
+  flex: 0 0 min(380px, 42vh);
+  max-height: min(520px, 52vh);
+  min-height: 280px;
 }
 
 .playlist-export-section {

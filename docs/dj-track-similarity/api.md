@@ -176,10 +176,10 @@ Request fields:
 
 - `seed_mode`: `manual` or `auto`. Manual mode requires `1-5`
   `seed_track_ids` and distributes them as waypoint anchors; auto mode samples
-  `1-5` related waypoint anchors from feature-complete tracks.
+  the first anchor from the full feature-complete library, then samples the
+  remaining waypoint anchors from related candidates.
 - `seed_track_ids`: manual seed track IDs. Ignored in auto mode.
-- `auto_seed_count`: number of related waypoint anchors to sample in auto mode,
-  `1-5`.
+- `auto_seed_count`: number of waypoint anchors to use in auto mode, `1-5`.
 - `mode`: `similar_crate`, `weird_adjacent`, `balanced_set`, or `discovery`.
 - `limit`: preview length, default `24`.
 - `diversity`: `0.0-1.0`, used during ordering.
@@ -214,13 +214,16 @@ produce neutral classifier contribution and lower classifier confidence in the
 score explanation. BPM/key ordering is soft and uses file tags first, with
 SONARA values as fallback. If an explicit BPM mode is selected, actual track
 BPM also contributes an ordered low-to-high or high-to-low tempo curve; missing
-BPM stays neutral rather than excluding the track. Active classifier target,
-avoid, and curve controls also bias auto-anchor selection, using stored scores
+BPM stays neutral rather than excluding the track. In auto mode, the first
+anchor is sampled before the related candidate prefilter so it can start from
+the full eligible library. Active classifier target, avoid, and curve controls
+can bias that start anchor and later auto-anchor selection, using stored scores
 only. The ordered preview also applies a strict artist guard: each known artist
 may appear at most once in one preview. Manual seeds are included as distributed
 `seed_anchor` waypoint items, but duplicate known artists among manual seeds are
-rejected. Auto anchors and non-seed positions are sampled from mode-scored pools,
-so repeated calls without `random_seed` can return different related sets.
+rejected. Later auto anchors and non-seed positions are sampled from mode-scored
+pools, so repeated calls without `random_seed` can return different related
+sets.
 
 `POST /api/search/text` accepts `query`, `limit`, optional `min_similarity`,
 and optional `device`. It also accepts adaptive contrast fields:

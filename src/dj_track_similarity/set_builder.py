@@ -177,15 +177,19 @@ class SmartSetBuilder:
         else:
             if not light_candidates:
                 raise ValueError("No feature-complete tracks are available for Smart Set Builder")
-            prefiltered, sonara_centrality = _prefilter_light_candidates(light_candidates, [], cleaned)
-            hydrate_ids = [candidate.track.id for candidate in prefiltered]
+            auto_start_plan = _bpm_plan(cleaned, light_candidates, [])
+            first_seed_light = _select_auto_start_candidate(light_candidates, cleaned, rng, auto_start_plan)
+            prefiltered, _sonara_centrality = _prefilter_light_candidates(light_candidates, [first_seed_light], cleaned)
+            seed_ids = [first_seed_light.track.id]
+            hydrate_ids = _ordered_unique([first_seed_light.track.id, *(candidate.track.id for candidate in prefiltered)])
         candidates = self._hydrate_candidates([light_by_id[track_id] for track_id in hydrate_ids if track_id in light_by_id])
         candidate_by_id = {candidate.track.id: candidate for candidate in candidates}
         if cleaned.seed_mode == "auto":
             if not candidates:
                 raise ValueError("No feature-complete tracks are available for Smart Set Builder")
-            auto_bpm_plan = _bpm_plan(cleaned, candidates, [])
-            seed_ids = self._auto_seed_ids(candidates, cleaned, rng, sonara_centrality=sonara_centrality, bpm_plan=auto_bpm_plan)
+            initial_seeds = [candidate_by_id[track_id] for track_id in seed_ids if track_id in candidate_by_id]
+            auto_bpm_plan = _bpm_plan(cleaned, candidates, initial_seeds)
+            seed_ids = self._auto_seed_ids(candidates, cleaned, rng, bpm_plan=auto_bpm_plan, initial_seeds=initial_seeds)
         missing_hydrated_seeds = [track_id for track_id in seed_ids if track_id not in candidate_by_id]
         if missing_hydrated_seeds:
             raise ValueError(f"Seed tracks missing required analysis: {missing_hydrated_seeds}")
@@ -382,10 +386,14 @@ class SmartSetBuilder:
         *,
         sonara_centrality: dict[int, float] | None = None,
         bpm_plan: _BpmPlan | None = None,
+        initial_seeds: list[_Candidate] | None = None,
     ) -> list[int]:
         count = max(1, min(5, int(config.auto_seed_count)))
         if len(candidates) < count:
             raise ValueError(f"Auto seed mode requires at least {count} feature-complete tracks")
+        initial_seed_list = list(initial_seeds or [])
+        if len(initial_seed_list) >= count:
+            return [seed.track.id for seed in initial_seed_list[:count]]
         ranges = _numeric_ranges(candidates)
         anchor_positions = _anchor_positions(config.limit, count)
         target_count = max(config.limit, count)
@@ -397,9 +405,11 @@ class SmartSetBuilder:
             for candidate in candidates
         ]
         centrality.sort(key=lambda item: (-item[1], item[0].track.artist or "", item[0].track.title or "", item[0].track.path))
-        seeds: list[_Candidate] = []
-        seen_keys: set[str] = set()
+        seeds: list[_Candidate] = list(initial_seed_list)
+        seen_keys: set[str] = {seed.duplicate_key for seed in seeds}
         artist_counts: Counter[str] = Counter()
+        for seed in seeds:
+            _record_artist(seed, artist_counts)
         while len(seeds) < count:
             scored_options: list[tuple[_Candidate, float]] = []
             for allow_near_duplicate in (False, True):
@@ -1157,6 +1167,33 @@ def _auto_anchor_centrality(
     embedding_score = float(np.mean(embedding_scores)) if embedding_scores else 0.0
     sonara_score = sonara_centrality.get(candidate.track.id, 0.0)
     return _bounded(embedding_score * 0.7 + sonara_score * 0.3)
+
+
+def _select_auto_start_candidate(
+    candidates: list[_LightCandidate],
+    config: SetBuilderConfig,
+    rng: np.random.Generator,
+    bpm_plan: _BpmPlan | None,
+) -> _LightCandidate:
+    scored = [(candidate, _auto_start_selection_score(candidate, config, bpm_plan)) for candidate in candidates]
+    index = _sample_ranked_index([score for _candidate, score in scored], rng, mode=config.mode, force_sample=True)
+    return scored[index][0]
+
+
+def _auto_start_selection_score(
+    candidate: _LightCandidate,
+    config: SetBuilderConfig,
+    bpm_plan: _BpmPlan | None,
+) -> float:
+    score = 0.5
+    if _uses_classifier_config(config):
+        target, avoid, confidence = _classifier_modifiers(candidate.track, config)
+        score = _bounded(0.5 + (target + avoid) * 0.5)
+        score += (confidence - 1.0) * CLASSIFIER_CONFIDENCE_WEIGHT
+    if bpm_plan is not None:
+        bpm_score = _bpm_curve_score(candidate, bpm_plan, 0, max(config.limit, config.auto_seed_count))
+        score = score * 0.55 + bpm_score * 0.45
+    return _bounded(score)
 
 
 def _auto_anchor_selection_score(

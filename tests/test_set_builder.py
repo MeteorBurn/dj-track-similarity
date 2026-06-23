@@ -172,6 +172,48 @@ def test_auto_mode_uses_random_seed_and_excludes_feature_incomplete_tracks(tmp_p
     assert len(first["seed_track_ids"]) == 3
 
 
+def test_auto_mode_first_anchor_can_start_from_full_eligible_pool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    deep_id = _complete_track(
+        db,
+        tmp_path,
+        "deep-library-start.wav",
+        metadata={"artist": "A Deep Artist", "title": "Deep Library Start"},
+        features=_features(energy=0.10, danceability=0.10, onset_density=0.10, spectral_centroid=600),
+        vectors={"mert": [0, 1], "maest": [0, 1], "clap": [0, 1]},
+    )
+    central_ids = [
+        _complete_track(
+            db,
+            tmp_path,
+            f"central-{index}.wav",
+            metadata={"artist": f"Central Artist {index}", "title": f"Central {index}"},
+            features=_features(energy=0.55, danceability=0.55, onset_density=0.45, spectral_centroid=1500),
+            vectors={"mert": [1, index / 100], "maest": [1, index / 100], "clap": [1, index / 100]},
+        )
+        for index in range(8)
+    ]
+    original_prefilter = set_builder_module._prefilter_light_candidates
+
+    def central_only_prefilter(candidates, seed_candidates, config):
+        if seed_candidates:
+            return original_prefilter(candidates, seed_candidates, config)
+        selected = [candidate for candidate in candidates if candidate.track.id in set(central_ids)]
+        return selected, {candidate.track.id: 1.0 for candidate in selected}
+
+    class FirstIndexRng:
+        def choice(self, size, p=None):
+            return 0
+
+    monkeypatch.setattr(set_builder_module, "_prefilter_light_candidates", central_only_prefilter)
+    monkeypatch.setattr(set_builder_module, "_random_generator", lambda seed: FirstIndexRng())
+
+    result = SmartSetBuilder(db).generate(SetBuilderConfig(seed_mode="auto", auto_seed_count=1, limit=3))
+
+    assert result["seed_track_ids"] == [deep_id]
+    assert result["items"][0]["track"].id == deep_id
+
+
 def test_auto_mode_computes_global_sonara_centrality_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     ids = [
@@ -499,13 +541,13 @@ def test_auto_anchor_selection_uses_classifier_targets(tmp_path: Path, monkeypat
     )
     _score(db, neutral_id, "break_energy", 0.10)
     _score(db, target_id, "break_energy", 0.95)
-    observed_scores: list[dict[int, float]] = []
+    observed_scores: list[list[float]] = []
 
-    def capture_auto_anchor_options(options, rng, *, mode, pool_size, force_sample=False):
-        observed_scores.append({candidate.track.id: score for candidate, score in options})
-        return max(options, key=lambda item: item[1])[0]
+    def select_highest_score(scores, rng, *, mode, force_sample):
+        observed_scores.append(list(scores))
+        return int(np.argmax(scores))
 
-    monkeypatch.setattr(set_builder_module, "_sample_scored_candidate", capture_auto_anchor_options)
+    monkeypatch.setattr(set_builder_module, "_sample_ranked_index", select_highest_score)
 
     result = SmartSetBuilder(db).generate(
         SetBuilderConfig(
@@ -516,7 +558,7 @@ def test_auto_anchor_selection_uses_classifier_targets(tmp_path: Path, monkeypat
         )
     )
 
-    assert observed_scores[0][target_id] > observed_scores[0][neutral_id]
+    assert observed_scores[0][1] > observed_scores[0][0]
     assert result["seed_track_ids"] == [target_id]
 
 

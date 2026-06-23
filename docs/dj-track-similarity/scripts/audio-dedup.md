@@ -39,6 +39,8 @@ Options:
   repeated.
 - `--preset safe|balanced|aggressive`: scoring preset. Default is `safe`.
 - `--min-score SCORE`: override the preset duplicate threshold.
+- `--min-similarity SCORE`: override the preset embedding content-similarity
+  threshold.
 - `--limit-groups N`: write at most N duplicate groups.
 - `--out-dir DIR`: output report directory. Default is
   `scripts\audio_dedup\reports`.
@@ -49,16 +51,18 @@ Options:
 
 ## Presets
 
-Each preset sets a default duplicate-score threshold, a stricter direct
-keeper-match threshold for automatic delete candidates, and how strict the
-duration match must be. `--min-score` overrides only the report inclusion score
-threshold; the safe-delete and duration parameters stay as listed.
+Each preset sets a default duplicate-score threshold, an embedding
+content-similarity threshold, a stricter direct keeper-match threshold for
+automatic delete candidates, and how strict the duration match must be.
+`--min-score` overrides only the report inclusion score threshold;
+`--min-similarity` overrides only the embedding similarity gate. The
+safe-delete and duration parameters stay as listed.
 
-| Preset | Min score | Safe delete score | Duration tolerance | Use when |
-| --- | --- | --- | --- | --- |
-| `safe` | `0.965` | `0.980` | ~2 s / 1% ratio | Conservative maintenance with the fewest false positives. |
-| `balanced` | `0.950` | `0.970` | ~5 s / 2.5% ratio | A wider net that can still mark strong candidates for deletion. |
-| `aggressive` | `0.925` | `0.965` | ~15 s / 8% ratio | Broadest matching; expect more manual review, but very strong direct matches can still be delete candidates. |
+| Preset | Min score | Min content similarity | Safe delete score | Duration tolerance | Use when |
+| --- | --- | --- | --- | --- | --- |
+| `safe` | `0.965` | `0.985` | `0.980` | ~2 s / 1% ratio | Conservative maintenance with the fewest false positives. |
+| `balanced` | `0.950` | `0.970` | `0.970` | ~5 s / 2.5% ratio | A wider net that can still mark strong candidates for deletion. |
+| `aggressive` | `0.925` | `0.940` | `0.965` | ~15 s / 8% ratio | Broadest matching; expect more manual review, but very strong direct matches can still be delete candidates. |
 
 ## Scoring
 
@@ -73,6 +77,12 @@ normalized by the weight of the signals that exist for both tracks:
 | CLAP embedding similarity | `0.04` |
 | Duration closeness | `0.05` |
 
+Candidate grouping also requires a separate `content_similarity` value built
+from embeddings only: MERT, MAEST, and CLAP with the same relative embedding
+weights shown above. This prevents the script from treating tracks as duplicate
+audio solely because SONARA texture features and duration look alike. Pairs with
+no usable embedding similarity are excluded from duplicate groups.
+
 Each group is labelled with a confidence tier of `high`, `medium`, or `review`
 based on its score and any blocking reasons. Tagged BPM/key values are shown as
 track metadata only and are never used for duplicate scoring.
@@ -82,6 +92,7 @@ Examples:
 ```powershell
 .\.venv\Scripts\python.exe scripts\audio_dedup\audio_dedup.py --db .\data\library.sqlite --root D:\Music
 .\.venv\Scripts\python.exe scripts\audio_dedup\audio_dedup.py --db .\data\library.sqlite --root D:\Music --preset balanced --path-contains mastered
+.\.venv\Scripts\python.exe scripts\audio_dedup\audio_dedup.py --db .\data\library.sqlite --root D:\Music --preset safe --min-similarity 0.99
 .\.venv\Scripts\python.exe scripts\audio_dedup\audio_dedup.py --db .\data\library.sqlite --root D:\Music --preset safe --apply
 ```
 
@@ -97,16 +108,18 @@ The workbook is the main human review artifact. It includes:
 - `Summary`: database path, selected root, preset, score threshold, total track
   count in the database, track count inside the selected root/filter scope,
   duplicate-group and candidate counts, a confidence breakdown
-  (`high`/`medium`/`review`), and MERT/MAEST/CLAP embedding coverage counts.
+  (`high`/`medium`/`review`), the content-similarity threshold, and
+  MERT/MAEST/CLAP embedding coverage counts.
 - `Groups`: one row per duplicate group, with the suggested `KEEP` track and
   the reasons it outranks the other files.
 - `Candidates`: one row per duplicate candidate, with `DELETE CANDIDATE` or
-  `REVIEW MANUALLY`, the keeper path, direct score, similarity evidence, and
-  review blockers.
+  `REVIEW MANUALLY`, the keeper path, direct score, embedding-only content
+  similarity, similarity evidence, and review blockers.
 - `Pair Evidence`: the detailed pairwise MERT, MAEST, SONARA, CLAP, and
-  duration evidence used by the grouping step. Tagged BPM/key values are shown
-  only as track metadata and are not used for duplicate scoring; SONARA BPM
-  remains part of the SONARA similarity signal when available.
+  duration evidence used by the grouping step, plus the combined
+  `content_similarity` gate value. Tagged BPM/key values are shown only as
+  track metadata and are not used for duplicate scoring; SONARA BPM remains
+  part of the SONARA similarity signal when available.
 - `Rhythm Lab`: rows in the default Rhythm Lab database that would be removed
   by apply mode for candidates marked safe to delete. If the database is
   missing or no safe candidate has lab rows, the sheet contains only headers.

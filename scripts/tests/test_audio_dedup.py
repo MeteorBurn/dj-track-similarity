@@ -175,6 +175,7 @@ def test_min_score_overrides_preset_threshold() -> None:
 
     assert config.name == "safe"
     assert config.min_score == 0.91
+    assert config.min_similarity == 0.985
     assert config.direct_keeper_score == 0.98
 
 
@@ -186,10 +187,13 @@ def test_presets_use_graduated_safe_delete_thresholds() -> None:
     aggressive = dedup.resolve_preset("aggressive", min_score=None)
 
     assert safe.min_score == 0.965
+    assert safe.min_similarity == 0.985
     assert safe.direct_keeper_score == 0.98
     assert balanced.min_score == 0.95
+    assert balanced.min_similarity == 0.97
     assert balanced.direct_keeper_score == 0.97
     assert aggressive.min_score == 0.925
+    assert aggressive.min_similarity == 0.94
     assert aggressive.direct_keeper_score == 0.965
 
 
@@ -299,14 +303,42 @@ def test_ambiguous_chain_group_is_report_only(tmp_path: Path) -> None:
         vectors={"mert": [0.84, 0.5425864, 0.0], "maest": [0.84, 0.5425864, 0.0]},
     )
 
+    config = dedup.resolve_preset("safe", min_score=0.925, min_similarity=0.8)
     tracks = dedup.load_tracks(db_path, root=Path("M:/Volumes/Abstracted"), path_contains=[])
-    groups = dedup.find_duplicate_groups(tracks, dedup.resolve_preset("safe", min_score=0.925), limit_groups=None)
-    payload = dedup.build_report(groups, tracks, dedup.resolve_preset("safe", min_score=0.925), root=Path("M:/Volumes/Abstracted"), path_contains=[])
+    groups = dedup.find_duplicate_groups(tracks, config, limit_groups=None)
+    payload = dedup.build_report(groups, tracks, config, root=Path("M:/Volumes/Abstracted"), path_contains=[])
 
     group = payload["groups"][0]
     assert {track["track_id"] for track in group["candidate_deletes"]} == {2, 3}
     assert all(track["safe_to_delete"] == "false" for track in group["candidate_deletes"])
     assert "ambiguous chain" in " ".join(group["blocked_reasons"])
+
+
+def test_safe_preset_requires_content_similarity_not_only_overall_score(tmp_path: Path) -> None:
+    dedup = _load_dedup_module()
+    db_path = tmp_path / "library.sqlite"
+    _create_library_db(db_path)
+    sonara = {"bpm": 128.0, "danceability": 0.8, "energy": 0.7, "valence": 0.5}
+    near_but_not_duplicate = {"mert": [0.96, 0.28, 0.0], "maest": [0.96, 0.28, 0.0]}
+    _insert_track(
+        db_path,
+        track_id=1,
+        path="M:/Volumes/Abstracted/one.flac",
+        sonara=sonara,
+        vectors={"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]},
+    )
+    _insert_track(
+        db_path,
+        track_id=2,
+        path="M:/Volumes/Abstracted/two.flac",
+        sonara=sonara,
+        vectors=near_but_not_duplicate,
+    )
+
+    tracks = dedup.load_tracks(db_path, root=Path("M:/Volumes/Abstracted"), path_contains=[])
+    groups = dedup.find_duplicate_groups(tracks, dedup.resolve_preset("safe", min_score=None), limit_groups=None)
+
+    assert groups == []
 
 
 def test_tag_bpm_and_key_are_not_used_for_duplicate_scoring() -> None:
@@ -427,6 +459,8 @@ def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> Non
     assert json_payload["database_track_count"] == 3
     assert json_payload["scoped_track_count"] == 2
     assert json_payload["track_count"] == 2
+    assert json_payload["min_similarity"] == 0.985
+    assert "content_similarity" in json_payload["groups"][0]["pairwise_evidence"][0]
     assert "mert_similarity" in json_payload["groups"][0]["pairwise_evidence"][0]
     assert "keeper_reasons" in json_payload["groups"][0]["suggested_keeper"]
     assert json_payload["groups"][0]["suggested_keeper"]["role"] == "KEEP"
@@ -461,6 +495,7 @@ def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> Non
     assert "audio_codec" not in candidates_xml
     assert "MPEG Audio Layer III" not in candidates_xml
     assert "mert_similarity" in candidates_xml
+    assert "content_similarity_vs_keeper" in candidates_xml
     assert "Duplicate audio summary" in summary_xml
     assert str(db_path.resolve()) in summary_xml
     assert "Total tracks in database" in summary_xml
@@ -632,6 +667,7 @@ def test_apply_log_lists_deleted_files(tmp_path: Path) -> None:
         "root": str(tmp_path / "Abstracted"),
         "preset": "safe",
         "min_score": 0.965,
+        "min_similarity": 0.985,
         "database_track_count": 2,
         "track_count": 2,
         "scoped_track_count": 2,

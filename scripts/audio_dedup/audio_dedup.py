@@ -55,6 +55,7 @@ SONARA_FIELDS = (
 class PresetConfig:
     name: str
     min_score: float
+    min_similarity: float
     duration_seconds: float
     duration_ratio: float
     direct_keeper_score: float
@@ -82,6 +83,7 @@ class PairEvidence:
     left_id: int
     right_id: int
     score: float
+    content_similarity: float | None
     mert_similarity: float | None
     maest_similarity: float | None
     clap_similarity: float | None
@@ -126,6 +128,7 @@ def main(argv: list[str] | None = None) -> int:
             path_contains=args.path_contains,
             preset_name=args.preset,
             min_score=args.min_score,
+            min_similarity=args.min_similarity,
             limit_groups=args.limit_groups,
             out_dir=args.out_dir,
         )
@@ -185,6 +188,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     )
     parser.add_argument("--preset", choices=("safe", "balanced", "aggressive"), default="safe")
     parser.add_argument("--min-score", type=float, help="Override the preset duplicate score threshold.")
+    parser.add_argument("--min-similarity", type=float, help="Override the preset content-similarity threshold.")
     parser.add_argument("--limit-groups", type=int, help="Write at most N duplicate groups.")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR, help="Report output directory.")
     parser.add_argument(
@@ -202,10 +206,11 @@ def run_report(
     path_contains: list[str],
     preset_name: str,
     min_score: float | None,
+    min_similarity: float | None = None,
     limit_groups: int | None,
     out_dir: Path,
 ) -> ReportResult:
-    config = resolve_preset(preset_name, min_score=min_score)
+    config = resolve_preset(preset_name, min_score=min_score, min_similarity=min_similarity)
     selected_db = Path(db_path).expanduser().resolve(strict=False)
     database_track_count = count_database_tracks(selected_db)
     tracks = load_tracks(db_path, root=root, path_contains=path_contains)
@@ -234,11 +239,12 @@ def run_report(
     return ReportResult(json_path=json_path, xlsx_path=xlsx_path, log_path=log_path, payload=payload, groups=len(groups))
 
 
-def resolve_preset(name: str, *, min_score: float | None) -> PresetConfig:
+def resolve_preset(name: str, *, min_score: float | None, min_similarity: float | None = None) -> PresetConfig:
     presets = {
         "safe": PresetConfig(
             name="safe",
             min_score=0.965,
+            min_similarity=0.985,
             duration_seconds=2.0,
             duration_ratio=0.01,
             direct_keeper_score=0.98,
@@ -247,6 +253,7 @@ def resolve_preset(name: str, *, min_score: float | None) -> PresetConfig:
         "balanced": PresetConfig(
             name="balanced",
             min_score=0.95,
+            min_similarity=0.97,
             duration_seconds=5.0,
             duration_ratio=0.025,
             direct_keeper_score=0.97,
@@ -255,6 +262,7 @@ def resolve_preset(name: str, *, min_score: float | None) -> PresetConfig:
         "aggressive": PresetConfig(
             name="aggressive",
             min_score=0.925,
+            min_similarity=0.94,
             duration_seconds=15.0,
             duration_ratio=0.08,
             direct_keeper_score=0.965,
@@ -264,13 +272,16 @@ def resolve_preset(name: str, *, min_score: float | None) -> PresetConfig:
     if name not in presets:
         raise ValueError(f"Unsupported preset: {name}")
     config = presets[name]
-    if min_score is None:
-        return config
-    if not 0.0 <= min_score <= 1.0:
+    selected_min_score = config.min_score if min_score is None else float(min_score)
+    selected_min_similarity = config.min_similarity if min_similarity is None else float(min_similarity)
+    if not 0.0 <= selected_min_score <= 1.0:
         raise ValueError("--min-score must be between 0 and 1")
+    if not 0.0 <= selected_min_similarity <= 1.0:
+        raise ValueError("--min-similarity must be between 0 and 1")
     return PresetConfig(
         name=config.name,
-        min_score=float(min_score),
+        min_score=selected_min_score,
+        min_similarity=selected_min_similarity,
         duration_seconds=config.duration_seconds,
         duration_ratio=config.duration_ratio,
         direct_keeper_score=config.direct_keeper_score,
@@ -328,7 +339,7 @@ def find_duplicate_groups(
         if not _candidate_duration_compatible(left, right, config):
             continue
         evidence = score_pair(left, right, config)
-        if evidence.score >= config.min_score:
+        if evidence.score >= config.min_score and _passes_content_similarity(evidence, config):
             edges.append(evidence)
     grouped_edges = _connected_components(edges)
     groups: list[DuplicateGroup] = []
@@ -406,6 +417,7 @@ def score_pair(left: TrackRecord, right: TrackRecord, config: PresetConfig) -> P
     mert = _embedding_similarity(left, right, "mert")
     maest = _embedding_similarity(left, right, "maest")
     clap = _embedding_similarity(left, right, "clap")
+    content_similarity = _content_similarity(mert, maest, clap)
     sonara = _sonara_similarity(left, right)
     duration_diff, duration_ratio = _duration_distance(left, right)
     blocked: list[str] = []
@@ -428,11 +440,16 @@ def score_pair(left: TrackRecord, right: TrackRecord, config: PresetConfig) -> P
         blocked.append("missing MERT embedding")
     if maest is None:
         blocked.append("missing MAEST embedding")
+    if content_similarity is None:
+        blocked.append("missing content similarity")
+    elif content_similarity < config.min_similarity:
+        blocked.append("content similarity below threshold")
     score = (weighted / total) if total else 0.0
     return PairEvidence(
         left_id=left.track_id,
         right_id=right.track_id,
         score=max(0.0, min(1.0, score)),
+        content_similarity=content_similarity,
         mert_similarity=mert,
         maest_similarity=maest,
         clap_similarity=clap,
@@ -483,6 +500,7 @@ def build_report(
                     "track_id": track.track_id,
                     "path": track.path,
                     "score_vs_keeper": _round_float(direct.score if direct else None),
+                    "content_similarity_vs_keeper": _round_float(direct.content_similarity if direct else None),
                     "safe_to_delete": "true_candidate" if safe else "false",
                     "blocked_reasons": reasons,
                     "why_delete_or_review": _candidate_reason_lines(track, keeper, direct, config, safe=safe, reasons=reasons),
@@ -499,6 +517,7 @@ def build_report(
                 "confidence": confidence_category(best_score, config),
                 "preset": config.name,
                 "min_score": config.min_score,
+                "min_similarity": config.min_similarity,
                 "blocked_reasons": blocked_reasons,
                 "suggested_keeper": track_payload(keeper, include_keeper_reasons=True, role="KEEP", decision="keep", group_tracks=group_tracks),
                 "candidate_deletes": sorted(candidates, key=lambda item: int(item["track_id"])),
@@ -515,6 +534,7 @@ def build_report(
         "path_contains": path_contains,
         "preset": config.name,
         "min_score": config.min_score,
+        "min_similarity": config.min_similarity,
         "database_track_count": database_track_count if database_track_count is not None else len(tracks),
         "scoped_track_count": len(tracks),
         "track_count": len(tracks),
@@ -571,6 +591,7 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
         ["Root", payload["root"]],
         ["Preset", payload["preset"]],
         ["Min score", payload["min_score"]],
+        ["Min content similarity", payload["min_similarity"]],
         ["Total tracks in database", payload.get("database_track_count", payload["track_count"])],
         ["Tracks inside selected root", payload.get("scoped_track_count", payload["track_count"])],
         ["Duplicate groups", payload["group_count"]],
@@ -653,6 +674,7 @@ def _candidates_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
             "keeper_track_id",
             "keeper_path",
             "score_vs_keeper",
+            "content_similarity_vs_keeper",
             "safe_to_delete",
             "mert_similarity",
             "maest_similarity",
@@ -681,6 +703,7 @@ def _candidates_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
                     keeper["track_id"],
                     keeper["path"],
                     candidate["score_vs_keeper"],
+                    candidate.get("content_similarity_vs_keeper"),
                     candidate["safe_to_delete"],
                     evidence.get("mert_similarity"),
                     evidence.get("maest_similarity"),
@@ -702,6 +725,7 @@ def _pair_evidence_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
             "left_track_id",
             "right_track_id",
             "score",
+            "content_similarity",
             "mert_similarity",
             "maest_similarity",
             "sonara_similarity",
@@ -721,6 +745,7 @@ def _pair_evidence_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
                     evidence["left_track_id"],
                     evidence["right_track_id"],
                     evidence["score"],
+                    evidence["content_similarity"],
                     evidence["mert_similarity"],
                     evidence["maest_similarity"],
                     evidence["sonara_similarity"],
@@ -963,6 +988,7 @@ def write_text_log(path: Path, payload: dict[str, object], *, apply_result: Appl
         f"root={payload['root']}",
         f"preset={payload['preset']}",
         f"min_score={payload['min_score']}",
+        f"min_similarity={payload['min_similarity']}",
         f"database_track_count={payload.get('database_track_count', payload['track_count'])}",
         f"scoped_track_count={payload.get('scoped_track_count', payload['track_count'])}",
         f"group_count={payload['group_count']}",
@@ -1370,6 +1396,7 @@ def pair_payload(pair: PairEvidence) -> dict[str, object]:
         "left_track_id": pair.left_id,
         "right_track_id": pair.right_id,
         "score": _round_float(pair.score),
+        "content_similarity": _round_float(pair.content_similarity),
         "mert_similarity": _round_float(pair.mert_similarity),
         "maest_similarity": _round_float(pair.maest_similarity),
         "clap_similarity": _round_float(pair.clap_similarity),
@@ -1437,6 +1464,7 @@ def _candidate_reason_lines(
         return [f"Manual review required: {reason}." for reason in reasons] or ["Manual review required before deleting this file."]
     lines = [
         f"Direct score vs keeper meets threshold: {_format_float(pair.score if pair else None)} >= {_format_float(config.direct_keeper_score)}.",
+        f"Content similarity meets threshold: {_format_float(pair.content_similarity if pair else None)} >= {_format_float(config.min_similarity)}.",
         f"Keeper track_id={keeper.track_id} outranks candidate track_id={candidate.track_id} by format, bitrate proxy, metadata, mtime, or id tie-break.",
     ]
     if pair and pair.duration_diff_seconds is not None:
@@ -1534,6 +1562,23 @@ def _embedding_similarity(left: TrackRecord, right: TrackRecord, key: str) -> fl
     if left_vector is None or right_vector is None or left_vector.shape != right_vector.shape:
         return None
     return max(-1.0, min(1.0, float(left_vector @ right_vector)))
+
+
+def _content_similarity(mert: float | None, maest: float | None, clap: float | None) -> float | None:
+    weighted = 0.0
+    total = 0.0
+    for value, weight in ((mert, 0.43), (maest, 0.32), (clap, 0.04)):
+        if value is None:
+            continue
+        weighted += value * weight
+        total += weight
+    if total == 0.0:
+        return None
+    return max(0.0, min(1.0, weighted / total))
+
+
+def _passes_content_similarity(pair: PairEvidence, config: PresetConfig) -> bool:
+    return pair.content_similarity is not None and pair.content_similarity >= config.min_similarity
 
 
 def _sonara_similarity(left: TrackRecord, right: TrackRecord) -> float | None:
@@ -1638,6 +1683,8 @@ def _candidate_safety(pair: PairEvidence | None, config: PresetConfig, *, ambigu
     else:
         if pair.score < config.direct_keeper_score:
             reasons.append("weak direct keeper match")
+        if not _passes_content_similarity(pair, config):
+            reasons.append("content similarity below threshold")
         if pair.duration_diff_ratio is not None and pair.duration_diff_ratio > config.strict_duration_ratio:
             reasons.append("duration mismatch")
         reasons.extend(pair.blocked_reasons)

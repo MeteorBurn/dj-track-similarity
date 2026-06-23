@@ -310,10 +310,61 @@ The app does not log search sessions automatically, so reports can be
 events.
 
 ```powershell
+dj-sim eval export-candidates --db .\data\library_v4.sqlite --output .\labels\candidate_pool.csv --seed-track-id 42 --source mert --source sonara --source maest --per-source 10 --random-seed 123
 dj-sim eval import-pair-feedback --db .\data\library_v4.sqlite --input .\labels\pair_feedback.csv
 dj-sim eval import-transition-feedback --db .\data\library_v4.sqlite --input .\labels\transition_feedback.jsonl
 dj-sim eval report --db .\data\library_v4.sqlite --output .\reports\evaluation.json --k 5 --k 10
 ```
+
+Candidate-pool export is the recommended first step when collecting new manual
+ground truth:
+
+1. Run `dj-sim eval export-candidates` for one or more `--seed-track-id` values.
+2. Open the generated CSV and fill `rating`, `reason_tags`, and `notes` by hand.
+3. Import the completed file with `dj-sim eval import-pair-feedback`.
+4. Run `dj-sim eval report` to summarize recorded sessions against the imported
+   ratings.
+
+`export-candidates` reads existing exact search sources only: `mert` embedding
+similarity, `maest` embedding similarity, and balanced/default `sonara`
+similarity. It excludes the seed track, deduplicates candidates that appear from
+multiple sources, stores per-source rank/score details in the final
+`sources_json` column, and randomizes the visible `blind_rank` with
+`--random-seed` so the labeler does not see which model proposed a candidate.
+The default `source` column is `manual`, and the generated empty rating fields
+are intended for human labels only. CLAP text search is not included because it
+needs a text prompt rather than a seed-track query.
+
+Usage:
+
+```text
+dj-sim eval export-candidates [OPTIONS]
+```
+
+Options:
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--db` | path | `dj-track-similarity.sqlite` | Schema v4 SQLite database path. |
+| `--output` | CSV path | required | Candidate-pool CSV to create. |
+| `--seed-track-id` | integer | required | Seed track ID. Repeat for multiple seeds. |
+| `--source` | text | `mert`, `sonara`, `maest` | Candidate source. Repeat for a subset. |
+| `--per-source` | integer `>=1` | `10` | Maximum top candidates requested from each source per seed. |
+| `--random-seed` | integer | `123` | Deterministic blind-order seed. |
+| `--record-session/--no-record-session` | flag | record | Record `search_sessions` and blinded `search_result_events`. |
+| `--help` | flag | off | Show help. |
+
+Candidate-pool CSV columns:
+
+```text
+seed_track_id,candidate_track_id,blind_rank,rating,reason_tags,notes,source,seed_artist,seed_title,candidate_artist,candidate_title,candidate_bpm,candidate_key,candidate_energy,sources_json
+```
+
+When session recording is enabled, the command creates one
+`evaluation_candidate_pool` search session per seed. Runtime API/UI searches are
+still not logged automatically. Missing analysis for a selected source is printed
+as a warning and does not stop export while another selected source produces
+candidates.
 
 Pair feedback CSV columns:
 
@@ -347,6 +398,7 @@ dj-sim eval [OPTIONS] COMMAND [ARGS]...
 Commands:
 
 ```text
+export-candidates
 import-pair-feedback
 import-transition-feedback
 report

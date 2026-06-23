@@ -175,6 +175,14 @@ from CSV or JSONL files. Search-quality reports use only explicit evaluation
 feedback plus already recorded search sessions/result events; likes and Rhythm
 Lab labels are not treated as ground truth by default.
 
+`dj-sim eval export-candidates` can create blinded manual-labeling CSVs from
+existing exact MERT, MAEST, and balanced SONARA search sources. With session
+recording enabled, it stores one `evaluation_candidate_pool` search session per
+seed and records the blinded candidate order in `search_result_events`; the score
+breakdown contains source ranks/scores and `blind_rank`. The generated CSV still
+requires human ratings before `import-pair-feedback` turns those rows into ground
+truth.
+
 ## Metadata and Analysis Data
 
 The app deliberately separates file tags from computed values.

@@ -32,6 +32,7 @@ from .database import LibraryDatabase
 from .db_schema import CURRENT_SCHEMA_VERSION
 from .dependencies import require_ffmpeg
 from .embedding import ClapEmbeddingAdapter
+from .evaluation.candidates import export_candidate_pools, write_candidate_pool_csv
 from .evaluation.labels import load_pair_feedback_labels, load_transition_feedback_labels
 from .evaluation.reports import build_search_evaluation_report
 from .logging_config import configure_logging, set_analysis_diagnostics_enabled
@@ -170,6 +171,42 @@ def _parse_analysis_device(value: str | None) -> str:
         return normalize_analysis_device(value)
     except ValueError as error:
         raise typer.BadParameter(str(error)) from error
+
+
+@eval_app.command("export-candidates")
+def export_evaluation_candidates(
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+    output_path: Path = typer.Option(..., "--output", dir_okay=False, writable=True),
+    seed_track_ids: Optional[list[int]] = typer.Option(None, "--seed-track-id", help="Seed track ID. Repeat for multiple seeds."),
+    sources: Optional[list[str]] = typer.Option(None, "--source", help="Candidate source: mert, sonara, or maest. Repeat for multiple sources."),
+    per_source: int = typer.Option(10, "--per-source", min=1, help="Top candidates to request from each source."),
+    random_seed: int = typer.Option(123, "--random-seed", help="Deterministic blind-order random seed."),
+    record_session: bool = typer.Option(True, "--record-session/--no-record-session", help="Record evaluation search_sessions and result events."),
+) -> None:
+    try:
+        result = export_candidate_pools(
+            _evaluation_db(db_path),
+            seed_track_ids=seed_track_ids or [],
+            sources=sources,
+            per_source=per_source,
+            random_seed=random_seed,
+            record_session=record_session,
+        )
+        if not result.rows:
+            for warning in result.warnings:
+                typer.secho(f"warning: {warning}", err=True, fg=typer.colors.YELLOW)
+            raise ValueError("No candidate rows were exported; check seed IDs and analysis coverage")
+        write_candidate_pool_csv(output_path, result.rows)
+    except (KeyError, ValueError, sqlite3.IntegrityError) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+
+    for warning in result.warnings:
+        typer.secho(f"warning: {warning}", err=True, fg=typer.colors.YELLOW)
+    typer.echo(
+        f"exported={len(result.rows)} seeds={len({row.seed_track_id for row in result.rows})} "
+        f"output={output_path} sessions_recorded={len(result.session_ids)} warnings={len(result.warnings)}"
+    )
 
 
 @eval_app.command("import-pair-feedback")

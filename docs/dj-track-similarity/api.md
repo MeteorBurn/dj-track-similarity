@@ -204,11 +204,13 @@ Request fields:
 - `bpm_start`, `bpm_target`: optional `20-300` BPM values for the tempo
   trajectory. When omitted, the builder infers them from the first seed/anchor
   and the available library BPM range.
-- `classifier_targets`, `classifier_avoid`: maps from promoted
-  `classifier_key` to a `0.0-1.0` threshold. Values at `0.0` are ignored so
-  neutral UI sliders do not activate classifier bias.
-- `classifier_curves`: maps from promoted `classifier_key` to `{start, end}`
-  target intensity values. A neutral `{start: 0.5, end: 0.5}` curve is ignored.
+- `classifier_preferences`: maps from promoted `classifier_key` to a signed
+  `-1.0` to `1.0` preference. Positive values prefer higher classifier scores;
+  negative values prefer lower classifier scores; `0.0` is ignored.
+- `classifier_flows`: maps from promoted `classifier_key` to `flat`, `rise`,
+  or `fall`. `flat` applies the preference evenly, `rise` increases that
+  preference toward the end of the preview, and `fall` starts stronger then
+  eases off.
 - `random_seed`: optional integer for reproducing one randomized generation.
   Omit it for a fresh randomized auto/ordering pass.
 
@@ -228,8 +230,8 @@ SONARA values as fallback. If an explicit BPM mode is selected, actual track
 BPM also contributes an ordered low-to-high or high-to-low tempo curve; missing
 BPM stays neutral rather than excluding the track. In auto mode, the first
 anchor is sampled before the related candidate prefilter so it can start from
-the full eligible library. Active classifier target, avoid, and curve controls
-can bias that start anchor and later auto-anchor selection, using stored scores
+the full eligible library. Active classifier preference and flow controls can
+bias that start anchor and later auto-anchor selection, using stored scores
 only. The ordered preview also applies a strict artist guard: each known artist
 may appear at most once in one preview. Manual seeds are included as distributed
 `seed_anchor` waypoint items, but duplicate known artists among manual seeds are

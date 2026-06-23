@@ -47,7 +47,7 @@ Implemented controls:
   toward that length and spaced across the preview;
 - `Energy curve`: `Balanced - steady`, `Warmup - build`, `Peak - intense`, or
   `Wave - rise/fall`;
-- `Auto anchors`: `1-5` waypoint anchors shown only in auto mode;
+- `Auto anchors`: `1-5` waypoint anchors enabled only in auto mode;
 
 Advanced controls keep the less common shaping knobs available without making
 the default SET workflow too dense:
@@ -59,8 +59,7 @@ the default SET workflow too dense:
 - `BPM change`: slow, medium, or fast tempo movement across the preview;
 - `Start BPM` and `Target BPM`: optional explicit tempo endpoints; empty values
   are inferred from the first seed/anchor and the library BPM range;
-- classifier `Target boost`, `Avoid cut`, `Curve start`, and `Curve end`
-  sliders;
+- classifier `Preference` slider and `Flow` selector;
 - `Reset sliders`, which resets only diversity and classifier sliders;
 - optional API-only `random_seed` for reproducing a specific randomized run.
 
@@ -96,9 +95,8 @@ Input fields:
 - `bpm_change`
 - `bpm_start`
 - `bpm_target`
-- `classifier_targets`
-- `classifier_avoid`
-- `classifier_curves`
+- `classifier_preferences`
+- `classifier_flows`
 - `random_seed`
 
 Output fields:

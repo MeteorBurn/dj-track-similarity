@@ -23,23 +23,20 @@ function loadSetBuilderControls() {
   return import(pathToFileURL(modulePath));
 }
 
-test("set builder slider reset clears classifier maps and restores defaults", async () => {
-  const { resetSetBuilderSliders, setBuilderDefaultDiversity, setBuilderDefaultCurve } = await loadSetBuilderControls();
+test("set builder slider reset clears classifier preference maps and restores defaults", async () => {
+  const { resetSetBuilderSliders, setBuilderDefaultDiversity, setBuilderDefaultFlow } = await loadSetBuilderControls();
 
   const first = resetSetBuilderSliders();
-  first.classifierTargets.break_energy = 0.85;
-  first.classifierAvoid.voice_presence = 0.65;
-  first.classifierCurves.break_energy = { start: 0.2, end: 0.9 };
+  first.classifierPreferences.break_energy = 0.85;
+  first.classifierFlows.break_energy = "rise";
   const second = resetSetBuilderSliders();
 
   assert.equal(second.diversity, setBuilderDefaultDiversity);
-  assert.deepEqual(second.classifierTargets, {});
-  assert.deepEqual(second.classifierAvoid, {});
-  assert.deepEqual(second.classifierCurves, {});
-  assert.deepEqual(setBuilderDefaultCurve, { start: 0.5, end: 0.5 });
-  assert.notEqual(first.classifierTargets, second.classifierTargets);
-  assert.notEqual(first.classifierAvoid, second.classifierAvoid);
-  assert.notEqual(first.classifierCurves, second.classifierCurves);
+  assert.deepEqual(second.classifierPreferences, {});
+  assert.deepEqual(second.classifierFlows, {});
+  assert.equal(setBuilderDefaultFlow, "flat");
+  assert.notEqual(first.classifierPreferences, second.classifierPreferences);
+  assert.notEqual(first.classifierFlows, second.classifierFlows);
 });
 
 test("set builder UI keeps basic controls separate from advanced controls", () => {
@@ -51,20 +48,35 @@ test("set builder UI keeps basic controls separate from advanced controls", () =
   assert.match(source, /set-builder-advanced-controls/);
 });
 
-test("set builder auto anchors are only visible in auto seed mode", () => {
+test("set builder auto anchors are disabled outside auto seed mode", () => {
   const source = readFileSync(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /setSeedMode === "auto" && \(/);
   assert.match(source, /Auto anchors/);
+  assert.match(source, /autoSeedCountDisabled \? ".*disabled-filter/);
+  assert.match(source, /disabled=\{autoSeedCountDisabled\}/);
 });
 
-test("set builder advanced section owns diversity bpm classifier and reset controls", () => {
+test("set builder basic owns diversity and advanced owns bpm classifier and reset controls", () => {
   const source = readFileSync(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url), "utf8");
+  const basic = source.match(/className="set-builder-basic-controls"[\s\S]*?className="set-builder-advanced-header"/)?.[0] || "";
   const advanced = source.match(/className="set-builder-advanced-controls"[\s\S]*?className="set-builder-generate-button"/)?.[0] || "";
 
-  assert.match(advanced, /Diversity/);
+  assert.match(basic, /Diversity/);
   assert.match(advanced, /BPM mode/);
   assert.match(advanced, /Start BPM/);
   assert.match(advanced, /set-classifier-controls/);
   assert.match(advanced, /Reset sliders/);
+});
+
+test("set builder classifier controls expose preference and flow only", () => {
+  const source = readFileSync(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /Preference/);
+  assert.match(source, /Flow/);
+  assert.match(source, /classifier_preferences/);
+  assert.match(source, /classifier_flows/);
+  assert.doesNotMatch(source, /Target boost/);
+  assert.doesNotMatch(source, /Avoid cut/);
+  assert.doesNotMatch(source, /Curve start/);
+  assert.doesNotMatch(source, /Curve end/);
 });

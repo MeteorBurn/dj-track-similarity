@@ -10,6 +10,10 @@ import dj_track_similarity.set_builder as set_builder_module
 from dj_track_similarity.set_builder import SetBuilderConfig, SmartSetBuilder
 
 
+def _select_highest_score(scores, rng, *, mode, force_sample):
+    return int(np.argmax(scores))
+
+
 def test_manual_set_builder_includes_seed_and_uses_broad_sonara_when_embeddings_tie(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     seed_id = _complete_track(
@@ -77,25 +81,27 @@ def test_set_builder_expands_sonara_array_summaries_and_ignores_maest_genres(tmp
     assert result["items"][1]["sonara_groups"]["timbre"] > result["items"][2]["sonara_groups"]["timbre"]
 
 
-def test_set_builder_classifier_targets_avoid_curves_and_missing_scores_are_soft(tmp_path: Path) -> None:
+def test_set_builder_classifier_preferences_flows_and_missing_scores_are_soft(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     seed_id = _complete_track(db, tmp_path, "seed.wav", vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]})
     target_id = _complete_track(db, tmp_path, "target.wav", vectors={"mert": [0.99, 0.01], "maest": [0.99, 0.01], "clap": [0.99, 0.01]})
     missing_id = _complete_track(db, tmp_path, "missing-classifier.wav", vectors={"mert": [0.99, 0.01], "maest": [0.99, 0.01], "clap": [0.99, 0.01]})
     avoided_id = _complete_track(db, tmp_path, "avoided.wav", vectors={"mert": [0.99, 0.01], "maest": [0.99, 0.01], "clap": [0.99, 0.01]})
     _score(db, target_id, "break_energy", 0.95)
-    _score(db, target_id, "voice_presence", 0.10)
+    _score(db, target_id, "voice_presence", 0.20)
     _score(db, avoided_id, "break_energy", 0.40)
     _score(db, avoided_id, "voice_presence", 0.90)
+    monkeypatch.setattr(set_builder_module, "_sample_ranked_index", _select_highest_score)
 
     result = SmartSetBuilder(db).generate(
         SetBuilderConfig(
             seed_mode="manual",
             seed_track_ids=[seed_id],
             limit=4,
-            classifier_targets={"break_energy": 0.8},
-            classifier_avoid={"voice_presence": 0.6},
-            classifier_curves={"break_energy": {"start": 0.4, "end": 0.9}},
+            classifier_preferences={"break_energy": 0.8, "voice_presence": -0.6},
+            classifier_flows={"break_energy": "rise"},
             random_seed=2,
         )
     )
@@ -104,9 +110,10 @@ def test_set_builder_classifier_targets_avoid_curves_and_missing_scores_are_soft
     assert ordered_ids[0] == seed_id
     assert target_id in ordered_ids
     assert missing_id in ordered_ids
-    assert ordered_ids.index(target_id) < ordered_ids.index(avoided_id)
     target_item = next(item for item in result["items"] if item["track"].id == target_id)
-    assert target_item["score_breakdown"]["classifier_target"] > 0
+    avoided_item = next(item for item in result["items"] if item["track"].id == avoided_id)
+    assert target_item["score_breakdown"]["classifier_preference"] > 0
+    assert target_item["score_breakdown"]["classifier_preference"] > avoided_item["score_breakdown"]["classifier_preference"]
     assert target_item["classifier_scores"]["break_energy"] == 0.95
     missing_item = next(item for item in result["items"] if item["track"].id == missing_id)
     assert missing_item["score_breakdown"]["classifier_confidence"] < target_item["score_breakdown"]["classifier_confidence"]
@@ -128,18 +135,71 @@ def test_set_builder_drops_neutral_classifier_controls(tmp_path: Path) -> None:
             seed_mode="manual",
             seed_track_ids=[seed_id],
             limit=3,
-            classifier_targets={"break_energy": 0.0},
-            classifier_avoid={"break_energy": 0.0},
-            classifier_curves={"break_energy": {"start": 0.5, "end": 0.5}},
+            classifier_preferences={"break_energy": 0.0},
+            classifier_flows={"break_energy": "flat"},
             random_seed=5,
         )
     )
 
     assert [item["track"].id for item in neutral_result["items"]] == [item["track"].id for item in default_result["items"]]
     for item in neutral_result["items"][1:]:
-        assert item["score_breakdown"]["classifier_target"] == 0.0
-        assert item["score_breakdown"]["classifier_avoid"] == 0.0
-        assert item["score_breakdown"]["classifier_curve"] == 0.5
+        assert item["score_breakdown"]["classifier_preference"] == 0.0
+        assert item["score_breakdown"]["classifier_flow"] == 0.5
+
+
+def test_set_builder_negative_classifier_preference_prefers_low_scores(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed_id = _complete_track(db, tmp_path, "seed.wav", vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]})
+    low_id = _complete_track(db, tmp_path, "low-vocal.wav", vectors={"mert": [0.99, 0.01], "maest": [0.99, 0.01], "clap": [0.99, 0.01]})
+    high_id = _complete_track(db, tmp_path, "high-vocal.wav", vectors={"mert": [0.99, 0.01], "maest": [0.99, 0.01], "clap": [0.99, 0.01]})
+    _score(db, low_id, "voice_presence", 0.10)
+    _score(db, high_id, "voice_presence", 0.95)
+    monkeypatch.setattr(set_builder_module, "_sample_ranked_index", _select_highest_score)
+
+    result = SmartSetBuilder(db).generate(
+        SetBuilderConfig(
+            seed_mode="manual",
+            seed_track_ids=[seed_id],
+            limit=3,
+            classifier_preferences={"voice_presence": -1.0},
+            random_seed=5,
+        )
+    )
+
+    ordered_ids = [item["track"].id for item in result["items"]]
+    assert ordered_ids.index(low_id) < ordered_ids.index(high_id)
+    low_item = next(item for item in result["items"] if item["track"].id == low_id)
+    high_item = next(item for item in result["items"] if item["track"].id == high_id)
+    assert low_item["score_breakdown"]["classifier_preference"] > 0
+    assert high_item["score_breakdown"]["classifier_preference"] < 0
+
+
+def test_set_builder_classifier_flow_rise_moves_preference_toward_end(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed_id = _complete_track(db, tmp_path, "seed.wav", vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]})
+    early_id = _complete_track(db, tmp_path, "early-low.wav", vectors={"mert": [0.99, 0.01], "maest": [0.99, 0.01], "clap": [0.99, 0.01]})
+    late_id = _complete_track(db, tmp_path, "late-high.wav", vectors={"mert": [0.99, 0.01], "maest": [0.99, 0.01], "clap": [0.99, 0.01]})
+    _score(db, early_id, "break_energy", 0.10)
+    _score(db, late_id, "break_energy", 0.95)
+    monkeypatch.setattr(set_builder_module, "_sample_ranked_index", _select_highest_score)
+
+    result = SmartSetBuilder(db).generate(
+        SetBuilderConfig(
+            seed_mode="manual",
+            seed_track_ids=[seed_id],
+            limit=3,
+            classifier_preferences={"break_energy": 1.0},
+            classifier_flows={"break_energy": "rise"},
+            random_seed=5,
+        )
+    )
+
+    ordered_ids = [item["track"].id for item in result["items"]]
+    assert ordered_ids == [seed_id, early_id, late_id]
 
 
 def test_auto_mode_uses_random_seed_and_excludes_feature_incomplete_tracks(tmp_path: Path) -> None:
@@ -523,7 +583,7 @@ def test_auto_mode_distributes_anchors_across_preview(tmp_path: Path) -> None:
     assert anchor_positions == [1, 4, 7]
 
 
-def test_auto_anchor_selection_uses_classifier_targets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_auto_anchor_selection_uses_classifier_preferences(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     neutral_id = _complete_track(
         db,
@@ -554,7 +614,7 @@ def test_auto_anchor_selection_uses_classifier_targets(tmp_path: Path, monkeypat
             seed_mode="auto",
             auto_seed_count=1,
             limit=2,
-            classifier_targets={"break_energy": 0.8},
+            classifier_preferences={"break_energy": 0.8},
         )
     )
 

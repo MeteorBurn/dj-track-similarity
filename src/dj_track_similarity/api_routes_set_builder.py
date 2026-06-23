@@ -30,9 +30,8 @@ def register_set_builder_routes(
             bpm_change=request.bpm_change,
             bpm_start=request.bpm_start,
             bpm_target=request.bpm_target,
-            classifier_targets=request.classifier_targets,
-            classifier_avoid=request.classifier_avoid,
-            classifier_curves={key: value.model_dump() for key, value in request.classifier_curves.items()},
+            classifier_preferences=request.classifier_preferences,
+            classifier_flows=request.classifier_flows,
             random_seed=request.random_seed,
         )
         try:
@@ -45,7 +44,7 @@ def _validate_classifier_keys(
     request: SetBuilderGenerateRequest,
     promoted_classifiers: Callable[[], list[dict[str, object]]],
 ) -> None:
-    requested = set(request.classifier_targets) | set(request.classifier_avoid) | set(request.classifier_curves)
+    requested = set(request.classifier_preferences) | set(request.classifier_flows)
     if not requested:
         return
     available = {str(classifier["classifier_key"]) for classifier in promoted_classifiers()}

@@ -79,6 +79,7 @@ export type SetBuilderMode = "similar_crate" | "weird_adjacent" | "balanced_set"
 export type SetBuilderEnergyCurve = "warmup" | "balanced" | "peak" | "wave";
 export type SetBuilderBpmMode = "general" | "low_to_high" | "high_to_low";
 export type SetBuilderBpmChange = "slow" | "medium" | "fast";
+export type SetBuilderClassifierFlow = "flat" | "rise" | "fall";
 
 export type SonaraMixerWeights = {
   timbre: number;
@@ -273,9 +274,8 @@ export type SetBuilderGeneratePayload = {
   bpm_change: SetBuilderBpmChange;
   bpm_start?: number;
   bpm_target?: number;
-  classifier_targets?: Record<string, number>;
-  classifier_avoid?: Record<string, number>;
-  classifier_curves?: Record<string, { start: number; end: number }>;
+  classifier_preferences?: Record<string, number>;
+  classifier_flows?: Record<string, SetBuilderClassifierFlow>;
   random_seed?: number;
 };
 

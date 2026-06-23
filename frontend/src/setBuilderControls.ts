@@ -1,23 +1,18 @@
 export const setBuilderDefaultDiversity = 0.35;
-export const setBuilderDefaultCurve = { start: 0.5, end: 0.5 } as const;
+export const setBuilderDefaultFlow = "flat" as const;
 
-export type SetBuilderClassifierCurve = {
-  start: number;
-  end: number;
-};
+export type SetBuilderClassifierFlow = "flat" | "rise" | "fall";
 
 export type SetBuilderSliderState = {
   diversity: number;
-  classifierTargets: Record<string, number>;
-  classifierAvoid: Record<string, number>;
-  classifierCurves: Record<string, SetBuilderClassifierCurve>;
+  classifierPreferences: Record<string, number>;
+  classifierFlows: Record<string, SetBuilderClassifierFlow>;
 };
 
 export function resetSetBuilderSliders(): SetBuilderSliderState {
   return {
     diversity: setBuilderDefaultDiversity,
-    classifierTargets: {},
-    classifierAvoid: {},
-    classifierCurves: {},
+    classifierPreferences: {},
+    classifierFlows: {},
   };
 }

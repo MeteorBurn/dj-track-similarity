@@ -21,6 +21,7 @@ SET_BUILDER_SEED_MODES = {"manual", "auto"}
 SET_BUILDER_ENERGY_CURVES = {"warmup", "balanced", "peak", "wave"}
 SET_BUILDER_BPM_MODES = {"general", "low_to_high", "high_to_low"}
 SET_BUILDER_BPM_CHANGES = {"slow", "medium", "fast"}
+SET_BUILDER_CLASSIFIER_FLOWS = {"flat", "rise", "fall"}
 REQUIRED_EMBEDDINGS = ("mert", "maest", "clap")
 DEFAULT_MODEL_WEIGHTS = {
     "mert": 0.30,
@@ -115,9 +116,8 @@ class SetBuilderConfig:
     bpm_change: str = "medium"
     bpm_start: float | None = None
     bpm_target: float | None = None
-    classifier_targets: dict[str, float] = field(default_factory=dict)
-    classifier_avoid: dict[str, float] = field(default_factory=dict)
-    classifier_curves: dict[str, dict[str, float]] = field(default_factory=dict)
+    classifier_preferences: dict[str, float] = field(default_factory=dict)
+    classifier_flows: dict[str, str] = field(default_factory=dict)
     random_seed: int | None = None
 
 
@@ -460,22 +460,20 @@ class SmartSetBuilder:
         sonara_score, sonara_groups = _sonara_similarity(candidate, context)
         if sonara_score is None:
             return None
-        classifier_target, classifier_avoid, classifier_confidence = _classifier_modifiers(candidate.track, config)
+        classifier_preference, classifier_confidence = _classifier_modifiers(candidate.track, config)
         base = (
             model_scores["mert"] * DEFAULT_MODEL_WEIGHTS["mert"]
             + model_scores["clap_audio"] * DEFAULT_MODEL_WEIGHTS["clap"]
             + model_scores["maest_embedding"] * DEFAULT_MODEL_WEIGHTS["maest"]
             + sonara_score * DEFAULT_MODEL_WEIGHTS["sonara_broad"]
         )
-        base += _classifier_bias_delta(classifier_target, classifier_avoid)
         disagreement = float(np.std(list(model_scores.values()) + [sonara_score]))
         base = _mode_adjusted_base_score(base, disagreement, config.mode)
 
         breakdown = {
             **model_scores,
             "sonara_broad": sonara_score,
-            "classifier_target": classifier_target,
-            "classifier_avoid": classifier_avoid,
+            "classifier_preference": classifier_preference,
             "classifier_confidence": classifier_confidence,
             "model_disagreement": disagreement,
             "consensus": _bounded(base),
@@ -567,15 +565,15 @@ class SmartSetBuilder:
                 pool_size=_sequence_sample_pool_size(config.mode, len(sequence_options)),
             )
             transition = _transition(previous, selected.candidate)
-            curve_score = _classifier_curve_score(selected.candidate.track, config, position, target_count)
+            flow_score = _classifier_flow_score(selected.candidate.track, config, position, target_count)
             bpm_curve_score = _bpm_curve_score(selected.candidate, bpm_plan, position, target_count)
             diversity_score = _diversity_score(selected.candidate, selected_sequence, ranges)
             breakdown = dict(selected.breakdown)
             breakdown["transition"] = transition["confidence"]
-            breakdown["classifier_curve"] = curve_score
+            breakdown["classifier_flow"] = flow_score
             breakdown["bpm_curve"] = bpm_curve_score
             breakdown["diversity"] = diversity_score
-            reason = _reason(selected, config, transition, curve_score)
+            reason = _reason(selected, config, transition, flow_score)
             items.append(_item(selected.candidate, reason, final_score, breakdown, selected.sonara_groups, transition))
             previous = selected.candidate
             selected_sequence.append(selected.candidate)
@@ -604,7 +602,7 @@ class SmartSetBuilder:
     ) -> float:
         transition_score = _transition(previous, item.candidate)["confidence"]
         curve_score = _energy_curve_score(item.candidate, config.energy_curve, position, target_count)
-        classifier_curve = _classifier_curve_score(item.candidate.track, config, position, target_count)
+        classifier_flow = _classifier_flow_score(item.candidate.track, config, position, target_count)
         bpm_curve = _bpm_curve_score(item.candidate, bpm_plan, position, target_count)
         diversity_score = _diversity_score(item.candidate, selected_sequence, ranges)
         diversity_weight = config.diversity * 0.10
@@ -614,7 +612,7 @@ class SmartSetBuilder:
                 item.base_score * (0.68 - diversity_weight - bpm_weight)
                 + transition_score * 0.20
                 + curve_score * 0.07
-                + classifier_curve * 0.05
+                + classifier_flow * 0.05
                 + bpm_curve * bpm_weight
                 + diversity_score * diversity_weight
             )
@@ -624,7 +622,7 @@ class SmartSetBuilder:
                 item.base_score * (0.72 - diversity_weight - bpm_weight)
                 + weird * 0.18
                 + transition_score * 0.06
-                + classifier_curve * 0.04
+                + classifier_flow * 0.04
                 + bpm_curve * bpm_weight
                 + diversity_score * diversity_weight
             )
@@ -634,7 +632,7 @@ class SmartSetBuilder:
                 item.base_score * (0.70 - diversity_weight - bpm_weight)
                 + max(0.0, uncertainty) * 0.15
                 + transition_score * 0.08
-                + classifier_curve * 0.07
+                + classifier_flow * 0.07
                 + bpm_curve * bpm_weight
                 + diversity_score * diversity_weight
             )
@@ -642,7 +640,7 @@ class SmartSetBuilder:
             score = (
                 item.base_score * (0.88 - diversity_weight - bpm_weight)
                 + transition_score * 0.06
-                + classifier_curve * 0.06
+                + classifier_flow * 0.06
                 + bpm_curve * bpm_weight
                 + diversity_score * diversity_weight
             )
@@ -696,9 +694,8 @@ def _clean_config(config: SetBuilderConfig) -> SetBuilderConfig:
         bpm_change=bpm_change,
         bpm_start=_clean_bpm_value(config.bpm_start, "bpm_start"),
         bpm_target=_clean_bpm_value(config.bpm_target, "bpm_target"),
-        classifier_targets=_clean_score_map(config.classifier_targets),
-        classifier_avoid=_clean_score_map(config.classifier_avoid),
-        classifier_curves=_clean_curves(config.classifier_curves),
+        classifier_preferences=_clean_preference_map(config.classifier_preferences),
+        classifier_flows=_clean_classifier_flows(config.classifier_flows),
         random_seed=None if config.random_seed is None else int(config.random_seed),
     )
 
@@ -714,32 +711,33 @@ def _clean_bpm_value(value: float | None, name: str) -> float | None:
     return float(cleaned)
 
 
-def _clean_score_map(values: dict[str, float]) -> dict[str, float]:
+def _clean_preference_map(values: dict[str, float]) -> dict[str, float]:
     cleaned: dict[str, float] = {}
     for key, value in values.items():
         name = str(key).strip()
-        score = max(0.0, min(1.0, float(value)))
-        if name and score > 0.0:
+        score = max(-1.0, min(1.0, float(value)))
+        if name and score != 0.0:
             cleaned[name] = score
     return cleaned
 
 
-def _clean_curves(values: dict[str, dict[str, float]]) -> dict[str, dict[str, float]]:
-    cleaned: dict[str, dict[str, float]] = {}
-    for key, curve in values.items():
+def _clean_classifier_flows(values: dict[str, str]) -> dict[str, str]:
+    cleaned: dict[str, str] = {}
+    for key, flow in values.items():
         name = str(key).strip()
         if not name:
             continue
-        start = max(0.0, min(1.0, float(curve.get("start", 0.5))))
-        end = max(0.0, min(1.0, float(curve.get("end", 0.5))))
-        if start == 0.5 and end == 0.5:
+        normalized = str(flow).strip().lower()
+        if normalized not in SET_BUILDER_CLASSIFIER_FLOWS:
+            raise ValueError(f"Unsupported classifier flow: {flow}")
+        if normalized == "flat":
             continue
-        cleaned[name] = {"start": start, "end": end}
+        cleaned[name] = normalized
     return cleaned
 
 
-def _classifier_bias_delta(classifier_target: float, classifier_avoid: float) -> float:
-    return (classifier_target + classifier_avoid) * CLASSIFIER_BIAS_WEIGHT
+def _classifier_bias_delta(classifier_preference: float) -> float:
+    return classifier_preference * CLASSIFIER_BIAS_WEIGHT
 
 
 def _mode_adjusted_base_score(base: float, disagreement: float, mode: str) -> float:
@@ -765,7 +763,11 @@ def _random_generator(seed: int | None) -> np.random.Generator:
 
 
 def _uses_classifier_config(config: SetBuilderConfig) -> bool:
-    return bool(config.classifier_targets or config.classifier_avoid or config.classifier_curves)
+    return bool(config.classifier_preferences)
+
+
+def _uses_classifier_flow_config(config: SetBuilderConfig) -> bool:
+    return any(config.classifier_flows.get(key, "flat") != "flat" for key in config.classifier_preferences)
 
 
 def _ordered_unique(values: list[int]) -> list[int]:
@@ -910,10 +912,10 @@ def _prefilter_light_candidates(
 
     scored: list[tuple[float, _LightCandidate]] = []
     for candidate in available:
-        target, avoid, confidence = _classifier_modifiers(candidate.track, config)
+        preference, confidence = _classifier_modifiers(candidate.track, config)
         score = sonara_score(candidate)
-        score += _classifier_bias_delta(target, avoid)
-        if config.classifier_targets or config.classifier_avoid or config.classifier_curves:
+        score += _classifier_bias_delta(preference)
+        if _uses_classifier_config(config):
             score += (confidence - 1.0) * CLASSIFIER_CONFIDENCE_WEIGHT
         scored.append((score, candidate))
 
@@ -1187,8 +1189,8 @@ def _auto_start_selection_score(
 ) -> float:
     score = 0.5
     if _uses_classifier_config(config):
-        target, avoid, confidence = _classifier_modifiers(candidate.track, config)
-        score = _bounded(0.5 + (target + avoid) * 0.5)
+        preference, confidence = _classifier_modifiers(candidate.track, config)
+        score = _bounded(0.5 + preference * 0.5)
         score += (confidence - 1.0) * CLASSIFIER_CONFIDENCE_WEIGHT
     if bpm_plan is not None:
         bpm_score = _bpm_curve_score(candidate, bpm_plan, 0, max(config.limit, config.auto_seed_count))
@@ -1227,12 +1229,11 @@ def _auto_anchor_classifier_adjusted_score(
 ) -> float:
     if not _uses_classifier_config(config):
         return base_score
-    target, avoid, confidence = _classifier_modifiers(candidate.track, config)
-    preference_values: list[float] = []
-    if config.classifier_targets or config.classifier_avoid:
-        preference_values.append(_bounded(0.5 + (target + avoid) * 0.5))
-    if config.classifier_curves:
-        preference_values.append(_classifier_curve_score(candidate.track, config, position, target_count))
+    preference, confidence = _classifier_modifiers(candidate.track, config)
+    preference_values = [_bounded(0.5 + preference * 0.5)]
+    flow_score = _classifier_flow_score(candidate.track, config, position, target_count)
+    if flow_score != 0.5:
+        preference_values.append(flow_score)
     preference = float(np.mean(preference_values)) if preference_values else 0.5
     adjusted = base_score * 0.90 + preference * 0.10
     adjusted += (confidence - 1.0) * CLASSIFIER_CONFIDENCE_WEIGHT
@@ -1406,47 +1407,45 @@ def _select_scored_pool(scored: list[_ScoredCandidate], pool_size: int) -> list[
     return selected
 
 
-def _classifier_modifiers(track: Track, config: SetBuilderConfig) -> tuple[float, float, float]:
+def _classifier_modifiers(track: Track, config: SetBuilderConfig) -> tuple[float, float]:
     scores = _classifier_scores(track)
-    used_keys = set(config.classifier_targets) | set(config.classifier_avoid) | set(config.classifier_curves)
+    used_keys = set(config.classifier_preferences)
     if not used_keys:
-        return 0.0, 0.0, 1.0
+        return 0.0, 1.0
     present = 0
-    target_scores: list[float] = []
-    for key, threshold in config.classifier_targets.items():
+    preference_scores: list[float] = []
+    for key, preference in config.classifier_preferences.items():
         score = scores.get(key)
         if score is None:
             continue
         present += 1
-        denominator = max(1.0 - threshold, 0.0001)
-        target_scores.append(max(0.0, (score - threshold) / denominator))
-    avoid_scores: list[float] = []
-    for key, threshold in config.classifier_avoid.items():
-        score = scores.get(key)
-        if score is None:
-            continue
-        present += 1
-        denominator = max(1.0 - threshold, 0.0001)
-        avoid_scores.append(-max(0.0, (score - threshold) / denominator))
-    target = float(np.mean(target_scores)) if target_scores else 0.0
-    avoid = float(np.mean(avoid_scores)) if avoid_scores else 0.0
+        preference_scores.append(preference * (score * 2.0 - 1.0))
+    preference = float(np.mean(preference_scores)) if preference_scores else 0.0
     confidence = present / len(used_keys) if used_keys else 1.0
-    return _bounded(target), -_bounded(abs(avoid)) if avoid < 0 else 0.0, _bounded(confidence)
+    return _bounded_signed(preference), _bounded(confidence)
 
 
-def _classifier_curve_score(track: Track, config: SetBuilderConfig, position: int, target_count: int) -> float:
-    if not config.classifier_curves:
+def _classifier_flow_score(track: Track, config: SetBuilderConfig, position: int, target_count: int) -> float:
+    if not config.classifier_preferences:
         return 0.5
     scores = _classifier_scores(track)
     progress = 0.0 if target_count <= 1 else position / max(target_count - 1, 1)
     values: list[float] = []
-    for key, curve in config.classifier_curves.items():
+    for key, preference in config.classifier_preferences.items():
+        flow = config.classifier_flows.get(key, "flat")
         actual = scores.get(key)
         if actual is None:
             values.append(0.5)
             continue
-        desired = curve["start"] + (curve["end"] - curve["start"]) * progress
-        values.append(max(0.0, 1.0 - abs(actual - desired)))
+        alignment = actual if preference > 0 else 1.0 - actual
+        if flow == "rise":
+            desired = progress
+        elif flow == "fall":
+            desired = 1.0 - progress
+        else:
+            desired = 1.0
+        raw = max(0.0, 1.0 - abs(alignment - desired))
+        values.append(0.5 + (raw - 0.5) * abs(preference))
     return _bounded(float(np.mean(values))) if values else 0.5
 
 
@@ -1680,10 +1679,10 @@ def _fast_diversity_similarity(candidate: _Candidate, selected: _Candidate, rang
     return _bounded(embedding_score * 0.8 + sonara_score * 0.2)
 
 
-def _reason(item: _ScoredCandidate, config: SetBuilderConfig, transition: dict[str, object], classifier_curve: float) -> str:
-    if item.breakdown["classifier_target"] > 0.5:
+def _reason(item: _ScoredCandidate, config: SetBuilderConfig, transition: dict[str, object], classifier_flow: float) -> str:
+    if item.breakdown["classifier_preference"] > 0.5:
         return "classifier_match"
-    if classifier_curve > 0.75 and config.classifier_curves:
+    if classifier_flow > 0.75 and _uses_classifier_flow_config(config):
         return "mood_shift"
     if transition["confidence"] >= 0.85 and config.mode == "balanced_set":
         return "bridge"
@@ -1700,13 +1699,12 @@ def _seed_breakdown(transition: dict[str, object]) -> dict[str, float]:
         "maest_embedding": 1.0,
         "clap_audio": 1.0,
         "sonara_broad": 1.0,
-        "classifier_target": 0.0,
-        "classifier_avoid": 0.0,
+        "classifier_preference": 0.0,
         "classifier_confidence": 1.0,
         "model_disagreement": 0.0,
         "consensus": 1.0,
         "transition": float(transition["confidence"]),
-        "classifier_curve": 0.5,
+        "classifier_flow": 0.5,
         "bpm_curve": 1.0,
         "diversity": 0.0,
     }
@@ -1788,3 +1786,9 @@ def _bounded(value: float) -> float:
     if not np.isfinite(value):
         return 0.0
     return max(0.0, min(1.0, float(value)))
+
+
+def _bounded_signed(value: float) -> float:
+    if not np.isfinite(value):
+        return 0.0
+    return max(-1.0, min(1.0, float(value)))

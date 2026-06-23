@@ -36,7 +36,7 @@ def test_set_builder_endpoint_generates_ordered_preview(monkeypatch, tmp_path: P
             "seed_mode": "manual",
             "seed_track_ids": [seed_id],
             "limit": 2,
-            "classifier_targets": {"break_energy": 0.8},
+            "classifier_preferences": {"break_energy": 0.8},
         },
     )
 
@@ -46,7 +46,7 @@ def test_set_builder_endpoint_generates_ordered_preview(monkeypatch, tmp_path: P
     assert [item["track"]["id"] for item in payload["items"]] == [seed_id, candidate_id]
     assert [item["position"] for item in payload["items"]] == [1, 2]
     assert payload["items"][1]["classifier_scores"]["break_energy"] == 0.91
-    assert payload["items"][1]["score_breakdown"]["classifier_target"] > 0
+    assert payload["items"][1]["score_breakdown"]["classifier_preference"] > 0
     assert payload["coverage"]["eligible_tracks"] == 2
 
 
@@ -65,9 +65,8 @@ def test_set_builder_api_defaults_match_backend_config() -> None:
     assert request.bpm_change == config.bpm_change == "medium"
     assert request.bpm_start == config.bpm_start is None
     assert request.bpm_target == config.bpm_target is None
-    assert request.classifier_targets == config.classifier_targets == {}
-    assert request.classifier_avoid == config.classifier_avoid == {}
-    assert request.classifier_curves == config.classifier_curves == {}
+    assert request.classifier_preferences == config.classifier_preferences == {}
+    assert request.classifier_flows == config.classifier_flows == {}
 
 
 def test_set_builder_endpoint_rejects_invalid_manual_seed_count(monkeypatch, tmp_path: Path) -> None:
@@ -89,7 +88,7 @@ def test_set_builder_endpoint_rejects_unknown_classifier(monkeypatch, tmp_path: 
 
     response = TestClient(create_app(db_path)).post(
         "/api/set-builder/generate",
-        json={"seed_mode": "manual", "seed_track_ids": [seed_id], "classifier_targets": {"missing": 0.7}},
+        json={"seed_mode": "manual", "seed_track_ids": [seed_id], "classifier_preferences": {"missing": 0.7}},
     )
 
     assert response.status_code == 400

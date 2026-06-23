@@ -102,8 +102,11 @@ Advanced keeps optional bias and trajectory controls out of the default view:
   `Fast - early change`; active only for explicit BPM modes.
 - `Start BPM` and `Target BPM`: optional `20-300` values. Leave either field
   empty to infer it from the first seed/anchor and the analyzed library range.
-- Classifier sliders: `Target boost`, `Avoid cut`, `Curve start`, and
-  `Curve end` use stored promoted-classifier scores as optional bias signals.
+- Classifier controls: `Preference` is one signed slider from `-1.00` to
+  `+1.00`; positive values prefer higher stored classifier scores, negative
+  values prefer lower stored classifier scores, and `0.00` is neutral. `Flow`
+  chooses whether that same preference is applied evenly (`Flat`), increases
+  toward the end (`Rise`), or starts stronger then eases off (`Fall`).
 - `Reset sliders`: resets only SET diversity and classifier sliders; seed
   source, mode, limit, anchor count, energy curve, and BPM controls stay
   unchanged.
@@ -126,14 +129,14 @@ BPM and key affect ordering as soft transition signals. File tags are preferred
 first, with SONARA BPM/key as fallback when tags are missing. Explicit BPM mode
 adds a separate actual-BPM curve on top of that transition compatibility, so a
 set can be pushed from slow to fast or fast to slow while still obeying the
-selected SET mode. Classifier controls in the SET tab can boost target
-classifier scores, avoid unwanted scores, or shape a start-to-end mood curve.
-When active, these controls can bias both the random-start anchor and later
-auto-anchor selection before the ordered preview is filled. These controls read
-stored `track_classifier_scores`; the SET tab does not launch classifier
-analysis.
-Classifier `Target boost` and `Avoid cut` values at `0` are treated as disabled,
-and a `Curve start` / `Curve end` pair of `0.50 -> 0.50` is treated as neutral.
+selected SET mode. Classifier controls in the SET tab use one signed preference
+per classifier instead of separate target and avoid controls, so a classifier
+cannot be requested and rejected at the same time. When active, these controls
+can bias both the random-start anchor and later auto-anchor selection before the
+ordered preview is filled. These controls read stored `track_classifier_scores`;
+the SET tab does not launch classifier analysis. A `Preference` value of `0.00`
+is treated as neutral; `Flow` only has an effect for classifiers with a non-zero
+preference.
 The generated sequence also applies a strict artist guard: a known artist can
 appear at most once in one SET preview. Manual seed tracks are preserved as
 distributed `seed_anchor` waypoint items, but manual seeds with the same known

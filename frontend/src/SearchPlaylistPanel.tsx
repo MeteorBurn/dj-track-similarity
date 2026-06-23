@@ -1,9 +1,9 @@
 import { Dispatch, Fragment, SetStateAction, useEffect, useRef, useState } from "react";
 import { Download, FolderOpen, ListFilter, ListMusic, Pause, Play, RotateCcw, Search, Tags, Trash2, X } from "lucide-react";
-import { AnalysisJobStatus, PromotedClassifier, SearchResult, SetBuilderBpmChange, SetBuilderBpmMode, SetBuilderEnergyCurve, SetBuilderGeneratePayload, SetBuilderMode, SetBuilderSeedMode, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
+import { AnalysisJobStatus, PromotedClassifier, SearchResult, SetBuilderBpmChange, SetBuilderBpmMode, SetBuilderClassifierFlow, SetBuilderEnergyCurve, SetBuilderGeneratePayload, SetBuilderMode, SetBuilderSeedMode, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
 import type { ClapPromptPreset } from "./clapPrompt";
 import { playlistPage } from "./playlistView";
-import { resetSetBuilderSliders, setBuilderDefaultCurve, setBuilderDefaultDiversity } from "./setBuilderControls";
+import { resetSetBuilderSliders, setBuilderDefaultDiversity, setBuilderDefaultFlow } from "./setBuilderControls";
 import { ResultRow } from "./TrackRows";
 import { displayTrack } from "./trackDisplay";
 
@@ -137,6 +137,24 @@ const setBpmChangeOptions: Array<SelectOption<SetBuilderBpmChange>> = [
   }
 ];
 
+const setClassifierFlowOptions: Array<SelectOption<SetBuilderClassifierFlow>> = [
+  {
+    value: "flat",
+    label: "Flat",
+    title: "Flat: применяет Preference ровно по всему SET без отдельного роста или спада."
+  },
+  {
+    value: "rise",
+    label: "Rise",
+    title: "Rise: постепенно усиливает выбранную Preference-сторону к концу SET."
+  },
+  {
+    value: "fall",
+    label: "Fall",
+    title: "Fall: сильнее держит выбранную Preference-сторону в начале SET и ослабляет ее к концу."
+  }
+];
+
 export function SearchPlaylistPanel({
   seedTracks,
   textQuery,
@@ -235,9 +253,8 @@ export function SearchPlaylistPanel({
   const [setBpmStart, setSetBpmStart] = useState("");
   const [setBpmTarget, setSetBpmTarget] = useState("");
   const [setAutoSeedCount, setSetAutoSeedCount] = useState(5);
-  const [setClassifierTargets, setSetClassifierTargets] = useState<Record<string, number>>({});
-  const [setClassifierAvoid, setSetClassifierAvoid] = useState<Record<string, number>>({});
-  const [setClassifierCurves, setSetClassifierCurves] = useState<Record<string, { start: number; end: number }>>({});
+  const [setClassifierPreferences, setSetClassifierPreferences] = useState<Record<string, number>>({});
+  const [setClassifierFlows, setSetClassifierFlows] = useState<Record<string, SetBuilderClassifierFlow>>({});
   const playlistPageState = playlistPage(playlist, playlistOffset, playlistPageSize);
   useEffect(() => {
     if (playlistPageState.offset !== playlistOffset) {
@@ -301,27 +318,19 @@ export function SearchPlaylistPanel({
     }));
   }
 
-  function setSetBuilderClassifierTarget(classifier: string, value: number) {
-    setSetClassifierTargets((current) => ({ ...current, [classifier]: value }));
+  function setSetBuilderClassifierPreference(classifier: string, value: number) {
+    setSetClassifierPreferences((current) => ({ ...current, [classifier]: value }));
   }
 
-  function setSetBuilderClassifierAvoid(classifier: string, value: number) {
-    setSetClassifierAvoid((current) => ({ ...current, [classifier]: value }));
-  }
-
-  function setSetBuilderClassifierCurveValue(classifier: string, key: "start" | "end", value: number) {
-    setSetClassifierCurves((current) => ({
-      ...current,
-      [classifier]: { start: current[classifier]?.start ?? 0.5, end: current[classifier]?.end ?? 0.5, [key]: value }
-    }));
+  function setSetBuilderClassifierFlow(classifier: string, value: SetBuilderClassifierFlow) {
+    setSetClassifierFlows((current) => ({ ...current, [classifier]: value }));
   }
 
   function resetSetBuilderSliderControls() {
     const next = resetSetBuilderSliders();
     setSetBuilderDiversity(next.diversity);
-    setSetClassifierTargets(next.classifierTargets);
-    setSetClassifierAvoid(next.classifierAvoid);
-    setSetClassifierCurves(next.classifierCurves);
+    setSetClassifierPreferences(next.classifierPreferences);
+    setSetClassifierFlows(next.classifierFlows);
   }
 
   function generateSetBuilder() {
@@ -337,9 +346,8 @@ export function SearchPlaylistPanel({
       energy_curve: setEnergyCurve,
       bpm_mode: setBpmMode,
       bpm_change: setBpmChange,
-      classifier_targets: compactScoreMap(setClassifierTargets),
-      classifier_avoid: compactScoreMap(setClassifierAvoid),
-      classifier_curves: compactCurves(setClassifierCurves)
+      classifier_preferences: compactSignedScoreMap(setClassifierPreferences),
+      classifier_flows: compactClassifierFlows(setClassifierFlows, setClassifierPreferences)
     };
     if (setBpmMode !== "general") {
       if (bpmStart !== undefined) payload.bpm_start = bpmStart;
@@ -484,30 +492,25 @@ export function SearchPlaylistPanel({
                   {classifiers.length ? (
                     <div className="classifier-controls set-classifier-controls">
                       {classifiers.map((classifier) => {
-                        const target = setClassifierTargets[classifier.classifier_key] || 0;
-                        const avoid = setClassifierAvoid[classifier.classifier_key] || 0;
-                        const curve = setClassifierCurves[classifier.classifier_key] || setBuilderDefaultCurve;
+                        const preference = setClassifierPreferences[classifier.classifier_key] || 0;
+                        const flow = setClassifierFlows[classifier.classifier_key] || setBuilderDefaultFlow;
                         return (
                           <Fragment key={classifier.classifier_key}>
                             <div className="custom-control-header" title={setClassifierHelp(classifier)}>
                               <span>{classifier.name}</span>
                             </div>
                             <div className="range-grid set-classifier-grid">
-                              <label className="range-control" title={setClassifierTargetHelp(classifier)}>
-                                <span><strong>Target boost</strong><em>{target.toFixed(2)}</em></span>
-                                <input type="range" min={0} max={1} step={0.05} value={target} title={setClassifierTargetHelp(classifier)} onChange={(event) => setSetBuilderClassifierTarget(classifier.classifier_key, Number(event.target.value))} />
+                              <label className="range-control" title={setClassifierPreferenceHelp(classifier)}>
+                                <span><strong>Preference</strong><em>{formatSigned(preference)}</em></span>
+                                <input type="range" min={-1} max={1} step={0.05} value={preference} title={setClassifierPreferenceHelp(classifier)} onChange={(event) => setSetBuilderClassifierPreference(classifier.classifier_key, Number(event.target.value))} />
                               </label>
-                              <label className="range-control" title={setClassifierAvoidHelp(classifier)}>
-                                <span><strong>Avoid cut</strong><em>{avoid.toFixed(2)}</em></span>
-                                <input type="range" min={0} max={1} step={0.05} value={avoid} title={setClassifierAvoidHelp(classifier)} onChange={(event) => setSetBuilderClassifierAvoid(classifier.classifier_key, Number(event.target.value))} />
-                              </label>
-                              <label className="range-control" title={setClassifierCurveStartHelp(classifier)}>
-                                <span><strong>Curve start</strong><em>{curve.start.toFixed(2)}</em></span>
-                                <input type="range" min={0} max={1} step={0.05} value={curve.start} title={setClassifierCurveStartHelp(classifier)} onChange={(event) => setSetBuilderClassifierCurveValue(classifier.classifier_key, "start", Number(event.target.value))} />
-                              </label>
-                              <label className="range-control" title={setClassifierCurveEndHelp(classifier)}>
-                                <span><strong>Curve end</strong><em>{curve.end.toFixed(2)}</em></span>
-                                <input type="range" min={0} max={1} step={0.05} value={curve.end} title={setClassifierCurveEndHelp(classifier)} onChange={(event) => setSetBuilderClassifierCurveValue(classifier.classifier_key, "end", Number(event.target.value))} />
+                              <label title={setClassifierFlowHelp(classifier)}>
+                                Flow
+                                <select value={flow} title={setClassifierFlowHelp(classifier)} onChange={(event) => setSetBuilderClassifierFlow(classifier.classifier_key, event.target.value as SetBuilderClassifierFlow)}>
+                                  {setClassifierFlowOptions.map((option) => (
+                                    <option key={option.value} value={option.value} title={option.title}>{option.label}</option>
+                                  ))}
+                                </select>
                               </label>
                             </div>
                           </Fragment>
@@ -515,7 +518,7 @@ export function SearchPlaylistPanel({
                       })}
                     </div>
                   ) : null}
-                  <button className="set-builder-reset-sliders-button" title="Reset only SET sliders: diversity and classifier target/avoid/curve values. Seed source, mode, limit, anchors, energy curve and BPM controls stay unchanged." onClick={resetSetBuilderSliderControls} type="button">
+                  <button className="set-builder-reset-sliders-button" title="Reset only SET sliders: diversity plus classifier preference and flow values. Seed source, mode, limit, anchors, energy curve and BPM controls stay unchanged." onClick={resetSetBuilderSliderControls} type="button">
                     <RotateCcw size={17} />
                     Reset sliders
                   </button>
@@ -807,27 +810,23 @@ function optionTitle<T extends string>(options: Array<SelectOption<T>>, value: T
 
 function setClassifierHelp(classifier: PromotedClassifier) {
   const label = classifier.positive_label ? ` Положительная метка: ${classifier.positive_label}.` : "";
-  return `Смещение SET для ${classifier.name}. Использует только сохраненные promoted classifier scores; отсутствующие scores остаются нейтральными.${label}`;
+  return `Classifier intent для ${classifier.name}. Использует только сохраненные promoted classifier scores; 0 нейтрально, отсутствующие scores остаются нейтральными.${label}`;
 }
 
-function setClassifierTargetHelp(classifier: PromotedClassifier) {
-  return `Target boost для ${classifier.name}. Тип: число 0.00-1.00. Треки с сохраненным score на этом уровне или выше получают усиление; 0 отключает этот target.`;
+function setClassifierPreferenceHelp(classifier: PromotedClassifier) {
+  return `Preference для ${classifier.name}. Тип: число -1.00..+1.00. Плюс предпочитает высокий classifier score, минус предпочитает низкий score, 0 отключает влияние.`;
 }
 
-function setClassifierAvoidHelp(classifier: PromotedClassifier) {
-  return `Avoid cut для ${classifier.name}. Тип: число 0.00-1.00. Треки с сохраненным score на этом уровне или выше понижаются в ранжировании; 0 отключает это avoid-правило.`;
-}
-
-function setClassifierCurveStartHelp(classifier: PromotedClassifier) {
-  return `Curve start для ${classifier.name}. Тип: число 0.00-1.00. Желаемая интенсивность classifier-сигнала в начале сгенерированного SET; 0.50 нейтрально.`;
-}
-
-function setClassifierCurveEndHelp(classifier: PromotedClassifier) {
-  return `Curve end для ${classifier.name}. Тип: число 0.00-1.00. Желаемая интенсивность classifier-сигнала в конце сгенерированного SET; 0.50 нейтрально.`;
+function setClassifierFlowHelp(classifier: PromotedClassifier) {
+  return `Flow для ${classifier.name}. Тип: Flat/Rise/Fall. Flat применяет Preference ровно; Rise усиливает выбранную сторону к концу SET; Fall сильнее держит ее в начале.`;
 }
 
 function compactScoreMap(values: Record<string, number>) {
   return Object.fromEntries(Object.entries(values).filter(([, value]) => value > 0));
+}
+
+function compactSignedScoreMap(values: Record<string, number>) {
+  return Object.fromEntries(Object.entries(values).filter(([, value]) => value !== 0));
 }
 
 function optionalNumberInput(value: string) {
@@ -837,8 +836,8 @@ function optionalNumberInput(value: string) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function compactCurves(values: Record<string, { start: number; end: number }>) {
+function compactClassifierFlows(values: Record<string, SetBuilderClassifierFlow>, preferences: Record<string, number>) {
   return Object.fromEntries(
-    Object.entries(values).filter(([, value]) => value.start !== 0.5 || value.end !== 0.5)
+    Object.entries(values).filter(([key, value]) => value !== setBuilderDefaultFlow && preferences[key] !== undefined && preferences[key] !== 0)
   );
 }

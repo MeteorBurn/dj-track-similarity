@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Annotated, Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from .analysis_config import (
@@ -139,13 +141,6 @@ class TextSearchRequest(BaseModel):
     device: str = Field(default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN)
 
 
-class SetBuilderClassifierCurve(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    start: float = Field(default=0.5, ge=0.0, le=1.0)
-    end: float = Field(default=0.5, ge=0.0, le=1.0)
-
-
 class SetBuilderGenerateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -160,9 +155,8 @@ class SetBuilderGenerateRequest(BaseModel):
     bpm_change: str = Field(default="medium", pattern="^(slow|medium|fast)$")
     bpm_start: float | None = Field(default=None, ge=20.0, le=300.0)
     bpm_target: float | None = Field(default=None, ge=20.0, le=300.0)
-    classifier_targets: dict[str, float] = Field(default_factory=dict)
-    classifier_avoid: dict[str, float] = Field(default_factory=dict)
-    classifier_curves: dict[str, SetBuilderClassifierCurve] = Field(default_factory=dict)
+    classifier_preferences: dict[str, Annotated[float, Field(ge=-1.0, le=1.0)]] = Field(default_factory=dict)
+    classifier_flows: dict[str, Literal["flat", "rise", "fall"]] = Field(default_factory=dict)
     random_seed: int | None = None
 
 

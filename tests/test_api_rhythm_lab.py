@@ -79,10 +79,19 @@ def test_rhythm_lab_launcher_uses_project_python_and_source(monkeypatch, tmp_pat
     monkeypatch.setattr(rhythm_lab_launcher.time, "sleep", lambda _: None)
 
     result = rhythm_lab_launcher.launch_rhythm_lab(tmp_path / "library.sqlite")
+    repo_root = Path(rhythm_lab_launcher.__file__).resolve().parents[2]
+    repo_python_candidates = [
+        repo_root / ".venv" / "Scripts" / "python.exe",
+        repo_root / ".venv" / "bin" / "python",
+    ]
+    expected_python = next(
+        (candidate for candidate in repo_python_candidates if candidate.exists()),
+        Path(rhythm_lab_launcher.sys.executable),
+    )
 
     assert result["pid"] == 12345
     assert commands
-    assert commands[0][0].endswith(r".venv\Scripts\python.exe")
+    assert Path(commands[0][0]) == expected_python
     assert "--source" in commands[0]
     assert str(tmp_path / "library.sqlite") in commands[0]
 

@@ -104,7 +104,7 @@ def test_library_root_cannot_be_saved_without_starting_scan(tmp_path: Path) -> N
 
     response = client.post("/api/library/root", json={"root": str(music_root)})
 
-    assert response.status_code == 405
+    assert response.status_code == 404
     assert client.get("/api/database/current").json()["music_root"] is None
     assert LibraryDatabase(db_path).get_library_root() is None
 

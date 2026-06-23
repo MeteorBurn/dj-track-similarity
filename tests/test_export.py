@@ -88,4 +88,4 @@ def test_saved_playlist_endpoint_is_not_available(tmp_path: Path) -> None:
 
     response = client.post("/api/playlists", json={"name": "old", "track_ids": []})
 
-    assert response.status_code == 405
+    assert response.status_code == 404

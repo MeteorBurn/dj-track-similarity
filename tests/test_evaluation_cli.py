@@ -165,6 +165,56 @@ def test_eval_export_candidates_cli_records_sessions_and_events(tmp_path: Path) 
     assert all("blind_rank" in event["score_breakdown"] for event in sessions[0]["events"])
 
 
+def test_eval_export_seed_sample_cli_writes_csv(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    output_path = tmp_path / "seed_sample.csv"
+    db = LibraryDatabase(db_path)
+    track_ids = [
+        _upsert_cli_candidate_track(db, tmp_path, "seed_a", bpm=120.0, energy=0.3),
+        _upsert_cli_candidate_track(db, tmp_path, "seed_b", bpm=128.0, energy=0.7),
+        _upsert_cli_candidate_track(db, tmp_path, "seed_c", bpm=136.0, energy=0.5),
+    ]
+    for track_id in track_ids:
+        _save_cli_seed_sample_analysis(db, track_id)
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "eval",
+            "export-seed-sample",
+            "--db",
+            str(db_path),
+            "--output",
+            str(output_path),
+            "--count",
+            "2",
+            "--random-seed",
+            "123",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "eligible_count=3" in result.output
+    assert "selected_count=2" in result.output
+    rows = _read_csv_rows(output_path)
+    assert len(rows) == 2
+    assert set(rows[0]) == {
+        "track_id",
+        "artist",
+        "title",
+        "album",
+        "bpm",
+        "musical_key",
+        "energy",
+        "has_sonara_analysis",
+        "has_mert_embedding",
+        "has_clap_embedding",
+        "has_maest_embedding",
+        "bucket",
+    }
+    assert {int(row["track_id"]) for row in rows}.issubset(set(track_ids))
+
+
 def _build_candidate_export_library(db_path: Path, tmp_path: Path) -> tuple[int, list[int]]:
     db = LibraryDatabase(db_path)
     seed_id = _upsert_cli_candidate_track(db, tmp_path, "seed", bpm=120.0, energy=0.5)
@@ -217,6 +267,27 @@ def _save_cli_candidate_analysis(
         bpm=bpm,
         musical_key="1A",
         energy=energy,
+    )
+
+
+def _save_cli_seed_sample_analysis(db: LibraryDatabase, track_id: int) -> None:
+    vector = np.asarray([1.0, float(track_id)], dtype=np.float32)
+    db.save_embedding(track_id, vector, "test-mert", embedding_key="mert")
+    db.save_embedding(track_id, vector, "test-clap", embedding_key="clap")
+    db.save_embedding(track_id, vector, "test-maest", embedding_key="maest")
+    db.save_sonara_features(
+        track_id,
+        {
+            "bpm": 120.0,
+            "energy": 0.5,
+            "danceability": 0.7,
+            "valence": 0.7,
+            "acousticness": 0.5,
+            "rms_mean": 0.25,
+            "onset_density": 1.4,
+            "key": "1A",
+            "key_confidence": 0.9,
+        },
     )
 
 

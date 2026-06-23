@@ -310,6 +310,7 @@ The app does not log search sessions automatically, so reports can be
 events.
 
 ```powershell
+dj-sim eval export-seed-sample --db .\data\library_v4.sqlite --output .\labels\seed_sample.csv --count 50 --random-seed 123
 dj-sim eval export-candidates --db .\data\library_v4.sqlite --output .\labels\candidate_pool.csv --seed-track-id 42 --source mert --source sonara --source maest --per-source 10 --random-seed 123
 dj-sim eval import-pair-feedback --db .\data\library_v4.sqlite --input .\labels\pair_feedback.csv
 dj-sim eval import-transition-feedback --db .\data\library_v4.sqlite --input .\labels\transition_feedback.jsonl
@@ -321,14 +322,18 @@ dj-sim eval report --db .\data\library_v4.sqlite --output .\reports\evaluation.j
 Candidate-pool export is the recommended first step when collecting new manual
 ground truth:
 
-1. Run `dj-sim eval export-candidates` for one or more `--seed-track-id` values.
-2. Open the generated CSV and fill `rating`, `reason_tags`, and `notes` by hand.
-3. Import the completed file with `dj-sim eval import-pair-feedback`.
-4. Run `dj-sim eval run-ablation` to compare recorded source contributions on
+1. Run `dj-sim eval export-seed-sample` to choose a reproducible, practical set
+   of seed tracks for manual labeling.
+2. Run `dj-sim eval export-candidates` for the exported seed IDs, usually with
+   `--source mert --source sonara --source maest` and session recording enabled.
+3. Open the generated candidate CSV and fill `rating`, `reason_tags`, and `notes`
+   by hand.
+4. Import the completed file with `dj-sim eval import-pair-feedback`.
+5. Run `dj-sim eval run-ablation` to compare recorded source contributions on
    the labeled candidate pools.
-5. Run `dj-sim eval run-calibration` for diagnostic score/relevance calibration
+6. Run `dj-sim eval run-calibration` for diagnostic score/relevance calibration
    summaries once enough labeled candidate rows exist.
-6. Run `dj-sim eval report` for the general recorded-session report.
+7. Run `dj-sim eval report` for the general recorded-session report.
 
 `run-ablation` evaluates only recorded candidate-pool events and imported pair
 feedback. It builds single-source variants for `mert`, `maest`, and `sonara` when
@@ -361,6 +366,38 @@ multiple sources, stores per-source rank/score details in the final
 The default `source` column is `manual`, and the generated empty rating fields
 are intended for human labels only. CLAP text search is not included because it
 needs a text prompt rather than a seed-track query.
+
+`export-seed-sample` is read-only and exists to prepare those seed IDs before
+candidate-pool export. By default it samples only tracks with complete SONARA,
+MERT, CLAP, and MAEST coverage so early ablation reports compare sources on the
+same set of tracks; use `--allow-partial-analysis` only for exploratory labeling.
+Sampling is deterministic for the same `--random-seed`, prefers spread across
+BPM/energy buckets when enough BPM and energy values are available, falls back to
+a deterministic random sample otherwise, and prefers distinct known artists
+without failing when the library does not have enough unique artists.
+
+Usage:
+
+```text
+dj-sim eval export-seed-sample [OPTIONS]
+```
+
+Options:
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--db` | path | `dj-track-similarity.sqlite` | Schema v4 SQLite database path. |
+| `--output` | CSV path | required | Seed-sample CSV to create. |
+| `--count` | integer `>=1` | `50` | Maximum number of seed tracks to export. |
+| `--random-seed` | integer | `123` | Deterministic sample seed. |
+| `--require-complete-analysis/--allow-partial-analysis` | flag | require complete | Require SONARA, MERT, CLAP, and MAEST coverage before sampling. |
+| `--help` | flag | off | Show help. |
+
+Seed-sample CSV columns:
+
+```text
+track_id,artist,title,album,bpm,musical_key,energy,has_sonara_analysis,has_mert_embedding,has_clap_embedding,has_maest_embedding,bucket
+```
 
 Usage:
 
@@ -425,6 +462,7 @@ dj-sim eval [OPTIONS] COMMAND [ARGS]...
 Commands:
 
 ```text
+export-seed-sample
 export-candidates
 import-pair-feedback
 import-transition-feedback

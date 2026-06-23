@@ -37,6 +37,7 @@ from .evaluation.calibration import build_calibration_report, calibration_record
 from .evaluation.candidates import export_candidate_pools, write_candidate_pool_csv
 from .evaluation.labels import load_pair_feedback_labels, load_transition_feedback_labels
 from .evaluation.reports import build_search_evaluation_report
+from .evaluation.seed_sampling import export_seed_sample, write_seed_sample_csv
 from .logging_config import configure_logging, set_analysis_diagnostics_enabled
 from .runtime import get_torch_runtime_info, recommended_torch_index
 from .scanner import scan_library
@@ -208,6 +209,39 @@ def export_evaluation_candidates(
     typer.echo(
         f"exported={len(result.rows)} seeds={len({row.seed_track_id for row in result.rows})} "
         f"output={output_path} sessions_recorded={len(result.session_ids)} warnings={len(result.warnings)}"
+    )
+
+
+@eval_app.command("export-seed-sample")
+def export_evaluation_seed_sample(
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+    output_path: Path = typer.Option(..., "--output", dir_okay=False, writable=True),
+    count: int = typer.Option(50, "--count", min=1, help="Maximum seed tracks to export."),
+    random_seed: int = typer.Option(123, "--random-seed", help="Deterministic sample seed."),
+    require_complete_analysis: bool = typer.Option(
+        True,
+        "--require-complete-analysis/--allow-partial-analysis",
+        help="Require SONARA, MERT, CLAP, and MAEST coverage before sampling.",
+    ),
+) -> None:
+    try:
+        result = export_seed_sample(
+            _evaluation_db(db_path),
+            count=count,
+            random_seed=random_seed,
+            require_complete_analysis=require_complete_analysis,
+        )
+        if not result.rows:
+            raise ValueError("No eligible seed tracks were found; check analysis coverage or use --allow-partial-analysis")
+        write_seed_sample_csv(output_path, result.rows)
+    except ValueError as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+
+    typer.echo(
+        f"eligible_count={result.eligible_count} selected_count={result.selected_count} "
+        f"bucket_mode={result.bucket_mode} buckets_used={len(result.buckets_used)} "
+        f"buckets={','.join(result.buckets_used)} output={output_path}"
     )
 
 

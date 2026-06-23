@@ -85,36 +85,49 @@ python scripts\create_library_v4_from_v3.py --help
 python scripts\benchmark_search.py --help
 ```
 
-## Exact search benchmark before ANN work
+## Exact search benchmark and optional ANN prototype
 
 `scripts/benchmark_search.py` creates a temporary synthetic schema v4 SQLite
-library and measures the current `exact_numpy` vector backend before any ANN
-index is introduced. It writes a JSON report only; by default the synthetic
-database is deleted after the run and the script never reads a source library or
-audio file.
+library and measures the current `exact_numpy` vector backend. It writes a JSON
+report only; by default the synthetic database is deleted after the run and the
+script never reads a source library or audio file.
 
 Production similarity search still defaults to this exact NumPy matrix-dot
-backend. It is the reference backend for future ANN recall and latency
-comparisons; FAISS, HNSW, and other ANN indexes are not implemented here.
+backend. It is the reference backend for ANN recall and latency comparisons, and
+production endpoints do not opt into ANN behavior by default.
+
+An optional HNSW prototype is available for this benchmark script only. Install
+it explicitly when needed:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[ann,dev]"
+```
+
+The HNSW backend uses `hnswlib` lazily and is not a base runtime dependency. The
+prototype builds an in-memory index for each benchmark search to avoid hidden
+stale-index reuse. Treat its results as experimental and compare `recall_at_k`
+against the exact backend before considering any ANN use.
 
 Small smoke run:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\benchmark_search.py --output .\reports\benchmark_search_smoke.json --track-count 100 --embedding-dim 16 --seed-count 5 --per-source 10
+.\.venv\Scripts\python.exe scripts\benchmark_search.py --output .\reports\benchmark_search_smoke.json --track-count 100 --embedding-dim 16 --seed-count 5 --per-source 10 --vector-backend exact
 ```
 
 Useful options include `--track-count` (repeatable), `--track-counts 1000,10000`,
 `--embedding-dim 768` for full-size embedding vectors, `--classifier-profiles`
 to populate synthetic classifier scores, and `--keep-db <path>` when debugging a
 synthetic database. Use `--skip-sonara` only when you want an embedding-only
-baseline.
+baseline. Use `--vector-backend hnsw` only in an environment where the optional
+`ann` extra or an equivalent external `hnswlib` install is present.
 
 The report includes environment details, setup time, the vector backend name,
-`load_embedding_matrix` timings for MERT and MAEST, p50/p95 exact similarity
+`load_embedding_matrix` timings for MERT and MAEST, p50/p95 vector similarity
 search timings over sampled seed tracks, weighted candidate pool timings, hybrid
 search timings, result counts, and best-effort RSS memory in bytes. These
-timings describe the current exact implementation only; the script does not add
-FAISS, HNSW, ANN indexes, or change production scoring/endpoints.
+timings keep exact NumPy as the reference. HNSW benchmark reports also include
+`recall_at_k` against exact results for the sampled searches. The script does not
+change production scoring, result ordering, or endpoints.
 
 ## Library schema copy scripts
 

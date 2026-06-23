@@ -18,6 +18,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+ann = [
+  "hnswlib>=0.8",
+]
 sonara = [
   "sonara",
 ]

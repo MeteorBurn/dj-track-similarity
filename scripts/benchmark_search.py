@@ -29,7 +29,7 @@ from dj_track_similarity.evaluation.weighted_candidates import build_weighted_ca
 from dj_track_similarity.hybrid_search import build_hybrid_search_preview  # noqa: E402
 from dj_track_similarity.metadata_payload import metadata_to_json  # noqa: E402
 from dj_track_similarity.search import SimilaritySearch  # noqa: E402
-from dj_track_similarity.vector_index import EXACT_VECTOR_BACKEND_NAME  # noqa: E402
+from dj_track_similarity.vector_index import EXACT_VECTOR_BACKEND_NAME, create_vector_backend  # noqa: E402
 
 
 T = TypeVar("T")
@@ -47,6 +47,7 @@ class BenchmarkConfig:
     seed_count: int
     per_source: int
     random_seed: int
+    vector_backend: str
     keep_db: Path | None
     skip_sonara: bool
 
@@ -58,6 +59,7 @@ class BenchmarkConfig:
 
 
 def run_benchmark(config: BenchmarkConfig) -> dict[str, Any]:
+    vector_backend_name = create_vector_backend(config.vector_backend).backend_name
     runs = [_benchmark_track_count(config, track_count) for track_count in config.track_counts]
     return {
         "benchmark": "exact_search_baseline",
@@ -72,7 +74,7 @@ def run_benchmark(config: BenchmarkConfig) -> dict[str, Any]:
             "per_source": config.per_source,
             "random_seed": config.random_seed,
             "sources": list(config.candidate_sources),
-            "vector_backend": EXACT_VECTOR_BACKEND_NAME,
+            "vector_backend": vector_backend_name,
             "skip_sonara": config.skip_sonara,
             "keep_db": str(config.keep_db) if config.keep_db is not None else None,
         },
@@ -100,7 +102,7 @@ def _benchmark_database_path(config: BenchmarkConfig, track_count: int, db_path:
     setup_seconds, db = _timed(lambda: _setup_synthetic_database(config, track_count, db_path))
     seed_track_ids = _sample_seed_track_ids(track_count, config.seed_count, config.random_seed)
     load_metrics = _measure_embedding_loads(db)
-    exact_metrics = _measure_exact_similarity_searches(db, seed_track_ids, config.per_source)
+    exact_metrics = _measure_vector_similarity_searches(db, config, seed_track_ids)
     weighted_metrics = _measure_weighted_candidate_pools(db, config, seed_track_ids)
     hybrid_metrics = _measure_hybrid_searches(db, config, seed_track_ids)
     return {
@@ -246,19 +248,58 @@ def _measure_embedding_loads(db: LibraryDatabase) -> dict[str, dict[str, Any]]:
     return metrics
 
 
-def _measure_exact_similarity_searches(db: LibraryDatabase, seed_track_ids: Sequence[int], per_source: int) -> dict[str, dict[str, Any]]:
-    return {
-        source: {
-            "backend": EXACT_VECTOR_BACKEND_NAME,
+def _measure_vector_similarity_searches(
+    db: LibraryDatabase,
+    config: BenchmarkConfig,
+    seed_track_ids: Sequence[int],
+) -> dict[str, dict[str, Any]]:
+    metrics: dict[str, dict[str, Any]] = {}
+    for source in EMBEDDING_SOURCES:
+        vector_backend = create_vector_backend(config.vector_backend)
+        source_metrics = {
+            "backend": vector_backend.backend_name,
             **_measure_seed_operation(
                 seed_track_ids,
-                lambda seed_track_id, source=source: SimilaritySearch(db, embedding_key=source).search(
+                lambda seed_track_id, source=source, vector_backend=vector_backend: SimilaritySearch(
+                    db,
+                    embedding_key=source,
+                    vector_backend=vector_backend,
+                ).search(
                     [seed_track_id],
-                    limit=per_source,
+                    limit=config.per_source,
                 ),
             ),
         }
-        for source in EMBEDDING_SOURCES
+        if vector_backend.backend_name != EXACT_VECTOR_BACKEND_NAME:
+            source_metrics["recall_at_k"] = _measure_recall_at_k(db, source, config, seed_track_ids)
+        metrics[source] = source_metrics
+    return metrics
+
+
+def _measure_recall_at_k(
+    db: LibraryDatabase,
+    source: str,
+    config: BenchmarkConfig,
+    seed_track_ids: Sequence[int],
+) -> dict[str, Any]:
+    recalls: list[float] = []
+    for seed_track_id in seed_track_ids:
+        exact_results = SimilaritySearch(db, embedding_key=source).search([seed_track_id], limit=config.per_source)
+        backend_results = SimilaritySearch(
+            db,
+            embedding_key=source,
+            vector_backend=create_vector_backend(config.vector_backend),
+        ).search([seed_track_id], limit=config.per_source)
+        exact_ids = [result.track.id for result in exact_results]
+        if not exact_ids:
+            continue
+        backend_ids = {result.track.id for result in backend_results}
+        recalls.append(len(backend_ids.intersection(exact_ids)) / len(exact_ids))
+    return {
+        "k": config.per_source,
+        "samples": len(recalls),
+        "mean": (sum(recalls) / len(recalls)) if recalls else None,
+        "min": min(recalls) if recalls else None,
     }
 
 
@@ -480,7 +521,7 @@ def _prepare_kept_database_path(path: Path) -> None:
 
 def _parse_args(argv: Sequence[str] | None = None) -> BenchmarkConfig:
     parser = argparse.ArgumentParser(
-        description="Create a synthetic v4 SQLite library and benchmark exact_numpy search baseline operations.",
+        description="Create a synthetic v4 SQLite library and benchmark vector search operations.",
     )
     parser.add_argument("--output", required=True, type=Path, help="Path to write the JSON benchmark report.")
     parser.add_argument(
@@ -498,6 +539,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> BenchmarkConfig:
     parser.add_argument("--seed-count", default=20, type=_positive_int, help="Number of sampled seed tracks per run. Defaults to 20.")
     parser.add_argument("--per-source", default=30, type=_positive_int, help="Candidate limit per source. Defaults to 30.")
     parser.add_argument("--random-seed", default=123, type=int, help="Deterministic random seed. Defaults to 123.")
+    parser.add_argument(
+        "--vector-backend",
+        choices=("exact", "hnsw"),
+        default="exact",
+        help="Vector backend for direct similarity timing: exact or hnsw. Defaults to exact.",
+    )
     parser.add_argument("--keep-db", type=Path, help="Optional path for keeping the synthetic database for debugging.")
     parser.add_argument("--skip-sonara", action="store_true", help="Skip synthetic SONARA payloads and SONARA source measurements.")
     args = parser.parse_args(argv)
@@ -509,6 +556,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> BenchmarkConfig:
         seed_count=args.seed_count,
         per_source=args.per_source,
         random_seed=args.random_seed,
+        vector_backend=args.vector_backend,
         keep_db=args.keep_db.expanduser().resolve(strict=False) if args.keep_db is not None else None,
         skip_sonara=bool(args.skip_sonara),
     )

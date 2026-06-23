@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.search import SimilaritySearch
-from dj_track_similarity.vector_index import ExactVectorSearchBackend
+from dj_track_similarity.vector_index import (
+    ExactVectorSearchBackend,
+    HnswVectorSearchBackend,
+    VectorIndexUnavailable,
+    create_vector_backend,
+)
 
 
 def test_exact_backend_matches_manual_matrix_dot_ranking() -> None:
@@ -29,6 +36,48 @@ def test_exact_backend_matches_manual_matrix_dot_ranking() -> None:
     assert [hit.index for hit in hits] == [int(index) for index in manual_indices]
     assert [hit.track_id for hit in hits] == [track_ids[int(index)] for index in manual_indices]
     assert [hit.score for hit in hits] == [float(scores[int(index)]) for index in manual_indices]
+
+
+def test_vector_backend_factory_returns_exact_backend() -> None:
+    backend = create_vector_backend("exact")
+
+    assert isinstance(backend, ExactVectorSearchBackend)
+    assert create_vector_backend("exact_numpy").backend_name == "exact_numpy"
+
+
+def test_hnsw_backend_reports_unavailable_dependency(monkeypatch: pytest.MonkeyPatch) -> None:
+    real_import_module = importlib.import_module
+
+    def fail_hnsw_import(name: str, package: str | None = None) -> object:
+        if name == "hnswlib":
+            raise ImportError("forced missing hnswlib")
+        return real_import_module(name, package)
+
+    monkeypatch.setattr(importlib, "import_module", fail_hnsw_import)
+
+    with pytest.raises(VectorIndexUnavailable, match="requires optional dependency 'hnswlib'"):
+        create_vector_backend("hnsw")
+
+
+def test_hnsw_backend_matches_exact_ranking_when_available() -> None:
+    pytest.importorskip("hnswlib")
+    matrix = np.asarray(
+        [
+            [1.0, 0.0, 0.0],
+            [0.8, 0.2, 0.0],
+            [0.0, 1.0, 0.0],
+            [-1.0, 0.0, 0.0],
+        ],
+        dtype=np.float32,
+    )
+    track_ids = [201, 202, 203, 204]
+    query = np.asarray([1.0, 0.0, 0.0], dtype=np.float32)
+    exact_hits = ExactVectorSearchBackend().search(matrix, track_ids, query, limit=3)
+
+    hnsw_hits = HnswVectorSearchBackend(ef_search=16).search(matrix, track_ids, query, limit=3)
+
+    assert [hit.track_id for hit in hnsw_hits] == [hit.track_id for hit in exact_hits]
+    assert [hit.score for hit in hnsw_hits] == pytest.approx([hit.score for hit in exact_hits], abs=1e-5)
 
 
 def test_exact_backend_preserves_numpy_argsort_tie_order() -> None:

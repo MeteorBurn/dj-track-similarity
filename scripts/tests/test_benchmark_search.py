@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -45,6 +46,67 @@ def test_benchmark_search_runs_and_deletes_temporary_database(tmp_path: Path) ->
     assert run["exact_similarity"]["mert"]["seed_count"] == 3
     assert run["weighted_candidates"]["seed_count"] == 3
     assert run["hybrid_search"]["seed_count"] == 3
+
+
+def test_benchmark_search_rejects_invalid_vector_backend(tmp_path: Path) -> None:
+    output_path = tmp_path / "benchmark.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT_PATH),
+            "--output",
+            str(output_path),
+            "--track-count",
+            "20",
+            "--vector-backend",
+            "annoy",
+        ],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "invalid choice" in result.stderr
+    assert output_path.exists() is False
+
+
+def test_benchmark_search_reports_unavailable_hnsw_backend(tmp_path: Path) -> None:
+    output_path = tmp_path / "benchmark.json"
+    forced_missing_module = tmp_path / "hnswlib.py"
+    forced_missing_module.write_text("raise ImportError('forced missing hnswlib')\n", encoding="utf-8")
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(tmp_path) + os.pathsep + env.get("PYTHONPATH", "")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT_PATH),
+            "--output",
+            str(output_path),
+            "--track-count",
+            "20",
+            "--embedding-dim",
+            "8",
+            "--seed-count",
+            "2",
+            "--per-source",
+            "5",
+            "--vector-backend",
+            "hnsw",
+        ],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 1
+    assert "requires optional dependency 'hnswlib'" in result.stderr
+    assert output_path.exists() is False
 
 
 def test_benchmark_search_keep_db_preserves_synthetic_database(tmp_path: Path) -> None:

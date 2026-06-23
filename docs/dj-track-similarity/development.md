@@ -82,7 +82,34 @@ python scripts\audio_repair\repair_audio_metadata.py --help
 python tools\audio-dedup\audio_dedup_cli.py --help
 python scripts\optimize_database.py --help
 python scripts\create_library_v4_from_v3.py --help
+python scripts\benchmark_search.py --help
 ```
+
+## Exact search benchmark before ANN work
+
+`scripts/benchmark_search.py` creates a temporary synthetic schema v4 SQLite
+library and measures the current exact search baseline before any ANN index is
+introduced. It writes a JSON report only; by default the synthetic database is
+deleted after the run and the script never reads a source library or audio file.
+
+Small smoke run:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\benchmark_search.py --output .\reports\benchmark_search_smoke.json --track-count 100 --embedding-dim 16 --seed-count 5 --per-source 10
+```
+
+Useful options include `--track-count` (repeatable), `--track-counts 1000,10000`,
+`--embedding-dim 768` for full-size embedding vectors, `--classifier-profiles`
+to populate synthetic classifier scores, and `--keep-db <path>` when debugging a
+synthetic database. Use `--skip-sonara` only when you want an embedding-only
+baseline.
+
+The report includes environment details, setup time, `load_embedding_matrix`
+timings for MERT and MAEST, p50/p95 exact similarity search timings over sampled
+seed tracks, weighted candidate pool timings, hybrid search timings, result
+counts, and best-effort RSS memory in bytes. These timings describe the current
+exact implementation only; the script does not add FAISS, HNSW, ANN indexes, or
+change production scoring/endpoints.
 
 ## Library schema copy scripts
 

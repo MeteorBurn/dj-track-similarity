@@ -183,6 +183,14 @@ breakdown contains source ranks/scores and `blind_rank`. The generated CSV still
 requires human ratings before `import-pair-feedback` turns those rows into ground
 truth.
 
+`dj-sim eval run-calibration` builds diagnostic calibration JSON from recorded
+candidate-pool events and imported pair feedback. It records nothing by default;
+with explicit `--record`, only an `ok` summary is inserted into
+`calibration_runs` using profile `manual_feedback`. Raw scores and RRF-derived
+diagnostic scores are stored and reported as diagnostics, not as production
+confidence or probabilities, and calibration reports do not change runtime search
+weights or thresholds.
+
 ## Metadata and Analysis Data
 
 The app deliberately separates file tags from computed values.

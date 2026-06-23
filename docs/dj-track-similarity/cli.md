@@ -314,6 +314,7 @@ dj-sim eval export-candidates --db .\data\library_v4.sqlite --output .\labels\ca
 dj-sim eval import-pair-feedback --db .\data\library_v4.sqlite --input .\labels\pair_feedback.csv
 dj-sim eval import-transition-feedback --db .\data\library_v4.sqlite --input .\labels\transition_feedback.jsonl
 dj-sim eval run-ablation --db .\data\library_v4.sqlite --output .\reports\ablation.json --k 5 --k 10 --rrf-k 60
+dj-sim eval run-calibration --db .\data\library_v4.sqlite --output .\reports\calibration.json --score-mode rrf --bins 10 --min-samples 30 --accepted-threshold 2
 dj-sim eval report --db .\data\library_v4.sqlite --output .\reports\evaluation.json --k 5 --k 10
 ```
 
@@ -325,8 +326,9 @@ ground truth:
 3. Import the completed file with `dj-sim eval import-pair-feedback`.
 4. Run `dj-sim eval run-ablation` to compare recorded source contributions on
    the labeled candidate pools.
-5. Run `dj-sim eval report` for the general recorded-session report; calibration
-   reports can come later after enough labeled data exists.
+5. Run `dj-sim eval run-calibration` for diagnostic score/relevance calibration
+   summaries once enough labeled candidate rows exist.
+6. Run `dj-sim eval report` for the general recorded-session report.
 
 `run-ablation` evaluates only recorded candidate-pool events and imported pair
 feedback. It builds single-source variants for `mert`, `maest`, and `sonara` when
@@ -338,6 +340,17 @@ from scores only when no rank was recorded. It does not tune production weights
 or change runtime search behavior.
 
 `report` summarizes recorded sessions against the imported ratings.
+
+`run-calibration` is report-only diagnostics over manual pair feedback. It treats
+ratings at or above `--accepted-threshold` as accepted labels, then compares those
+labels with a selected diagnostic score. Raw source scores, total scores, rank
+percentiles, and min-max-normalized RRF values are not production confidence or
+probabilities. The JSON report always includes `score_kind` and
+`calibration_status`; when fewer than `--min-samples` judged rows are available,
+the status is `insufficient_data` and probability metrics are withheld. The
+default `--no-record` writes only the JSON file; use `--record` explicitly to save
+an `ok` summary into `calibration_runs`. No calibration command changes runtime
+search endpoints, scoring weights, or default thresholds.
 
 `export-candidates` reads existing exact search sources only: `mert` embedding
 similarity, `maest` embedding similarity, and balanced/default `sonara`
@@ -416,6 +429,7 @@ export-candidates
 import-pair-feedback
 import-transition-feedback
 run-ablation
+run-calibration
 report
 ```
 
@@ -428,6 +442,13 @@ ranking metrics for each requested `--k` cutoff.
 metrics, and deltas versus `fusion:rrf_all`. If recorded candidate pools or
 matching imported pair labels are missing, the report status is
 `insufficient_data`.
+
+`run-calibration` writes a JSON-safe file with `status`, `calibration_status`,
+`score_mode`, `score_kind`, accepted-label counts, Brier score, log loss, ECE,
+reliability bins, threshold diagnostics, and score quantiles when enough valid
+samples exist. Supported `--score-mode` values are `rank-percentile`, `rrf`, and
+`event-total-score`; `rrf` uses per-session min-max-normalized RRF as a
+diagnostic score, not as calibrated confidence.
 
 ### `dj-sim relocate-library`
 

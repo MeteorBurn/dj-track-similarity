@@ -5,7 +5,7 @@ import sqlite3
 from .db_search_fts import create_track_search_fts
 
 
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 SQLITE_BUSY_TIMEOUT_SECONDS = 30
 
 TRACK_BASE_FIELDS = """
@@ -239,6 +239,88 @@ def _create_current_indexes_and_triggers(connection: sqlite3.Connection) -> None
         END;
         """
     )
+    _create_evaluation_schema(connection)
+
+
+def _create_evaluation_schema(connection: sqlite3.Connection) -> None:
+    connection.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS search_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            mode TEXT NOT NULL,
+            seed_track_ids_json TEXT NOT NULL CHECK(json_valid(seed_track_ids_json)),
+            request_json TEXT NOT NULL CHECK(json_valid(request_json)),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS search_result_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL REFERENCES search_sessions(id) ON DELETE CASCADE,
+            track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+            rank INTEGER NOT NULL,
+            total_score REAL NOT NULL,
+            score_breakdown_json TEXT NOT NULL CHECK(json_valid(score_breakdown_json)),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS track_pair_feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            seed_track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+            candidate_track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+            rating INTEGER NOT NULL CHECK(rating BETWEEN 0 AND 3),
+            reason_tags_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(reason_tags_json)),
+            notes TEXT,
+            source TEXT NOT NULL DEFAULT 'manual',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(seed_track_id, candidate_track_id, source)
+        );
+
+        CREATE TABLE IF NOT EXISTS transition_feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            outgoing_track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+            incoming_track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+            rating INTEGER NOT NULL CHECK(rating BETWEEN 0 AND 3),
+            risk_tags_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(risk_tags_json)),
+            notes TEXT,
+            source TEXT NOT NULL DEFAULT 'manual',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS calibration_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            profile_name TEXT NOT NULL,
+            search_mode TEXT NOT NULL,
+            config_json TEXT NOT NULL CHECK(json_valid(config_json)),
+            metrics_json TEXT NOT NULL CHECK(json_valid(metrics_json)),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_search_sessions_mode_created
+        ON search_sessions(mode, created_at);
+
+        CREATE INDEX IF NOT EXISTS idx_search_result_events_session_rank
+        ON search_result_events(session_id, rank);
+
+        CREATE INDEX IF NOT EXISTS idx_search_result_events_track
+        ON search_result_events(track_id);
+
+        CREATE INDEX IF NOT EXISTS idx_track_pair_feedback_seed_rating
+        ON track_pair_feedback(seed_track_id, rating, candidate_track_id);
+
+        CREATE INDEX IF NOT EXISTS idx_track_pair_feedback_candidate
+        ON track_pair_feedback(candidate_track_id);
+
+        CREATE INDEX IF NOT EXISTS idx_transition_feedback_outgoing_created
+        ON transition_feedback(outgoing_track_id, created_at);
+
+        CREATE INDEX IF NOT EXISTS idx_transition_feedback_incoming
+        ON transition_feedback(incoming_track_id);
+
+        CREATE INDEX IF NOT EXISTS idx_calibration_runs_profile_mode_created
+        ON calibration_runs(profile_name, search_mode, created_at);
+        """
+    )
 
 
 def _validate_current_schema(connection: sqlite3.Connection) -> None:
@@ -276,6 +358,63 @@ def _validate_current_schema(connection: sqlite3.Connection) -> None:
         raise RuntimeError(_migration_required_message())
     if "track_search_fts" not in tables:
         raise RuntimeError(_migration_required_message())
+    _validate_evaluation_schema(connection)
+
+
+def _validate_evaluation_schema(connection: sqlite3.Connection) -> None:
+    required_tables = {
+        "search_sessions": {
+            "id",
+            "mode",
+            "seed_track_ids_json",
+            "request_json",
+            "created_at",
+        },
+        "search_result_events": {
+            "id",
+            "session_id",
+            "track_id",
+            "rank",
+            "total_score",
+            "score_breakdown_json",
+            "created_at",
+        },
+        "track_pair_feedback": {
+            "id",
+            "seed_track_id",
+            "candidate_track_id",
+            "rating",
+            "reason_tags_json",
+            "notes",
+            "source",
+            "created_at",
+            "updated_at",
+        },
+        "transition_feedback": {
+            "id",
+            "outgoing_track_id",
+            "incoming_track_id",
+            "rating",
+            "risk_tags_json",
+            "notes",
+            "source",
+            "created_at",
+        },
+        "calibration_runs": {
+            "id",
+            "profile_name",
+            "search_mode",
+            "config_json",
+            "metrics_json",
+            "created_at",
+        },
+    }
+    tables = _user_tables(connection)
+    if not set(required_tables).issubset(tables):
+        raise RuntimeError(_migration_required_message())
+    for table, required_columns in required_tables.items():
+        if not required_columns.issubset(_columns(connection, table)):
+            raise RuntimeError(_migration_required_message())
 
 
 def _columns(connection: sqlite3.Connection, table: str) -> set[str]:

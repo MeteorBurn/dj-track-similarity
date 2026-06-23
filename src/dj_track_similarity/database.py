@@ -9,6 +9,7 @@ import numpy as np
 
 from .db_analysis import AnalysisRepository
 from .db_connection import connect_database, ensure_database_schema, resolve_database_path, write_lock_for_path
+from .db_evaluation import EvaluationRepository
 from .db_repository_utils import DEFAULT_EMBEDDING_KEY, MAEST_EMBEDDING_KEY, normalize_path
 from .db_summary import SummaryRepository
 from .db_tracks import TrackRepository
@@ -25,7 +26,7 @@ __all__ = [
 ]
 
 
-class LibraryDatabase(TrackRepository, AnalysisRepository, SummaryRepository):
+class LibraryDatabase(TrackRepository, AnalysisRepository, SummaryRepository, EvaluationRepository):
     def __init__(self, path: str | Path) -> None:
         self.path = resolve_database_path(path)
         self._write_lock = write_lock_for_path(self.path)

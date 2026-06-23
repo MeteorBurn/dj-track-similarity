@@ -81,4 +81,20 @@ dj-sim analyze --help
 python scripts\audio_repair\repair_audio_metadata.py --help
 python tools\audio-dedup\audio_dedup_cli.py --help
 python scripts\optimize_database.py --help
+python scripts\create_library_v4_from_v3.py --help
 ```
+
+## Library schema copy scripts
+
+The main app expects the current library schema and does not runtime-migrate old
+library databases. The schema v4 evaluation foundation is created from a v3
+database with an explicit dry-run-first copy script:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\create_library_v4_from_v3.py --source .\data\library_v3.sqlite --dest .\data\library_v4.sqlite
+.\.venv\Scripts\python.exe scripts\create_library_v4_from_v3.py --source .\data\library_v3.sqlite --dest .\data\library_v4.sqlite --apply
+```
+
+The script opens the source read-only, writes only the destination copy, adds the
+v4 evaluation/calibration tables, sets `PRAGMA user_version = 4`, and runs an
+integrity check. It does not inspect or modify audio files.

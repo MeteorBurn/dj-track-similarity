@@ -336,10 +336,38 @@ def _score_breakdown(row: WeightedCandidateRow, profile: ScoreProfile, rrf_k: in
 
 
 def _weighted_rrf_score(contributions: Mapping[str, CandidateSourceContribution], profile: ScoreProfile, rrf_k: int) -> float:
-    score = sum(float(component["contribution"]) for component in _weighted_rrf_components(contributions, profile, rrf_k).values())
+    score = weighted_rrf_score(contributions, profile.weights, rrf_k)
     if not math.isfinite(score):
         raise ValueError("weighted RRF produced a non-finite score")
     return score
+
+
+def weighted_rrf_score(contributions: Mapping[str, CandidateSourceContribution], weights: Mapping[str, float], rrf_k: int) -> float:
+    score = sum(float(component["contribution"]) for component in weighted_rrf_components(contributions, weights, rrf_k).values())
+    if not math.isfinite(score):
+        raise ValueError("weighted RRF produced a non-finite score")
+    return score
+
+
+def weighted_rrf_components(
+    contributions: Mapping[str, CandidateSourceContribution],
+    weights: Mapping[str, float],
+    rrf_k: int,
+) -> dict[str, dict[str, float | int]]:
+    clean_rrf_k = _positive_int(rrf_k, "rrf_k")
+    components: dict[str, dict[str, float | int]] = {}
+    for source, weight in sorted(weights.items()):
+        contribution = contributions.get(source)
+        if contribution is None:
+            continue
+        rank = _positive_int(contribution.rank, f"{source}.rank")
+        clean_weight = _non_negative_finite_float(weight, f"weights.{source}")
+        components[source] = {
+            "rank": rank,
+            "weight": clean_weight,
+            "contribution": clean_weight * (1.0 / (clean_rrf_k + rank)),
+        }
+    return dict(sorted(components.items()))
 
 
 def _weighted_rrf_components(
@@ -347,19 +375,7 @@ def _weighted_rrf_components(
     profile: ScoreProfile,
     rrf_k: int,
 ) -> dict[str, dict[str, float | int]]:
-    components: dict[str, dict[str, float | int]] = {}
-    for source in profile.sources:
-        contribution = contributions.get(source)
-        if contribution is None:
-            continue
-        rank = _positive_int(contribution.rank, f"{source}.rank")
-        weight = float(profile.weights[source])
-        components[source] = {
-            "rank": rank,
-            "weight": weight,
-            "contribution": weight * (1.0 / (rrf_k + rank)),
-        }
-    return dict(sorted(components.items()))
+    return weighted_rrf_components(contributions, profile.weights, rrf_k)
 
 
 def _require_sources_match_profile(profile: ScoreProfile, sources: Sequence[str]) -> None:
@@ -427,6 +443,18 @@ def _int_value(value: object, field_name: str) -> int:
         return int(str(value).strip())
     except (TypeError, ValueError) as error:
         raise ValueError(f"{field_name} must be an integer") from error
+
+
+def _non_negative_finite_float(value: object, field_name: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a finite non-negative number")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{field_name} must be a finite non-negative number") from error
+    if not math.isfinite(number) or number < 0:
+        raise ValueError(f"{field_name} must be a finite non-negative number")
+    return number
 
 
 def _tie_token(random_seed: int, seed_track_id: int, candidate_track_id: int) -> int:

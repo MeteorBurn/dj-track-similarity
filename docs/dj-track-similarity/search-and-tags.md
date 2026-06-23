@@ -196,6 +196,28 @@ Use MERT after running `dj-sim analyze --models mert` or the matching selected
 model in the UI analysis job. If results are empty or stale, check whether the
 candidate tracks have MERT embeddings.
 
+### Hybrid Search Preview API
+
+`/api/search/hybrid` is a backend-only preview endpoint for scripts and future
+UI experiments. It is intentionally separate from the visible SET, SONARA, MERT,
+CLAP, and CLASS tabs, and it does not replace or alter those existing endpoints,
+weights, or scoring behavior.
+
+The endpoint accepts `1-5` seed track IDs, generates candidates from requested
+exact sources (`mert`, `maest`, `sonara`), excludes the seeds, and ranks the
+union with weighted reciprocal-rank fusion. If no inline `weights` or
+`score_profile` is supplied, requested sources use equal weights. The response
+contains a normalized preview `score`, `raw_rrf_score`, per-source rank/weight
+breakdown, light source-support diagnostics, warnings, `weights_used`, and
+limitations.
+
+Treat this score as a weighted rank-fusion preview only. It is not confidence,
+probability, or a calibrated human-taste estimate. Missing source coverage is
+returned as warnings and the endpoint can return an empty result list. It reads
+stored SQLite analysis data only: no audio files are written, no search sessions
+are recorded by default, classifiers are not trained, and existing production
+search endpoints are unchanged.
+
 ### CLAP Text Search
 
 CLAP text search sends a text prompt, limit, optional minimum similarity, and

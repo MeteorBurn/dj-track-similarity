@@ -129,6 +129,7 @@ not modify audio files or SQLite rows.
 | `POST` | `/api/search` | Search in MERT embedding space. |
 | `POST` | `/api/search/sonara` | Search with Sonara features. |
 | `POST` | `/api/search/text` | Search CLAP audio vectors from text. |
+| `POST` | `/api/search/hybrid` | Preview weighted rank-fusion over MERT, MAEST, and SONARA candidates. |
 | `POST` | `/api/set-builder/generate` | Generate an ordered Smart Set Builder preview from manual seeds or auto anchors. |
 
 Use `/api/analysis/jobs` before search endpoints when a library has not been
@@ -178,6 +179,28 @@ rows (an empty list deletes nothing).
 
 The default result limit for `/api/search`, `/api/search/sonara`, and
 `/api/search/text` is `10` when a request omits `limit`.
+
+`POST /api/search/hybrid` is a separate explicit preview endpoint. It does not
+replace the MERT, SONARA, CLAP, SET, or CLASS paths and it does not change their
+scoring or weights. The request accepts `seed_track_ids` (`1-5` ids), optional
+`sources` from `mert`, `maest`, and `sonara`, optional inline `weights` or a
+`score_profile` object, `per_source`, `limit`, `rrf_k`, `random_seed`, and
+`include_diagnostics`. If no weights are provided, the requested sources are
+weighted equally. Inline weights are normalized internally after finite,
+non-negative validation, and the endpoint rejects requests that provide both
+inline weights and a score profile.
+
+Hybrid search generates candidates from the existing exact source search paths,
+excludes seed tracks, and fuses source ranks with weighted reciprocal-rank
+fusion. The response returns `results`, `weights_used`, `sources`, `warnings`,
+diagnostics, and limitations. Each result has a `track`, a normalized `score`,
+the underlying `raw_rrf_score`, `rank`, per-source `score_breakdown`, and light
+diagnostic `match_character` such as source count/consensus. The score is a
+rank-fusion preview score, not confidence, probability, or a calibrated estimate
+of human taste. Missing source coverage is reported in `warnings`; if no source
+can return candidates, the endpoint returns an empty result list rather than
+failing. It reads stored SQLite analysis data only and does not write sessions,
+tags, audio files, classifiers, or production search configuration.
 
 `POST /api/set-builder/generate` is a read-only set preview endpoint. It does
 not run audio analysis, score classifiers, save sessions, write tags, or modify

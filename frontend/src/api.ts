@@ -44,6 +44,45 @@ export type SearchResult = {
   };
 };
 
+export type HybridSearchSource = "mert" | "maest" | "sonara";
+
+export type HybridSearchPayload = {
+  seed_track_ids: number[];
+  sources?: HybridSearchSource[];
+  weights?: Record<string, number> | null;
+  score_profile?: EvaluationScoreProfile | Record<string, unknown> | null;
+  per_source?: number;
+  limit?: number;
+  rrf_k?: number;
+  random_seed?: number;
+  include_diagnostics?: boolean;
+};
+
+export type HybridSearchResult = {
+  track: Track;
+  score: number;
+  raw_rrf_score: number;
+  rank: number;
+  score_breakdown: Record<string, { rank: number; weight: number; contribution: number; score?: number }>;
+  match_character?: {
+    consensus?: string;
+    source_count?: number;
+    sources?: string[];
+    [key: string]: unknown;
+  } | null;
+  warnings: string[];
+  diagnostics: Record<string, unknown>;
+};
+
+export type HybridSearchResponse = {
+  results: HybridSearchResult[];
+  warnings: string[];
+  weights_used: Record<string, number>;
+  sources: HybridSearchSource[];
+  limitations: string[];
+  diagnostics: Record<string, unknown>;
+};
+
 export type TrackPage = {
   items: Track[];
   total: number;
@@ -623,6 +662,11 @@ export const api = {
     device?: "auto" | "cpu" | "cuda";
   }) =>
     request<SearchResult[]>("/api/search/text", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  hybridSearch: (payload: HybridSearchPayload) =>
+    request<HybridSearchResponse>("/api/search/hybrid", {
       method: "POST",
       body: JSON.stringify(payload)
     }),

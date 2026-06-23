@@ -21,6 +21,7 @@ from .analysis_config import (
 
 
 EvaluationSource = Literal["mert", "maest", "sonara"]
+HybridSearchSource = Literal["mert", "maest", "sonara"]
 EvaluationTrackId = Annotated[int, Field(ge=1)]
 EvaluationTopK = Annotated[int, Field(ge=1, le=100)]
 
@@ -144,6 +145,46 @@ class TextSearchRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=500)
     min_similarity: float | None = None
     device: str = Field(default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN)
+
+
+class HybridSearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    seed_track_ids: list[EvaluationTrackId] = Field(min_length=1, max_length=5)
+    sources: list[HybridSearchSource] = Field(default_factory=lambda: ["mert", "maest", "sonara"], min_length=1, max_length=3)
+    weights: dict[str, float] | None = None
+    score_profile: dict[str, Any] | None = None
+    per_source: int = Field(default=30, ge=1, le=100)
+    limit: int = Field(default=25, ge=1, le=100)
+    rrf_k: int = Field(default=60, ge=1, le=1000)
+    random_seed: int = 123
+    include_diagnostics: bool = True
+
+    @model_validator(mode="after")
+    def reject_multiple_weight_inputs(self) -> "HybridSearchRequest":
+        if self.weights is not None and self.score_profile is not None:
+            raise ValueError("Provide either weights or score_profile, not both")
+        return self
+
+
+class HybridSearchResult(BaseModel):
+    track: dict[str, Any]
+    score: float
+    raw_rrf_score: float
+    rank: int
+    score_breakdown: dict[str, dict[str, float | int]]
+    match_character: dict[str, Any] | None = None
+    warnings: list[str] = Field(default_factory=list)
+    diagnostics: dict[str, Any] = Field(default_factory=dict)
+
+
+class HybridSearchResponse(BaseModel):
+    results: list[HybridSearchResult]
+    warnings: list[str] = Field(default_factory=list)
+    weights_used: dict[str, float]
+    sources: list[HybridSearchSource]
+    limitations: list[str]
+    diagnostics: dict[str, Any] = Field(default_factory=dict)
 
 
 class SetBuilderGenerateRequest(BaseModel):

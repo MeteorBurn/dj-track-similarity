@@ -23,7 +23,8 @@ from .transition_diagnostics import COMPONENT_NAMES, TransitionDiagnostics, comp
 DEFAULT_HYBRID_SOURCES = ("mert", "maest", "sonara")
 HYBRID_SEARCH_LIMITATIONS = (
     "Hybrid search is an explicit weighted rank-fusion preview over existing MERT, MAEST, and SONARA analysis data.",
-    "The score is normalized weighted RRF within this response; it is not calibrated confidence, probability, or a human-taste estimate.",
+    "The score is an optional transition-risk-adjusted weighted RRF preview score; it is not calibrated confidence, probability, or a human-taste estimate.",
+    "Transition risk is diagnostic only and is not AutoMix, beatgrid, cue-point detection, or calibrated transition probability.",
     "The endpoint reads the selected SQLite database only and does not write sessions, train classifiers, modify production search scoring, or write audio files.",
 )
 
@@ -32,7 +33,10 @@ HYBRID_SEARCH_LIMITATIONS = (
 class HybridSearchResultRow:
     track: Track
     score: float
+    adjusted_score: float
     transition_risk: float | None
+    transition_risk_penalty: float
+    transition_risk_weight: float
     raw_rrf_score: float
     rank: int
     score_breakdown: Mapping[str, Mapping[str, float | int]]
@@ -45,7 +49,10 @@ class HybridSearchResultRow:
         return {
             "track": asdict(self.track),
             "score": self.score,
+            "adjusted_score": self.adjusted_score,
             "transition_risk": self.transition_risk,
+            "transition_risk_penalty": self.transition_risk_penalty,
+            "transition_risk_weight": self.transition_risk_weight,
             "raw_rrf_score": self.raw_rrf_score,
             "rank": self.rank,
             "score_breakdown": dict(self.score_breakdown),
@@ -92,6 +99,16 @@ class _ScoredHybridCandidate:
     tie_token: int
 
 
+@dataclass(frozen=True)
+class _RankedHybridCandidate:
+    scored_candidate: _ScoredHybridCandidate
+    normalized_rrf_score: float
+    adjusted_score: float
+    transition_risk: float | None
+    transition_risk_penalty: float
+    transition_diagnostics: Mapping[str, Any]
+
+
 def build_hybrid_search_preview(
     db: LibraryDatabase,
     *,
@@ -103,6 +120,7 @@ def build_hybrid_search_preview(
     limit: int = 25,
     rrf_k: int = 60,
     random_seed: int = 123,
+    transition_risk_weight: float = 0.0,
 ) -> HybridSearchResult:
     clean_seed_track_ids = _positive_unique_ints(seed_track_ids, "seed_track_id")
     clean_seed_tracks = _load_seed_tracks(db, clean_seed_track_ids)
@@ -112,6 +130,7 @@ def build_hybrid_search_preview(
     clean_limit = _positive_int(limit, "limit")
     clean_rrf_k = _positive_int(rrf_k, "rrf_k")
     clean_random_seed = _int_value(random_seed, "random_seed")
+    clean_transition_risk_weight = _risk_weight(transition_risk_weight, "transition_risk_weight")
 
     candidate_rows, warnings = generate_candidate_pool_rows(
         db,
@@ -130,7 +149,13 @@ def build_hybrid_search_preview(
         rrf_k=clean_rrf_k,
         random_seed=clean_random_seed,
     )
-    results = _ranked_result_rows(scored_candidates, limit=clean_limit, sources=clean_sources, seed_tracks=clean_seed_tracks)
+    results = _ranked_result_rows(
+        scored_candidates,
+        limit=clean_limit,
+        sources=clean_sources,
+        seed_tracks=clean_seed_tracks,
+        transition_risk_weight=clean_transition_risk_weight,
+    )
     return HybridSearchResult(
         results=results,
         warnings=warnings,
@@ -143,6 +168,7 @@ def build_hybrid_search_preview(
             "per_source": clean_per_source,
             "rrf_k": clean_rrf_k,
             "random_seed": clean_random_seed,
+            "transition_risk_weight": clean_transition_risk_weight,
             "candidate_rows": len(candidate_rows),
             "unique_candidates": len(candidates),
             "results_returned": len(results),
@@ -249,27 +275,96 @@ def _ranked_result_rows(
     limit: int,
     sources: Sequence[str],
     seed_tracks: Sequence[Track],
+    transition_risk_weight: float,
 ) -> tuple[HybridSearchResultRow, ...]:
-    limited_candidates = tuple(scored_candidates[:limit])
-    max_score = max((candidate.raw_rrf_score for candidate in limited_candidates), default=0.0)
+    max_score = max((candidate.raw_rrf_score for candidate in scored_candidates), default=0.0)
+    ranked_candidates = _ranked_candidates_with_transition_risk(
+        scored_candidates,
+        limit=limit,
+        sources=sources,
+        seed_tracks=seed_tracks,
+        max_score=max_score,
+        transition_risk_weight=transition_risk_weight,
+    )
     result_rows: list[HybridSearchResultRow] = []
-    for rank, candidate in enumerate(limited_candidates, start=1):
-        transition_diagnostics = _candidate_transition_diagnostics(candidate.candidate, seed_tracks=seed_tracks, sources=sources)
+    for rank, ranked_candidate in enumerate(ranked_candidates, start=1):
+        candidate = ranked_candidate.scored_candidate
         result_rows.append(
             HybridSearchResultRow(
                 track=candidate.candidate.track,
-                score=_normalized_response_score(candidate.raw_rrf_score, max_score),
-                transition_risk=transition_diagnostics["transition_risk"],
+                score=ranked_candidate.adjusted_score,
+                adjusted_score=ranked_candidate.adjusted_score,
+                transition_risk=ranked_candidate.transition_risk,
+                transition_risk_penalty=ranked_candidate.transition_risk_penalty,
+                transition_risk_weight=transition_risk_weight,
                 raw_rrf_score=candidate.raw_rrf_score,
                 rank=rank,
                 score_breakdown=candidate.score_breakdown,
                 match_character=_match_character(candidate.candidate, sources),
-                warnings=_transition_warnings(transition_diagnostics),
-                transition_diagnostics=transition_diagnostics,
+                warnings=_transition_warnings(ranked_candidate.transition_diagnostics),
+                transition_diagnostics=ranked_candidate.transition_diagnostics,
                 diagnostics=_candidate_diagnostics(candidate.candidate),
             ),
         )
     return tuple(result_rows)
+
+
+def _ranked_candidates_with_transition_risk(
+    scored_candidates: Sequence[_ScoredHybridCandidate],
+    *,
+    limit: int,
+    sources: Sequence[str],
+    seed_tracks: Sequence[Track],
+    max_score: float,
+    transition_risk_weight: float,
+) -> tuple[_RankedHybridCandidate, ...]:
+    candidates_to_score = scored_candidates if transition_risk_weight > 0 else scored_candidates[:limit]
+    ranked_candidates = tuple(
+        _ranked_candidate(
+            candidate,
+            sources=sources,
+            seed_tracks=seed_tracks,
+            max_score=max_score,
+            transition_risk_weight=transition_risk_weight,
+        )
+        for candidate in candidates_to_score
+    )
+    if transition_risk_weight <= 0:
+        return ranked_candidates
+    return tuple(
+        sorted(
+            ranked_candidates,
+            key=lambda candidate: (
+                -candidate.adjusted_score,
+                -candidate.normalized_rrf_score,
+                candidate.scored_candidate.tie_token,
+                candidate.scored_candidate.candidate.track.id,
+            ),
+        )[:limit]
+    )
+
+
+def _ranked_candidate(
+    candidate: _ScoredHybridCandidate,
+    *,
+    sources: Sequence[str],
+    seed_tracks: Sequence[Track],
+    max_score: float,
+    transition_risk_weight: float,
+) -> _RankedHybridCandidate:
+    normalized_rrf_score = _normalized_response_score(candidate.raw_rrf_score, max_score)
+    transition_diagnostics = _candidate_transition_diagnostics(candidate.candidate, seed_tracks=seed_tracks, sources=sources)
+    transition_risk = transition_diagnostics["transition_risk"]
+    transition_risk_penalty = transition_risk_weight * (float(transition_risk) if transition_risk is not None else 0.0)
+    adjusted_score = normalized_rrf_score - transition_risk_penalty
+    return _RankedHybridCandidate(
+        scored_candidate=candidate,
+        normalized_rrf_score=normalized_rrf_score,
+        adjusted_score=adjusted_score,
+        transition_risk=transition_risk,
+        transition_risk_penalty=transition_risk_penalty,
+        transition_diagnostics=transition_diagnostics,
+    )
 
 
 def _match_character(candidate: _HybridCandidate, sources: Sequence[str]) -> dict[str, Any]:
@@ -515,6 +610,13 @@ def _non_negative_finite_float(value: object, field_name: str) -> float:
         raise ValueError(f"{field_name} must be a finite non-negative number") from error
     if not math.isfinite(number) or number < 0:
         raise ValueError(f"{field_name} must be a finite non-negative number")
+    return number
+
+
+def _risk_weight(value: object, field_name: str) -> float:
+    number = _non_negative_finite_float(value, field_name)
+    if number > 1.0:
+        raise ValueError(f"{field_name} must be between 0 and 1")
     return number
 
 

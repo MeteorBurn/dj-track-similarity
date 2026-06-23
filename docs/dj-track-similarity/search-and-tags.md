@@ -208,29 +208,36 @@ candidate list instead of an ordered Smart Set Builder route. The block reuses
 the currently selected seed tracks and requires `1-5` seeds. MERT, MAEST, and
 SONARA sources can be enabled or disabled, each source has an inline weight, and
 the UI exposes `Per-source` (`1-100`, default `30`) plus `Result limit`
-(`1-100`, default `25`). The browser does not fetch profile artifacts from the
-filesystem; equal default weights are sent unless you edit them.
+(`1-100`, default `25`) and `Risk penalty` (`0.0-1.0`, default `0.0`). The
+browser does not fetch profile artifacts from the filesystem; equal default
+weights are sent unless you edit them, and the risk penalty is off unless you
+opt in.
 
 The endpoint accepts `1-5` seed track IDs, generates candidates from requested
 exact sources (`mert`, `maest`, `sonara`), excludes the seeds, and ranks the
 union with weighted reciprocal-rank fusion. If no inline `weights` or
 `score_profile` is supplied, requested sources use equal weights. The response
-contains a normalized preview `score`, `raw_rrf_score`, per-source rank/weight
+contains a preview `score`, `adjusted_score`, `raw_rrf_score`,
+`transition_risk_penalty`, `transition_risk_weight`, per-source rank/weight
 breakdown, light source-support diagnostics, lightweight transition diagnostics,
-warnings, `weights_used`, and limitations.
+warnings, `weights_used`, and limitations. With the default risk penalty `0.0`,
+ranking stays the plain weighted-RRF preview. When the penalty is greater than
+zero, the preview normalizes raw RRF scores within the candidate set and sorts by
+`adjusted_score = normalized_rrf_score - transition_risk_weight * transition_risk`;
+missing risk applies no penalty.
 
 Treat the displayed score as a weighted rank-fusion preview only. It is not
 confidence, probability, or a calibrated human-taste estimate. Each result also
 includes `transition_risk` and `transition_diagnostics` built from stored
 BPM, key, energy, and source-consensus signals. That risk is a lightweight
 diagnostic score for future ranking experiments, not AutoMix, beatgrid analysis,
-cue detection, or a calibrated transition probability. The UI keeps diagnostics
-intentionally light: row score, source support, source weights/ranks on hover,
-visible warnings when coverage is missing, and limitations available from the
-`Score info` tooltip. The endpoint can return an empty result list. It reads
-stored SQLite analysis data only: no audio files are written, no search sessions
-are recorded by default, classifiers are not trained, and existing production
-search endpoints are unchanged.
+cue detection, calibrated confidence, or a calibrated transition probability. The
+UI keeps diagnostics intentionally light: adjusted row score, compact risk text,
+source support, source weights/ranks on hover, visible warnings when coverage is
+missing, and limitations available from the `Score info` tooltip. The endpoint
+can return an empty result list. It reads stored SQLite analysis data only: no
+audio files are written, no search sessions are recorded by default, classifiers
+are not trained, and existing production search endpoints are unchanged.
 
 ### CLAP Text Search
 

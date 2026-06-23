@@ -279,6 +279,7 @@ export function SearchPlaylistPanel({
   const [hybridWeights, setHybridWeights] = useState<Record<HybridSearchSource, number>>({ mert: 1, maest: 1, sonara: 1 });
   const [hybridPerSource, setHybridPerSource] = useState(30);
   const [hybridLimit, setHybridLimit] = useState(25);
+  const [hybridTransitionRiskWeight, setHybridTransitionRiskWeight] = useState(0);
   const [hybridLoading, setHybridLoading] = useState(false);
   const [hybridError, setHybridError] = useState("");
   const [hybridResults, setHybridResults] = useState<HybridSearchResult[]>([]);
@@ -333,6 +334,7 @@ export function SearchPlaylistPanel({
   const hybridWeightTitle = "Source weight for Weighted preview. Type: number 0.00-1.00. Equal values keep sources balanced; disabled sources are ignored.";
   const hybridPerSourceTitle = "Candidates fetched per enabled source before weighted fusion. Type: integer 1-100. Default: 30.";
   const hybridLimitTitle = "Maximum Hybrid preview rows to show. Type: integer 1-100. Default: 25.";
+  const hybridRiskPenaltyTitle = "Optional penalty for diagnostic transition risk. Type: number 0.00-1.00. Not calibrated confidence.";
   const autoSeedCountDisabled = setSeedMode !== "auto";
   const autoSeedCountControlTitle = autoSeedCountDisabled ? `${setAutoSeedCountTitle} Активно только когда выбран Auto - random start.` : setAutoSeedCountTitle;
   const bpmControlsDisabled = setBpmMode === "general";
@@ -340,7 +342,7 @@ export function SearchPlaylistPanel({
   const hybridSeedMessage = hybridSeedRequirementMessage(seeds.length);
   const hybridSourceMessage = selectedHybridSources.length ? "" : "Enable at least one Hybrid preview source.";
   const hybridReadinessMessage = hybridSeedMessage || hybridSourceMessage;
-  const hybridInputKey = formatHybridInputKey(seeds, hybridSources, hybridWeights, hybridPerSource, hybridLimit);
+  const hybridInputKey = formatHybridInputKey(seeds, hybridSources, hybridWeights, hybridPerSource, hybridLimit, hybridTransitionRiskWeight);
   const hybridInputKeyRef = useRef(hybridInputKey);
   const hybridPreviewIsCurrent = hybridPreviewKey === hybridInputKey;
   const showHybridDiagnostics = hybridPreviewIsCurrent && !hybridReadinessMessage && !hybridError;
@@ -433,6 +435,7 @@ export function SearchPlaylistPanel({
         weights: Object.fromEntries(sources.map((source) => [source, hybridWeights[source]])),
         per_source: hybridPerSource,
         limit: hybridLimit,
+        transition_risk_weight: hybridTransitionRiskWeight,
         include_diagnostics: true
       });
       if (hybridInputKeyRef.current !== requestKey) return;
@@ -701,6 +704,10 @@ export function SearchPlaylistPanel({
                 <label title={hybridLimitTitle}>
                   Result limit
                   <input type="number" value={hybridLimit} min={1} max={100} title={hybridLimitTitle} onChange={(event) => setHybridLimit(clampNumber(Number(event.target.value), 1, 100))} />
+                </label>
+                <label title={hybridRiskPenaltyTitle}>
+                  Risk penalty
+                  <input type="number" value={hybridTransitionRiskWeight} min={0} max={1} step={0.01} title={hybridRiskPenaltyTitle} onChange={(event) => setHybridTransitionRiskWeight(clampNumber(Number(event.target.value), 0, 1))} />
                 </label>
               </div>
               <button className="hybrid-preview-button" title="Generate a weighted Hybrid preview from 1-5 selected seed tracks. This does not change SET, SONARA, MERT, CLAP, or CLASS behavior." disabled={busy || hybridLoading || Boolean(hybridReadinessMessage)} onClick={() => void generateHybridPreview()} type="button">
@@ -1055,27 +1062,33 @@ function formatHybridInputKey(
   sources: Record<HybridSearchSource, boolean>,
   weights: Record<HybridSearchSource, number>,
   perSource: number,
-  limit: number
+  limit: number,
+  transitionRiskWeight: number
 ) {
   const sourceState = hybridSourceKeys.map((source) => `${source}:${sources[source] ? "1" : "0"}:${weights[source]}`).join("|");
-  return `${seeds.join(",")}|${sourceState}|${perSource}|${limit}`;
+  return `${seeds.join(",")}|${sourceState}|${perSource}|${limit}|risk:${transitionRiskWeight}`;
 }
 
 function formatHybridDiagnosticTitle(limitations: string[]) {
-  const scoreDescription = "Preview score is weighted RRF, not confidence.";
+  const scoreDescription = "Preview score is adjusted weighted RRF, not confidence. Risk penalty is optional diagnostic transition risk.";
   if (!limitations.length) return scoreDescription;
   return `${scoreDescription} ${limitations.join(" ")}`;
 }
 
 function hybridReason(result: HybridSearchResult) {
   const sourceCount = result.match_character?.source_count ?? Object.keys(result.score_breakdown).length;
-  return `weighted_preview_${sourceCount}_sources`;
+  if (typeof result.transition_risk !== "number") return `weighted_preview_${sourceCount}_sources`;
+  return `weighted_preview_${sourceCount}_sources · risk ${result.transition_risk.toFixed(2)}`;
 }
 
 function hybridScoreBreakdown(result: HybridSearchResult) {
   const sourceCount = result.match_character?.source_count ?? Object.keys(result.score_breakdown).length;
   const breakdown: Record<string, number> = {
+    adjusted_score: result.adjusted_score,
     raw_rrf_score: result.raw_rrf_score,
+    transition_risk: typeof result.transition_risk === "number" ? result.transition_risk : 0,
+    transition_risk_penalty: result.transition_risk_penalty,
+    transition_risk_weight: result.transition_risk_weight,
     source_count: sourceCount,
     rank: result.rank
   };

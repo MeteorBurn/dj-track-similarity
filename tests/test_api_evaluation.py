@@ -224,6 +224,11 @@ def test_weighted_candidates_endpoint_returns_capped_preview_without_recording(m
     assert payload["rows_total"] == 2
     assert payload["rows_returned"] == 1
     assert payload["rows"][0]["profile_rank"] == 1
+    assert payload["transition_risk_weight"] == 0.0
+    assert payload["rows"][0]["transition_risk_weight"] == 0.0
+    assert payload["rows"][0]["transition_risk_penalty"] == 0.0
+    assert "adjusted_score" in payload["rows"][0]
+    assert "raw_rrf_score" in payload["rows"][0]
     assert payload["rows"][0]["candidate_track_id"] != track_ids["seed"]
     assert payload["session_ids"] == []
     assert LibraryDatabase(db_path).count_evaluation_rows()["search_sessions"] == 0

@@ -33,6 +33,9 @@ def test_hybrid_search_endpoint_returns_unified_diagnostics(monkeypatch, tmp_pat
     assert payload["results"][0]["track"]["id"] == track_ids["maest_top"]
     assert payload["results"][0]["rank"] == 1
     assert payload["results"][0]["score"] == 1.0
+    assert payload["results"][0]["adjusted_score"] == payload["results"][0]["score"]
+    assert payload["results"][0]["transition_risk_weight"] == 0.0
+    assert payload["results"][0]["transition_risk_penalty"] == 0.0
     assert payload["results"][0]["transition_risk"] is not None
     assert payload["results"][0]["transition_diagnostics"]["supporting_seed_count"] == 1
     assert "maest" in payload["results"][0]["score_breakdown"]
@@ -56,6 +59,18 @@ def test_hybrid_search_endpoint_rejects_invalid_weights(monkeypatch, tmp_path: P
 
     assert response.status_code == 400
     assert "positive" in response.json()["detail"]
+
+
+def test_hybrid_search_endpoint_rejects_invalid_transition_risk_weight(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    _, track_ids = _hybrid_library(db_path, tmp_path)
+
+    response = _client(monkeypatch, db_path).post(
+        "/api/search/hybrid",
+        json={"seed_track_ids": [track_ids["seed"]], "transition_risk_weight": 1.01},
+    )
+
+    assert response.status_code == 422
 
 
 def test_hybrid_search_endpoint_does_not_touch_audio_paths(monkeypatch, tmp_path: Path) -> None:

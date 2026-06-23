@@ -24,5 +24,12 @@ test("hybrid preview clears current rows before backend errors are shown", () =>
 test("hybrid backend limitations stay out of the default result area", () => {
   assert.doesNotMatch(source, /\[\.\.\.hybridWarnings,\s*\.\.\.hybridLimitations\]/);
   assert.match(source, /title=\{hybridDiagnosticTitle\}/);
-  assert.match(source, /Preview score is weighted RRF, not confidence\./);
+  assert.match(source, /Preview score is adjusted weighted RRF, not confidence\./);
+});
+
+test("hybrid preview sends optional transition risk penalty", () => {
+  assert.match(source, /const \[hybridTransitionRiskWeight, setHybridTransitionRiskWeight\] = useState\(0\);/);
+  assert.match(source, /transition_risk_weight: hybridTransitionRiskWeight/);
+  assert.match(source, /Risk penalty/);
+  assert.match(source, /Optional penalty for diagnostic transition risk/);
 });

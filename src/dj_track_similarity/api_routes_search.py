@@ -89,6 +89,7 @@ def register_search_routes(
                 limit=request.limit,
                 rrf_k=request.rrf_k,
                 random_seed=request.random_seed,
+                transition_risk_weight=request.transition_risk_weight,
             )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error

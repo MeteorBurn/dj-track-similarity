@@ -185,6 +185,7 @@ replace the MERT, SONARA, CLAP, SET, or CLASS paths and it does not change their
 scoring or weights. The request accepts `seed_track_ids` (`1-5` ids), optional
 `sources` from `mert`, `maest`, and `sonara`, optional inline `weights` or a
 `score_profile` object, `per_source`, `limit`, `rrf_k`, `random_seed`, and
+`transition_risk_weight` (`0.0-1.0`, default `0.0`), and
 `include_diagnostics`. If no weights are provided, the requested sources are
 weighted equally. Inline weights are normalized internally after finite,
 non-negative validation, and the endpoint rejects requests that provide both
@@ -192,20 +193,26 @@ inline weights and a score profile.
 
 Hybrid search generates candidates from the existing exact source search paths,
 excludes seed tracks, and fuses source ranks with weighted reciprocal-rank
-fusion. The response returns `results`, `weights_used`, `sources`, `warnings`,
-diagnostics, and limitations. Each result has a `track`, a normalized `score`,
-the underlying `raw_rrf_score`, `rank`, per-source `score_breakdown`, light
-diagnostic `match_character` such as source count/consensus, and additive
-`transition_risk` / `transition_diagnostics` fields. Transition diagnostics use
+fusion. With the default `transition_risk_weight: 0.0`, ordering and score output
+stay the plain weighted-RRF preview. When `transition_risk_weight` is greater
+than zero, raw RRF scores are normalized within the candidate set and ranked by
+`adjusted_score = normalized_rrf_score - transition_risk_weight * transition_risk`;
+missing transition risk applies no penalty. The response returns `results`,
+`weights_used`, `sources`, `warnings`, diagnostics, and limitations. Each result
+has a `track`, a preview rank `score` (the adjusted/display score),
+`adjusted_score`, `raw_rrf_score`, `transition_risk_penalty`,
+`transition_risk_weight`, `rank`, per-source `score_breakdown`, light diagnostic
+`match_character` such as source count/consensus, and additive `transition_risk`
+/ `transition_diagnostics` fields. Transition diagnostics use
 stored BPM half/double compatibility, exact-key equality, energy jump, and
 source-consensus disagreement. They are lightweight diagnostic values for future
 ranking experiments, not AutoMix, beatgrid or cue-point detection, and not a
-calibrated transition probability. The score is a rank-fusion preview score, not
+calibrated transition probability. The score is a preview rank score, not
 confidence, probability, or a calibrated estimate of human taste. Missing source
 coverage is reported in `warnings`; if no source can return candidates, the
-endpoint returns an empty result list rather than failing. It reads stored
-SQLite analysis data only and does not write sessions, tags, audio files,
-classifiers, or production search configuration.
+endpoint returns an empty result list rather than failing. It reads stored SQLite
+analysis data only and does not write sessions, tags, audio files, classifiers,
+or production search configuration.
 
 `POST /api/set-builder/generate` is a read-only set preview endpoint. It does
 not run audio analysis, score classifiers, save sessions, write tags, or modify
@@ -338,14 +345,20 @@ claim about human taste.
 `/api/evaluation/run/weighted-candidates` accepts the same inline `profile` or
 `weights` plus optional `name`, optional `seed_track_ids`, `sample_count` (default
 `50` when seeds are omitted), optional `sources`, `per_source` (default `30`, max
-`100`), `random_seed`, `rrf_k`, `record_session` (default `false` for API
-safety), and `limit_per_seed` (default `30`, max `100`) for response capping. It
-generates a fresh candidate pool and returns JSON preview rows sorted by weighted
-RRF over source ranks. The requested sources must match the score profile source
-set; missing weights or omitted profile sources return a clear `400` error. With
-`record_session: true`, it records explicit `evaluation_weighted_candidate_pool`
-sessions and profile-ranked result events only; by default it writes no database
-rows.
+`100`), `random_seed`, `rrf_k`, `transition_risk_weight` (`0.0-1.0`, default
+`0.0`), `record_session` (default `false` for API safety), and `limit_per_seed`
+(default `30`, max `100`) for response capping. It generates a fresh candidate
+pool and returns JSON preview rows sorted by weighted RRF over source ranks by
+default. When the optional transition-risk weight is greater than zero, rows are
+sorted by the same diagnostic adjusted score used by Hybrid preview; the row
+payload includes `adjusted_score`, `raw_rrf_score`, `transition_risk`,
+`transition_risk_penalty`, and `transition_risk_weight`. Transition risk remains
+a diagnostic preview signal, not AutoMix, beatgrid/cue detection, confidence, or
+a calibrated transition probability. The requested sources must match the score
+profile source set; missing weights or omitted profile sources return a clear
+`400` error. With `record_session: true`, it records explicit
+`evaluation_weighted_candidate_pool` sessions and profile-ranked result events
+only; by default it writes no database rows.
 
 `/api/evaluation/reports/latest` deliberately does not scan arbitrary report
 directories. CLI JSON reports are local filesystem artifacts; the API only

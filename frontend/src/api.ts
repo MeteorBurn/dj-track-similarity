@@ -55,13 +55,17 @@ export type HybridSearchPayload = {
   limit?: number;
   rrf_k?: number;
   random_seed?: number;
+  transition_risk_weight?: number;
   include_diagnostics?: boolean;
 };
 
 export type HybridSearchResult = {
   track: Track;
   score: number;
+  adjusted_score: number;
   transition_risk?: number | null;
+  transition_risk_penalty: number;
+  transition_risk_weight: number;
   raw_rrf_score: number;
   rank: number;
   score_breakdown: Record<string, { rank: number; weight: number; contribution: number; score?: number }>;
@@ -410,6 +414,7 @@ export type EvaluationWeightedCandidatesPayload = {
   per_source?: number;
   random_seed?: number;
   rrf_k?: number;
+  transition_risk_weight?: number;
   record_session?: boolean;
   limit_per_seed?: number;
 };
@@ -419,6 +424,11 @@ export type EvaluationWeightedCandidateRow = {
   candidate_track_id: number;
   profile_rank: number;
   profile_score: number;
+  adjusted_score: number;
+  raw_rrf_score: number;
+  transition_risk: number | null;
+  transition_risk_penalty: number;
+  transition_risk_weight: number;
   rating: "";
   reason_tags: "";
   notes: "";
@@ -446,6 +456,7 @@ export type EvaluationWeightedCandidatesResult = {
   per_source: number;
   random_seed: number;
   rrf_k: number;
+  transition_risk_weight: number;
   limit_per_seed: number;
   rows_total: number;
   rows_returned: number;

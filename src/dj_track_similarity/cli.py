@@ -262,6 +262,7 @@ def export_evaluation_weighted_candidates(
     per_source: int = typer.Option(30, "--per-source", min=1, help="Top candidates to request from each source per seed."),
     random_seed: int = typer.Option(123, "--random-seed", help="Deterministic seed for internal seed sampling and tie ordering."),
     rrf_k: int = typer.Option(60, "--rrf-k", min=1, help="RRF smoothing constant for weighted source-rank fusion."),
+    transition_risk_weight: float = typer.Option(0.0, "--transition-risk-weight", min=0.0, max=1.0, help="Optional 0-1 diagnostic transition-risk penalty. Default keeps weighted RRF unchanged."),
     record_session: bool = typer.Option(True, "--record-session/--no-record-session", help="Record evaluation weighted candidate-pool sessions and result events."),
 ) -> None:
     try:
@@ -283,6 +284,7 @@ def export_evaluation_weighted_candidates(
             random_seed=random_seed,
             record_session=record_session,
             rrf_k=rrf_k,
+            transition_risk_weight=transition_risk_weight,
         )
         if not result.rows:
             for warning in result.warnings:

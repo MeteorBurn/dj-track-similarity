@@ -151,6 +151,7 @@ def register_evaluation_routes(app: FastAPI, state: AppDatabaseState) -> None:
                 random_seed=request.random_seed,
                 record_session=request.record_session,
                 rrf_k=request.rrf_k,
+                transition_risk_weight=request.transition_risk_weight,
             )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
@@ -165,6 +166,7 @@ def register_evaluation_routes(app: FastAPI, state: AppDatabaseState) -> None:
             "per_source": request.per_source,
             "random_seed": request.random_seed,
             "rrf_k": request.rrf_k,
+            "transition_risk_weight": request.transition_risk_weight,
             "limit_per_seed": request.limit_per_seed,
             "rows_total": len(result.rows),
             "rows_returned": len(preview_rows),

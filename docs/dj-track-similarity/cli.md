@@ -520,18 +520,25 @@ Options:
 | `--per-source` | integer `>=1` | `30` | Maximum top candidates requested from each source per seed. |
 | `--random-seed` | integer | `123` | Deterministic seed for internal sampling and tie ordering. |
 | `--rrf-k` | integer `>=1` | `60` | RRF smoothing constant for weighted source-rank fusion. |
+| `--transition-risk-weight` | number `0.0-1.0` | `0.0` | Optional diagnostic transition-risk penalty. Default keeps plain weighted RRF. |
 | `--record-session/--no-record-session` | flag | record | Record `evaluation_weighted_candidate_pool` sessions and profile-ranked events. |
 | `--help` | flag | off | Show help. |
 
 Weighted candidate CSV columns:
 
 ```text
-seed_track_id,candidate_track_id,profile_rank,profile_score,rating,reason_tags,notes,source,seed_artist,seed_title,candidate_artist,candidate_title,candidate_album,candidate_bpm,candidate_musical_key,candidate_energy,source_count,sources_json,score_profile_name,score_profile_weights_json
+seed_track_id,candidate_track_id,profile_rank,profile_score,adjusted_score,raw_rrf_score,transition_risk,transition_risk_penalty,transition_risk_weight,rating,reason_tags,notes,source,seed_artist,seed_title,candidate_artist,candidate_title,candidate_album,candidate_bpm,candidate_musical_key,candidate_energy,source_count,sources_json,score_profile_name,score_profile_weights_json
 ```
 
-When session recording is enabled, the score breakdown stores weighted-RRF
-components, profile weights, source ranks, and original source rank/score payloads
-in profile-rank order. This is explicit evaluation logging only.
+When `--transition-risk-weight` is greater than zero, candidates are sorted by the
+same adjusted diagnostic score as Hybrid preview:
+`normalized_rrf_score - transition_risk_weight * transition_risk`; missing risk
+applies no penalty. Transition risk is a preview diagnostic only, not AutoMix,
+beatgrid/cue detection, calibrated confidence, or a calibrated transition
+probability. When session recording is enabled, the score breakdown stores
+weighted-RRF components, adjusted/raw scores, risk penalty fields, profile
+weights, source ranks, and original source rank/score payloads in profile-rank
+order. This is explicit evaluation logging only.
 
 Usage:
 

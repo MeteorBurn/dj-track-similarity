@@ -56,6 +56,94 @@ def test_hybrid_search_custom_weights_change_order(tmp_path: Path) -> None:
     assert mert_weighted.weights_used == {"mert": 1.0, "maest": 0.0}
 
 
+def test_hybrid_search_zero_transition_risk_weight_keeps_rrf_order(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_ids = {
+        "seed": _track(db, tmp_path, "seed", bpm=120.0, musical_key="1A", energy=0.5),
+        "risky": _track(db, tmp_path, "risky", bpm=200.0, musical_key="8B", energy=1.0),
+        "safe": _track(db, tmp_path, "safe", bpm=120.0, musical_key="1A", energy=0.5),
+    }
+    rows = (
+        _candidate_row(db, track_ids["seed"], track_ids["risky"], {"mert": (1, 0.9)}),
+        _candidate_row(db, track_ids["seed"], track_ids["safe"], {"mert": (2, 0.8)}),
+    )
+    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
+
+    result = build_hybrid_search_preview(
+        db,
+        seed_track_ids=[track_ids["seed"]],
+        sources=["mert"],
+        per_source=2,
+        limit=2,
+        rrf_k=1,
+        transition_risk_weight=0.0,
+    )
+
+    assert [row.track.id for row in result.results] == [track_ids["risky"], track_ids["safe"]]
+    assert result.results[0].score == pytest.approx(1.0)
+    assert result.results[0].adjusted_score == pytest.approx(result.results[0].score)
+    assert result.results[0].transition_risk_penalty == 0.0
+
+
+def test_hybrid_search_transition_risk_weight_demotes_high_risk_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_ids = {
+        "seed": _track(db, tmp_path, "seed", bpm=120.0, musical_key="1A", energy=0.5),
+        "risky": _track(db, tmp_path, "risky", bpm=200.0, musical_key="8B", energy=1.0),
+        "safe": _track(db, tmp_path, "safe", bpm=120.0, musical_key="1A", energy=0.5),
+    }
+    rows = (
+        _candidate_row(db, track_ids["seed"], track_ids["risky"], {"mert": (1, 0.9)}),
+        _candidate_row(db, track_ids["seed"], track_ids["safe"], {"mert": (2, 0.8)}),
+    )
+    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
+
+    result = build_hybrid_search_preview(
+        db,
+        seed_track_ids=[track_ids["seed"]],
+        sources=["mert"],
+        per_source=2,
+        limit=2,
+        rrf_k=1,
+        transition_risk_weight=1.0,
+    )
+
+    assert [row.track.id for row in result.results] == [track_ids["safe"], track_ids["risky"]]
+    assert result.results[1].transition_risk_penalty > 0.0
+    assert result.results[0].adjusted_score > result.results[1].adjusted_score
+
+
+def test_hybrid_search_missing_transition_risk_has_no_penalty(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_ids = {
+        "seed": _track(db, tmp_path, "seed"),
+        "candidate": _track(db, tmp_path, "candidate"),
+    }
+    rows = (_candidate_row(db, track_ids["seed"], track_ids["candidate"], {"mert": (1, 0.9)}),)
+    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
+    monkeypatch.setattr(
+        hybrid_search,
+        "_candidate_transition_diagnostics",
+        lambda _candidate, *, seed_tracks, sources: {"transition_risk": None, "warnings": []},
+    )
+
+    result = build_hybrid_search_preview(
+        db,
+        seed_track_ids=[track_ids["seed"]],
+        sources=["mert"],
+        per_source=1,
+        limit=1,
+        transition_risk_weight=1.0,
+    )
+
+    assert result.results[0].transition_risk is None
+    assert result.results[0].transition_risk_penalty == 0.0
+    assert result.results[0].adjusted_score == pytest.approx(1.0)
+
+
 def test_hybrid_search_excludes_zero_weight_source_only_candidates(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_ids = {

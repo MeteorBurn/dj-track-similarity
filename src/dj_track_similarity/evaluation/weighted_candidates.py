@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..models import Track
+from ..transition_diagnostics import compute_transition_diagnostics
 from .candidates import (
     ALLOWED_CANDIDATE_SOURCES,
     DEFAULT_FEEDBACK_SOURCE,
@@ -30,6 +31,11 @@ WEIGHTED_CANDIDATE_COLUMNS = (
     "candidate_track_id",
     "profile_rank",
     "profile_score",
+    "adjusted_score",
+    "raw_rrf_score",
+    "transition_risk",
+    "transition_risk_penalty",
+    "transition_risk_weight",
     "rating",
     "reason_tags",
     "notes",
@@ -55,6 +61,11 @@ class WeightedCandidateRow:
     candidate_track: Track
     profile_rank: int
     profile_score: float
+    adjusted_score: float
+    raw_rrf_score: float
+    transition_risk: float | None
+    transition_risk_penalty: float
+    transition_risk_weight: float
     source_contributions: Mapping[str, CandidateSourceContribution]
     score_profile_name: str
     score_profile_weights: Mapping[str, float]
@@ -86,6 +97,11 @@ class WeightedCandidateRow:
             "candidate_track_id": self.candidate_track_id,
             "profile_rank": self.profile_rank,
             "profile_score": self.profile_score,
+            "adjusted_score": self.adjusted_score,
+            "raw_rrf_score": self.raw_rrf_score,
+            "transition_risk": _optional_number(self.transition_risk),
+            "transition_risk_penalty": self.transition_risk_penalty,
+            "transition_risk_weight": self.transition_risk_weight,
             "rating": "",
             "reason_tags": "",
             "notes": "",
@@ -106,6 +122,7 @@ class WeightedCandidateRow:
 
     def api_row(self) -> dict[str, object]:
         row = self.csv_row()
+        row["transition_risk"] = self.transition_risk
         row["sources"] = _source_contribution_payload(self.source_contributions)
         row["score_profile_weights"] = dict(sorted(self.score_profile_weights.items()))
         return row
@@ -129,12 +146,17 @@ class WeightedCandidatePoolRequest:
     random_seed: int
     record_session: bool
     rrf_k: int
+    transition_risk_weight: float
 
 
 @dataclass(frozen=True)
 class _ScoredCandidate:
     row: CandidatePoolRow
     profile_score: float
+    adjusted_score: float
+    raw_rrf_score: float
+    transition_risk: float | None
+    transition_risk_penalty: float
     tie_token: int
 
 
@@ -147,6 +169,7 @@ def build_weighted_candidate_pool(
     random_seed: int,
     record_session: bool = False,
     rrf_k: int = DEFAULT_RRF_K,
+    transition_risk_weight: float = 0.0,
 ) -> WeightedCandidatePoolResult:
     request = _parse_weighted_candidate_request(
         seed_track_ids=seed_track_ids,
@@ -156,6 +179,7 @@ def build_weighted_candidate_pool(
         random_seed=random_seed,
         record_session=record_session,
         rrf_k=rrf_k,
+        transition_risk_weight=transition_risk_weight,
     )
     candidate_rows, warnings = generate_candidate_pool_rows(
         db,
@@ -211,6 +235,7 @@ def _parse_weighted_candidate_request(
     random_seed: int,
     record_session: bool,
     rrf_k: int,
+    transition_risk_weight: float,
 ) -> WeightedCandidatePoolRequest:
     validate_score_profile(profile)
     clean_sources = _profile_sources(profile) if sources is None else _clean_sources(sources)
@@ -222,6 +247,7 @@ def _parse_weighted_candidate_request(
         random_seed=_int_value(random_seed, "random_seed"),
         record_session=bool(record_session),
         rrf_k=_positive_int(rrf_k, "rrf_k"),
+        transition_risk_weight=_risk_weight(transition_risk_weight, "transition_risk_weight"),
     )
 
 
@@ -246,6 +272,11 @@ def _weighted_candidate_rows(
                     candidate_track=scored_candidate.row.candidate_track,
                     profile_rank=profile_rank,
                     profile_score=scored_candidate.profile_score,
+                    adjusted_score=scored_candidate.adjusted_score,
+                    raw_rrf_score=scored_candidate.raw_rrf_score,
+                    transition_risk=scored_candidate.transition_risk,
+                    transition_risk_penalty=scored_candidate.transition_risk_penalty,
+                    transition_risk_weight=request.transition_risk_weight,
                     source_contributions=dict(sorted(scored_candidate.row.source_contributions.items())),
                     score_profile_name=profile.name,
                     score_profile_weights=dict(sorted(profile.weights.items())),
@@ -259,19 +290,61 @@ def _scored_candidates_for_seed(
     profile: ScoreProfile,
     request: WeightedCandidatePoolRequest,
 ) -> tuple[_ScoredCandidate, ...]:
+    raw_scores = {
+        row.candidate_track_id: _weighted_rrf_score(row.source_contributions, profile, request.rrf_k)
+        for row in rows
+    }
+    max_raw_score = max(raw_scores.values(), default=0.0)
     scored_candidates = [
-        _ScoredCandidate(
-            row=row,
-            profile_score=_weighted_rrf_score(row.source_contributions, profile, request.rrf_k),
-            tie_token=_tie_token(request.random_seed, row.seed_track_id, row.candidate_track_id),
+        _scored_candidate(
+            row,
+            raw_rrf_score=raw_scores[row.candidate_track_id],
+            max_raw_score=max_raw_score,
+            request=request,
         )
         for row in rows
     ]
+    if request.transition_risk_weight > 0:
+        return tuple(
+            sorted(
+                scored_candidates,
+                key=lambda candidate: (-candidate.adjusted_score, -candidate.raw_rrf_score, candidate.tie_token, candidate.row.candidate_track_id),
+            ),
+        )
     return tuple(
         sorted(
             scored_candidates,
-            key=lambda candidate: (-candidate.profile_score, candidate.tie_token, candidate.row.candidate_track_id),
+            key=lambda candidate: (-candidate.raw_rrf_score, candidate.tie_token, candidate.row.candidate_track_id),
         ),
+    )
+
+
+def _scored_candidate(
+    row: CandidatePoolRow,
+    *,
+    raw_rrf_score: float,
+    max_raw_score: float,
+    request: WeightedCandidatePoolRequest,
+) -> _ScoredCandidate:
+    transition_diagnostics = compute_transition_diagnostics(
+        row.seed_track,
+        row.candidate_track,
+        source_count=len(row.source_contributions),
+        max_source_count=len(request.sources),
+    )
+    normalized_rrf_score = _normalized_response_score(raw_rrf_score, max_raw_score)
+    transition_risk = transition_diagnostics.transition_risk
+    transition_risk_penalty = request.transition_risk_weight * (float(transition_risk) if transition_risk is not None else 0.0)
+    adjusted_score = normalized_rrf_score - transition_risk_penalty
+    profile_score = adjusted_score if request.transition_risk_weight > 0 else raw_rrf_score
+    return _ScoredCandidate(
+        row=row,
+        profile_score=profile_score,
+        adjusted_score=adjusted_score,
+        raw_rrf_score=raw_rrf_score,
+        transition_risk=transition_risk,
+        transition_risk_penalty=transition_risk_penalty,
+        tie_token=_tie_token(request.random_seed, row.seed_track_id, row.candidate_track_id),
     )
 
 
@@ -298,6 +371,7 @@ def _record_weighted_candidate_sessions(
                 "per_source": request.per_source,
                 "random_seed": request.random_seed,
                 "rrf_k": request.rrf_k,
+                "transition_risk_weight": request.transition_risk_weight,
                 "feedback_source": DEFAULT_FEEDBACK_SOURCE,
                 "score_profile": score_profile_to_dict(profile),
                 "score_profile_name": profile.name,
@@ -323,6 +397,11 @@ def _score_breakdown(row: WeightedCandidateRow, profile: ScoreProfile, rrf_k: in
         "score_kind": "weighted_rrf",
         "profile_rank": row.profile_rank,
         "profile_score": row.profile_score,
+        "adjusted_score": row.adjusted_score,
+        "raw_rrf_score": row.raw_rrf_score,
+        "transition_risk": row.transition_risk,
+        "transition_risk_penalty": row.transition_risk_penalty,
+        "transition_risk_weight": row.transition_risk_weight,
         "rrf_k": rrf_k,
         "score_profile_name": profile.name,
         "profile_weights": dict(sorted(profile.weights.items())),
@@ -455,6 +534,19 @@ def _non_negative_finite_float(value: object, field_name: str) -> float:
     if not math.isfinite(number) or number < 0:
         raise ValueError(f"{field_name} must be a finite non-negative number")
     return number
+
+
+def _risk_weight(value: object, field_name: str) -> float:
+    number = _non_negative_finite_float(value, field_name)
+    if number > 1.0:
+        raise ValueError(f"{field_name} must be between 0 and 1")
+    return number
+
+
+def _normalized_response_score(raw_score: float, max_score: float) -> float:
+    if max_score <= 0:
+        return 0.0
+    return raw_score / max_score
 
 
 def _tie_token(random_seed: int, seed_track_id: int, candidate_track_id: int) -> int:

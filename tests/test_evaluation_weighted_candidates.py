@@ -52,6 +52,38 @@ def test_weighted_candidates_use_source_ranks_not_raw_scores(monkeypatch: pytest
     assert [row.candidate_track_id for row in result.rows] == [tracks["maest_top"], tracks["mert_top"]]
 
 
+def test_weighted_candidates_transition_risk_weight_demotes_high_risk_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    tracks = {
+        "seed": _track(db, tmp_path, "seed"),
+        "risky": _track(db, tmp_path, "risky", bpm=200.0, musical_key="8B", energy=1.0),
+        "safe": _track(db, tmp_path, "safe"),
+    }
+    rows = (
+        _candidate_row(db, tracks["seed"], tracks["risky"], {"mert": (1, 0.9)}),
+        _candidate_row(db, tracks["seed"], tracks["safe"], {"mert": (2, 0.8)}),
+    )
+    monkeypatch.setattr(weighted_candidates, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
+
+    result = build_weighted_candidate_pool(
+        db,
+        [tracks["seed"]],
+        _score_profile({"mert": 1.0}),
+        ["mert"],
+        per_source=2,
+        random_seed=123,
+        rrf_k=1,
+        transition_risk_weight=1.0,
+    )
+
+    assert [row.candidate_track_id for row in result.rows] == [tracks["safe"], tracks["risky"]]
+    assert result.rows[1].transition_risk_penalty > 0.0
+    assert result.rows[0].adjusted_score > result.rows[1].adjusted_score
+
+
 def test_weighted_candidates_exclude_seed_and_tie_order_is_deterministic(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     db, tracks = _weighted_library(tmp_path)
     rows = (
@@ -121,6 +153,8 @@ def test_weighted_candidate_csv_row_contains_expected_manual_columns(monkeypatch
     assert csv_row["notes"] == ""
     assert csv_row["source"] == "manual"
     assert csv_row["candidate_album"] == "Album mert_top"
+    assert csv_row["transition_risk_weight"] == 0.0
+    assert csv_row["transition_risk_penalty"] == 0.0
     assert json.loads(str(csv_row["sources_json"])) == {"mert": {"rank": 1, "score": 0.9}}
     assert json.loads(str(csv_row["score_profile_weights_json"])) == {"mert": 1.0}
 
@@ -134,15 +168,23 @@ def _weighted_library(tmp_path: Path) -> tuple[LibraryDatabase, dict[str, int]]:
     }
 
 
-def _track(db: LibraryDatabase, tmp_path: Path, stem: str) -> int:
+def _track(
+    db: LibraryDatabase,
+    tmp_path: Path,
+    stem: str,
+    *,
+    bpm: float | None = 120.0,
+    musical_key: str | None = "1A",
+    energy: float | None = 0.5,
+) -> int:
     return db.upsert_track(
         path=tmp_path / f"{stem}.wav",
         size=10,
         mtime=1,
         metadata={"artist": f"Artist {stem}", "title": stem.replace("_", " ").title(), "album": f"Album {stem}"},
-        bpm=120.0,
-        musical_key="1A",
-        energy=0.5,
+        bpm=bpm,
+        musical_key=musical_key,
+        energy=energy,
     )
 
 

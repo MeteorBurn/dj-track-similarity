@@ -158,6 +158,7 @@ class HybridSearchRequest(BaseModel):
     limit: int = Field(default=25, ge=1, le=100)
     rrf_k: int = Field(default=60, ge=1, le=1000)
     random_seed: int = 123
+    transition_risk_weight: float = Field(default=0.0, ge=0.0, le=1.0)
     include_diagnostics: bool = True
 
     @model_validator(mode="after")
@@ -170,7 +171,10 @@ class HybridSearchRequest(BaseModel):
 class HybridSearchResult(BaseModel):
     track: dict[str, Any]
     score: float
+    adjusted_score: float
     transition_risk: float | None = None
+    transition_risk_penalty: float
+    transition_risk_weight: float
     raw_rrf_score: float
     rank: int
     score_breakdown: dict[str, dict[str, float | int]]
@@ -296,6 +300,7 @@ class EvaluationWeightedCandidatesRunRequest(BaseModel):
     per_source: int = Field(default=30, ge=1, le=100)
     random_seed: int = 123
     rrf_k: int = Field(default=60, ge=1, le=1000)
+    transition_risk_weight: float = Field(default=0.0, ge=0.0, le=1.0)
     record_session: bool = False
     limit_per_seed: int = Field(default=30, ge=1, le=100)
 

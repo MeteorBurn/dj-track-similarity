@@ -106,9 +106,11 @@ server and opens the same URL.
 
 Use the adjacent Rhythm Lab power button in the same toolbar to stop the
 managed hidden Rhythm Lab server. The stop button terminates the process that
-was started by the main app through its stored PID. If port `8777` is occupied
-by a manually started or otherwise unmanaged server, the main app reports that
-state instead of killing an unrelated process.
+was started by the main app through its stored PID. If a failed launch leaves a
+stale PID while this repository's Rhythm Lab server is still listening on port
+`8777`, the stop path verifies the listener command and cleans up that server.
+If port `8777` is occupied by a manually started or otherwise unmanaged server,
+the main app reports that state instead of killing an unrelated process.
 
 Run from the repository root:
 

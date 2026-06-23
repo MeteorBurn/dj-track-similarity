@@ -65,6 +65,7 @@ def test_rhythm_lab_status_endpoint_returns_launcher_status(monkeypatch) -> None
 
 def test_rhythm_lab_launcher_uses_project_python_and_source(monkeypatch, tmp_path: Path) -> None:
     commands: list[list[str]] = []
+    pid_path = tmp_path / "rhythm_lab.pid"
 
     class FakeProcess:
         pid = 12345
@@ -72,6 +73,7 @@ def test_rhythm_lab_launcher_uses_project_python_and_source(monkeypatch, tmp_pat
         def poll(self) -> None:
             return None
 
+    monkeypatch.setattr(rhythm_lab_launcher, "_pid_path", lambda: pid_path)
     monkeypatch.setattr(rhythm_lab_launcher, "_port_is_open", lambda *_: False)
     monkeypatch.setattr(rhythm_lab_launcher.subprocess, "Popen", lambda command, **_: commands.append(command) or FakeProcess())
     monkeypatch.setattr(rhythm_lab_launcher.time, "sleep", lambda _: None)
@@ -99,6 +101,7 @@ def test_rhythm_lab_launcher_writes_pid_and_stops_managed_process(monkeypatch, t
     monkeypatch.setattr(rhythm_lab_launcher, "_port_is_open", lambda *_: False)
     monkeypatch.setattr(rhythm_lab_launcher.subprocess, "Popen", lambda *_args, **_kwargs: FakeProcess())
     monkeypatch.setattr(rhythm_lab_launcher.time, "sleep", lambda _: None)
+    monkeypatch.setattr(rhythm_lab_launcher, "_is_rhythm_lab_process", lambda pid: pid == 12345)
     monkeypatch.setattr(rhythm_lab_launcher, "_terminate_process", lambda pid: terminated.append(pid))
 
     rhythm_lab_launcher.launch_rhythm_lab()
@@ -109,7 +112,80 @@ def test_rhythm_lab_launcher_writes_pid_and_stops_managed_process(monkeypatch, t
     assert result == {"running": False, "stopped": True, "managed": True, "url": "http://127.0.0.1:8777/"}
 
 
+def test_rhythm_lab_launcher_stops_valid_listener_when_pid_file_is_stale(monkeypatch, tmp_path: Path) -> None:
+    pid_path = tmp_path / "rhythm_lab.pid"
+    pid_path.write_text("30912", encoding="utf-8")
+    terminated: list[int] = []
+
+    def fake_port_is_open(*_: object) -> bool:
+        return terminated != [29280]
+
+    monkeypatch.setattr(rhythm_lab_launcher, "_pid_path", lambda: pid_path)
+    monkeypatch.setattr(rhythm_lab_launcher, "_port_is_open", fake_port_is_open)
+    monkeypatch.setattr(rhythm_lab_launcher, "_listener_process_id", lambda *_: 29280, raising=False)
+    monkeypatch.setattr(rhythm_lab_launcher, "_is_rhythm_lab_process", lambda pid: pid == 29280, raising=False)
+    monkeypatch.setattr(rhythm_lab_launcher, "_terminate_process", lambda pid: terminated.append(pid))
+    monkeypatch.setattr(rhythm_lab_launcher.time, "sleep", lambda _: None)
+
+    result = rhythm_lab_launcher.stop_rhythm_lab()
+
+    assert pid_path.exists() is False
+    assert terminated == [29280]
+    assert result == {"running": False, "stopped": True, "managed": True, "url": "http://127.0.0.1:8777/"}
+
+
+def test_rhythm_lab_launcher_clears_pid_when_launch_process_exits(monkeypatch, tmp_path: Path) -> None:
+    pid_path = tmp_path / "rhythm_lab.pid"
+
+    class FakeProcess:
+        pid = 4242
+
+        def poll(self) -> int:
+            return 1
+
+    monkeypatch.setattr(rhythm_lab_launcher, "_pid_path", lambda: pid_path)
+    monkeypatch.setattr(rhythm_lab_launcher, "_port_is_open", lambda *_: False)
+    monkeypatch.setattr(rhythm_lab_launcher.subprocess, "Popen", lambda *_args, **_kwargs: FakeProcess())
+    monkeypatch.setattr(rhythm_lab_launcher.time, "sleep", lambda _: None)
+
+    try:
+        rhythm_lab_launcher.launch_rhythm_lab()
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("Expected launch_rhythm_lab to fail")
+
+    assert pid_path.exists() is False
+
+
+def test_rhythm_lab_launcher_restores_existing_pid_when_launch_process_exits(monkeypatch, tmp_path: Path) -> None:
+    pid_path = tmp_path / "rhythm_lab.pid"
+    pid_path.write_text("11111", encoding="utf-8")
+
+    class FakeProcess:
+        pid = 4242
+
+        def poll(self) -> int:
+            return 1
+
+    monkeypatch.setattr(rhythm_lab_launcher, "_pid_path", lambda: pid_path)
+    monkeypatch.setattr(rhythm_lab_launcher, "_port_is_open", lambda *_: False)
+    monkeypatch.setattr(rhythm_lab_launcher, "_is_rhythm_lab_process", lambda pid: pid == 11111)
+    monkeypatch.setattr(rhythm_lab_launcher.subprocess, "Popen", lambda *_args, **_kwargs: FakeProcess())
+    monkeypatch.setattr(rhythm_lab_launcher.time, "sleep", lambda _: None)
+
+    try:
+        rhythm_lab_launcher.launch_rhythm_lab()
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("Expected launch_rhythm_lab to fail")
+
+    assert pid_path.read_text(encoding="utf-8") == "11111"
+
+
 def test_rhythm_lab_launcher_reuses_running_server(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(rhythm_lab_launcher, "_pid_path", lambda: tmp_path / "rhythm_lab.pid")
     monkeypatch.setattr(rhythm_lab_launcher, "_port_is_open", lambda *_: True)
 
     result = rhythm_lab_launcher.launch_rhythm_lab(tmp_path / "library.sqlite")

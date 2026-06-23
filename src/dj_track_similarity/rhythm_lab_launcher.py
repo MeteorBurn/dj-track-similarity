@@ -46,6 +46,7 @@ def launch_rhythm_lab(source_db: Path | None = None) -> dict[str, Any]:
     if source_db is not None:
         command.extend(["--source", str(source_db)])
 
+    previous_pid = _read_pid()
     startupinfo = None
     creationflags = 0
     if sys.platform == "win32":
@@ -63,12 +64,13 @@ def launch_rhythm_lab(source_db: Path | None = None) -> dict[str, Any]:
             startupinfo=startupinfo,
             creationflags=creationflags,
         )
-    _pid_path().write_text(str(process.pid), encoding="utf-8")
+    _write_pid(process.pid)
     for _ in range(20):
         if _port_is_open(RHYTHM_LAB_HOST, RHYTHM_LAB_PORT):
             break
         exit_code = process.poll()
         if exit_code is not None:
+            _restore_or_clear_pid(previous_pid)
             detail = _tail_text(log_path)
             raise RuntimeError(f"Rhythm Lab server exited with code {exit_code}. See {log_path}. {detail}")
         time.sleep(0.25)
@@ -83,7 +85,11 @@ def launch_rhythm_lab(source_db: Path | None = None) -> dict[str, Any]:
 
 def rhythm_lab_status() -> dict[str, Any]:
     running = _port_is_open(RHYTHM_LAB_HOST, RHYTHM_LAB_PORT)
-    return {"running": running, "managed": _read_pid() is not None, "url": RHYTHM_LAB_URL}
+    pid = _read_pid()
+    managed = running and pid is not None and _managed_process_id(pid) is not None
+    if not running and pid is not None:
+        _clear_pid()
+    return {"running": running, "managed": managed, "url": RHYTHM_LAB_URL}
 
 
 def stop_rhythm_lab() -> dict[str, Any]:
@@ -91,13 +97,18 @@ def stop_rhythm_lab() -> dict[str, Any]:
     if pid is None:
         return {"running": _port_is_open(RHYTHM_LAB_HOST, RHYTHM_LAB_PORT), "stopped": False, "managed": False, "url": RHYTHM_LAB_URL}
 
-    _terminate_process(pid)
+    stop_pid = _managed_process_id(pid)
+    if stop_pid is None:
+        _clear_pid()
+        return {"running": _port_is_open(RHYTHM_LAB_HOST, RHYTHM_LAB_PORT), "stopped": False, "managed": False, "url": RHYTHM_LAB_URL}
+
+    _terminate_process(stop_pid)
     for _ in range(20):
         if not _port_is_open(RHYTHM_LAB_HOST, RHYTHM_LAB_PORT):
             _clear_pid()
             return {"running": False, "stopped": True, "managed": True, "url": RHYTHM_LAB_URL}
         time.sleep(0.25)
-    raise RuntimeError(f"Rhythm Lab process {pid} did not stop")
+    raise RuntimeError(f"Rhythm Lab process {stop_pid} did not stop")
 
 
 def _port_is_open(host: str, port: int) -> bool:
@@ -108,6 +119,10 @@ def _port_is_open(host: str, port: int) -> bool:
 
 def _pid_path() -> Path:
     return Path(__file__).resolve().parents[2] / "tools" / "rhythm-lab" / "data" / "rhythm_lab.pid"
+
+
+def _write_pid(pid: int) -> None:
+    _pid_path().write_text(str(pid), encoding="utf-8")
 
 
 def _read_pid() -> int | None:
@@ -127,6 +142,100 @@ def _clear_pid() -> None:
         _pid_path().unlink()
     except FileNotFoundError:
         pass
+
+
+def _restore_or_clear_pid(pid: int | None) -> None:
+    if pid is None:
+        _clear_pid()
+        return
+    managed_pid = _managed_process_id(pid)
+    if managed_pid is None:
+        _clear_pid()
+        return
+    _write_pid(managed_pid)
+
+
+def _managed_process_id(pid: int) -> int | None:
+    if _is_rhythm_lab_process(pid):
+        return pid
+    listener_pid = _listener_process_id(RHYTHM_LAB_HOST, RHYTHM_LAB_PORT)
+    if listener_pid is not None and _is_rhythm_lab_process(listener_pid):
+        return listener_pid
+    return None
+
+
+def _listener_process_id(host: str, port: int) -> int | None:
+    if sys.platform != "win32":
+        return None
+    try:
+        completed = subprocess.run(
+            ["netstat", "-ano", "-p", "TCP"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=3,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    host_port = f"{host}:{port}"
+    any_host_port = f"0.0.0.0:{port}"
+    for line in completed.stdout.splitlines():
+        fields = line.split()
+        if len(fields) < 5 or fields[0] != "TCP":
+            continue
+        local_address, state, pid_text = fields[1], fields[3], fields[4]
+        if state != "LISTENING" or local_address not in {host_port, any_host_port}:
+            continue
+        try:
+            return int(pid_text)
+        except ValueError:
+            return None
+    return None
+
+
+def _is_rhythm_lab_process(pid: int) -> bool:
+    command_line = _process_command_line(pid)
+    if not command_line:
+        return False
+    repo_root = Path(__file__).resolve().parents[2]
+    script = repo_root / "tools" / "rhythm-lab" / "rhythm_lab_cli.py"
+    normalized_command = command_line.lower().replace("\\", "/")
+    normalized_script = str(script).lower().replace("\\", "/")
+    return normalized_script in normalized_command and " serve " in f" {normalized_command} "
+
+
+def _process_command_line(pid: int) -> str | None:
+    if sys.platform == "win32":
+        return _windows_process_command_line(pid)
+    proc_cmdline = Path(f"/proc/{pid}/cmdline")
+    try:
+        data = proc_cmdline.read_bytes()
+    except OSError:
+        return None
+    return data.replace(b"\0", b" ").decode("utf-8", errors="replace").strip()
+
+
+def _windows_process_command_line(pid: int) -> str | None:
+    command = [
+        "powershell.exe",
+        "-NoProfile",
+        "-Command",
+        f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine",
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=3,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    text = completed.stdout.strip()
+    return text or None
 
 
 def _terminate_process(pid: int) -> None:

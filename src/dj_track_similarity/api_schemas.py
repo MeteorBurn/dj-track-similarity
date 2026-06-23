@@ -239,3 +239,27 @@ class EvaluationApplyScoreProfileRequest(BaseModel):
         if has_profile == has_weights:
             raise ValueError("Provide exactly one of profile or weights")
         return self
+
+
+class EvaluationWeightedCandidatesRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    profile: dict[str, Any] | None = None
+    weights: dict[str, float] | None = None
+    name: str | None = None
+    seed_track_ids: list[EvaluationTrackId] | None = Field(default=None, max_length=200)
+    sample_count: int = Field(default=50, ge=1, le=200)
+    sources: list[EvaluationSource] | None = Field(default=None, min_length=1, max_length=8)
+    per_source: int = Field(default=30, ge=1, le=100)
+    random_seed: int = 123
+    rrf_k: int = Field(default=60, ge=1, le=1000)
+    record_session: bool = False
+    limit_per_seed: int = Field(default=30, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def require_profile_or_weights(self) -> "EvaluationWeightedCandidatesRunRequest":
+        has_profile = self.profile is not None
+        has_weights = self.weights is not None
+        if has_profile == has_weights:
+            raise ValueError("Provide exactly one of profile or weights")
+        return self

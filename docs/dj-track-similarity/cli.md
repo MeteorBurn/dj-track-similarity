@@ -315,6 +315,7 @@ dj-sim eval export-candidates --db .\data\library_v4.sqlite --output .\labels\ca
 dj-sim eval import-pair-feedback --db .\data\library_v4.sqlite --input .\labels\pair_feedback.csv
 dj-sim eval import-transition-feedback --db .\data\library_v4.sqlite --input .\labels\transition_feedback.jsonl
 dj-sim eval profile-sources --db .\data\library_v4.sqlite --seed-sample .\labels\seed_sample.csv --output .\reports\source_profile.json --profile-output .\reports\score_profile_auto.json --profile-name auto_source_profile --source mert --source maest --source sonara --per-source 30 --random-seed 123
+dj-sim eval export-weighted-candidates --db .\data\library_v4.sqlite --profile .\reports\score_profile_auto.json --output .\labels\weighted_candidate_pool.csv --seed-sample .\labels\seed_sample.csv --per-source 30 --random-seed 123 --rrf-k 60
 dj-sim eval apply-score-profile --db .\data\library_v4.sqlite --profile .\reports\score_profile_auto.json --output .\reports\score_profile_apply.json --k 5 --k 10 --rrf-k 60
 dj-sim eval run-ablation --db .\data\library_v4.sqlite --output .\reports\ablation.json --k 5 --k 10 --rrf-k 60 --score-profile .\reports\score_profile_auto.json
 dj-sim eval run-calibration --db .\data\library_v4.sqlite --output .\reports\calibration.json --score-mode rrf --bins 10 --min-samples 30 --accepted-threshold 2
@@ -353,17 +354,23 @@ manual ground truth:
 5. Run `dj-sim eval profile-sources --profile-output <json>` any time you want
    automatic unsupervised source reliability diagnostics and a schema-validated
    score profile artifact from existing analysis data.
-6. Run `dj-sim eval apply-score-profile --profile <json>` to rank recorded
+6. Run `dj-sim eval export-weighted-candidates --profile <json>` when you want a
+   fresh candidate CSV already ordered by the automatic score profile for an
+   explicit future-ranker preview. It uses weighted RRF over per-source ranks,
+   not raw source score magnitudes, and records
+   `evaluation_weighted_candidate_pool` sessions by default unless
+   `--no-record-session` is passed.
+7. Run `dj-sim eval apply-score-profile --profile <json>` to rank recorded
    candidate pools with weighted RRF over per-source ranks. If imported pair
    feedback exists, the report includes the same ranking metrics as ablation; if
    no labels exist, it still reports rankings with
    `label_status: "insufficient_data"` and makes no quality claim.
-7. Run `dj-sim eval run-ablation --score-profile <json>` to compare recorded
+8. Run `dj-sim eval run-ablation --score-profile <json>` to compare recorded
    source contributions and the weighted RRF profile on the labeled candidate
    pools.
-8. Run `dj-sim eval run-calibration` for diagnostic score/relevance calibration
+9. Run `dj-sim eval run-calibration` for diagnostic score/relevance calibration
    summaries once enough labeled candidate rows exist.
-9. Run `dj-sim eval report` for the general recorded-session report.
+10. Run `dj-sim eval report` for the general recorded-session report.
 
 `run-ablation` evaluates only recorded candidate-pool events and imported pair
 feedback. It builds single-source variants for `mert`, `maest`, and `sonara` when
@@ -385,6 +392,17 @@ default, does not use raw source scores as comparable weights, and does not chan
 runtime search endpoints or scoring. Manual feedback is optional validation only;
 when no labels exist, the report status can still be `ok` while
 `label_status` remains `insufficient_data`.
+
+`export-weighted-candidates` is the fresh-pool automatic-profile preview path. It
+loads the same score profile artifact, generates candidates from the requested
+sources for the requested or sampled seeds, merges duplicate candidates per seed,
+and sorts them with `sum(weight[source] * (1 / (rrf_k + rank)))`. The command
+requires the requested source set to match the profile source set so missing
+weights or accidentally omitted profile sources fail clearly. The generated CSV
+keeps empty manual-label columns for optional audit/import workflows and adds
+profile rank/score, source counts, source-rank JSON, and profile-weight JSON. It
+is an explicit evaluation/future-ranker command only; it does not change runtime
+search endpoints or scoring.
 
 `report` summarizes recorded sessions against the imported ratings.
 
@@ -481,6 +499,39 @@ When session recording is enabled, the command creates one
 still not logged automatically. Missing analysis for a selected source is printed
 as a warning and does not stop export while another selected source produces
 candidates.
+
+Usage:
+
+```text
+dj-sim eval export-weighted-candidates [OPTIONS]
+```
+
+Options:
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--db` | path | `dj-track-similarity.sqlite` | Schema v4 SQLite database path. |
+| `--profile` | JSON path | required | Score profile artifact created by `profile-sources --profile-output`. |
+| `--output` | CSV path | required | Weighted candidate-pool CSV to create. |
+| `--seed-sample` | CSV path | none | Optional CSV with a `track_id` column from `export-seed-sample`. |
+| `--seed-track-id` | integer | none | Seed track ID. Repeat for multiple seeds. Mutually exclusive with `--seed-sample`. |
+| `--sample-count` | integer `>=1` | `50` | Seeds to sample internally with complete-analysis coverage when no seed input is provided. |
+| `--source` | text | profile `sources` | Candidate source. Repeat for the exact source set in the profile. |
+| `--per-source` | integer `>=1` | `30` | Maximum top candidates requested from each source per seed. |
+| `--random-seed` | integer | `123` | Deterministic seed for internal sampling and tie ordering. |
+| `--rrf-k` | integer `>=1` | `60` | RRF smoothing constant for weighted source-rank fusion. |
+| `--record-session/--no-record-session` | flag | record | Record `evaluation_weighted_candidate_pool` sessions and profile-ranked events. |
+| `--help` | flag | off | Show help. |
+
+Weighted candidate CSV columns:
+
+```text
+seed_track_id,candidate_track_id,profile_rank,profile_score,rating,reason_tags,notes,source,seed_artist,seed_title,candidate_artist,candidate_title,candidate_album,candidate_bpm,candidate_musical_key,candidate_energy,source_count,sources_json,score_profile_name,score_profile_weights_json
+```
+
+When session recording is enabled, the score breakdown stores weighted-RRF
+components, profile weights, source ranks, and original source rank/score payloads
+in profile-rank order. This is explicit evaluation logging only.
 
 Usage:
 
@@ -591,6 +642,7 @@ export-candidates
 import-pair-feedback
 import-transition-feedback
 profile-sources
+export-weighted-candidates
 apply-score-profile
 run-ablation
 build-score-profile
@@ -625,6 +677,10 @@ Lab labels or `track_likes`, train classifiers, or write audio files.
 `apply-score-profile` applies those normalized internal weights as a
 schema-validated JSON score profile artifact to recorded candidate pools. It does not write to SQLite, train
 a classifier, calibrate probabilities, or affect production search endpoints.
+`export-weighted-candidates` uses the same artifact to produce a fresh weighted
+candidate-pool CSV and optional explicit evaluation session logging; it does not
+train a classifier, use labels as ground truth, or affect production search
+endpoints.
 
 ### `dj-sim relocate-library`
 

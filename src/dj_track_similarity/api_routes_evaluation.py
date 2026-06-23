@@ -12,6 +12,7 @@ from .api_schemas import (
     EvaluationPairFeedbackRequest,
     EvaluationSourceProfileRunRequest,
     EvaluationTransitionFeedbackRequest,
+    EvaluationWeightedCandidatesRunRequest,
 )
 from .api_state import AppDatabaseState
 from .database import LibraryDatabase
@@ -27,7 +28,9 @@ from .evaluation.score_profiles import (
     score_profile_from_dict,
     score_profile_to_dict,
 )
+from .evaluation.seed_sampling import export_seed_sample
 from .evaluation.source_profile import build_source_profile
+from .evaluation.weighted_candidates import build_weighted_candidate_pool, limit_weighted_candidate_rows_per_seed
 
 
 def register_evaluation_routes(app: FastAPI, state: AppDatabaseState) -> None:
@@ -128,6 +131,49 @@ def register_evaluation_routes(app: FastAPI, state: AppDatabaseState) -> None:
         except (RuntimeError, sqlite3.OperationalError) as error:
             raise _evaluation_schema_error(error) from error
 
+    @app.post("/api/evaluation/run/weighted-candidates")
+    def run_weighted_candidates(request: EvaluationWeightedCandidatesRunRequest):
+        db = _require_current_evaluation_db(state)
+        try:
+            score_profile = _score_profile_from_request(request)
+            seed_track_ids = _weighted_candidate_seed_track_ids(
+                db,
+                seed_track_ids=request.seed_track_ids,
+                sample_count=request.sample_count,
+                random_seed=request.random_seed,
+            )
+            result = build_weighted_candidate_pool(
+                db,
+                seed_track_ids=seed_track_ids,
+                profile=score_profile,
+                sources=request.sources,
+                per_source=request.per_source,
+                random_seed=request.random_seed,
+                record_session=request.record_session,
+                rrf_k=request.rrf_k,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except (RuntimeError, sqlite3.OperationalError) as error:
+            raise _evaluation_schema_error(error) from error
+
+        preview_rows = limit_weighted_candidate_rows_per_seed(result.rows, request.limit_per_seed)
+        return {
+            "score_profile": score_profile_to_dict(score_profile),
+            "seed_track_ids": list(result.seed_track_ids),
+            "sources": list(result.sources),
+            "per_source": request.per_source,
+            "random_seed": request.random_seed,
+            "rrf_k": request.rrf_k,
+            "limit_per_seed": request.limit_per_seed,
+            "rows_total": len(result.rows),
+            "rows_returned": len(preview_rows),
+            "rows": [row.api_row() for row in preview_rows],
+            "warnings": list(result.warnings),
+            "session_ids": list(result.session_ids),
+            "record_session": request.record_session,
+        }
+
     @app.get("/api/evaluation/reports/latest")
     def latest_evaluation_reports():
         db = _require_current_evaluation_db(state)
@@ -172,12 +218,27 @@ def _score_profile_from_source_profile(source_profile: dict[str, Any], profile_n
     return score_profile_to_dict(score_profile)
 
 
-def _score_profile_from_request(request: EvaluationApplyScoreProfileRequest) -> ScoreProfile:
+def _score_profile_from_request(request: EvaluationApplyScoreProfileRequest | EvaluationWeightedCandidatesRunRequest) -> ScoreProfile:
     if request.profile is not None:
         return score_profile_from_dict(request.profile)
     if request.weights is None:
         raise ValueError("Provide exactly one of profile or weights")
     return score_profile_from_dict(_inline_score_profile_payload(request.weights, request.name))
+
+
+def _weighted_candidate_seed_track_ids(
+    db: LibraryDatabase,
+    *,
+    seed_track_ids: list[int] | None,
+    sample_count: int,
+    random_seed: int,
+) -> tuple[int, ...]:
+    if seed_track_ids is not None:
+        return tuple(seed_track_ids)
+    sample = export_seed_sample(db, count=sample_count, random_seed=random_seed, require_complete_analysis=True)
+    if not sample.rows:
+        raise ValueError("No eligible seed tracks were found; provide seed_track_ids or check complete analysis coverage")
+    return tuple(row.track_id for row in sample.rows)
 
 
 def _inline_score_profile_payload(weights: dict[str, float], name: str | None) -> dict[str, Any]:

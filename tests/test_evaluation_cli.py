@@ -367,6 +367,67 @@ def test_eval_export_candidates_cli_records_sessions_and_events(tmp_path: Path) 
     assert all("blind_rank" in event["score_breakdown"] for event in sessions[0]["events"])
 
 
+def test_eval_export_weighted_candidates_cli_writes_csv_columns(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    output_path = tmp_path / "weighted_candidates.csv"
+    profile_path = tmp_path / "score_profile.json"
+    seed_id, candidate_ids = _build_candidate_export_library(db_path, tmp_path)
+    _write_score_profile(profile_path, {"mert": 1.0})
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "eval",
+            "export-weighted-candidates",
+            "--db",
+            str(db_path),
+            "--profile",
+            str(profile_path),
+            "--output",
+            str(output_path),
+            "--seed-track-id",
+            str(seed_id),
+            "--per-source",
+            "2",
+            "--random-seed",
+            "123",
+            "--no-record-session",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "profile=auto" in result.output
+    assert "exported=2" in result.output
+    rows = _read_csv_rows(output_path)
+    assert {int(row["candidate_track_id"]) for row in rows} == set(candidate_ids[:2])
+    assert rows[0]["profile_rank"] == "1"
+    assert rows[0]["rating"] == ""
+    assert rows[0]["source"] == "manual"
+    assert set(rows[0]) == {
+        "seed_track_id",
+        "candidate_track_id",
+        "profile_rank",
+        "profile_score",
+        "rating",
+        "reason_tags",
+        "notes",
+        "source",
+        "seed_artist",
+        "seed_title",
+        "candidate_artist",
+        "candidate_title",
+        "candidate_album",
+        "candidate_bpm",
+        "candidate_musical_key",
+        "candidate_energy",
+        "source_count",
+        "sources_json",
+        "score_profile_name",
+        "score_profile_weights_json",
+    }
+    assert LibraryDatabase(db_path).count_evaluation_rows()["search_sessions"] == 0
+
+
 def test_eval_export_seed_sample_cli_writes_csv(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     output_path = tmp_path / "seed_sample.csv"

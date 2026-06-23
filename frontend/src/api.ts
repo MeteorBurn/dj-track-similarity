@@ -359,6 +359,61 @@ export type EvaluationApplyScoreProfilePayload = {
   rrf_k?: number;
 };
 
+export type EvaluationWeightedCandidatesPayload = {
+  profile?: EvaluationScoreProfile | Record<string, unknown> | null;
+  weights?: Record<string, number> | null;
+  name?: string | null;
+  seed_track_ids?: number[] | null;
+  sample_count?: number;
+  sources?: string[] | null;
+  per_source?: number;
+  random_seed?: number;
+  rrf_k?: number;
+  record_session?: boolean;
+  limit_per_seed?: number;
+};
+
+export type EvaluationWeightedCandidateRow = {
+  seed_track_id: number;
+  candidate_track_id: number;
+  profile_rank: number;
+  profile_score: number;
+  rating: "";
+  reason_tags: "";
+  notes: "";
+  source: string;
+  seed_artist: string;
+  seed_title: string;
+  candidate_artist: string;
+  candidate_title: string;
+  candidate_album: string;
+  candidate_bpm: string;
+  candidate_musical_key: string;
+  candidate_energy: string;
+  source_count: number;
+  sources_json: string;
+  sources: Record<string, { rank: number; score: number }>;
+  score_profile_name: string;
+  score_profile_weights_json: string;
+  score_profile_weights: Record<string, number>;
+};
+
+export type EvaluationWeightedCandidatesResult = {
+  score_profile: EvaluationScoreProfile;
+  seed_track_ids: number[];
+  sources: string[];
+  per_source: number;
+  random_seed: number;
+  rrf_k: number;
+  limit_per_seed: number;
+  rows_total: number;
+  rows_returned: number;
+  rows: EvaluationWeightedCandidateRow[];
+  warnings: string[];
+  session_ids: number[];
+  record_session: boolean;
+};
+
 export type EvaluationFeedbackResult = Record<string, unknown> & { id: number; rating: number; source: string };
 
 export type EvaluationLatestReports = {
@@ -594,6 +649,11 @@ export const api = {
     }),
   evaluationApplyScoreProfile: (payload: EvaluationApplyScoreProfilePayload) =>
     request<Record<string, unknown>>("/api/evaluation/run/apply-score-profile", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  evaluationWeightedCandidates: (payload: EvaluationWeightedCandidatesPayload) =>
+    request<EvaluationWeightedCandidatesResult>("/api/evaluation/run/weighted-candidates", {
       method: "POST",
       body: JSON.stringify(payload)
     }),

@@ -202,6 +202,52 @@ def test_apply_score_profile_endpoint_reports_insufficient_labels(monkeypatch, t
     assert payload["weights"] == {"mert": 1.0}
 
 
+def test_weighted_candidates_endpoint_returns_capped_preview_without_recording(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    _, track_ids = _profile_library(db_path, tmp_path)
+
+    response = _client(monkeypatch, db_path).post(
+        "/api/evaluation/run/weighted-candidates",
+        json={
+            "name": "inline-weighted",
+            "weights": {"mert": 1.0},
+            "seed_track_ids": [track_ids["seed"]],
+            "per_source": 2,
+            "limit_per_seed": 1,
+            "random_seed": 123,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["score_profile"]["name"] == "inline-weighted"
+    assert payload["rows_total"] == 2
+    assert payload["rows_returned"] == 1
+    assert payload["rows"][0]["profile_rank"] == 1
+    assert payload["rows"][0]["candidate_track_id"] != track_ids["seed"]
+    assert payload["session_ids"] == []
+    assert LibraryDatabase(db_path).count_evaluation_rows()["search_sessions"] == 0
+
+
+def test_weighted_candidates_endpoint_rejects_sources_missing_from_profile(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    _, track_ids = _profile_library(db_path, tmp_path)
+
+    response = _client(monkeypatch, db_path).post(
+        "/api/evaluation/run/weighted-candidates",
+        json={
+            "name": "inline-weighted",
+            "weights": {"mert": 1.0},
+            "seed_track_ids": [track_ids["seed"]],
+            "sources": ["mert", "maest"],
+            "per_source": 2,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "no score profile weight" in response.json()["detail"]
+
+
 def test_evaluation_endpoints_report_unselected_or_old_schema_clearly(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
     unselected = TestClient(create_app()).get("/api/evaluation/summary")

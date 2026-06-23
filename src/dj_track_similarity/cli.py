@@ -6,7 +6,7 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 import typer
 
@@ -45,6 +45,7 @@ from .evaluation.score_profiles import (
 )
 from .evaluation.seed_sampling import export_seed_sample, write_seed_sample_csv
 from .evaluation.source_profile import build_source_profile, load_seed_track_ids_from_csv
+from .evaluation.weighted_candidates import build_weighted_candidate_pool, write_weighted_candidate_pool_csv
 from .logging_config import configure_logging, set_analysis_diagnostics_enabled
 from .runtime import get_torch_runtime_info, recommended_torch_index
 from .scanner import scan_library
@@ -91,6 +92,26 @@ def _load_json_object(path: Path, description: str) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise ValueError(f"{description} JSON must be an object")
     return payload
+
+
+def _weighted_candidate_seed_track_ids(
+    db: LibraryDatabase,
+    *,
+    seed_sample_path: Path | None,
+    seed_track_ids: Sequence[int] | None,
+    sample_count: int,
+    random_seed: int,
+) -> tuple[int, ...]:
+    if seed_sample_path is not None and seed_track_ids:
+        raise ValueError("Use either --seed-sample or --seed-track-id, not both")
+    if seed_sample_path is not None:
+        return load_seed_track_ids_from_csv(seed_sample_path)
+    if seed_track_ids:
+        return tuple(dict.fromkeys(seed_track_ids))
+    sample = export_seed_sample(db, count=sample_count, random_seed=random_seed, require_complete_analysis=True)
+    if not sample.rows:
+        raise ValueError("No eligible seed tracks were found; provide --seed-track-id or --seed-sample, or check complete analysis coverage")
+    return tuple(row.track_id for row in sample.rows)
 
 
 def _run_cli_job_with_progress(manager: object, job_id: str, *, label: str, poll_interval: float = 0.5):
@@ -226,6 +247,58 @@ def export_evaluation_candidates(
     typer.echo(
         f"exported={len(result.rows)} seeds={len({row.seed_track_id for row in result.rows})} "
         f"output={output_path} sessions_recorded={len(result.session_ids)} warnings={len(result.warnings)}"
+    )
+
+
+@eval_app.command("export-weighted-candidates")
+def export_evaluation_weighted_candidates(
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+    profile_path: Path = typer.Option(..., "--profile", exists=True, dir_okay=False, readable=True),
+    output_path: Path = typer.Option(..., "--output", dir_okay=False, writable=True),
+    seed_sample_path: Optional[Path] = typer.Option(None, "--seed-sample", exists=True, dir_okay=False, readable=True),
+    seed_track_ids: Optional[list[int]] = typer.Option(None, "--seed-track-id", help="Seed track ID. Repeat for multiple seeds."),
+    sample_count: int = typer.Option(50, "--sample-count", min=1, help="Seeds to sample internally when no seed IDs or seed sample are provided."),
+    sources: Optional[list[str]] = typer.Option(None, "--source", help="Candidate source from the score profile. Repeat for multiple sources."),
+    per_source: int = typer.Option(30, "--per-source", min=1, help="Top candidates to request from each source per seed."),
+    random_seed: int = typer.Option(123, "--random-seed", help="Deterministic seed for internal seed sampling and tie ordering."),
+    rrf_k: int = typer.Option(60, "--rrf-k", min=1, help="RRF smoothing constant for weighted source-rank fusion."),
+    record_session: bool = typer.Option(True, "--record-session/--no-record-session", help="Record evaluation weighted candidate-pool sessions and result events."),
+) -> None:
+    try:
+        db = _evaluation_db(db_path)
+        profile = load_score_profile(profile_path)
+        clean_seed_track_ids = _weighted_candidate_seed_track_ids(
+            db,
+            seed_sample_path=seed_sample_path,
+            seed_track_ids=seed_track_ids,
+            sample_count=sample_count,
+            random_seed=random_seed,
+        )
+        result = build_weighted_candidate_pool(
+            db,
+            seed_track_ids=clean_seed_track_ids,
+            profile=profile,
+            sources=sources,
+            per_source=per_source,
+            random_seed=random_seed,
+            record_session=record_session,
+            rrf_k=rrf_k,
+        )
+        if not result.rows:
+            for warning in result.warnings:
+                typer.secho(f"warning: {warning}", err=True, fg=typer.colors.YELLOW)
+            raise ValueError("No weighted candidate rows were exported; check seed IDs, profile sources, and analysis coverage")
+        write_weighted_candidate_pool_csv(output_path, result.rows)
+    except (KeyError, ValueError, sqlite3.IntegrityError) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+
+    for warning in result.warnings:
+        typer.secho(f"warning: {warning}", err=True, fg=typer.colors.YELLOW)
+    typer.echo(
+        f"exported={len(result.rows)} seeds={len(result.seed_track_ids)} output={output_path} "
+        f"profile={result.score_profile_name} sources={','.join(result.sources)} "
+        f"sessions_recorded={len(result.session_ids)} warnings={len(result.warnings)}"
     )
 
 

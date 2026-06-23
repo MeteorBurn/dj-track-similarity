@@ -218,13 +218,22 @@ recorded candidate pools with weighted RRF over stored source ranks. If pair
 feedback exists it includes validation metrics; without labels it still reports
 rankings with `label_status: "insufficient_data"` and no quality claim.
 
+`dj-sim eval export-weighted-candidates --profile <json>` creates a fresh
+weighted candidate-pool CSV from the same artifact. With default session recording
+it stores one `evaluation_weighted_candidate_pool` search session per seed and
+records profile-ranked `search_result_events`; each score breakdown includes the
+weighted-RRF components, profile weights, source ranks, and original source
+rank/score payloads. This is explicit evaluation/future-ranker logging only and
+does not affect production search endpoints.
+
 The local Web API exposes the same evaluation data under `/api/evaluation/*`.
 The API summary endpoint reads only these v4 tables, manual feedback endpoints
 write only the optional audit/validation rows described above, and the automatic
 source-profile/apply-score-profile endpoints are read-only diagnostics over
-stored analysis and recorded candidate pools. They do not scan report
-directories, do not write score-profile artifact files, and do not change
-production search scoring.
+stored analysis and recorded candidate pools. The weighted-candidates endpoint is
+also explicit evaluation-only and writes no rows unless `record_session` is set.
+They do not scan report directories, do not write score-profile artifact files,
+and do not change production search scoring.
 
 ## Metadata and Analysis Data
 

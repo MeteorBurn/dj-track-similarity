@@ -267,6 +267,7 @@ Reset scope by family:
 | `POST` | `/api/evaluation/feedback/transition` | Append optional manual audit feedback for one outgoing/incoming transition. |
 | `POST` | `/api/evaluation/run/source-profile` | Run the automatic unsupervised source-profile diagnostic in-process. |
 | `POST` | `/api/evaluation/run/apply-score-profile` | Apply an inline score profile to recorded candidate pools. |
+| `POST` | `/api/evaluation/run/weighted-candidates` | Generate a capped weighted candidate-pool preview from an inline score profile. |
 | `GET` | `/api/evaluation/reports/latest` | Return persisted `calibration_runs` rows, if any. |
 
 These endpoints are for local evaluation diagnostics only. They do not read or
@@ -305,6 +306,18 @@ already recorded candidate pools in SQLite and returns the same kind of report a
 the CLI `apply-score-profile` command. Without pair feedback it still ranks the
 candidate pools, but reports `label_status: "insufficient_data"` and makes no
 claim about human taste.
+
+`/api/evaluation/run/weighted-candidates` accepts the same inline `profile` or
+`weights` plus optional `name`, optional `seed_track_ids`, `sample_count` (default
+`50` when seeds are omitted), optional `sources`, `per_source` (default `30`, max
+`100`), `random_seed`, `rrf_k`, `record_session` (default `false` for API
+safety), and `limit_per_seed` (default `30`, max `100`) for response capping. It
+generates a fresh candidate pool and returns JSON preview rows sorted by weighted
+RRF over source ranks. The requested sources must match the score profile source
+set; missing weights or omitted profile sources return a clear `400` error. With
+`record_session: true`, it records explicit `evaluation_weighted_candidate_pool`
+sessions and profile-ranked result events only; by default it writes no database
+rows.
 
 `/api/evaluation/reports/latest` deliberately does not scan arbitrary report
 directories. CLI JSON reports are local filesystem artifacts; the API only

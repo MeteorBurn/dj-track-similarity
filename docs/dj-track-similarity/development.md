@@ -88,9 +88,14 @@ python scripts\benchmark_search.py --help
 ## Exact search benchmark before ANN work
 
 `scripts/benchmark_search.py` creates a temporary synthetic schema v4 SQLite
-library and measures the current exact search baseline before any ANN index is
-introduced. It writes a JSON report only; by default the synthetic database is
-deleted after the run and the script never reads a source library or audio file.
+library and measures the current `exact_numpy` vector backend before any ANN
+index is introduced. It writes a JSON report only; by default the synthetic
+database is deleted after the run and the script never reads a source library or
+audio file.
+
+Production similarity search still defaults to this exact NumPy matrix-dot
+backend. It is the reference backend for future ANN recall and latency
+comparisons; FAISS, HNSW, and other ANN indexes are not implemented here.
 
 Small smoke run:
 
@@ -104,12 +109,12 @@ to populate synthetic classifier scores, and `--keep-db <path>` when debugging a
 synthetic database. Use `--skip-sonara` only when you want an embedding-only
 baseline.
 
-The report includes environment details, setup time, `load_embedding_matrix`
-timings for MERT and MAEST, p50/p95 exact similarity search timings over sampled
-seed tracks, weighted candidate pool timings, hybrid search timings, result
-counts, and best-effort RSS memory in bytes. These timings describe the current
-exact implementation only; the script does not add FAISS, HNSW, ANN indexes, or
-change production scoring/endpoints.
+The report includes environment details, setup time, the vector backend name,
+`load_embedding_matrix` timings for MERT and MAEST, p50/p95 exact similarity
+search timings over sampled seed tracks, weighted candidate pool timings, hybrid
+search timings, result counts, and best-effort RSS memory in bytes. These
+timings describe the current exact implementation only; the script does not add
+FAISS, HNSW, ANN indexes, or change production scoring/endpoints.
 
 ## Library schema copy scripts
 

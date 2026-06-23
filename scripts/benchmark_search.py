@@ -29,6 +29,7 @@ from dj_track_similarity.evaluation.weighted_candidates import build_weighted_ca
 from dj_track_similarity.hybrid_search import build_hybrid_search_preview  # noqa: E402
 from dj_track_similarity.metadata_payload import metadata_to_json  # noqa: E402
 from dj_track_similarity.search import SimilaritySearch  # noqa: E402
+from dj_track_similarity.vector_index import EXACT_VECTOR_BACKEND_NAME  # noqa: E402
 
 
 T = TypeVar("T")
@@ -71,6 +72,7 @@ def run_benchmark(config: BenchmarkConfig) -> dict[str, Any]:
             "per_source": config.per_source,
             "random_seed": config.random_seed,
             "sources": list(config.candidate_sources),
+            "vector_backend": EXACT_VECTOR_BACKEND_NAME,
             "skip_sonara": config.skip_sonara,
             "keep_db": str(config.keep_db) if config.keep_db is not None else None,
         },
@@ -246,10 +248,16 @@ def _measure_embedding_loads(db: LibraryDatabase) -> dict[str, dict[str, Any]]:
 
 def _measure_exact_similarity_searches(db: LibraryDatabase, seed_track_ids: Sequence[int], per_source: int) -> dict[str, dict[str, Any]]:
     return {
-        source: _measure_seed_operation(
-            seed_track_ids,
-            lambda seed_track_id, source=source: SimilaritySearch(db, embedding_key=source).search([seed_track_id], limit=per_source),
-        )
+        source: {
+            "backend": EXACT_VECTOR_BACKEND_NAME,
+            **_measure_seed_operation(
+                seed_track_ids,
+                lambda seed_track_id, source=source: SimilaritySearch(db, embedding_key=source).search(
+                    [seed_track_id],
+                    limit=per_source,
+                ),
+            ),
+        }
         for source in EMBEDDING_SOURCES
     }
 
@@ -472,7 +480,7 @@ def _prepare_kept_database_path(path: Path) -> None:
 
 def _parse_args(argv: Sequence[str] | None = None) -> BenchmarkConfig:
     parser = argparse.ArgumentParser(
-        description="Create a synthetic v4 SQLite library and benchmark exact search baseline operations.",
+        description="Create a synthetic v4 SQLite library and benchmark exact_numpy search baseline operations.",
     )
     parser.add_argument("--output", required=True, type=Path, help="Path to write the JSON benchmark report.")
     parser.add_argument(

@@ -35,11 +35,13 @@ def test_benchmark_search_runs_and_deletes_temporary_database(tmp_path: Path) ->
 
     assert report["benchmark"] == "exact_search_baseline"
     assert report["config"]["track_counts"] == [20]
+    assert report["config"]["vector_backend"] == "exact_numpy"
     assert run["track_count"] == 20
     assert run["kept_db"] is False
     assert db_path.exists() is False
     assert run["load_embedding_matrix"]["mert"]["tracks"] == 20
     assert run["load_embedding_matrix"]["maest"]["dim"] == 8
+    assert run["exact_similarity"]["mert"]["backend"] == "exact_numpy"
     assert run["exact_similarity"]["mert"]["seed_count"] == 3
     assert run["weighted_candidates"]["seed_count"] == 3
     assert run["hybrid_search"]["seed_count"] == 3

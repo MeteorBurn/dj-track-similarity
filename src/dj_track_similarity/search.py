@@ -7,6 +7,7 @@ import numpy as np
 
 from .database import LibraryDatabase
 from .models import SearchResult, Track
+from .vector_index import ExactVectorSearchBackend, VectorSearchBackend, VectorSearchHit
 
 
 @dataclass(frozen=True)
@@ -21,9 +22,16 @@ class SearchFilters:
 
 
 class SimilaritySearch:
-    def __init__(self, db: LibraryDatabase, *, embedding_key: str = "mert") -> None:
+    def __init__(
+        self,
+        db: LibraryDatabase,
+        *,
+        embedding_key: str = "mert",
+        vector_backend: VectorSearchBackend | None = None,
+    ) -> None:
         self.db = db
         self.embedding_key = embedding_key
+        self.vector_backend = vector_backend if vector_backend is not None else ExactVectorSearchBackend()
 
     def search(
         self,
@@ -49,13 +57,13 @@ class SimilaritySearch:
         context_indices = [index for index, track in enumerate(tracks) if track.id in context_set]
         centroid = matrix[context_indices].mean(axis=0)
         centroid = _normalize(centroid)
-        scores = matrix @ centroid
+        hits = self.vector_backend.search(matrix, _track_ids(tracks), centroid, limit=len(tracks))
         seed_tracks = [track_by_id[track_id] for track_id in context_set]
 
         candidates: list[tuple[Track, float, float]] = []
-        for index in np.argsort(-scores):
-            track = tracks[int(index)]
-            score = float(scores[int(index)])
+        for hit in hits:
+            track = _track_for_hit(hit, tracks, track_by_id)
+            score = hit.score
             if track.id in context_set:
                 continue
             if not _passes_filters(track, seed_tracks, score, filters):
@@ -86,11 +94,12 @@ class SimilaritySearch:
             return []
 
         query = _normalize(np.asarray(vector, dtype=np.float32).reshape(-1))
-        scores = matrix @ query
+        track_by_id = {track.id: track for track in tracks}
+        hits = self.vector_backend.search(matrix, _track_ids(tracks), query, limit=len(tracks))
         candidates: list[tuple[Track, float, float]] = []
-        for index in np.argsort(-scores):
-            track = tracks[int(index)]
-            score = float(scores[int(index)])
+        for hit in hits:
+            track = _track_for_hit(hit, tracks, track_by_id)
+            score = hit.score
             if not _passes_filters(track, [], score, filters):
                 continue
             candidates.append((track, score, _ranking_score(track, score, filters.noise)))
@@ -166,6 +175,26 @@ def _normalize(vector: np.ndarray) -> np.ndarray:
 def _normalize_matrix(vectors: list[np.ndarray]) -> np.ndarray:
     normalized = [_normalize(np.asarray(vector, dtype=np.float32).reshape(-1)) for vector in vectors]
     return np.vstack(normalized).astype(np.float32)
+
+
+def _track_ids(tracks: list[Track]) -> list[int]:
+    return [track.id for track in tracks]
+
+
+def _track_for_hit(hit: VectorSearchHit, tracks: list[Track], track_by_id: dict[int, Track]) -> Track:
+    if hit.index is not None:
+        if hit.index < 0 or hit.index >= len(tracks):
+            raise ValueError(f"Vector search backend returned out-of-range index: {hit.index}")
+        track = tracks[hit.index]
+        if track.id != hit.track_id:
+            raise ValueError(
+                f"Vector search backend returned mismatched track id/index: {hit.track_id} != {track.id}",
+            )
+        return track
+    try:
+        return track_by_id[hit.track_id]
+    except KeyError as error:
+        raise ValueError(f"Vector search backend returned unknown track id: {hit.track_id}") from error
 
 
 def _passes_filters(track: Track, seeds: list[Track], score: float, filters: SearchFilters) -> bool:

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import logging
+import sqlite3
 import threading
 import time
 from pathlib import Path
@@ -27,8 +29,11 @@ from .analysis_config import (
 from .analysis_jobs import AnalysisJobManager
 from .classifier_scoring import analyze_classifier as run_classifier_analysis
 from .database import LibraryDatabase
+from .db_schema import CURRENT_SCHEMA_VERSION
 from .dependencies import require_ffmpeg
 from .embedding import ClapEmbeddingAdapter
+from .evaluation.labels import load_pair_feedback_labels, load_transition_feedback_labels
+from .evaluation.reports import build_search_evaluation_report
 from .logging_config import configure_logging, set_analysis_diagnostics_enabled
 from .runtime import get_torch_runtime_info, recommended_torch_index
 from .scanner import scan_library
@@ -36,6 +41,8 @@ from .search import SearchFilters, SimilaritySearch
 
 
 app = typer.Typer(help="Local dj-track-similarity utility.")
+eval_app = typer.Typer(help="Import manual evaluation feedback and build evaluation reports.")
+app.add_typer(eval_app, name="eval")
 LOGGER = logging.getLogger(__name__)
 
 
@@ -44,6 +51,25 @@ def _db(path: Optional[Path]) -> LibraryDatabase:
     db_path = path or Path("dj-track-similarity.sqlite")
     LOGGER.info("CLI database opened db_path=%s log_path=%s", db_path, log_path)
     return LibraryDatabase(db_path)
+
+
+def _evaluation_db(path: Optional[Path]) -> LibraryDatabase:
+    try:
+        db = _db(path)
+        with db.connect() as connection:
+            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+    except RuntimeError as error:
+        typer.secho(f"Evaluation commands require SQLite schema v{CURRENT_SCHEMA_VERSION}. {error}", err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+    if version != CURRENT_SCHEMA_VERSION:
+        typer.secho(f"Evaluation commands require SQLite schema v{CURRENT_SCHEMA_VERSION}; found v{version}.", err=True, fg=typer.colors.RED)
+        raise typer.Exit(1)
+    return db
+
+
+def _write_json_report(path: Path, report: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _run_cli_job_with_progress(manager: object, job_id: str, *, label: str, poll_interval: float = 0.5):
@@ -144,6 +170,71 @@ def _parse_analysis_device(value: str | None) -> str:
         return normalize_analysis_device(value)
     except ValueError as error:
         raise typer.BadParameter(str(error)) from error
+
+
+@eval_app.command("import-pair-feedback")
+def import_pair_feedback(
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+    input_path: Path = typer.Option(..., "--input", exists=True, dir_okay=False, readable=True),
+) -> None:
+    try:
+        labels = load_pair_feedback_labels(input_path)
+        db = _evaluation_db(db_path)
+        for label in labels:
+            db.upsert_track_pair_feedback(
+                label.seed_track_id,
+                label.candidate_track_id,
+                label.rating,
+                reason_tags=label.reason_tags,
+                notes=label.notes,
+                source=label.source,
+            )
+    except (ValueError, sqlite3.IntegrityError) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+    typer.echo(f"imported={len(labels)} upserted={len(labels)}")
+
+
+@eval_app.command("import-transition-feedback")
+def import_transition_feedback(
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+    input_path: Path = typer.Option(..., "--input", exists=True, dir_okay=False, readable=True),
+) -> None:
+    try:
+        labels = load_transition_feedback_labels(input_path)
+        db = _evaluation_db(db_path)
+        for label in labels:
+            db.add_transition_feedback(
+                label.outgoing_track_id,
+                label.incoming_track_id,
+                label.rating,
+                risk_tags=label.risk_tags,
+                notes=label.notes,
+                source=label.source,
+            )
+    except (ValueError, sqlite3.IntegrityError) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+    typer.echo(f"imported={len(labels)} inserted={len(labels)} upserted=0")
+
+
+@eval_app.command("report")
+def evaluation_report(
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+    output_path: Path = typer.Option(..., "--output", dir_okay=False, writable=True),
+    k: Optional[list[int]] = typer.Option(None, "--k", min=1, help="Metric cutoff. Repeat for multiple values."),
+) -> None:
+    try:
+        report = build_search_evaluation_report(_evaluation_db(db_path), k_values=k or [5, 10])
+        _write_json_report(output_path, report)
+    except ValueError as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+    counts = report["counts"]
+    typer.echo(
+        f"status={report['status']} output={output_path} sessions_total={counts['sessions_total']} "
+        f"sessions_with_labels={counts['sessions_with_labels']} judged_results={counts['judged_results']}"
+    )
 
 
 @app.command()

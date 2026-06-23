@@ -170,6 +170,11 @@ labels, not `track_likes`, and not file tags. Foreign keys cascade when related
 local `tracks` or `search_sessions` rows are removed. Recording evaluation data
 updates SQLite only and never writes to audio files.
 
+Manual pair and transition feedback can be imported with `dj-sim eval` commands
+from CSV or JSONL files. Search-quality reports use only explicit evaluation
+feedback plus already recorded search sessions/result events; likes and Rhythm
+Lab labels are not treated as ground truth by default.
+
 ## Metadata and Analysis Data
 
 The app deliberately separates file tags from computed values.

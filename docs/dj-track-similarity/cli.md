@@ -32,6 +32,7 @@ database and therefore accepts no `--db`.
 | Build SONARA, MAEST, MERT, and/or CLAP analysis | `dj-sim analyze` |
 | Score a promoted Rhythm Lab classifier | `dj-sim analyze-classifier` |
 | Search with a CLAP text prompt | `dj-sim text-search` |
+| Import manual evaluation labels or build a search-quality report | `dj-sim eval` |
 | Update stored paths after moving a library | `dj-sim relocate-library` |
 | Check Python, PyTorch, and CUDA setup | `dj-sim doctor` |
 
@@ -52,7 +53,7 @@ App-level options (Typer built-ins, not a shared `--db`):
 > Note: `--db` is not an app-level option. It is repeated on each command that
 > reads or writes a database. The job-based `analyze` command renders a live
 > progress bar; `scan`, `relocate-library`, `analyze-classifier`,
-> `text-search`, `doctor`, and `serve` print plain output only.
+> `text-search`, `eval`, `doctor`, and `serve` print plain output only.
 
 Commands:
 
@@ -63,6 +64,7 @@ analyze
 analyze-classifier
 doctor
 text-search
+eval
 serve
 ```
 
@@ -298,6 +300,62 @@ CLAP audio embeddings must exist before text search can return useful results.
 Use this for exploratory searches where a text description is faster than
 choosing seed tracks. Concrete prompts with mood, rhythm, instrumentation, and
 vocal presence tend to be more useful than a single broad genre.
+
+### `dj-sim eval`
+
+Import manual evaluation labels into schema v4 SQLite databases and build JSON
+reports from explicitly recorded `search_sessions` / `search_result_events`.
+The app does not log search sessions automatically, so reports can be
+`insufficient_data` until a workflow has recorded evaluation sessions and result
+events.
+
+```powershell
+dj-sim eval import-pair-feedback --db .\data\library_v4.sqlite --input .\labels\pair_feedback.csv
+dj-sim eval import-transition-feedback --db .\data\library_v4.sqlite --input .\labels\transition_feedback.jsonl
+dj-sim eval report --db .\data\library_v4.sqlite --output .\reports\evaluation.json --k 5 --k 10
+```
+
+Pair feedback CSV columns:
+
+```text
+seed_track_id,candidate_track_id,rating,reason_tags,notes,source
+```
+
+Transition feedback CSV columns:
+
+```text
+outgoing_track_id,incoming_track_id,rating,risk_tags,notes,source
+```
+
+JSONL inputs use the same field names. Ratings are integers from `0` through
+`3`. `reason_tags` and `risk_tags` are comma-separated strings in CSV, or arrays
+or comma-separated strings in JSONL. Empty tag fields become empty lists. Empty
+`source` values default to `manual`.
+
+Evaluation labels are explicit local ground truth only when imported or recorded
+as evaluation feedback. Rhythm Lab labels and `track_likes` are not used as
+search-evaluation ground truth by default. Evaluation commands write SQLite rows
+or JSON reports only; they never read, rewrite, retag, move, copy, or delete
+audio files.
+
+Usage:
+
+```text
+dj-sim eval [OPTIONS] COMMAND [ARGS]...
+```
+
+Commands:
+
+```text
+import-pair-feedback
+import-transition-feedback
+report
+```
+
+The import commands fail fast on malformed ratings with the input line number
+and print imported/upserted or inserted counts. `report` writes a JSON-safe file
+with session totals, judged and unjudged result counts, labels by rating, and
+ranking metrics for each requested `--k` cutoff.
 
 ### `dj-sim relocate-library`
 

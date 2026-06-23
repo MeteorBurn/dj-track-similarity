@@ -9,6 +9,87 @@ from .metadata_payload import json_safe_value
 
 
 class EvaluationRepository:
+    def list_search_sessions_with_events(self) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            session_rows = connection.execute(
+                """
+                SELECT id, mode, seed_track_ids_json, request_json, created_at
+                FROM search_sessions
+                ORDER BY created_at, id
+                """,
+            ).fetchall()
+            event_rows = connection.execute(
+                """
+                SELECT id, session_id, track_id, rank, total_score, score_breakdown_json, created_at
+                FROM search_result_events
+                ORDER BY session_id, rank, id
+                """,
+            ).fetchall()
+
+        events_by_session: dict[int, list[dict[str, Any]]] = {}
+        for row in event_rows:
+            session_id = int(row["session_id"])
+            events_by_session.setdefault(session_id, []).append(
+                {
+                    "id": int(row["id"]),
+                    "session_id": session_id,
+                    "track_id": int(row["track_id"]),
+                    "rank": int(row["rank"]),
+                    "total_score": float(row["total_score"]),
+                    "score_breakdown": json.loads(row["score_breakdown_json"]),
+                    "created_at": row["created_at"],
+                },
+            )
+        return [
+            {
+                "id": int(row["id"]),
+                "mode": str(row["mode"]),
+                "seed_track_ids": [int(track_id) for track_id in json.loads(row["seed_track_ids_json"])],
+                "request": json.loads(row["request_json"]),
+                "created_at": row["created_at"],
+                "events": events_by_session.get(int(row["id"]), []),
+            }
+            for row in session_rows
+        ]
+
+    def get_pair_feedback_map(self) -> dict[tuple[int, int, str], dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, seed_track_id, candidate_track_id, rating, reason_tags_json, notes, source, created_at, updated_at
+                FROM track_pair_feedback
+                ORDER BY seed_track_id, candidate_track_id, source
+                """,
+            ).fetchall()
+        feedback: dict[tuple[int, int, str], dict[str, Any]] = {}
+        for row in rows:
+            seed_track_id = int(row["seed_track_id"])
+            candidate_track_id = int(row["candidate_track_id"])
+            source = str(row["source"])
+            feedback[(seed_track_id, candidate_track_id, source)] = {
+                "id": int(row["id"]),
+                "seed_track_id": seed_track_id,
+                "candidate_track_id": candidate_track_id,
+                "rating": int(row["rating"]),
+                "reason_tags": json.loads(row["reason_tags_json"]),
+                "notes": row["notes"],
+                "source": source,
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+        return feedback
+
+    def count_evaluation_rows(self) -> dict[str, int]:
+        tables = (
+            "search_sessions",
+            "search_result_events",
+            "track_pair_feedback",
+            "transition_feedback",
+            "calibration_runs",
+        )
+        with self.connect() as connection:
+            return {table: int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]) for table in tables}
+
     def create_search_session(self, mode: str, seed_track_ids: Sequence[int], request: Mapping[str, Any]) -> int:
         clean_mode = _required_text(mode, "Search session mode")
         seed_track_ids_json = _json_text([_positive_int(track_id, "Seed track id") for track_id in seed_track_ids])

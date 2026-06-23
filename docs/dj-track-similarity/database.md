@@ -171,9 +171,11 @@ local `tracks` or `search_sessions` rows are removed. Recording evaluation data
 updates SQLite only and never writes to audio files.
 
 Manual pair and transition feedback can be imported with `dj-sim eval` commands
-from CSV or JSONL files. Search-quality reports use only explicit evaluation
-feedback plus already recorded search sessions/result events; likes and Rhythm
-Lab labels are not treated as ground truth by default.
+from CSV or JSONL files. They are optional validation/audit inputs, not
+classifier training data and not required for automatic source profiling.
+Search-quality reports use only explicit evaluation feedback plus already
+recorded search sessions/result events; likes and Rhythm Lab labels are not
+treated as ground truth by default.
 
 `dj-sim eval export-candidates` can create blinded manual-labeling CSVs from
 existing exact MERT, MAEST, and balanced SONARA search sources. With session
@@ -190,6 +192,13 @@ with explicit `--record`, only an `ok` summary is inserted into
 diagnostic scores are stored and reported as diagnostics, not as production
 confidence or probabilities, and calibration reports do not change runtime search
 weights or thresholds.
+
+`dj-sim eval profile-sources` is the automatic unsupervised source profiling
+path. It reads existing MERT, MAEST, and SONARA analysis data for sampled seeds,
+computes coverage, rank agreement, RRF-style consensus support, conflicts, score
+quantiles, and normalized recommended internal weights. It does not write to the
+database, does not use manual labels as required ground truth, does not calibrate
+probabilities, and does not prove human DJ taste without external validation.
 
 ## Metadata and Analysis Data
 

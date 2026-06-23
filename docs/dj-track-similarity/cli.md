@@ -303,24 +303,35 @@ vocal presence tend to be more useful than a single broad genre.
 
 ### `dj-sim eval`
 
-Import manual evaluation labels into schema v4 SQLite databases and build JSON
-reports from explicitly recorded `search_sessions` / `search_result_events`.
-The app does not log search sessions automatically, so reports can be
-`insufficient_data` until a workflow has recorded evaluation sessions and result
-events.
+Build local evaluation diagnostics for schema v4 SQLite databases. Manual
+evaluation labels are optional validation/audit data, not classifier training and
+not required for automatic source profiling. Reports that depend on recorded
+`search_sessions` / `search_result_events` can still be `insufficient_data` until
+a workflow has recorded evaluation sessions and result events.
 
 ```powershell
 dj-sim eval export-seed-sample --db .\data\library_v4.sqlite --output .\labels\seed_sample.csv --count 50 --random-seed 123
 dj-sim eval export-candidates --db .\data\library_v4.sqlite --output .\labels\candidate_pool.csv --seed-track-id 42 --source mert --source sonara --source maest --per-source 10 --random-seed 123
 dj-sim eval import-pair-feedback --db .\data\library_v4.sqlite --input .\labels\pair_feedback.csv
 dj-sim eval import-transition-feedback --db .\data\library_v4.sqlite --input .\labels\transition_feedback.jsonl
+dj-sim eval profile-sources --db .\data\library_v4.sqlite --seed-sample .\labels\seed_sample.csv --output .\reports\source_profile.json --source mert --source maest --source sonara --per-source 30 --random-seed 123
 dj-sim eval run-ablation --db .\data\library_v4.sqlite --output .\reports\ablation.json --k 5 --k 10 --rrf-k 60
 dj-sim eval run-calibration --db .\data\library_v4.sqlite --output .\reports\calibration.json --score-mode rrf --bins 10 --min-samples 30 --accepted-threshold 2
 dj-sim eval report --db .\data\library_v4.sqlite --output .\reports\evaluation.json --k 5 --k 10
 ```
 
-Candidate-pool export is the recommended first step when collecting new manual
-ground truth:
+For automatic source diagnostics, run `profile-sources` first. It samples or
+reads seed IDs, asks each selected source for top candidates, and computes
+coverage, top-K overlap/Jaccard, rank agreement, RRF-style consensus support,
+conflict rates, score quantiles, and normalized recommended weights from
+internal agreement/coverage/stability. The JSON has
+`profile_kind: "unsupervised_source_profile"` and
+`weight_kind: "unsupervised_internal_profile"`. These weights are not trained,
+not probability calibration, and not proof of human DJ taste without external
+validation.
+
+Candidate-pool export is the recommended first step when collecting optional new
+manual ground truth:
 
 1. Run `dj-sim eval export-seed-sample` to choose a reproducible, practical set
    of seed tracks for manual labeling.
@@ -329,11 +340,13 @@ ground truth:
 3. Open the generated candidate CSV and fill `rating`, `reason_tags`, and `notes`
    by hand.
 4. Import the completed file with `dj-sim eval import-pair-feedback`.
-5. Run `dj-sim eval run-ablation` to compare recorded source contributions on
+5. Run `dj-sim eval profile-sources` any time you want automatic unsupervised
+   source reliability diagnostics from existing analysis data.
+6. Run `dj-sim eval run-ablation` to compare recorded source contributions on
    the labeled candidate pools.
-6. Run `dj-sim eval run-calibration` for diagnostic score/relevance calibration
+7. Run `dj-sim eval run-calibration` for diagnostic score/relevance calibration
    summaries once enough labeled candidate rows exist.
-7. Run `dj-sim eval report` for the general recorded-session report.
+8. Run `dj-sim eval report` for the general recorded-session report.
 
 `run-ablation` evaluates only recorded candidate-pool events and imported pair
 feedback. It builds single-source variants for `mert`, `maest`, and `sonara` when
@@ -345,6 +358,16 @@ from scores only when no rank was recorded. It does not tune production weights
 or change runtime search behavior.
 
 `report` summarizes recorded sessions against the imported ratings.
+
+`profile-sources` is read-only and does not use manual labels. If
+`--seed-sample` points at a CSV created by `export-seed-sample`, its `track_id`
+column becomes the seed list. Without `--seed-sample`, the command samples up to
+`--sample-count` tracks internally with the same deterministic sampler but allows
+partial analysis coverage so missing-source rates remain visible. It compares
+sources by ranks rather than raw scores because MERT, MAEST, and SONARA scores
+use different scales. A source with no sampled coverage gets recommended weight
+`0` and a warning. Missing analysis for one source does not stop other selected
+sources from being profiled.
 
 `run-calibration` is report-only diagnostics over manual pair feedback. It treats
 ratings at or above `--accepted-threshold` as accepted labels, then compares those
@@ -430,6 +453,32 @@ still not logged automatically. Missing analysis for a selected source is printe
 as a warning and does not stop export while another selected source produces
 candidates.
 
+Usage:
+
+```text
+dj-sim eval profile-sources [OPTIONS]
+```
+
+Options:
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--db` | path | `dj-track-similarity.sqlite` | Schema v4 SQLite database path. |
+| `--output` | JSON path | required | Source-profile report to create. |
+| `--seed-sample` | CSV path | none | Optional CSV with a `track_id` column from `export-seed-sample`. |
+| `--source` | text | `mert`, `maest`, `sonara` | Candidate source. Repeat for a subset. |
+| `--sample-count` | integer `>=1` | `50` | Seeds to sample internally when `--seed-sample` is omitted. |
+| `--per-source` | integer `>=1` | `30` | Maximum top candidates requested from each source per seed. |
+| `--top-k` | integer `>=1` | `10` | Agreement cutoff. Repeat for multiple top-K metrics. |
+| `--random-seed` | integer | `123` | Deterministic seed for internal sampling. |
+| `--help` | flag | off | Show help. |
+
+The source-profile JSON includes `status`, `profile_kind`, `sources`,
+`seed_count`, `per_source`, `pairwise_agreement`, RRF `consensus`, `recommended_weights`,
+`warnings`, and `limitations`. The `limitations` field explicitly states that
+the output is an internal consistency/source reliability diagnostic, not a
+calibrated probability or production confidence score.
+
 Pair feedback CSV columns:
 
 ```text
@@ -466,6 +515,7 @@ export-seed-sample
 export-candidates
 import-pair-feedback
 import-transition-feedback
+profile-sources
 run-ablation
 run-calibration
 report
@@ -487,6 +537,11 @@ reliability bins, threshold diagnostics, and score quantiles when enough valid
 samples exist. Supported `--score-mode` values are `rank-percentile`, `rrf`, and
 `event-total-score`; `rrf` uses per-session min-max-normalized RRF as a
 diagnostic score, not as calibrated confidence.
+
+`profile-sources` writes a JSON-safe file with coverage, pairwise agreement,
+consensus/conflict diagnostics, source score quantiles, and recommended
+unsupervised internal weights. It does not record evaluation rows, read Rhythm
+Lab labels or `track_likes`, train classifiers, or write audio files.
 
 ### `dj-sim relocate-library`
 

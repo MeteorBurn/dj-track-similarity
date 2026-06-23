@@ -38,6 +38,7 @@ from .evaluation.candidates import export_candidate_pools, write_candidate_pool_
 from .evaluation.labels import load_pair_feedback_labels, load_transition_feedback_labels
 from .evaluation.reports import build_search_evaluation_report
 from .evaluation.seed_sampling import export_seed_sample, write_seed_sample_csv
+from .evaluation.source_profile import build_source_profile, load_seed_track_ids_from_csv
 from .logging_config import configure_logging, set_analysis_diagnostics_enabled
 from .runtime import get_torch_runtime_info, recommended_torch_index
 from .scanner import scan_library
@@ -45,7 +46,7 @@ from .search import SearchFilters, SimilaritySearch
 
 
 app = typer.Typer(help="Local dj-track-similarity utility.")
-eval_app = typer.Typer(help="Import manual evaluation feedback and build evaluation reports.")
+eval_app = typer.Typer(help="Build local evaluation diagnostics and optional manual-feedback reports.")
 app.add_typer(eval_app, name="eval")
 LOGGER = logging.getLogger(__name__)
 
@@ -371,6 +372,44 @@ def evaluation_run_calibration(
         f"status={report['status']} calibration_status={report['calibration_status']} output={output_path} "
         f"score_mode={report['score_mode']} sample_count={report['sample_count']} "
         f"positive_count={report['positive_count']} recorded={report['recorded']}"
+    )
+
+
+@eval_app.command("profile-sources")
+def evaluation_profile_sources(
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+    output_path: Path = typer.Option(..., "--output", dir_okay=False, writable=True),
+    seed_sample_path: Optional[Path] = typer.Option(None, "--seed-sample", exists=True, dir_okay=False, readable=True),
+    sources: Optional[list[str]] = typer.Option(None, "--source", help="Candidate source: mert, maest, or sonara. Repeat for multiple sources."),
+    sample_count: int = typer.Option(50, "--sample-count", min=1, help="Seed count to sample when --seed-sample is not provided."),
+    per_source: int = typer.Option(30, "--per-source", min=1, help="Top candidates to request from each source per seed."),
+    top_k: Optional[list[int]] = typer.Option(None, "--top-k", min=1, help="Agreement cutoff. Repeat for multiple values."),
+    random_seed: int = typer.Option(123, "--random-seed", help="Deterministic seed for internal seed sampling."),
+) -> None:
+    try:
+        db = _evaluation_db(db_path)
+        seed_track_ids = load_seed_track_ids_from_csv(seed_sample_path) if seed_sample_path is not None else None
+        report = build_source_profile(
+            db,
+            seed_track_ids=seed_track_ids,
+            sample_count=sample_count,
+            sources=sources,
+            per_source=per_source,
+            top_k_values=top_k,
+            random_seed=random_seed,
+        )
+        _write_json_report(output_path, report)
+    except (KeyError, ValueError, sqlite3.IntegrityError) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+
+    for warning in report["warnings"]:
+        typer.secho(f"warning: {warning}", err=True, fg=typer.colors.YELLOW)
+    weights = report["recommended_weights"]["weights"]
+    weights_text = ",".join(f"{source}={float(weight):.4f}" for source, weight in sorted(weights.items()))
+    typer.echo(
+        f"status={report['status']} output={output_path} seed_count={report['seed_count']} "
+        f"weight_kind={report['weight_kind']} weights={weights_text} warnings={len(report['warnings'])}"
     )
 
 

@@ -7,4 +7,5 @@ __all__ = [
     "metrics",
     "reports",
     "seed_sampling",
+    "source_profile",
 ]

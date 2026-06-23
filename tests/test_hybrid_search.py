@@ -26,6 +26,9 @@ def test_hybrid_search_uses_equal_weights_by_default(tmp_path: Path) -> None:
     assert result.sources == ("mert", "maest")
     assert len(result.results) == 3
     assert all(row.score <= 1.0 for row in result.results)
+    assert result.results[0].transition_risk is not None
+    assert result.results[0].transition_diagnostics["supporting_seed_count"] == 1
+    assert "source_disagreement_risk" in result.results[0].transition_diagnostics["components"]
 
 
 def test_hybrid_search_custom_weights_change_order(tmp_path: Path) -> None:
@@ -155,6 +158,71 @@ def test_hybrid_search_preserves_source_supporting_seed_ids_after_best_replaceme
     assert diagnostics["supporting_seed_track_ids"] == [track_ids["seed_a"], track_ids["seed_b"]]
     assert source_support["best_seed_track_id"] == track_ids["seed_b"]
     assert source_support["supporting_seed_track_ids"] == [track_ids["seed_a"], track_ids["seed_b"]]
+    assert result.results[0].transition_diagnostics["supporting_seed_count"] == 2
+
+
+def test_hybrid_search_transition_diagnostics_use_supporting_seed_scope(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_ids = {
+        "seed_a": _track(db, tmp_path, "seed_a", bpm=120.0, musical_key="8A", energy=0.5),
+        "seed_b": _track(db, tmp_path, "seed_b", bpm=180.0, musical_key="9A", energy=1.0),
+        "candidate": _track(db, tmp_path, "candidate", bpm=120.0, musical_key="8A", energy=0.5),
+    }
+    rows = (_candidate_row(db, track_ids["seed_a"], track_ids["candidate"], {"mert": (1, 0.9)}),)
+    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
+
+    result = build_hybrid_search_preview(
+        db,
+        seed_track_ids=[track_ids["seed_a"], track_ids["seed_b"]],
+        sources=["mert", "maest"],
+        per_source=2,
+        limit=5,
+    )
+
+    transition_diagnostics = result.results[0].transition_diagnostics
+    components = transition_diagnostics["components"]
+    component_values = [value for value in components.values() if value is not None]
+    assert transition_diagnostics["supporting_seed_track_ids"] == [track_ids["seed_a"]]
+    assert transition_diagnostics["supporting_seed_count"] == 1
+    assert transition_diagnostics["seed_scope"] == "candidate_supporting_seeds"
+    assert components["bpm_risk"] == 0.0
+    assert components["source_disagreement_risk"] == 0.5
+    assert transition_diagnostics["transition_risk"] == pytest.approx(sum(component_values) / len(component_values))
+
+
+def test_hybrid_search_transition_risk_matches_aggregated_components(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_ids = {
+        "seed_a": _track(db, tmp_path, "seed_a", bpm=120.0, musical_key="8A", energy=0.0),
+        "seed_b": _track(db, tmp_path, "seed_b", bpm=None, musical_key="9A", energy=0.4),
+        "candidate": _track(db, tmp_path, "candidate", bpm=126.0, musical_key="8A", energy=1.0),
+    }
+    rows = (
+        _candidate_row(db, track_ids["seed_a"], track_ids["candidate"], {"mert": (1, 0.9)}),
+        _candidate_row(db, track_ids["seed_b"], track_ids["candidate"], {"mert": (2, 0.8)}),
+    )
+    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
+
+    result = build_hybrid_search_preview(
+        db,
+        seed_track_ids=[track_ids["seed_a"], track_ids["seed_b"]],
+        sources=["mert", "maest"],
+        per_source=2,
+        limit=5,
+    )
+
+    transition_diagnostics = result.results[0].transition_diagnostics
+    components = transition_diagnostics["components"]
+    component_values = [value for value in components.values() if value is not None]
+    assert transition_diagnostics["supporting_seed_count"] == 2
+    assert transition_diagnostics["transition_risk"] == pytest.approx(sum(component_values) / len(component_values))
+    assert result.results[0].transition_risk == transition_diagnostics["transition_risk"]
 
 
 def test_hybrid_search_returns_empty_results_with_warnings_when_sources_lack_coverage(tmp_path: Path) -> None:
@@ -183,15 +251,23 @@ def _hybrid_library(tmp_path: Path) -> tuple[LibraryDatabase, dict[str, int]]:
     return db, track_ids
 
 
-def _track(db: LibraryDatabase, tmp_path: Path, stem: str) -> int:
+def _track(
+    db: LibraryDatabase,
+    tmp_path: Path,
+    stem: str,
+    *,
+    bpm: float | None = 124.0,
+    musical_key: str | None = "8A",
+    energy: float | None = 0.5,
+) -> int:
     return db.upsert_track(
         path=tmp_path / f"{stem}.wav",
         size=10,
         mtime=1,
         metadata={"artist": f"Artist {stem}", "title": stem.replace("_", " ").title()},
-        bpm=124.0,
-        musical_key="8A",
-        energy=0.5,
+        bpm=bpm,
+        musical_key=musical_key,
+        energy=energy,
     )
 
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 import hashlib
 import math
@@ -17,6 +17,7 @@ from .evaluation.candidates import (
 from .evaluation.score_profiles import ScoreProfile, score_profile_from_dict
 from .evaluation.weighted_candidates import weighted_rrf_components, weighted_rrf_score
 from .models import Track
+from .transition_diagnostics import COMPONENT_NAMES, TransitionDiagnostics, compute_transition_diagnostics
 
 
 DEFAULT_HYBRID_SOURCES = ("mert", "maest", "sonara")
@@ -31,22 +32,26 @@ HYBRID_SEARCH_LIMITATIONS = (
 class HybridSearchResultRow:
     track: Track
     score: float
+    transition_risk: float | None
     raw_rrf_score: float
     rank: int
     score_breakdown: Mapping[str, Mapping[str, float | int]]
     match_character: Mapping[str, Any]
     warnings: tuple[str, ...]
+    transition_diagnostics: Mapping[str, Any]
     diagnostics: Mapping[str, Any]
 
     def api_row(self, *, include_diagnostics: bool) -> dict[str, Any]:
         return {
             "track": asdict(self.track),
             "score": self.score,
+            "transition_risk": self.transition_risk,
             "raw_rrf_score": self.raw_rrf_score,
             "rank": self.rank,
             "score_breakdown": dict(self.score_breakdown),
             "match_character": dict(self.match_character),
             "warnings": list(self.warnings),
+            "transition_diagnostics": dict(self.transition_diagnostics) if include_diagnostics else {},
             "diagnostics": dict(self.diagnostics) if include_diagnostics else {},
         }
 
@@ -100,7 +105,7 @@ def build_hybrid_search_preview(
     random_seed: int = 123,
 ) -> HybridSearchResult:
     clean_seed_track_ids = _positive_unique_ints(seed_track_ids, "seed_track_id")
-    _require_known_seed_tracks(db, clean_seed_track_ids)
+    clean_seed_tracks = _load_seed_tracks(db, clean_seed_track_ids)
     clean_sources = _clean_sources(sources)
     clean_weights = _resolve_weights(clean_sources, weights=weights, score_profile=score_profile)
     clean_per_source = _positive_int(per_source, "per_source")
@@ -125,7 +130,7 @@ def build_hybrid_search_preview(
         rrf_k=clean_rrf_k,
         random_seed=clean_random_seed,
     )
-    results = _ranked_result_rows(scored_candidates, limit=clean_limit, sources=clean_sources)
+    results = _ranked_result_rows(scored_candidates, limit=clean_limit, sources=clean_sources, seed_tracks=clean_seed_tracks)
     return HybridSearchResult(
         results=results,
         warnings=warnings,
@@ -238,22 +243,33 @@ def _scored_hybrid_candidates(
     )
 
 
-def _ranked_result_rows(scored_candidates: Sequence[_ScoredHybridCandidate], *, limit: int, sources: Sequence[str]) -> tuple[HybridSearchResultRow, ...]:
+def _ranked_result_rows(
+    scored_candidates: Sequence[_ScoredHybridCandidate],
+    *,
+    limit: int,
+    sources: Sequence[str],
+    seed_tracks: Sequence[Track],
+) -> tuple[HybridSearchResultRow, ...]:
     limited_candidates = tuple(scored_candidates[:limit])
     max_score = max((candidate.raw_rrf_score for candidate in limited_candidates), default=0.0)
-    return tuple(
-        HybridSearchResultRow(
-            track=candidate.candidate.track,
-            score=_normalized_response_score(candidate.raw_rrf_score, max_score),
-            raw_rrf_score=candidate.raw_rrf_score,
-            rank=rank,
-            score_breakdown=candidate.score_breakdown,
-            match_character=_match_character(candidate.candidate, sources),
-            warnings=(),
-            diagnostics=_candidate_diagnostics(candidate.candidate),
+    result_rows: list[HybridSearchResultRow] = []
+    for rank, candidate in enumerate(limited_candidates, start=1):
+        transition_diagnostics = _candidate_transition_diagnostics(candidate.candidate, seed_tracks=seed_tracks, sources=sources)
+        result_rows.append(
+            HybridSearchResultRow(
+                track=candidate.candidate.track,
+                score=_normalized_response_score(candidate.raw_rrf_score, max_score),
+                transition_risk=transition_diagnostics["transition_risk"],
+                raw_rrf_score=candidate.raw_rrf_score,
+                rank=rank,
+                score_breakdown=candidate.score_breakdown,
+                match_character=_match_character(candidate.candidate, sources),
+                warnings=_transition_warnings(transition_diagnostics),
+                transition_diagnostics=transition_diagnostics,
+                diagnostics=_candidate_diagnostics(candidate.candidate),
+            ),
         )
-        for rank, candidate in enumerate(limited_candidates, start=1)
-    )
+    return tuple(result_rows)
 
 
 def _match_character(candidate: _HybridCandidate, sources: Sequence[str]) -> dict[str, Any]:
@@ -281,6 +297,112 @@ def _candidate_diagnostics(candidate: _HybridCandidate) -> dict[str, Any]:
             for source, values in candidate.source_seed_diagnostics.items()
         },
     }
+
+
+def _candidate_transition_diagnostics(candidate: _HybridCandidate, *, seed_tracks: Sequence[Track], sources: Sequence[str]) -> dict[str, Any]:
+    seed_tracks_by_id = {track.id: track for track in seed_tracks}
+    supporting_seed_track_ids, seed_scope = _transition_seed_scope(candidate, seed_tracks_by_id)
+    diagnostics = tuple(
+        compute_transition_diagnostics(
+            seed_tracks_by_id[seed_track_id],
+            candidate.track,
+            source_count=len(candidate.source_contributions),
+            max_source_count=len(sources),
+        )
+        for seed_track_id in supporting_seed_track_ids
+    )
+    return _mean_transition_diagnostics(
+        diagnostics,
+        supporting_seed_track_ids=supporting_seed_track_ids,
+        seed_scope=seed_scope,
+    )
+
+
+def _transition_seed_scope(candidate: _HybridCandidate, seed_tracks_by_id: Mapping[int, Track]) -> tuple[tuple[int, ...], str]:
+    candidate_seed_track_ids = _known_seed_track_ids(candidate.seed_track_ids, seed_tracks_by_id)
+    if candidate_seed_track_ids:
+        return candidate_seed_track_ids, "candidate_supporting_seeds"
+
+    source_seed_track_ids = _known_seed_track_ids(_source_diagnostic_seed_track_ids(candidate), seed_tracks_by_id)
+    if source_seed_track_ids:
+        return source_seed_track_ids, "source_supporting_seeds"
+
+    return tuple(seed_tracks_by_id), "all_request_seeds_fallback"
+
+
+def _source_diagnostic_seed_track_ids(candidate: _HybridCandidate) -> tuple[int, ...]:
+    seed_track_ids: list[int] = []
+    for source_diagnostics in candidate.source_seed_diagnostics.values():
+        seed_track_ids.extend(_iterable_ints(source_diagnostics.get("supporting_seed_track_ids")))
+        seed_track_ids.extend(_iterable_ints((source_diagnostics.get("best_seed_track_id"),)))
+    return tuple(dict.fromkeys(seed_track_ids))
+
+
+def _known_seed_track_ids(seed_track_ids: Iterable[object], seed_tracks_by_id: Mapping[int, Track]) -> tuple[int, ...]:
+    known_seed_track_ids: list[int] = []
+    for value in seed_track_ids:
+        seed_track_id = _optional_int(value)
+        if seed_track_id is None or seed_track_id not in seed_tracks_by_id:
+            continue
+        known_seed_track_ids.append(seed_track_id)
+    return tuple(dict.fromkeys(known_seed_track_ids))
+
+
+def _iterable_ints(values: object) -> tuple[int, ...]:
+    if isinstance(values, (str, bytes)) or not isinstance(values, Iterable):
+        return ()
+    return tuple(value for item in values if (value := _optional_int(item)) is not None)
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _mean_transition_diagnostics(
+    diagnostics: Sequence[TransitionDiagnostics],
+    *,
+    supporting_seed_track_ids: Sequence[int],
+    seed_scope: str,
+) -> dict[str, Any]:
+    components = {
+        name: _mean_optional(diagnostic.components[name] for diagnostic in diagnostics)
+        for name in COMPONENT_NAMES
+    }
+    transition_risk = _mean_optional(components[name] for name in COMPONENT_NAMES)
+    warnings = sorted({warning for diagnostic in diagnostics for warning in diagnostic.warnings})
+    available_components = [name for name in COMPONENT_NAMES if components[name] is not None]
+    return {
+        "transition_risk": transition_risk,
+        "components": components,
+        "warnings": warnings,
+        "available_components": available_components,
+        "supporting_seed_count": len(supporting_seed_track_ids),
+        "supporting_seed_track_ids": list(supporting_seed_track_ids),
+        "seed_scope": seed_scope,
+        "method": "mean_aggregated_component_risks",
+    }
+
+
+def _transition_warnings(transition_diagnostics: Mapping[str, Any]) -> tuple[str, ...]:
+    warnings = transition_diagnostics.get("warnings")
+    if not isinstance(warnings, list) or not warnings:
+        return ()
+    missing_components = sorted(_warning_component(warning) for warning in warnings if str(warning).startswith("missing_"))
+    other_warnings = sorted(str(warning) for warning in warnings if not str(warning).startswith("missing_"))
+    result_warnings: list[str] = []
+    if missing_components:
+        result_warnings.append(f"transition diagnostics missing: {', '.join(missing_components)}")
+    result_warnings.extend(f"transition diagnostics: {warning}" for warning in other_warnings)
+    return tuple(result_warnings)
+
+
+def _warning_component(warning: object) -> str:
+    return str(warning).removeprefix("missing_").replace("_", " ")
 
 
 def _resolve_weights(
@@ -343,15 +465,17 @@ def _clean_sources(sources: Sequence[str] | None) -> tuple[str, ...]:
     return clean_sources
 
 
-def _require_known_seed_tracks(db: LibraryDatabase, seed_track_ids: Sequence[int]) -> None:
+def _load_seed_tracks(db: LibraryDatabase, seed_track_ids: Sequence[int]) -> tuple[Track, ...]:
+    seed_tracks: list[Track] = []
     unknown: list[int] = []
     for track_id in seed_track_ids:
         try:
-            db.get_track(track_id)
+            seed_tracks.append(db.get_track(track_id))
         except KeyError:
             unknown.append(track_id)
     if unknown:
         raise ValueError(f"Unknown seed track(s): {unknown}")
+    return tuple(seed_tracks)
 
 
 def _positive_unique_ints(values: Sequence[int], field_name: str) -> tuple[int, ...]:
@@ -392,6 +516,13 @@ def _non_negative_finite_float(value: object, field_name: str) -> float:
     if not math.isfinite(number) or number < 0:
         raise ValueError(f"{field_name} must be a finite non-negative number")
     return number
+
+
+def _mean_optional(values: Iterable[float | None]) -> float | None:
+    numbers = [float(value) for value in values if value is not None]
+    if not numbers:
+        return None
+    return sum(numbers) / len(numbers)
 
 
 def _normalized_response_score(raw_score: float, max_score: float) -> float:

@@ -33,6 +33,8 @@ def test_hybrid_search_endpoint_returns_unified_diagnostics(monkeypatch, tmp_pat
     assert payload["results"][0]["track"]["id"] == track_ids["maest_top"]
     assert payload["results"][0]["rank"] == 1
     assert payload["results"][0]["score"] == 1.0
+    assert payload["results"][0]["transition_risk"] is not None
+    assert payload["results"][0]["transition_diagnostics"]["supporting_seed_count"] == 1
     assert "maest" in payload["results"][0]["score_breakdown"]
     assert payload["results"][0]["match_character"]["source_count"] >= 1
     assert "not calibrated confidence" in " ".join(payload["limitations"])

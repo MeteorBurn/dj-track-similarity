@@ -170,11 +170,13 @@ class HybridSearchRequest(BaseModel):
 class HybridSearchResult(BaseModel):
     track: dict[str, Any]
     score: float
+    transition_risk: float | None = None
     raw_rrf_score: float
     rank: int
     score_breakdown: dict[str, dict[str, float | int]]
     match_character: dict[str, Any] | None = None
     warnings: list[str] = Field(default_factory=list)
+    transition_diagnostics: dict[str, Any] = Field(default_factory=dict)
     diagnostics: dict[str, Any] = Field(default_factory=dict)
 
 

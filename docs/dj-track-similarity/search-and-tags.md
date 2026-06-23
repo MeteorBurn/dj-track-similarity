@@ -216,17 +216,21 @@ exact sources (`mert`, `maest`, `sonara`), excludes the seeds, and ranks the
 union with weighted reciprocal-rank fusion. If no inline `weights` or
 `score_profile` is supplied, requested sources use equal weights. The response
 contains a normalized preview `score`, `raw_rrf_score`, per-source rank/weight
-breakdown, light source-support diagnostics, warnings, `weights_used`, and
-limitations.
+breakdown, light source-support diagnostics, lightweight transition diagnostics,
+warnings, `weights_used`, and limitations.
 
 Treat the displayed score as a weighted rank-fusion preview only. It is not
-confidence, probability, or a calibrated human-taste estimate. The UI keeps
-diagnostics intentionally light: row score, source support, source weights/ranks
-on hover, visible warnings when coverage is missing, and limitations available
-from the `Score info` tooltip. The endpoint can return an empty result list. It
-reads stored SQLite analysis data only: no audio files are written, no search
-sessions are recorded by default, classifiers are not trained, and existing
-production search endpoints are unchanged.
+confidence, probability, or a calibrated human-taste estimate. Each result also
+includes `transition_risk` and `transition_diagnostics` built from stored
+BPM, key, energy, and source-consensus signals. That risk is a lightweight
+diagnostic score for future ranking experiments, not AutoMix, beatgrid analysis,
+cue detection, or a calibrated transition probability. The UI keeps diagnostics
+intentionally light: row score, source support, source weights/ranks on hover,
+visible warnings when coverage is missing, and limitations available from the
+`Score info` tooltip. The endpoint can return an empty result list. It reads
+stored SQLite analysis data only: no audio files are written, no search sessions
+are recorded by default, classifiers are not trained, and existing production
+search endpoints are unchanged.
 
 ### CLAP Text Search
 

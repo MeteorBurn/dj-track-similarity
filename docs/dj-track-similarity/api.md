@@ -194,13 +194,18 @@ Hybrid search generates candidates from the existing exact source search paths,
 excludes seed tracks, and fuses source ranks with weighted reciprocal-rank
 fusion. The response returns `results`, `weights_used`, `sources`, `warnings`,
 diagnostics, and limitations. Each result has a `track`, a normalized `score`,
-the underlying `raw_rrf_score`, `rank`, per-source `score_breakdown`, and light
-diagnostic `match_character` such as source count/consensus. The score is a
-rank-fusion preview score, not confidence, probability, or a calibrated estimate
-of human taste. Missing source coverage is reported in `warnings`; if no source
-can return candidates, the endpoint returns an empty result list rather than
-failing. It reads stored SQLite analysis data only and does not write sessions,
-tags, audio files, classifiers, or production search configuration.
+the underlying `raw_rrf_score`, `rank`, per-source `score_breakdown`, light
+diagnostic `match_character` such as source count/consensus, and additive
+`transition_risk` / `transition_diagnostics` fields. Transition diagnostics use
+stored BPM half/double compatibility, exact-key equality, energy jump, and
+source-consensus disagreement. They are lightweight diagnostic values for future
+ranking experiments, not AutoMix, beatgrid or cue-point detection, and not a
+calibrated transition probability. The score is a rank-fusion preview score, not
+confidence, probability, or a calibrated estimate of human taste. Missing source
+coverage is reported in `warnings`; if no source can return candidates, the
+endpoint returns an empty result list rather than failing. It reads stored
+SQLite analysis data only and does not write sessions, tags, audio files,
+classifiers, or production search configuration.
 
 `POST /api/set-builder/generate` is a read-only set preview endpoint. It does
 not run audio analysis, score classifiers, save sessions, write tags, or modify

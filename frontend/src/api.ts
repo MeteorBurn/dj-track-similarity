@@ -61,6 +61,7 @@ export type HybridSearchPayload = {
 export type HybridSearchResult = {
   track: Track;
   score: number;
+  transition_risk?: number | null;
   raw_rrf_score: number;
   rank: number;
   score_breakdown: Record<string, { rank: number; weight: number; contribution: number; score?: number }>;
@@ -71,6 +72,7 @@ export type HybridSearchResult = {
     [key: string]: unknown;
   } | null;
   warnings: string[];
+  transition_diagnostics: Record<string, unknown>;
   diagnostics: Record<string, unknown>;
 };
 

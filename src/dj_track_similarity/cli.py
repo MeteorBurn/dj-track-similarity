@@ -32,6 +32,7 @@ from .database import LibraryDatabase
 from .db_schema import CURRENT_SCHEMA_VERSION
 from .dependencies import require_ffmpeg
 from .embedding import ClapEmbeddingAdapter
+from .evaluation.ablation import build_source_ablation_report
 from .evaluation.candidates import export_candidate_pools, write_candidate_pool_csv
 from .evaluation.labels import load_pair_feedback_labels, load_transition_feedback_labels
 from .evaluation.reports import build_search_evaluation_report
@@ -271,6 +272,27 @@ def evaluation_report(
     typer.echo(
         f"status={report['status']} output={output_path} sessions_total={counts['sessions_total']} "
         f"sessions_with_labels={counts['sessions_with_labels']} judged_results={counts['judged_results']}"
+    )
+
+
+@eval_app.command("run-ablation")
+def evaluation_run_ablation(
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+    output_path: Path = typer.Option(..., "--output", dir_okay=False, writable=True),
+    k: Optional[list[int]] = typer.Option(None, "--k", min=1, help="Metric cutoff. Repeat for multiple values."),
+    rrf_k: int = typer.Option(60, "--rrf-k", min=1, help="RRF smoothing constant for source-rank fusion."),
+) -> None:
+    try:
+        report = build_source_ablation_report(_evaluation_db(db_path), k_values=k or [5, 10], rrf_k=rrf_k)
+        _write_json_report(output_path, report)
+    except ValueError as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+    counts = report["counts"]
+    typer.echo(
+        f"status={report['status']} output={output_path} sessions_total={counts['sessions_total']} "
+        f"sessions_with_labels={counts['sessions_with_labels']} judged_results={counts['judged_results']} "
+        f"sources_seen={','.join(counts['sources_seen'])}"
     )
 
 

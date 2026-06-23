@@ -313,6 +313,7 @@ events.
 dj-sim eval export-candidates --db .\data\library_v4.sqlite --output .\labels\candidate_pool.csv --seed-track-id 42 --source mert --source sonara --source maest --per-source 10 --random-seed 123
 dj-sim eval import-pair-feedback --db .\data\library_v4.sqlite --input .\labels\pair_feedback.csv
 dj-sim eval import-transition-feedback --db .\data\library_v4.sqlite --input .\labels\transition_feedback.jsonl
+dj-sim eval run-ablation --db .\data\library_v4.sqlite --output .\reports\ablation.json --k 5 --k 10 --rrf-k 60
 dj-sim eval report --db .\data\library_v4.sqlite --output .\reports\evaluation.json --k 5 --k 10
 ```
 
@@ -322,8 +323,21 @@ ground truth:
 1. Run `dj-sim eval export-candidates` for one or more `--seed-track-id` values.
 2. Open the generated CSV and fill `rating`, `reason_tags`, and `notes` by hand.
 3. Import the completed file with `dj-sim eval import-pair-feedback`.
-4. Run `dj-sim eval report` to summarize recorded sessions against the imported
-   ratings.
+4. Run `dj-sim eval run-ablation` to compare recorded source contributions on
+   the labeled candidate pools.
+5. Run `dj-sim eval report` for the general recorded-session report; calibration
+   reports can come later after enough labeled data exists.
+
+`run-ablation` evaluates only recorded candidate-pool events and imported pair
+feedback. It builds single-source variants for `mert`, `maest`, and `sonara` when
+those sources are present, a full Reciprocal Rank Fusion baseline, and
+leave-one-out RRF variants that remove one source at a time. RRF is used because
+raw source scores are not calibrated or directly comparable across models; the
+ablation report uses recorded per-source ranks, or derives a source-local rank
+from scores only when no rank was recorded. It does not tune production weights
+or change runtime search behavior.
+
+`report` summarizes recorded sessions against the imported ratings.
 
 `export-candidates` reads existing exact search sources only: `mert` embedding
 similarity, `maest` embedding similarity, and balanced/default `sonara`
@@ -401,6 +415,7 @@ Commands:
 export-candidates
 import-pair-feedback
 import-transition-feedback
+run-ablation
 report
 ```
 
@@ -408,6 +423,11 @@ The import commands fail fast on malformed ratings with the input line number
 and print imported/upserted or inserted counts. `report` writes a JSON-safe file
 with session totals, judged and unjudged result counts, labels by rating, and
 ranking metrics for each requested `--k` cutoff.
+
+`run-ablation` writes a JSON-safe file with `status`, `counts`, per-variant
+metrics, and deltas versus `fusion:rrf_all`. If recorded candidate pools or
+matching imported pair labels are missing, the report status is
+`insufficient_data`.
 
 ### `dj-sim relocate-library`
 

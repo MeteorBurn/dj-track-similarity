@@ -56,6 +56,36 @@ def test_eval_report_cli_writes_json_summary(tmp_path: Path) -> None:
     assert report["counts"]["judged_results"] == 1
 
 
+def test_eval_run_ablation_cli_writes_json_summary(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    output_path = tmp_path / "ablation.json"
+    db = LibraryDatabase(db_path)
+    seed_id = db.upsert_track(path=tmp_path / "seed.wav", size=10, mtime=1)
+    candidate_id = db.upsert_track(path=tmp_path / "candidate.wav", size=10, mtime=1)
+    session_id = db.create_search_session("evaluation_candidate_pool", [seed_id], {"feedback_source": "manual"})
+    db.record_search_result_event(
+        session_id,
+        candidate_id,
+        rank=1,
+        total_score=0.0,
+        score_breakdown={"sources": {"mert": {"rank": 1}, "maest": {"rank": 2}}},
+    )
+    db.upsert_track_pair_feedback(seed_id, candidate_id, 3)
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["eval", "run-ablation", "--db", str(db_path), "--output", str(output_path), "--k", "1", "--rrf-k", "60"],
+    )
+
+    assert result.exit_code == 0
+    assert "status=ok" in result.output
+    report = json.loads(output_path.read_text(encoding="utf-8"))
+    assert report["k_values"] == [1]
+    assert report["rrf_k"] == 60
+    assert report["counts"]["judged_results"] == 1
+    assert "fusion:rrf_all" in report["variants"]
+
+
 def test_eval_export_candidates_cli_writes_csv_without_recording_sessions(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     output_path = tmp_path / "candidates.csv"

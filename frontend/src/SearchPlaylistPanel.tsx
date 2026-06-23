@@ -1,6 +1,6 @@
 import { Dispatch, Fragment, SetStateAction, useEffect, useRef, useState } from "react";
 import { Download, FolderOpen, ListFilter, ListMusic, Pause, Play, RotateCcw, Search, Tags, Trash2, X } from "lucide-react";
-import { AnalysisJobStatus, PromotedClassifier, SearchResult, SetBuilderBpmChange, SetBuilderBpmMode, SetBuilderClassifierFlow, SetBuilderEnergyCurve, SetBuilderGeneratePayload, SetBuilderMode, SetBuilderSeedMode, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
+import { AnalysisJobStatus, api, HybridSearchResult, HybridSearchSource, PromotedClassifier, SearchResult, SetBuilderBpmChange, SetBuilderBpmMode, SetBuilderClassifierFlow, SetBuilderEnergyCurve, SetBuilderGeneratePayload, SetBuilderMode, SetBuilderSeedMode, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
 import type { ClapPromptPreset } from "./clapPrompt";
 import { playlistPage } from "./playlistView";
 import { resetSetBuilderSliders, setBuilderDefaultDiversity, setBuilderDefaultFlow } from "./setBuilderControls";
@@ -155,6 +155,26 @@ const setClassifierFlowOptions: Array<SelectOption<SetBuilderClassifierFlow>> = 
   }
 ];
 
+const hybridSourceKeys: HybridSearchSource[] = ["mert", "maest", "sonara"];
+
+const hybridSourceOptions: Array<{ key: HybridSearchSource; label: string; title: string }> = [
+  {
+    key: "mert",
+    label: "MERT",
+    title: "MERT source for Hybrid preview. Type: checkbox on/off. Range: enabled or disabled. Requires stored MERT embeddings."
+  },
+  {
+    key: "maest",
+    label: "MAEST",
+    title: "MAEST source for Hybrid preview. Type: checkbox on/off. Range: enabled or disabled. Uses stored MAEST embeddings, not genre labels."
+  },
+  {
+    key: "sonara",
+    label: "SONARA",
+    title: "SONARA source for Hybrid preview. Type: checkbox on/off. Range: enabled or disabled. Requires stored SONARA features."
+  }
+];
+
 export function SearchPlaylistPanel({
   seedTracks,
   textQuery,
@@ -255,6 +275,17 @@ export function SearchPlaylistPanel({
   const [setAutoSeedCount, setSetAutoSeedCount] = useState(5);
   const [setClassifierPreferences, setSetClassifierPreferences] = useState<Record<string, number>>({});
   const [setClassifierFlows, setSetClassifierFlows] = useState<Record<string, SetBuilderClassifierFlow>>({});
+  const [hybridSources, setHybridSources] = useState<Record<HybridSearchSource, boolean>>({ mert: true, maest: true, sonara: true });
+  const [hybridWeights, setHybridWeights] = useState<Record<HybridSearchSource, number>>({ mert: 1, maest: 1, sonara: 1 });
+  const [hybridPerSource, setHybridPerSource] = useState(30);
+  const [hybridLimit, setHybridLimit] = useState(25);
+  const [hybridLoading, setHybridLoading] = useState(false);
+  const [hybridError, setHybridError] = useState("");
+  const [hybridResults, setHybridResults] = useState<HybridSearchResult[]>([]);
+  const [hybridWarnings, setHybridWarnings] = useState<string[]>([]);
+  const [hybridLimitations, setHybridLimitations] = useState<string[]>([]);
+  const [hybridWeightsUsed, setHybridWeightsUsed] = useState<Record<string, number>>({});
+  const [hybridPreviewKey, setHybridPreviewKey] = useState("");
   const playlistPageState = playlistPage(playlist, playlistOffset, playlistPageSize);
   useEffect(() => {
     if (playlistPageState.offset !== playlistOffset) {
@@ -298,9 +329,33 @@ export function SearchPlaylistPanel({
   const setBuilderDiversityTitle = "Насколько активно раздвигать похожие кандидаты. Тип: число 0.00-1.00. 0 = ближе к anchors, 1 = больше разнообразия при сохранении связи.";
   const setBpmStartTitle = "Start BPM для явной BPM-кривой. Тип: число 20-300 или пусто = взять из первого seed/anchor, затем из библиотеки.";
   const setBpmTargetTitle = "Target BPM для явной BPM-кривой. Тип: число 20-300 или пусто = вывести из доступного диапазона библиотеки.";
+  const hybridBlockTitle = "Hybrid preview: explicit weighted RRF candidate preview inside SET. Type: action block. It reads stored MERT/MAEST/SONARA data only and does not change existing search endpoints.";
+  const hybridWeightTitle = "Source weight for Weighted preview. Type: number 0.00-1.00. Equal values keep sources balanced; disabled sources are ignored.";
+  const hybridPerSourceTitle = "Candidates fetched per enabled source before weighted fusion. Type: integer 1-100. Default: 30.";
+  const hybridLimitTitle = "Maximum Hybrid preview rows to show. Type: integer 1-100. Default: 25.";
   const autoSeedCountDisabled = setSeedMode !== "auto";
   const autoSeedCountControlTitle = autoSeedCountDisabled ? `${setAutoSeedCountTitle} Активно только когда выбран Auto - random start.` : setAutoSeedCountTitle;
   const bpmControlsDisabled = setBpmMode === "general";
+  const selectedHybridSources = hybridSourceKeys.filter((source) => hybridSources[source]);
+  const hybridSeedMessage = hybridSeedRequirementMessage(seeds.length);
+  const hybridSourceMessage = selectedHybridSources.length ? "" : "Enable at least one Hybrid preview source.";
+  const hybridReadinessMessage = hybridSeedMessage || hybridSourceMessage;
+  const hybridInputKey = formatHybridInputKey(seeds, hybridSources, hybridWeights, hybridPerSource, hybridLimit);
+  const hybridInputKeyRef = useRef(hybridInputKey);
+  const hybridPreviewIsCurrent = hybridPreviewKey === hybridInputKey;
+  const showHybridDiagnostics = hybridPreviewIsCurrent && !hybridReadinessMessage && !hybridError;
+  const showHybridResults = showHybridDiagnostics && hybridResults.length > 0;
+  const hybridDiagnosticTitle = formatHybridDiagnosticTitle(showHybridDiagnostics ? hybridLimitations : []);
+
+  useEffect(() => {
+    hybridInputKeyRef.current = hybridInputKey;
+    setHybridError("");
+    setHybridResults([]);
+    setHybridWarnings([]);
+    setHybridLimitations([]);
+    setHybridWeightsUsed({});
+    setHybridPreviewKey("");
+  }, [hybridInputKey]);
 
   function setSonaraMixerValue(key: keyof SonaraMixerWeights, value: number) {
     setFilters((current) => ({ ...current, sonaraMixer: { ...current.sonaraMixer, [key]: value } }));
@@ -331,6 +386,73 @@ export function SearchPlaylistPanel({
     setSetBuilderDiversity(next.diversity);
     setSetClassifierPreferences(next.classifierPreferences);
     setSetClassifierFlows(next.classifierFlows);
+  }
+
+  function setHybridSourceEnabled(source: HybridSearchSource, enabled: boolean) {
+    setHybridSources((current) => ({ ...current, [source]: enabled }));
+  }
+
+  function setHybridSourceWeight(source: HybridSearchSource, value: number) {
+    setHybridWeights((current) => ({ ...current, [source]: clampNumber(value, 0, 1) }));
+  }
+
+  async function generateHybridPreview() {
+    const seedMessage = hybridSeedRequirementMessage(seeds.length);
+    if (seedMessage) {
+      setHybridResults([]);
+      setHybridWarnings([]);
+      setHybridLimitations([]);
+      setHybridWeightsUsed({});
+      setHybridPreviewKey("");
+      setHybridError(seedMessage);
+      return;
+    }
+    const sources = hybridSourceKeys.filter((source) => hybridSources[source]);
+    if (!sources.length) {
+      setHybridResults([]);
+      setHybridWarnings([]);
+      setHybridLimitations([]);
+      setHybridWeightsUsed({});
+      setHybridPreviewKey("");
+      setHybridError("Enable at least one Hybrid preview source.");
+      return;
+    }
+
+    const requestKey = hybridInputKey;
+    setHybridLoading(true);
+    setHybridError("");
+    setHybridResults([]);
+    setHybridWarnings([]);
+    setHybridLimitations([]);
+    setHybridWeightsUsed({});
+    setHybridPreviewKey("");
+    try {
+      const response = await api.hybridSearch({
+        seed_track_ids: seeds,
+        sources,
+        weights: Object.fromEntries(sources.map((source) => [source, hybridWeights[source]])),
+        per_source: hybridPerSource,
+        limit: hybridLimit,
+        include_diagnostics: true
+      });
+      if (hybridInputKeyRef.current !== requestKey) return;
+      setHybridResults(response.results);
+      setHybridWarnings(response.warnings);
+      setHybridLimitations(response.limitations);
+      setHybridWeightsUsed(response.weights_used);
+      setHybridPreviewKey(requestKey);
+    } catch (error) {
+      if (hybridInputKeyRef.current !== requestKey) return;
+      const message = error instanceof Error ? error.message : String(error);
+      setHybridResults([]);
+      setHybridWarnings([]);
+      setHybridLimitations([]);
+      setHybridWeightsUsed({});
+      setHybridPreviewKey("");
+      setHybridError(message);
+    } finally {
+      setHybridLoading(false);
+    }
   }
 
   function generateSetBuilder() {
@@ -406,7 +528,7 @@ export function SearchPlaylistPanel({
                       {setSeedModeOptions.map((option) => (
                         <button
                           key={option.value}
-                          className={setSeedMode === option.value ? "active" : ""}
+                          className={`set-builder-seed-mode-button ${setSeedMode === option.value ? "active" : ""}`}
                           title={option.title}
                           aria-pressed={setSeedMode === option.value}
                           onClick={() => setSetSeedMode(option.value)}
@@ -534,6 +656,91 @@ export function SearchPlaylistPanel({
                 <ListMusic size={17} />
                 Add preview
               </button>
+            </div>
+            <div className="hybrid-preview-panel" title={hybridBlockTitle}>
+              <div className="custom-control-header">
+                <span>Hybrid preview</span>
+                <span className="hybrid-diagnostic-chip" title={hybridDiagnosticTitle}>Score info</span>
+              </div>
+              <p className="hybrid-preview-note">
+                Uses selected seed tracks and stored analysis data only.
+              </p>
+              <div className="hybrid-source-grid">
+                {hybridSourceOptions.map((source) => (
+                  <div className="hybrid-source-row" key={source.key}>
+                    <label className="toggle hybrid-source-toggle" title={source.title}>
+                      <input
+                        type="checkbox"
+                        checked={hybridSources[source.key]}
+                        title={source.title}
+                        onChange={(event) => setHybridSourceEnabled(source.key, event.target.checked)}
+                      />
+                      {source.label}
+                    </label>
+                    <label className={hybridSources[source.key] ? "" : "disabled-filter"} title={hybridWeightTitle}>
+                      Weight
+                      <input
+                        type="number"
+                        value={hybridWeights[source.key]}
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        title={hybridWeightTitle}
+                        disabled={!hybridSources[source.key]}
+                        onChange={(event) => setHybridSourceWeight(source.key, Number(event.target.value))}
+                      />
+                    </label>
+                  </div>
+                ))}
+              </div>
+              <div className="search-filter-grid hybrid-preview-grid">
+                <label title={hybridPerSourceTitle}>
+                  Per-source
+                  <input type="number" value={hybridPerSource} min={1} max={100} title={hybridPerSourceTitle} onChange={(event) => setHybridPerSource(clampNumber(Number(event.target.value), 1, 100))} />
+                </label>
+                <label title={hybridLimitTitle}>
+                  Result limit
+                  <input type="number" value={hybridLimit} min={1} max={100} title={hybridLimitTitle} onChange={(event) => setHybridLimit(clampNumber(Number(event.target.value), 1, 100))} />
+                </label>
+              </div>
+              <button className="hybrid-preview-button" title="Generate a weighted Hybrid preview from 1-5 selected seed tracks. This does not change SET, SONARA, MERT, CLAP, or CLASS behavior." disabled={busy || hybridLoading || Boolean(hybridReadinessMessage)} onClick={() => void generateHybridPreview()} type="button">
+                <Search size={17} />
+                {hybridLoading ? "Generating..." : "Generate weighted preview"}
+              </button>
+              {hybridReadinessMessage ? <span className="hybrid-status-message">{hybridReadinessMessage}</span> : null}
+              {hybridError ? <span className="hybrid-status-message error">{hybridError}</span> : null}
+              {showHybridResults ? (
+                <span className="hybrid-status-message" title={formatHybridWeightsTitle(hybridWeightsUsed)}>
+                  {hybridResults.length} weighted preview rows · {formatHybridWeightsTitle(hybridWeightsUsed)}
+                </span>
+              ) : null}
+              {showHybridDiagnostics && hybridWarnings.length ? (
+                <div className="hybrid-warning-list">
+                  {hybridWarnings.slice(0, 3).map((warning, index) => (
+                    <span key={`${index}-${warning}`}>{warning}</span>
+                  ))}
+                </div>
+              ) : null}
+              {showHybridResults ? (
+                <div className="hybrid-preview-results" aria-label="Hybrid preview results">
+                  {hybridResults.map((result) => (
+                    <ResultRow
+                      key={result.track.id}
+                      track={result.track}
+                      score={result.score}
+                      scoreBreakdown={hybridScoreBreakdown(result)}
+                      reason={hybridReason(result)}
+                      playingTrackId={playingTrackId}
+                      isSeed={seedSet.has(result.track.id)}
+                      inPlaylist={playlistSet.has(result.track.id)}
+                      onSeed={addSeed}
+                      onTogglePlaylist={togglePlaylist}
+                      onPreview={setPreview}
+                      onDetails={setMetadataTrack}
+                    />
+                  ))}
+                </div>
+              ) : null}
             </div>
           </div>
         )}
@@ -821,10 +1028,6 @@ function setClassifierFlowHelp(classifier: PromotedClassifier) {
   return `Flow для ${classifier.name}. Тип: Flat/Rise/Fall. Flat применяет Preference ровно; Rise усиливает выбранную сторону к концу SET; Fall сильнее держит ее в начале.`;
 }
 
-function compactScoreMap(values: Record<string, number>) {
-  return Object.fromEntries(Object.entries(values).filter(([, value]) => value > 0));
-}
-
 function compactSignedScoreMap(values: Record<string, number>) {
   return Object.fromEntries(Object.entries(values).filter(([, value]) => value !== 0));
 }
@@ -834,6 +1037,61 @@ function optionalNumberInput(value: string) {
   if (!trimmed) return undefined;
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, value));
+}
+
+function hybridSeedRequirementMessage(seedCount: number) {
+  if (seedCount < 1) return "Hybrid preview requires 1-5 selected seed tracks.";
+  if (seedCount > 5) return "Hybrid preview uses at most 5 selected seed tracks; remove extra seeds first.";
+  return "";
+}
+
+function formatHybridInputKey(
+  seeds: number[],
+  sources: Record<HybridSearchSource, boolean>,
+  weights: Record<HybridSearchSource, number>,
+  perSource: number,
+  limit: number
+) {
+  const sourceState = hybridSourceKeys.map((source) => `${source}:${sources[source] ? "1" : "0"}:${weights[source]}`).join("|");
+  return `${seeds.join(",")}|${sourceState}|${perSource}|${limit}`;
+}
+
+function formatHybridDiagnosticTitle(limitations: string[]) {
+  const scoreDescription = "Preview score is weighted RRF, not confidence.";
+  if (!limitations.length) return scoreDescription;
+  return `${scoreDescription} ${limitations.join(" ")}`;
+}
+
+function hybridReason(result: HybridSearchResult) {
+  const sourceCount = result.match_character?.source_count ?? Object.keys(result.score_breakdown).length;
+  return `weighted_preview_${sourceCount}_sources`;
+}
+
+function hybridScoreBreakdown(result: HybridSearchResult) {
+  const sourceCount = result.match_character?.source_count ?? Object.keys(result.score_breakdown).length;
+  const breakdown: Record<string, number> = {
+    raw_rrf_score: result.raw_rrf_score,
+    source_count: sourceCount,
+    rank: result.rank
+  };
+  for (const [source, details] of Object.entries(result.score_breakdown)) {
+    breakdown[`${source}_rank`] = Number(details.rank);
+    breakdown[`${source}_weight`] = Number(details.weight);
+    breakdown[`${source}_contribution`] = Number(details.contribution);
+    if (typeof details.score === "number") breakdown[`${source}_source_score`] = details.score;
+  }
+  return breakdown;
+}
+
+function formatHybridWeightsTitle(weights: Record<string, number>) {
+  const entries = Object.entries(weights);
+  if (!entries.length) return "Weights pending";
+  return entries.map(([source, weight]) => `${source.toUpperCase()} ${weight.toFixed(2)}`).join(" · ");
 }
 
 function compactClassifierFlows(values: Record<string, SetBuilderClassifierFlow>, preferences: Record<string, number>) {

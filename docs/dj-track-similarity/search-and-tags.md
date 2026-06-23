@@ -196,12 +196,20 @@ Use MERT after running `dj-sim analyze --models mert` or the matching selected
 model in the UI analysis job. If results are empty or stale, check whether the
 candidate tracks have MERT embeddings.
 
-### Hybrid Search Preview API
+### Hybrid Search Preview
 
-`/api/search/hybrid` is a backend-only preview endpoint for scripts and future
-UI experiments. It is intentionally separate from the visible SET, SONARA, MERT,
-CLAP, and CLASS tabs, and it does not replace or alter those existing endpoints,
-weights, or scoring behavior.
+`/api/search/hybrid` is exposed in the UI as a compact `Hybrid preview` block
+inside the existing SET workflow. It is not a separate top-level tab, and it
+does not replace or alter the visible SET, SONARA, MERT, CLAP, or CLASS tabs,
+their endpoints, weights, or scoring behavior.
+
+Use `Generate weighted preview` when you want a quick seed-based weighted
+candidate list instead of an ordered Smart Set Builder route. The block reuses
+the currently selected seed tracks and requires `1-5` seeds. MERT, MAEST, and
+SONARA sources can be enabled or disabled, each source has an inline weight, and
+the UI exposes `Per-source` (`1-100`, default `30`) plus `Result limit`
+(`1-100`, default `25`). The browser does not fetch profile artifacts from the
+filesystem; equal default weights are sent unless you edit them.
 
 The endpoint accepts `1-5` seed track IDs, generates candidates from requested
 exact sources (`mert`, `maest`, `sonara`), excludes the seeds, and ranks the
@@ -211,12 +219,14 @@ contains a normalized preview `score`, `raw_rrf_score`, per-source rank/weight
 breakdown, light source-support diagnostics, warnings, `weights_used`, and
 limitations.
 
-Treat this score as a weighted rank-fusion preview only. It is not confidence,
-probability, or a calibrated human-taste estimate. Missing source coverage is
-returned as warnings and the endpoint can return an empty result list. It reads
-stored SQLite analysis data only: no audio files are written, no search sessions
-are recorded by default, classifiers are not trained, and existing production
-search endpoints are unchanged.
+Treat the displayed score as a weighted rank-fusion preview only. It is not
+confidence, probability, or a calibrated human-taste estimate. The UI keeps
+diagnostics intentionally light: row score, source support, source weights/ranks
+on hover, visible warnings when coverage is missing, and limitations available
+from the `Score info` tooltip. The endpoint can return an empty result list. It
+reads stored SQLite analysis data only: no audio files are written, no search
+sessions are recorded by default, classifiers are not trained, and existing
+production search endpoints are unchanged.
 
 ### CLAP Text Search
 

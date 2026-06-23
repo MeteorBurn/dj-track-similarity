@@ -12,7 +12,7 @@ import pytest
 
 
 def _load_dedup_module():
-    path = Path(__file__).resolve().parents[1] / "audio_dedup" / "audio_dedup.py"
+    path = Path(__file__).resolve().parents[2] / "tools" / "audio-dedup" / "audio_dedup" / "core.py"
     spec = importlib.util.spec_from_file_location("audio_dedup", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -230,6 +230,53 @@ def test_report_only_main_does_not_delete_files_or_mutate_database(tmp_path: Pat
     assert payload["groups"][0]["suggested_keeper"]["track_id"] == 1
     assert payload["groups"][0]["candidate_deletes"][0]["track_id"] == 2
     assert payload["groups"][0]["candidate_deletes"][0]["safe_to_delete"] == "true_candidate"
+
+
+def test_xlsx_summary_sheet_is_formatted_as_review_dashboard(tmp_path: Path) -> None:
+    dedup = _load_dedup_module()
+    payload = {
+        "mode": "report-only",
+        "generated_at": "2026-06-23T12:00:00",
+        "database_path": "C:/db/library.sqlite",
+        "root": "D:/Music",
+        "path_contains": ["mastered"],
+        "preset": "safe",
+        "min_score": 0.965,
+        "min_similarity": 0.985,
+        "database_track_count": 25,
+        "scoped_track_count": 10,
+        "track_count": 10,
+        "group_count": 2,
+        "statistics": {
+            "candidate_count": 3,
+            "safe_candidate_count": 1,
+            "review_candidate_count": 2,
+            "confidence_counts": {"high": 1, "medium": 1, "review": 0},
+            "embedding_coverage": {"mert": 10, "maest": 9, "clap": 4},
+        },
+        "rhythm_lab": {
+            "database_path": "tools/rhythm-lab/data/rhythm_lab.sqlite",
+            "database_exists": True,
+            "affected_track_count": 1,
+            "affected_row_count": 4,
+            "affected_rows": [],
+        },
+        "groups": [],
+    }
+    path = tmp_path / "dedup.xlsx"
+
+    dedup.write_xlsx_report(path, payload)
+
+    with zipfile.ZipFile(path) as archive:
+        summary_xml = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+        styles_xml = archive.read("xl/styles.xml").decode("utf-8")
+    assert '<mergeCell ref="A1:E1"/>' in summary_xml
+    assert '<mergeCell ref="A2:E2"/>' in summary_xml
+    assert 'showGridLines="0"' in summary_xml
+    assert 'Review workbook before deleting files' in summary_xml
+    assert "Safe delete candidates" in summary_xml
+    assert "Open the Candidates sheet and review every row before apply mode." in summary_xml
+    assert 'fgColor rgb="FF111827"' in styles_xml
 
 
 def test_keeper_selection_prefers_lossless_then_bitrate_proxy() -> None:
@@ -496,7 +543,7 @@ def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> Non
     assert "MPEG Audio Layer III" not in candidates_xml
     assert "mert_similarity" in candidates_xml
     assert "content_similarity_vs_keeper" in candidates_xml
-    assert "Duplicate audio summary" in summary_xml
+    assert "Audio Dedup Report" in summary_xml
     assert str(db_path.resolve()) in summary_xml
     assert "Total tracks in database" in summary_xml
     assert "Tracks inside selected root" in summary_xml

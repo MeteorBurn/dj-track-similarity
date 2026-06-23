@@ -8,7 +8,7 @@ import math
 from pathlib import Path
 import sqlite3
 import sys
-from typing import Iterable
+from typing import Callable, Iterable
 from xml.sax.saxutils import escape
 import zipfile
 
@@ -16,11 +16,14 @@ import numpy as np
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT = SCRIPT_DIR.parents[1]
+TOOL_ROOT = SCRIPT_DIR.parent
+REPO_ROOT = TOOL_ROOT.parents[1]
 DEFAULT_DB = Path(r"C:\db\abstracted.sqlite")
 DEFAULT_RHYTHM_LAB_DB = REPO_ROOT / "tools" / "rhythm-lab" / "data" / "rhythm_lab.sqlite"
-DEFAULT_OUT_DIR = SCRIPT_DIR / "reports"
+DEFAULT_OUT_DIR = TOOL_ROOT / "data" / "reports"
 SUPPORTED_EMBEDDINGS = ("mert", "maest", "clap")
+ProgressCallback = Callable[[int, int, str], None]
+CancelCheck = Callable[[], bool]
 LOSSLESS_RANKS = {
     ".flac": 60,
     ".wav": 55,
@@ -118,6 +121,10 @@ class ApplyResult:
     rhythm_lab_deleted_rows: int = 0
 
 
+class AudioDedupCancelled(RuntimeError):
+    pass
+
+
 def main(argv: list[str] | None = None) -> int:
     configure_stdio()
     args = parse_args(argv)
@@ -209,12 +216,27 @@ def run_report(
     min_similarity: float | None = None,
     limit_groups: int | None,
     out_dir: Path,
+    progress_callback: ProgressCallback | None = None,
+    should_cancel: CancelCheck | None = None,
 ) -> ReportResult:
     config = resolve_preset(preset_name, min_score=min_score, min_similarity=min_similarity)
     selected_db = Path(db_path).expanduser().resolve(strict=False)
+    _report_progress(progress_callback, 0, 0, "Reading database")
+    _raise_if_cancelled(should_cancel)
     database_track_count = count_database_tracks(selected_db)
+    _report_progress(progress_callback, 0, database_track_count, "Loading scoped tracks")
     tracks = load_tracks(db_path, root=root, path_contains=path_contains)
-    groups = find_duplicate_groups(tracks, config, limit_groups=limit_groups)
+    _raise_if_cancelled(should_cancel)
+    _report_progress(progress_callback, 0, max(1, len(tracks)), f"Loaded {len(tracks)} scoped tracks")
+    groups = find_duplicate_groups(
+        tracks,
+        config,
+        limit_groups=limit_groups,
+        progress_callback=progress_callback,
+        should_cancel=should_cancel,
+    )
+    _raise_if_cancelled(should_cancel)
+    _report_progress(progress_callback, 0, 0, "Writing reports")
     payload = build_report(
         groups,
         tracks,
@@ -236,6 +258,7 @@ def run_report(
     json_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     write_xlsx_report(xlsx_path, payload)
     write_text_log(log_path, payload)
+    _report_progress(progress_callback, 1, 1, "Reports written")
     return ReportResult(json_path=json_path, xlsx_path=xlsx_path, log_path=log_path, payload=payload, groups=len(groups))
 
 
@@ -327,20 +350,33 @@ def find_duplicate_groups(
     config: PresetConfig,
     *,
     limit_groups: int | None,
+    progress_callback: ProgressCallback | None = None,
+    should_cancel: CancelCheck | None = None,
 ) -> list[DuplicateGroup]:
     if len(tracks) < 2:
+        _report_progress(progress_callback, 1, 1, "Not enough scoped tracks")
         return []
     by_id = {track.track_id: track for track in tracks}
+    _report_progress(progress_callback, 0, 0, "Building candidate pairs")
     candidate_pairs = _candidate_pair_ids(tracks, config)
+    pair_total = len(candidate_pairs)
+    if pair_total == 0:
+        _report_progress(progress_callback, 1, 1, "No candidate pairs")
+        return []
     edges: list[PairEvidence] = []
-    for left_id, right_id in candidate_pairs:
+    for index, (left_id, right_id) in enumerate(candidate_pairs, start=1):
+        _raise_if_cancelled(should_cancel)
         left = by_id[left_id]
         right = by_id[right_id]
         if not _candidate_duration_compatible(left, right, config):
+            if index == pair_total or index % 50 == 0:
+                _report_progress(progress_callback, index, pair_total, "Searching duplicate pairs")
             continue
         evidence = score_pair(left, right, config)
         if evidence.score >= config.min_score and _passes_content_similarity(evidence, config):
             edges.append(evidence)
+        if index == pair_total or index % 50 == 0:
+            _report_progress(progress_callback, index, pair_total, "Searching duplicate pairs")
     grouped_edges = _connected_components(edges)
     groups: list[DuplicateGroup] = []
     for edge_group in grouped_edges:
@@ -351,6 +387,16 @@ def find_duplicate_groups(
         if limit_groups is not None and len(groups) >= max(0, limit_groups):
             break
     return groups
+
+
+def _report_progress(callback: ProgressCallback | None, processed: int, total: int, message: str) -> None:
+    if callback is not None:
+        callback(max(0, int(processed)), max(0, int(total)), message)
+
+
+def _raise_if_cancelled(should_cancel: CancelCheck | None) -> None:
+    if should_cancel is not None and should_cancel():
+        raise AudioDedupCancelled("Audio dedup job cancelled")
 
 
 def _candidate_pair_ids(tracks: list[TrackRecord], config: PresetConfig) -> list[tuple[int, int]]:
@@ -584,46 +630,90 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
     assert isinstance(stats, dict)
     confidence = stats.get("confidence_counts", {})
     embeddings = stats.get("embedding_coverage", {})
-    rows: list[list[object]] = [
-        ["Duplicate audio summary"],
-        ["Generated at", payload["generated_at"]],
-        ["Database", payload.get("database_path") or ""],
-        ["Root", payload["root"]],
-        ["Preset", payload["preset"]],
-        ["Min score", payload["min_score"]],
-        ["Min content similarity", payload["min_similarity"]],
-        ["Total tracks in database", payload.get("database_track_count", payload["track_count"])],
-        ["Tracks inside selected root", payload.get("scoped_track_count", payload["track_count"])],
-        ["Duplicate groups", payload["group_count"]],
-        ["Duplicate candidates", stats.get("candidate_count", 0)],
-        ["Safe delete candidates", stats.get("safe_candidate_count", 0)],
-        ["Manual review candidates", stats.get("review_candidate_count", 0)],
-        [],
-        ["Rhythm Lab", "Rows"],
-    ]
     rhythm_lab = payload.get("rhythm_lab", {})
+    path_contains = payload.get("path_contains") or []
+    path_filter = ", ".join(str(item) for item in path_contains) if isinstance(path_contains, list) else str(path_contains)
+    rows: list[list[object]] = [
+        ["Audio Dedup Report", "", "", "", ""],
+        [
+            "Review workbook before deleting files. Report mode is read-only; apply mode deletes only safe candidates after exact confirmation.",
+            "",
+            "",
+            "",
+            "",
+        ],
+        [],
+        ["Run settings", "Value", "Notes", "", ""],
+        ["Generated at", payload["generated_at"], "Local timestamp when this report was written.", "", ""],
+        ["Database", payload.get("database_path") or "", "SQLite library that was read for track metadata and embeddings.", "", ""],
+        ["Root", payload["root"], "Only stored track paths inside this root were considered.", "", ""],
+        ["Path filter", path_filter or "(none)", "Optional case-insensitive path substring filters.", "", ""],
+        ["Mode", payload.get("mode", "report-only"), "Report-only writes evidence and does not delete audio.", "", ""],
+        ["Preset", payload["preset"], "safe is conservative; balanced/aggressive widen review scope.", "", ""],
+        ["Min score", payload["min_score"], "Overall duplicate score threshold.", "", ""],
+        ["Min content similarity", payload["min_similarity"], "Embedding-only similarity gate.", "", ""],
+        [],
+        ["Decision summary", "Count", "Meaning", "Next action", ""],
+        [
+            "Total tracks in database",
+            payload.get("database_track_count", payload["track_count"]),
+            "All tracks currently stored in the selected SQLite database.",
+            "Reference only.",
+            "",
+        ],
+        [
+            "Tracks inside selected root",
+            payload.get("scoped_track_count", payload["track_count"]),
+            "Tracks that matched root and optional path filters.",
+            "This is the search scope.",
+            "",
+        ],
+        ["Duplicate groups", payload["group_count"], "Potential duplicate clusters found.", "Open the Groups sheet.", ""],
+        ["Duplicate candidates", stats.get("candidate_count", 0), "Tracks proposed for delete or manual review.", "Open the Candidates sheet.", ""],
+        [
+            "Safe delete candidates",
+            stats.get("safe_candidate_count", 0),
+            "Direct high-confidence matches to the suggested keeper.",
+            "Open the Candidates sheet and review every row before apply mode.",
+            "",
+        ],
+        [
+            "Manual review candidates",
+            stats.get("review_candidate_count", 0),
+            "Candidates with blockers or weaker evidence.",
+            "Do not delete automatically.",
+            "",
+        ],
+    ]
     if isinstance(rhythm_lab, dict):
         rows.extend(
             [
-                ["Database", rhythm_lab.get("database_path", "")],
-                ["Database exists", rhythm_lab.get("database_exists", False)],
-                ["Affected tracks on apply", rhythm_lab.get("affected_track_count", 0)],
-                ["Affected rows on apply", rhythm_lab.get("affected_row_count", 0)],
+                [],
+                ["Rhythm Lab impact", "Value", "Meaning", "", ""],
+                ["Database", rhythm_lab.get("database_path", ""), "Lab database checked for labels/predictions on safe candidates.", "", ""],
+                ["Database exists", rhythm_lab.get("database_exists", False), "False means no lab rows can be affected.", "", ""],
+                ["Affected tracks on apply", rhythm_lab.get("affected_track_count", 0), "Safe candidates with lab rows.", "", ""],
+                ["Affected rows on apply", rhythm_lab.get("affected_row_count", 0), "Rows that apply mode would remove after audio deletion.", "", ""],
             ]
         )
     rows.extend(
         [
             [],
-            ["Confidence", "Groups"],
+            ["Confidence breakdown", "Groups", "Meaning", "", ""],
         ]
     )
     if isinstance(confidence, dict):
+        meanings = {
+            "high": "Score is strong and has no major blockers.",
+            "medium": "Likely duplicate, but review evidence before deletion.",
+            "review": "Needs manual inspection.",
+        }
         for label in ("high", "medium", "review"):
-            rows.append([label, confidence.get(label, 0)])
-    rows.extend([[], ["Embedding", "Tracks with embedding"]])
+            rows.append([label, confidence.get(label, 0), meanings[label], "", ""])
+    rows.extend([[], ["Embedding coverage", "Tracks", "Meaning", "", ""]])
     if isinstance(embeddings, dict):
         for label in SUPPORTED_EMBEDDINGS:
-            rows.append([label, embeddings.get(label, 0)])
+            rows.append([label.upper(), embeddings.get(label, 0), "Available vectors used by duplicate scoring.", "", ""])
     return rows
 
 
@@ -867,33 +957,43 @@ def _xlsx_workbook_rels(sheet_count: int) -> str:
 def _xlsx_styles_xml() -> str:
     return '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<fonts count="5">
+<fonts count="7">
 <font><sz val="11"/><color rgb="FF111827"/><name val="Calibri"/></font>
 <font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>
-<font><b/><sz val="16"/><color rgb="FF111827"/><name val="Calibri"/></font>
+<font><b/><sz val="18"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>
 <font><b/><sz val="11"/><color rgb="FF1B5E20"/><name val="Calibri"/></font>
 <font><b/><sz val="11"/><color rgb="FFB71C1C"/><name val="Calibri"/></font>
+<font><sz val="11"/><color rgb="FF374151"/><name val="Calibri"/></font>
+<font><b/><sz val="12"/><color rgb="FF111827"/><name val="Calibri"/></font>
 </fonts>
-<fills count="6">
+<fills count="10">
 <fill><patternFill patternType="none"/></fill>
 <fill><patternFill patternType="gray125"/></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FF263238"/><bgColor indexed="64"/></patternFill></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FFE8F5E9"/><bgColor indexed="64"/></patternFill></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FFFFEBEE"/><bgColor indexed="64"/></patternFill></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FFE3F2FD"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FF111827"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFF3F4F6"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFE0F2FE"/><bgColor indexed="64"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFFFF7ED"/><bgColor indexed="64"/></patternFill></fill>
 </fills>
 <borders count="2">
 <border><left/><right/><top/><bottom/><diagonal/></border>
 <border><left style="thin"><color rgb="FFD1D5DB"/></left><right style="thin"><color rgb="FFD1D5DB"/></right><top style="thin"><color rgb="FFD1D5DB"/></top><bottom style="thin"><color rgb="FFD1D5DB"/></bottom><diagonal/></border>
 </borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="6">
+<cellXfs count="10">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/>
 <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
-<xf numFmtId="0" fontId="2" fillId="5" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>
+<xf numFmtId="0" fontId="2" fillId="6" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>
 <xf numFmtId="0" fontId="3" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>
 <xf numFmtId="0" fontId="4" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>
 <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf>
+<xf numFmtId="0" fontId="5" fillId="7" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf>
+<xf numFmtId="0" fontId="6" fillId="8" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment wrapText="1" vertical="center"/></xf>
+<xf numFmtId="0" fontId="0" fillId="9" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf>
+<xf numFmtId="0" fontId="0" fillId="7" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf>
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>'''
@@ -901,17 +1001,24 @@ def _xlsx_styles_xml() -> str:
 
 def _xlsx_sheet_xml(name: str, rows: list[list[object]]) -> str:
     max_cols = max((len(row) for row in rows), default=1)
-    col_widths = _xlsx_column_widths(rows, max_cols)
+    if name == "Summary":
+        max_cols = max(5, max_cols)
+    col_widths = _xlsx_column_widths(rows, max_cols, sheet_name=name)
     cols_xml = "".join(
         f'<col min="{index}" max="{index}" width="{width}" customWidth="1"/>'
         for index, width in enumerate(col_widths, start=1)
     )
     sheet_views = ""
-    if len(rows) > 1:
+    if name == "Summary":
+        sheet_views = '<sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane ySplit="3" topLeftCell="A4" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+    elif len(rows) > 1:
         sheet_views = '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
     rows_xml = "\n".join(_xlsx_row_xml(row, row_index, name) for row_index, row in enumerate(rows, start=1))
     dimension = f"A1:{_xlsx_col_name(max_cols)}{max(1, len(rows))}"
-    auto_filter = f'<autoFilter ref="A1:{_xlsx_col_name(max_cols)}1"/>' if len(rows) > 1 else ""
+    auto_filter = f'<autoFilter ref="A1:{_xlsx_col_name(max_cols)}1"/>' if name != "Summary" and len(rows) > 1 else ""
+    merge_cells = ""
+    if name == "Summary":
+        merge_cells = '<mergeCells count="2"><mergeCell ref="A1:E1"/><mergeCell ref="A2:E2"/></mergeCells>'
     return f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
 <dimension ref="{dimension}"/>
@@ -920,13 +1027,22 @@ def _xlsx_sheet_xml(name: str, rows: list[list[object]]) -> str:
 <sheetData>
 {rows_xml}
 </sheetData>
+{merge_cells}
 {auto_filter}
 </worksheet>'''
 
 
 def _xlsx_row_xml(row: list[object], row_index: int, sheet_name: str) -> str:
-    height = ' ht="26" customHeight="1"' if row_index == 1 else ""
-    cells = "".join(_xlsx_cell_xml(value, row_index, col_index, _xlsx_style_id(value, row_index, sheet_name)) for col_index, value in enumerate(row, start=1))
+    if sheet_name == "Summary" and row_index == 1:
+        height = ' ht="32" customHeight="1"'
+    elif sheet_name == "Summary" and row_index == 2:
+        height = ' ht="40" customHeight="1"'
+    else:
+        height = ' ht="26" customHeight="1"' if row_index == 1 else ""
+    cells = "".join(
+        _xlsx_cell_xml(value, row_index, col_index, _xlsx_style_id(value, row, row_index, col_index, sheet_name))
+        for col_index, value in enumerate(row, start=1)
+    )
     return f'<row r="{row_index}"{height}>{cells}</row>'
 
 
@@ -945,7 +1061,22 @@ def _xlsx_cell_xml(value: object, row_index: int, col_index: int, style_id: int)
     return f'<c r="{ref}" t="inlineStr"{style}><is><t>{text}</t></is></c>'
 
 
-def _xlsx_style_id(value: object, row_index: int, sheet_name: str) -> int:
+def _xlsx_style_id(value: object, row: list[object], row_index: int, col_index: int, sheet_name: str) -> int:
+    if sheet_name == "Summary":
+        first = str(row[0]) if row else ""
+        if row_index == 1:
+            return 2
+        if row_index == 2:
+            return 6
+        if first in {"Run settings", "Decision summary", "Rhythm Lab impact", "Confidence breakdown", "Embedding coverage"}:
+            return 7
+        if first == "Safe delete candidates":
+            return 3
+        if first == "Manual review candidates":
+            return 4
+        if first == "Mode" and str(row[1] if len(row) > 1 else "") == "apply":
+            return 8
+        return 9 if col_index in {3, 4} else 5
     if row_index == 1 and sheet_name == "Summary":
         return 2
     if row_index == 1:
@@ -957,7 +1088,9 @@ def _xlsx_style_id(value: object, row_index: int, sheet_name: str) -> int:
     return 5
 
 
-def _xlsx_column_widths(rows: list[list[object]], max_cols: int) -> list[int]:
+def _xlsx_column_widths(rows: list[list[object]], max_cols: int, *, sheet_name: str) -> list[int]:
+    if sheet_name == "Summary":
+        return [28, 24, 54, 44, 14][:max_cols]
     widths: list[int] = []
     for col_index in range(max_cols):
         max_len = 10

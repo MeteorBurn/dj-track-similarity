@@ -51,9 +51,9 @@ The project is a Python backend/CLI plus a React/Vite frontend:
 - `scripts/audio_repair/`: repair helper script plus runtime
   state/log/report/backup workspace; commit only `repair_audio_metadata.py` and
   `.gitkeep`.
-- `scripts/audio_dedup/`: duplicate-audio candidate helper. By default it reads
-  the project SQLite database and writes ignored reports only; `--apply` is the
-  explicit destructive cleanup mode.
+- `tools/audio-dedup/`: duplicate-audio candidate tool and main-UI job backend.
+  By default it reads the project SQLite database and writes ignored reports
+  only; `--apply` / UI apply mode is the explicit destructive cleanup mode.
 
 This workspace may not always be a Git repository. Do not assume commits,
 branches, or history are available.
@@ -83,12 +83,13 @@ branches, or history are available.
   SQLite library database read-only, reads existing `tracks.path` values, and
   may remap stored roots with `--db-root` plus `--file-root` before checking the
   filesystem. Missing remapped files are skipped, not repaired.
-- `scripts/audio_dedup/audio_dedup.py` is report-only by default. It opens
+- `tools/audio-dedup/audio_dedup_cli.py` is report-only by default. It opens
   SQLite read-only and writes JSON/XLSX/log reports under
-  `scripts/audio_dedup/reports/` by default. With explicit `--apply`, it must
-  prompt for exact confirmation, delete only safe duplicate candidates inside
-  the selected `--root`, and remove SQLite rows only for tracks whose files were
-  successfully deleted. Do not invoke the script with `--apply` in tests or
+  `tools/audio-dedup/data/reports/` by default. With explicit `--apply`, it
+  must prompt for exact confirmation, delete only safe duplicate candidates
+  inside the selected `--root`, and remove SQLite rows only for tracks whose
+  files were successfully deleted. The main UI apply mode must require the same
+  exact `APPLY DELETE` confirmation. Do not invoke apply mode in tests or
   routine verification runs.
 - Keep SQLite writes routed through `LibraryDatabase`, with the shared
   path-scoped write lock, WAL, and busy timeout so scan/RefreshTags/Sonara/
@@ -113,7 +114,7 @@ branches, or history are available.
   Rhythm Lab generated state and
   training artifacts under `tools/rhythm-lab/data/` and
   `tools/rhythm-lab/artifacts/*/` must also stay out of git except `.gitkeep`.
-  Generated duplicate-audio reports under `scripts/audio_dedup/reports/` must
+  Generated duplicate-audio reports under `tools/audio-dedup/data/reports/` must
   also stay out of git except `.gitkeep`.
 - Server startup requires `ffmpeg` on `PATH` or `DJ_TRACK_SIMILARITY_FFMPEG`;
   keep missing-ffmpeg errors clear and actionable.
@@ -262,7 +263,7 @@ Focused repair-script test when only `scripts/audio_repair/repair_audio_metadata
 .\.venv\Scripts\python.exe -m pytest scripts\tests\test_repair_audio_metadata.py --override-ini addopts=
 ```
 
-Focused duplicate-report test when only `scripts/audio_dedup/audio_dedup.py`
+Focused duplicate-report test when only `tools/audio-dedup/audio_dedup/`
 changes:
 
 ```powershell
@@ -286,7 +287,7 @@ changes:
   promoted classifier scoring and cancellable classifier jobs.
 - `tools/rhythm-lab/rhythm_lab/`: separate classifier lab package for labels,
   predictions, feature matrices, training artifacts, and the standalone lab UI.
-- `scripts/audio_dedup/audio_dedup.py`: duplicate-audio candidate reporting and
+- `tools/audio-dedup/audio_dedup/`: duplicate-audio candidate reporting and
   explicit confirmed `--apply` cleanup from an existing library database.
 - `src/dj_track_similarity/search.py`, `sonara_similarity.py`: embedding search
   and Sonara search over cached feature rows.

@@ -180,6 +180,50 @@ export type GenreTagJobStatus = {
   cancel_requested: boolean;
 };
 
+export type AudioDedupPreset = "safe" | "balanced" | "aggressive";
+
+export type AudioDedupJobStatus = {
+  job_id: string;
+  state: "queued" | "running" | "completed" | "cancelled" | "failed";
+  root: string;
+  path_contains: string[];
+  preset: AudioDedupPreset;
+  min_score?: number | null;
+  min_similarity?: number | null;
+  limit_groups?: number | null;
+  apply: boolean;
+  total: number;
+  processed: number;
+  groups: number;
+  safe_candidates: number;
+  deleted: number;
+  skipped: number;
+  failed: number;
+  current_path?: string | null;
+  current_step?: string | null;
+  json_path?: string | null;
+  xlsx_path?: string | null;
+  log_path?: string | null;
+  started_at?: number | null;
+  finished_at?: number | null;
+  avg_seconds_per_item?: number | null;
+  errors: Array<{ error: string }>;
+  events: Array<{ timestamp: number; level: string; message: string; path?: string | null }>;
+  cancel_requested: boolean;
+};
+
+export type AudioDedupJobPayload = {
+  root: string;
+  path_contains?: string[];
+  preset?: AudioDedupPreset;
+  min_score?: number | null;
+  min_similarity?: number | null;
+  limit_groups?: number | null;
+  out_dir?: string | null;
+  apply?: boolean;
+  confirmation?: string | null;
+};
+
 export type AnalysisResetResult = {
   adapter: string;
   tracks_updated: number;
@@ -348,6 +392,18 @@ export const api = {
       method: "POST",
       body: JSON.stringify({})
     }),
+  audioDedupJobStart: (payload: AudioDedupJobPayload) =>
+    request<AudioDedupJobStatus>("/api/audio-dedup/jobs", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  latestAudioDedupJob: () => request<AudioDedupJobStatus | null>("/api/audio-dedup/jobs/latest"),
+  audioDedupJob: (jobId: string) => request<AudioDedupJobStatus>(`/api/audio-dedup/jobs/${jobId}`),
+  cancelAudioDedupJob: (jobId: string) =>
+    request<AudioDedupJobStatus>(`/api/audio-dedup/jobs/${jobId}/cancel`, {
+      method: "POST"
+    }),
+  audioDedupXlsxUrl: (jobId: string) => `/api/audio-dedup/jobs/${encodeURIComponent(jobId)}/report/xlsx`,
   analysisJobStart: (payload: {
     models?: AnalysisModel[];
     classifier_keys?: string[];

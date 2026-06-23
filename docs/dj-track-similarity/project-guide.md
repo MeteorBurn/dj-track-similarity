@@ -43,7 +43,7 @@ for day-to-day DJ workflow guidance.
 - [Rhythm Lab](rhythm-lab.md): classifier profiles, labeling UI, training,
   prediction, promotion, deletion, and main-app integration.
 
-## Maintenance Scripts
+## Maintenance Tools And Scripts
 
 Only stable user-facing maintenance helpers are documented here:
 
@@ -53,8 +53,7 @@ Only stable user-facing maintenance helpers are documented here:
 
 - [Metadata Repair](scripts/repair-audio-metadata.md):
   dry-run-first metadata/container diagnostics and repair.
-- [Dedup & Cleanup](scripts/audio-dedup.md): report-only
-  duplicate-audio analysis by default, plus an explicit confirmed `--apply`
-  cleanup pass.
+- [Audio Dedup](scripts/audio-dedup.md): main-UI and CLI duplicate-audio
+  report workflow, plus an explicit confirmed `apply` cleanup pass.
 - [DB Optimization](scripts/optimize-database.md):
   schema-validated SQLite backup, vacuum, analyze, and integrity check.

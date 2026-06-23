@@ -27,7 +27,7 @@ These shared conventions apply across the API:
 | `latest` job endpoints | Return `null` when no job of that family has run yet. |
 
 Long-running work (scan, tag refresh, multi-model audio analysis, classifier
-scoring, genre tag jobs) is started by a `POST` that returns an initial
+scoring, Audio Dedup, genre tag jobs) is started by a `POST` that returns an initial
 job-status object. The frontend then polls the matching `jobs/latest` or
 `jobs/{job_id}` endpoint and can request cooperative cancellation.
 
@@ -99,10 +99,22 @@ missing target files.
 | `GET` | `/api/tags/genres/jobs/latest` | Return latest genre tag write job. |
 | `GET` | `/api/tags/genres/jobs/{job_id}` | Return one genre tag write job. |
 | `POST` | `/api/tags/genres/jobs/{job_id}/cancel` | Request genre tag write cancellation. |
+| `POST` | `/api/audio-dedup/jobs` | Start an Audio Dedup report or confirmed apply job. |
+| `GET` | `/api/audio-dedup/jobs/latest` | Return latest Audio Dedup job. |
+| `GET` | `/api/audio-dedup/jobs/{job_id}` | Return one Audio Dedup job. |
+| `POST` | `/api/audio-dedup/jobs/{job_id}/cancel` | Request Audio Dedup cancellation. |
+| `GET` | `/api/audio-dedup/jobs/{job_id}/report/xlsx` | Download/open the generated XLSX workbook. |
 
 Job endpoints let the frontend poll long-running work and request cancellation.
 Cancellation is cooperative: a job may finish the current track or batch before
 it stops.
+
+Audio Dedup jobs read the selected SQLite database and write reports under
+`tools/audio-dedup/data/reports` by default. The request body accepts `root`,
+optional `path_contains`, `preset`, `min_score`, `min_similarity`,
+`limit_groups`, `out_dir`, `apply`, and `confirmation`. `apply=true` is
+rejected unless `confirmation` is exactly `APPLY DELETE`. Report-only jobs do
+not modify audio files or SQLite rows.
 
 ### Analysis and Search
 

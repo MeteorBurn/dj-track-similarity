@@ -1,4 +1,4 @@
-import { AnalysisJobStatus, AnalysisModel, api, GenreTagJobStatus, ScanStats } from "./api";
+import { AnalysisJobStatus, AnalysisModel, api, AudioDedupJobStatus, GenreTagJobStatus, ScanStats } from "./api";
 import { basename, formatEta } from "./trackDisplay";
 
 export type ActivityEvent = { id: number; time: number; level: "info" | "ok" | "warn" | "error"; message: string; detail?: string };
@@ -16,18 +16,20 @@ export function UnifiedLog({
   processKind,
   scanJob,
   analysisJob,
+  audioDedupJob,
   genreTagJob,
   events,
   className = ""
 }: {
-  processKind: "scan" | "analysis" | "genre_tags";
+  processKind: "scan" | "analysis" | "genre_tags" | "audio_dedup";
   scanJob: ScanStats | null;
   analysisJob: AnalysisJobStatus | null;
+  audioDedupJob?: AudioDedupJobStatus | null;
   genreTagJob: GenreTagJobStatus | null;
   events: ActivityEvent[];
   className?: string;
 }) {
-  const mergedEvents = unifiedLogEvents(scanJob, analysisJob, genreTagJob, events);
+  const mergedEvents = unifiedLogEvents(scanJob, analysisJob, audioDedupJob || null, genreTagJob, events);
   return (
     <section className={`log-panel ${className}`.trim()}>
       <div className="log-title">
@@ -35,7 +37,7 @@ export function UnifiedLog({
         <span>{mergedEvents.length}</span>
       </div>
       <div className="log-body">
-        <ProcessStatus kind={processKind} scanJob={scanJob} analysisJob={analysisJob} genreTagJob={genreTagJob} />
+        <ProcessStatus kind={processKind} scanJob={scanJob} analysisJob={analysisJob} audioDedupJob={audioDedupJob || null} genreTagJob={genreTagJob} />
         <UnifiedEventList events={mergedEvents} />
       </div>
     </section>
@@ -46,13 +48,18 @@ function ProcessStatus({
   kind,
   scanJob,
   analysisJob,
+  audioDedupJob,
   genreTagJob
 }: {
-  kind: "scan" | "analysis" | "genre_tags";
+  kind: "scan" | "analysis" | "genre_tags" | "audio_dedup";
   scanJob: ScanStats | null;
   analysisJob: AnalysisJobStatus | null;
+  audioDedupJob: AudioDedupJobStatus | null;
   genreTagJob: GenreTagJobStatus | null;
 }) {
+  if (kind === "audio_dedup") {
+    return <AudioDedupProcessStatus job={audioDedupJob} />;
+  }
   if (kind === "genre_tags") {
     return <GenreTagProcessStatus job={genreTagJob} />;
   }
@@ -65,6 +72,7 @@ function ProcessStatus({
 function unifiedLogEvents(
   scanJob: ScanStats | null,
   analysisJob: AnalysisJobStatus | null,
+  audioDedupJob: AudioDedupJobStatus | null,
   genreTagJob: GenreTagJobStatus | null,
   activityEvents: ActivityEvent[]
 ) {
@@ -102,7 +110,15 @@ function unifiedLogEvents(
     message: event.message,
     detail: event.path ? basename(event.path) : undefined
   }));
-  return [...uiEvents, ...scanEvents, ...analysisEvents, ...genreTagEvents].sort((left, right) => right.timeMs - left.timeMs).slice(0, 120);
+  const audioDedupEvents: UnifiedLogEvent[] = (audioDedupJob?.events || []).map((event, index) => ({
+    id: `audio-dedup-${event.timestamp}-${index}`,
+    timeMs: event.timestamp * 1000,
+    level: event.level as ActivityEvent["level"],
+    source: "audio dedup",
+    message: event.message,
+    detail: event.path ? basename(event.path) : undefined
+  }));
+  return [...uiEvents, ...scanEvents, ...analysisEvents, ...genreTagEvents, ...audioDedupEvents].sort((left, right) => right.timeMs - left.timeMs).slice(0, 120);
 }
 
 function isPerClassifierAnalysisEvent(message: string) {
@@ -177,6 +193,7 @@ function sourceLabel(source: string) {
   if (source === "scan") return "scan";
   if (source === "analysis") return "analysis";
   if (source === "genre tags") return "genre tags";
+  if (source === "audio dedup") return "audio dedup";
   return "UI";
 }
 
@@ -184,10 +201,17 @@ export function scanSummary(job: ScanStats) {
   return `+${job.added || 0} · обновлено ${job.updated || 0} · без изменений ${job.unchanged || 0} · ошибок ${job.failed || 0}`;
 }
 
-export function stageIndicatorLabel(scanJob: ScanStats | null, analysisJob: AnalysisJobStatus | null) {
+export function stageIndicatorLabel(
+  scanJob: ScanStats | null,
+  analysisJob: AnalysisJobStatus | null,
+  genreTagJob?: GenreTagJobStatus | null,
+  audioDedupJob?: AudioDedupJobStatus | null
+) {
   if (scanJob?.state && ["queued", "running"].includes(scanJob.state)) return "Идет сканирование";
   if (analysisJob && ["queued", "running"].includes(analysisJob.state)) return "Идет анализ";
-  if (scanJob?.state === "cancelled" || analysisJob?.state === "cancelled") return "Этап остановлен";
+  if (genreTagJob && ["queued", "running"].includes(genreTagJob.state)) return "Идет запись жанров";
+  if (audioDedupJob && ["queued", "running"].includes(audioDedupJob.state)) return "Идет поиск дублей";
+  if (scanJob?.state === "cancelled" || analysisJob?.state === "cancelled" || genreTagJob?.state === "cancelled" || audioDedupJob?.state === "cancelled") return "Этап остановлен";
   return "Процесс не запущен";
 }
 
@@ -305,6 +329,35 @@ function GenreTagProcessStatus({ job }: { job: GenreTagJobStatus | null }) {
       {job.avg_seconds_per_track != null && <span className="analysis-muted">{job.avg_seconds_per_track.toFixed(2)} s/track{etaSeconds ? ` · ETA ${formatEta(etaSeconds)}` : ""}</span>}
       {job.current_path && <span className="analysis-current">Сейчас: {basename(job.current_path)}</span>}
       {job.errors.length > 0 && <span className="analysis-error">{job.errors[0].path}: {job.errors[0].error}</span>}
+    </div>
+  );
+}
+
+export function AudioDedupProcessStatus({ job }: { job: AudioDedupJobStatus | null }) {
+  if (!job) {
+    return <div className="process-box">Audio Dedup не запущен</div>;
+  }
+  const percent = job.total ? Math.round((job.processed / job.total) * 100) : job.state === "completed" ? 100 : 0;
+  const running = ["queued", "running"].includes(job.state);
+  const etaSeconds = running && job.avg_seconds_per_item && job.total ? Math.max(0, (job.total - job.processed) * job.avg_seconds_per_item) : null;
+  return (
+    <div className="process-box">
+      <div className="process-head">
+        <strong>{job.state}</strong>
+        <span>{job.current_step || job.root}</span>
+      </div>
+      <progress value={job.total ? job.processed : job.state === "completed" ? 1 : 0} max={job.total || 1} />
+      <div className="process-grid">
+        <span>{job.processed}/{job.total || 0}</span>
+        <span>groups {job.groups}</span>
+        <span>safe {job.safe_candidates}</span>
+        {job.apply ? <span>deleted {job.deleted}</span> : null}
+        {job.failed ? <span>fail {job.failed}</span> : null}
+        <span>{percent}%</span>
+      </div>
+      {job.avg_seconds_per_item != null && <span className="analysis-muted">{job.avg_seconds_per_item.toFixed(2)} s/item{etaSeconds ? ` · ETA ${formatEta(etaSeconds)}` : ""}</span>}
+      {job.current_path && <span className="analysis-current">Сейчас: {basename(job.current_path)}</span>}
+      {job.errors.length > 0 && <span className="analysis-error">{job.errors[0].error}</span>}
     </div>
   );
 }

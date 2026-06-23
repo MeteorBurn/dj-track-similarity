@@ -57,6 +57,20 @@ class AnalysisJobRequest(BaseModel):
     )
 
 
+class AudioDedupJobRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    root: str
+    path_contains: list[str] = Field(default_factory=list)
+    preset: str = Field(default="safe", pattern="^(safe|balanced|aggressive)$")
+    min_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
+    limit_groups: int | None = Field(default=None, ge=1)
+    out_dir: str | None = None
+    apply: bool = False
+    confirmation: str | None = None
+
+
 class ClassifierAnalyzeRequest(BaseModel):
     limit: int | None = None
 

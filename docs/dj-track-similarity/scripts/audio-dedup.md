@@ -1,13 +1,18 @@
-# Audio Dedup Report and Cleanup Script
+# Audio Dedup Tool
 
-Run this script with the project Python environment when possible:
+Audio Dedup is available from the main web UI and as a local CLI tool. In the
+UI, use the top-bar Audio Dedup button next to Rhythm Lab to open the settings
+dialog, start a duplicate search, watch progress/log output, and open the
+generated XLSX workbook when the job finishes.
+
+Run the CLI with the project Python environment when possible:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\audio_dedup\audio_dedup.py --help
+.\.venv\Scripts\python.exe tools\audio-dedup\audio_dedup_cli.py --help
 ```
 
-Duplicate-audio helper with two modes. By default it is report-only: it reads an
-existing `dj-track-similarity` SQLite database, compares tracks inside a
+Duplicate-audio helper with two modes. By default it is report-only: it reads
+an existing `dj-track-similarity` SQLite database, compares tracks inside a
 selected stored path root, and writes JSON, styled XLSX, and text-log reports.
 The report also checks the default Rhythm Lab database at
 `tools\rhythm-lab\data\rhythm_lab.sqlite` and lists any lab rows that would be
@@ -28,7 +33,7 @@ marks as safe.
 Usage:
 
 ```text
-python scripts\audio_dedup\audio_dedup.py --root ROOT [OPTIONS]
+python tools\audio-dedup\audio_dedup_cli.py --root ROOT [OPTIONS]
 ```
 
 Options:
@@ -43,7 +48,7 @@ Options:
   threshold.
 - `--limit-groups N`: write at most N duplicate groups.
 - `--out-dir DIR`: output report directory. Default is
-  `scripts\audio_dedup\reports`.
+  `tools\audio-dedup\data\reports`.
 - `--apply`: after reports are written, ask for an exact confirmation phrase
   and delete only candidates marked `DELETE CANDIDATE` / `true_candidate`.
   Tracks are removed from SQLite only after their audio files are successfully
@@ -90,10 +95,10 @@ track metadata only and are never used for duplicate scoring.
 Examples:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\audio_dedup\audio_dedup.py --db .\data\library.sqlite --root D:\Music
-.\.venv\Scripts\python.exe scripts\audio_dedup\audio_dedup.py --db .\data\library.sqlite --root D:\Music --preset balanced --path-contains mastered
-.\.venv\Scripts\python.exe scripts\audio_dedup\audio_dedup.py --db .\data\library.sqlite --root D:\Music --preset safe --min-similarity 0.99
-.\.venv\Scripts\python.exe scripts\audio_dedup\audio_dedup.py --db .\data\library.sqlite --root D:\Music --preset safe --apply
+.\.venv\Scripts\python.exe tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music
+.\.venv\Scripts\python.exe tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music --preset balanced --path-contains mastered
+.\.venv\Scripts\python.exe tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music --preset safe --min-similarity 0.99
+.\.venv\Scripts\python.exe tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music --preset safe --apply
 ```
 
 Outputs are named `audio_dedup_report_<timestamp>.json`, `.xlsx`, and `.log`.
@@ -103,7 +108,10 @@ The CLI prints a short terminal summary after each run, including the duplicate
 group count, safe delete candidate count in report mode, and Rhythm Lab
 database/affected-row counts.
 
-The workbook is the main human review artifact. It includes:
+The workbook is the main human review artifact. Its first `Summary` sheet is a
+review dashboard with run settings, candidate counts, safe-delete counts,
+Rhythm Lab impact, confidence breakdown, and embedding coverage. It also
+includes:
 
 - `Summary`: database path, selected root, preset, score threshold, total track
   count in the database, track count inside the selected root/filter scope,

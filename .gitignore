@@ -26,6 +26,8 @@ scripts/audio_repair/*
 !scripts/audio_repair/repair_audio_metadata.py
 scripts/audio_dedup/reports/*
 !scripts/audio_dedup/reports/.gitkeep
+tools/audio-dedup/data/reports/*
+!tools/audio-dedup/data/reports/.gitkeep
 scripts/sonara_bpm_calibration/reports/*
 !scripts/sonara_bpm_calibration/reports/.gitkeep
 

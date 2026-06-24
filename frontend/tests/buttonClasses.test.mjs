@@ -208,6 +208,10 @@ test("class tab exposes per-classifier missing-score analysis controls", () => {
   assert.match(searchSource, /onClassifierMinScoreChange/);
   assert.match(searchSource, /classifier-analyze-button/);
   assert.match(searchSource, /onAnalyzeClassifier/);
+  assert.match(searchSource, /classifiers\.length \? \(/);
+  assert.match(searchSource, /empty-state classifier-empty-state/);
+  assert.match(searchSource, /No promoted classifier profiles found/);
+  assert.match(searchSource, /models\/classifiers\/<profile>\//);
   assert.match(appSource, /selectedAnalysisModels\.includes\("classifiers"\)/);
   assert.match(appSource, /classifierKeys\s*=\s*includeClassifiers/);
   assert.match(appSource, /classifier_keys:\s*classifierKeys/);

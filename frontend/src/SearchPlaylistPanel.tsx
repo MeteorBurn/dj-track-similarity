@@ -175,6 +175,8 @@ const hybridSourceOptions: Array<{ key: HybridSearchSource; label: string; title
   }
 ];
 
+const classifierEmptyStateMessage = "No promoted classifier profiles found. Promote profiles from Rhythm Lab or place model.json + model.joblib under models/classifiers/<profile>/.";
+
 export function SearchPlaylistPanel({
   seedTracks,
   textQuery,
@@ -886,46 +888,50 @@ export function SearchPlaylistPanel({
         )}
         {activeSearchTab === "class" && (
           <div className="search-tab-panel" role="tabpanel">
-            <div className="classifier-controls">
-              {classifiers.map((classifier) => {
-                const title = classifierHelp(classifier);
-                const value = classifierMinScores[classifier.classifier_key] || 0;
-                return (
-                  <Fragment key={classifier.classifier_key}>
-                    <div className="custom-control-header" title={title}>
-                      <span>{classifier.name}</span>
-                      <button
-                        className="icon-button classifier-analyze-button"
-                        title={`Reset and rescore all ${classifier.name} classifier results`}
-                        aria-label={`Reset and rescore all ${classifier.name} classifier results`}
-                        disabled={busy}
-                        onClick={() => onAnalyzeClassifier(classifier)}
-                        type="button"
-                      >
-                        <Play size={15} />
-                      </button>
-                    </div>
-                    <label className="range-control" title={title}>
-                      <span>
-                        <em>{value.toFixed(2)}</em>
-                      </span>
-                      <input
-                        type="range"
-                        min={0}
-                        max={1}
-                        step={0.01}
-                        value={value}
-                        title={title}
-                        onChange={(event) => onClassifierMinScoreChange(classifier.classifier_key, Number(event.target.value))}
-                      />
-                    </label>
-                  </Fragment>
-                );
-              })}
-              {classifierJob && classifierJob.failed > 0 ? (
-                <span className="classifier-job-status">failed {classifierJob.failed}</span>
-              ) : null}
-            </div>
+            {classifiers.length ? (
+              <div className="classifier-controls">
+                {classifiers.map((classifier) => {
+                  const title = classifierHelp(classifier);
+                  const value = classifierMinScores[classifier.classifier_key] || 0;
+                  return (
+                    <Fragment key={classifier.classifier_key}>
+                      <div className="custom-control-header" title={title}>
+                        <span>{classifier.name}</span>
+                        <button
+                          className="icon-button classifier-analyze-button"
+                          title={`Reset and rescore all ${classifier.name} classifier results`}
+                          aria-label={`Reset and rescore all ${classifier.name} classifier results`}
+                          disabled={busy}
+                          onClick={() => onAnalyzeClassifier(classifier)}
+                          type="button"
+                        >
+                          <Play size={15} />
+                        </button>
+                      </div>
+                      <label className="range-control" title={title}>
+                        <span>
+                          <em>{value.toFixed(2)}</em>
+                        </span>
+                        <input
+                          type="range"
+                          min={0}
+                          max={1}
+                          step={0.01}
+                          value={value}
+                          title={title}
+                          onChange={(event) => onClassifierMinScoreChange(classifier.classifier_key, Number(event.target.value))}
+                        />
+                      </label>
+                    </Fragment>
+                  );
+                })}
+                {classifierJob && classifierJob.failed > 0 ? (
+                  <span className="classifier-job-status">failed {classifierJob.failed}</span>
+                ) : null}
+              </div>
+            ) : (
+              <div className="empty-state classifier-empty-state">{classifierEmptyStateMessage}</div>
+            )}
           </div>
         )}
         <div className="results-list">

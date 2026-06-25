@@ -34,6 +34,10 @@ if TYPE_CHECKING:
 
 DEFAULT_RRF_K = 60
 DEFAULT_K_VALUES = (5, 10, 20)
+CLASSIFIER_SIGNAL = "classifiers"
+CLASSIFIER_BREAKDOWN_PREFIX = "classifier_"
+CLASSIFIER_ABLATION_VARIANT = "fusion:rrf_without_classifiers"
+FUSION_BASELINE_VARIANT = "fusion:rrf_all"
 
 
 @dataclass(frozen=True)
@@ -46,6 +50,11 @@ class SourceContribution:
 class CandidateEvent:
     candidate_track_id: int
     source_contributions: Mapping[str, SourceContribution]
+    classifier_contribution: float
+
+    @property
+    def has_classifier_adjustment(self) -> bool:
+        return self.classifier_contribution != 0.0
 
 
 @dataclass(frozen=True)
@@ -70,6 +79,7 @@ class SessionVariant:
     judged_relevances: tuple[int, ...]
     judged_candidate_track_ids: tuple[int, ...]
     unjudged_candidate_track_ids: tuple[int, ...]
+    classifier_adjusted: bool
 
     @property
     def judged_results(self) -> int:
@@ -96,10 +106,18 @@ def build_source_ablation_report(
     feedback_map = db.get_pair_feedback_map()
     judged_gate = build_judged_label_gate(raw_sessions, feedback_map, judged_only=judged_only)
     session_variants = {
-        session.session_id: _build_session_variants(session, feedback_map, clean_rrf_k, clean_score_profile, judged_only) for session in sessions
+        session.session_id: _build_session_variants(
+            session,
+            feedback_map,
+            clean_rrf_k,
+            clean_score_profile,
+            judged_only,
+            include_classifier_ablation=True,
+        )
+        for session in sessions
     }
     variant_names = _variant_names(session_variants)
-    baseline_metrics = _aggregate_variant_metrics(session_variants, "fusion:rrf_all", clean_k_values)
+    baseline_metrics = _aggregate_variant_metrics(session_variants, FUSION_BASELINE_VARIANT, clean_k_values)
     score_profile_variant_name = _score_profile_variant_name(clean_score_profile) if clean_score_profile is not None else None
     variants = {
         variant_name: _variant_report(
@@ -157,10 +175,15 @@ def _candidate_pool_sessions(sessions: Sequence[Mapping[str, Any]]) -> tuple[Can
 
 def _candidate_event(event: Mapping[str, Any]) -> CandidateEvent | None:
     candidate_track_id = int(event["track_id"])
-    source_contributions = _source_contributions(event.get("score_breakdown"))
+    score_breakdown = event.get("score_breakdown")
+    source_contributions = _source_contributions(score_breakdown)
     if not source_contributions:
         return None
-    return CandidateEvent(candidate_track_id=candidate_track_id, source_contributions=source_contributions)
+    return CandidateEvent(
+        candidate_track_id=candidate_track_id,
+        source_contributions=source_contributions,
+        classifier_contribution=_classifier_contribution(score_breakdown),
+    )
 
 
 def _source_contributions(score_breakdown: object) -> dict[str, SourceContribution]:
@@ -207,35 +230,94 @@ def _parse_source_contribution(payload: object) -> SourceContribution | None:
     return SourceContribution(rank=None, score=score)
 
 
+def _classifier_contribution(score_breakdown: object) -> float:
+    if not isinstance(score_breakdown, Mapping):
+        return 0.0
+
+    support_contributions = _classifier_support_contributions(score_breakdown.get("classifier_support"))
+    if support_contributions:
+        return sum(support_contributions)
+
+    nested_contributions = _classifier_breakdown_contributions(score_breakdown.get("score_breakdown"))
+    if nested_contributions:
+        return sum(nested_contributions)
+
+    return sum(_classifier_breakdown_contributions(score_breakdown))
+
+
+def _classifier_support_contributions(classifier_support: object) -> tuple[float, ...]:
+    if not isinstance(classifier_support, Mapping):
+        return ()
+    return tuple(
+        contribution
+        for details in classifier_support.values()
+        if isinstance(details, Mapping)
+        if (contribution := _optional_finite_float(details.get("score_contribution"))) is not None
+    )
+
+
+def _classifier_breakdown_contributions(score_breakdown: object) -> tuple[float, ...]:
+    if not isinstance(score_breakdown, Mapping):
+        return ()
+    return tuple(
+        contribution
+        for key, details in score_breakdown.items()
+        if _is_classifier_breakdown_key(key) and isinstance(details, Mapping)
+        if (contribution := _optional_finite_float(details.get("contribution"))) is not None
+    )
+
+
+def _is_classifier_breakdown_key(key: object) -> bool:
+    return str(key).strip().lower().startswith(CLASSIFIER_BREAKDOWN_PREFIX)
+
+
 def _build_session_variants(
     session: CandidatePoolSession,
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
     rrf_k: int,
     score_profile: ScoreProfile | None,
     judged_only: bool,
+    include_classifier_ablation: bool = False,
 ) -> dict[str, SessionVariant]:
     source_ranks = _source_ranks(session.candidate_events)
     if not source_ranks:
         return {}
 
-    variants: dict[str, tuple[RankedCandidate, ...]] = {
-        f"source:{source}": _source_ranking(source_ranks[source])
-        for source in ALLOWED_CANDIDATE_SOURCES
-        if source in source_ranks
-    }
+    variant_rankings: dict[str, tuple[tuple[RankedCandidate, ...], bool]] = {}
+    for source in ALLOWED_CANDIDATE_SOURCES:
+        if source not in source_ranks:
+            continue
+        variant_rankings[f"source:{source}"] = (_source_ranking(source_ranks[source]), False)
+
     sources_seen = tuple(source for source in ALLOWED_CANDIDATE_SOURCES if source in source_ranks)
-    variants["fusion:rrf_all"] = _rrf_ranking(source_ranks, sources_seen, rrf_k)
+    classifier_contributions = _classifier_contributions(session.candidate_events) if include_classifier_ablation else {}
+    base_rrf_ranking = _rrf_ranking(source_ranks, sources_seen, rrf_k)
+    variant_rankings[FUSION_BASELINE_VARIANT] = _ranking_with_classifier_adjustment(base_rrf_ranking, classifier_contributions)
     if score_profile is not None:
-        variants[_score_profile_variant_name(score_profile)] = _weighted_rrf_ranking(source_ranks, score_profile, rrf_k)
+        variant_rankings[_score_profile_variant_name(score_profile)] = (_weighted_rrf_ranking(source_ranks, score_profile, rrf_k), False)
     if len(sources_seen) >= 2:
         for removed_source in sources_seen:
             kept_sources = tuple(source for source in sources_seen if source != removed_source)
-            variants[f"fusion:rrf_without_{removed_source}"] = _rrf_ranking(source_ranks, kept_sources, rrf_k)
+            source_ablated_ranking = _rrf_ranking(source_ranks, kept_sources, rrf_k)
+            variant_rankings[f"fusion:rrf_without_{removed_source}"] = _ranking_with_classifier_adjustment(
+                source_ablated_ranking,
+                classifier_contributions,
+            )
+    if include_classifier_ablation:
+        variant_rankings[CLASSIFIER_ABLATION_VARIANT] = (base_rrf_ranking, False)
 
     return {
-        variant_name: _session_variant(ranked_candidates, session, feedback_map, judged_only)
-        for variant_name, ranked_candidates in variants.items()
+        variant_name: _session_variant(ranked_candidates, session, feedback_map, judged_only, classifier_adjusted)
+        for variant_name, (ranked_candidates, classifier_adjusted) in variant_rankings.items()
         if ranked_candidates
+    }
+
+
+def _classifier_contributions(candidate_events: Sequence[CandidateEvent]) -> dict[int, float]:
+    return {
+        event.candidate_track_id: event.classifier_contribution
+        for event in candidate_events
+        if event.has_classifier_adjustment
     }
 
 
@@ -296,6 +378,47 @@ def _rrf_ranking(
     )
 
 
+def _ranking_with_classifier_adjustment(
+    ranked_candidates: Sequence[RankedCandidate],
+    classifier_contributions: Mapping[int, float],
+) -> tuple[tuple[RankedCandidate, ...], bool]:
+    active_contributions = {
+        candidate.candidate_track_id: classifier_contributions[candidate.candidate_track_id]
+        for candidate in ranked_candidates
+        if candidate.candidate_track_id in classifier_contributions
+    }
+    if not active_contributions:
+        return tuple(ranked_candidates), False
+
+    max_rank_score = max((candidate.rank_score for candidate in ranked_candidates), default=0.0)
+    adjusted_candidates = tuple(
+        (
+            RankedCandidate(
+                candidate_track_id=candidate.candidate_track_id,
+                rank_score=_normalized_rank_score(candidate.rank_score, max_rank_score) + active_contributions.get(candidate.candidate_track_id, 0.0),
+            ),
+            index,
+        )
+        for index, candidate in enumerate(ranked_candidates)
+    )
+    return (
+        tuple(
+            candidate
+            for candidate, _index in sorted(
+                adjusted_candidates,
+                key=lambda item: (-item[0].rank_score, item[1], item[0].candidate_track_id),
+            )
+        ),
+        True,
+    )
+
+
+def _normalized_rank_score(rank_score: float, max_rank_score: float) -> float:
+    if max_rank_score <= 0.0:
+        return 0.0
+    return rank_score / max_rank_score
+
+
 def _weighted_rrf_ranking(
     source_ranks: Mapping[str, Mapping[int, int]],
     score_profile: ScoreProfile,
@@ -321,6 +444,7 @@ def _session_variant(
     session: CandidatePoolSession,
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
     judged_only: bool,
+    classifier_adjusted: bool,
 ) -> SessionVariant:
     relevances_for_metrics: list[int] = []
     judged_relevances: list[int] = []
@@ -343,6 +467,7 @@ def _session_variant(
         judged_relevances=tuple(judged_relevances),
         judged_candidate_track_ids=tuple(judged_candidate_track_ids),
         unjudged_candidate_track_ids=tuple(unjudged_candidate_track_ids),
+        classifier_adjusted=classifier_adjusted,
     )
 
 
@@ -400,10 +525,14 @@ def _variant_report(
     score_profile: ScoreProfile | None = None,
 ) -> dict[str, Any]:
     metrics = _aggregate_variant_metrics(session_variants, variant_name, k_values)
+    variant_counts = _variant_counts(session_variants, variant_name)
+    classifier_adjusted = _variant_uses_classifier_adjustment(session_variants, variant_name)
     report = {
         "type": variant_name.split(":", 1)[0],
-        "sources": _variant_sources(variant_name, score_profile),
-        "counts": _variant_counts(session_variants, variant_name),
+        "sources": _variant_sources(variant_name, score_profile, classifier_adjusted=classifier_adjusted),
+        "ablated_signal": _ablated_signal(variant_name),
+        "classifier_adjusted": classifier_adjusted,
+        "counts": variant_counts,
         "metrics": metrics,
         "delta_vs_fusion_rrf_all": _metric_deltas(metrics, baseline_metrics),
     }
@@ -412,17 +541,50 @@ def _variant_report(
     return report
 
 
-def _variant_sources(variant_name: str, score_profile: ScoreProfile | None = None) -> list[str]:
+def _variant_sources(
+    variant_name: str,
+    score_profile: ScoreProfile | None = None,
+    *,
+    classifier_adjusted: bool = False,
+) -> list[str]:
     if variant_name.startswith("source:"):
         return [variant_name.split(":", 1)[1]]
     if variant_name.startswith("fusion:weighted_rrf:") and score_profile is not None:
         return [source for source in score_profile.sources if score_profile.weights[source] > 0]
-    if variant_name == "fusion:rrf_all":
+    if variant_name == FUSION_BASELINE_VARIANT:
+        return _fusion_sources(classifier_adjusted=classifier_adjusted)
+    if variant_name == CLASSIFIER_ABLATION_VARIANT:
         return list(ALLOWED_CANDIDATE_SOURCES)
     if variant_name.startswith("fusion:rrf_without_"):
         removed_source = variant_name.removeprefix("fusion:rrf_without_")
-        return [source for source in ALLOWED_CANDIDATE_SOURCES if source != removed_source]
+        return [source for source in _fusion_sources(classifier_adjusted=classifier_adjusted) if source != removed_source]
     return []
+
+
+def _fusion_sources(*, classifier_adjusted: bool) -> list[str]:
+    sources = list(ALLOWED_CANDIDATE_SOURCES)
+    if classifier_adjusted:
+        sources.append(CLASSIFIER_SIGNAL)
+    return sources
+
+
+def _ablated_signal(variant_name: str) -> str | None:
+    if variant_name == CLASSIFIER_ABLATION_VARIANT:
+        return CLASSIFIER_SIGNAL
+    if variant_name.startswith("fusion:rrf_without_"):
+        return variant_name.removeprefix("fusion:rrf_without_")
+    return None
+
+
+def _variant_uses_classifier_adjustment(
+    session_variants: Mapping[int, Mapping[str, SessionVariant]],
+    variant_name: str,
+) -> bool:
+    return any(
+        variant.classifier_adjusted
+        for variants in session_variants.values()
+        if (variant := variants.get(variant_name)) is not None
+    )
 
 
 def _aggregate_variant_metrics(
@@ -490,6 +652,7 @@ def _variant_counts(
         "judged_results": sum(variant.judged_results for variant in variants),
         "unjudged_results": sum(variant.unjudged_results for variant in variants),
         "candidate_count": sum(len(variant.ranked_candidates) for variant in variants),
+        "classifier_adjusted_sessions": sum(1 for variant in variants if variant.classifier_adjusted),
         "label_policy": LABEL_POLICY,
     }
 
@@ -509,7 +672,7 @@ def _report_counts(
     sessions: Sequence[CandidatePoolSession],
     session_variants: Mapping[int, Mapping[str, SessionVariant]],
 ) -> dict[str, Any]:
-    baseline_variants = [variants["fusion:rrf_all"] for variants in session_variants.values() if "fusion:rrf_all" in variants]
+    baseline_variants = [variants[FUSION_BASELINE_VARIANT] for variants in session_variants.values() if FUSION_BASELINE_VARIANT in variants]
     return {
         "sessions_total": len(sessions),
         "sessions_with_labels": sum(1 for variant in baseline_variants if variant.judged_results > 0),
@@ -518,6 +681,9 @@ def _report_counts(
         "candidate_count": sum(len(session.candidate_events) for session in sessions),
         "label_policy": LABEL_POLICY,
         "sources_seen": _sources_seen(sessions),
+        "signals_seen": _signals_seen(sessions),
+        "classifier_adjusted_sessions": sum(1 for session in sessions if any(event.has_classifier_adjustment for event in session.candidate_events)),
+        "classifier_adjusted_events": sum(1 for session in sessions for event in session.candidate_events if event.has_classifier_adjustment),
     }
 
 
@@ -527,6 +693,13 @@ def _sources_seen(sessions: Sequence[CandidatePoolSession]) -> list[str]:
         for source in ALLOWED_CANDIDATE_SOURCES
         if any(source in event.source_contributions for session in sessions for event in session.candidate_events)
     ]
+
+
+def _signals_seen(sessions: Sequence[CandidatePoolSession]) -> list[str]:
+    signals = _sources_seen(sessions)
+    if any(event.has_classifier_adjustment for session in sessions for event in session.candidate_events):
+        signals.append(CLASSIFIER_SIGNAL)
+    return signals
 
 
 def _clean_score_profile(score_profile: ScoreProfile | None) -> ScoreProfile | None:
@@ -556,10 +729,13 @@ def _session_report(
         "feedback_source": session.feedback_source,
         "candidate_count": len(session.candidate_events),
         "sources_seen": _sources_seen([session]),
+        "signals_seen": _signals_seen([session]),
+        "classifier_adjusted_events": sum(1 for event in session.candidate_events if event.has_classifier_adjustment),
         "variants": {
             variant_name: {
                 "candidate_count": len(variant.ranked_candidates),
                 "label_policy": LABEL_POLICY,
+                "classifier_adjusted": variant.classifier_adjusted,
                 "judged_results": variant.judged_results,
                 "unjudged_results": variant.unjudged_results,
                 "ranked_candidate_track_ids": [candidate.candidate_track_id for candidate in variant.ranked_candidates],

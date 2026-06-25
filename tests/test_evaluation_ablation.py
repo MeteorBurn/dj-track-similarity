@@ -88,6 +88,52 @@ def test_source_ablation_leave_one_out_variants_include_deltas(tmp_path: Path) -
     assert report["variants"]["fusion:rrf_all"]["delta_vs_fusion_rrf_all"]["mean_precision_at_1"] == 0.0
 
 
+def test_source_ablation_classifier_variant_is_present(tmp_path: Path) -> None:
+    db, track_ids = _ablation_library(tmp_path, ["candidate_a", "candidate_b"])
+    session_id = _candidate_pool_session(db, track_ids["seed"])
+    _candidate_event(
+        db,
+        session_id,
+        track_ids["candidate_a"],
+        {"mert": {"rank": 1, "score": 0.9}},
+        classifier_support=_classifier_support("break_energy", 0.15),
+    )
+    _candidate_event(db, session_id, track_ids["candidate_b"], {"mert": {"rank": 2, "score": 0.8}})
+
+    report = build_source_ablation_report(db, k_values=[1], rrf_k=60)
+
+    assert "fusion:rrf_without_classifiers" in report["variants"]
+    assert report["variants"]["fusion:rrf_all"]["classifier_adjusted"] is True
+    assert report["variants"]["fusion:rrf_without_classifiers"]["ablated_signal"] == "classifiers"
+    assert report["counts"]["signals_seen"] == ["mert", "classifiers"]
+
+
+def test_source_ablation_without_classifiers_removes_only_classifier_adjustment(tmp_path: Path) -> None:
+    db, track_ids = _ablation_library(tmp_path, ["rrf_top", "classifier_top"])
+    session_id = _candidate_pool_session(db, track_ids["seed"])
+    _candidate_event(db, session_id, track_ids["rrf_top"], {"mert": {"rank": 1, "score": 0.9}})
+    _candidate_event(
+        db,
+        session_id,
+        track_ids["classifier_top"],
+        {"mert": {"rank": 2, "score": 0.8}},
+        classifier_support=_classifier_support("break_energy", 0.15),
+    )
+    db.upsert_track_pair_feedback(track_ids["seed"], track_ids["rrf_top"], 0, source="manual")
+    db.upsert_track_pair_feedback(track_ids["seed"], track_ids["classifier_top"], 3, source="manual")
+
+    report = build_source_ablation_report(db, k_values=[1], rrf_k=60)
+
+    full_variant = report["sessions"][0]["variants"]["fusion:rrf_all"]
+    without_classifier_variant = report["sessions"][0]["variants"]["fusion:rrf_without_classifiers"]
+    source_variant = report["sessions"][0]["variants"]["source:mert"]
+    assert full_variant["ranked_candidate_track_ids"] == [track_ids["classifier_top"], track_ids["rrf_top"]]
+    assert without_classifier_variant["ranked_candidate_track_ids"] == [track_ids["rrf_top"], track_ids["classifier_top"]]
+    assert source_variant["ranked_candidate_track_ids"] == without_classifier_variant["ranked_candidate_track_ids"]
+    assert report["variants"]["fusion:rrf_all"]["metrics"]["mean_precision_at_1"] == 1.0
+    assert report["variants"]["fusion:rrf_without_classifiers"]["metrics"]["mean_precision_at_1"] == 0.0
+
+
 def test_source_ablation_uses_rank_without_raw_source_score(tmp_path: Path) -> None:
     db, track_ids = _ablation_library(tmp_path, ["candidate_a", "candidate_b"])
     session_id = _candidate_pool_session(db, track_ids["seed"])
@@ -159,6 +205,72 @@ def test_source_ablation_judged_only_metrics_drop_unjudged_rank_positions(tmp_pa
     assert metrics["mean_strong_match_rate_at_1"] == 1.0
 
 
+def test_source_ablation_judged_only_filters_classifier_variant(tmp_path: Path) -> None:
+    db, track_ids = _ablation_library(tmp_path, ["unjudged", "relevant"])
+    session_id = _candidate_pool_session(db, track_ids["seed"])
+    _candidate_event(
+        db,
+        session_id,
+        track_ids["unjudged"],
+        {"mert": {"rank": 1, "score": 0.9}},
+        classifier_support=_classifier_support("break_energy", 0.15),
+    )
+    _candidate_event(db, session_id, track_ids["relevant"], {"mert": {"rank": 2, "score": 0.8}})
+    db.upsert_track_pair_feedback(track_ids["seed"], track_ids["relevant"], 3, source="manual")
+
+    report = build_source_ablation_report(db, k_values=[1], rrf_k=60, judged_only=True)
+
+    full_variant = report["sessions"][0]["variants"]["fusion:rrf_all"]
+    classifier_variant = report["sessions"][0]["variants"]["fusion:rrf_without_classifiers"]
+    assert report["evaluation_mode"] == "judged_validation"
+    assert full_variant["relevances_for_metrics"] == [3]
+    assert classifier_variant["relevances_for_metrics"] == [3]
+    assert report["variants"]["fusion:rrf_all"]["metrics"]["mean_precision_at_1"] == 1.0
+
+
+def test_source_ablation_classifier_variant_noops_without_active_scores(tmp_path: Path) -> None:
+    db, track_ids = _ablation_library(tmp_path, ["candidate_a", "candidate_b"])
+    session_id = _candidate_pool_session(db, track_ids["seed"])
+    _candidate_event(db, session_id, track_ids["candidate_a"], {"mert": {"rank": 1, "score": 0.9}})
+    _candidate_event(db, session_id, track_ids["candidate_b"], {"mert": {"rank": 2, "score": 0.8}})
+    db.upsert_track_pair_feedback(track_ids["seed"], track_ids["candidate_a"], 3, source="manual")
+    db.upsert_track_pair_feedback(track_ids["seed"], track_ids["candidate_b"], 0, source="manual")
+
+    absent_report = build_source_ablation_report(db, k_values=[1], rrf_k=60)
+
+    absent_full = absent_report["sessions"][0]["variants"]["fusion:rrf_all"]
+    absent_without = absent_report["sessions"][0]["variants"]["fusion:rrf_without_classifiers"]
+    assert absent_full["ranked_candidate_track_ids"] == absent_without["ranked_candidate_track_ids"]
+    assert absent_report["counts"]["classifier_adjusted_events"] == 0
+    assert absent_report["variants"]["fusion:rrf_without_classifiers"]["delta_vs_fusion_rrf_all"]["mean_precision_at_1"] == 0.0
+
+    missing_tmp_path = tmp_path / "missing_scores"
+    missing_tmp_path.mkdir()
+    missing_db, missing_track_ids = _ablation_library(missing_tmp_path, ["candidate_a_missing", "candidate_b_missing"])
+    missing_session_id = _candidate_pool_session(missing_db, missing_track_ids["seed"])
+    _candidate_event(
+        missing_db,
+        missing_session_id,
+        missing_track_ids["candidate_a_missing"],
+        {"mert": {"rank": 1, "score": 0.9}},
+        classifier_support=_classifier_support("break_energy", None),
+    )
+    _candidate_event(
+        missing_db,
+        missing_session_id,
+        missing_track_ids["candidate_b_missing"],
+        {"mert": {"rank": 2, "score": 0.8}},
+        classifier_support=_classifier_support("break_energy", None),
+    )
+
+    missing_report = build_source_ablation_report(missing_db, k_values=[1], rrf_k=60)
+
+    missing_full = missing_report["sessions"][0]["variants"]["fusion:rrf_all"]
+    missing_without = missing_report["sessions"][0]["variants"]["fusion:rrf_without_classifiers"]
+    assert missing_full["ranked_candidate_track_ids"] == missing_without["ranked_candidate_track_ids"]
+    assert missing_report["counts"]["classifier_adjusted_events"] == 0
+
+
 def test_weighted_rrf_order_changes_when_profile_emphasizes_source(tmp_path: Path) -> None:
     db, track_ids = _ablation_library(tmp_path, ["candidate_a", "candidate_b"])
     session_id = _candidate_pool_session(db, track_ids["seed"])
@@ -204,14 +316,31 @@ def _candidate_event(
     session_id: int,
     candidate_track_id: int,
     source_contributions: dict[str, dict[str, float | int]],
+    *,
+    classifier_support: dict[str, dict[str, object]] | None = None,
+    classifier_breakdown: dict[str, dict[str, float | int]] | None = None,
 ) -> None:
+    score_breakdown: dict[str, object] = {"sources": source_contributions}
+    if classifier_support is not None:
+        score_breakdown["classifier_support"] = classifier_support
+    if classifier_breakdown is not None:
+        score_breakdown["score_breakdown"] = {**source_contributions, **classifier_breakdown}
     db.record_search_result_event(
         session_id,
         candidate_track_id,
         rank=1,
         total_score=0.0,
-        score_breakdown={"sources": source_contributions},
+        score_breakdown=score_breakdown,
     )
+
+
+def _classifier_support(classifier_key: str, contribution: float | None) -> dict[str, dict[str, object]]:
+    return {
+        classifier_key: {
+            "available": contribution is not None,
+            "score_contribution": contribution,
+        },
+    }
 
 
 def _score_profile(name: str, weights: dict[str, float]) -> ScoreProfile:

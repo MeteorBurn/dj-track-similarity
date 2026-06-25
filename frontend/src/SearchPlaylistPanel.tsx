@@ -2,6 +2,7 @@ import { Dispatch, Fragment, SetStateAction, useEffect, useRef, useState } from 
 import { Download, FolderOpen, ListFilter, ListMusic, Pause, Play, RotateCcw, Search, Tags, Trash2, X } from "lucide-react";
 import { AnalysisJobStatus, api, HybridMatchAxis, HybridSearchResult, HybridSearchSource, PromotedClassifier, SearchResult, SetBuilderBpmChange, SetBuilderBpmMode, SetBuilderClassifierFlow, SetBuilderEnergyCurve, SetBuilderGeneratePayload, SetBuilderMode, SetBuilderSeedMode, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
 import type { EvaluationPairFeedbackResult, EvaluationPairFeedbackState, EvaluationPairReasonTag } from "./api";
+import { classifierScoringBlockedReason } from "./classifierCompatibility";
 import type { ClapPromptPreset } from "./clapPrompt";
 import { playlistPage } from "./playlistView";
 import { resetSetBuilderSliders, setBuilderDefaultDiversity, setBuilderDefaultFlow } from "./setBuilderControls";
@@ -192,6 +193,39 @@ const hybridAxisLabels: Record<HybridMatchAxis, string> = {
   novelty: "Novelty"
 };
 
+type HybridClassifierToggle = "vocalRisk" | "abstractEdge" | "breakEnergy" | "liveInstrumentation";
+
+const hybridClassifierOptions: Array<{ key: HybridClassifierToggle; classifierKey: string; label: string; title: string; preference?: number; riskWeight?: number }> = [
+  {
+    key: "vocalRisk",
+    classifierKey: "voice_presence",
+    label: "Penalize vocal risk",
+    title: "Uses stored voice_presence classifier scores as a modest vocal-conflict risk signal. Missing scores stay neutral.",
+    riskWeight: 1.0
+  },
+  {
+    key: "abstractEdge",
+    classifierKey: "abstract_edge",
+    label: "Boost abstract edge",
+    title: "Uses stored abstract_edge classifier scores as a small leftfield preference boost. Missing scores stay neutral.",
+    preference: 0.6
+  },
+  {
+    key: "breakEnergy",
+    classifierKey: "break_energy",
+    label: "Boost break energy",
+    title: "Uses stored break_energy classifier scores as a small groove/rhythm preference boost. Missing scores stay neutral.",
+    preference: 0.6
+  },
+  {
+    key: "liveInstrumentation",
+    classifierKey: "live_instrumentation",
+    label: "Boost live instrumentation",
+    title: "Uses stored live_instrumentation classifier scores as a small organic-texture preference boost. Missing scores stay neutral.",
+    preference: 0.4
+  }
+];
+
 type PairFeedbackRating = 0 | 1 | 2 | 3;
 
 type HybridFeedbackDraft = {
@@ -250,6 +284,7 @@ export function SearchPlaylistPanel({
   onOutputDirChange,
   onChooseOutputFolder,
   helpText,
+  clapEmbeddingCount,
   classifiers,
   classifierMinScores,
   onClassifierMinScoreChange,
@@ -291,6 +326,7 @@ export function SearchPlaylistPanel({
   onOutputDirChange: (value: string) => void;
   onChooseOutputFolder: () => void;
   helpText: SearchHelpText;
+  clapEmbeddingCount: number;
   classifiers: PromotedClassifier[];
   classifierMinScores: Record<string, number>;
   onClassifierMinScoreChange: (classifier: string, value: number) => void;
@@ -332,6 +368,13 @@ export function SearchPlaylistPanel({
   const [hybridPerSource, setHybridPerSource] = useState(30);
   const [hybridLimit, setHybridLimit] = useState(25);
   const [hybridTransitionRiskWeight, setHybridTransitionRiskWeight] = useState(0);
+  const [hybridUseClassifierPreferences, setHybridUseClassifierPreferences] = useState(false);
+  const [hybridClassifierToggles, setHybridClassifierToggles] = useState<Record<HybridClassifierToggle, boolean>>({
+    vocalRisk: false,
+    abstractEdge: false,
+    breakEnergy: false,
+    liveInstrumentation: false
+  });
   const [hybridLoading, setHybridLoading] = useState(false);
   const [hybridError, setHybridError] = useState("");
   const [hybridResults, setHybridResults] = useState<HybridSearchResult[]>([]);
@@ -387,24 +430,30 @@ export function SearchPlaylistPanel({
   const setBuilderDiversityTitle = "Насколько активно раздвигать похожие кандидаты. Тип: число 0.00-1.00. 0 = ближе к anchors, 1 = больше разнообразия при сохранении связи.";
   const setBpmStartTitle = "Start BPM для явной BPM-кривой. Тип: число 20-300 или пусто = взять из первого seed/anchor, затем из библиотеки.";
   const setBpmTargetTitle = "Target BPM для явной BPM-кривой. Тип: число 20-300 или пусто = вывести из доступного диапазона библиотеки.";
-  const hybridBlockTitle = "Hybrid preview: explicit weighted RRF candidate preview inside SET. Type: action block. It reads stored MERT/MAEST/SONARA/CLAP data only and does not change existing search endpoints.";
+  const hybridBlockTitle = "Hybrid preview: explicit weighted RRF candidate preview inside SET. Type: action block. Direct API calls are read-only by default; this UI records evaluation session/event rows for feedback only.";
   const hybridWeightTitle = "Source weight for Weighted preview. Type: number 0.00-1.00. Equal values keep sources balanced; disabled sources are ignored.";
   const hybridPerSourceTitle = "Candidates fetched per enabled source before weighted fusion. Type: integer 1-100. Default: 30.";
   const hybridLimitTitle = "Maximum Hybrid preview rows to show. Type: integer 1-100. Default: 25.";
   const hybridRiskPenaltyTitle = "Optional penalty for diagnostic transition risk. Type: number 0.00-1.00. Score remains an unsupervised diagnostic.";
+  const hybridClassifierTitle = "Optional Hybrid classifier controls. Type: checkboxes. They read stored promoted classifier scores only; missing scores stay neutral.";
   const autoSeedCountDisabled = setSeedMode !== "auto";
   const autoSeedCountControlTitle = autoSeedCountDisabled ? `${setAutoSeedCountTitle} Активно только когда выбран Auto - random start.` : setAutoSeedCountTitle;
   const bpmControlsDisabled = setBpmMode === "general";
   const selectedHybridSources = hybridSourceKeys.filter((source) => hybridSources[source]);
+  const availableHybridClassifierKeys = new Set(classifiers.map((classifier) => classifier.classifier_key));
   const hybridSeedMessage = hybridSeedRequirementMessage(seeds.length);
   const hybridSourceMessage = selectedHybridSources.length ? "" : "Enable at least one Hybrid preview source.";
   const hybridReadinessMessage = hybridSeedMessage || hybridSourceMessage;
-  const hybridInputKey = formatHybridInputKey(seeds, hybridSources, hybridWeights, hybridPerSource, hybridLimit, hybridTransitionRiskWeight);
+  const hybridInputKey = formatHybridInputKey(seeds, hybridSources, hybridWeights, hybridPerSource, hybridLimit, hybridTransitionRiskWeight, hybridUseClassifierPreferences, hybridClassifierToggles);
   const hybridInputKeyRef = useRef(hybridInputKey);
   const hybridPreviewIsCurrent = hybridPreviewKey === hybridInputKey;
   const showHybridDiagnostics = hybridPreviewIsCurrent && !hybridReadinessMessage && !hybridError;
   const showHybridResults = showHybridDiagnostics && hybridResults.length > 0;
   const hybridDiagnosticTitle = formatHybridDiagnosticTitle(showHybridDiagnostics ? hybridLimitations : []);
+  const hasStoredClapEmbeddings = clapEmbeddingCount > 0;
+  const clapSearchTitle = hasStoredClapEmbeddings
+    ? "Найти треки через CLAP по текстовому описанию звучания. Требуются сохраненные CLAP audio embeddings в SQLite."
+    : "CLAP search requires stored CLAP audio embeddings. Запустите анализ CLAP для библиотеки, затем повторите текстовый поиск.";
 
   useEffect(() => {
     hybridInputKeyRef.current = hybridInputKey;
@@ -461,6 +510,10 @@ export function SearchPlaylistPanel({
 
   function setHybridSourceWeight(source: HybridSearchSource, value: number) {
     setHybridWeights((current) => ({ ...current, [source]: clampNumber(value, 0, 1) }));
+  }
+
+  function setHybridClassifierToggle(toggle: HybridClassifierToggle, enabled: boolean) {
+    setHybridClassifierToggles((current) => ({ ...current, [toggle]: enabled }));
   }
 
   async function refreshEvaluationLabelCounts() {
@@ -568,6 +621,9 @@ export function SearchPlaylistPanel({
         per_source: hybridPerSource,
         limit: hybridLimit,
         transition_risk_weight: hybridTransitionRiskWeight,
+        transition_risk_version: "v2",
+        classifier_preferences: hybridUseClassifierPreferences ? hybridClassifierPreferences(hybridClassifierToggles, availableHybridClassifierKeys) : {},
+        classifier_risk_weights: hybridUseClassifierPreferences ? hybridClassifierRiskWeights(hybridClassifierToggles, availableHybridClassifierKeys) : {},
         include_diagnostics: true,
         record_session: true
       });
@@ -807,7 +863,7 @@ export function SearchPlaylistPanel({
                 <span className="hybrid-diagnostic-chip" title={hybridDiagnosticTitle}>Score info</span>
               </div>
               <p className="hybrid-preview-note">
-                Uses selected seed tracks and stored MERT, MAEST, SONARA, and CLAP analysis data only.
+                Uses stored MERT, MAEST, SONARA, and CLAP analysis data only. Direct API calls are read-only by default; this UI records evaluation session/event rows so feedback can be attached.
               </p>
               <div className="hybrid-source-grid">
                 {hybridSourceOptions.map((source) => (
@@ -836,6 +892,35 @@ export function SearchPlaylistPanel({
                     </label>
                   </div>
                 ))}
+              </div>
+              <div className="hybrid-classifier-controls" title={hybridClassifierTitle}>
+                <label className="toggle hybrid-classifier-master" title={hybridClassifierTitle}>
+                  <input
+                    type="checkbox"
+                    checked={hybridUseClassifierPreferences}
+                    title={hybridClassifierTitle}
+                    onChange={(event) => setHybridUseClassifierPreferences(event.target.checked)}
+                  />
+                  Use classifier preferences
+                </label>
+                <div className="hybrid-classifier-toggle-grid">
+                  {hybridClassifierOptions.map((option) => {
+                    const available = availableHybridClassifierKeys.has(option.classifierKey);
+                    const title = available ? option.title : `${option.title} Promoted classifier ${option.classifierKey} is not available in this app session.`;
+                    return (
+                      <label className={`toggle hybrid-classifier-toggle ${available ? "" : "disabled-filter"}`} key={option.key} title={title}>
+                        <input
+                          type="checkbox"
+                          checked={hybridClassifierToggles[option.key]}
+                          disabled={!hybridUseClassifierPreferences || !available}
+                          title={title}
+                          onChange={(event) => setHybridClassifierToggle(option.key, event.target.checked)}
+                        />
+                        {option.label}
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
               <div className="search-filter-grid hybrid-preview-grid">
                 <label title={hybridPerSourceTitle}>
@@ -1036,10 +1121,11 @@ export function SearchPlaylistPanel({
               <label title={helpText.similarity}>Similarity<input type="number" value={filters.minSimilarity} min={0} max={1} step={0.01} title={helpText.similarity} onChange={(event) => setFilters({ ...filters, minSimilarity: Number(event.target.value) })} /></label>
               <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => setFilters({ ...filters, limit: Number(event.target.value) })} /></label>
             </div>
-            <button className="clap-text-search-button" title="Найти треки через CLAP по текстовому описанию звучания" disabled={busy || !textQuery.trim()} onClick={handleTextSearch}>
+            <button className="clap-text-search-button" title={clapSearchTitle} disabled={busy || !textQuery.trim() || !hasStoredClapEmbeddings} onClick={handleTextSearch} type="button">
               <Search size={17} />
               CLAP search
             </button>
+            {!hasStoredClapEmbeddings ? <span className="clap-search-requirement">Requires stored CLAP embeddings. Run CLAP analysis first.</span> : null}
           </div>
         )}
         {activeSearchTab === "class" && (
@@ -1049,15 +1135,17 @@ export function SearchPlaylistPanel({
                 {classifiers.map((classifier) => {
                   const title = classifierHelp(classifier);
                   const value = classifierMinScores[classifier.classifier_key] || 0;
+                  const blockedReason = classifierScoringBlockedReason(classifier);
+                  const rescoreTitle = blockedReason ? `Cannot rescore ${classifier.name}: ${blockedReason}` : `Reset and rescore all ${classifier.name} classifier results`;
                   return (
                     <Fragment key={classifier.classifier_key}>
                       <div className="custom-control-header" title={title}>
                         <span>{classifier.name}</span>
                         <button
                           className="icon-button classifier-analyze-button"
-                          title={`Reset and rescore all ${classifier.name} classifier results`}
-                          aria-label={`Reset and rescore all ${classifier.name} classifier results`}
-                          disabled={busy}
+                          title={rescoreTitle}
+                          aria-label={rescoreTitle}
+                          disabled={busy || Boolean(blockedReason)}
                           onClick={() => onAnalyzeClassifier(classifier)}
                           type="button"
                         >
@@ -1173,6 +1261,7 @@ export function SearchPlaylistPanel({
 function HybridWhyThisTrack({ result }: { result: HybridSearchResult }) {
   const axes = hybridAxisOrder.map((axis) => ({ axis, value: clampNumber(result.match_character[axis], 0, 1) }));
   const sourceRows = hybridSourceKeys.map((source) => ({ source, support: result.source_support[source] }));
+  const classifierRows = Object.entries(result.classifier_support || {}).filter(([, support]) => support.available);
   const riskRows = Object.entries(result.risk_breakdown).filter((entry): entry is [string, number] => typeof entry[1] === "number");
   const explanationLines = result.explanation.length ? result.explanation : ["Reason signals are unavailable for this row."];
   return (
@@ -1206,6 +1295,15 @@ function HybridWhyThisTrack({ result }: { result: HybridSearchResult }) {
           </span>
         ))}
       </div>
+      {classifierRows.length ? (
+        <div className="hybrid-classifier-support" aria-label="Hybrid classifier support">
+          {classifierRows.map(([classifierKey, support]) => (
+            <span key={classifierKey} title={hybridClassifierSupportTitle(classifierKey, support)}>
+              CLASS {classifierKey} {formatOptionalUnitScore(support.score)}
+            </span>
+          ))}
+        </div>
+      ) : null}
       {riskRows.length ? (
         <div className="hybrid-risk-breakdown" aria-label="Hybrid risk estimate components">
           {riskRows.map(([name, value]) => (
@@ -1385,10 +1483,31 @@ function formatHybridInputKey(
   weights: Record<HybridSearchSource, number>,
   perSource: number,
   limit: number,
-  transitionRiskWeight: number
+  transitionRiskWeight: number,
+  useClassifierPreferences: boolean,
+  classifierToggles: Record<HybridClassifierToggle, boolean>
 ) {
   const sourceState = hybridSourceKeys.map((source) => `${source}:${sources[source] ? "1" : "0"}:${weights[source]}`).join("|");
-  return `${seeds.join(",")}|${sourceState}|${perSource}|${limit}|risk:${transitionRiskWeight}`;
+  const classifierState = hybridClassifierOptions.map((option) => `${option.key}:${classifierToggles[option.key] ? "1" : "0"}`).join("|");
+  return `${seeds.join(",")}|${sourceState}|${perSource}|${limit}|risk:${transitionRiskWeight}|class:${useClassifierPreferences ? "1" : "0"}:${classifierState}`;
+}
+
+function hybridClassifierPreferences(toggles: Record<HybridClassifierToggle, boolean>, availableKeys: Set<string>) {
+  const preferences: Record<string, number> = {};
+  for (const option of hybridClassifierOptions) {
+    if (!toggles[option.key] || !option.preference || !availableKeys.has(option.classifierKey)) continue;
+    preferences[option.classifierKey] = option.preference;
+  }
+  return preferences;
+}
+
+function hybridClassifierRiskWeights(toggles: Record<HybridClassifierToggle, boolean>, availableKeys: Set<string>) {
+  const riskWeights: Record<string, number> = {};
+  for (const option of hybridClassifierOptions) {
+    if (!toggles[option.key] || !option.riskWeight || !availableKeys.has(option.classifierKey)) continue;
+    riskWeights[option.classifierKey] = option.riskWeight;
+  }
+  return riskWeights;
 }
 
 function formatHybridDiagnosticTitle(limitations: string[]) {
@@ -1453,6 +1572,13 @@ function hybridSourceSupportTitle(source: HybridSearchSource, support?: HybridSe
   const score = typeof support.score === "number" ? ` score ${support.score.toFixed(3)}` : "";
   const seeds = support.supporting_seed_track_ids?.length ? ` seeds ${support.supporting_seed_track_ids.join(", ")}` : "";
   return `${source.toUpperCase()} source support: ${hybridSourceSupportLabel(support)}${score}${seeds}.`;
+}
+
+function hybridClassifierSupportTitle(classifierKey: string, support: HybridSearchResult["classifier_support"][string]) {
+  const preference = typeof support.preference === "number" && support.preference !== 0 ? ` preference ${formatSigned(support.preference)}` : "";
+  const contribution = typeof support.score_contribution === "number" && support.score_contribution !== 0 ? ` score contribution ${formatSigned(support.score_contribution)}` : "";
+  const risk = typeof support.risk_contribution === "number" ? ` risk contribution ${support.risk_contribution.toFixed(2)}` : "";
+  return `Classifier ${classifierKey}: stored score ${formatOptionalUnitScore(support.score)}.${preference}${contribution}${risk}`;
 }
 
 function formatHybridWeightsTitle(weights: Record<string, number>) {

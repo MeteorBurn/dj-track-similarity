@@ -5,6 +5,7 @@ import { AnalysisJobStatus, AnalysisModel, api, AudioDedupJobPayload, AudioDedup
 import { analysisSelectionOrder, isAudioAnalysisModel, type AnalysisSelection } from "./analysisSelection";
 import { AudioDedupDialog } from "./AudioDedupDialog";
 import { clapPromptPresets, defaultClapPromptPresetKey, promptQueriesFromText } from "./clapPrompt";
+import { classifierScoringBlockedReason } from "./classifierCompatibility";
 import type { ConfirmationRequest } from "./confirmation";
 import { ConfirmationDialog, LogFrameDialog } from "./dialogs";
 import { exportDirectoryError } from "./exportView";
@@ -464,15 +465,24 @@ export function App() {
   }
 
   async function handleAnalyzeClassifier(classifier: PromotedClassifier) {
-    appendActivity("info", "CLASSIFIER пересчет запущен", `${classifier.name} · reset scores + analyze`);
-    setProcessLogKind("analysis");
-    setAnalysisJob(null);
     await run(
       async () => {
-        await api.resetClassifiers([classifier.classifier_key]);
         const promotedClassifiers = await api.classifiers();
         setClassifiers(promotedClassifiers);
-        return api.analyzeClassifier(classifier.classifier_key);
+        const currentClassifier = promotedClassifiers.find((candidate) => candidate.classifier_key === classifier.classifier_key);
+        if (!currentClassifier) {
+          throw new Error(`Cannot rescore ${classifier.name}: Classifier profile is no longer available.`);
+        }
+        const blockedReason = classifierScoringBlockedReason(currentClassifier);
+        if (blockedReason) {
+          throw new Error(`Cannot rescore ${classifier.name}: ${blockedReason}`);
+        }
+
+        appendActivity("info", "CLASSIFIER пересчет запущен", `${currentClassifier.name} · reset scores + analyze`);
+        setProcessLogKind("analysis");
+        setAnalysisJob(null);
+        await api.resetClassifiers([currentClassifier.classifier_key]);
+        return api.analyzeClassifier(currentClassifier.classifier_key);
       },
       (job) => {
         setAnalysisJob(job);
@@ -1132,6 +1142,7 @@ export function App() {
           onOutputDirChange={setOutputDir}
           onChooseOutputFolder={() => void handleChooseOutputFolder()}
           helpText={helpText}
+          clapEmbeddingCount={librarySummary.clap}
           classifiers={classifiers}
           classifierMinScores={classifierMinScores}
           onClassifierMinScoreChange={(classifier, value) =>

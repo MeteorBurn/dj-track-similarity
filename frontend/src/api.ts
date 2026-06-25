@@ -57,6 +57,9 @@ export type HybridSearchPayload = {
   rrf_k?: number;
   random_seed?: number;
   transition_risk_weight?: number;
+  transition_risk_version?: "v1" | "v2";
+  classifier_preferences?: Record<string, number>;
+  classifier_risk_weights?: Record<string, number>;
   include_diagnostics?: boolean;
   record_session?: boolean;
 };
@@ -118,6 +121,14 @@ export type HybridSearchResult = {
     best_seed_track_id?: number | null;
     best_rank?: number | null;
     supporting_seed_track_ids?: number[];
+  }>;
+  classifier_support: Record<string, {
+    available: boolean;
+    score?: number | null;
+    preference?: number | null;
+    risk_weight?: number | null;
+    score_contribution?: number | null;
+    risk_contribution?: number | null;
   }>;
   match_character: Record<HybridMatchAxis, number>;
   warnings: string[];
@@ -255,6 +266,15 @@ export type PromotedClassifier = {
   label_order?: string[];
   model_path: string;
   metadata_path: string;
+  manifest_status?: string;
+  manifest_errors?: string[];
+  manifest_warnings?: string[];
+  is_scoring_compatible?: boolean;
+  manifest_version?: number | null;
+  score_semantics?: string;
+  calibration_status?: string;
+  has_calibrated_probability?: boolean;
+  required_inputs?: string[];
 };
 
 export type GenreTagJobStatus = {

@@ -230,6 +230,12 @@ want judged validation. These reports count only feedback that can be matched to
 recorded result events. Small samples stay `insufficient_data`; larger samples
 unlock diagnostics and candidate-profile review guidance, but never automatic
 default updates.
+After the matched judged-pair count reaches the PR-23 candidate-profile gate, use
+`dj-sim eval optimize-score-profile` for a guarded JSON proposal. It keeps the
+optimizer proposal out of the UI and production defaults, uses a seed-disjoint
+train/validation split, and rejects the proposal if validation NDCG@10 does not
+beat the equal-weight baseline, BadSuggestionRate@10 increases, or bootstrap
+stability fails.
 
 The endpoint accepts `1-5` seed track IDs, generates candidates from requested
 exact sources (`mert`, `maest`, `sonara`, `clap`), excludes the seeds, and ranks the

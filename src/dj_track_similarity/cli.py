@@ -38,6 +38,11 @@ from .evaluation.candidates import export_candidate_pools, write_candidate_pool_
 from .evaluation.labels import load_pair_feedback_labels, load_transition_feedback_labels
 from .evaluation.reports import build_search_evaluation_report
 from .evaluation.risk_sweep import build_risk_penalty_sweep_report
+from .evaluation.score_profile_optimizer import (
+    build_score_profile_optimizer_report,
+    optimizer_record_config,
+    optimizer_record_metrics,
+)
 from .evaluation.score_profiles import (
     build_score_profile_application_report,
     build_score_profile_from_source_report,
@@ -491,6 +496,67 @@ def evaluation_run_calibration(
         f"status={report['status']} calibration_status={report['calibration_status']} label_status={report['label_status']} output={output_path} "
         f"score_mode={report['score_mode']} sample_count={report['sample_count']} "
         f"positive_count={report['positive_count']} judged_pairs={report['judged_pairs']} recorded={report['recorded']}"
+    )
+
+
+@eval_app.command("optimize-score-profile")
+def evaluation_optimize_score_profile(
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+    output_path: Optional[Path] = typer.Option(None, "--output", dir_okay=False, writable=True),
+    profile_name: str = typer.Option("hybrid_judged_v1", "--profile-name", help="Proposal profile name stored in the JSON report."),
+    objective: str = typer.Option("balanced", "--objective", help="Optimization objective. MVP supports: balanced."),
+    split_by: str = typer.Option("seed", "--split-by", help="Train/validation split strategy. MVP supports: seed."),
+    min_judged_pairs: int = typer.Option(200, "--min-judged-pairs", min=1, help="Minimum matched judged pairs requested before proposing a profile."),
+    rrf_k: int = typer.Option(60, "--rrf-k", min=1, help="RRF smoothing constant for source-rank fusion."),
+    k: Optional[list[int]] = typer.Option(None, "--k", min=1, help="Metric cutoff. Repeat for multiple values; NDCG@10 guardrail is always included."),
+    random_seed: int = typer.Option(123, "--random-seed", help="Deterministic seed for train/validation split and bootstrap."),
+    grid_step: float = typer.Option(0.25, "--grid-step", min=0.01, max=1.0, help="Bounded source-weight grid step."),
+    bootstrap_samples: int = typer.Option(30, "--bootstrap-samples", min=0, help="Deterministic validation bootstrap samples; 0 disables the stability check."),
+    record: bool = typer.Option(False, "--record/--no-record", help="Record an ok diagnostic optimizer summary to calibration_runs."),
+) -> None:
+    try:
+        db = _evaluation_db(db_path)
+        report = build_score_profile_optimizer_report(
+            db,
+            profile_name=profile_name,
+            objective=objective,
+            split_by=split_by,
+            min_judged_pairs=min_judged_pairs,
+            rrf_k=rrf_k,
+            k_values=k or [10],
+            random_seed=random_seed,
+            grid_step=grid_step,
+            bootstrap_samples=bootstrap_samples,
+        )
+        report["recorded"] = False
+        if record and report["status"] == "ok":
+            report["calibration_run_id"] = db.record_calibration_run(
+                str(report["profile_name"]),
+                "score_profile_optimizer",
+                optimizer_record_config(report),
+                optimizer_record_metrics(report),
+            )
+            report["recorded"] = True
+        elif record:
+            report["record_note"] = "Optimizer summaries are recorded only when status is ok."
+        if output_path is not None:
+            _write_json_report(output_path, report)
+    except (ValueError, sqlite3.IntegrityError) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+
+    metric_cutoff = int(report["guardrails"]["metric_cutoff"])
+    validation_metrics = report.get("validation_metrics", {})
+    baseline_validation_metrics = report.get("baseline_validation_metrics", {})
+    validation_ndcg = validation_metrics.get(f"ndcg_at_{metric_cutoff}", "n/a")
+    baseline_ndcg = baseline_validation_metrics.get(f"ndcg_at_{metric_cutoff}", "n/a")
+    weights = report.get("weights", {})
+    weights_text = ",".join(f"{source}={float(weight):.4f}" for source, weight in sorted(weights.items())) if weights else "none"
+    output_text = str(output_path) if output_path is not None else "not_written"
+    typer.echo(
+        f"status={report['status']} decision={report['decision']} label_status={report['label_status']} output={output_text} "
+        f"judged_pairs={report['judged_pairs']} validation_ndcg_at_{metric_cutoff}={validation_ndcg} "
+        f"baseline_validation_ndcg_at_{metric_cutoff}={baseline_ndcg} weights={weights_text} recorded={report['recorded']}"
     )
 
 

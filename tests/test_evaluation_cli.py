@@ -276,6 +276,77 @@ def test_eval_apply_score_profile_cli_includes_metrics_with_pair_feedback(tmp_pa
     assert report["metrics"]["mean_precision_at_1"] == 1.0
 
 
+def test_eval_optimize_score_profile_cli_writes_report_without_recording_by_default(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    output_path = tmp_path / "optimizer.json"
+    _build_optimizer_cli_library(db_path, tmp_path, seed_count=100)
+    before_counts = LibraryDatabase(db_path).count_evaluation_rows()
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "eval",
+            "optimize-score-profile",
+            "--db",
+            str(db_path),
+            "--output",
+            str(output_path),
+            "--grid-step",
+            "0.5",
+            "--bootstrap-samples",
+            "0",
+            "--no-record",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "status=ok" in result.output
+    assert "recorded=False" in result.output
+    report = json.loads(output_path.read_text(encoding="utf-8"))
+    assert report["source"] == "judged_feedback"
+    assert report["weights"]["mert"] > report["weights"]["maest"]
+    assert LibraryDatabase(db_path).count_evaluation_rows() == before_counts
+
+
+def test_eval_optimize_score_profile_cli_record_writes_only_calibration_run(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    output_path = tmp_path / "optimizer.json"
+    _build_optimizer_cli_library(db_path, tmp_path, seed_count=100)
+    before_counts = LibraryDatabase(db_path).count_evaluation_rows()
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "eval",
+            "optimize-score-profile",
+            "--db",
+            str(db_path),
+            "--output",
+            str(output_path),
+            "--grid-step",
+            "0.5",
+            "--bootstrap-samples",
+            "0",
+            "--record",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "recorded=True" in result.output
+    after_counts = LibraryDatabase(db_path).count_evaluation_rows()
+    assert after_counts["calibration_runs"] == before_counts["calibration_runs"] + 1
+    assert after_counts["search_sessions"] == before_counts["search_sessions"]
+    assert after_counts["search_result_events"] == before_counts["search_result_events"]
+    assert after_counts["track_pair_feedback"] == before_counts["track_pair_feedback"]
+    report = json.loads(output_path.read_text(encoding="utf-8"))
+    assert report["recorded"] is True
+    with LibraryDatabase(db_path).connect() as connection:
+        row = connection.execute("SELECT profile_name, search_mode, metrics_json FROM calibration_runs").fetchone()
+    assert row["profile_name"] == "hybrid_judged_v1"
+    assert row["search_mode"] == "score_profile_optimizer"
+    assert json.loads(row["metrics_json"])["status"] == "ok"
+
+
 def test_eval_sweep_risk_penalty_cli_writes_json_summary(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     output_path = tmp_path / "risk_sweep.json"
@@ -589,6 +660,31 @@ def _build_candidate_export_library(db_path: Path, tmp_path: Path) -> tuple[int,
     _save_cli_candidate_analysis(db, candidate_b, embedding=[0.8, 0.2], bpm=122.0, energy=0.6, danceability=0.75)
     _save_cli_candidate_analysis(db, candidate_c, embedding=[0.0, 1.0], bpm=130.0, energy=0.9, danceability=0.3)
     return seed_id, [candidate_a, candidate_b, candidate_c]
+
+
+def _build_optimizer_cli_library(db_path: Path, tmp_path: Path, *, seed_count: int) -> None:
+    db = LibraryDatabase(db_path)
+    for index in range(seed_count):
+        seed_id = db.upsert_track(path=tmp_path / f"optimizer_seed_{index}.wav", size=10, mtime=1)
+        bad_id = db.upsert_track(path=tmp_path / f"optimizer_bad_{index}.wav", size=10, mtime=1)
+        good_id = db.upsert_track(path=tmp_path / f"optimizer_good_{index}.wav", size=10, mtime=1)
+        session_id = db.create_search_session("evaluation_candidate_pool", [seed_id], {"feedback_source": "manual"})
+        db.record_search_result_event(
+            session_id,
+            bad_id,
+            rank=1,
+            total_score=0.0,
+            score_breakdown={"sources": {"mert": {"rank": 10}, "maest": {"rank": 1}}},
+        )
+        db.record_search_result_event(
+            session_id,
+            good_id,
+            rank=2,
+            total_score=0.0,
+            score_breakdown={"sources": {"mert": {"rank": 1}, "maest": {"rank": 10}}},
+        )
+        db.upsert_track_pair_feedback(seed_id, bad_id, 0, source="manual")
+        db.upsert_track_pair_feedback(seed_id, good_id, 3, source="manual")
 
 
 def _upsert_cli_candidate_track(db: LibraryDatabase, tmp_path: Path, stem: str, *, bpm: float, energy: float) -> int:

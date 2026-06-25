@@ -217,6 +217,17 @@ diagnostic scores are stored and reported as diagnostics, not as production
 confidence or probabilities, and calibration reports do not change runtime search
 weights or thresholds.
 
+`dj-sim eval optimize-score-profile` builds a guarded PR-24 judged score-profile
+proposal from matched feedback only. Feedback rows that cannot be tied back to a
+recorded `search_result_events` row do not count. The report searches bounded
+non-negative normalized source weights, keeps train and validation seeds
+disjoint, treats missing source payloads as neutral, and rejects proposals that do
+not improve validation NDCG@10, increase BadSuggestionRate@10, or fail bootstrap
+stability. It records nothing by default; with explicit `--record`, only an `ok`
+diagnostic summary is inserted into `calibration_runs` using search mode
+`score_profile_optimizer`. It does not create score-profile tables, change
+production defaults, or update UI/runtime scoring.
+
 `dj-sim eval profile-sources` is the automatic unsupervised source profiling
 path. It reads existing MERT, MAEST, SONARA, and CLAP analysis data for sampled seeds,
 computes coverage, rank agreement, RRF-style consensus support, conflicts, score

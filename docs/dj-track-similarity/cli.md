@@ -324,6 +324,7 @@ dj-sim eval report --db .\data\library_v4.sqlite --output .\reports\evaluation.j
 dj-sim eval report --db .\data\library_v4.sqlite --output .\reports\evaluation_judged.json --judged-only
 dj-sim eval run-ablation --db .\data\library_v4.sqlite --output .\reports\ablation_judged.json --judged-only
 dj-sim eval run-calibration --db .\data\library_v4.sqlite --output .\reports\calibration_judged.json --judged-only
+dj-sim eval optimize-score-profile --db .\data\library_v4.sqlite --output .\reports\score_profile_optimizer.json --objective balanced --split-by seed --min-judged-pairs 200 --rrf-k 60 --grid-step 0.25 --bootstrap-samples 30
 ```
 
 For automatic source diagnostics, run `profile-sources` first. It samples or
@@ -379,8 +380,11 @@ manual ground truth:
    source contributions and the weighted RRF profile on the labeled candidate
    pools.
 10. Run `dj-sim eval run-calibration` for diagnostic score/relevance calibration
-    summaries once enough labeled candidate rows exist.
-11. Run `dj-sim eval report` for the general recorded-session report.
+     summaries once enough labeled candidate rows exist.
+11. Run `dj-sim eval optimize-score-profile` only after enough matched judged
+    labels exist. It proposes guarded judged source weights in a JSON report; it
+    never applies them as defaults.
+12. Run `dj-sim eval report` for the general recorded-session report.
 
 Use `--judged-only` on `report`, `run-ablation`, or `run-calibration` when you
 want PR-23 judged validation instead of general diagnostics. The judged gate uses
@@ -392,6 +396,20 @@ recorded result are not counted for the gate. Reports include
 guidance. Fewer than 50 matched judged pairs means `insufficient_data`; 50-199 is
 diagnostics only; 200-499 may justify considering a candidate score profile; 500+
 may justify considering a default update, but never automatically.
+
+`optimize-score-profile` is the guarded PR-24 judged-profile path. It uses only
+feedback labels that match recorded result events, splits matched examples by
+`seed_track_id` so train and validation seeds do not overlap, searches a bounded
+finite grid of non-negative normalized MERT/MAEST/SONARA/CLAP source weights, and
+keeps missing source payloads neutral by scoring over the sources present for a
+candidate. A proposal is rejected unless validation NDCG@10 improves over the
+equal-weight RRF baseline, BadSuggestionRate@10 does not increase, and the
+deterministic bootstrap stability check passes. The JSON report includes
+`source: "judged_feedback"`, train/validation and baseline metrics, source
+weights, proposal-only risk weights, PR-23 label-gate fields, guardrails,
+`can_apply_as_default: false`, and manual guidance. `--record` is optional and
+writes only an `ok` diagnostic summary row to `calibration_runs`; default
+behavior writes no database rows.
 
 `run-ablation` evaluates only recorded candidate-pool events and imported pair
 feedback. It builds single-source variants for `mert`, `maest`, `sonara`, and `clap` when
@@ -472,6 +490,12 @@ With `--judged-only`, calibration can only report `ok` when the matched judged
 label gate is no longer `insufficient_data`; otherwise it writes the same sample
 counts, score quantiles, and guidance without implying that search quality has
 been validated.
+
+`optimize-score-profile` is also report/proposal-only. It cannot overwrite
+`DEFAULT_HYBRID_SOURCES`, default source weights, production score profiles, app
+settings, database defaults, UI defaults, or runtime search behavior. Even when
+500+ matched judged pairs are available, the report can only mark a manual
+default-review candidate; it never applies a default automatically.
 
 `export-candidates` reads existing exact search sources only: `mert` embedding
 similarity, `maest` embedding similarity, balanced/default `sonara`
@@ -682,6 +706,37 @@ top-K transition-risk/source-count diagnostics, and score distributions. Ranking
 metrics and `best_by_metric` appear only when matching pair feedback exists; an
 unlabeled sweep is diagnostics-only and deliberately does not name a best weight.
 
+Usage:
+
+```text
+dj-sim eval optimize-score-profile [OPTIONS]
+```
+
+Options:
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--db` | path | `dj-track-similarity.sqlite` | Schema v4 SQLite database path. |
+| `--output` | JSON path | none | Optional guarded optimizer report to create. |
+| `--profile-name` | text | `hybrid_judged_v1` | Proposal profile name written into the JSON report and optional calibration summary. |
+| `--objective` | text | `balanced` | MVP objective; only `balanced` is supported. |
+| `--split-by` | text | `seed` | MVP split strategy; only seed/`seed_track_id` splitting is supported. |
+| `--min-judged-pairs` | integer `>=1` | `200` | Requested minimum matched judged pairs. The PR-23 200-pair candidate-profile gate still applies even if this is lower. |
+| `--rrf-k` | integer `>=1` | `60` | RRF smoothing constant for source-rank fusion. |
+| `--k` | integer `>=1` | `10` | Metric cutoff to include. Repeat for multiple values; NDCG@10/BadSuggestionRate@10 guardrails are always included. |
+| `--random-seed` | integer | `123` | Deterministic split and bootstrap seed. |
+| `--grid-step` | number `0.01-1.0` | `0.25` | Bounded normalized source-weight grid step. |
+| `--bootstrap-samples` | integer `>=0` | `30` | Deterministic validation bootstrap samples; `0` disables that stability check. |
+| `--record/--no-record` | flag | no record | Record only an `ok` diagnostic summary to `calibration_runs`. |
+| `--help` | flag | off | Show help. |
+
+The optimizer report is aligned with the judged score-profile template: it includes
+`profile_name`, `source: "judged_feedback"`, PR-23 `label_status`, `judged_pairs`,
+`judged_seeds`, `train_metrics`, `validation_metrics`, baseline metrics,
+normalized `weights`, non-negative proposal `risk_weights`, `guardrails`,
+`status`, `decision`, and human-readable `guidance`. Rejected reports keep the
+diagnostics and explain which gate or guardrail failed.
+
 Pair feedback CSV columns:
 
 ```text
@@ -722,6 +777,7 @@ profile-sources
 export-weighted-candidates
 apply-score-profile
 sweep-risk-penalty
+optimize-score-profile
 run-ablation
 build-score-profile
 run-calibration
@@ -750,6 +806,12 @@ samples exist. It also includes the PR-23 judged label gate fields. Supported
 `--score-mode` values are `rank-percentile`, `rrf`, and
 `event-total-score`; `rrf` uses per-session min-max-normalized RRF as a
 diagnostic score, not as calibrated confidence.
+
+`optimize-score-profile` writes a guarded judged-feedback proposal report. It uses
+only matched judged result labels, keeps train and validation seeds disjoint,
+rejects overfit or unstable weight grids, and leaves all production/default
+weights unchanged. With `--record`, only an `ok` diagnostic summary is inserted
+into `calibration_runs`.
 
 `profile-sources` writes a JSON-safe file with coverage, pairwise agreement,
 consensus/conflict diagnostics, source score quantiles, and normalized

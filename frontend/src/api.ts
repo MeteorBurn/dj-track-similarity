@@ -57,6 +57,42 @@ export type HybridSearchPayload = {
   random_seed?: number;
   transition_risk_weight?: number;
   include_diagnostics?: boolean;
+  record_session?: boolean;
+};
+
+export type EvaluationPairReasonTag =
+  | "good_groove"
+  | "good_density"
+  | "good_texture"
+  | "good_mood"
+  | "good_tonal"
+  | "too_vocal"
+  | "bad_density"
+  | "bad_tonal"
+  | "too_obvious"
+  | "interesting_adjacent"
+  | "wrong_energy"
+  | "wrong_texture"
+  | "bad_transition_risk";
+
+export type EvaluationPairFeedbackState = {
+  state: "rated" | "mixed";
+  source: string;
+  seed_track_ids: number[];
+  candidate_track_id: number;
+  rating: 0 | 1 | 2 | 3 | null;
+  reason_tags: EvaluationPairReasonTag[];
+  notes?: string | null;
+  per_seed?: Array<{
+    id: number;
+    seed_track_id: number;
+    candidate_track_id: number;
+    rating: 0 | 1 | 2 | 3;
+    reason_tags: EvaluationPairReasonTag[];
+    notes?: string | null;
+    source: string;
+    updated_at?: string | null;
+  }>;
 };
 
 export type HybridSearchResult = {
@@ -78,6 +114,7 @@ export type HybridSearchResult = {
   warnings: string[];
   transition_diagnostics: Record<string, unknown>;
   diagnostics: Record<string, unknown>;
+  feedback?: EvaluationPairFeedbackState | null;
 };
 
 export type HybridSearchResponse = {
@@ -87,6 +124,7 @@ export type HybridSearchResponse = {
   sources: HybridSearchSource[];
   limitations: string[];
   diagnostics: Record<string, unknown>;
+  session_id?: number | null;
 };
 
 export type TrackPage = {
@@ -351,10 +389,11 @@ export type EvaluationSummary = {
 };
 
 export type EvaluationPairFeedbackPayload = {
-  seed_track_id: number;
+  session_id?: number | null;
+  seed_track_ids: number[];
   candidate_track_id: number;
   rating: 0 | 1 | 2 | 3;
-  reason_tags?: string[];
+  reason_tags?: EvaluationPairReasonTag[];
   notes?: string | null;
   source?: string;
 };
@@ -466,7 +505,18 @@ export type EvaluationWeightedCandidatesResult = {
   record_session: boolean;
 };
 
-export type EvaluationFeedbackResult = Record<string, unknown> & { id: number; rating: number; source: string };
+export type EvaluationPairFeedbackResult = Record<string, unknown> & {
+  ids: number[];
+  seed_track_ids: number[];
+  candidate_track_id: number;
+  rating: 0 | 1 | 2 | 3;
+  reason_tags: EvaluationPairReasonTag[];
+  notes?: string | null;
+  source: string;
+  session_id?: number | null;
+};
+
+export type EvaluationTransitionFeedbackResult = Record<string, unknown> & { id: number; rating: number; source: string };
 
 export type EvaluationLatestReports = {
   status: "ok" | "no_persisted_reports";
@@ -690,12 +740,12 @@ export const api = {
     }),
   evaluationSummary: () => request<EvaluationSummary>("/api/evaluation/summary"),
   evaluationPairFeedback: (payload: EvaluationPairFeedbackPayload) =>
-    request<EvaluationFeedbackResult>("/api/evaluation/feedback/pair", {
+    request<EvaluationPairFeedbackResult>("/api/evaluation/feedback/pair", {
       method: "POST",
       body: JSON.stringify(payload)
     }),
   evaluationTransitionFeedback: (payload: EvaluationTransitionFeedbackPayload) =>
-    request<EvaluationFeedbackResult>("/api/evaluation/feedback/transition", {
+    request<EvaluationTransitionFeedbackResult>("/api/evaluation/feedback/transition", {
       method: "POST",
       body: JSON.stringify(payload)
     }),

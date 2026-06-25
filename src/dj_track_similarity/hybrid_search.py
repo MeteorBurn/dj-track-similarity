@@ -21,6 +21,8 @@ from .transition_diagnostics import COMPONENT_NAMES, TransitionDiagnostics, comp
 
 
 DEFAULT_HYBRID_SOURCES = ("mert", "maest", "sonara", "clap")
+HYBRID_UI_FEEDBACK_SOURCE = "hybrid_ui"
+HYBRID_SEARCH_SESSION_MODE = "hybrid_search_preview"
 HYBRID_SEARCH_LIMITATIONS = (
     "Hybrid search is an explicit weighted rank-fusion preview over existing MERT, MAEST, SONARA, and CLAP analysis data.",
     "CLAP is used only as stored audio embeddings in this preview; prompt-aware CLAP hybrid search is not part of this path.",
@@ -45,6 +47,7 @@ class HybridSearchResultRow:
     warnings: tuple[str, ...]
     transition_diagnostics: Mapping[str, Any]
     diagnostics: Mapping[str, Any]
+    feedback: Mapping[str, Any] | None
 
     def api_row(self, *, include_diagnostics: bool) -> dict[str, Any]:
         return {
@@ -61,6 +64,7 @@ class HybridSearchResultRow:
             "warnings": list(self.warnings),
             "transition_diagnostics": dict(self.transition_diagnostics) if include_diagnostics else {},
             "diagnostics": dict(self.diagnostics) if include_diagnostics else {},
+            "feedback": dict(self.feedback) if self.feedback is not None else None,
         }
 
 
@@ -72,6 +76,7 @@ class HybridSearchResult:
     sources: tuple[str, ...]
     limitations: tuple[str, ...]
     diagnostics: Mapping[str, Any]
+    session_id: int | None
 
     def api_response(self, *, include_diagnostics: bool) -> dict[str, Any]:
         return {
@@ -81,6 +86,7 @@ class HybridSearchResult:
             "sources": list(self.sources),
             "limitations": list(self.limitations),
             "diagnostics": dict(self.diagnostics) if include_diagnostics else {},
+            "session_id": self.session_id,
         }
 
 
@@ -122,6 +128,7 @@ def build_hybrid_search_preview(
     rrf_k: int = 60,
     random_seed: int = 123,
     transition_risk_weight: float = 0.0,
+    record_session: bool = False,
 ) -> HybridSearchResult:
     clean_seed_track_ids = _positive_unique_ints(seed_track_ids, "seed_track_id")
     clean_seed_tracks = _load_seed_tracks(db, clean_seed_track_ids)
@@ -132,6 +139,7 @@ def build_hybrid_search_preview(
     clean_rrf_k = _positive_int(rrf_k, "rrf_k")
     clean_random_seed = _int_value(random_seed, "random_seed")
     clean_transition_risk_weight = _risk_weight(transition_risk_weight, "transition_risk_weight")
+    clean_record_session = bool(record_session)
 
     candidate_rows, warnings = generate_candidate_pool_rows(
         db,
@@ -155,7 +163,24 @@ def build_hybrid_search_preview(
         limit=clean_limit,
         sources=clean_sources,
         seed_tracks=clean_seed_tracks,
+        seed_track_ids=clean_seed_track_ids,
+        feedback_map=db.get_pair_feedback_map(),
+        feedback_source=HYBRID_UI_FEEDBACK_SOURCE,
         transition_risk_weight=clean_transition_risk_weight,
+    )
+    session_id = _record_hybrid_search_session(
+        db,
+        results,
+        seed_track_ids=clean_seed_track_ids,
+        sources=clean_sources,
+        weights=clean_weights,
+        per_source=clean_per_source,
+        limit=clean_limit,
+        rrf_k=clean_rrf_k,
+        random_seed=clean_random_seed,
+        transition_risk_weight=clean_transition_risk_weight,
+        feedback_source=HYBRID_UI_FEEDBACK_SOURCE,
+        record_session=clean_record_session,
     )
     return HybridSearchResult(
         results=results,
@@ -163,6 +188,7 @@ def build_hybrid_search_preview(
         weights_used=clean_weights,
         sources=clean_sources,
         limitations=HYBRID_SEARCH_LIMITATIONS,
+        session_id=session_id,
         diagnostics={
             "method": "weighted_rrf",
             "seed_track_ids": list(clean_seed_track_ids),
@@ -170,6 +196,8 @@ def build_hybrid_search_preview(
             "rrf_k": clean_rrf_k,
             "random_seed": clean_random_seed,
             "transition_risk_weight": clean_transition_risk_weight,
+            "record_session": clean_record_session,
+            "session_id": session_id,
             "candidate_rows": len(candidate_rows),
             "unique_candidates": len(candidates),
             "results_returned": len(results),
@@ -250,7 +278,7 @@ def _scored_hybrid_candidates(
 ) -> tuple[_ScoredHybridCandidate, ...]:
     scored_candidates: list[_ScoredHybridCandidate] = []
     for candidate in candidates:
-        score_breakdown = weighted_rrf_components(candidate.source_contributions, weights, rrf_k)
+        score_breakdown = _weighted_rrf_components_with_source_scores(candidate.source_contributions, weights, rrf_k)
         raw_rrf_score = weighted_rrf_score(candidate.source_contributions, weights, rrf_k)
         if raw_rrf_score <= 0:
             continue
@@ -270,12 +298,27 @@ def _scored_hybrid_candidates(
     )
 
 
+def _weighted_rrf_components_with_source_scores(
+    contributions: Mapping[str, CandidateSourceContribution],
+    weights: Mapping[str, float],
+    rrf_k: int,
+) -> dict[str, dict[str, float | int]]:
+    components = weighted_rrf_components(contributions, weights, rrf_k)
+    return {
+        source: {**component, "score": contributions[source].score}
+        for source, component in components.items()
+    }
+
+
 def _ranked_result_rows(
     scored_candidates: Sequence[_ScoredHybridCandidate],
     *,
     limit: int,
     sources: Sequence[str],
     seed_tracks: Sequence[Track],
+    seed_track_ids: Sequence[int],
+    feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
+    feedback_source: str,
     transition_risk_weight: float,
 ) -> tuple[HybridSearchResultRow, ...]:
     max_score = max((candidate.raw_rrf_score for candidate in scored_candidates), default=0.0)
@@ -306,6 +349,12 @@ def _ranked_result_rows(
                 warnings=_transition_warnings(ranked_candidate.transition_diagnostics),
                 transition_diagnostics=ranked_candidate.transition_diagnostics,
                 diagnostics=_candidate_diagnostics(candidate.candidate),
+                feedback=_candidate_feedback(
+                    seed_track_ids,
+                    candidate.candidate.track.id,
+                    feedback_map=feedback_map,
+                    source=feedback_source,
+                ),
             ),
         )
     return tuple(result_rows)
@@ -320,6 +369,80 @@ def _effective_transition_sources(scored_candidates: Sequence[_ScoredHybridCandi
     if effective_sources:
         return effective_sources
     return tuple(sources)
+
+
+def _record_hybrid_search_session(
+    db: LibraryDatabase,
+    results: Sequence[HybridSearchResultRow],
+    *,
+    seed_track_ids: Sequence[int],
+    sources: Sequence[str],
+    weights: Mapping[str, float],
+    per_source: int,
+    limit: int,
+    rrf_k: int,
+    random_seed: int,
+    transition_risk_weight: float,
+    feedback_source: str,
+    record_session: bool,
+) -> int | None:
+    if not record_session:
+        return None
+    session_id = db.create_search_session(
+        HYBRID_SEARCH_SESSION_MODE,
+        seed_track_ids,
+        {
+            "sources": list(sources),
+            "weights": dict(weights),
+            "per_source": per_source,
+            "limit": limit,
+            "rrf_k": rrf_k,
+            "random_seed": random_seed,
+            "transition_risk_weight": transition_risk_weight,
+            "feedback_source": feedback_source,
+            "record_session": True,
+            "candidate_count": len(results),
+        },
+    )
+    for row in results:
+        db.record_search_result_event(
+            session_id,
+            row.track.id,
+            rank=row.rank,
+            total_score=row.score,
+            score_breakdown=_hybrid_event_score_breakdown(row, rrf_k=rrf_k),
+        )
+    return session_id
+
+
+def _hybrid_event_score_breakdown(row: HybridSearchResultRow, *, rrf_k: int) -> dict[str, Any]:
+    source_payload = {
+        source: {
+            "rank": details.get("rank"),
+            "score": details.get("score"),
+            "weight": details.get("weight"),
+            "contribution": details.get("contribution"),
+        }
+        for source, details in sorted(row.score_breakdown.items())
+    }
+    return {
+        "score_kind": "weighted_rrf_adjusted" if row.transition_risk_weight > 0 else "weighted_rrf",
+        "rank": row.rank,
+        "adjusted_score": row.adjusted_score,
+        "raw_rrf_score": row.raw_rrf_score,
+        "transition_risk": row.transition_risk,
+        "transition_risk_penalty": row.transition_risk_penalty,
+        "transition_risk_weight": row.transition_risk_weight,
+        "rrf_k": rrf_k,
+        "source_ranks": {source: details.get("rank") for source, details in sorted(row.score_breakdown.items())},
+        "weighted_rrf": {
+            "score": row.score,
+            "components": source_payload,
+        },
+        "sources": source_payload,
+        "match_character": dict(row.match_character),
+        "transition_diagnostics": dict(row.transition_diagnostics),
+    }
 
 
 def _ranked_candidates_with_transition_risk(
@@ -405,6 +528,54 @@ def _candidate_diagnostics(candidate: _HybridCandidate) -> dict[str, Any]:
             for source, values in candidate.source_seed_diagnostics.items()
         },
     }
+
+
+def _candidate_feedback(
+    seed_track_ids: Sequence[int],
+    candidate_track_id: int,
+    *,
+    feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
+    source: str,
+) -> dict[str, Any] | None:
+    rows = [
+        feedback
+        for seed_track_id in seed_track_ids
+        if (feedback := feedback_map.get((seed_track_id, candidate_track_id, source))) is not None
+    ]
+    if not rows:
+        return None
+    per_seed = [
+        {
+            "id": int(row["id"]),
+            "seed_track_id": int(row["seed_track_id"]),
+            "candidate_track_id": int(row["candidate_track_id"]),
+            "rating": int(row["rating"]),
+            "reason_tags": list(row["reason_tags"]),
+            "notes": row.get("notes"),
+            "source": str(row["source"]),
+            "updated_at": row.get("updated_at"),
+        }
+        for row in rows
+    ]
+    ratings = {int(row["rating"]) for row in rows}
+    reason_tag_sets = {tuple(row["reason_tags"]) for row in rows}
+    notes = {row.get("notes") for row in rows}
+    is_complete = len(rows) == len(seed_track_ids)
+    is_consistent = len(ratings) == 1 and len(reason_tag_sets) == 1 and len(notes) == 1
+    return {
+        "state": "rated" if is_complete and is_consistent else "mixed",
+        "source": source,
+        "seed_track_ids": list(seed_track_ids),
+        "candidate_track_id": candidate_track_id,
+        "rating": next(iter(ratings)) if len(ratings) == 1 else None,
+        "reason_tags": list(next(iter(reason_tag_sets))) if len(reason_tag_sets) == 1 else _sorted_reason_tag_union(rows),
+        "notes": next(iter(notes)) if len(notes) == 1 else None,
+        "per_seed": per_seed,
+    }
+
+
+def _sorted_reason_tag_union(rows: Sequence[Mapping[str, Any]]) -> list[str]:
+    return sorted({str(tag) for row in rows for tag in row["reason_tags"]})
 
 
 def _candidate_transition_diagnostics(candidate: _HybridCandidate, *, seed_tracks: Sequence[Track], sources: Sequence[str]) -> dict[str, Any]:

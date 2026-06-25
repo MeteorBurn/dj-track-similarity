@@ -43,41 +43,55 @@ def test_pair_feedback_endpoint_upserts_and_validates_rating(monkeypatch, tmp_pa
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
     seed_id = _track(db, tmp_path, "seed")
+    second_seed_id = _track(db, tmp_path, "seed_two")
     candidate_id = _track(db, tmp_path, "candidate")
     client = _client(monkeypatch, db_path)
 
     first = client.post(
         "/api/evaluation/feedback/pair",
         json={
-            "seed_track_id": seed_id,
+            "session_id": None,
+            "seed_track_ids": [seed_id, second_seed_id],
             "candidate_track_id": candidate_id,
             "rating": 1,
-            "reason_tags": ["rough"],
+            "reason_tags": ["interesting_adjacent"],
             "notes": "initial audit",
+            "source": "hybrid_ui",
         },
     )
     second = client.post(
         "/api/evaluation/feedback/pair",
         json={
-            "seed_track_id": seed_id,
+            "seed_track_ids": [seed_id, second_seed_id],
             "candidate_track_id": candidate_id,
             "rating": 3,
-            "reason_tags": ["strong"],
+            "reason_tags": ["good_groove"],
+            "source": "hybrid_ui",
         },
     )
     invalid = client.post(
         "/api/evaluation/feedback/pair",
-        json={"seed_track_id": seed_id, "candidate_track_id": candidate_id, "rating": 4},
+        json={"seed_track_ids": [seed_id], "candidate_track_id": candidate_id, "rating": 4},
+    )
+    invalid_reason = client.post(
+        "/api/evaluation/feedback/pair",
+        json={"seed_track_ids": [seed_id], "candidate_track_id": candidate_id, "rating": 2, "reason_tags": ["rough"]},
     )
 
     assert first.status_code == 200
     assert second.status_code == 200
-    assert first.json()["id"] == second.json()["id"]
-    assert second.json()["source"] == "manual"
+    assert first.json()["ids"] == second.json()["ids"]
+    assert second.json()["seed_track_ids"] == [seed_id, second_seed_id]
+    assert second.json()["source"] == "hybrid_ui"
     assert invalid.status_code == 422
-    feedback = LibraryDatabase(db_path).get_pair_feedback_map()[(seed_id, candidate_id, "manual")]
+    assert invalid_reason.status_code == 422
+    feedback_map = LibraryDatabase(db_path).get_pair_feedback_map()
+    assert LibraryDatabase(db_path).count_evaluation_rows()["track_pair_feedback"] == 2
+    feedback = feedback_map[(seed_id, candidate_id, "hybrid_ui")]
+    second_seed_feedback = feedback_map[(second_seed_id, candidate_id, "hybrid_ui")]
     assert feedback["rating"] == 3
-    assert feedback["reason_tags"] == ["strong"]
+    assert feedback["reason_tags"] == ["good_groove"]
+    assert second_seed_feedback["rating"] == 3
 
 
 def test_transition_feedback_endpoint_appends_manual_audit_row(monkeypatch, tmp_path: Path) -> None:
@@ -319,7 +333,7 @@ def test_evaluation_api_does_not_touch_audio_paths(monkeypatch, tmp_path: Path) 
 
     response = _client(monkeypatch, db_path).post(
         "/api/evaluation/feedback/pair",
-        json={"seed_track_id": seed_id, "candidate_track_id": candidate_id, "rating": 2},
+        json={"seed_track_ids": [seed_id], "candidate_track_id": candidate_id, "rating": 2},
     )
 
     assert response.status_code == 200

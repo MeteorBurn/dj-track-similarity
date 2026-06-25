@@ -22,6 +22,21 @@ from .analysis_config import (
 
 EvaluationSource = Literal["mert", "maest", "sonara", "clap"]
 HybridSearchSource = Literal["mert", "maest", "sonara", "clap"]
+EvaluationPairReasonTag = Literal[
+    "good_groove",
+    "good_density",
+    "good_texture",
+    "good_mood",
+    "good_tonal",
+    "too_vocal",
+    "bad_density",
+    "bad_tonal",
+    "too_obvious",
+    "interesting_adjacent",
+    "wrong_energy",
+    "wrong_texture",
+    "bad_transition_risk",
+]
 EvaluationTrackId = Annotated[int, Field(ge=1)]
 EvaluationTopK = Annotated[int, Field(ge=1, le=100)]
 
@@ -160,11 +175,14 @@ class HybridSearchRequest(BaseModel):
     random_seed: int = 123
     transition_risk_weight: float = Field(default=0.0, ge=0.0, le=1.0)
     include_diagnostics: bool = True
+    record_session: bool = False
 
     @model_validator(mode="after")
     def reject_multiple_weight_inputs(self) -> "HybridSearchRequest":
         if self.weights is not None and self.score_profile is not None:
             raise ValueError("Provide either weights or score_profile, not both")
+        if len(set(self.seed_track_ids)) != len(self.seed_track_ids):
+            raise ValueError("seed_track_ids must be unique")
         return self
 
 
@@ -182,6 +200,7 @@ class HybridSearchResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     transition_diagnostics: dict[str, Any] = Field(default_factory=dict)
     diagnostics: dict[str, Any] = Field(default_factory=dict)
+    feedback: dict[str, Any] | None = None
 
 
 class HybridSearchResponse(BaseModel):
@@ -191,6 +210,7 @@ class HybridSearchResponse(BaseModel):
     sources: list[HybridSearchSource]
     limitations: list[str]
     diagnostics: dict[str, Any] = Field(default_factory=dict)
+    session_id: int | None = None
 
 
 class SetBuilderGenerateRequest(BaseModel):
@@ -238,12 +258,19 @@ class GenreTagRequest(BaseModel):
 class EvaluationPairFeedbackRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    seed_track_id: int = Field(ge=1)
+    session_id: int | None = Field(default=None, ge=1)
+    seed_track_ids: list[EvaluationTrackId] = Field(min_length=1, max_length=5)
     candidate_track_id: int = Field(ge=1)
     rating: int = Field(ge=0, le=3)
-    reason_tags: list[str] = Field(default_factory=list)
+    reason_tags: list[EvaluationPairReasonTag] = Field(default_factory=list)
     notes: str | None = None
     source: str = Field(default="manual", min_length=1)
+
+    @model_validator(mode="after")
+    def reject_duplicate_seed_track_ids(self) -> "EvaluationPairFeedbackRequest":
+        if len(set(self.seed_track_ids)) != len(self.seed_track_ids):
+            raise ValueError("seed_track_ids must be unique")
+        return self
 
 
 class EvaluationTransitionFeedbackRequest(BaseModel):

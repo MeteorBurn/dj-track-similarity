@@ -49,8 +49,8 @@ def register_evaluation_routes(app: FastAPI, state: AppDatabaseState) -> None:
     def record_pair_feedback(request: EvaluationPairFeedbackRequest):
         db = _require_current_evaluation_db(state)
         try:
-            feedback_id = db.upsert_track_pair_feedback(
-                request.seed_track_id,
+            feedback_ids = db.upsert_track_pair_feedback_for_seeds(
+                request.seed_track_ids,
                 request.candidate_track_id,
                 request.rating,
                 reason_tags=request.reason_tags,
@@ -62,8 +62,9 @@ def register_evaluation_routes(app: FastAPI, state: AppDatabaseState) -> None:
         except (RuntimeError, sqlite3.OperationalError) as error:
             raise _evaluation_schema_error(error) from error
         return {
-            "id": feedback_id,
-            "seed_track_id": request.seed_track_id,
+            "ids": feedback_ids,
+            "session_id": request.session_id,
+            "seed_track_ids": request.seed_track_ids,
             "candidate_track_id": request.candidate_track_id,
             "rating": request.rating,
             "reason_tags": request.reason_tags,

@@ -175,6 +175,16 @@ labels, not `track_likes`, and not file tags. Foreign keys cascade when related
 local `tracks` or `search_sessions` rows are removed. Recording evaluation data
 updates SQLite only and never writes to audio files.
 
+The Hybrid preview UI writes pair labels with `source="hybrid_ui"`. One UI
+rating over `1-5` selected seeds upserts one `track_pair_feedback` row per seed
+for the same candidate. Repeating the rating updates those rows instead of
+adding duplicates, and Hybrid search results hydrate any existing `hybrid_ui`
+feedback so labels survive refresh. The UI reason-tag allowlist is
+`good_groove`, `good_density`, `good_texture`, `good_mood`, `good_tonal`,
+`too_vocal`, `bad_density`, `bad_tonal`, `too_obvious`,
+`interesting_adjacent`, `wrong_energy`, `wrong_texture`, and
+`bad_transition_risk`.
+
 Manual pair and transition feedback can be imported with `dj-sim eval` commands
 from CSV or JSONL files. These CSVs/JSONL files are optional audit and validation
 inputs, not classifier training data, and automatic source profiling does not
@@ -227,6 +237,15 @@ records profile-ranked `search_result_events`; each score breakdown includes the
 weighted-RRF components, profile weights, source ranks, and original source
 rank/score payloads. This is explicit evaluation/future-ranker logging only and
 does not affect production search endpoints.
+
+`POST /api/search/hybrid` remains read-only unless the request sets
+`record_session: true`. In that opt-in mode it records one `hybrid_search_preview`
+session for the request seed list and one `search_result_events` row per returned
+candidate. The event score breakdown stores diagnostic names such as
+`score_kind`, `adjusted_score`, `raw_rrf_score`, `transition_risk`,
+`transition_risk_penalty`, `transition_risk_weight`, and per-source rank/score
+payloads. These are ranking diagnostics, not confidence values or production
+weights.
 
 The local Web API exposes the same evaluation data under `/api/evaluation/*`.
 The API summary endpoint reads only these v4 tables, manual feedback endpoints

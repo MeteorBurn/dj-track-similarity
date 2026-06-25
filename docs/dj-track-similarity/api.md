@@ -186,10 +186,10 @@ scoring or weights. The request accepts `seed_track_ids` (`1-5` ids), optional
 `sources` from `mert`, `maest`, `sonara`, and `clap`, optional inline `weights` or a
 `score_profile` object, `per_source`, `limit`, `rrf_k`, `random_seed`, and
 `transition_risk_weight` (`0.0-1.0`, default `0.0`), and
-`include_diagnostics`. If no weights are provided, the requested sources are
-weighted equally. Inline weights are normalized internally after finite,
-non-negative validation, and the endpoint rejects requests that provide both
-inline weights and a score profile.
+`include_diagnostics`. It also accepts `record_session` (`false` by default).
+If no weights are provided, the requested sources are weighted equally. Inline
+weights are normalized internally after finite, non-negative validation, and the
+endpoint rejects requests that provide both inline weights and a score profile.
 
 Hybrid search generates candidates from the existing exact source search paths,
 excludes seed tracks, and fuses source ranks with weighted reciprocal-rank
@@ -205,7 +205,15 @@ has a `track`, a preview rank `score` (the adjusted/display score),
 `adjusted_score`, `raw_rrf_score`, `transition_risk_penalty`,
 `transition_risk_weight`, `rank`, per-source `score_breakdown`, light diagnostic
 `match_character` such as source count/consensus, and additive `transition_risk`
-/ `transition_diagnostics` fields. Transition diagnostics use
+/ `transition_diagnostics` fields. Hybrid rows also include existing
+`feedback` for `source="hybrid_ui"` when that candidate has already been rated
+from the UI; missing feedback is `null` and means unrated. With
+`record_session: true`, the response includes `session_id` and records one
+`hybrid_search_preview` session plus one `search_result_events` row per returned
+candidate. Event score breakdown JSON uses diagnostic names such as
+`score_kind`, `adjusted_score`, `raw_rrf_score`, `transition_risk`,
+`transition_risk_penalty`, `transition_risk_weight`, and per-source rank/score
+payloads. Transition diagnostics use
 stored BPM half/double compatibility, exact-key equality, energy jump, and
 source-consensus disagreement. They are lightweight diagnostic values for future
 ranking experiments, not AutoMix, beatgrid or cue-point detection, and not a
@@ -214,8 +222,9 @@ confidence, probability, or a calibrated estimate of human taste. Missing source
 coverage is reported in `warnings`; a configured source with no returned rows is
 absent from scoring and transition source-consensus risk. If no source can return candidates, the
 endpoint returns an empty result list rather than failing. It reads stored SQLite
-analysis data only and does not write sessions, tags, audio files, classifiers,
-or production search configuration.
+analysis data only. By default it does not write sessions, tags, audio files,
+classifiers, or production search configuration; the only opt-in write is the
+explicit `record_session: true` evaluation session/event log.
 
 `POST /api/set-builder/generate` is a read-only set preview endpoint. It does
 not run audio analysis, score classifiers, save sessions, write tags, or modify
@@ -318,10 +327,16 @@ scoring, or weights.
 `transition_feedback`, and `calibration_runs`. Evaluation endpoints require a
 selected current schema v4 database; older databases return a clear schema error.
 
-Pair feedback accepts `seed_track_id`, `candidate_track_id`, `rating` (`0-3`),
-optional `reason_tags`, optional `notes`, and `source` (default `manual`). The
-same `(seed_track_id, candidate_track_id, source)` row is updated when submitted
-again. Transition feedback accepts `outgoing_track_id`, `incoming_track_id`,
+Pair feedback accepts optional `session_id`, `seed_track_ids` (`1-5` ids),
+`candidate_track_id`, `rating` (`0-3`), optional `reason_tags`, optional
+`notes`, and `source` (default `manual`; the Hybrid UI uses `hybrid_ui`). It
+upserts one row per seed using `(seed_track_id, candidate_track_id, source)`, so
+submitting the same candidate rating again updates existing rows instead of
+growing the label count. Allowed pair `reason_tags` are `good_groove`,
+`good_density`, `good_texture`, `good_mood`, `good_tonal`, `too_vocal`,
+`bad_density`, `bad_tonal`, `too_obvious`, `interesting_adjacent`,
+`wrong_energy`, `wrong_texture`, and `bad_transition_risk`. Transition feedback
+accepts `outgoing_track_id`, `incoming_track_id`,
 `rating` (`0-3`), optional `risk_tags`, optional `notes`, and `source` (default
 `manual`) and appends a new audit row. Manual feedback is optional audit and
 validation data, not classifier training data and not required by the automatic

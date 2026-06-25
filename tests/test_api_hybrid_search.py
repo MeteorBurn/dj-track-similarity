@@ -40,8 +40,59 @@ def test_hybrid_search_endpoint_returns_unified_diagnostics(monkeypatch, tmp_pat
     assert payload["results"][0]["transition_diagnostics"]["supporting_seed_count"] == 1
     assert "maest" in payload["results"][0]["score_breakdown"]
     assert payload["results"][0]["match_character"]["source_count"] >= 1
+    assert payload["results"][0]["feedback"] is None
+    assert payload["session_id"] is None
     assert "not calibrated confidence" in " ".join(payload["limitations"])
     assert db.count_evaluation_rows()["search_sessions"] == 0
+
+
+def test_hybrid_search_records_session_events_and_hydrates_feedback(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db, track_ids = _hybrid_library(db_path, tmp_path)
+    db.upsert_track_pair_feedback(
+        track_ids["seed"],
+        track_ids["maest_top"],
+        2,
+        reason_tags=("good_groove", "good_density"),
+        source="hybrid_ui",
+    )
+
+    response = _client(monkeypatch, db_path).post(
+        "/api/search/hybrid",
+        json={
+            "seed_track_ids": [track_ids["seed"]],
+            "sources": ["mert", "maest"],
+            "weights": {"mert": 0.0, "maest": 1.0},
+            "per_source": 3,
+            "limit": 2,
+            "record_session": True,
+            "include_diagnostics": True,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert isinstance(payload["session_id"], int)
+    assert payload["results"][0]["track"]["id"] == track_ids["maest_top"]
+    assert payload["results"][0]["feedback"]["source"] == "hybrid_ui"
+    assert payload["results"][0]["feedback"]["rating"] == 2
+    assert payload["results"][0]["feedback"]["reason_tags"] == ["good_groove", "good_density"]
+    counts = LibraryDatabase(db_path).count_evaluation_rows()
+    assert counts["search_sessions"] == 1
+    assert counts["search_result_events"] == len(payload["results"])
+    session = LibraryDatabase(db_path).list_search_sessions_with_events()[0]
+    assert session["mode"] == "hybrid_search_preview"
+    assert session["seed_track_ids"] == [track_ids["seed"]]
+    assert session["request"]["feedback_source"] == "hybrid_ui"
+    assert session["request"]["record_session"] is True
+    first_event_breakdown = session["events"][0]["score_breakdown"]
+    assert first_event_breakdown["score_kind"] == "weighted_rrf"
+    assert first_event_breakdown["adjusted_score"] == payload["results"][0]["adjusted_score"]
+    assert first_event_breakdown["raw_rrf_score"] == payload["results"][0]["raw_rrf_score"]
+    assert first_event_breakdown["transition_risk_weight"] == 0.0
+    assert first_event_breakdown["sources"]["maest"]["rank"] == 1
+    assert "score" in first_event_breakdown["sources"]["maest"]
+    assert "confidence" not in first_event_breakdown
 
 
 def test_hybrid_search_endpoint_rejects_invalid_weights(monkeypatch, tmp_path: Path) -> None:

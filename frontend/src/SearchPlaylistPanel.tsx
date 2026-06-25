@@ -1,6 +1,7 @@
 import { Dispatch, Fragment, SetStateAction, useEffect, useRef, useState } from "react";
 import { Download, FolderOpen, ListFilter, ListMusic, Pause, Play, RotateCcw, Search, Tags, Trash2, X } from "lucide-react";
 import { AnalysisJobStatus, api, HybridSearchResult, HybridSearchSource, PromotedClassifier, SearchResult, SetBuilderBpmChange, SetBuilderBpmMode, SetBuilderClassifierFlow, SetBuilderEnergyCurve, SetBuilderGeneratePayload, SetBuilderMode, SetBuilderSeedMode, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
+import type { EvaluationPairFeedbackResult, EvaluationPairFeedbackState, EvaluationPairReasonTag } from "./api";
 import type { ClapPromptPreset } from "./clapPrompt";
 import { playlistPage } from "./playlistView";
 import { resetSetBuilderSliders, setBuilderDefaultDiversity, setBuilderDefaultFlow } from "./setBuilderControls";
@@ -180,6 +181,39 @@ const hybridSourceOptions: Array<{ key: HybridSearchSource; label: string; title
   }
 ];
 
+type PairFeedbackRating = 0 | 1 | 2 | 3;
+
+type HybridFeedbackDraft = {
+  rating: PairFeedbackRating | null;
+  reasonTags: EvaluationPairReasonTag[];
+  status: "unrated" | "rated" | "mixed";
+};
+
+const hybridFeedbackSource = "hybrid_ui";
+
+const hybridFeedbackRatings: Array<{ value: PairFeedbackRating; label: string }> = [
+  { value: 3, label: "Strong" },
+  { value: 2, label: "Works" },
+  { value: 1, label: "Maybe" },
+  { value: 0, label: "Reject" }
+];
+
+const hybridFeedbackReasonTags: Array<{ value: EvaluationPairReasonTag; label: string }> = [
+  { value: "good_groove", label: "Good groove" },
+  { value: "good_density", label: "Good density" },
+  { value: "good_texture", label: "Good texture" },
+  { value: "good_mood", label: "Good mood" },
+  { value: "good_tonal", label: "Good tonal" },
+  { value: "too_vocal", label: "Too vocal" },
+  { value: "bad_density", label: "Bad density" },
+  { value: "bad_tonal", label: "Bad tonal" },
+  { value: "too_obvious", label: "Too obvious" },
+  { value: "interesting_adjacent", label: "Interesting adjacent" },
+  { value: "wrong_energy", label: "Wrong energy" },
+  { value: "wrong_texture", label: "Wrong texture" },
+  { value: "bad_transition_risk", label: "Bad transition risk" }
+];
+
 const classifierEmptyStateMessage = "No promoted classifier profiles found. Promote profiles from Rhythm Lab or place model.json + model.joblib under models/classifiers/<profile>/.";
 
 export function SearchPlaylistPanel({
@@ -294,6 +328,11 @@ export function SearchPlaylistPanel({
   const [hybridLimitations, setHybridLimitations] = useState<string[]>([]);
   const [hybridWeightsUsed, setHybridWeightsUsed] = useState<Record<string, number>>({});
   const [hybridPreviewKey, setHybridPreviewKey] = useState("");
+  const [hybridSessionId, setHybridSessionId] = useState<number | null>(null);
+  const [hybridFeedbackDrafts, setHybridFeedbackDrafts] = useState<Record<number, HybridFeedbackDraft>>({});
+  const [hybridFeedbackSaving, setHybridFeedbackSaving] = useState<Record<number, boolean>>({});
+  const [hybridFeedbackErrors, setHybridFeedbackErrors] = useState<Record<number, string>>({});
+  const [evaluationLabelCounts, setEvaluationLabelCounts] = useState<{ pair: number; transition: number } | null>(null);
   const playlistPageState = playlistPage(playlist, playlistOffset, playlistPageSize);
   useEffect(() => {
     if (playlistPageState.offset !== playlistOffset) {
@@ -364,7 +403,15 @@ export function SearchPlaylistPanel({
     setHybridLimitations([]);
     setHybridWeightsUsed({});
     setHybridPreviewKey("");
+    setHybridSessionId(null);
+    setHybridFeedbackDrafts({});
+    setHybridFeedbackSaving({});
+    setHybridFeedbackErrors({});
   }, [hybridInputKey]);
+
+  useEffect(() => {
+    void refreshEvaluationLabelCounts();
+  }, []);
 
   function setSonaraMixerValue(key: keyof SonaraMixerWeights, value: number) {
     setFilters((current) => ({ ...current, sonaraMixer: { ...current.sonaraMixer, [key]: value } }));
@@ -405,6 +452,61 @@ export function SearchPlaylistPanel({
     setHybridWeights((current) => ({ ...current, [source]: clampNumber(value, 0, 1) }));
   }
 
+  async function refreshEvaluationLabelCounts() {
+    try {
+      const summary = await api.evaluationSummary();
+      setEvaluationLabelCounts({
+        pair: summary.counts.track_pair_feedback,
+        transition: summary.counts.transition_feedback
+      });
+    } catch {
+      setEvaluationLabelCounts(null);
+    }
+  }
+
+  async function saveHybridFeedback(result: HybridSearchResult, rating: PairFeedbackRating, reasonTags: EvaluationPairReasonTag[]) {
+    const candidateTrackId = result.track.id;
+    if (!hybridPreviewIsCurrent) return;
+    if (hybridReadinessMessage) return;
+    setHybridFeedbackSaving((current) => ({ ...current, [candidateTrackId]: true }));
+    setHybridFeedbackErrors((current) => ({ ...current, [candidateTrackId]: "" }));
+    try {
+      const response = await api.evaluationPairFeedback({
+        session_id: hybridSessionId,
+        seed_track_ids: seeds,
+        candidate_track_id: candidateTrackId,
+        rating,
+        reason_tags: reasonTags,
+        notes: "",
+        source: hybridFeedbackSource
+      });
+      const feedback = hybridFeedbackFromResponse(response);
+      setHybridResults((current) => current.map((row) => (row.track.id === candidateTrackId ? { ...row, feedback } : row)));
+      setHybridFeedbackDrafts((current) => ({ ...current, [candidateTrackId]: hybridFeedbackDraftFromState(feedback) }));
+      await refreshEvaluationLabelCounts();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setHybridFeedbackErrors((current) => ({ ...current, [candidateTrackId]: message }));
+    } finally {
+      setHybridFeedbackSaving((current) => ({ ...current, [candidateTrackId]: false }));
+    }
+  }
+
+  function setHybridFeedbackRating(result: HybridSearchResult, rating: PairFeedbackRating) {
+    const draft = hybridFeedbackDrafts[result.track.id] || emptyHybridFeedbackDraft();
+    void saveHybridFeedback(result, rating, draft.reasonTags);
+  }
+
+  function toggleHybridFeedbackReason(result: HybridSearchResult, reasonTag: EvaluationPairReasonTag) {
+    const draft = hybridFeedbackDrafts[result.track.id] || emptyHybridFeedbackDraft();
+    const reasonTags = toggleReasonTag(draft.reasonTags, reasonTag);
+    if (draft.rating == null) {
+      setHybridFeedbackDrafts((current) => ({ ...current, [result.track.id]: { ...draft, reasonTags } }));
+      return;
+    }
+    void saveHybridFeedback(result, draft.rating, reasonTags);
+  }
+
   async function generateHybridPreview() {
     const seedMessage = hybridSeedRequirementMessage(seeds.length);
     if (seedMessage) {
@@ -413,6 +515,10 @@ export function SearchPlaylistPanel({
       setHybridLimitations([]);
       setHybridWeightsUsed({});
       setHybridPreviewKey("");
+      setHybridSessionId(null);
+      setHybridFeedbackDrafts({});
+      setHybridFeedbackSaving({});
+      setHybridFeedbackErrors({});
       setHybridError(seedMessage);
       return;
     }
@@ -423,6 +529,10 @@ export function SearchPlaylistPanel({
       setHybridLimitations([]);
       setHybridWeightsUsed({});
       setHybridPreviewKey("");
+      setHybridSessionId(null);
+      setHybridFeedbackDrafts({});
+      setHybridFeedbackSaving({});
+      setHybridFeedbackErrors({});
       setHybridError("Enable at least one Hybrid preview source.");
       return;
     }
@@ -435,6 +545,10 @@ export function SearchPlaylistPanel({
     setHybridLimitations([]);
     setHybridWeightsUsed({});
     setHybridPreviewKey("");
+    setHybridSessionId(null);
+    setHybridFeedbackDrafts({});
+    setHybridFeedbackSaving({});
+    setHybridFeedbackErrors({});
     try {
       const response = await api.hybridSearch({
         seed_track_ids: seeds,
@@ -443,14 +557,19 @@ export function SearchPlaylistPanel({
         per_source: hybridPerSource,
         limit: hybridLimit,
         transition_risk_weight: hybridTransitionRiskWeight,
-        include_diagnostics: true
+        include_diagnostics: true,
+        record_session: true
       });
       if (hybridInputKeyRef.current !== requestKey) return;
       setHybridResults(response.results);
+      setHybridSessionId(response.session_id ?? null);
+      setHybridFeedbackDrafts(hybridFeedbackDraftsFromResults(response.results));
+      setHybridFeedbackErrors({});
       setHybridWarnings(response.warnings);
       setHybridLimitations(response.limitations);
       setHybridWeightsUsed(response.weights_used);
       setHybridPreviewKey(requestKey);
+      void refreshEvaluationLabelCounts();
     } catch (error) {
       if (hybridInputKeyRef.current !== requestKey) return;
       const message = error instanceof Error ? error.message : String(error);
@@ -459,6 +578,10 @@ export function SearchPlaylistPanel({
       setHybridLimitations([]);
       setHybridWeightsUsed({});
       setHybridPreviewKey("");
+      setHybridSessionId(null);
+      setHybridFeedbackDrafts({});
+      setHybridFeedbackSaving({});
+      setHybridFeedbackErrors({});
       setHybridError(message);
     } finally {
       setHybridLoading(false);
@@ -728,6 +851,11 @@ export function SearchPlaylistPanel({
                   {hybridResults.length} weighted preview rows · {formatHybridWeightsTitle(hybridWeightsUsed)}
                 </span>
               ) : null}
+              {evaluationLabelCounts ? (
+                <span className="hybrid-status-message">
+                  Evaluation labels: {evaluationLabelCounts.pair} pair ratings / {evaluationLabelCounts.transition} transition ratings.
+                </span>
+              ) : null}
               {showHybridDiagnostics && hybridWarnings.length ? (
                 <div className="hybrid-warning-list">
                   {hybridWarnings.slice(0, 3).map((warning, index) => (
@@ -751,6 +879,15 @@ export function SearchPlaylistPanel({
                       onTogglePlaylist={togglePlaylist}
                       onPreview={setPreview}
                       onDetails={setMetadataTrack}
+                      rowSlot={
+                        <HybridFeedbackControls
+                          draft={hybridFeedbackDrafts[result.track.id] || emptyHybridFeedbackDraft()}
+                          saving={Boolean(hybridFeedbackSaving[result.track.id])}
+                          error={hybridFeedbackErrors[result.track.id] || ""}
+                          onRate={(rating) => setHybridFeedbackRating(result, rating)}
+                          onToggleReason={(reasonTag) => toggleHybridFeedbackReason(result, reasonTag)}
+                        />
+                      }
                     />
                   ))}
                 </div>
@@ -1017,6 +1154,112 @@ export function SearchPlaylistPanel({
       </section>
     </aside>
   );
+}
+
+function HybridFeedbackControls({
+  draft,
+  saving,
+  error,
+  onRate,
+  onToggleReason
+}: {
+  draft: HybridFeedbackDraft;
+  saving: boolean;
+  error: string;
+  onRate: (rating: PairFeedbackRating) => void;
+  onToggleReason: (reasonTag: EvaluationPairReasonTag) => void;
+}) {
+  return (
+    <div className="hybrid-feedback-controls" title="Rate this Hybrid preview row for local evaluation only. Feedback updates SQLite labels and never writes audio files.">
+      <div className="hybrid-feedback-rating-row" role="group" aria-label="Hybrid feedback rating">
+        {hybridFeedbackRatings.map((rating) => (
+          <button
+            className={`hybrid-feedback-rating-button ${draft.rating === rating.value ? "active" : ""}`}
+            key={rating.value}
+            type="button"
+            title={`Save Hybrid feedback rating: ${rating.label}`}
+            disabled={saving}
+            aria-pressed={draft.rating === rating.value}
+            onClick={() => onRate(rating.value)}
+          >
+            {rating.label}
+          </button>
+        ))}
+      </div>
+      <div className="hybrid-feedback-tag-row" role="group" aria-label="Hybrid feedback reasons">
+        {hybridFeedbackReasonTags.map((reasonTag) => (
+          <button
+            className={`hybrid-feedback-tag-button ${draft.reasonTags.includes(reasonTag.value) ? "active" : ""}`}
+            key={reasonTag.value}
+            type="button"
+            title={`Toggle Hybrid feedback reason: ${reasonTag.label}`}
+            disabled={saving}
+            aria-pressed={draft.reasonTags.includes(reasonTag.value)}
+            onClick={() => onToggleReason(reasonTag.value)}
+          >
+            {reasonTag.label}
+          </button>
+        ))}
+      </div>
+      <span className={`hybrid-feedback-state ${error ? "error" : ""}`}>
+        {error || (saving ? "Saving feedback..." : hybridFeedbackStateText(draft))}
+      </span>
+    </div>
+  );
+}
+
+function emptyHybridFeedbackDraft(): HybridFeedbackDraft {
+  return { rating: null, reasonTags: [], status: "unrated" };
+}
+
+function hybridFeedbackDraftsFromResults(results: HybridSearchResult[]) {
+  const drafts: Record<number, HybridFeedbackDraft> = {};
+  for (const result of results) {
+    drafts[result.track.id] = hybridFeedbackDraftFromState(result.feedback);
+  }
+  return drafts;
+}
+
+function hybridFeedbackDraftFromState(feedback?: EvaluationPairFeedbackState | null): HybridFeedbackDraft {
+  if (!feedback) return emptyHybridFeedbackDraft();
+  if (feedback.rating == null) return { rating: null, reasonTags: feedback.reason_tags || [], status: feedback.state };
+  return { rating: feedback.rating, reasonTags: feedback.reason_tags || [], status: feedback.state };
+}
+
+function hybridFeedbackFromResponse(response: EvaluationPairFeedbackResult): EvaluationPairFeedbackState {
+  return {
+    state: "rated",
+    source: response.source,
+    seed_track_ids: response.seed_track_ids,
+    candidate_track_id: response.candidate_track_id,
+    rating: response.rating,
+    reason_tags: response.reason_tags,
+    notes: response.notes ?? null,
+    per_seed: response.seed_track_ids.map((seedTrackId, index) => ({
+      id: response.ids[index],
+      seed_track_id: seedTrackId,
+      candidate_track_id: response.candidate_track_id,
+      rating: response.rating,
+      reason_tags: response.reason_tags,
+      notes: response.notes ?? null,
+      source: response.source
+    }))
+  };
+}
+
+function toggleReasonTag(reasonTags: EvaluationPairReasonTag[], reasonTag: EvaluationPairReasonTag) {
+  if (reasonTags.includes(reasonTag)) {
+    return reasonTags.filter((current) => current !== reasonTag);
+  }
+  return [...reasonTags, reasonTag];
+}
+
+function hybridFeedbackStateText(draft: HybridFeedbackDraft) {
+  if (draft.status === "mixed") return "Rated: Mixed feedback across seeds";
+  if (draft.rating == null) return "Unrated";
+  const ratingLabel = hybridFeedbackRatings.find((rating) => rating.value === draft.rating)?.label || String(draft.rating);
+  const tagText = draft.reasonTags.length ? ` · ${draft.reasonTags.join(", ")}` : "";
+  return `Rated: ${ratingLabel}${tagText}`;
 }
 
 function formatSigned(value: number) {

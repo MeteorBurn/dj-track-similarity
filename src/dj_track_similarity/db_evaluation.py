@@ -138,44 +138,68 @@ class EvaluationRepository:
         notes: str | None = None,
         source: str = "manual",
     ) -> int:
-        clean_seed_track_id = _positive_int(seed_track_id, "Seed track id")
+        feedback_ids = self.upsert_track_pair_feedback_for_seeds(
+            (seed_track_id,),
+            candidate_track_id,
+            rating,
+            reason_tags=reason_tags,
+            notes=notes,
+            source=source,
+        )
+        return feedback_ids[0]
+
+    def upsert_track_pair_feedback_for_seeds(
+        self,
+        seed_track_ids: Sequence[int],
+        candidate_track_id: int,
+        rating: int,
+        reason_tags: Sequence[str] = (),
+        notes: str | None = None,
+        source: str = "manual",
+    ) -> list[int]:
+        clean_seed_track_ids = _positive_unique_ints(seed_track_ids, "Seed track id")
         clean_candidate_track_id = _positive_int(candidate_track_id, "Candidate track id")
         clean_rating = _rating(rating)
         reason_tags_json = _json_text(_clean_tags(reason_tags, "Reason tag"))
         clean_source = _required_text(source, "Track pair feedback source")
         with self._write_lock, self.connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO track_pair_feedback (
-                    seed_track_id, candidate_track_id, rating, reason_tags_json, notes, source
+            for clean_seed_track_id in clean_seed_track_ids:
+                connection.execute(
+                    """
+                    INSERT INTO track_pair_feedback (
+                        seed_track_id, candidate_track_id, rating, reason_tags_json, notes, source
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(seed_track_id, candidate_track_id, source) DO UPDATE SET
+                        rating = excluded.rating,
+                        reason_tags_json = excluded.reason_tags_json,
+                        notes = excluded.notes,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (
+                        clean_seed_track_id,
+                        clean_candidate_track_id,
+                        clean_rating,
+                        reason_tags_json,
+                        notes,
+                        clean_source,
+                    ),
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(seed_track_id, candidate_track_id, source) DO UPDATE SET
-                    rating = excluded.rating,
-                    reason_tags_json = excluded.reason_tags_json,
-                    notes = excluded.notes,
-                    updated_at = CURRENT_TIMESTAMP
-                """,
-                (
-                    clean_seed_track_id,
-                    clean_candidate_track_id,
-                    clean_rating,
-                    reason_tags_json,
-                    notes,
-                    clean_source,
-                ),
-            )
-            row = connection.execute(
-                """
-                SELECT id
+            rows = connection.execute(
+                f"""
+                SELECT seed_track_id, id
                 FROM track_pair_feedback
-                WHERE seed_track_id = ? AND candidate_track_id = ? AND source = ?
+                WHERE seed_track_id IN ({','.join('?' for _ in clean_seed_track_ids)})
+                    AND candidate_track_id = ?
+                    AND source = ?
                 """,
-                (clean_seed_track_id, clean_candidate_track_id, clean_source),
-            ).fetchone()
-        if row is None:
-            raise RuntimeError("Failed to upsert track pair feedback")
-        return int(row["id"])
+                (*clean_seed_track_ids, clean_candidate_track_id, clean_source),
+            ).fetchall()
+        ids_by_seed_track_id = {int(row["seed_track_id"]): int(row["id"]) for row in rows}
+        feedback_ids = [ids_by_seed_track_id[seed_track_id] for seed_track_id in clean_seed_track_ids if seed_track_id in ids_by_seed_track_id]
+        if len(feedback_ids) != len(clean_seed_track_ids):
+            raise RuntimeError("Failed to upsert track pair feedback for every seed")
+        return feedback_ids
 
     def add_transition_feedback(
         self,
@@ -255,6 +279,13 @@ def _positive_int(value: int, field_name: str) -> int:
     if clean_value <= 0:
         raise ValueError(f"{field_name} must be a positive integer")
     return clean_value
+
+
+def _positive_unique_ints(values: Sequence[int], field_name: str) -> tuple[int, ...]:
+    clean_values = tuple(dict.fromkeys(_positive_int(value, field_name) for value in values))
+    if not clean_values:
+        raise ValueError(f"{field_name} list must contain at least one value")
+    return clean_values
 
 
 def _non_negative_int(value: int, field_name: str) -> int:

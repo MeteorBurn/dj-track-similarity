@@ -213,6 +213,18 @@ browser does not fetch profile artifacts from the filesystem; equal default
 weights are sent unless you edit them, and the risk penalty is off unless you
 opt in.
 
+Hybrid preview rows also expose optional evaluation feedback controls. Rating
+buttons map to `Strong = 3`, `Works = 2`, `Maybe = 1`, and `Reject = 0`. Reason
+tags are limited to the PR-21 allowlist (`good_groove`, `good_density`,
+`good_texture`, `good_mood`, `good_tonal`, `too_vocal`, `bad_density`,
+`bad_tonal`, `too_obvious`, `interesting_adjacent`, `wrong_energy`,
+`wrong_texture`, `bad_transition_risk`). A saved row shows a compact state such
+as `Rated: Works · good_groove, good_density`. Re-rating the same candidate
+overwrites the previous `hybrid_ui` pair labels for the current seeds, so the
+label count stays stable on repeated edits. The block also shows accumulated
+evaluation label counts when the selected database exposes schema-v4 evaluation
+tables.
+
 The endpoint accepts `1-5` seed track IDs, generates candidates from requested
 exact sources (`mert`, `maest`, `sonara`, `clap`), excludes the seeds, and ranks the
 union with weighted reciprocal-rank fusion. CLAP is a stored audio-embedding
@@ -226,6 +238,14 @@ ranking stays the plain weighted-RRF preview. When the penalty is greater than
 zero, the preview normalizes raw RRF scores within the candidate set and sorts by
 `adjusted_score = normalized_rrf_score - transition_risk_weight * transition_risk`;
 missing risk applies no penalty.
+
+The browser sends `record_session: true` for Hybrid preview so the generated
+candidate list can be tied to later UI feedback. Direct API callers remain safe
+by default because `record_session` defaults to `false`. Recorded Hybrid events
+use diagnostic score naming (`score_kind`, `adjusted_score`, `raw_rrf_score`,
+`transition_risk`, `transition_risk_penalty`, `transition_risk_weight`, and
+per-source rank/score payloads); these values are ranking diagnostics, not
+confidence or calibrated probabilities.
 
 Before settling on a non-zero `Risk penalty`, use the CLI report
 `dj-sim eval sweep-risk-penalty --profile <json> --weight ...` against recorded
@@ -246,8 +266,9 @@ missing, and limitations available from the `Score info` tooltip. A source such
 as CLAP that returns no rows contributes no score and does not inflate the
 source-disagreement transition risk. The endpoint
 can return an empty result list. It reads stored SQLite analysis data only: no
-audio files are written, no search sessions are recorded by default, classifiers
-are not trained, and existing production search endpoints are unchanged.
+audio files are written, search sessions are recorded only by explicit
+`record_session`, classifiers are not trained, and existing production search
+endpoints are unchanged.
 
 ### CLAP Text Search
 

@@ -30,8 +30,18 @@ test("hybrid backend limitations stay out of the default result area", () => {
 test("hybrid preview sends optional transition risk penalty", () => {
   assert.match(source, /const \[hybridTransitionRiskWeight, setHybridTransitionRiskWeight\] = useState\(0\);/);
   assert.match(source, /transition_risk_weight: hybridTransitionRiskWeight/);
+  assert.match(source, /record_session: true/);
   assert.match(source, /Risk penalty/);
   assert.match(source, /Optional penalty for diagnostic transition risk/);
+});
+
+test("hybrid preview initializes and submits PR-21 feedback state", () => {
+  assert.match(source, /setHybridSessionId\(response\.session_id \?\? null\);/);
+  assert.match(source, /setHybridFeedbackDrafts\(hybridFeedbackDraftsFromResults\(response\.results\)\);/);
+  assert.match(source, /api\.evaluationPairFeedback\(\{/);
+  assert.match(source, /seed_track_ids: seeds/);
+  assert.match(source, /source: hybridFeedbackSource/);
+  assert.match(source, /Evaluation labels:/);
 });
 
 test("hybrid preview exposes CLAP as a stored audio source", () => {

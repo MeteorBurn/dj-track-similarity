@@ -56,7 +56,7 @@ def test_source_ablation_rrf_all_promotes_multi_source_candidate(tmp_path: Path)
 
 
 def test_source_ablation_leave_one_out_variants_include_deltas(tmp_path: Path) -> None:
-    db, track_ids = _ablation_library(tmp_path, ["shared", "mert_only", "sonara_only"])
+    db, track_ids = _ablation_library(tmp_path, ["shared", "mert_only", "sonara_only", "clap_only"])
     session_id = _candidate_pool_session(db, track_ids["seed"])
     _candidate_event(
         db,
@@ -66,19 +66,23 @@ def test_source_ablation_leave_one_out_variants_include_deltas(tmp_path: Path) -
             "mert": {"rank": 2, "score": 0.6},
             "maest": {"rank": 1, "score": 0.8},
             "sonara": {"rank": 2, "score": 0.5},
+            "clap": {"rank": 2, "score": 0.4},
         },
     )
     _candidate_event(db, session_id, track_ids["mert_only"], {"mert": {"rank": 1, "score": 0.9}})
     _candidate_event(db, session_id, track_ids["sonara_only"], {"sonara": {"rank": 1, "score": 0.9}})
+    _candidate_event(db, session_id, track_ids["clap_only"], {"clap": {"rank": 1, "score": 0.9}})
     db.upsert_track_pair_feedback(track_ids["seed"], track_ids["shared"], 3, source="manual")
     db.upsert_track_pair_feedback(track_ids["seed"], track_ids["mert_only"], 0, source="manual")
     db.upsert_track_pair_feedback(track_ids["seed"], track_ids["sonara_only"], 2, source="manual")
+    db.upsert_track_pair_feedback(track_ids["seed"], track_ids["clap_only"], 1, source="manual")
 
     report = build_source_ablation_report(db, k_values=[1], rrf_k=60)
 
     assert "fusion:rrf_without_mert" in report["variants"]
     assert "fusion:rrf_without_maest" in report["variants"]
     assert "fusion:rrf_without_sonara" in report["variants"]
+    assert "fusion:rrf_without_clap" in report["variants"]
     deltas = report["variants"]["fusion:rrf_without_mert"]["delta_vs_fusion_rrf_all"]
     assert "mean_precision_at_1" in deltas
     assert report["variants"]["fusion:rrf_all"]["delta_vs_fusion_rrf_all"]["mean_precision_at_1"] == 0.0

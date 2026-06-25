@@ -277,8 +277,27 @@ def test_hybrid_search_transition_diagnostics_use_supporting_seed_scope(
     assert transition_diagnostics["supporting_seed_count"] == 1
     assert transition_diagnostics["seed_scope"] == "candidate_supporting_seeds"
     assert components["bpm_risk"] == 0.0
-    assert components["source_disagreement_risk"] == 0.5
+    assert components["source_disagreement_risk"] == 0.0
     assert transition_diagnostics["transition_risk"] == pytest.approx(sum(component_values) / len(component_values))
+
+
+def test_hybrid_search_configured_clap_without_rows_does_not_inflate_source_risk(tmp_path: Path) -> None:
+    db, track_ids = _hybrid_library(tmp_path)
+
+    result = build_hybrid_search_preview(
+        db,
+        seed_track_ids=[track_ids["seed"]],
+        sources=["mert", "maest", "clap"],
+        per_source=3,
+        limit=3,
+        transition_risk_weight=1.0,
+    )
+
+    shared_row = next(row for row in result.results if row.track.id == track_ids["shared"])
+    assert result.weights_used == {"mert": pytest.approx(1 / 3), "maest": pytest.approx(1 / 3), "clap": pytest.approx(1 / 3)}
+    assert any("source=clap returned no candidates" in warning for warning in result.warnings)
+    assert set(shared_row.score_breakdown) == {"mert", "maest"}
+    assert shared_row.transition_diagnostics["components"]["source_disagreement_risk"] == 0.0
 
 
 def test_hybrid_search_transition_risk_matches_aggregated_components(

@@ -295,11 +295,13 @@ def _scored_candidates_for_seed(
         for row in rows
     }
     max_raw_score = max(raw_scores.values(), default=0.0)
+    max_source_count = _effective_source_count(rows, request.sources)
     scored_candidates = [
         _scored_candidate(
             row,
             raw_rrf_score=raw_scores[row.candidate_track_id],
             max_raw_score=max_raw_score,
+            max_source_count=max_source_count,
             request=request,
         )
         for row in rows
@@ -324,13 +326,14 @@ def _scored_candidate(
     *,
     raw_rrf_score: float,
     max_raw_score: float,
+    max_source_count: int,
     request: WeightedCandidatePoolRequest,
 ) -> _ScoredCandidate:
     transition_diagnostics = compute_transition_diagnostics(
         row.seed_track,
         row.candidate_track,
         source_count=len(row.source_contributions),
-        max_source_count=len(request.sources),
+        max_source_count=max_source_count,
     )
     normalized_rrf_score = _normalized_response_score(raw_rrf_score, max_raw_score)
     transition_risk = transition_diagnostics.transition_risk
@@ -346,6 +349,17 @@ def _scored_candidate(
         transition_risk_penalty=transition_risk_penalty,
         tie_token=_tie_token(request.random_seed, row.seed_track_id, row.candidate_track_id),
     )
+
+
+def _effective_source_count(rows: Sequence[CandidatePoolRow], sources: Sequence[str]) -> int:
+    source_set = set(sources)
+    effective_sources = {
+        source
+        for row in rows
+        for source in row.source_contributions
+        if source in source_set
+    }
+    return max(1, len(effective_sources))
 
 
 def _record_weighted_candidate_sessions(

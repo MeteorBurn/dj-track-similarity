@@ -165,13 +165,33 @@ def test_source_profile_endpoint_rejects_unsupported_source(monkeypatch, tmp_pat
 
     response = _client(monkeypatch, db_path).post(
         "/api/evaluation/run/source-profile",
-        json={"sources": ["mert", "clap"]},
+        json={"sources": ["mert", "bogus"]},
     )
 
     assert response.status_code == 422
     assert "mert" in response.text
     assert "maest" in response.text
     assert "sonara" in response.text
+    assert "clap" in response.text
+
+
+def test_source_profile_endpoint_accepts_clap_without_coverage(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    _, track_ids = _profile_library(db_path, tmp_path)
+
+    response = _client(monkeypatch, db_path).post(
+        "/api/evaluation/run/source-profile",
+        json={
+            "seed_track_ids": [track_ids["seed"]],
+            "sources": ["mert", "maest", "clap"],
+            "per_source": 2,
+        },
+    )
+
+    assert response.status_code == 200
+    source_profile = response.json()["source_profile"]
+    assert source_profile["recommended_weights"]["weights"]["clap"] == 0.0
+    assert any("source=clap has no coverage" in warning for warning in source_profile["warnings"])
 
 
 def test_apply_score_profile_endpoint_reports_insufficient_labels(monkeypatch, tmp_path: Path) -> None:
@@ -251,6 +271,30 @@ def test_weighted_candidates_endpoint_rejects_sources_missing_from_profile(monke
 
     assert response.status_code == 400
     assert "no score profile weight" in response.json()["detail"]
+
+
+def test_weighted_candidates_endpoint_missing_clap_is_neutral_for_risk(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    _, track_ids = _profile_library(db_path, tmp_path)
+
+    response = _client(monkeypatch, db_path).post(
+        "/api/evaluation/run/weighted-candidates",
+        json={
+            "name": "inline-weighted",
+            "weights": {"mert": 1.0, "clap": 0.0},
+            "seed_track_ids": [track_ids["seed"]],
+            "sources": ["mert", "clap"],
+            "per_source": 2,
+            "transition_risk_weight": 1.0,
+            "limit_per_seed": 1,
+        },
+    )
+
+    assert response.status_code == 200
+    row = response.json()["rows"][0]
+    assert row["source_count"] == 1
+    assert row["transition_risk"] == 0.0
+    assert row["transition_risk_penalty"] == 0.0
 
 
 def test_evaluation_endpoints_report_unselected_or_old_schema_clearly(monkeypatch, tmp_path: Path) -> None:

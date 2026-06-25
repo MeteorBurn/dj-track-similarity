@@ -129,7 +129,7 @@ not modify audio files or SQLite rows.
 | `POST` | `/api/search` | Search in MERT embedding space. |
 | `POST` | `/api/search/sonara` | Search with Sonara features. |
 | `POST` | `/api/search/text` | Search CLAP audio vectors from text. |
-| `POST` | `/api/search/hybrid` | Preview weighted rank-fusion over MERT, MAEST, and SONARA candidates. |
+| `POST` | `/api/search/hybrid` | Preview weighted rank-fusion over MERT, MAEST, SONARA, and CLAP candidates. |
 | `POST` | `/api/set-builder/generate` | Generate an ordered Smart Set Builder preview from manual seeds or auto anchors. |
 
 Use `/api/analysis/jobs` before search endpoints when a library has not been
@@ -183,7 +183,7 @@ The default result limit for `/api/search`, `/api/search/sonara`, and
 `POST /api/search/hybrid` is a separate explicit preview endpoint. It does not
 replace the MERT, SONARA, CLAP, SET, or CLASS paths and it does not change their
 scoring or weights. The request accepts `seed_track_ids` (`1-5` ids), optional
-`sources` from `mert`, `maest`, and `sonara`, optional inline `weights` or a
+`sources` from `mert`, `maest`, `sonara`, and `clap`, optional inline `weights` or a
 `score_profile` object, `per_source`, `limit`, `rrf_k`, `random_seed`, and
 `transition_risk_weight` (`0.0-1.0`, default `0.0`), and
 `include_diagnostics`. If no weights are provided, the requested sources are
@@ -193,8 +193,10 @@ inline weights and a score profile.
 
 Hybrid search generates candidates from the existing exact source search paths,
 excludes seed tracks, and fuses source ranks with weighted reciprocal-rank
-fusion. With the default `transition_risk_weight: 0.0`, ordering and score output
-stay the plain weighted-RRF preview. When `transition_risk_weight` is greater
+fusion. CLAP is used as stored audio embeddings only; prompt-aware positive or
+negative CLAP hybrid search remains outside this endpoint. With the default
+`transition_risk_weight: 0.0`, ordering and score output stay the plain
+weighted-RRF preview. When `transition_risk_weight` is greater
 than zero, raw RRF scores are normalized within the candidate set and ranked by
 `adjusted_score = normalized_rrf_score - transition_risk_weight * transition_risk`;
 missing transition risk applies no penalty. The response returns `results`,
@@ -209,7 +211,8 @@ source-consensus disagreement. They are lightweight diagnostic values for future
 ranking experiments, not AutoMix, beatgrid or cue-point detection, and not a
 calibrated transition probability. The score is a preview rank score, not
 confidence, probability, or a calibrated estimate of human taste. Missing source
-coverage is reported in `warnings`; if no source can return candidates, the
+coverage is reported in `warnings`; a configured source with no returned rows is
+absent from scoring and transition source-consensus risk. If no source can return candidates, the
 endpoint returns an empty result list rather than failing. It reads stored SQLite
 analysis data only and does not write sessions, tags, audio files, classifiers,
 or production search configuration.
@@ -326,7 +329,7 @@ source-profile path.
 
 `/api/evaluation/run/source-profile` accepts optional `seed_track_ids`; when they
 are omitted, it samples `sample_count` seeds (default `50`) with `random_seed`
-(default `123`). It also accepts `sources` (default `mert`, `maest`, `sonara`),
+(default `123`). It also accepts `sources` (default `mert`, `maest`, `sonara`, `clap`),
 `per_source` (default `30`), `top_k` (default `[10]`), optional `profile_name`,
 and `include_profile` (default `true`). The response contains `source_profile`
 diagnostics and, when the diagnostic status is `ok` and `include_profile` is

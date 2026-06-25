@@ -205,8 +205,8 @@ their endpoints, weights, or scoring behavior.
 
 Use `Generate weighted preview` when you want a quick seed-based weighted
 candidate list instead of an ordered Smart Set Builder route. The block reuses
-the currently selected seed tracks and requires `1-5` seeds. MERT, MAEST, and
-SONARA sources can be enabled or disabled, each source has an inline weight, and
+the currently selected seed tracks and requires `1-5` seeds. MERT, MAEST,
+SONARA, and CLAP sources can be enabled or disabled, each source has an inline weight, and
 the UI exposes `Per-source` (`1-100`, default `30`) plus `Result limit`
 (`1-100`, default `25`) and `Risk penalty` (`0.0-1.0`, default `0.0`). The
 browser does not fetch profile artifacts from the filesystem; equal default
@@ -214,8 +214,9 @@ weights are sent unless you edit them, and the risk penalty is off unless you
 opt in.
 
 The endpoint accepts `1-5` seed track IDs, generates candidates from requested
-exact sources (`mert`, `maest`, `sonara`), excludes the seeds, and ranks the
-union with weighted reciprocal-rank fusion. If no inline `weights` or
+exact sources (`mert`, `maest`, `sonara`, `clap`), excludes the seeds, and ranks the
+union with weighted reciprocal-rank fusion. CLAP is a stored audio-embedding
+source in this preview, not a prompt-aware Hybrid UI. If no inline `weights` or
 `score_profile` is supplied, requested sources use equal weights. The response
 contains a preview `score`, `adjusted_score`, `raw_rrf_score`,
 `transition_risk_penalty`, `transition_risk_weight`, per-source rank/weight
@@ -241,7 +242,9 @@ diagnostic score for future ranking experiments, not AutoMix, beatgrid analysis,
 cue detection, calibrated confidence, or a calibrated transition probability. The
 UI keeps diagnostics intentionally light: adjusted row score, compact risk text,
 source support, source weights/ranks on hover, visible warnings when coverage is
-missing, and limitations available from the `Score info` tooltip. The endpoint
+missing, and limitations available from the `Score info` tooltip. A source such
+as CLAP that returns no rows contributes no score and does not inflate the
+source-disagreement transition risk. The endpoint
 can return an empty result list. It reads stored SQLite analysis data only: no
 audio files are written, no search sessions are recorded by default, classifiers
 are not trained, and existing production search endpoints are unchanged.

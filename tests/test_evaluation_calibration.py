@@ -85,6 +85,16 @@ def test_rank_percentile_and_rrf_reports_are_json_safe_diagnostics(tmp_path: Pat
     json.dumps(rrf_report, allow_nan=False)
 
 
+def test_rrf_calibration_accepts_recorded_clap_source(tmp_path: Path) -> None:
+    db, _track_ids = _calibration_library(tmp_path, source_payloads=({"clap": {"rank": 1}}, {"clap": {"rank": 2}}))
+
+    report = build_calibration_report(db, score_mode="rrf", bins=2, min_samples=1, accepted_threshold=2)
+
+    assert report["status"] == "ok"
+    assert report["sample_count"] == 2
+    assert report["score_kind"] == "rrf_minmax_diagnostic"
+
+
 def test_event_total_score_reports_out_of_range_without_probability_metrics(tmp_path: Path) -> None:
     db, track_ids = _calibration_library(tmp_path, total_scores=(2.5, 0.2))
 
@@ -137,6 +147,7 @@ def _calibration_library(
     *,
     db_path: Path | None = None,
     total_scores: tuple[float, float] = (0.8, 0.4),
+    source_payloads: tuple[dict[str, dict[str, int]], dict[str, dict[str, int]]] | None = None,
 ) -> tuple[LibraryDatabase, dict[str, int]]:
     db = LibraryDatabase(db_path or tmp_path / "library.sqlite")
     track_ids = {
@@ -149,19 +160,23 @@ def _calibration_library(
         [track_ids["seed"]],
         {"feedback_source": "manual", "sources": ["mert", "maest"]},
     )
+    first_sources, second_sources = source_payloads or (
+        {"mert": {"rank": 1}, "maest": {"rank": 2}},
+        {"mert": {"rank": 2}},
+    )
     db.record_search_result_event(
         session_id,
         track_ids["candidate_a"],
         rank=1,
         total_score=total_scores[0],
-        score_breakdown={"blind_rank": 1, "sources": {"mert": {"rank": 1}, "maest": {"rank": 2}}},
+        score_breakdown={"blind_rank": 1, "sources": first_sources},
     )
     db.record_search_result_event(
         session_id,
         track_ids["candidate_b"],
         rank=2,
         total_score=total_scores[1],
-        score_breakdown={"blind_rank": 2, "sources": {"mert": {"rank": 2}}},
+        score_breakdown={"blind_rank": 2, "sources": second_sources},
     )
     db.upsert_track_pair_feedback(track_ids["seed"], track_ids["candidate_a"], 3, source="manual")
     db.upsert_track_pair_feedback(track_ids["seed"], track_ids["candidate_b"], 0, source="manual")

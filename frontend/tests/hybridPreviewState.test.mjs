@@ -33,3 +33,11 @@ test("hybrid preview sends optional transition risk penalty", () => {
   assert.match(source, /Risk penalty/);
   assert.match(source, /Optional penalty for diagnostic transition risk/);
 });
+
+test("hybrid preview exposes CLAP as a stored audio source", () => {
+  assert.match(source, /const hybridSourceKeys: HybridSearchSource\[\] = \["mert", "maest", "sonara", "clap"\];/);
+  assert.match(source, /clap: true/);
+  assert.match(source, /label: "CLAP"/);
+  assert.match(source, /Uses stored CLAP audio embeddings only, without prompt input\./);
+  assert.match(source, /stored MERT, MAEST, SONARA, and CLAP analysis data only/);
+});

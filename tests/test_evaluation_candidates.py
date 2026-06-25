@@ -64,6 +64,26 @@ def test_export_candidate_pools_skips_missing_source_and_keeps_working_source(tm
     assert any("source=sonara" in warning for warning in result.warnings)
 
 
+def test_export_candidate_pools_supports_clap_audio_embedding_source(tmp_path: Path) -> None:
+    db, track_ids = _library_with_mert_and_maest_embeddings(tmp_path)
+    db.save_embedding(track_ids["seed"], np.asarray([1.0, 0.0], dtype=np.float32), "test-clap", embedding_key="clap")
+    db.save_embedding(track_ids["shared"], np.asarray([0.95, 0.05], dtype=np.float32), "test-clap", embedding_key="clap")
+
+    result = export_candidate_pools(
+        db,
+        seed_track_ids=[track_ids["seed"]],
+        sources=["clap"],
+        per_source=1,
+        random_seed=5,
+        record_session=False,
+    )
+
+    assert result.warnings == ()
+    assert len(result.rows) == 1
+    assert result.rows[0].candidate_track_id == track_ids["shared"]
+    assert list(result.rows[0].source_contributions) == ["clap"]
+
+
 def _pool_snapshot(rows: tuple[CandidatePoolRow, ...]) -> list[tuple[int, int, int, str]]:
     return [(row.seed_track_id, row.candidate_track_id, row.blind_rank, row.sources_json) for row in rows]
 

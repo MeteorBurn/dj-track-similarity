@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from ..database import LibraryDatabase
 
 
-DEFAULT_PROFILE_SOURCES = ("mert", "maest", "sonara")
+DEFAULT_PROFILE_SOURCES = ("mert", "maest", "sonara", "clap")
 DEFAULT_PROFILE_TOP_K = (10,)
 DEFAULT_RRF_K = 60
 WEIGHT_KIND = "unsupervised_internal_profile"
@@ -90,7 +90,8 @@ def profile_candidate_rows(
 ) -> dict[str, Any]:
     clean_request = _clean_profile_request(request)
     seed_rankings = _rankings_by_seed(rows, clean_request.sources)
-    per_source = _per_source_metrics(seed_rankings, clean_request)
+    effective_sources = _effective_sources(seed_rankings, clean_request)
+    per_source = _per_source_metrics(seed_rankings, clean_request, effective_sources)
     pairwise_agreement = _pairwise_agreement(seed_rankings, clean_request)
     consensus = _consensus_report(seed_rankings, clean_request)
     recommended_weights = _recommended_weights(per_source, len(clean_request.sources))
@@ -160,23 +161,36 @@ def _rankings_by_seed(
 def _per_source_metrics(
     seed_rankings: Mapping[int, Mapping[str, Mapping[int, Mapping[str, float | int]]]],
     request: SourceProfileRequest,
+    effective_sources: Sequence[str],
 ) -> dict[str, dict[str, Any]]:
     return {
-        source: _source_metrics(source, seed_rankings, request)
+        source: _source_metrics(source, seed_rankings, request, effective_sources)
         for source in request.sources
     }
+
+
+def _effective_sources(
+    seed_rankings: Mapping[int, Mapping[str, Mapping[int, Mapping[str, float | int]]]],
+    request: SourceProfileRequest,
+) -> tuple[str, ...]:
+    return tuple(
+        source
+        for source in request.sources
+        if any(_ranking_for_seed(seed_rankings, seed_track_id, source) for seed_track_id in request.seed_track_ids)
+    )
 
 
 def _source_metrics(
     source: str,
     seed_rankings: Mapping[int, Mapping[str, Mapping[int, Mapping[str, float | int]]]],
     request: SourceProfileRequest,
+    effective_sources: Sequence[str],
 ) -> dict[str, Any]:
     top_k = max(request.top_k_values)
     seed_count = len(request.seed_track_ids)
     rankings = [_ranking_for_seed(seed_rankings, seed_track_id, source) for seed_track_id in request.seed_track_ids]
     covered_rankings = [ranking for ranking in rankings if ranking]
-    support_values = _source_reciprocal_support_values(source, seed_rankings, request.sources, request.seed_track_ids, top_k)
+    support_values = _source_reciprocal_support_values(source, seed_rankings, effective_sources, request.seed_track_ids, top_k)
     conflict_rate = _zero_rate(support_values)
     scores = _source_scores(covered_rankings)
     candidates_returned = sum(len(ranking) for ranking in covered_rankings)

@@ -8,7 +8,7 @@ import math
 from typing import TYPE_CHECKING, Any
 
 from ..transition_diagnostics import compute_transition_diagnostics
-from .candidates import DEFAULT_FEEDBACK_SOURCE
+from .candidates import ALLOWED_CANDIDATE_SOURCES, DEFAULT_FEEDBACK_SOURCE
 from .metrics import (
     bad_suggestion_rate_at_k,
     hit_rate_at_k,
@@ -171,9 +171,22 @@ def _session_candidates(
     warnings: list[str],
 ) -> tuple[RiskSweepCandidate, ...]:
     raw_candidates: list[dict[str, Any]] = []
-    max_source_count = _max_source_count(session, profile)
-    for event in _event_mappings(session.get("events")):
-        candidate = _raw_candidate(db, session, event, seed_track_ids, profile, feedback_map, rrf_k, max_source_count, track_cache, warnings)
+    event_sources = _event_sources(session.get("events"))
+    max_source_count = _effective_max_source_count(event_sources, profile)
+    for event, sources in event_sources:
+        candidate = _raw_candidate(
+            db,
+            session,
+            event,
+            sources,
+            seed_track_ids,
+            profile,
+            feedback_map,
+            rrf_k,
+            max_source_count,
+            track_cache,
+            warnings,
+        )
         if candidate is None:
             continue
         raw_candidates.append(candidate)
@@ -192,6 +205,7 @@ def _raw_candidate(
     db: LibraryDatabase,
     session: Mapping[str, Any],
     event: Mapping[str, Any],
+    sources: Mapping[str, Mapping[str, float | int]],
     seed_track_ids: tuple[int, ...],
     profile: ScoreProfile,
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
@@ -200,7 +214,6 @@ def _raw_candidate(
     track_cache: dict[int, Track],
     warnings: list[str],
 ) -> dict[str, Any] | None:
-    sources = _source_payload(event)
     if not sources:
         return None
     candidate_track_id = _positive_int(event.get("track_id"), "candidate_track_id")
@@ -472,8 +485,32 @@ def _source_payload(event: Mapping[str, Any]) -> dict[str, dict[str, float | int
         nested_sources = _sources_from_json_text(score_breakdown.get("sources_json"))
         if nested_sources:
             return nested_sources
-        sources = {source: score_breakdown[source] for source in ("mert", "maest", "sonara") if source in score_breakdown}
+        sources = {source: score_breakdown[source] for source in ALLOWED_CANDIDATE_SOURCES if source in score_breakdown}
     return _source_payload_from_mapping(sources)
+
+
+def _event_sources(events: object) -> tuple[tuple[Mapping[str, Any], dict[str, dict[str, float | int]]], ...]:
+    event_sources: list[tuple[Mapping[str, Any], dict[str, dict[str, float | int]]]] = []
+    for event in _event_mappings(events):
+        sources = _source_payload(event)
+        if not sources:
+            continue
+        event_sources.append((event, sources))
+    return tuple(event_sources)
+
+
+def _effective_max_source_count(
+    event_sources: Sequence[tuple[Mapping[str, Any], Mapping[str, Mapping[str, float | int]]]],
+    profile: ScoreProfile,
+) -> int:
+    effective_sources = {
+        source
+        for _event, sources in event_sources
+        for source in sources
+    }
+    if effective_sources:
+        return len(effective_sources)
+    return max(1, len(profile.sources))
 
 
 def _sources_from_json_text(value: object) -> dict[str, dict[str, float | int]]:
@@ -607,17 +644,6 @@ def _seed_track_ids(value: object) -> tuple[int, ...]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
         return ()
     return tuple(_positive_int(track_id, "seed_track_id") for track_id in value)
-
-
-def _max_source_count(session: Mapping[str, Any], profile: ScoreProfile) -> int:
-    request = session.get("request")
-    if not isinstance(request, Mapping):
-        return len(profile.sources)
-    sources = request.get("sources")
-    if not isinstance(sources, Sequence) or isinstance(sources, (str, bytes)):
-        return len(profile.sources)
-    clean_sources = {str(source).strip().lower() for source in sources if str(source).strip()}
-    return max(1, len(clean_sources) or len(profile.sources))
 
 
 def _clean_risk_weights(weights: Sequence[float]) -> tuple[float, ...]:

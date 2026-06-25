@@ -61,6 +61,30 @@ def test_risk_sweep_high_weight_lowers_average_transition_risk_at_k(tmp_path: Pa
     assert report["variants"]["transition_risk_weight:1"]["ranked_sessions"][0]["ranked_candidate_track_ids"] == [safe_id, risky_id]
 
 
+def test_risk_sweep_recomputes_source_risk_from_effective_recorded_sources(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed_id = _track(db, tmp_path, "seed")
+    candidate_id = _track(db, tmp_path, "candidate")
+    session_id = db.create_search_session(
+        "evaluation_weighted_candidate_pool",
+        [seed_id],
+        {"feedback_source": "manual", "sources": ["mert", "clap"]},
+    )
+    db.record_search_result_event(
+        session_id,
+        candidate_id,
+        rank=1,
+        total_score=0.0,
+        score_breakdown={"sources": {"mert": {"rank": 1, "score": 1.0}}},
+    )
+
+    report = build_risk_penalty_sweep_report(db, _score_profile({"mert": 1.0, "clap": 0.0}), weights=[0.0], k_values=[1], rrf_k=1)
+
+    candidate = report["variants"]["transition_risk_weight:0"]["ranked_sessions"][0]["ranked_candidates"][0]
+    assert candidate["source_count"] == 1
+    assert candidate["transition_risk"] == 0.0
+
+
 def test_risk_sweep_rejects_invalid_weight(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
 
@@ -98,17 +122,18 @@ def _track(db: LibraryDatabase, tmp_path: Path, stem: str) -> int:
     )
 
 
-def _score_profile() -> ScoreProfile:
+def _score_profile(weights: dict[str, float] | None = None) -> ScoreProfile:
+    clean_weights = weights or {"mert": 1.0}
     return build_score_profile_from_source_report(
         {
             "status": "ok",
             "profile_kind": "unsupervised_source_profile",
             "weight_kind": "unsupervised_internal_profile",
-            "sources": ["mert"],
+            "sources": list(clean_weights),
             "seed_count": 1,
             "per_source": {},
             "consensus": {},
-            "recommended_weights": {"weight_kind": "unsupervised_internal_profile", "weights": {"mert": 1.0}, "note": "test"},
+            "recommended_weights": {"weight_kind": "unsupervised_internal_profile", "weights": clean_weights, "note": "test"},
             "warnings": [],
             "limitations": [],
         },

@@ -20,9 +20,10 @@ from .models import Track
 from .transition_diagnostics import COMPONENT_NAMES, TransitionDiagnostics, compute_transition_diagnostics
 
 
-DEFAULT_HYBRID_SOURCES = ("mert", "maest", "sonara")
+DEFAULT_HYBRID_SOURCES = ("mert", "maest", "sonara", "clap")
 HYBRID_SEARCH_LIMITATIONS = (
-    "Hybrid search is an explicit weighted rank-fusion preview over existing MERT, MAEST, and SONARA analysis data.",
+    "Hybrid search is an explicit weighted rank-fusion preview over existing MERT, MAEST, SONARA, and CLAP analysis data.",
+    "CLAP is used only as stored audio embeddings in this preview; prompt-aware CLAP hybrid search is not part of this path.",
     "The score is an optional transition-risk-adjusted weighted RRF preview score; it is not calibrated confidence, probability, or a human-taste estimate.",
     "Transition risk is diagnostic only and is not AutoMix, beatgrid, cue-point detection, or calibrated transition probability.",
     "The endpoint reads the selected SQLite database only and does not write sessions, train classifiers, modify production search scoring, or write audio files.",
@@ -278,10 +279,11 @@ def _ranked_result_rows(
     transition_risk_weight: float,
 ) -> tuple[HybridSearchResultRow, ...]:
     max_score = max((candidate.raw_rrf_score for candidate in scored_candidates), default=0.0)
+    transition_sources = _effective_transition_sources(scored_candidates, sources)
     ranked_candidates = _ranked_candidates_with_transition_risk(
         scored_candidates,
         limit=limit,
-        sources=sources,
+        sources=transition_sources,
         seed_tracks=seed_tracks,
         max_score=max_score,
         transition_risk_weight=transition_risk_weight,
@@ -307,6 +309,17 @@ def _ranked_result_rows(
             ),
         )
     return tuple(result_rows)
+
+
+def _effective_transition_sources(scored_candidates: Sequence[_ScoredHybridCandidate], sources: Sequence[str]) -> tuple[str, ...]:
+    effective_sources = tuple(
+        source
+        for source in sources
+        if any(source in candidate.candidate.source_contributions for candidate in scored_candidates)
+    )
+    if effective_sources:
+        return effective_sources
+    return tuple(sources)
 
 
 def _ranked_candidates_with_transition_risk(

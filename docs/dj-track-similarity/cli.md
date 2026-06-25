@@ -311,10 +311,10 @@ a workflow has recorded evaluation sessions and result events.
 
 ```powershell
 dj-sim eval export-seed-sample --db .\data\library_v4.sqlite --output .\labels\seed_sample.csv --count 50 --random-seed 123
-dj-sim eval export-candidates --db .\data\library_v4.sqlite --output .\labels\candidate_pool.csv --seed-track-id 42 --source mert --source sonara --source maest --per-source 10 --random-seed 123
+dj-sim eval export-candidates --db .\data\library_v4.sqlite --output .\labels\candidate_pool.csv --seed-track-id 42 --source mert --source maest --source sonara --source clap --per-source 10 --random-seed 123
 dj-sim eval import-pair-feedback --db .\data\library_v4.sqlite --input .\labels\pair_feedback.csv
 dj-sim eval import-transition-feedback --db .\data\library_v4.sqlite --input .\labels\transition_feedback.jsonl
-dj-sim eval profile-sources --db .\data\library_v4.sqlite --seed-sample .\labels\seed_sample.csv --output .\reports\source_profile.json --profile-output .\reports\score_profile_auto.json --profile-name auto_source_profile --source mert --source maest --source sonara --per-source 30 --random-seed 123
+dj-sim eval profile-sources --db .\data\library_v4.sqlite --seed-sample .\labels\seed_sample.csv --output .\reports\source_profile.json --profile-output .\reports\score_profile_auto.json --profile-name auto_source_profile --source mert --source maest --source sonara --source clap --per-source 30 --random-seed 123
 dj-sim eval export-weighted-candidates --db .\data\library_v4.sqlite --profile .\reports\score_profile_auto.json --output .\labels\weighted_candidate_pool.csv --seed-sample .\labels\seed_sample.csv --per-source 30 --random-seed 123 --rrf-k 60
 dj-sim eval apply-score-profile --db .\data\library_v4.sqlite --profile .\reports\score_profile_auto.json --output .\reports\score_profile_apply.json --k 5 --k 10 --rrf-k 60
 dj-sim eval sweep-risk-penalty --db .\data\library_v4.sqlite --profile .\reports\score_profile_auto.json --output .\reports\risk_penalty_sweep.json --weight 0 --weight 0.25 --weight 0.5 --weight 1.0 --k 5 --k 10 --rrf-k 60
@@ -348,7 +348,7 @@ manual ground truth:
 1. Run `dj-sim eval export-seed-sample` to choose a reproducible, practical set
    of seed tracks for manual labeling.
 2. Run `dj-sim eval export-candidates` for the exported seed IDs, usually with
-   `--source mert --source sonara --source maest` and session recording enabled.
+   `--source mert --source maest --source sonara --source clap` and session recording enabled.
 3. Open the generated candidate CSV and fill `rating`, `reason_tags`, and `notes`
    by hand.
 4. Import the completed file with `dj-sim eval import-pair-feedback`.
@@ -380,7 +380,7 @@ manual ground truth:
 11. Run `dj-sim eval report` for the general recorded-session report.
 
 `run-ablation` evaluates only recorded candidate-pool events and imported pair
-feedback. It builds single-source variants for `mert`, `maest`, and `sonara` when
+feedback. It builds single-source variants for `mert`, `maest`, `sonara`, and `clap` when
 those sources are present, a full Reciprocal Rank Fusion baseline, and
 leave-one-out RRF variants that remove one source at a time. RRF is used because
 raw source scores are not calibrated or directly comparable across models; the
@@ -434,7 +434,7 @@ search endpoints or scoring.
 column becomes the seed list. Without `--seed-sample`, the command samples up to
 `--sample-count` tracks internally with the same deterministic sampler but allows
 partial analysis coverage so missing-source rates remain visible. It compares
-sources by ranks rather than raw scores because MERT, MAEST, and SONARA scores
+sources by ranks rather than raw scores because MERT, MAEST, SONARA, and CLAP scores
 use different scales. A source with no sampled coverage gets normalized internal
 weight `0` and a warning. Missing analysis for one source does not stop other selected
 sources from being profiled.
@@ -451,14 +451,14 @@ an `ok` summary into `calibration_runs`. No calibration command changes runtime
 search endpoints, scoring weights, or default thresholds.
 
 `export-candidates` reads existing exact search sources only: `mert` embedding
-similarity, `maest` embedding similarity, and balanced/default `sonara`
-similarity. It excludes the seed track, deduplicates candidates that appear from
+similarity, `maest` embedding similarity, balanced/default `sonara`
+similarity, and `clap` stored audio-embedding similarity. It excludes the seed track, deduplicates candidates that appear from
 multiple sources, stores per-source rank/score details in the final
 `sources_json` column, and randomizes the visible `blind_rank` with
 `--random-seed` so the labeler does not see which model proposed a candidate.
 The default `source` column is `manual`, and the generated empty rating fields
-are intended for human labels only. CLAP text search is not included because it
-needs a text prompt rather than a seed-track query.
+are intended for human labels only. Prompt-aware CLAP text search is not included
+because it needs a text prompt rather than a seed-track query.
 
 `export-seed-sample` is read-only and exists to prepare those seed IDs before
 candidate-pool export. By default it samples only tracks with complete SONARA,
@@ -505,7 +505,7 @@ Options:
 | `--db` | path | `dj-track-similarity.sqlite` | Schema v4 SQLite database path. |
 | `--output` | CSV path | required | Candidate-pool CSV to create. |
 | `--seed-track-id` | integer | required | Seed track ID. Repeat for multiple seeds. |
-| `--source` | text | `mert`, `sonara`, `maest` | Candidate source. Repeat for a subset. |
+| `--source` | text | `mert`, `maest`, `sonara`, `clap` | Candidate source. Repeat for a subset. |
 | `--per-source` | integer `>=1` | `10` | Maximum top candidates requested from each source per seed. |
 | `--random-seed` | integer | `123` | Deterministic blind-order seed. |
 | `--record-session/--no-record-session` | flag | record | Record `search_sessions` and blinded `search_result_events`. |
@@ -578,7 +578,7 @@ Options:
 | `--profile-output` | JSON path | none | Optional score profile artifact to create from this source-profile run. |
 | `--profile-name` | text | `auto-source-profile` | Optional score profile name when `--profile-output` is used. |
 | `--seed-sample` | CSV path | none | Optional CSV with a `track_id` column from `export-seed-sample`. |
-| `--source` | text | `mert`, `maest`, `sonara` | Candidate source. Repeat for a subset. |
+| `--source` | text | `mert`, `maest`, `sonara`, `clap` | Candidate source. Repeat for a subset. |
 | `--sample-count` | integer `>=1` | `50` | Seeds to sample internally when `--seed-sample` is omitted. |
 | `--per-source` | integer `>=1` | `30` | Maximum top candidates requested from each source per seed. |
 | `--top-k` | integer `>=1` | `10` | Agreement cutoff. Repeat for multiple top-K metrics. |

@@ -44,7 +44,7 @@ export type SearchResult = {
   };
 };
 
-export type HybridSearchSource = "mert" | "maest" | "sonara";
+export type HybridSearchSource = "mert" | "maest" | "sonara" | "clap";
 
 export type HybridSearchPayload = {
   seed_track_ids: number[];

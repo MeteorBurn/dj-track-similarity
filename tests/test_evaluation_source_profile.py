@@ -77,6 +77,28 @@ def test_source_profile_zero_coverage_source_gets_zero_weight_and_warning(tmp_pa
     assert any("source=maest has no coverage" in warning for warning in report["warnings"])
 
 
+def test_source_profile_default_clap_without_rows_is_neutral(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed_id = _upsert_track(db, tmp_path, "seed")
+    candidate_id = _upsert_track(db, tmp_path, "candidate")
+    db.save_embedding(seed_id, np.asarray([1.0, 0.0], dtype=np.float32), "test-mert", embedding_key="mert")
+    db.save_embedding(candidate_id, np.asarray([0.9, 0.1], dtype=np.float32), "test-mert", embedding_key="mert")
+
+    report = build_source_profile(
+        db,
+        seed_track_ids=[seed_id],
+        sources=None,
+        per_source=1,
+        random_seed=123,
+    )
+
+    weights = report["recommended_weights"]["weights"]
+    assert report["sources"] == ["mert", "maest", "sonara", "clap"]
+    assert weights["mert"] == 1.0
+    assert weights["clap"] == 0.0
+    assert any("source=clap has no coverage" in warning for warning in report["warnings"])
+
+
 def test_source_profile_consensus_source_outweighs_isolated_source() -> None:
     seed = _track(1)
     rows = (

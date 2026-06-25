@@ -30,6 +30,13 @@ def test_score_profile_builds_from_ok_source_profile_report() -> None:
     assert any("not human ground truth" in limitation for limitation in profile.limitations)
 
 
+def test_score_profile_accepts_clap_source_weight() -> None:
+    profile = build_score_profile_from_source_report(_source_profile_report({"mert": 0.6, "clap": 0.4}), name="clap_auto")
+
+    assert profile.sources == ["mert", "clap"]
+    assert profile.weights == {"mert": pytest.approx(0.6), "clap": pytest.approx(0.4)}
+
+
 def test_score_profile_rejects_non_ok_source_profile_report() -> None:
     report = _source_profile_report({"mert": 1.0})
     report["status"] = "insufficient_data"

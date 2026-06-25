@@ -155,7 +155,7 @@ const setClassifierFlowOptions: Array<SelectOption<SetBuilderClassifierFlow>> = 
   }
 ];
 
-const hybridSourceKeys: HybridSearchSource[] = ["mert", "maest", "sonara"];
+const hybridSourceKeys: HybridSearchSource[] = ["mert", "maest", "sonara", "clap"];
 
 const hybridSourceOptions: Array<{ key: HybridSearchSource; label: string; title: string }> = [
   {
@@ -172,6 +172,11 @@ const hybridSourceOptions: Array<{ key: HybridSearchSource; label: string; title
     key: "sonara",
     label: "SONARA",
     title: "SONARA source for Hybrid preview. Type: checkbox on/off. Range: enabled or disabled. Requires stored SONARA features."
+  },
+  {
+    key: "clap",
+    label: "CLAP",
+    title: "CLAP source for Hybrid preview. Type: checkbox on/off. Range: enabled or disabled. Uses stored CLAP audio embeddings only, without prompt input."
   }
 ];
 
@@ -277,8 +282,8 @@ export function SearchPlaylistPanel({
   const [setAutoSeedCount, setSetAutoSeedCount] = useState(5);
   const [setClassifierPreferences, setSetClassifierPreferences] = useState<Record<string, number>>({});
   const [setClassifierFlows, setSetClassifierFlows] = useState<Record<string, SetBuilderClassifierFlow>>({});
-  const [hybridSources, setHybridSources] = useState<Record<HybridSearchSource, boolean>>({ mert: true, maest: true, sonara: true });
-  const [hybridWeights, setHybridWeights] = useState<Record<HybridSearchSource, number>>({ mert: 1, maest: 1, sonara: 1 });
+  const [hybridSources, setHybridSources] = useState<Record<HybridSearchSource, boolean>>({ mert: true, maest: true, sonara: true, clap: true });
+  const [hybridWeights, setHybridWeights] = useState<Record<HybridSearchSource, number>>({ mert: 1, maest: 1, sonara: 1, clap: 1 });
   const [hybridPerSource, setHybridPerSource] = useState(30);
   const [hybridLimit, setHybridLimit] = useState(25);
   const [hybridTransitionRiskWeight, setHybridTransitionRiskWeight] = useState(0);
@@ -332,7 +337,7 @@ export function SearchPlaylistPanel({
   const setBuilderDiversityTitle = "Насколько активно раздвигать похожие кандидаты. Тип: число 0.00-1.00. 0 = ближе к anchors, 1 = больше разнообразия при сохранении связи.";
   const setBpmStartTitle = "Start BPM для явной BPM-кривой. Тип: число 20-300 или пусто = взять из первого seed/anchor, затем из библиотеки.";
   const setBpmTargetTitle = "Target BPM для явной BPM-кривой. Тип: число 20-300 или пусто = вывести из доступного диапазона библиотеки.";
-  const hybridBlockTitle = "Hybrid preview: explicit weighted RRF candidate preview inside SET. Type: action block. It reads stored MERT/MAEST/SONARA data only and does not change existing search endpoints.";
+  const hybridBlockTitle = "Hybrid preview: explicit weighted RRF candidate preview inside SET. Type: action block. It reads stored MERT/MAEST/SONARA/CLAP data only and does not change existing search endpoints.";
   const hybridWeightTitle = "Source weight for Weighted preview. Type: number 0.00-1.00. Equal values keep sources balanced; disabled sources are ignored.";
   const hybridPerSourceTitle = "Candidates fetched per enabled source before weighted fusion. Type: integer 1-100. Default: 30.";
   const hybridLimitTitle = "Maximum Hybrid preview rows to show. Type: integer 1-100. Default: 25.";
@@ -668,7 +673,7 @@ export function SearchPlaylistPanel({
                 <span className="hybrid-diagnostic-chip" title={hybridDiagnosticTitle}>Score info</span>
               </div>
               <p className="hybrid-preview-note">
-                Uses selected seed tracks and stored analysis data only.
+                Uses selected seed tracks and stored MERT, MAEST, SONARA, and CLAP analysis data only.
               </p>
               <div className="hybrid-source-grid">
                 {hybridSourceOptions.map((source) => (

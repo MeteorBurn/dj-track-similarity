@@ -73,6 +73,29 @@ def test_hybrid_search_endpoint_rejects_invalid_transition_risk_weight(monkeypat
     assert response.status_code == 422
 
 
+def test_hybrid_search_endpoint_accepts_clap_as_neutral_missing_source(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    _, track_ids = _hybrid_library(db_path, tmp_path)
+
+    response = _client(monkeypatch, db_path).post(
+        "/api/search/hybrid",
+        json={
+            "seed_track_ids": [track_ids["seed"]],
+            "sources": ["mert", "maest", "clap"],
+            "per_source": 3,
+            "limit": 2,
+            "include_diagnostics": True,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sources"] == ["mert", "maest", "clap"]
+    assert payload["results"]
+    assert any("source=clap returned no candidates" in warning for warning in payload["warnings"])
+    assert payload["results"][0]["transition_diagnostics"]["components"]["source_disagreement_risk"] == 0.0
+
+
 def test_hybrid_search_endpoint_does_not_touch_audio_paths(monkeypatch, tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     audio_path = tmp_path / "not-created.wav"

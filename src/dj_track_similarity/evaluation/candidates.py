@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from ..database import LibraryDatabase
 
 
-ALLOWED_CANDIDATE_SOURCES = ("mert", "sonara", "maest")
+ALLOWED_CANDIDATE_SOURCES = ("mert", "maest", "sonara", "clap")
 DEFAULT_FEEDBACK_SOURCE = "manual"
 EXPORT_CANDIDATE_COLUMNS = (
     "seed_track_id",
@@ -246,7 +246,7 @@ def _collect_candidates_for_seed(
 def _search_source(db: LibraryDatabase, seed_track_id: int, source: str, per_source: int) -> list[SearchResult]:
     if source == "sonara":
         return SonaraSimilaritySearch(db).search([seed_track_id], mode="balanced", limit=per_source)
-    if source in {"mert", "maest"}:
+    if source in {"mert", "maest", "clap"}:
         return SimilaritySearch(db, embedding_key=source).search([seed_track_id], limit=per_source)
     raise ValueError(f"Unsupported candidate source: {source}")
 

@@ -20,8 +20,8 @@ from .analysis_config import (
 )
 
 
-EvaluationSource = Literal["mert", "maest", "sonara"]
-HybridSearchSource = Literal["mert", "maest", "sonara"]
+EvaluationSource = Literal["mert", "maest", "sonara", "clap"]
+HybridSearchSource = Literal["mert", "maest", "sonara", "clap"]
 EvaluationTrackId = Annotated[int, Field(ge=1)]
 EvaluationTopK = Annotated[int, Field(ge=1, le=100)]
 
@@ -151,7 +151,7 @@ class HybridSearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     seed_track_ids: list[EvaluationTrackId] = Field(min_length=1, max_length=5)
-    sources: list[HybridSearchSource] = Field(default_factory=lambda: ["mert", "maest", "sonara"], min_length=1, max_length=3)
+    sources: list[HybridSearchSource] = Field(default_factory=lambda: ["mert", "maest", "sonara", "clap"], min_length=1, max_length=4)
     weights: dict[str, float] | None = None
     score_profile: dict[str, Any] | None = None
     per_source: int = Field(default=30, ge=1, le=100)
@@ -262,7 +262,7 @@ class EvaluationSourceProfileRunRequest(BaseModel):
 
     seed_track_ids: list[EvaluationTrackId] | None = Field(default=None, max_length=200)
     sample_count: int = Field(default=50, ge=1, le=200)
-    sources: list[EvaluationSource] = Field(default_factory=lambda: ["mert", "maest", "sonara"], min_length=1, max_length=8)
+    sources: list[EvaluationSource] = Field(default_factory=lambda: ["mert", "maest", "sonara", "clap"], min_length=1, max_length=4)
     per_source: int = Field(default=30, ge=1, le=100)
     top_k: list[EvaluationTopK] = Field(default_factory=lambda: [10], min_length=1, max_length=5)
     random_seed: int = 123
@@ -296,7 +296,7 @@ class EvaluationWeightedCandidatesRunRequest(BaseModel):
     name: str | None = None
     seed_track_ids: list[EvaluationTrackId] | None = Field(default=None, max_length=200)
     sample_count: int = Field(default=50, ge=1, le=200)
-    sources: list[EvaluationSource] | None = Field(default=None, min_length=1, max_length=8)
+    sources: list[EvaluationSource] | None = Field(default=None, min_length=1, max_length=4)
     per_source: int = Field(default=30, ge=1, le=100)
     random_seed: int = 123
     rrf_k: int = Field(default=60, ge=1, le=1000)

@@ -184,7 +184,7 @@ recorded search sessions/result events; likes and Rhythm Lab labels are not
 treated as ground truth by default.
 
 `dj-sim eval export-candidates` can create blinded manual-labeling CSVs from
-existing exact MERT, MAEST, and balanced SONARA search sources. With session
+existing exact MERT, MAEST, balanced SONARA, and CLAP audio-embedding search sources. With session
 recording enabled, it stores one `evaluation_candidate_pool` search session per
 seed and records the blinded candidate order in `search_result_events`; the score
 breakdown contains source ranks/scores and `blind_rank`. The generated CSV still
@@ -200,9 +200,11 @@ confidence or probabilities, and calibration reports do not change runtime searc
 weights or thresholds.
 
 `dj-sim eval profile-sources` is the automatic unsupervised source profiling
-path. It reads existing MERT, MAEST, and SONARA analysis data for sampled seeds,
+path. It reads existing MERT, MAEST, SONARA, and CLAP analysis data for sampled seeds,
 computes coverage, rank agreement, RRF-style consensus support, conflicts, score
-quantiles, and normalized internal source weights. It does not write to the
+quantiles, and normalized internal source weights. A selected source with no
+coverage receives warning diagnostics and zero weight instead of penalizing other
+sources. It does not write to the
 database, does not use manual labels as required ground truth, does not calibrate
 probabilities, and does not prove human DJ taste without external validation.
 

@@ -73,7 +73,7 @@ Use focused verification for code changes and script changes. Documentation-only
 changes do not need the full test suite, but should be checked for stale local
 paths and command accuracy.
 
-Before any dev-to-main release decision, run the reproducible milestone gate from
+Before any release-readiness decision, run the reproducible milestone gate from
 the repository root:
 
 ```powershell
@@ -104,10 +104,10 @@ environment. The preflight fails before pytest if Torch, Torchaudio,
 Torchvision, TorchCodec, CUDA availability, a tiny CUDA tensor operation, or the
 `dj_track_similarity` import path is wrong.
 
-A dev-to-main release decision should wait until the full non-ML backend suite,
-frontend checks, documentation build, schema/migration smoke, and an abstracted
-v4 SQLite smoke are green. These checks must use temporary databases or explicit
-copies and must not modify audio files or user SQLite state.
+Release readiness should wait until the full non-ML backend suite, frontend
+checks, documentation build, schema/migration smoke, and an abstracted v4 SQLite
+smoke are green. These checks must use temporary databases or explicit copies
+and must not modify audio files or user SQLite state.
 
 Useful checks:
 

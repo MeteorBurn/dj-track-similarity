@@ -122,7 +122,9 @@ profiles, which remain JSON report artifacts outside SQLite:
   it is not calibrated confidence and is unrelated to automatic source-profile
   weights.
 - `probabilities_json`: classifier probabilities keyed by the profile's
-  training labels.
+  training labels. These values are model outputs, not calibrated probabilities
+  unless the promoted classifier manifest explicitly records calibration
+  metadata.
 - `feature_set`: feature family used by the classifier artifact, currently
   `combined`.
 - `model_id`: promoted model path used for scoring.
@@ -134,6 +136,9 @@ the score for that track instead of appending historical rows.
 Use this table when a CLASS filter does not behave as expected. Missing rows
 usually mean the promoted classifier has not scored that track yet, or the track
 was missing required Sonara, MERT, or MAEST inputs during scoring.
+Classifier calibration reports and label suggestions read this table together
+with `tracks`, `track_likes`, and optional app feedback rows. They do not add a
+queue table or modify stored classifier scores.
 
 ### `track_search_fts`
 
@@ -225,8 +230,11 @@ disjoint, treats missing source payloads as neutral, and rejects proposals that 
 not improve validation NDCG@10, increase BadSuggestionRate@10, or fail bootstrap
 stability. It records nothing by default; with explicit `--record`, only an `ok`
 diagnostic summary is inserted into `calibration_runs` using search mode
-`score_profile_optimizer`. It does not create score-profile tables, change
-production defaults, or update UI/runtime scoring.
+`score_profile_optimizer`. With explicit `--promote`, an `ok` report that also
+passes the PR-23 500 matched judged-pair default-review gate is stored as the
+promoted judged score-profile marker in `library_settings` key
+`evaluation.promoted_score_profile`. Promotion overwrites only that setting and
+is rejected for candidate-only or failed-guardrail reports.
 
 `dj-sim eval profile-sources` is the automatic unsupervised source profiling
 path. It reads existing MERT, MAEST, SONARA, and CLAP analysis data for sampled seeds,
@@ -241,9 +249,10 @@ probabilities, and does not prove human DJ taste without external validation.
 internal weights as a schema-validated JSON score profile artifact, usually under
 `reports/experiments/` or another user-selected reports path. Schema validation
 checks the artifact shape only; it is not external validation of human DJ taste.
-Score profiles are not stored in SQLite in schema v4, do not create a schema v5
-migration, do not train classifiers, and do not change production search
-endpoints.
+Unsupervised score-profile artifacts are not stored in SQLite in schema v4. The
+only score-profile SQLite marker is the explicit judged optimizer promotion
+setting described above; it reuses `library_settings`, does not create a schema
+v5 migration, does not train classifiers, and does not touch audio files.
 `dj-sim eval apply-score-profile --profile <json>` applies the artifact to
 recorded candidate pools with weighted RRF over stored source ranks. If pair
 feedback exists it includes validation metrics; without labels it still reports
@@ -257,10 +266,10 @@ weighted-RRF components, profile weights, source ranks, and original source
 rank/score payloads. This is explicit evaluation/future-ranker logging only and
 does not affect production search endpoints.
 
-`POST /api/search/hybrid` remains read-only unless the request sets
-`record_session: true`. In that opt-in mode it records one `hybrid_search_preview`
-session for the request seed list and one `search_result_events` row per returned
-candidate. The event score breakdown stores diagnostic names such as
+`POST /api/search/hybrid` remains read-only by default. When the request sets
+`record_session: true`, it records one `hybrid_search_preview` session for the
+request seed list and one `search_result_events` row per returned candidate. The
+event score breakdown stores diagnostic names such as
 `score_kind`, `adjusted_score`, `raw_rrf_score`, `transition_risk`,
 `transition_risk_penalty`, `transition_risk_weight`, and per-source rank/score
 payloads. It also stores PR-22 explanation fields (`total_score`,

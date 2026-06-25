@@ -31,6 +31,8 @@ database and therefore accepts no `--db`.
 | Start the local web UI/API server | `dj-sim serve` |
 | Build SONARA, MAEST, MERT, and/or CLAP analysis | `dj-sim analyze` |
 | Score a promoted Rhythm Lab classifier | `dj-sim analyze-classifier` |
+| Inspect promoted classifier reports and label suggestions | `dj-sim classifier` |
+| Build or audit optional persistent ANN sidecar indexes | `dj-sim index` |
 | Search with a CLAP text prompt | `dj-sim text-search` |
 | Import manual evaluation labels or build a search-quality report | `dj-sim eval` |
 | Update stored paths after moving a library | `dj-sim relocate-library` |
@@ -53,7 +55,7 @@ App-level options (Typer built-ins, not a shared `--db`):
 > Note: `--db` is not an app-level option. It is repeated on each command that
 > reads or writes a database. The job-based `analyze` command renders a live
 > progress bar; `scan`, `relocate-library`, `analyze-classifier`,
-> `text-search`, `eval`, `doctor`, and `serve` print plain output only.
+> `text-search`, `index`, `eval`, `doctor`, and `serve` print plain output only.
 
 Commands:
 
@@ -62,6 +64,8 @@ scan
 relocate-library
 analyze
 analyze-classifier
+classifier
+index
 doctor
 text-search
 eval
@@ -259,6 +263,179 @@ and prints a single summary line instead of a live progress bar.
 Use this after promoting a model from Rhythm Lab. If many tracks are skipped,
 run Sonara, MERT, and MAEST analysis for those tracks first.
 
+Promoted runtime classifiers are expected to have both `model.joblib` and a
+`model.json` manifest under `models/classifiers/<artifact-prefix>/`. A missing
+manifest is treated as a legacy local artifact and produces a warning; an invalid
+manifest rejects scoring with a clear error. Scores remain the promoted model's
+positive-label probability unless the manifest explicitly carries calibration
+metadata.
+
+### `dj-sim classifier`
+
+Build report-only production diagnostics for promoted classifiers. These commands
+read SQLite rows and local classifier manifests only. They do not decode audio,
+train models, write tags, or modify source files.
+
+```powershell
+dj-sim classifier calibration-report --classifier live_instrumentation --db .\data\library.sqlite --output .\reports\live_instrumentation_calibration.json
+dj-sim classifier suggest-labels --classifier live_instrumentation --mode uncertainty --limit 25 --db .\data\library.sqlite
+```
+
+Usage:
+
+```text
+dj-sim classifier [OPTIONS] COMMAND [ARGS]...
+```
+
+Commands:
+
+```text
+calibration-report
+suggest-labels
+```
+
+`calibration-report` writes or prints a JSON report with manifest status,
+classifier score coverage, score distribution, available app feedback counts,
+and a conservative status gate. With little or no feedback it reports
+`insufficient_data`; it does not claim benchmark quality from stored scores
+alone.
+
+Options:
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--classifier` | text | required | Classifier key. |
+| `--db` | path | `dj-track-similarity.sqlite` | SQLite database path. |
+| `--output` | JSON path | none | Optional report file. Without it, JSON is printed to stdout. |
+| `--min-feedback` | integer `>=1` | `30` | Candidate feedback rows requested before diagnostics are considered usable. |
+| `--help` | flag | off | Show help. |
+
+`suggest-labels` prints or writes deterministic next-label suggestions for one
+classifier. It uses stored classifier scores, track rows, likes, and available
+pair-feedback rows only. There is no main-UI active-learning queue in this pass.
+
+Options:
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--classifier` | text | required | Classifier key. |
+| `--mode` | text | `uncertainty` | One of `uncertainty`, `hard_negative`, `diversity`, `disagreement`, or `high_impact_unlabeled`. |
+| `--db` | path | `dj-track-similarity.sqlite` | SQLite database path. |
+| `--limit` | integer `1..500` | `25` | Maximum suggestions returned. |
+| `--random-seed` | integer | `123` | Deterministic tie-ordering seed. |
+| `--output` | JSON path | none | Optional report file. Without it, JSON is printed to stdout. |
+| `--help` | flag | off | Show help. |
+
+### `dj-sim index`
+
+Build, verify, benchmark, or clear optional persistent ANN sidecar indexes for
+stored embedding spaces. Exact NumPy search remains the default everywhere else;
+these commands create generated sidecar artifacts only and never read, move,
+rewrite, retag, copy, or delete audio files.
+
+```powershell
+dj-sim index build --adapter mert --db .\data\library.sqlite
+dj-sim index verify --adapter mert --db .\data\library.sqlite
+dj-sim index benchmark --adapter mert --compare exact --db .\data\library.sqlite
+dj-sim index clear --adapter mert --db .\data\library.sqlite
+```
+
+Usage:
+
+```text
+dj-sim index [OPTIONS] COMMAND [ARGS]...
+```
+
+Commands:
+
+```text
+build
+verify
+benchmark
+clear
+```
+
+The default sidecar directory is next to the selected database:
+
+```text
+.dj-track-similarity-indexes/
+```
+
+Use `--index-dir <path>` when you want the generated artifacts somewhere else.
+The directory stores an index artifact plus a JSON manifest with adapter, backend,
+metric/settings, database path fingerprint, schema version, embedding count and
+dimension, model ID, track ID hash, embedding version hash, latest source
+`updated_at`, creation time, and artifact size. `verify` reports stale when the
+selected database, embedding rows, dimensions, track IDs, or vectors no longer
+match the manifest.
+
+`build` defaults to `--backend auto`: it uses `hnswlib` when the optional `ann`
+extra is installed and otherwise writes a deterministic exact-NumPy sidecar for
+development/testing. Pass `--backend hnswlib` when you require a production HNSW
+artifact and want a clear error if `hnswlib` is missing. Install that optional
+dependency with:
+
+```powershell
+python -m pip install -e ".[ann]"
+```
+
+`benchmark` compares the sidecar result set with exact search and reports
+Recall@50 by default. The default pass threshold is `0.97`; use `--threshold`,
+`--recall-k`, and repeated `--k` options for local experiments. A stale or
+missing sidecar fails benchmark instead of silently claiming quality.
+
+`clear` removes only generated files named like `embeddings_<adapter>_*` inside
+the resolved sidecar directory. It is non-interactive, scoped to that directory,
+does not recurse into subdirectories, and does not touch the SQLite database or
+audio library.
+
+Build options:
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--adapter` / `--embedding-key` | `mert`, `maest`, or `clap` | required | Embedding space to index. |
+| `--db` | path | `dj-track-similarity.sqlite` | SQLite database path. |
+| `--index-dir` | directory | beside DB | Sidecar directory. |
+| `--backend` | text | `auto` | `auto`, `hnswlib`, or `exact-numpy`. |
+| `--ef-construction` | integer `>=1` | `200` | HNSW build setting. |
+| `--m` | integer `>=1` | `16` | HNSW graph degree setting. |
+| `--ef-search` | integer `>=1` | `100` | HNSW search setting saved in the manifest. |
+| `--help` | flag | off | Show help. |
+
+Verify options:
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--adapter` / `--embedding-key` | `mert`, `maest`, or `clap` | required | Embedding space to verify. |
+| `--db` | path | `dj-track-similarity.sqlite` | SQLite database path. |
+| `--index-dir` | directory | beside DB | Sidecar directory. |
+| `--help` | flag | off | Show help. |
+
+Benchmark options:
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--adapter` / `--embedding-key` | `mert`, `maest`, or `clap` | required | Embedding space to benchmark. |
+| `--db` | path | `dj-track-similarity.sqlite` | SQLite database path. |
+| `--index-dir` | directory | beside DB | Sidecar directory. |
+| `--compare` | text | `exact` | Exact-search comparison backend. |
+| `--threshold` | number `0.0-1.0` | `0.97` | Pass/fail threshold for the primary Recall@K. |
+| `--recall-k` | integer `>=1` | `50` | Primary recall cutoff. |
+| `--k` | integer `>=1` | `10`, `50`, `100` | Additional recall cutoff. Repeat for multiple values. |
+| `--seed-count` | integer `>=1` | `20` | Deterministic sampled seed count. |
+| `--random-seed` | integer | `123` | Seed sampling value. |
+| `--output` | JSON path | none | Optional benchmark report path. |
+| `--help` | flag | off | Show help. |
+
+Clear options:
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `--adapter` / `--embedding-key` | `mert`, `maest`, or `clap` | all | Optional adapter to clear. Omit to clear all generated sidecar index files. |
+| `--db` | path | `dj-track-similarity.sqlite` | SQLite database path used to resolve the default sidecar directory. |
+| `--index-dir` | directory | beside DB | Sidecar directory. |
+| `--help` | flag | off | Show help. |
+
 ### `dj-sim text-search`
 
 Run CLAP text-to-audio search.
@@ -287,6 +464,8 @@ Options:
 | `--limit` | integer `1..500` | `50` | Maximum result count. |
 | `--min-similarity` | float | none | Optional minimum score threshold. |
 | `--device` | text | `auto` | CLAP device: `auto`, `cpu`, or `cuda`. |
+| `--use-ann-index` | flag | off | Opt in to a persistent CLAP ANN sidecar. Missing, stale, or unsupported indexes fall back to exact search with a warning. |
+| `--index-dir` | directory | beside DB | Sidecar directory used with `--use-ann-index`. |
 | `--help` | flag | off | Show help. |
 
 Output rows:
@@ -296,6 +475,9 @@ Output rows:
 ```
 
 CLAP audio embeddings must exist before text search can return useful results.
+Without `--use-ann-index`, text search uses the exact SQLite embedding matrix.
+With `--use-ann-index`, it attempts the CLAP sidecar explicitly and falls back to
+exact search if the sidecar is missing, stale, or unsupported.
 
 Use this for exploratory searches where a text description is faster than
 choosing seed tracks. Concrete prompts with mood, rhythm, instrumentation, and
@@ -382,8 +564,9 @@ manual ground truth:
 10. Run `dj-sim eval run-calibration` for diagnostic score/relevance calibration
      summaries once enough labeled candidate rows exist.
 11. Run `dj-sim eval optimize-score-profile` only after enough matched judged
-    labels exist. It proposes guarded judged source weights in a JSON report; it
-    never applies them as defaults.
+    labels exist. It proposes guarded judged source weights in a JSON report;
+    add `--promote` only when you intentionally want a 500+ judged-pair,
+    guardrail-passing report stored as the promoted judged profile marker.
 12. Run `dj-sim eval report` for the general recorded-session report.
 
 Use `--judged-only` on `report`, `run-ablation`, or `run-calibration` when you
@@ -406,18 +589,28 @@ candidate. A proposal is rejected unless validation NDCG@10 improves over the
 equal-weight RRF baseline, BadSuggestionRate@10 does not increase, and the
 deterministic bootstrap stability check passes. The JSON report includes
 `source: "judged_feedback"`, train/validation and baseline metrics, source
-weights, proposal-only risk weights, PR-23 label-gate fields, guardrails,
-`can_apply_as_default: false`, and manual guidance. `--record` is optional and
-writes only an `ok` diagnostic summary row to `calibration_runs`; default
-behavior writes no database rows.
+weights, proposal-only risk weights, PR-23 label-gate fields, guardrails, and
+manual guidance. `--record` is optional and writes only an `ok` diagnostic
+summary row to `calibration_runs`. `--promote` is separate and writes only the
+promoted judged score-profile marker in `library_settings` when the report is
+`ok`, all guardrails pass, and the 500 matched judged-pair default-review gate is
+met. Default behavior writes no database rows.
 
 `run-ablation` evaluates only recorded candidate-pool events and imported pair
 feedback. It builds single-source variants for `mert`, `maest`, `sonara`, and `clap` when
 those sources are present, a full Reciprocal Rank Fusion baseline, and
-leave-one-out RRF variants that remove one source at a time. RRF is used because
-raw source scores are not calibrated or directly comparable across models; the
-ablation report uses recorded per-source ranks, or derives a source-local rank
-from scores only when no rank was recorded. It does not tune production weights
+leave-one-out RRF variants that remove one source at a time. It also writes
+`fusion:rrf_without_classifiers`. When recorded Hybrid preview events include
+stored promoted-classifier score contributions, `fusion:rrf_all` and the source
+leave-one-out fusion variants apply those contributions as the same diagnostic
+adjustment used by Hybrid preview, where missing scores stay neutral;
+`fusion:rrf_without_classifiers`
+removes only that classifier adjustment. When classifier controls were absent,
+inactive, or had no stored scores, the classifier ablation is a no-op and reports
+`classifier_adjusted: false`. RRF is used because raw source scores are not
+calibrated or directly comparable across models; the ablation report uses
+recorded per-source ranks, or derives a source-local rank from scores only when
+no rank was recorded. It does not tune production weights, score classifiers,
 or change runtime search behavior. With `--score-profile`, it also adds a
 `fusion:weighted_rrf:<profile_name>` diagnostic variant using
 `sum(weight[source] * (1 / (rrf_k + rank)))`. Missing sources contribute `0`, and
@@ -491,11 +684,13 @@ label gate is no longer `insufficient_data`; otherwise it writes the same sample
 counts, score quantiles, and guidance without implying that search quality has
 been validated.
 
-`optimize-score-profile` is also report/proposal-only. It cannot overwrite
-`DEFAULT_HYBRID_SOURCES`, default source weights, production score profiles, app
-settings, database defaults, UI defaults, or runtime search behavior. Even when
-500+ matched judged pairs are available, the report can only mark a manual
-default-review candidate; it never applies a default automatically.
+`optimize-score-profile` is report/proposal-only unless `--record` or
+`--promote` is passed. It cannot overwrite `DEFAULT_HYBRID_SOURCES`, source
+constants, UI defaults, audio files, or recorded result rows. `--record` stores
+only a diagnostic calibration summary. `--promote` is the only path that
+overwrites the promoted judged score-profile marker, and it fails unless the
+optimizer report is `ok`, guardrails passed, and 500+ matched judged pairs are
+available for explicit default review.
 
 `export-candidates` reads existing exact search sources only: `mert` embedding
 similarity, `maest` embedding similarity, balanced/default `sonara`
@@ -699,10 +894,11 @@ Options:
 | `--weight` | number `0.0-1.0` | `0`, `0.25`, `0.5`, `1.0` | Transition-risk penalty weight. Repeat for a sweep. |
 | `--k` | integer `>=1` | `5`, `10`, `20` | Metric and diagnostic cutoff. Repeat for multiple values. |
 | `--rrf-k` | integer `>=1` | `60` | RRF smoothing constant for weighted source-rank fusion. |
+| `--transition-risk-version` | `v1` or `v2` | `v2` | Risk component version to use when reading or recomputing transition risk. Use `v1` to compare with the older BPM/key/energy/source-consensus signal. |
 | `--help` | flag | off | Show help. |
 
 The sweep report includes one variant per weight, per-session ranked candidates,
-top-K transition-risk/source-count diagnostics, and score distributions. Ranking
+the selected `risk_version`, top-K transition-risk/source-count diagnostics, and score distributions. Ranking
 metrics and `best_by_metric` appear only when matching pair feedback exists; an
 unlabeled sweep is diagnostics-only and deliberately does not name a best weight.
 
@@ -728,6 +924,7 @@ Options:
 | `--grid-step` | number `0.01-1.0` | `0.25` | Bounded normalized source-weight grid step. |
 | `--bootstrap-samples` | integer `>=0` | `30` | Deterministic validation bootstrap samples; `0` disables that stability check. |
 | `--record/--no-record` | flag | no record | Record only an `ok` diagnostic summary to `calibration_runs`. |
+| `--promote/--no-promote` | flag | no promote | Store an `ok`, guardrail-passing 500+ judged-pair profile as the promoted judged score-profile marker in `library_settings`. |
 | `--help` | flag | off | Show help. |
 
 The optimizer report is aligned with the judged score-profile template: it includes
@@ -735,7 +932,9 @@ The optimizer report is aligned with the judged score-profile template: it inclu
 `judged_seeds`, `train_metrics`, `validation_metrics`, baseline metrics,
 normalized `weights`, non-negative proposal `risk_weights`, `guardrails`,
 `status`, `decision`, and human-readable `guidance`. Rejected reports keep the
-diagnostics and explain which gate or guardrail failed.
+diagnostics and explain which gate or guardrail failed. A successful `--promote`
+run also marks `promoted: true` and records `promoted_setting_key` in the output
+report.
 
 Pair feedback CSV columns:
 
@@ -793,11 +992,14 @@ requested cutoffs. `ExplanationTagAgreement@3` is reported as unavailable with
 zero coverage until the explanation layer exists.
 
 `run-ablation` writes a JSON-safe file with `status`, `counts`, per-variant
-metrics, and deltas versus `fusion:rrf_all`. If recorded candidate pools or
-matching imported pair labels are missing, the report status is
-`insufficient_data`. With `--score-profile`, it still includes the weighted RRF
-variant metadata and rankings when recorded candidate-pool events exist, even if
-there are no labels yet.
+metrics, and deltas versus `fusion:rrf_all`. The variant list includes
+`fusion:rrf_without_classifiers`; `counts.classifier_adjusted_events` and each
+variant's `classifier_adjusted` flag show whether stored promoted-classifier
+scores actually affected a ranking. If recorded candidate pools or matching
+imported pair labels are missing, the report status is `insufficient_data`. With
+`--score-profile`, it still includes the weighted RRF variant metadata and
+rankings when recorded candidate-pool events exist, even if there are no labels
+yet.
 
 `run-calibration` writes a JSON-safe file with `status`, `calibration_status`,
 `score_mode`, `score_kind`, accepted-label counts, Brier score, log loss, ECE,
@@ -811,7 +1013,9 @@ diagnostic score, not as calibrated confidence.
 only matched judged result labels, keeps train and validation seeds disjoint,
 rejects overfit or unstable weight grids, and leaves all production/default
 weights unchanged. With `--record`, only an `ok` diagnostic summary is inserted
-into `calibration_runs`.
+into `calibration_runs`. With `--promote`, only an `ok`, guardrail-passing report
+that reaches the 500 matched judged-pair default-review gate is stored as the
+promoted judged profile marker in `library_settings`.
 
 `profile-sources` writes a JSON-safe file with coverage, pairwise agreement,
 consensus/conflict diagnostics, source score quantiles, and normalized

@@ -157,6 +157,7 @@ Stable model locations use the profile artifact prefix:
 
 ```text
 models/classifiers/<artifact-prefix>/model.joblib
+models/classifiers/<artifact-prefix>/model.json
 ```
 
 Those files are produced outside the main app by Rhythm Lab's promotion command:
@@ -166,7 +167,11 @@ Those files are produced outside the main app by Rhythm Lab's promotion command:
 ```
 
 The promoted `model.joblib` and `model.json` files are local artifacts and are
-ignored by git. The source Rhythm Lab training artifacts remain in the
+ignored by git. The manifest records classifier key, label order, positive label,
+feature set, training-label counts, production score semantics, required stored
+inputs, and calibration status. Older local artifacts without a manifest are
+treated as legacy and warned; invalid manifests are rejected for scoring instead
+of silently mixing classifier keys or label definitions. The source Rhythm Lab training artifacts remain in the
 classifier-specific lab workspace:
 
 ```text
@@ -182,7 +187,19 @@ profile-neutral shape for all profiles (`positive_*` metrics and
 For Rhythm Lab profile management, labeling, training, prediction, promotion, archive, and delete workflows, see [Rhythm Lab](rhythm-lab.md).
 
 The user-facing score is the classifier probability for the profile's positive
-training label. Because UI displays can round probabilities, a value shown as
+training label. It is not called a calibrated probability unless the promoted
+manifest explicitly contains calibration metadata. Because UI displays can round probabilities, a value shown as
 `1.0000` may be slightly below mathematical `1.0`. Use thresholds such as
 `0.99`, `0.95`, or `0.90` for practical filtering instead of relying on exact
 `1.0`.
+
+Hybrid preview and Smart Set Builder can use promoted classifier scores as stored
+SQLite signals. They do not score classifiers, decode audio, or train models in
+the search path. Missing scores stay neutral, and controls are scoped by exact
+`classifier_key` so one promoted profile does not affect another profile's
+stored scores.
+
+Classifier production diagnostics are available through
+`dj-sim classifier calibration-report`, `dj-sim classifier suggest-labels`, and
+the matching `/api/classifiers/{key}/...` endpoints. They read stored scores and
+feedback rows only; they do not decode audio or update classifier scores.

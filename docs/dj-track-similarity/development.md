@@ -73,6 +73,25 @@ Use focused verification for code changes and script changes. Documentation-only
 changes do not need the full test suite, but should be checked for stale local
 paths and command accuracy.
 
+Before a dev-to-main merge decision, run the reproducible milestone gate from
+the repository root:
+
+```powershell
+.\scripts\verify_dev_milestone.ps1
+```
+
+The gate runs the non-ML backend pytest suite, focused evaluation/search tests,
+frontend typecheck/tests/build, the static documentation build, and an exact
+search benchmark smoke run with a synthetic temporary database. Benchmark JSON
+is written to the system temporary directory by default so generated reports do
+not become tracked runtime artifacts. Use `-Smoke` for a reduced local check of
+the same orchestration path before running the full gate.
+
+Merge `dev` to `main` only after the full non-ML backend suite, frontend checks,
+documentation build, schema/migration smoke, and an abstracted v4 SQLite smoke
+are green. These checks must use temporary databases or explicit copies and must
+not modify audio files or user SQLite state.
+
 Useful checks:
 
 ```powershell

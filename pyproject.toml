@@ -56,3 +56,8 @@ include = ["dj_track_similarity*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+  "ml: requires torch / optional ML stack",
+  "slow: long-running integration/benchmark tests",
+  "evaluation: retrieval/evaluation layer",
+]

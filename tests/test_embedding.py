@@ -3,7 +3,9 @@ import types
 
 import numpy as np
 import pytest
-import torch
+
+torch = pytest.importorskip("torch")
+pytestmark = pytest.mark.ml
 
 import dj_track_similarity.embedding as embedding
 from dj_track_similarity.audio_loader import DecodedAudio

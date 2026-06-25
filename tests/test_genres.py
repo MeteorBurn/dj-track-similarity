@@ -2,7 +2,9 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-import torch
+
+torch = pytest.importorskip("torch")
+pytestmark = pytest.mark.ml
 
 import dj_track_similarity.genres as genres
 from dj_track_similarity.audio_loader import DecodedAudio

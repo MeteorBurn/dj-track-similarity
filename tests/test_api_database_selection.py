@@ -96,7 +96,7 @@ def test_scan_rejects_missing_library_root_without_saving_it(tmp_path: Path) -> 
     assert LibraryDatabase(db_path).get_library_root() is None
 
 
-def test_library_root_cannot_be_saved_without_starting_scan(tmp_path: Path) -> None:
+def test_library_root_endpoint_is_absent_and_cannot_save_root(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     music_root = tmp_path / "music"
     music_root.mkdir()
@@ -104,7 +104,10 @@ def test_library_root_cannot_be_saved_without_starting_scan(tmp_path: Path) -> N
 
     response = client.post("/api/library/root", json={"root": str(music_root)})
 
-    assert response.status_code == 405
+    # With a built frontend bundle, Starlette's static mount can answer unknown
+    # POST routes with 405 instead of FastAPI's 404. Either code proves there is
+    # no successful API endpoint for saving the root outside a scan.
+    assert response.status_code in {404, 405}
     assert client.get("/api/database/current").json()["music_root"] is None
     assert LibraryDatabase(db_path).get_library_root() is None
 

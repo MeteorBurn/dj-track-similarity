@@ -268,7 +268,9 @@ Promotion copies the latest `<artifact-prefix>-combined-*.joblib` artifact to
 `models/classifiers/<artifact-prefix>/model.joblib` and writes local metadata to
 `models/classifiers/<artifact-prefix>/model.json`. The metadata is written from
 the selected profile and artifact payload (`classifier_key`, profile name,
-labels, feature set, and label counts). Those promoted files are local runtime
+labels, feature set, and label counts), plus production metadata that states the
+score semantics, required stored inputs, and default `uncalibrated` calibration
+status. Those promoted files are local runtime
 artifacts and are ignored by git.
 
 ## Profile Deletion
@@ -361,7 +363,13 @@ all selected promoted classifiers, but it skips stored scores that already
 exist.
 
 The user-facing score is the classifier probability for the profile's positive
-training label. Because UI displays can round probabilities, a value shown as
+training label. It is not presented as a calibrated probability unless future
+calibration metadata is explicitly recorded in the promoted manifest. Because UI displays can round probabilities, a value shown as
 `1.0000` may be slightly below mathematical `1.0`. Use thresholds such as
 `0.99`, `0.95`, or `0.90` for practical filtering instead of relying on exact
 `1.0`.
+
+The main app also exposes report-only classifier production diagnostics through
+`dj-sim classifier calibration-report`, `dj-sim classifier suggest-labels`, and
+matching local API endpoints. These reports use stored main-app classifier scores
+and feedback rows only; Rhythm Lab labels remain in the separate lab database.

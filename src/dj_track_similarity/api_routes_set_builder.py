@@ -47,7 +47,14 @@ def _validate_classifier_keys(
     requested = set(request.classifier_preferences) | set(request.classifier_flows)
     if not requested:
         return
-    available = {str(classifier["classifier_key"]) for classifier in promoted_classifiers()}
+    available = {
+        str(classifier["classifier_key"]): classifier
+        for classifier in promoted_classifiers()
+        if str(classifier.get("classifier_key") or "").strip()
+    }
     unknown = sorted(key for key in requested if key not in available)
     if unknown:
         raise HTTPException(status_code=400, detail=f"Unknown classifier: {', '.join(unknown)}")
+    incompatible = sorted(key for key in requested if not bool(available[key].get("is_scoring_compatible", True)))
+    if incompatible:
+        raise HTTPException(status_code=400, detail=f"Classifier manifest is invalid: {', '.join(incompatible)}")

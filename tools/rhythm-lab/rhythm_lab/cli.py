@@ -130,6 +130,7 @@ def promote_profile_model(
     shutil.copy2(artifact, model_path)
     metadata = {
         "classifier_key": profile.classifier_key,
+        "manifest_version": 1,
         "profile_name": profile.name,
         "profile_type": profile.profile_type,
         "feature_set": payload.get("feature_set"),
@@ -139,6 +140,19 @@ def promote_profile_model(
         "negative_label": profile.negative_label,
         "source_artifact": str(artifact),
         "promoted_at": datetime.now(timezone.utc).isoformat(),
+        "production": {
+            "score_semantics": "positive_label_probability",
+            "required_inputs": ["sonara", "mert", "maest"],
+            "calibration": {
+                "status": "uncalibrated",
+                "method": None,
+                "report": None,
+            },
+            "limitations": [
+                "Scores are the promoted model's positive-label probability, not a calibrated probability.",
+                "Promotion copies a local artifact and manifest; it does not benchmark the classifier.",
+            ],
+        },
         "trained_label_counts": labels_db.label_counts(),
     }
     metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")

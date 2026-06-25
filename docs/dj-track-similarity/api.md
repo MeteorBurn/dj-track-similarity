@@ -22,6 +22,7 @@ These shared conventions apply across the API:
 | --- | --- |
 | `400` `DatabaseNotSelected` | A database-aware endpoint was called before a database was selected. Select one with `/api/database/switch` first. |
 | `409` `DatabaseBusy` | A database switch was attempted while a job was `queued` or `running`. Wait for or cancel the job, then retry. |
+| `409` current schema required | The selected SQLite file is not the current schema version. Evaluation endpoints require schema v4. |
 | `404` | Unknown track, job, or media id. |
 | Job `state` | One of `queued`, `running`, `completed`, `cancelled`, or `failed`. |
 | `latest` job endpoints | Return `null` when no job of that family has run yet. |
@@ -74,7 +75,7 @@ full metadata dialog needs one track. This keeps large libraries responsive.
 
 `/api/library/summary` includes a `classifiers` counter. It counts a track only
 when the track has stored `track_classifier_scores` rows for every promoted
-classifier discovered from `models/classifiers/*/model.json`.
+classifier whose runtime manifest is scoring-compatible.
 
 `/api/library/relocate` is a preview-first endpoint: it returns the relocation
 plan by default and only updates stored `tracks.path` values when `apply` is
@@ -123,11 +124,14 @@ not modify audio files or SQLite rows.
 | `POST` | `/api/analysis/jobs` | Start one selected-model audio-analysis job for SONARA, MAEST, MERT, and/or CLAP. |
 | `GET` | `/api/classifiers` | List promoted classifiers from `models/classifiers/*/model.json`. |
 | `POST` | `/api/classifiers/{classifier_key}/analyze` | Start classifier scoring. |
+| `GET` | `/api/classifiers/{classifier_key}/calibration-report` | Return a report-only classifier manifest, coverage, score-distribution, and feedback summary. |
+| `GET` | `/api/classifiers/{classifier_key}/label-suggestions` | Return deterministic next-label suggestions from stored classifier scores and feedback rows. |
 | `POST` | `/api/classifiers/reset` | Delete stored scores for the given classifier keys. |
 | `POST` | `/api/analysis/reset` | Reset one analysis family. |
 | `POST` | `/api/search` | Search in MERT embedding space. |
 | `POST` | `/api/search/sonara` | Search with Sonara features. |
 | `POST` | `/api/search/text` | Search CLAP audio vectors from text. |
+| `POST` | `/api/search/hybrid` | Preview weighted rank-fusion over MERT, MAEST, SONARA, and CLAP candidates. |
 | `POST` | `/api/set-builder/generate` | Generate an ordered Smart Set Builder preview from manual seeds or auto anchors. |
 
 Use `/api/analysis/jobs` before search endpoints when a library has not been
@@ -157,7 +161,9 @@ running. Empty search results often mean the required Sonara features, MERT
 embeddings, or CLAP embeddings are missing for the candidate tracks.
 
 `GET /api/classifiers` needs no database; it discovers promoted profiles on
-disk. The UI can start promoted classifier scoring from the same analysis
+disk and includes manifest status fields. A missing `model.json` is reported as
+`legacy` with warnings. Invalid manifests are listed with errors but are not
+accepted for scoring. The UI can start promoted classifier scoring from the same analysis
 control block as the audio models by enabling `CLASSIFIERS`; the frontend sends
 the discovered profile keys as `/api/analysis/jobs` `classifier_keys`. The
 analysis job runs those classifiers per decoded track batch after the selected
@@ -175,8 +181,86 @@ without touching scores for other promoted classifiers. `/api/classifiers/reset`
 accepts a list of classifier keys and deletes their `track_classifier_scores`
 rows (an empty list deletes nothing).
 
+`GET /api/classifiers/{classifier_key}/calibration-report` reads stored
+`track_classifier_scores`, likes, and app feedback rows for that classifier key.
+It returns coverage, score quantiles/buckets, manifest/calibration status, and a
+conservative status gate. `insufficient_data` means there are not enough app
+feedback rows to treat the output as more than diagnostics. The endpoint does not
+decode audio, train a model, write a calibration artifact, or claim benchmark
+quality.
+
+`GET /api/classifiers/{classifier_key}/label-suggestions` accepts optional
+`mode`, `limit`, and `random_seed` query parameters. Modes are `uncertainty`,
+`hard_negative`, `diversity`, `disagreement`, and `high_impact_unlabeled`.
+Suggestions are deterministic for the same inputs and use stored rows only; this
+API does not create a persistent queue table and is not yet exposed as a full UI
+workflow.
+
 The default result limit for `/api/search`, `/api/search/sonara`, and
 `/api/search/text` is `10` when a request omits `limit`.
+
+`POST /api/search/hybrid` is a separate explicit preview endpoint. It does not
+replace the MERT, SONARA, CLAP, SET, or CLASS paths and it does not change their
+scoring or weights. The request accepts `seed_track_ids` (`1-5` ids), optional
+`sources` from `mert`, `maest`, `sonara`, and `clap`, optional inline `weights` or a
+`score_profile` object, `per_source`, `limit`, `rrf_k`, `random_seed`,
+`transition_risk_weight` (`0.0-1.0`, default `0.0`),
+`transition_risk_version` (`v2` by default, `v1` for compatibility), optional
+`classifier_preferences`, optional `classifier_risk_weights`, and
+`include_diagnostics`. It also accepts `record_session` (`false` by default).
+If no weights are provided, the requested sources are weighted equally. Inline
+weights are normalized internally after finite, non-negative validation, and the
+endpoint rejects requests that provide both inline weights and a score profile.
+Classifier preferences are signed `-1.0` to `1.0` values keyed by promoted
+`classifier_key`; positive values prefer higher stored scores and negative values
+prefer lower stored scores. Classifier risk weights are `0.0` to `1.0` values,
+currently used for modest vocal-conflict risk when a matching stored vocal/voice
+classifier score exists. Missing classifier scores stay neutral.
+
+Hybrid search generates candidates from the existing exact source search paths,
+excludes seed tracks, and fuses source ranks with weighted reciprocal-rank
+fusion. CLAP is used as stored audio embeddings only; prompt-aware positive or
+negative CLAP hybrid search remains outside this endpoint. With the default
+`transition_risk_weight: 0.0`, ordering and score output stay the plain
+weighted-RRF preview. When `transition_risk_weight` is greater
+than zero, raw RRF scores are normalized within the candidate set and ranked by
+`adjusted_score = normalized_rrf_score - transition_risk_weight * transition_risk`;
+missing transition risk applies no penalty. The response returns `results`,
+`weights_used`, `sources`, `warnings`, diagnostics, and limitations. Each result
+has a `track`, a preview rank `score`/`total_score` (the adjusted display score),
+`calibrated_score: null`, `adjusted_score`, `raw_rrf_score`,
+`transition_risk_penalty`, `transition_risk_weight`, `rank`, per-source
+`score_breakdown`, stable `risk_breakdown` (`bpm`, `tonal`, `energy_jump`,
+`density_jump`, `texture_clash`, `mood_clash`, `vocal_conflict`,
+`source_disagreement`, `confidence_missingness`), `source_support`, optional
+`classifier_support`, and `match_character` axes
+(`groove`, `density`, `texture`, `mood`, `tonal`, `vocalness`, `energy_flow`,
+`novelty`). Missing explanation inputs are shown as neutral/unavailable rather
+than as negative evidence. Rows also include sorted diagnostic `warnings`, short
+`explanation` lines, additive `transition_risk` / `transition_diagnostics`, and
+existing `feedback` for `source="hybrid_ui"` when that candidate has already been
+rated from the UI; missing feedback is `null` and means unrated. With
+`record_session: true`, the response includes `session_id` and records one
+`hybrid_search_preview` session plus one `search_result_events` row per returned
+candidate. Event score breakdown JSON uses diagnostic names such as
+`score_kind`, `adjusted_score`, `raw_rrf_score`, `transition_risk`,
+`transition_risk_penalty`, `transition_risk_weight`, per-source rank/score
+payloads, and the PR-22 explanation fields (`total_score`, `calibrated_score`,
+`score_breakdown`, `risk_breakdown`, `source_support`, `classifier_support`,
+`match_character`, `warnings`, and `explanation`). The legacy `sources` event payload is preserved
+for source-rank readers. Transition diagnostics use
+stored BPM half/double compatibility, exact-key equality, energy jump,
+source-consensus disagreement, and v2 stored-feature approximations for density,
+texture, mood, vocal conflict, and missingness. They are lightweight diagnostic values for future
+ranking experiments, not AutoMix, beatgrid or cue-point detection, and not a
+calibrated transition estimate. The score is a preview rank score, not a
+calibrated estimate of human taste. Missing source
+coverage is reported in `warnings`; a configured source with no returned rows is
+absent from scoring and transition source-consensus risk. If no source can return candidates, the
+endpoint returns an empty result list rather than failing. It reads stored SQLite
+analysis data only. By default it writes no rows; with explicit
+`record_session: true`, it writes only evaluation session/event rows. It never
+writes tags, audio files, classifiers, or production search configuration.
 
 `POST /api/set-builder/generate` is a read-only set preview endpoint. It does
 not run audio analysis, score classifiers, save sessions, write tags, or modify
@@ -256,6 +340,92 @@ Reset scope by family:
 | `/api/analysis/reset` `maest` | `maest_*` metadata keys plus `maest` embeddings. |
 | `/api/analysis/reset` `mert` / `clap` | Embeddings of that key. |
 | `/api/classifiers/reset` | `track_classifier_scores` rows for the listed classifier keys. |
+
+### Evaluation API
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/evaluation/summary` | Return row counts for v4 evaluation tables. |
+| `POST` | `/api/evaluation/feedback/pair` | Upsert optional manual audit feedback for one seed/candidate pair. |
+| `POST` | `/api/evaluation/feedback/transition` | Append optional manual audit feedback for one outgoing/incoming transition. |
+| `POST` | `/api/evaluation/run/source-profile` | Run the automatic unsupervised source-profile diagnostic in-process. |
+| `POST` | `/api/evaluation/run/apply-score-profile` | Apply an inline score profile to recorded candidate pools. |
+| `POST` | `/api/evaluation/run/weighted-candidates` | Generate a capped weighted candidate-pool preview from an inline score profile. |
+| `GET` | `/api/evaluation/reports/latest` | Return persisted `calibration_runs` rows, if any. |
+
+These endpoints are for local evaluation diagnostics only. They do not read or
+modify audio files, do not train classifiers, do not use Rhythm Lab labels or
+liked tracks as ground truth, and do not change production search endpoints,
+scoring, or weights.
+PR-23 judged-only validation is primarily a CLI/report mode for `dj-sim eval
+report`, `run-ablation`, and `run-calibration`. The API does not expose separate
+report/ablation/calibration run endpoints in this pass; the existing
+`apply-score-profile` response includes the same matched judged-label gate fields
+when it summarizes recorded candidate pools.
+
+`/api/evaluation/summary` returns `schema_version` plus counts for
+`search_sessions`, `search_result_events`, `track_pair_feedback`,
+`transition_feedback`, and `calibration_runs`. Evaluation endpoints require a
+selected current schema v4 database; older databases return a clear schema error.
+
+Pair feedback accepts optional `session_id`, `seed_track_ids` (`1-5` ids),
+`candidate_track_id`, `rating` (`0-3`), optional `reason_tags`, optional
+`notes`, and `source` (default `manual`; the Hybrid UI uses `hybrid_ui`). It
+upserts one row per seed using `(seed_track_id, candidate_track_id, source)`, so
+submitting the same candidate rating again updates existing rows instead of
+growing the label count. Allowed pair `reason_tags` are `good_groove`,
+`good_density`, `good_texture`, `good_mood`, `good_tonal`, `too_vocal`,
+`bad_density`, `bad_tonal`, `too_obvious`, `interesting_adjacent`,
+`wrong_energy`, `wrong_texture`, and `bad_transition_risk`. Transition feedback
+accepts `outgoing_track_id`, `incoming_track_id`,
+`rating` (`0-3`), optional `risk_tags`, optional `notes`, and `source` (default
+`manual`) and appends a new audit row. Manual feedback is optional audit and
+validation data, not classifier training data and not required by the automatic
+source-profile path.
+
+`/api/evaluation/run/source-profile` accepts optional `seed_track_ids`; when they
+are omitted, it samples `sample_count` seeds (default `50`) with `random_seed`
+(default `123`). It also accepts `sources` (default `mert`, `maest`, `sonara`, `clap`),
+`per_source` (default `30`), `top_k` (default `[10]`), optional `profile_name`,
+and `include_profile` (default `true`). The response contains `source_profile`
+diagnostics and, when the diagnostic status is `ok` and `include_profile` is
+true, a compact `score_profile` JSON object with
+`weight_kind: "unsupervised_internal_profile"`. The API does not write a score
+profile artifact file and does not record candidate-pool sessions by default.
+
+`/api/evaluation/run/apply-score-profile` accepts either a complete inline
+`profile` object or normalized `weights` plus an optional `name`, along with `k`
+(default `[5, 10]`) and `rrf_k` (default `60`). It applies the score profile to
+already recorded candidate pools in SQLite and returns the same kind of report as
+the CLI `apply-score-profile` command. Without pair feedback it still ranks the
+candidate pools, but reports `label_status: "insufficient_data"` and makes no
+claim about human taste. Under PR-23, `label_status`, `judged_pairs`,
+`judged_seeds`, `can_create_candidate_profile`, `can_update_defaults`, and
+`label_guidance` are based only on feedback labels that match recorded result
+events, not on all feedback rows in the database.
+
+`/api/evaluation/run/weighted-candidates` accepts the same inline `profile` or
+`weights` plus optional `name`, optional `seed_track_ids`, `sample_count` (default
+`50` when seeds are omitted), optional `sources`, `per_source` (default `30`, max
+`100`), `random_seed`, `rrf_k`, `transition_risk_weight` (`0.0-1.0`, default
+`0.0`), `record_session` (default `false` for API safety), and `limit_per_seed`
+(default `30`, max `100`) for response capping. It generates a fresh candidate
+pool and returns JSON preview rows sorted by weighted RRF over source ranks by
+default. When the optional transition-risk weight is greater than zero, rows are
+sorted by the same diagnostic adjusted score used by Hybrid preview; the row
+payload includes `adjusted_score`, `raw_rrf_score`, `transition_risk`,
+`transition_risk_penalty`, and `transition_risk_weight`. Transition risk remains
+a v2 diagnostic preview signal, not AutoMix, beatgrid/cue detection, confidence, or
+a calibrated transition probability. The requested sources must match the score
+profile source set; missing weights or omitted profile sources return a clear
+`400` error. With `record_session: true`, it records explicit
+`evaluation_weighted_candidate_pool` sessions and profile-ranked result events
+only; by default it writes no database rows.
+
+`/api/evaluation/reports/latest` deliberately does not scan arbitrary report
+directories. CLI JSON reports are local filesystem artifacts; the API only
+returns persisted `calibration_runs` rows from the selected database, or a
+`no_persisted_reports` summary when none exist.
 
 ### Export, Tags, Dialogs, Media
 

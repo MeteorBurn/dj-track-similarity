@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from .api_routes_audio_dedup import register_audio_dedup_routes
 from .api_routes_analysis import register_analysis_routes
 from .api_routes_database import register_database_routes
+from .api_routes_evaluation import register_evaluation_routes
 from .api_routes_library import register_library_routes
 from .api_routes_rhythm_lab import register_rhythm_lab_routes
 from .api_routes_search import register_search_routes
@@ -96,6 +97,7 @@ def create_app(
     register_library_routes(app, state, ffmpeg_path=ffmpeg_path, promoted_classifiers=promoted_classifiers)
     register_analysis_routes(app, state, promoted_classifiers=promoted_classifiers)
     register_audio_dedup_routes(app, state)
+    register_evaluation_routes(app, state)
     register_search_routes(app, state, clap_embedding_adapter=ClapEmbeddingAdapter)
     register_set_builder_routes(app, state, promoted_classifiers=promoted_classifiers)
     register_tags_export_routes(app, state, open_folder_dialog=open_folder_dialog)

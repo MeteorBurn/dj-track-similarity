@@ -25,6 +25,8 @@ def register_database_routes(
             return state.switch(request.path)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @app.post("/api/database/dialog")
     def database_dialog():
@@ -38,3 +40,5 @@ def register_database_routes(
             return state.switch(selected)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error

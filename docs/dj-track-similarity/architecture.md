@@ -32,7 +32,9 @@ The backend package lives in `src/dj_track_similarity/`.
 - `tags.py` writes MAEST labels into the standard genre field and runs the
   cancellable genre-tag job; `wave_tags.py` provides the guarded WAV/ID3
   genre-write path.
-- `search.py` performs embedding-space similarity search.
+- `search.py` performs exact embedding-space similarity search by default, while
+  `ann_index.py` manages optional persistent ANN sidecar artifacts and recall
+  benchmarks.
 - `exporter.py` writes M3U and CSV outputs.
 - `runtime.py` selects `auto`, `cpu`, or `cuda` for PyTorch work.
 - `dependencies.py` checks runtime dependencies such as `ffmpeg`.
@@ -63,6 +65,7 @@ Core runtime dependencies are declared in `pyproject.toml`:
 
 Optional groups:
 
+- `ann`: installs `hnswlib` for optional persistent ANN sidecar indexes.
 - `sonara`: installs Sonara support.
 - `ml`: installs the synchronized PyTorch/Torchaudio/Torchvision/TorchCodec
   stack, nnaudio, Transformers, Hugging Face Hub, LAION-CLAP, and MAEST
@@ -99,6 +102,16 @@ python -m pip install -e ".[sonara,ml,dev]"
 
 Use `.[sonara,ml,rhythm-lab,dev]` instead when the same environment will also
 train Rhythm Lab classifier profiles.
+
+Persistent ANN indexes are optional sidecar artifacts, not SQLite schema data.
+`dj-sim index build` writes generated files under
+`.dj-track-similarity-indexes/` beside the selected database by default, or under
+an explicit `--index-dir`. The manifest stores the selected adapter, backend,
+metric/settings, database fingerprint, embedding count/dimension, track/version
+hashes, and creation metadata so `verify` and `benchmark` can reject stale or
+mismatched indexes after embedding reset, reanalysis, or database changes. Exact
+search remains the runtime default; ANN use must be explicitly requested and falls
+back to exact search when the sidecar is missing, stale, or unsupported.
 
 On Windows, TorchCodec-backed Torchaudio decoding needs an FFmpeg shared build
 with DLLs available on `PATH`, not only a static `ffmpeg.exe`. The portable tools

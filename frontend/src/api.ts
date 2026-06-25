@@ -44,6 +44,110 @@ export type SearchResult = {
   };
 };
 
+export type HybridSearchSource = "mert" | "maest" | "sonara" | "clap";
+export type HybridMatchAxis = "groove" | "density" | "texture" | "mood" | "tonal" | "vocalness" | "energy_flow" | "novelty";
+
+export type HybridSearchPayload = {
+  seed_track_ids: number[];
+  sources?: HybridSearchSource[];
+  weights?: Record<string, number> | null;
+  score_profile?: EvaluationScoreProfile | Record<string, unknown> | null;
+  per_source?: number;
+  limit?: number;
+  rrf_k?: number;
+  random_seed?: number;
+  transition_risk_weight?: number;
+  transition_risk_version?: "v1" | "v2";
+  classifier_preferences?: Record<string, number>;
+  classifier_risk_weights?: Record<string, number>;
+  include_diagnostics?: boolean;
+  record_session?: boolean;
+};
+
+export type EvaluationPairReasonTag =
+  | "good_groove"
+  | "good_density"
+  | "good_texture"
+  | "good_mood"
+  | "good_tonal"
+  | "too_vocal"
+  | "bad_density"
+  | "bad_tonal"
+  | "too_obvious"
+  | "interesting_adjacent"
+  | "wrong_energy"
+  | "wrong_texture"
+  | "bad_transition_risk";
+
+export type EvaluationPairFeedbackState = {
+  state: "rated" | "mixed";
+  source: string;
+  seed_track_ids: number[];
+  candidate_track_id: number;
+  rating: 0 | 1 | 2 | 3 | null;
+  reason_tags: EvaluationPairReasonTag[];
+  notes?: string | null;
+  per_seed?: Array<{
+    id: number;
+    seed_track_id: number;
+    candidate_track_id: number;
+    rating: 0 | 1 | 2 | 3;
+    reason_tags: EvaluationPairReasonTag[];
+    notes?: string | null;
+    source: string;
+    updated_at?: string | null;
+  }>;
+};
+
+export type HybridSearchResult = {
+  track: Track;
+  score: number;
+  total_score: number;
+  calibrated_score?: null;
+  adjusted_score: number;
+  transition_risk?: number | null;
+  transition_risk_penalty: number;
+  transition_risk_weight: number;
+  raw_rrf_score: number;
+  rank: number;
+  score_breakdown: Record<string, { rank: number; weight: number; contribution: number; score?: number }>;
+  risk_breakdown: Record<string, number | null>;
+  source_support: Record<string, {
+    available: boolean;
+    rank?: number | null;
+    score?: number | null;
+    weight?: number | null;
+    contribution?: number | null;
+    best_seed_track_id?: number | null;
+    best_rank?: number | null;
+    supporting_seed_track_ids?: number[];
+  }>;
+  classifier_support: Record<string, {
+    available: boolean;
+    score?: number | null;
+    preference?: number | null;
+    risk_weight?: number | null;
+    score_contribution?: number | null;
+    risk_contribution?: number | null;
+  }>;
+  match_character: Record<HybridMatchAxis, number>;
+  warnings: string[];
+  explanation: string[];
+  transition_diagnostics: Record<string, unknown>;
+  diagnostics: Record<string, unknown>;
+  feedback?: EvaluationPairFeedbackState | null;
+};
+
+export type HybridSearchResponse = {
+  results: HybridSearchResult[];
+  warnings: string[];
+  weights_used: Record<string, number>;
+  sources: HybridSearchSource[];
+  limitations: string[];
+  diagnostics: Record<string, unknown>;
+  session_id?: number | null;
+};
+
 export type TrackPage = {
   items: Track[];
   total: number;
@@ -162,6 +266,15 @@ export type PromotedClassifier = {
   label_order?: string[];
   model_path: string;
   metadata_path: string;
+  manifest_status?: string;
+  manifest_errors?: string[];
+  manifest_warnings?: string[];
+  is_scoring_compatible?: boolean;
+  manifest_version?: number | null;
+  score_semantics?: string;
+  calibration_status?: string;
+  has_calibrated_probability?: boolean;
+  required_inputs?: string[];
 };
 
 export type GenreTagJobStatus = {
@@ -292,6 +405,160 @@ export type SetBuilderGenerateResult = {
     missing_sonara: number;
   };
   items: SearchResult[];
+};
+
+export type EvaluationSummary = {
+  schema_version: number;
+  counts: {
+    search_sessions: number;
+    search_result_events: number;
+    track_pair_feedback: number;
+    transition_feedback: number;
+    calibration_runs: number;
+  };
+};
+
+export type EvaluationPairFeedbackPayload = {
+  session_id?: number | null;
+  seed_track_ids: number[];
+  candidate_track_id: number;
+  rating: 0 | 1 | 2 | 3;
+  reason_tags?: EvaluationPairReasonTag[];
+  notes?: string | null;
+  source?: string;
+};
+
+export type EvaluationTransitionFeedbackPayload = {
+  outgoing_track_id: number;
+  incoming_track_id: number;
+  rating: 0 | 1 | 2 | 3;
+  risk_tags?: string[];
+  notes?: string | null;
+  source?: string;
+};
+
+export type EvaluationScoreProfile = {
+  name: string;
+  profile_kind: "unsupervised_source_profile";
+  weight_kind: "unsupervised_internal_profile";
+  sources: string[];
+  weights: Record<string, number>;
+  created_at: string;
+  source_report_summary: Record<string, unknown>;
+  limitations: string[];
+  version: number;
+};
+
+export type EvaluationSourceProfilePayload = {
+  seed_track_ids?: number[] | null;
+  sample_count?: number;
+  sources?: string[];
+  per_source?: number;
+  top_k?: number[];
+  random_seed?: number;
+  profile_name?: string | null;
+  include_profile?: boolean;
+};
+
+export type EvaluationSourceProfileResult = {
+  source_profile: Record<string, unknown>;
+  score_profile?: EvaluationScoreProfile | null;
+};
+
+export type EvaluationApplyScoreProfilePayload = {
+  profile?: EvaluationScoreProfile | Record<string, unknown> | null;
+  weights?: Record<string, number> | null;
+  name?: string | null;
+  k?: number[];
+  rrf_k?: number;
+};
+
+export type EvaluationWeightedCandidatesPayload = {
+  profile?: EvaluationScoreProfile | Record<string, unknown> | null;
+  weights?: Record<string, number> | null;
+  name?: string | null;
+  seed_track_ids?: number[] | null;
+  sample_count?: number;
+  sources?: string[] | null;
+  per_source?: number;
+  random_seed?: number;
+  rrf_k?: number;
+  transition_risk_weight?: number;
+  record_session?: boolean;
+  limit_per_seed?: number;
+};
+
+export type EvaluationWeightedCandidateRow = {
+  seed_track_id: number;
+  candidate_track_id: number;
+  profile_rank: number;
+  profile_score: number;
+  adjusted_score: number;
+  raw_rrf_score: number;
+  transition_risk: number | null;
+  transition_risk_penalty: number;
+  transition_risk_weight: number;
+  rating: "";
+  reason_tags: "";
+  notes: "";
+  source: string;
+  seed_artist: string;
+  seed_title: string;
+  candidate_artist: string;
+  candidate_title: string;
+  candidate_album: string;
+  candidate_bpm: string;
+  candidate_musical_key: string;
+  candidate_energy: string;
+  source_count: number;
+  sources_json: string;
+  sources: Record<string, { rank: number; score: number }>;
+  score_profile_name: string;
+  score_profile_weights_json: string;
+  score_profile_weights: Record<string, number>;
+};
+
+export type EvaluationWeightedCandidatesResult = {
+  score_profile: EvaluationScoreProfile;
+  seed_track_ids: number[];
+  sources: string[];
+  per_source: number;
+  random_seed: number;
+  rrf_k: number;
+  transition_risk_weight: number;
+  limit_per_seed: number;
+  rows_total: number;
+  rows_returned: number;
+  rows: EvaluationWeightedCandidateRow[];
+  warnings: string[];
+  session_ids: number[];
+  record_session: boolean;
+};
+
+export type EvaluationPairFeedbackResult = Record<string, unknown> & {
+  ids: number[];
+  seed_track_ids: number[];
+  candidate_track_id: number;
+  rating: 0 | 1 | 2 | 3;
+  reason_tags: EvaluationPairReasonTag[];
+  notes?: string | null;
+  source: string;
+  session_id?: number | null;
+};
+
+export type EvaluationTransitionFeedbackResult = Record<string, unknown> & { id: number; rating: number; source: string };
+
+export type EvaluationLatestReports = {
+  status: "ok" | "no_persisted_reports";
+  summary: string;
+  calibration_runs: Array<{
+    id: number;
+    profile_name: string;
+    search_mode: string;
+    config: Record<string, unknown>;
+    metrics: Record<string, unknown>;
+    created_at: string;
+  }>;
 };
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -491,11 +758,43 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  hybridSearch: (payload: HybridSearchPayload) =>
+    request<HybridSearchResponse>("/api/search/hybrid", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
   setBuilderGenerate: (payload: SetBuilderGeneratePayload) =>
     request<SetBuilderGenerateResult>("/api/set-builder/generate", {
       method: "POST",
       body: JSON.stringify(payload)
     }),
+  evaluationSummary: () => request<EvaluationSummary>("/api/evaluation/summary"),
+  evaluationPairFeedback: (payload: EvaluationPairFeedbackPayload) =>
+    request<EvaluationPairFeedbackResult>("/api/evaluation/feedback/pair", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  evaluationTransitionFeedback: (payload: EvaluationTransitionFeedbackPayload) =>
+    request<EvaluationTransitionFeedbackResult>("/api/evaluation/feedback/transition", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  evaluationSourceProfile: (payload: EvaluationSourceProfilePayload = {}) =>
+    request<EvaluationSourceProfileResult>("/api/evaluation/run/source-profile", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  evaluationApplyScoreProfile: (payload: EvaluationApplyScoreProfilePayload) =>
+    request<Record<string, unknown>>("/api/evaluation/run/apply-score-profile", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  evaluationWeightedCandidates: (payload: EvaluationWeightedCandidatesPayload) =>
+    request<EvaluationWeightedCandidatesResult>("/api/evaluation/run/weighted-candidates", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  evaluationLatestReports: () => request<EvaluationLatestReports>("/api/evaluation/reports/latest"),
   exportPlaylist: (name: string, track_ids: number[], output_dir: string, format: "m3u" | "csv") =>
     request<{ path: string }>("/api/export", {
       method: "POST",

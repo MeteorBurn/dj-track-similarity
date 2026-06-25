@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Heart, Minus, Pause, Play, Plus, Search, Tags } from "lucide-react";
 import { Track } from "./api";
 import { displayTrack } from "./trackDisplay";
@@ -81,7 +82,8 @@ export function ResultRow({
   onSeed,
   onTogglePlaylist,
   onPreview,
-  onDetails
+  onDetails,
+  rowSlot
 }: TrackActions & {
   track: Track;
   score: number;
@@ -97,11 +99,12 @@ export function ResultRow({
   };
   isSeed: boolean;
   inPlaylist: boolean;
+  rowSlot?: ReactNode;
 }) {
   const breakdownTitle = scoreBreakdownTitle(scoreBreakdown, sonaraGroups, classifierScores, transition);
   const trackPreviewActive = playingTrackId === track.id;
   return (
-    <div className="result-row">
+    <div className={`result-row ${rowSlot ? "with-row-slot" : ""}`}>
       <button className="icon-button result-preview-button" title={trackPreviewActive ? "Pause preview" : "Preview"} aria-label={`${trackPreviewActive ? "Pause" : "Preview"} ${displayTrack(track)}`} onClick={() => onPreview(track)}>
         {trackPreviewActive ? <Pause size={15} /> : <Play size={15} />}
       </button>
@@ -114,6 +117,7 @@ export function ResultRow({
       <button className="icon-button result-metadata-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={() => onDetails(track)}><Tags size={15} /></button>
       <meter min={0} max={1} value={Math.max(0, Math.min(1, score))} title={breakdownTitle} />
       <span className="similarity-score" title={breakdownTitle}>{score.toFixed(3)}</span>
+      {rowSlot ? <div className="result-row-slot">{rowSlot}</div> : null}
       <button className={`icon-button result-seed-button ${isSeed ? "active" : ""}`} title="Seed" aria-label={`Seed ${displayTrack(track)}`} onClick={() => onSeed(track)}><Search size={15} /></button>
       <button
         className={`icon-button result-playlist-toggle-button ${inPlaylist ? "intent-remove active" : "intent-add"}`}

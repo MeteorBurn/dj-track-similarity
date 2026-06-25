@@ -6,6 +6,13 @@ from typing import Iterable
 
 import numpy as np
 
+from .classifier_manifest import (
+    ClassifierManifestSummary,
+    classifier_manifest_api_fields,
+    classifier_manifest_path,
+    load_classifier_manifest_summary,
+    require_scoring_compatible_manifest,
+)
 from .database import LibraryDatabase
 from .models import Track
 from .sonara_similarity_scoring import optional_float, unwrap_feature_value
@@ -34,28 +41,17 @@ def promoted_classifiers(root: str | Path | None = None) -> list[dict[str, objec
     if not models_root.exists():
         return []
     classifiers: list[dict[str, object]] = []
-    for metadata_path in sorted(models_root.glob("*/model.json")):
-        try:
-            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        classifier_key = str(metadata.get("classifier_key") or "").strip()
-        if not classifier_key:
-            continue
-        model_path = metadata_path.with_name("model.joblib")
-        if not model_path.exists():
-            continue
-        classifiers.append(
-            {
-                "classifier_key": classifier_key,
-                "name": str(metadata.get("profile_name") or classifier_key.replace("_", " ").title()),
-                "artifact_prefix": metadata_path.parent.name,
-                "positive_label": metadata.get("positive_label"),
-                "label_order": metadata.get("label_order", []),
-                "model_path": str(model_path),
-                "metadata_path": str(metadata_path),
-            }
+    artifact_dirs = sorted({path.parent for path in (*models_root.glob("*/model.joblib"), *models_root.glob("*/model.json"))})
+    for artifact_dir in artifact_dirs:
+        model_path = artifact_dir / "model.joblib"
+        metadata_path = artifact_dir / "model.json"
+        classifier_key = _classifier_key_from_metadata_or_slug(metadata_path, artifact_dir.name)
+        summary = load_classifier_manifest_summary(
+            model_path,
+            expected_classifier_key=classifier_key,
+            metadata_path=metadata_path,
         )
+        classifiers.append(_promoted_classifier_payload(summary, model_path_exists=model_path.exists()))
     return classifiers
 
 
@@ -79,12 +75,15 @@ def analyze_classifier(
         scorer.save_score(track, result)
         scored += 1
 
-    return {
+    result: dict[str, object] = {
         "classifier": scorer.classifier_key,
         "scored": scored,
         "skipped": skipped,
         "model": str(scorer.path),
     }
+    if scorer.manifest_warnings:
+        result["warnings"] = list(scorer.manifest_warnings)
+    return result
 
 
 class ClassifierScorer:
@@ -98,6 +97,8 @@ class ClassifierScorer:
         self.db = db
         self.classifier_key = classifier
         self.path = Path(model_path) if model_path is not None else default_classifier_model_path(classifier)
+        self.manifest = _scoring_manifest(self.path, classifier=classifier, require_default_manifest=model_path is None)
+        self.manifest_warnings = tuple(self.manifest.warnings) if self.manifest is not None else ()
         self.payload = _load_payload(self.path)
         artifact_classifier = str(self.payload.get("classifier_key") or classifier)
         if artifact_classifier != classifier:
@@ -112,6 +113,7 @@ class ClassifierScorer:
         if not self.label_order:
             raise ValueError(f"{self.classifier_key} model artifact does not contain label_order")
         self.positive_label = str(self.payload.get("positive_label") or self.label_order[0])
+        _validate_payload_against_manifest(self.payload, self.manifest, self.classifier_key)
         self.needs_mert = any(name.startswith("mert:") for name in self.feature_names)
         self.needs_maest = any(name.startswith("maest:") for name in self.feature_names)
         self.mert_vectors = _embedding_vectors(db, "mert")
@@ -168,6 +170,70 @@ def _load_payload(path: Path) -> dict[str, object]:
     payload = joblib.load(path)
     if not isinstance(payload, dict) or "model" not in payload:
         raise ValueError("Classifier model artifact must be a joblib payload with a model")
+    return payload
+
+
+def _scoring_manifest(
+    path: Path,
+    *,
+    classifier: str,
+    require_default_manifest: bool,
+) -> ClassifierManifestSummary | None:
+    metadata_path = classifier_manifest_path(path)
+    if require_default_manifest or metadata_path.exists():
+        return require_scoring_compatible_manifest(path, expected_classifier_key=classifier, metadata_path=metadata_path)
+    return None
+
+
+def _validate_payload_against_manifest(
+    payload: dict[str, object],
+    manifest: ClassifierManifestSummary | None,
+    classifier_key: str,
+) -> None:
+    if manifest is None or manifest.status != "valid":
+        return
+    feature_set = str(payload.get("feature_set") or "")
+    if manifest.feature_set and feature_set != manifest.feature_set:
+        raise ValueError(f"{classifier_key} model artifact feature_set does not match model.json")
+    label_order = tuple(str(label) for label in payload.get("label_order", []))
+    if manifest.label_order and label_order != manifest.label_order:
+        raise ValueError(f"{classifier_key} model artifact label_order does not match model.json")
+    positive_label = str(payload.get("positive_label") or "")
+    if manifest.positive_label and positive_label != manifest.positive_label:
+        raise ValueError(f"{classifier_key} model artifact positive_label does not match model.json")
+    feature_names = [str(name) for name in payload.get("feature_names", [])]
+    if manifest.feature_count is not None and feature_names and len(feature_names) != manifest.feature_count:
+        raise ValueError(f"{classifier_key} model artifact feature count does not match model.json")
+
+
+def _classifier_key_from_metadata_or_slug(metadata_path: Path, artifact_slug: str) -> str:
+    if metadata_path.exists():
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            metadata = {}
+        if isinstance(metadata, dict):
+            classifier_key = str(metadata.get("classifier_key") or "").strip()
+            if classifier_key:
+                return classifier_key
+    return artifact_slug.strip().replace("-", "_")
+
+
+def _promoted_classifier_payload(summary: ClassifierManifestSummary, *, model_path_exists: bool) -> dict[str, object]:
+    payload = {
+        "classifier_key": summary.classifier_key,
+        "name": str(summary.profile_name or summary.classifier_key.replace("_", " ").title()),
+        "artifact_prefix": summary.artifact_prefix or summary.model_path.parent.name,
+        "positive_label": summary.positive_label,
+        "label_order": list(summary.label_order),
+        "model_path": str(summary.model_path),
+        "metadata_path": str(summary.metadata_path) if summary.metadata_path is not None and summary.metadata_path.exists() else None,
+        **classifier_manifest_api_fields(summary),
+    }
+    if not model_path_exists:
+        payload["manifest_status"] = "invalid"
+        payload["manifest_errors"] = [*payload["manifest_errors"], "model.joblib is missing"]
+        payload["is_scoring_compatible"] = False
     return payload
 
 

@@ -328,6 +328,8 @@ class AnalysisJobManager:
                     if scorer is None:
                         scorer = self._classifier_scorer(classifier)
                         scorers[classifier] = scorer
+                        for warning in getattr(scorer, "manifest_warnings", ()):
+                            self._append_event(job_id, "warn", str(warning), model=classifier)
                     self._update(job_id, model_name=str(getattr(scorer, "model_name", classifier)))
                 except Exception as error:
                     error_text = exception_summary(error)

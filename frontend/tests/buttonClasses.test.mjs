@@ -208,6 +208,10 @@ test("class tab exposes per-classifier missing-score analysis controls", () => {
   assert.match(searchSource, /onClassifierMinScoreChange/);
   assert.match(searchSource, /classifier-analyze-button/);
   assert.match(searchSource, /onAnalyzeClassifier/);
+  assert.match(searchSource, /classifiers\.length \? \(/);
+  assert.match(searchSource, /empty-state classifier-empty-state/);
+  assert.match(searchSource, /No promoted classifier profiles found/);
+  assert.match(searchSource, /models\/classifiers\/<profile>\//);
   assert.match(appSource, /selectedAnalysisModels\.includes\("classifiers"\)/);
   assert.match(appSource, /classifierKeys\s*=\s*includeClassifiers/);
   assert.match(appSource, /classifier_keys:\s*classifierKeys/);
@@ -221,15 +225,21 @@ test("class tab exposes per-classifier missing-score analysis controls", () => {
   assert.equal(librarySource.includes("classifier" + "Available"), false);
 });
 
-test("per-classifier analyze button resets that classifier before scoring", () => {
+test("per-classifier analyze button validates that classifier before reset and scoring", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
   const handler = appSource.match(/async function handleAnalyzeClassifier[\s\S]*?async function handleMertSearch/)?.[0] || "";
 
-  const resetIndex = handler.indexOf("api.resetClassifiers([classifier.classifier_key])");
-  const analyzeIndex = handler.indexOf("api.analyzeClassifier(classifier.classifier_key)");
+  const refreshIndex = handler.indexOf("const promotedClassifiers = await api.classifiers()");
+  const compatibilityIndex = handler.indexOf("classifierScoringBlockedReason(currentClassifier)");
+  const resetIndex = handler.indexOf("api.resetClassifiers([currentClassifier.classifier_key])");
+  const analyzeIndex = handler.indexOf("api.analyzeClassifier(currentClassifier.classifier_key)");
 
+  assert.notEqual(refreshIndex, -1);
+  assert.notEqual(compatibilityIndex, -1);
   assert.notEqual(resetIndex, -1);
   assert.notEqual(analyzeIndex, -1);
+  assert.ok(refreshIndex < compatibilityIndex);
+  assert.ok(compatibilityIndex < resetIndex);
   assert.ok(resetIndex < analyzeIndex);
   assert.doesNotMatch(handler, /analysisLimit/);
 });
@@ -347,9 +357,16 @@ test("clap search exposes prompt presets and adaptive contrast fields without pr
   assert.match(searchSource, /clapPresetMenuRef/);
   assert.doesNotMatch(searchSource, /clap-generate-button/);
   assert.match(searchSource, /clap-avoid-input/);
+  assert.match(searchSource, /hasStoredClapEmbeddings/);
+  assert.match(searchSource, /clap-search-requirement/);
+  assert.match(searchSource, /disabled=\{busy \|\| !textQuery\.trim\(\) \|\| !hasStoredClapEmbeddings\}/);
   assert.doesNotMatch(searchSource, /WandSparkles/);
   assert.match(searchSource, /ListFilter/);
+  assert.match(appSource, /clapEmbeddingCount=\{librarySummary\.clap\}/);
   assert.doesNotMatch(appSource, /generateClapPrompt/);
+  assert.match(appSource, /api\.textSearch/);
+  assert.doesNotMatch(appSource, /api\.hybridSearch\(\{[\s\S]*query: prompt/);
+  assert.match(apiSource, /request<SearchResult\[\]>\("\/api\/search\/text"/);
   assert.match(appSource, /positive_queries/);
   assert.match(appSource, /negative_queries/);
   assert.match(appSource, /adaptive_contrast:\s*true/);

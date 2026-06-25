@@ -7,6 +7,7 @@ from pathlib import Path
 ROUTE_MODULES = {
     "dj_track_similarity.api_routes_analysis": "register_analysis_routes",
     "dj_track_similarity.api_routes_database": "register_database_routes",
+    "dj_track_similarity.api_routes_evaluation": "register_evaluation_routes",
     "dj_track_similarity.api_routes_library": "register_library_routes",
     "dj_track_similarity.api_routes_rhythm_lab": "register_rhythm_lab_routes",
     "dj_track_similarity.api_routes_search": "register_search_routes",

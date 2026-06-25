@@ -24,6 +24,7 @@ analysis families and the local lab:
 
 | Group | Installs | Enables |
 | --- | --- | --- |
+| `ann` | hnswlib | Optional HNSW backend for persistent `dj-sim index` sidecar artifacts. Production search still defaults to exact NumPy. |
 | `sonara` | Sonara support | Sonara playlist feature extraction and SONARA search. |
 | `ml` | PyTorch/Torchaudio/Torchvision/TorchCodec, nnaudio, Transformers, Hugging Face Hub, LAION-CLAP, MAEST | MAEST genre analysis, MERT embeddings, CLAP audio/text embeddings. |
 | `rhythm-lab` | scikit-learn | Local classifier training and benchmarking in Rhythm Lab. |
@@ -32,6 +33,8 @@ analysis families and the local lab:
 Combine the groups you need, for example `.[sonara,ml,dev]` for the full local
 analysis stack without Rhythm Lab training, or `.[sonara,ml,rhythm-lab,dev]`
 when the same environment will also train classifier profiles.
+Use `.[ann,dev]` only when you want to build HNSW sidecar indexes or benchmark
+them against exact search; the base application does not require it.
 
 ## Base Install
 

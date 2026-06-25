@@ -130,7 +130,7 @@ export function AudioDedupDialog({
               <span>Preset</span>
               <div className="audio-dedup-segmented">
                 {presets.map((item) => (
-                  <button key={item.key} className={preset === item.key ? "active" : ""} title={item.title} onClick={() => setPreset(item.key)} disabled={running} type="button">
+                  <button key={item.key} className={`audio-dedup-preset-button ${preset === item.key ? "active" : ""}`} title={item.title} onClick={() => setPreset(item.key)} disabled={running} type="button">
                     {item.label}
                   </button>
                 ))}
@@ -177,11 +177,11 @@ export function AudioDedupDialog({
             {localError ? <div className="audio-dedup-error">{localError}</div> : null}
 
             <div className="audio-dedup-actions">
-              <button className="audio-dedup-start-button" onClick={() => void start()} disabled={running || !databasePath} type="button" title="Start duplicate search">
+              <button className="audio-dedup-start-button" title="Start duplicate search" onClick={() => void start()} disabled={running || !databasePath} type="button">
                 <Play size={15} />
                 Start
               </button>
-              <button className="audio-dedup-cancel-button stop-button" onClick={() => void onCancelJob()} disabled={!running} type="button" title="Stop current Audio Dedup job">
+              <button className="audio-dedup-cancel-button stop-button" title="Stop current Audio Dedup job" onClick={() => void onCancelJob()} disabled={!running} type="button">
                 <Square size={15} />
                 Stop
               </button>

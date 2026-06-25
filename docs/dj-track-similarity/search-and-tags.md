@@ -196,6 +196,112 @@ Use MERT after running `dj-sim analyze --models mert` or the matching selected
 model in the UI analysis job. If results are empty or stale, check whether the
 candidate tracks have MERT embeddings.
 
+Embedding searches use exact SQLite-backed vectors by default. Optional
+persistent ANN sidecar indexes are managed from `dj-sim index`; they are not
+enabled automatically by the UI/API and become stale after embedding reset or
+reanalysis until rebuilt.
+
+### Hybrid Search Preview
+
+`/api/search/hybrid` is exposed in the UI as a compact `Hybrid preview` block
+inside the existing SET workflow. It is not a separate top-level tab, and it
+does not replace or alter the visible SET, SONARA, MERT, CLAP, or CLASS tabs,
+their endpoints, weights, or scoring behavior.
+
+Use `Generate weighted preview` when you want a quick seed-based weighted
+candidate list instead of an ordered Smart Set Builder route. The block reuses
+the currently selected seed tracks and requires `1-5` seeds. MERT, MAEST,
+SONARA, and CLAP sources can be enabled or disabled, each source has an inline weight, and
+the UI exposes `Per-source` (`1-100`, default `30`) plus `Result limit`
+(`1-100`, default `25`) and `Risk penalty` (`0.0-1.0`, default `0.0`). The
+classifier block is off by default. When enabled, it can send compact stored-score
+controls for `voice_presence` vocal risk, `abstract_edge`, `break_energy`, and
+`live_instrumentation` boosts if those promoted classifier keys are available.
+Missing classifier scores stay neutral. Equal default source weights are sent
+unless you edit them, and the risk penalty is off unless you opt in.
+
+Hybrid preview rows also expose optional evaluation feedback controls. Rating
+buttons map to `Strong = 3`, `Works = 2`, `Maybe = 1`, and `Reject = 0`. Reason
+tags are limited to the PR-21 allowlist (`good_groove`, `good_density`,
+`good_texture`, `good_mood`, `good_tonal`, `too_vocal`, `bad_density`,
+`bad_tonal`, `too_obvious`, `interesting_adjacent`, `wrong_energy`,
+`wrong_texture`, `bad_transition_risk`). A saved row shows a compact state such
+as `Rated: Works · good_groove, good_density`. Re-rating the same candidate
+overwrites the previous `hybrid_ui` pair labels for the current seeds, so the
+label count stays stable on repeated edits. The block also shows accumulated
+evaluation label counts when the selected database exposes schema-v4 evaluation
+tables.
+Use `dj-sim eval report --judged-only`, `run-ablation --judged-only`, or
+`run-calibration --judged-only` after recording previews and ratings when you
+want judged validation. These reports count only feedback that can be matched to
+recorded result events. Small samples stay `insufficient_data`; larger samples
+unlock diagnostics and candidate-profile review guidance, but never automatic
+default updates.
+After the matched judged-pair count reaches the PR-23 candidate-profile gate, use
+`dj-sim eval optimize-score-profile` for a guarded JSON proposal. It keeps the
+optimizer proposal out of the UI and production defaults, uses a seed-disjoint
+train/validation split, and rejects the proposal if validation NDCG@10 does not
+beat the equal-weight baseline, BadSuggestionRate@10 increases, or bootstrap
+stability fails.
+
+The endpoint accepts `1-5` seed track IDs, generates candidates from requested
+exact sources (`mert`, `maest`, `sonara`, `clap`), excludes the seeds, and ranks the
+union with weighted reciprocal-rank fusion. CLAP is a stored audio-embedding
+source in this preview, not a prompt-aware Hybrid UI. If no inline `weights` or
+`score_profile` is supplied, requested sources use equal weights. The response
+contains a preview `score`/`total_score`, `calibrated_score: null`,
+`adjusted_score`, `raw_rrf_score`, `transition_risk_penalty`,
+`transition_risk_weight`, per-source and optional classifier `score_breakdown`, stable
+`risk_breakdown`, `source_support`, optional `classifier_support`, eight finite `match_character` axes
+(`groove`, `density`, `texture`, `mood`, `tonal`, `vocalness`, `energy_flow`,
+`novelty`), short `explanation` lines, warnings, lightweight transition
+diagnostics, `weights_used`, and limitations. Missing explanation inputs stay
+neutral/unavailable rather than lowering a row by themselves. With the default
+risk penalty `0.0`, ranking stays the plain weighted-RRF preview. When the
+penalty is greater than zero, the preview normalizes raw RRF scores within the
+candidate set and sorts by
+`adjusted_score = normalized_rrf_score - transition_risk_weight * transition_risk`;
+missing risk applies no penalty.
+
+Hybrid preview rows include a row-level `Why this track?` panel. It labels the
+content as an unsupervised diagnostic, shows the adjusted score, match-axis bars,
+source support, classifier support when active, risk estimate components, sorted warnings, and reason bullets.
+These fields explain stored-signal support for a candidate; they are not a
+calibrated estimate of whether a human will like the result.
+
+The browser sends `record_session: true` for Hybrid preview so the generated
+candidate list can be tied to later UI feedback. Direct API callers remain safe
+by default because `record_session` defaults to `false`. Recorded Hybrid events
+use diagnostic score naming (`score_kind`, `adjusted_score`, `raw_rrf_score`,
+`transition_risk`, `transition_risk_penalty`, `transition_risk_weight`, and
+per-source rank/score payloads), persist the PR-22 explanation fields, and keep
+the legacy `sources` payload for report/calibration readers. These values are
+ranking diagnostics, not calibrated human-taste estimates.
+
+Before settling on a non-zero `Risk penalty`, use the CLI report
+`dj-sim eval sweep-risk-penalty --profile <json> --weight ...` against recorded
+candidate pools. Unlabeled sweeps provide only internal diagnostics such as
+average transition risk at K and source-count coverage; labeled sweeps can compare
+NDCG, MAP, MRR, precision, bad-suggestion rate, and hit rate. The report makes no
+best-weight claim unless explicit evaluation pair feedback is present.
+
+Treat the displayed score as a weighted rank-fusion preview only, not a
+calibrated human-taste estimate. Each result also includes `transition_risk` and
+`transition_diagnostics`. Risk v2 keeps the older BPM, key, energy, and
+source-consensus signals, then adds modest stored-feature approximations for
+density jump, texture clash, mood clash, vocal conflict, and missingness. Risk
+v1 remains available through the API/CLI for comparison. That risk is a lightweight diagnostic score for future ranking
+experiments, not AutoMix, beatgrid analysis, cue detection, or a calibrated
+transition estimate. The UI keeps diagnostics intentionally light: adjusted row
+score, match-axis bars, compact risk text, source support, source weights/ranks
+on hover, visible warnings when coverage is missing, and limitations available
+from the `Score info` tooltip. A source such as CLAP that returns no rows
+contributes no score and does not inflate the source-disagreement transition risk. The endpoint
+can return an empty result list. It reads stored SQLite analysis data only. Direct
+API calls are read-only by default; with explicit `record_session`, it writes only
+evaluation session/event rows. No audio files are written, classifiers are not
+trained, and existing production search endpoints are unchanged.
+
 ### CLAP Text Search
 
 CLAP text search sends a text prompt, limit, optional minimum similarity, and
@@ -212,6 +318,10 @@ the preset menu. The menu also closes when focus moves to another part of the
 app.
 
 The UI and API default result limit is `10`.
+
+The CLI `dj-sim text-search` also uses exact CLAP vectors by default. Its
+`--use-ann-index` flag is an explicit sidecar opt-in and falls back to exact
+search with a warning if the CLAP index is missing, stale, or unsupported.
 
 Concrete English prompts usually work best:
 

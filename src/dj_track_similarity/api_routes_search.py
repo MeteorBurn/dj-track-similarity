@@ -4,8 +4,9 @@ from collections.abc import Callable
 
 from fastapi import FastAPI, HTTPException
 
-from .api_schemas import SearchRequest, SonaraSearchRequest, TextSearchRequest
+from .api_schemas import HybridSearchRequest, HybridSearchResponse, SearchRequest, SonaraSearchRequest, TextSearchRequest
 from .api_state import AppDatabaseState
+from .hybrid_search import build_hybrid_search_preview
 from .search import SearchFilters, SimilaritySearch
 from .sonara_similarity import SonaraSimilaritySearch
 
@@ -74,6 +75,29 @@ def register_search_routes(
             return searcher.search_vector(vector, filters=filters, limit=request.limit)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.post("/api/search/hybrid", response_model=HybridSearchResponse)
+    def hybrid_search(request: HybridSearchRequest):
+        try:
+            result = build_hybrid_search_preview(
+                state.require_db(),
+                seed_track_ids=request.seed_track_ids,
+                sources=request.sources,
+                weights=request.weights,
+                score_profile=request.score_profile,
+                per_source=request.per_source,
+                limit=request.limit,
+                rrf_k=request.rrf_k,
+                random_seed=request.random_seed,
+                transition_risk_weight=request.transition_risk_weight,
+                transition_risk_version=request.transition_risk_version,
+                classifier_preferences=request.classifier_preferences,
+                classifier_risk_weights=request.classifier_risk_weights,
+                record_session=request.record_session,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return result.api_response(include_diagnostics=request.include_diagnostics)
 
 
 def _clean_text_queries(queries: list[str]) -> list[str]:

@@ -112,7 +112,11 @@ def register_library_routes(
 
     @app.get("/api/library/summary")
     def library_summary():
-        classifier_keys = [str(classifier["classifier_key"]) for classifier in promoted_classifiers()]
+        classifier_keys = [
+            str(classifier["classifier_key"])
+            for classifier in promoted_classifiers()
+            if bool(classifier.get("is_scoring_compatible", True))
+        ]
         return state.require_db().library_summary(classifier_keys=classifier_keys)
 
     @app.get("/media/{track_id}")

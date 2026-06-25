@@ -189,6 +189,8 @@ class HybridSearchRequest(BaseModel):
 class HybridSearchResult(BaseModel):
     track: dict[str, Any]
     score: float
+    total_score: float
+    calibrated_score: None = None
     adjusted_score: float
     transition_risk: float | None = None
     transition_risk_penalty: float
@@ -196,8 +198,11 @@ class HybridSearchResult(BaseModel):
     raw_rrf_score: float
     rank: int
     score_breakdown: dict[str, dict[str, float | int]]
-    match_character: dict[str, Any] | None = None
+    risk_breakdown: dict[str, float | None] = Field(default_factory=dict)
+    source_support: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    match_character: dict[str, float] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
+    explanation: list[str] = Field(default_factory=list)
     transition_diagnostics: dict[str, Any] = Field(default_factory=dict)
     diagnostics: dict[str, Any] = Field(default_factory=dict)
     feedback: dict[str, Any] | None = None

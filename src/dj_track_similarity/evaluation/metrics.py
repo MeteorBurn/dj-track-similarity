@@ -1,7 +1,26 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 import math
+
+
+EXPLANATION_REASON_TAG_AXES = {
+    "good_groove": ("groove", "high"),
+    "good_density": ("density", "high"),
+    "bad_density": ("density", "low"),
+    "good_texture": ("texture", "high"),
+    "wrong_texture": ("texture", "low"),
+    "good_mood": ("mood", "high"),
+    "good_tonal": ("tonal", "high"),
+    "bad_tonal": ("tonal", "low"),
+    "too_vocal": ("vocalness", "low"),
+    "wrong_energy": ("energy_flow", "low"),
+    "interesting_adjacent": ("novelty", "high"),
+    "too_obvious": ("novelty", "low"),
+}
+EXPLANATION_HIGH_THRESHOLD = 0.55
+EXPLANATION_LOW_THRESHOLD = 0.45
+EXPLANATION_NEUTRAL_VALUE = 0.5
 
 
 def precision_at_k(relevances: Sequence[int | float], k: int, threshold: int | float = 2) -> float:
@@ -103,14 +122,40 @@ def reject_rate_at_k(relevances: Sequence[int | float], k: int) -> float:
     return rating_rate_at_k(relevances, k, 0)
 
 
-def explanation_tag_agreement_at_k(k: int = 3) -> dict[str, float | int | str | None]:
+def explanation_tag_agreement_at_k(
+    k: int = 3,
+    comparisons: Sequence[Mapping[str, object]] | None = None,
+) -> dict[str, float | int | str | None]:
     clean_k = max(1, int(k))
+    if not comparisons:
+        return _explanation_tag_agreement_unavailable(clean_k, "No comparable PR-22 explanation rows were provided.")
+
+    considered = [comparison for comparison in comparisons if _comparison_rank(comparison) <= clean_k]
+    if not considered:
+        return _explanation_tag_agreement_unavailable(clean_k, f"No judged rows were available within rank {clean_k}.")
+
+    compared_events = 0
+    compared_tags = 0
+    agreement_sum = 0.0
+    for comparison in considered:
+        event_agreements = _event_explanation_tag_agreements(comparison)
+        if not event_agreements:
+            continue
+        compared_events += 1
+        compared_tags += len(event_agreements)
+        agreement_sum += sum(event_agreements)
+
+    if compared_tags <= 0:
+        return _explanation_tag_agreement_unavailable(clean_k, "Reason tags could not be compared to explanation axes.")
+
     return {
-        "status": "not_available",
-        "value": None,
-        "coverage": 0.0,
+        "status": "ok",
+        "value": agreement_sum / compared_tags,
+        "coverage": compared_events / len(considered),
         "k": clean_k,
-        "reason": "PR-22 explanation tags are not implemented yet, so agreement is intentionally not computed.",
+        "reason": "Computed only for judged rows with comparable reason tags and non-neutral explanation axes.",
+        "compared_events": compared_events,
+        "compared_tags": compared_tags,
     }
 
 
@@ -170,6 +215,84 @@ def _reciprocal_rank(relevances: Sequence[int | float], k: int, threshold: int |
         if relevance >= threshold:
             return 1 / rank
     return 0.0
+
+
+def _explanation_tag_agreement_unavailable(clean_k: int, reason: str) -> dict[str, float | int | str | None]:
+    return {
+        "status": "not_available",
+        "value": None,
+        "coverage": 0.0,
+        "k": clean_k,
+        "reason": reason,
+        "compared_events": 0,
+        "compared_tags": 0,
+    }
+
+
+def _comparison_rank(comparison: Mapping[str, object]) -> int:
+    rank = comparison.get("rank")
+    if isinstance(rank, bool):
+        return 1
+    try:
+        clean_rank = int(rank) if rank is not None else 1
+    except (TypeError, ValueError):
+        return 1
+    return max(1, clean_rank)
+
+
+def _event_explanation_tag_agreements(comparison: Mapping[str, object]) -> list[float]:
+    match_character = _comparison_match_character(comparison)
+    if not match_character:
+        return []
+    agreements: list[float] = []
+    for tag in _comparison_reason_tags(comparison):
+        axis_expectation = EXPLANATION_REASON_TAG_AXES.get(tag)
+        if axis_expectation is None:
+            continue
+        axis, expectation = axis_expectation
+        axis_value = _axis_value(match_character, axis)
+        if axis_value is None:
+            continue
+        if expectation == "high":
+            agreements.append(1.0 if axis_value >= EXPLANATION_HIGH_THRESHOLD else 0.0)
+        else:
+            agreements.append(1.0 if axis_value <= EXPLANATION_LOW_THRESHOLD else 0.0)
+    return agreements
+
+
+def _comparison_match_character(comparison: Mapping[str, object]) -> Mapping[str, object] | None:
+    direct_match_character = comparison.get("match_character")
+    if isinstance(direct_match_character, Mapping):
+        return direct_match_character
+    score_breakdown = comparison.get("score_breakdown")
+    if not isinstance(score_breakdown, Mapping):
+        return None
+    nested_match_character = score_breakdown.get("match_character")
+    return nested_match_character if isinstance(nested_match_character, Mapping) else None
+
+
+def _comparison_reason_tags(comparison: Mapping[str, object]) -> list[str]:
+    reason_tags = comparison.get("reason_tags")
+    if isinstance(reason_tags, str):
+        return [reason_tags]
+    if not isinstance(reason_tags, Sequence):
+        return []
+    return [str(tag) for tag in reason_tags]
+
+
+def _axis_value(match_character: Mapping[str, object], axis: str) -> float | None:
+    raw_value = match_character.get(axis)
+    if raw_value is None or isinstance(raw_value, bool):
+        return None
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(value):
+        return None
+    if value == EXPLANATION_NEUTRAL_VALUE:
+        return None
+    return max(0.0, min(1.0, value))
 
 
 def _pair_credit(preferred_score: int | float, other_score: int | float) -> float:

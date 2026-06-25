@@ -45,6 +45,7 @@ export type SearchResult = {
 };
 
 export type HybridSearchSource = "mert" | "maest" | "sonara" | "clap";
+export type HybridMatchAxis = "groove" | "density" | "texture" | "mood" | "tonal" | "vocalness" | "energy_flow" | "novelty";
 
 export type HybridSearchPayload = {
   seed_track_ids: number[];
@@ -98,6 +99,8 @@ export type EvaluationPairFeedbackState = {
 export type HybridSearchResult = {
   track: Track;
   score: number;
+  total_score: number;
+  calibrated_score?: null;
   adjusted_score: number;
   transition_risk?: number | null;
   transition_risk_penalty: number;
@@ -105,13 +108,20 @@ export type HybridSearchResult = {
   raw_rrf_score: number;
   rank: number;
   score_breakdown: Record<string, { rank: number; weight: number; contribution: number; score?: number }>;
-  match_character?: {
-    consensus?: string;
-    source_count?: number;
-    sources?: string[];
-    [key: string]: unknown;
-  } | null;
+  risk_breakdown: Record<string, number | null>;
+  source_support: Record<string, {
+    available: boolean;
+    rank?: number | null;
+    score?: number | null;
+    weight?: number | null;
+    contribution?: number | null;
+    best_seed_track_id?: number | null;
+    best_rank?: number | null;
+    supporting_seed_track_ids?: number[];
+  }>;
+  match_character: Record<HybridMatchAxis, number>;
   warnings: string[];
+  explanation: string[];
   transition_diagnostics: Record<string, unknown>;
   diagnostics: Record<string, unknown>;
   feedback?: EvaluationPairFeedbackState | null;

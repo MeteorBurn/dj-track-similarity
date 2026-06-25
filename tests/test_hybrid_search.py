@@ -8,6 +8,7 @@ import pytest
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.evaluation.candidates import CandidatePoolRow, CandidateSourceContribution
 import dj_track_similarity.hybrid_search as hybrid_search
+from dj_track_similarity.hybrid_explanation import MATCH_CHARACTER_AXES
 from dj_track_similarity.hybrid_search import build_hybrid_search_preview
 
 
@@ -29,6 +30,10 @@ def test_hybrid_search_uses_equal_weights_by_default(tmp_path: Path) -> None:
     assert result.results[0].transition_risk is not None
     assert result.results[0].transition_diagnostics["supporting_seed_count"] == 1
     assert "source_disagreement_risk" in result.results[0].transition_diagnostics["components"]
+    assert result.results[0].total_score == result.results[0].adjusted_score
+    assert result.results[0].calibrated_score is None
+    assert tuple(result.results[0].match_character) == MATCH_CHARACTER_AXES
+    assert set(result.results[0].risk_breakdown) == {"bpm", "tonal", "energy_jump", "source_disagreement"}
 
 
 def test_hybrid_search_custom_weights_change_order(tmp_path: Path) -> None:
@@ -297,6 +302,7 @@ def test_hybrid_search_configured_clap_without_rows_does_not_inflate_source_risk
     assert result.weights_used == {"mert": pytest.approx(1 / 3), "maest": pytest.approx(1 / 3), "clap": pytest.approx(1 / 3)}
     assert any("source=clap returned no candidates" in warning for warning in result.warnings)
     assert set(shared_row.score_breakdown) == {"mert", "maest"}
+    assert shared_row.source_support["clap"]["available"] is False
     assert shared_row.transition_diagnostics["components"]["source_disagreement_risk"] == 0.0
 
 

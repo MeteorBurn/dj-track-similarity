@@ -63,7 +63,7 @@ def build_search_evaluation_report(
             "rows": row_counts,
         },
         "judged_label_gate": judged_gate,
-        "metric_availability": {"explanation_tag_agreement_at_3": explanation_tag_agreement_at_k(3)},
+        "metric_availability": {"explanation_tag_agreement_at_3": explanation_tag_agreement_at_k(3, _explanation_tag_comparisons(sessions, feedback_map))},
         "overall": _aggregate_report(session_reports, clean_k_values),
         "by_mode": _mode_reports(session_reports, clean_k_values),
         "sessions": session_reports,
@@ -113,9 +113,33 @@ def _judged_event(
         "track_id": candidate_track_id,
         "rank": int(event["rank"]),
         "rating": int(label["rating"]),
+        "reason_tags": list(label.get("reason_tags") or []),
+        "score_breakdown": dict(event.get("score_breakdown") or {}),
         "source": str(label["source"]),
         "seed_track_id": int(label["seed_track_id"]),
     }
+
+
+def _explanation_tag_comparisons(
+    sessions: Sequence[Mapping[str, Any]],
+    feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    comparisons: list[dict[str, Any]] = []
+    for session in sessions:
+        seed_track_ids = [int(track_id) for track_id in session["seed_track_ids"]]
+        source = _session_feedback_source(session)
+        for event in session["events"]:
+            label = _matching_label(seed_track_ids, int(event["track_id"]), source, feedback_map)
+            if label is None:
+                continue
+            comparisons.append(
+                {
+                    "rank": int(event["rank"]),
+                    "reason_tags": list(label.get("reason_tags") or []),
+                    "score_breakdown": dict(event.get("score_breakdown") or {}),
+                },
+            )
+    return comparisons
 
 
 def _matching_label(

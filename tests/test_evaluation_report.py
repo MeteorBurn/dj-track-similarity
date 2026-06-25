@@ -76,6 +76,28 @@ def test_judged_only_report_gate_counts_only_feedback_matched_to_events(tmp_path
     assert report["metric_availability"]["explanation_tag_agreement_at_3"]["status"] == "not_available"
 
 
+def test_report_computes_explanation_tag_agreement_when_reason_tags_match_axes(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed_id = db.upsert_track(path=tmp_path / "seed.wav", size=10, mtime=1, metadata={"title": "Seed"})
+    candidate_id = db.upsert_track(path=tmp_path / "candidate.wav", size=10, mtime=1, metadata={"title": "Candidate"})
+    session_id = db.create_search_session("hybrid_search_preview", [seed_id], {"feedback_source": "hybrid_ui", "limit": 1})
+    db.record_search_result_event(
+        session_id,
+        candidate_id,
+        rank=1,
+        total_score=0.9,
+        score_breakdown={"match_character": {"groove": 0.82, "density": 0.76}},
+    )
+    db.upsert_track_pair_feedback(seed_id, candidate_id, 3, reason_tags=("good_groove", "good_density"), source="hybrid_ui")
+
+    report = build_search_evaluation_report(db, k_values=[3])
+
+    agreement = report["metric_availability"]["explanation_tag_agreement_at_3"]
+    assert agreement["status"] == "ok"
+    assert agreement["value"] == 1.0
+    assert agreement["coverage"] == 1.0
+
+
 def test_judged_label_status_thresholds() -> None:
     assert judged_label_status(49) == "insufficient_data"
     assert judged_label_status(50) == "sufficient_for_diagnostics"

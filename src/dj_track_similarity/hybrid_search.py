@@ -16,6 +16,7 @@ from .evaluation.candidates import (
 )
 from .evaluation.score_profiles import ScoreProfile, score_profile_from_dict
 from .evaluation.weighted_candidates import weighted_rrf_components, weighted_rrf_score
+from .hybrid_explanation import build_hybrid_explanation
 from .models import Track
 from .transition_diagnostics import COMPONENT_NAMES, TransitionDiagnostics, compute_transition_diagnostics
 
@@ -26,8 +27,8 @@ HYBRID_SEARCH_SESSION_MODE = "hybrid_search_preview"
 HYBRID_SEARCH_LIMITATIONS = (
     "Hybrid search is an explicit weighted rank-fusion preview over existing MERT, MAEST, SONARA, and CLAP analysis data.",
     "CLAP is used only as stored audio embeddings in this preview; prompt-aware CLAP hybrid search is not part of this path.",
-    "The score is an optional transition-risk-adjusted weighted RRF preview score; it is not calibrated confidence, probability, or a human-taste estimate.",
-    "Transition risk is diagnostic only and is not AutoMix, beatgrid, cue-point detection, or calibrated transition probability.",
+    "The score is an optional transition-risk-adjusted weighted RRF preview score; it is diagnostic ranking output, not calibrated human-taste evidence.",
+    "Transition risk is diagnostic only and is not AutoMix, beatgrid, cue-point detection, or a calibrated transition estimate.",
     "The endpoint reads the selected SQLite database only and does not write sessions, train classifiers, modify production search scoring, or write audio files.",
 )
 
@@ -36,6 +37,8 @@ HYBRID_SEARCH_LIMITATIONS = (
 class HybridSearchResultRow:
     track: Track
     score: float
+    total_score: float
+    calibrated_score: None
     adjusted_score: float
     transition_risk: float | None
     transition_risk_penalty: float
@@ -43,8 +46,11 @@ class HybridSearchResultRow:
     raw_rrf_score: float
     rank: int
     score_breakdown: Mapping[str, Mapping[str, float | int]]
-    match_character: Mapping[str, Any]
+    risk_breakdown: Mapping[str, float | None]
+    source_support: Mapping[str, Mapping[str, Any]]
+    match_character: Mapping[str, float]
     warnings: tuple[str, ...]
+    explanation: tuple[str, ...]
     transition_diagnostics: Mapping[str, Any]
     diagnostics: Mapping[str, Any]
     feedback: Mapping[str, Any] | None
@@ -53,6 +59,8 @@ class HybridSearchResultRow:
         return {
             "track": asdict(self.track),
             "score": self.score,
+            "total_score": self.total_score,
+            "calibrated_score": self.calibrated_score,
             "adjusted_score": self.adjusted_score,
             "transition_risk": self.transition_risk,
             "transition_risk_penalty": self.transition_risk_penalty,
@@ -60,8 +68,11 @@ class HybridSearchResultRow:
             "raw_rrf_score": self.raw_rrf_score,
             "rank": self.rank,
             "score_breakdown": dict(self.score_breakdown),
+            "risk_breakdown": dict(self.risk_breakdown),
+            "source_support": {source: dict(support) for source, support in self.source_support.items()},
             "match_character": dict(self.match_character),
             "warnings": list(self.warnings),
+            "explanation": list(self.explanation),
             "transition_diagnostics": dict(self.transition_diagnostics) if include_diagnostics else {},
             "diagnostics": dict(self.diagnostics) if include_diagnostics else {},
             "feedback": dict(self.feedback) if self.feedback is not None else None,
@@ -159,6 +170,7 @@ def build_hybrid_search_preview(
         random_seed=clean_random_seed,
     )
     results = _ranked_result_rows(
+        db,
         scored_candidates,
         limit=clean_limit,
         sources=clean_sources,
@@ -311,6 +323,7 @@ def _weighted_rrf_components_with_source_scores(
 
 
 def _ranked_result_rows(
+    db: LibraryDatabase,
     scored_candidates: Sequence[_ScoredHybridCandidate],
     *,
     limit: int,
@@ -334,19 +347,35 @@ def _ranked_result_rows(
     result_rows: list[HybridSearchResultRow] = []
     for rank, ranked_candidate in enumerate(ranked_candidates, start=1):
         candidate = ranked_candidate.scored_candidate
+        candidate_track = db.get_track(candidate.candidate.track.id)
+        explanation = build_hybrid_explanation(
+            candidate_track=candidate_track,
+            seed_tracks=seed_tracks,
+            source_contributions=candidate.candidate.source_contributions,
+            source_seed_diagnostics=candidate.candidate.source_seed_diagnostics,
+            score_breakdown=candidate.score_breakdown,
+            transition_diagnostics=ranked_candidate.transition_diagnostics,
+            sources=sources,
+            total_score=ranked_candidate.adjusted_score,
+        )
         result_rows.append(
             HybridSearchResultRow(
                 track=candidate.candidate.track,
                 score=ranked_candidate.adjusted_score,
+                total_score=explanation.total_score,
+                calibrated_score=explanation.calibrated_score,
                 adjusted_score=ranked_candidate.adjusted_score,
                 transition_risk=ranked_candidate.transition_risk,
                 transition_risk_penalty=ranked_candidate.transition_risk_penalty,
                 transition_risk_weight=transition_risk_weight,
                 raw_rrf_score=candidate.raw_rrf_score,
                 rank=rank,
-                score_breakdown=candidate.score_breakdown,
-                match_character=_match_character(candidate.candidate, sources),
-                warnings=_transition_warnings(ranked_candidate.transition_diagnostics),
+                score_breakdown=explanation.score_breakdown,
+                risk_breakdown=explanation.risk_breakdown,
+                source_support=explanation.source_support,
+                match_character=explanation.match_character,
+                warnings=explanation.warnings,
+                explanation=explanation.explanation,
                 transition_diagnostics=ranked_candidate.transition_diagnostics,
                 diagnostics=_candidate_diagnostics(candidate.candidate),
                 feedback=_candidate_feedback(
@@ -428,6 +457,8 @@ def _hybrid_event_score_breakdown(row: HybridSearchResultRow, *, rrf_k: int) -> 
     return {
         "score_kind": "weighted_rrf_adjusted" if row.transition_risk_weight > 0 else "weighted_rrf",
         "rank": row.rank,
+        "total_score": row.total_score,
+        "calibrated_score": row.calibrated_score,
         "adjusted_score": row.adjusted_score,
         "raw_rrf_score": row.raw_rrf_score,
         "transition_risk": row.transition_risk,
@@ -440,7 +471,12 @@ def _hybrid_event_score_breakdown(row: HybridSearchResultRow, *, rrf_k: int) -> 
             "components": source_payload,
         },
         "sources": source_payload,
+        "score_breakdown": {source: dict(details) for source, details in sorted(row.score_breakdown.items())},
+        "risk_breakdown": dict(row.risk_breakdown),
+        "source_support": {source: dict(support) for source, support in sorted(row.source_support.items())},
         "match_character": dict(row.match_character),
+        "warnings": list(row.warnings),
+        "explanation": list(row.explanation),
         "transition_diagnostics": dict(row.transition_diagnostics),
     }
 
@@ -501,19 +537,6 @@ def _ranked_candidate(
         transition_risk_penalty=transition_risk_penalty,
         transition_diagnostics=transition_diagnostics,
     )
-
-
-def _match_character(candidate: _HybridCandidate, sources: Sequence[str]) -> dict[str, Any]:
-    source_count = len(candidate.source_contributions)
-    requested_source_count = len(sources)
-    consensus = "multi_source" if source_count > 1 else "single_source"
-    if source_count == requested_source_count and requested_source_count > 1:
-        consensus = "all_requested_sources"
-    return {
-        "consensus": consensus,
-        "source_count": source_count,
-        "sources": sorted(candidate.source_contributions),
-    }
 
 
 def _candidate_diagnostics(candidate: _HybridCandidate) -> dict[str, Any]:
@@ -665,23 +688,6 @@ def _mean_transition_diagnostics(
         "seed_scope": seed_scope,
         "method": "mean_aggregated_component_risks",
     }
-
-
-def _transition_warnings(transition_diagnostics: Mapping[str, Any]) -> tuple[str, ...]:
-    warnings = transition_diagnostics.get("warnings")
-    if not isinstance(warnings, list) or not warnings:
-        return ()
-    missing_components = sorted(_warning_component(warning) for warning in warnings if str(warning).startswith("missing_"))
-    other_warnings = sorted(str(warning) for warning in warnings if not str(warning).startswith("missing_"))
-    result_warnings: list[str] = []
-    if missing_components:
-        result_warnings.append(f"transition diagnostics missing: {', '.join(missing_components)}")
-    result_warnings.extend(f"transition diagnostics: {warning}" for warning in other_warnings)
-    return tuple(result_warnings)
-
-
-def _warning_component(warning: object) -> str:
-    return str(warning).removeprefix("missing_").replace("_", " ")
 
 
 def _resolve_weights(

@@ -80,3 +80,47 @@ def test_explanation_tag_agreement_is_not_available_until_explanations_exist() -
     assert availability["status"] == "not_available"
     assert availability["value"] is None
     assert availability["coverage"] == 0.0
+
+
+def test_explanation_tag_agreement_computes_for_matching_axes() -> None:
+    availability = explanation_tag_agreement_at_k(
+        3,
+        [
+            {
+                "rank": 1,
+                "reason_tags": ["good_groove", "bad_tonal"],
+                "score_breakdown": {"match_character": {"groove": 0.8, "tonal": 0.2}},
+            },
+            {
+                "rank": 2,
+                "reason_tags": ["good_density"],
+                "score_breakdown": {"match_character": {"density": 0.4}},
+            },
+            {
+                "rank": 4,
+                "reason_tags": ["good_texture"],
+                "score_breakdown": {"match_character": {"texture": 0.9}},
+            },
+        ],
+    )
+
+    assert availability["status"] == "ok"
+    assert availability["value"] == pytest.approx(2 / 3)
+    assert availability["coverage"] == pytest.approx(1.0)
+    assert availability["compared_tags"] == 3
+
+
+def test_explanation_tag_agreement_stays_unavailable_for_neutral_axes() -> None:
+    availability = explanation_tag_agreement_at_k(
+        3,
+        [
+            {
+                "rank": 1,
+                "reason_tags": ["good_groove"],
+                "score_breakdown": {"match_character": {"groove": 0.5}},
+            },
+        ],
+    )
+
+    assert availability["status"] == "not_available"
+    assert availability["coverage"] == 0.0

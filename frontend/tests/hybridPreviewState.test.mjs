@@ -24,7 +24,7 @@ test("hybrid preview clears current rows before backend errors are shown", () =>
 test("hybrid backend limitations stay out of the default result area", () => {
   assert.doesNotMatch(source, /\[\.\.\.hybridWarnings,\s*\.\.\.hybridLimitations\]/);
   assert.match(source, /title=\{hybridDiagnosticTitle\}/);
-  assert.match(source, /Preview score is adjusted weighted RRF, not confidence\./);
+  assert.match(source, /Preview score is adjusted weighted RRF\./);
 });
 
 test("hybrid preview sends optional transition risk penalty", () => {
@@ -50,4 +50,15 @@ test("hybrid preview exposes CLAP as a stored audio source", () => {
   assert.match(source, /label: "CLAP"/);
   assert.match(source, /Uses stored CLAP audio embeddings only, without prompt input\./);
   assert.match(source, /stored MERT, MAEST, SONARA, and CLAP analysis data only/);
+});
+
+test("hybrid preview renders PR-22 why-this-track diagnostics", () => {
+  assert.match(source, /function HybridWhyThisTrack/);
+  assert.match(source, /Why this track\?/);
+  assert.match(source, /Unsupervised diagnostic/);
+  assert.match(source, /Adjusted score/);
+  assert.match(source, /Risk estimate/);
+  assert.match(source, /hybridAxisOrder/);
+  assert.match(source, /hybrid-source-support/);
+  assert.doesNotMatch(source, /confidence|probability|guaranteed|perfect transition/i);
 });

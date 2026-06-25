@@ -1,6 +1,6 @@
 import { Dispatch, Fragment, SetStateAction, useEffect, useRef, useState } from "react";
 import { Download, FolderOpen, ListFilter, ListMusic, Pause, Play, RotateCcw, Search, Tags, Trash2, X } from "lucide-react";
-import { AnalysisJobStatus, api, HybridSearchResult, HybridSearchSource, PromotedClassifier, SearchResult, SetBuilderBpmChange, SetBuilderBpmMode, SetBuilderClassifierFlow, SetBuilderEnergyCurve, SetBuilderGeneratePayload, SetBuilderMode, SetBuilderSeedMode, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
+import { AnalysisJobStatus, api, HybridMatchAxis, HybridSearchResult, HybridSearchSource, PromotedClassifier, SearchResult, SetBuilderBpmChange, SetBuilderBpmMode, SetBuilderClassifierFlow, SetBuilderEnergyCurve, SetBuilderGeneratePayload, SetBuilderMode, SetBuilderSeedMode, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
 import type { EvaluationPairFeedbackResult, EvaluationPairFeedbackState, EvaluationPairReasonTag } from "./api";
 import type { ClapPromptPreset } from "./clapPrompt";
 import { playlistPage } from "./playlistView";
@@ -180,6 +180,17 @@ const hybridSourceOptions: Array<{ key: HybridSearchSource; label: string; title
     title: "CLAP source for Hybrid preview. Type: checkbox on/off. Range: enabled or disabled. Uses stored CLAP audio embeddings only, without prompt input."
   }
 ];
+const hybridAxisOrder: HybridMatchAxis[] = ["groove", "density", "texture", "mood", "tonal", "vocalness", "energy_flow", "novelty"];
+const hybridAxisLabels: Record<HybridMatchAxis, string> = {
+  groove: "Groove",
+  density: "Density",
+  texture: "Texture",
+  mood: "Mood",
+  tonal: "Tonal",
+  vocalness: "Vocalness",
+  energy_flow: "Energy flow",
+  novelty: "Novelty"
+};
 
 type PairFeedbackRating = 0 | 1 | 2 | 3;
 
@@ -380,7 +391,7 @@ export function SearchPlaylistPanel({
   const hybridWeightTitle = "Source weight for Weighted preview. Type: number 0.00-1.00. Equal values keep sources balanced; disabled sources are ignored.";
   const hybridPerSourceTitle = "Candidates fetched per enabled source before weighted fusion. Type: integer 1-100. Default: 30.";
   const hybridLimitTitle = "Maximum Hybrid preview rows to show. Type: integer 1-100. Default: 25.";
-  const hybridRiskPenaltyTitle = "Optional penalty for diagnostic transition risk. Type: number 0.00-1.00. Not calibrated confidence.";
+  const hybridRiskPenaltyTitle = "Optional penalty for diagnostic transition risk. Type: number 0.00-1.00. Score remains an unsupervised diagnostic.";
   const autoSeedCountDisabled = setSeedMode !== "auto";
   const autoSeedCountControlTitle = autoSeedCountDisabled ? `${setAutoSeedCountTitle} Активно только когда выбран Auto - random start.` : setAutoSeedCountTitle;
   const bpmControlsDisabled = setBpmMode === "general";
@@ -880,13 +891,16 @@ export function SearchPlaylistPanel({
                       onPreview={setPreview}
                       onDetails={setMetadataTrack}
                       rowSlot={
-                        <HybridFeedbackControls
-                          draft={hybridFeedbackDrafts[result.track.id] || emptyHybridFeedbackDraft()}
-                          saving={Boolean(hybridFeedbackSaving[result.track.id])}
-                          error={hybridFeedbackErrors[result.track.id] || ""}
-                          onRate={(rating) => setHybridFeedbackRating(result, rating)}
-                          onToggleReason={(reasonTag) => toggleHybridFeedbackReason(result, reasonTag)}
-                        />
+                        <div className="hybrid-row-diagnostics">
+                          <HybridWhyThisTrack result={result} />
+                          <HybridFeedbackControls
+                            draft={hybridFeedbackDrafts[result.track.id] || emptyHybridFeedbackDraft()}
+                            saving={Boolean(hybridFeedbackSaving[result.track.id])}
+                            error={hybridFeedbackErrors[result.track.id] || ""}
+                            onRate={(rating) => setHybridFeedbackRating(result, rating)}
+                            onToggleReason={(reasonTag) => toggleHybridFeedbackReason(result, reasonTag)}
+                          />
+                        </div>
                       }
                     />
                   ))}
@@ -1156,6 +1170,60 @@ export function SearchPlaylistPanel({
   );
 }
 
+function HybridWhyThisTrack({ result }: { result: HybridSearchResult }) {
+  const axes = hybridAxisOrder.map((axis) => ({ axis, value: clampNumber(result.match_character[axis], 0, 1) }));
+  const sourceRows = hybridSourceKeys.map((source) => ({ source, support: result.source_support[source] }));
+  const riskRows = Object.entries(result.risk_breakdown).filter((entry): entry is [string, number] => typeof entry[1] === "number");
+  const explanationLines = result.explanation.length ? result.explanation : ["Reason signals are unavailable for this row."];
+  return (
+    <div className="hybrid-why-panel" title="Unsupervised diagnostic. Adjusted score, reason signals, and risk estimate use stored analysis data only.">
+      <div className="hybrid-why-header">
+        <span>Why this track?</span>
+        <em>Unsupervised diagnostic</em>
+      </div>
+      <div className="hybrid-score-summary">
+        <span>Adjusted score {formatDiagnosticScore(result.total_score)}</span>
+        <span>Risk estimate {formatOptionalUnitScore(result.transition_risk)}</span>
+      </div>
+      <ul className="hybrid-explanation-list">
+        {explanationLines.slice(0, 3).map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+      <div className="hybrid-axis-grid" aria-label="Hybrid match character axes">
+        {axes.map(({ axis, value }) => (
+          <div className="hybrid-axis-row" key={axis}>
+            <span>{hybridAxisLabels[axis]}</span>
+            <div className="hybrid-axis-bar" aria-hidden="true"><i style={{ width: `${Math.round(value * 100)}%` }} /></div>
+            <em>{value.toFixed(2)}</em>
+          </div>
+        ))}
+      </div>
+      <div className="hybrid-source-support" aria-label="Hybrid source support">
+        {sourceRows.map(({ source, support }) => (
+          <span className={support?.available ? "active" : ""} key={source} title={hybridSourceSupportTitle(source, support)}>
+            {source.toUpperCase()} {hybridSourceSupportLabel(support)}
+          </span>
+        ))}
+      </div>
+      {riskRows.length ? (
+        <div className="hybrid-risk-breakdown" aria-label="Hybrid risk estimate components">
+          {riskRows.map(([name, value]) => (
+            <span key={name}>{name.replaceAll("_", " ")} {value.toFixed(2)}</span>
+          ))}
+        </div>
+      ) : null}
+      {result.warnings.length ? (
+        <div className="hybrid-row-warning-list" aria-label="Hybrid row warnings">
+          {result.warnings.slice(0, 3).map((warning) => (
+            <span key={warning}>{warning}</span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function HybridFeedbackControls({
   draft,
   saving,
@@ -1324,20 +1392,21 @@ function formatHybridInputKey(
 }
 
 function formatHybridDiagnosticTitle(limitations: string[]) {
-  const scoreDescription = "Preview score is adjusted weighted RRF, not confidence. Risk penalty is optional diagnostic transition risk.";
+  const scoreDescription = "Preview score is adjusted weighted RRF. Risk penalty is an optional diagnostic transition estimate.";
   if (!limitations.length) return scoreDescription;
   return `${scoreDescription} ${limitations.join(" ")}`;
 }
 
 function hybridReason(result: HybridSearchResult) {
-  const sourceCount = result.match_character?.source_count ?? Object.keys(result.score_breakdown).length;
+  const sourceCount = hybridAvailableSourceCount(result);
   if (typeof result.transition_risk !== "number") return `weighted_preview_${sourceCount}_sources`;
   return `weighted_preview_${sourceCount}_sources · risk ${result.transition_risk.toFixed(2)}`;
 }
 
 function hybridScoreBreakdown(result: HybridSearchResult) {
-  const sourceCount = result.match_character?.source_count ?? Object.keys(result.score_breakdown).length;
+  const sourceCount = hybridAvailableSourceCount(result);
   const breakdown: Record<string, number> = {
+    total_score: result.total_score,
     adjusted_score: result.adjusted_score,
     raw_rrf_score: result.raw_rrf_score,
     transition_risk: typeof result.transition_risk === "number" ? result.transition_risk : 0,
@@ -1353,6 +1422,37 @@ function hybridScoreBreakdown(result: HybridSearchResult) {
     if (typeof details.score === "number") breakdown[`${source}_source_score`] = details.score;
   }
   return breakdown;
+}
+
+function hybridAvailableSourceCount(result: HybridSearchResult) {
+  const sourceSupport = result.source_support || {};
+  const availableSources = Object.values(sourceSupport).filter((support) => support.available).length;
+  return availableSources || Object.keys(result.score_breakdown).length;
+}
+
+function formatUnitScore(value: number) {
+  return clampNumber(value, 0, 1).toFixed(2);
+}
+
+function formatDiagnosticScore(value: number) {
+  return Number.isFinite(value) ? value.toFixed(2) : "unavailable";
+}
+
+function formatOptionalUnitScore(value?: number | null) {
+  return typeof value === "number" ? formatUnitScore(value) : "unavailable";
+}
+
+function hybridSourceSupportLabel(support?: HybridSearchResult["source_support"][string]) {
+  if (!support?.available) return "unavailable";
+  if (typeof support.rank === "number") return `rank ${support.rank}`;
+  return "available";
+}
+
+function hybridSourceSupportTitle(source: HybridSearchSource, support?: HybridSearchResult["source_support"][string]) {
+  if (!support?.available) return `${source.toUpperCase()} source unavailable for this row; missing data stays neutral.`;
+  const score = typeof support.score === "number" ? ` score ${support.score.toFixed(3)}` : "";
+  const seeds = support.supporting_seed_track_ids?.length ? ` seeds ${support.supporting_seed_track_ids.join(", ")}` : "";
+  return `${source.toUpperCase()} source support: ${hybridSourceSupportLabel(support)}${score}${seeds}.`;
 }
 
 function formatHybridWeightsTitle(weights: Record<string, number>) {

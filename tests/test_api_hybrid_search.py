@@ -39,10 +39,15 @@ def test_hybrid_search_endpoint_returns_unified_diagnostics(monkeypatch, tmp_pat
     assert payload["results"][0]["transition_risk"] is not None
     assert payload["results"][0]["transition_diagnostics"]["supporting_seed_count"] == 1
     assert "maest" in payload["results"][0]["score_breakdown"]
-    assert payload["results"][0]["match_character"]["source_count"] >= 1
+    assert payload["results"][0]["total_score"] == payload["results"][0]["adjusted_score"]
+    assert payload["results"][0]["calibrated_score"] is None
+    assert set(payload["results"][0]["match_character"]) == {"groove", "density", "texture", "mood", "tonal", "vocalness", "energy_flow", "novelty"}
+    assert set(payload["results"][0]["risk_breakdown"]) == {"bpm", "tonal", "energy_jump", "source_disagreement"}
+    assert payload["results"][0]["source_support"]["maest"]["available"] is True
+    assert payload["results"][0]["explanation"]
     assert payload["results"][0]["feedback"] is None
     assert payload["session_id"] is None
-    assert "not calibrated confidence" in " ".join(payload["limitations"])
+    assert "diagnostic ranking output" in " ".join(payload["limitations"])
     assert db.count_evaluation_rows()["search_sessions"] == 0
 
 
@@ -87,10 +92,15 @@ def test_hybrid_search_records_session_events_and_hydrates_feedback(monkeypatch,
     assert session["request"]["record_session"] is True
     first_event_breakdown = session["events"][0]["score_breakdown"]
     assert first_event_breakdown["score_kind"] == "weighted_rrf"
+    assert first_event_breakdown["total_score"] == payload["results"][0]["total_score"]
+    assert first_event_breakdown["calibrated_score"] is None
     assert first_event_breakdown["adjusted_score"] == payload["results"][0]["adjusted_score"]
     assert first_event_breakdown["raw_rrf_score"] == payload["results"][0]["raw_rrf_score"]
     assert first_event_breakdown["transition_risk_weight"] == 0.0
     assert first_event_breakdown["sources"]["maest"]["rank"] == 1
+    assert first_event_breakdown["source_support"]["maest"]["available"] is True
+    assert first_event_breakdown["risk_breakdown"] == payload["results"][0]["risk_breakdown"]
+    assert first_event_breakdown["explanation"] == payload["results"][0]["explanation"]
     assert "score" in first_event_breakdown["sources"]["maest"]
     assert "confidence" not in first_event_breakdown
 

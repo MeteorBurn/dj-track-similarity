@@ -201,24 +201,31 @@ than zero, raw RRF scores are normalized within the candidate set and ranked by
 `adjusted_score = normalized_rrf_score - transition_risk_weight * transition_risk`;
 missing transition risk applies no penalty. The response returns `results`,
 `weights_used`, `sources`, `warnings`, diagnostics, and limitations. Each result
-has a `track`, a preview rank `score` (the adjusted/display score),
-`adjusted_score`, `raw_rrf_score`, `transition_risk_penalty`,
-`transition_risk_weight`, `rank`, per-source `score_breakdown`, light diagnostic
-`match_character` such as source count/consensus, and additive `transition_risk`
-/ `transition_diagnostics` fields. Hybrid rows also include existing
-`feedback` for `source="hybrid_ui"` when that candidate has already been rated
-from the UI; missing feedback is `null` and means unrated. With
+has a `track`, a preview rank `score`/`total_score` (the adjusted display score),
+`calibrated_score: null`, `adjusted_score`, `raw_rrf_score`,
+`transition_risk_penalty`, `transition_risk_weight`, `rank`, per-source
+`score_breakdown`, stable `risk_breakdown` (`bpm`, `tonal`, `energy_jump`,
+`source_disagreement`), `source_support`, and `match_character` axes
+(`groove`, `density`, `texture`, `mood`, `tonal`, `vocalness`, `energy_flow`,
+`novelty`). Missing explanation inputs are shown as neutral/unavailable rather
+than as negative evidence. Rows also include sorted diagnostic `warnings`, short
+`explanation` lines, additive `transition_risk` / `transition_diagnostics`, and
+existing `feedback` for `source="hybrid_ui"` when that candidate has already been
+rated from the UI; missing feedback is `null` and means unrated. With
 `record_session: true`, the response includes `session_id` and records one
 `hybrid_search_preview` session plus one `search_result_events` row per returned
 candidate. Event score breakdown JSON uses diagnostic names such as
 `score_kind`, `adjusted_score`, `raw_rrf_score`, `transition_risk`,
-`transition_risk_penalty`, `transition_risk_weight`, and per-source rank/score
-payloads. Transition diagnostics use
+`transition_risk_penalty`, `transition_risk_weight`, per-source rank/score
+payloads, and the PR-22 explanation fields (`total_score`, `calibrated_score`,
+`score_breakdown`, `risk_breakdown`, `source_support`, `match_character`,
+`warnings`, and `explanation`). The legacy `sources` event payload is preserved
+for source-rank readers. Transition diagnostics use
 stored BPM half/double compatibility, exact-key equality, energy jump, and
 source-consensus disagreement. They are lightweight diagnostic values for future
 ranking experiments, not AutoMix, beatgrid or cue-point detection, and not a
-calibrated transition probability. The score is a preview rank score, not
-confidence, probability, or a calibrated estimate of human taste. Missing source
+calibrated transition estimate. The score is a preview rank score, not a
+calibrated estimate of human taste. Missing source
 coverage is reported in `warnings`; a configured source with no returned rows is
 absent from scoring and transition source-consensus risk. If no source can return candidates, the
 endpoint returns an empty result list rather than failing. It reads stored SQLite

@@ -1733,7 +1733,7 @@ h2 {
 }
 
 .result-row.with-row-slot {
-  grid-template-columns: 34px minmax(0, 1fr) 34px 86px 54px minmax(210px, 0.95fr) 34px 34px;
+  grid-template-columns: 34px minmax(0, 0.85fr) 34px 86px 54px minmax(320px, 1.35fr) 34px 34px;
 }
 
 .result-row-slot {
@@ -2080,8 +2080,116 @@ h2 {
 .hybrid-preview-results {
   display: grid;
   gap: 6px;
-  max-height: 260px;
+  max-height: 420px;
   overflow: auto;
+}
+
+.hybrid-row-diagnostics {
+  display: grid;
+  gap: 6px;
+}
+
+.hybrid-why-panel {
+  background:
+    radial-gradient(circle at top left, var(--accent-muted-bg), transparent 54%),
+    var(--surface-raised);
+  border: 1px solid var(--accent-muted-border);
+  border-radius: 6px;
+  box-shadow: inset 0 1px 0 var(--inset-highlight);
+  display: grid;
+  gap: 6px;
+  padding: 7px;
+}
+
+.hybrid-why-header,
+.hybrid-score-summary,
+.hybrid-source-support,
+.hybrid-risk-breakdown,
+.hybrid-row-warning-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.hybrid-why-header {
+  align-items: center;
+  color: var(--text-chip);
+  font-size: 12px;
+  font-weight: 720;
+  justify-content: space-between;
+}
+
+.hybrid-why-header em,
+.hybrid-score-summary span,
+.hybrid-source-support span,
+.hybrid-risk-breakdown span {
+  border: 1px solid var(--border-muted);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1;
+  padding: 3px 6px;
+}
+
+.hybrid-source-support span.active {
+  background: var(--accent-soft-bg);
+  border-color: var(--accent-soft-border);
+  color: var(--accent);
+}
+
+.hybrid-explanation-list {
+  color: var(--text-track);
+  display: grid;
+  font-size: 12px;
+  gap: 3px;
+  line-height: 1.3;
+  margin: 0;
+  padding-left: 16px;
+}
+
+.hybrid-axis-grid {
+  display: grid;
+  gap: 4px;
+}
+
+.hybrid-axis-row {
+  align-items: center;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 72px minmax(40px, 1fr) 36px;
+}
+
+.hybrid-axis-row span,
+.hybrid-axis-row em {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.hybrid-axis-row em {
+  color: var(--text-soft);
+  text-align: right;
+}
+
+.hybrid-axis-bar {
+  background: var(--surface-muted);
+  border: 1px solid var(--border-muted);
+  border-radius: 999px;
+  height: 7px;
+  overflow: hidden;
+}
+
+.hybrid-axis-bar i {
+  background: linear-gradient(90deg, var(--accent), var(--accent-border));
+  display: block;
+  height: 100%;
+}
+
+.hybrid-row-warning-list span {
+  color: var(--warning-muted-text);
+  font-size: 11px;
+  line-height: 1.25;
 }
 
 .hybrid-feedback-controls {

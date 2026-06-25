@@ -252,8 +252,11 @@ session for the request seed list and one `search_result_events` row per returne
 candidate. The event score breakdown stores diagnostic names such as
 `score_kind`, `adjusted_score`, `raw_rrf_score`, `transition_risk`,
 `transition_risk_penalty`, `transition_risk_weight`, and per-source rank/score
-payloads. These are ranking diagnostics, not confidence values or production
-weights.
+payloads. It also stores PR-22 explanation fields (`total_score`,
+`calibrated_score: null`, `score_breakdown`, `risk_breakdown`, `source_support`,
+`match_character`, `warnings`, and `explanation`) while preserving the legacy
+`sources` payload used by reports, calibration, and ablation readers. These are
+ranking diagnostics, not production weights or calibrated human-taste estimates.
 
 The local Web API exposes the same evaluation data under `/api/evaluation/*`.
 The API summary endpoint reads only these v4 tables, manual feedback endpoints

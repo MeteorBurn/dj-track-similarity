@@ -236,22 +236,34 @@ exact sources (`mert`, `maest`, `sonara`, `clap`), excludes the seeds, and ranks
 union with weighted reciprocal-rank fusion. CLAP is a stored audio-embedding
 source in this preview, not a prompt-aware Hybrid UI. If no inline `weights` or
 `score_profile` is supplied, requested sources use equal weights. The response
-contains a preview `score`, `adjusted_score`, `raw_rrf_score`,
-`transition_risk_penalty`, `transition_risk_weight`, per-source rank/weight
-breakdown, light source-support diagnostics, lightweight transition diagnostics,
-warnings, `weights_used`, and limitations. With the default risk penalty `0.0`,
-ranking stays the plain weighted-RRF preview. When the penalty is greater than
-zero, the preview normalizes raw RRF scores within the candidate set and sorts by
+contains a preview `score`/`total_score`, `calibrated_score: null`,
+`adjusted_score`, `raw_rrf_score`, `transition_risk_penalty`,
+`transition_risk_weight`, per-source rank/weight `score_breakdown`, stable
+`risk_breakdown`, `source_support`, eight finite `match_character` axes
+(`groove`, `density`, `texture`, `mood`, `tonal`, `vocalness`, `energy_flow`,
+`novelty`), short `explanation` lines, warnings, lightweight transition
+diagnostics, `weights_used`, and limitations. Missing explanation inputs stay
+neutral/unavailable rather than lowering a row by themselves. With the default
+risk penalty `0.0`, ranking stays the plain weighted-RRF preview. When the
+penalty is greater than zero, the preview normalizes raw RRF scores within the
+candidate set and sorts by
 `adjusted_score = normalized_rrf_score - transition_risk_weight * transition_risk`;
 missing risk applies no penalty.
+
+Hybrid preview rows include a row-level `Why this track?` panel. It labels the
+content as an unsupervised diagnostic, shows the adjusted score, match-axis bars,
+source support, risk estimate components, sorted warnings, and reason bullets.
+These fields explain stored-signal support for a candidate; they are not a
+calibrated estimate of whether a human will like the result.
 
 The browser sends `record_session: true` for Hybrid preview so the generated
 candidate list can be tied to later UI feedback. Direct API callers remain safe
 by default because `record_session` defaults to `false`. Recorded Hybrid events
 use diagnostic score naming (`score_kind`, `adjusted_score`, `raw_rrf_score`,
 `transition_risk`, `transition_risk_penalty`, `transition_risk_weight`, and
-per-source rank/score payloads); these values are ranking diagnostics, not
-confidence or calibrated probabilities.
+per-source rank/score payloads), persist the PR-22 explanation fields, and keep
+the legacy `sources` payload for report/calibration readers. These values are
+ranking diagnostics, not calibrated human-taste estimates.
 
 Before settling on a non-zero `Risk penalty`, use the CLI report
 `dj-sim eval sweep-risk-penalty --profile <json> --weight ...` against recorded
@@ -260,17 +272,16 @@ average transition risk at K and source-count coverage; labeled sweeps can compa
 NDCG, MAP, MRR, precision, bad-suggestion rate, and hit rate. The report makes no
 best-weight claim unless explicit evaluation pair feedback is present.
 
-Treat the displayed score as a weighted rank-fusion preview only. It is not
-confidence, probability, or a calibrated human-taste estimate. Each result also
-includes `transition_risk` and `transition_diagnostics` built from stored
-BPM, key, energy, and source-consensus signals. That risk is a lightweight
-diagnostic score for future ranking experiments, not AutoMix, beatgrid analysis,
-cue detection, calibrated confidence, or a calibrated transition probability. The
-UI keeps diagnostics intentionally light: adjusted row score, compact risk text,
-source support, source weights/ranks on hover, visible warnings when coverage is
-missing, and limitations available from the `Score info` tooltip. A source such
-as CLAP that returns no rows contributes no score and does not inflate the
-source-disagreement transition risk. The endpoint
+Treat the displayed score as a weighted rank-fusion preview only, not a
+calibrated human-taste estimate. Each result also includes `transition_risk` and
+`transition_diagnostics` built from stored BPM, key, energy, and source-consensus
+signals. That risk is a lightweight diagnostic score for future ranking
+experiments, not AutoMix, beatgrid analysis, cue detection, or a calibrated
+transition estimate. The UI keeps diagnostics intentionally light: adjusted row
+score, match-axis bars, compact risk text, source support, source weights/ranks
+on hover, visible warnings when coverage is missing, and limitations available
+from the `Score info` tooltip. A source such as CLAP that returns no rows
+contributes no score and does not inflate the source-disagreement transition risk. The endpoint
 can return an empty result list. It reads stored SQLite analysis data only: no
 audio files are written, search sessions are recorded only by explicit
 `record_session`, classifiers are not trained, and existing production search

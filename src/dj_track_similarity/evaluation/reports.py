@@ -10,7 +10,9 @@ if TYPE_CHECKING:
 from .metrics import (
     average_precision_at_k,
     bad_suggestion_rate_at_k,
+    explanation_tag_agreement_at_k,
     hit_rate_at_k,
+    maybe_rate_at_k,
     mean_average_precision,
     mean_reciprocal_rank,
     ndcg_at_k,
@@ -18,22 +20,39 @@ from .metrics import (
     r_precision,
     recall_at_k,
     recommended_songs_clicks,
+    reject_rate_at_k,
+    strong_match_rate_at_k,
 )
+from .judged import build_judged_label_gate, matching_label as matched_judged_label, report_status_for_judged_gate
 
-DEFAULT_K_VALUES = (5, 10)
+DEFAULT_K_VALUES = (5, 10, 20)
 RELEVANCE_THRESHOLD = 2
 
 
-def build_search_evaluation_report(db: LibraryDatabase, k_values: Sequence[int] = DEFAULT_K_VALUES) -> dict[str, Any]:
+def build_search_evaluation_report(
+    db: LibraryDatabase,
+    k_values: Sequence[int] = DEFAULT_K_VALUES,
+    *,
+    judged_only: bool = False,
+) -> dict[str, Any]:
     clean_k_values = _clean_k_values(k_values)
     sessions = db.list_search_sessions_with_events()
     feedback_map = db.get_pair_feedback_map()
     row_counts = db.count_evaluation_rows()
+    judged_gate = build_judged_label_gate(sessions, feedback_map, judged_only=judged_only)
     session_reports = [_session_report(session, feedback_map, clean_k_values) for session in sessions]
     judged_results = sum(int(session["judged_results"]) for session in session_reports)
     total_events = sum(len(session["events"]) for session in sessions)
+    default_status = "ok" if judged_results > 0 else "insufficient_data"
     report = {
-        "status": "ok" if judged_results > 0 else "insufficient_data",
+        "status": report_status_for_judged_gate(default_status, judged_gate, judged_only=judged_only),
+        "evaluation_mode": judged_gate["evaluation_mode"],
+        "label_status": judged_gate["label_status"],
+        "judged_pairs": judged_gate["judged_pairs"],
+        "judged_seeds": judged_gate["judged_seeds"],
+        "can_create_candidate_profile": judged_gate["can_create_candidate_profile"],
+        "can_update_defaults": judged_gate["can_update_defaults"],
+        "label_guidance": judged_gate["guidance"],
         "k_values": list(clean_k_values),
         "counts": {
             "sessions_total": len(sessions),
@@ -43,6 +62,8 @@ def build_search_evaluation_report(db: LibraryDatabase, k_values: Sequence[int] 
             "labels_by_rating": _all_labels_by_rating(feedback_map),
             "rows": row_counts,
         },
+        "judged_label_gate": judged_gate,
+        "metric_availability": {"explanation_tag_agreement_at_3": explanation_tag_agreement_at_k(3)},
         "overall": _aggregate_report(session_reports, clean_k_values),
         "by_mode": _mode_reports(session_reports, clean_k_values),
         "sessions": session_reports,
@@ -103,21 +124,7 @@ def _matching_label(
     source: str | None,
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
 ) -> Mapping[str, Any] | None:
-    if source:
-        for seed_track_id in seed_track_ids:
-            label = feedback_map.get((seed_track_id, candidate_track_id, source))
-            if label is not None:
-                return label
-        return None
-    for seed_track_id in seed_track_ids:
-        manual_label = feedback_map.get((seed_track_id, candidate_track_id, "manual"))
-        if manual_label is not None:
-            return manual_label
-    for seed_track_id in seed_track_ids:
-        for (label_seed_id, label_candidate_id, _label_source), label in feedback_map.items():
-            if label_seed_id == seed_track_id and label_candidate_id == candidate_track_id:
-                return label
-    return None
+    return matched_judged_label(seed_track_ids, candidate_track_id, source, feedback_map)
 
 
 def _total_relevant_for_session(
@@ -148,6 +155,9 @@ def _single_relevance_metrics(relevances: Sequence[int], total_relevant: int, k_
         metrics[f"ndcg_at_{k}"] = ndcg_at_k(relevances, k)
         metrics[f"average_precision_at_{k}"] = average_precision_at_k(relevances, k, threshold=RELEVANCE_THRESHOLD)
         metrics[f"bad_suggestion_rate_at_{k}"] = bad_suggestion_rate_at_k(relevances, k)
+        metrics[f"strong_match_rate_at_{k}"] = strong_match_rate_at_k(relevances, k)
+        metrics[f"maybe_rate_at_{k}"] = maybe_rate_at_k(relevances, k)
+        metrics[f"reject_rate_at_{k}"] = reject_rate_at_k(relevances, k)
     return metrics
 
 
@@ -177,6 +187,9 @@ def _aggregate_report(session_reports: Sequence[Mapping[str, Any]], k_values: Se
         metrics[f"mean_reciprocal_rank_at_{k}"] = mean_reciprocal_rank(relevance_lists, k, threshold=RELEVANCE_THRESHOLD)
         metrics[f"hit_rate_at_{k}"] = hit_rate_at_k(relevance_lists, k, threshold=RELEVANCE_THRESHOLD)
         metrics[f"mean_bad_suggestion_rate_at_{k}"] = _mean(bad_suggestion_rate_at_k(relevances, k) for relevances in relevance_lists)
+        metrics[f"mean_strong_match_rate_at_{k}"] = _mean(strong_match_rate_at_k(relevances, k) for relevances in relevance_lists)
+        metrics[f"mean_maybe_rate_at_{k}"] = _mean(maybe_rate_at_k(relevances, k) for relevances in relevance_lists)
+        metrics[f"mean_reject_rate_at_{k}"] = _mean(reject_rate_at_k(relevances, k) for relevances in relevance_lists)
     return metrics
 
 
@@ -207,6 +220,9 @@ def _empty_aggregate(k_values: Sequence[int]) -> dict[str, float | int]:
         metrics[f"mean_reciprocal_rank_at_{k}"] = 0.0
         metrics[f"hit_rate_at_{k}"] = 0.0
         metrics[f"mean_bad_suggestion_rate_at_{k}"] = 0.0
+        metrics[f"mean_strong_match_rate_at_{k}"] = 0.0
+        metrics[f"mean_maybe_rate_at_{k}"] = 0.0
+        metrics[f"mean_reject_rate_at_{k}"] = 0.0
     return metrics
 
 

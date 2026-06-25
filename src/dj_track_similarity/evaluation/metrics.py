@@ -83,6 +83,37 @@ def bad_suggestion_rate_at_k(relevances: Sequence[int | float], k: int, bad_thre
     return bad_count / len(judged_relevances)
 
 
+def rating_rate_at_k(relevances: Sequence[int | float], k: int, rating: int | float) -> float:
+    judged_relevances = _top_k(relevances, k)
+    if not judged_relevances:
+        return 0.0
+    clean_rating = _finite_relevance(rating)
+    return sum(1 for relevance in judged_relevances if relevance == clean_rating) / len(judged_relevances)
+
+
+def strong_match_rate_at_k(relevances: Sequence[int | float], k: int) -> float:
+    return rating_rate_at_k(relevances, k, 3)
+
+
+def maybe_rate_at_k(relevances: Sequence[int | float], k: int) -> float:
+    return rating_rate_at_k(relevances, k, 1)
+
+
+def reject_rate_at_k(relevances: Sequence[int | float], k: int) -> float:
+    return rating_rate_at_k(relevances, k, 0)
+
+
+def explanation_tag_agreement_at_k(k: int = 3) -> dict[str, float | int | str | None]:
+    clean_k = max(1, int(k))
+    return {
+        "status": "not_available",
+        "value": None,
+        "coverage": 0.0,
+        "k": clean_k,
+        "reason": "PR-22 explanation tags are not implemented yet, so agreement is intentionally not computed.",
+    }
+
+
 def r_precision(relevances: Sequence[int | float], total_relevant: int, threshold: int | float = 2) -> float:
     if total_relevant <= 0:
         return 0.0

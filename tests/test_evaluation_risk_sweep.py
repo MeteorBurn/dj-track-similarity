@@ -39,9 +39,11 @@ def test_risk_sweep_with_labels_includes_metrics_and_best_by_metric(tmp_path: Pa
 
     report = build_risk_penalty_sweep_report(db, _score_profile(), weights=[0.0, 1.0], k_values=[1], rrf_k=1)
 
-    assert report["label_status"] == "ok"
+    assert report["label_status"] == "insufficient_data"
+    assert report["judged_pairs"] == 2
     assert report["variants"]["transition_risk_weight:0"]["metrics"]["mean_precision_at_1"] == 0.0
     assert report["variants"]["transition_risk_weight:1"]["metrics"]["mean_precision_at_1"] == 1.0
+    assert report["variants"]["transition_risk_weight:1"]["metrics"]["mean_strong_match_rate_at_1"] == 1.0
     assert report["best_by_metric"]["mean_precision_at_1"]["transition_risk_weight"] == 1.0
     assert report["best_by_metric"]["mean_bad_suggestion_rate_at_1"]["transition_risk_weight"] == 1.0
 

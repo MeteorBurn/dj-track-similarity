@@ -321,6 +321,9 @@ dj-sim eval sweep-risk-penalty --db .\data\library_v4.sqlite --profile .\reports
 dj-sim eval run-ablation --db .\data\library_v4.sqlite --output .\reports\ablation.json --k 5 --k 10 --rrf-k 60 --score-profile .\reports\score_profile_auto.json
 dj-sim eval run-calibration --db .\data\library_v4.sqlite --output .\reports\calibration.json --score-mode rrf --bins 10 --min-samples 30 --accepted-threshold 2
 dj-sim eval report --db .\data\library_v4.sqlite --output .\reports\evaluation.json --k 5 --k 10
+dj-sim eval report --db .\data\library_v4.sqlite --output .\reports\evaluation_judged.json --judged-only
+dj-sim eval run-ablation --db .\data\library_v4.sqlite --output .\reports\ablation_judged.json --judged-only
+dj-sim eval run-calibration --db .\data\library_v4.sqlite --output .\reports\calibration_judged.json --judged-only
 ```
 
 For automatic source diagnostics, run `profile-sources` first. It samples or
@@ -376,8 +379,19 @@ manual ground truth:
    source contributions and the weighted RRF profile on the labeled candidate
    pools.
 10. Run `dj-sim eval run-calibration` for diagnostic score/relevance calibration
-   summaries once enough labeled candidate rows exist.
+    summaries once enough labeled candidate rows exist.
 11. Run `dj-sim eval report` for the general recorded-session report.
+
+Use `--judged-only` on `report`, `run-ablation`, or `run-calibration` when you
+want PR-23 judged validation instead of general diagnostics. The judged gate uses
+only feedback rows that can be matched back to recorded `search_result_events` for
+the same seed/candidate/source; extra feedback rows that never appeared in a
+recorded result are not counted for the gate. Reports include
+`evaluation_mode`, `label_status`, `judged_pairs`, `judged_seeds`,
+`can_create_candidate_profile`, `can_update_defaults`, and human-readable
+guidance. Fewer than 50 matched judged pairs means `insufficient_data`; 50-199 is
+diagnostics only; 200-499 may justify considering a candidate score profile; 500+
+may justify considering a default update, but never automatically.
 
 `run-ablation` evaluates only recorded candidate-pool events and imported pair
 feedback. It builds single-source variants for `mert`, `maest`, `sonara`, and `clap` when
@@ -390,6 +404,9 @@ or change runtime search behavior. With `--score-profile`, it also adds a
 `fusion:weighted_rrf:<profile_name>` diagnostic variant using
 `sum(weight[source] * (1 / (rrf_k + rank)))`. Missing sources contribute `0`, and
 the variant uses ranks rather than raw source scores.
+With `--judged-only`, ranking metrics are computed from matched judged result rows
+only instead of treating unjudged candidates as non-relevant placeholders. The
+report still keeps unjudged counts and ranked candidate IDs for audit context.
 
 `apply-score-profile` is the direct automatic-profile path: it loads the JSON
 artifact, reads recorded `search_sessions` / `search_result_events`, extracts
@@ -398,7 +415,9 @@ source ranks from `score_breakdown` / `sources_json`, and ranks candidates with
 default, does not use raw source scores as comparable weights, and does not change
 runtime search endpoints or scoring. Manual feedback is optional validation only;
 when no labels exist, the report status can still be `ok` while
-`label_status` remains `insufficient_data`.
+`label_status` remains `insufficient_data`. Under PR-23, `label_status` follows
+the matched judged-pair gates rather than merely checking whether any label row
+exists, so small labeled samples stay diagnostic.
 
 `sweep-risk-penalty` is the report-only transition-risk tuning path. It reads the
 same recorded candidate-pool events, applies the score profile, then repeats the
@@ -449,6 +468,10 @@ the status is `insufficient_data` and probability metrics are withheld. The
 default `--no-record` writes only the JSON file; use `--record` explicitly to save
 an `ok` summary into `calibration_runs`. No calibration command changes runtime
 search endpoints, scoring weights, or default thresholds.
+With `--judged-only`, calibration can only report `ok` when the matched judged
+label gate is no longer `insufficient_data`; otherwise it writes the same sample
+counts, score quantiles, and guidance without implying that search quality has
+been validated.
 
 `export-candidates` reads existing exact search sources only: `mert` embedding
 similarity, `maest` embedding similarity, balanced/default `sonara`
@@ -625,15 +648,16 @@ Options:
 | `--db` | path | `dj-track-similarity.sqlite` | Schema v4 SQLite database path. |
 | `--profile` | JSON path | required | Score profile artifact created by `profile-sources --profile-output`. |
 | `--output` | JSON path | required | Application report to create. |
-| `--k` | integer `>=1` | `5`, `10` | Metric cutoff when optional pair labels exist. Repeat for multiple values. |
+| `--k` | integer `>=1` | `5`, `10`, `20` | Metric cutoff when optional pair labels exist. Repeat for multiple values. |
 | `--rrf-k` | integer `>=1` | `60` | RRF smoothing constant for weighted source-rank fusion. |
 | `--help` | flag | off | Show help. |
 
-The apply report includes `status`, `label_status`, `profile_name`,
+The apply report includes `status`, PR-23 `label_status`, `profile_name`,
 `profile_kind`, `weight_kind`, `weights`, session/ranking counts, per-session
 ranked candidates, limitations, and a note that the profile is automatic internal
 score weighting rather than calibrated confidence. Metrics are included only when
-matching pair feedback labels exist.
+matching pair feedback labels exist, but candidate profile/default-update gate
+fields remain conservative until enough matched judged pairs have accumulated.
 
 Usage:
 
@@ -649,7 +673,7 @@ Options:
 | `--profile` | JSON path | required | Score profile artifact created by `profile-sources --profile-output`. |
 | `--output` | JSON path | required | Risk-penalty sweep report to create. |
 | `--weight` | number `0.0-1.0` | `0`, `0.25`, `0.5`, `1.0` | Transition-risk penalty weight. Repeat for a sweep. |
-| `--k` | integer `>=1` | `5`, `10` | Metric and diagnostic cutoff. Repeat for multiple values. |
+| `--k` | integer `>=1` | `5`, `10`, `20` | Metric and diagnostic cutoff. Repeat for multiple values. |
 | `--rrf-k` | integer `>=1` | `60` | RRF smoothing constant for weighted source-rank fusion. |
 | `--help` | flag | off | Show help. |
 
@@ -707,7 +731,10 @@ report
 The import commands fail fast on malformed ratings with the input line number
 and print imported/upserted or inserted counts. `report` writes a JSON-safe file
 with session totals, judged and unjudged result counts, labels by rating, and
-ranking metrics for each requested `--k` cutoff.
+ranking metrics for each requested `--k` cutoff. PR-23 metrics include NDCG,
+precision, bad-suggestion rate, strong/maybe/reject rates, MRR, and MAP at the
+requested cutoffs. `ExplanationTagAgreement@3` is reported as unavailable with
+zero coverage until the explanation layer exists.
 
 `run-ablation` writes a JSON-safe file with `status`, `counts`, per-variant
 metrics, and deltas versus `fusion:rrf_all`. If recorded candidate pools or
@@ -719,7 +746,8 @@ there are no labels yet.
 `run-calibration` writes a JSON-safe file with `status`, `calibration_status`,
 `score_mode`, `score_kind`, accepted-label counts, Brier score, log loss, ECE,
 reliability bins, threshold diagnostics, and score quantiles when enough valid
-samples exist. Supported `--score-mode` values are `rank-percentile`, `rrf`, and
+samples exist. It also includes the PR-23 judged label gate fields. Supported
+`--score-mode` values are `rank-percentile`, `rrf`, and
 `event-total-score`; `rrf` uses per-session min-max-normalized RRF as a
 diagnostic score, not as calibrated confidence.
 

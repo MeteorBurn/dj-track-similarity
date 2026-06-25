@@ -116,6 +116,8 @@ def test_score_profile_metrics_preserve_unjudged_rank_positions(tmp_path: Path) 
     assert report["metrics"]["hit_rate_at_1"] == 0.0
     assert report["metrics"]["mean_precision_at_1"] == 0.0
     assert report["metrics"]["hit_rate_at_2"] == 1.0
+    assert report["label_status"] == "insufficient_data"
+    assert report["metrics"]["mean_strong_match_rate_at_2"] == 0.5
 
 
 def _track(db: LibraryDatabase, tmp_path: Path, stem: str) -> int:

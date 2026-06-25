@@ -321,6 +321,11 @@ These endpoints are for local evaluation diagnostics only. They do not read or
 modify audio files, do not train classifiers, do not use Rhythm Lab labels or
 liked tracks as ground truth, and do not change production search endpoints,
 scoring, or weights.
+PR-23 judged-only validation is primarily a CLI/report mode for `dj-sim eval
+report`, `run-ablation`, and `run-calibration`. The API does not expose separate
+report/ablation/calibration run endpoints in this pass; the existing
+`apply-score-profile` response includes the same matched judged-label gate fields
+when it summarizes recorded candidate pools.
 
 `/api/evaluation/summary` returns `schema_version` plus counts for
 `search_sessions`, `search_result_events`, `track_pair_feedback`,
@@ -358,7 +363,10 @@ profile artifact file and does not record candidate-pool sessions by default.
 already recorded candidate pools in SQLite and returns the same kind of report as
 the CLI `apply-score-profile` command. Without pair feedback it still ranks the
 candidate pools, but reports `label_status: "insufficient_data"` and makes no
-claim about human taste.
+claim about human taste. Under PR-23, `label_status`, `judged_pairs`,
+`judged_seeds`, `can_create_candidate_profile`, `can_update_defaults`, and
+`label_guidance` are based only on feedback labels that match recorded result
+events, not on all feedback rows in the database.
 
 `/api/evaluation/run/weighted-candidates` accepts the same inline `profile` or
 `weights` plus optional `name`, optional `seed_track_ids`, `sample_count` (default

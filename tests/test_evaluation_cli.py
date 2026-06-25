@@ -56,6 +56,30 @@ def test_eval_report_cli_writes_json_summary(tmp_path: Path) -> None:
     assert report["counts"]["judged_results"] == 1
 
 
+def test_eval_report_cli_judged_only_writes_label_gate(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    output_path = tmp_path / "report.json"
+    db = LibraryDatabase(db_path)
+    seed_id = db.upsert_track(path=tmp_path / "seed.wav", size=10, mtime=1)
+    candidate_id = db.upsert_track(path=tmp_path / "candidate.wav", size=10, mtime=1)
+    session_id = db.create_search_session("hybrid_search_preview", [seed_id], {"feedback_source": "hybrid_ui"})
+    db.record_search_result_event(session_id, candidate_id, rank=1, total_score=0.9, score_breakdown={"hybrid": 0.9})
+    db.upsert_track_pair_feedback(seed_id, candidate_id, 3, source="hybrid_ui")
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["eval", "report", "--db", str(db_path), "--output", str(output_path), "--k", "1", "--judged-only"],
+    )
+
+    assert result.exit_code == 0
+    assert "status=insufficient_data" in result.output
+    assert "judged_pairs=1" in result.output
+    report = json.loads(output_path.read_text(encoding="utf-8"))
+    assert report["evaluation_mode"] == "judged_validation"
+    assert report["label_status"] == "insufficient_data"
+    assert report["judged_pairs"] == 1
+
+
 def test_eval_run_ablation_cli_writes_json_summary(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     output_path = tmp_path / "ablation.json"
@@ -244,9 +268,10 @@ def test_eval_apply_score_profile_cli_includes_metrics_with_pair_feedback(tmp_pa
     )
 
     assert result.exit_code == 0
-    assert "label_status=ok" in result.output
+    assert "label_status=insufficient_data" in result.output
     report = json.loads(output_path.read_text(encoding="utf-8"))
     assert report["judged_results"] == 2
+    assert report["label_status"] == "insufficient_data"
     assert report["metrics"]["mean_ndcg_at_1"] == 1.0
     assert report["metrics"]["mean_precision_at_1"] == 1.0
 
@@ -286,7 +311,7 @@ def test_eval_sweep_risk_penalty_cli_writes_json_summary(tmp_path: Path) -> None
     )
 
     assert result.exit_code == 0
-    assert "label_status=ok" in result.output
+    assert "label_status=insufficient_data" in result.output
     assert "best_mean_precision_at_1_weight=1" in result.output
     report = json.loads(output_path.read_text(encoding="utf-8"))
     assert report["best_by_metric"]["mean_precision_at_1"]["transition_risk_weight"] == 1.0

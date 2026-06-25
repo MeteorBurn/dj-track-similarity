@@ -224,6 +224,12 @@ overwrites the previous `hybrid_ui` pair labels for the current seeds, so the
 label count stays stable on repeated edits. The block also shows accumulated
 evaluation label counts when the selected database exposes schema-v4 evaluation
 tables.
+Use `dj-sim eval report --judged-only`, `run-ablation --judged-only`, or
+`run-calibration --judged-only` after recording previews and ratings when you
+want judged validation. These reports count only feedback that can be matched to
+recorded result events. Small samples stay `insufficient_data`; larger samples
+unlock diagnostics and candidate-profile review guidance, but never automatic
+default updates.
 
 The endpoint accepts `1-5` seed track IDs, generates candidates from requested
 exact sources (`mert`, `maest`, `sonara`, `clap`), excludes the seeds, and ranks the

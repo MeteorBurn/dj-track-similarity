@@ -3,6 +3,7 @@ from __future__ import annotations
 __all__ = [
     "ablation",
     "calibration",
+    "judged",
     "labels",
     "metrics",
     "reports",

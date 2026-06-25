@@ -8,15 +8,20 @@ import math
 from typing import TYPE_CHECKING, Any
 
 from ..transition_diagnostics import compute_transition_diagnostics
-from .candidates import ALLOWED_CANDIDATE_SOURCES, DEFAULT_FEEDBACK_SOURCE
+from .candidates import ALLOWED_CANDIDATE_SOURCES
 from .metrics import (
     bad_suggestion_rate_at_k,
+    explanation_tag_agreement_at_k,
     hit_rate_at_k,
+    maybe_rate_at_k,
     mean_average_precision,
     mean_reciprocal_rank,
     ndcg_at_k,
     precision_at_k,
+    reject_rate_at_k,
+    strong_match_rate_at_k,
 )
+from .judged import build_judged_label_gate, matching_label as matched_judged_label, session_feedback_source as judged_session_feedback_source
 from .reports import RELEVANCE_THRESHOLD
 from .score_profiles import DEFAULT_K_VALUES, DEFAULT_RRF_K, LABEL_POLICY, ScoreProfile, score_profile_to_dict, validate_score_profile
 
@@ -50,7 +55,7 @@ class RiskSweepSession:
     session_id: int
     mode: str
     seed_track_ids: tuple[int, ...]
-    feedback_source: str
+    feedback_source: str | None
     candidates: tuple[RiskSweepCandidate, ...]
 
 
@@ -67,8 +72,10 @@ def build_risk_penalty_sweep_report(
     clean_k_values = _clean_k_values(k_values)
     clean_rrf_k = _positive_int(rrf_k, "rrf_k")
 
+    raw_sessions = db.list_search_sessions_with_events()
     feedback_map = db.get_pair_feedback_map()
-    parsed_sessions, warnings = _recorded_candidate_sessions(db, profile, feedback_map, clean_rrf_k)
+    judged_gate = build_judged_label_gate(raw_sessions, feedback_map, judged_only=False)
+    parsed_sessions, warnings = _recorded_candidate_sessions(db, profile, feedback_map, clean_rrf_k, raw_sessions)
     variants = {
         _variant_key(weight): _variant_report(parsed_sessions, weight, clean_k_values)
         for weight in clean_weights
@@ -77,11 +84,16 @@ def build_risk_penalty_sweep_report(
     unjudged_results = sum(candidate.rating is None for session in parsed_sessions for candidate in session.candidates)
     sessions_with_labels = sum(1 for session in parsed_sessions if any(candidate.rating is not None for candidate in session.candidates))
     ranked_candidate_count = sum(len(session.candidates) for session in parsed_sessions)
-    label_status = "ok" if judged_results > 0 else "insufficient_data"
 
     report: dict[str, Any] = {
         "status": "ok" if parsed_sessions else "insufficient_data",
-        "label_status": label_status,
+        "evaluation_mode": judged_gate["evaluation_mode"],
+        "label_status": judged_gate["label_status"],
+        "judged_pairs": judged_gate["judged_pairs"],
+        "judged_seeds": judged_gate["judged_seeds"],
+        "can_create_candidate_profile": judged_gate["can_create_candidate_profile"],
+        "can_update_defaults": judged_gate["can_update_defaults"],
+        "label_guidance": judged_gate["guidance"],
         "label_policy": LABEL_POLICY,
         "report_version": RISK_SWEEP_REPORT_VERSION,
         "profile": score_profile_to_dict(profile),
@@ -106,12 +118,14 @@ def build_risk_penalty_sweep_report(
             "ranked_candidate_count": ranked_candidate_count,
             "label_policy": LABEL_POLICY,
         },
+        "judged_label_gate": judged_gate,
+        "metric_availability": {"explanation_tag_agreement_at_3": explanation_tag_agreement_at_k(3)},
         "variants": variants,
         "warnings": warnings,
         "limitations": list(profile.limitations),
         "note": "Evaluation-only sweep over recorded candidate-pool events. Scores are weighted RRF diagnostics plus a lightweight transition-risk penalty; they are not AutoMix, beatgrid/cue detection, calibrated confidence, calibrated transition probability, or production search scoring.",
     }
-    if label_status == "ok":
+    if judged_results > 0:
         report["best_by_metric"] = _best_by_metric(variants)
     return report
 
@@ -121,11 +135,12 @@ def _recorded_candidate_sessions(
     profile: ScoreProfile,
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
     rrf_k: int,
+    raw_sessions: Sequence[Mapping[str, Any]],
 ) -> tuple[tuple[RiskSweepSession, ...], list[str]]:
     warnings: list[str] = []
     track_cache: dict[int, Track] = {}
     sessions: list[RiskSweepSession] = []
-    for session in db.list_search_sessions_with_events():
+    for session in raw_sessions:
         parsed_session = _recorded_candidate_session(db, session, profile, feedback_map, rrf_k, track_cache, warnings)
         if parsed_session is None:
             continue
@@ -387,6 +402,9 @@ def _aggregate_metrics(ranked_sessions: Sequence[Mapping[str, Any]], k_values: S
         metrics[f"mean_reciprocal_rank_at_{k}"] = mean_reciprocal_rank(relevance_lists, k, threshold=RELEVANCE_THRESHOLD)
         metrics[f"mean_precision_at_{k}"] = _mean(precision_at_k(relevances, k, threshold=RELEVANCE_THRESHOLD) for relevances in relevance_lists)
         metrics[f"mean_bad_suggestion_rate_at_{k}"] = _mean(bad_suggestion_rate_at_k(relevances, k) for relevances in relevance_lists)
+        metrics[f"mean_strong_match_rate_at_{k}"] = _mean(strong_match_rate_at_k(relevances, k) for relevances in relevance_lists)
+        metrics[f"mean_maybe_rate_at_{k}"] = _mean(maybe_rate_at_k(relevances, k) for relevances in relevance_lists)
+        metrics[f"mean_reject_rate_at_{k}"] = _mean(reject_rate_at_k(relevances, k) for relevances in relevance_lists)
         metrics[f"hit_rate_at_{k}"] = hit_rate_at_k(relevance_lists, k, threshold=RELEVANCE_THRESHOLD)
     return metrics
 
@@ -570,7 +588,7 @@ def _best_source_rank(sources: Mapping[str, Mapping[str, float | int]]) -> int:
 def _matching_rating(
     seed_track_ids: Sequence[int],
     candidate_track_id: int,
-    preferred_source: str,
+    preferred_source: str | None,
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
 ) -> int | None:
     label = _matching_label(seed_track_ids, candidate_track_id, preferred_source, feedback_map)
@@ -582,16 +600,10 @@ def _matching_rating(
 def _matching_label(
     seed_track_ids: Sequence[int],
     candidate_track_id: int,
-    preferred_source: str,
+    preferred_source: str | None,
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
 ) -> Mapping[str, Any] | None:
-    preferred_label = _first_label_for_source(seed_track_ids, candidate_track_id, preferred_source, feedback_map)
-    if preferred_label is not None:
-        return preferred_label
-    manual_label = _first_label_for_source(seed_track_ids, candidate_track_id, DEFAULT_FEEDBACK_SOURCE, feedback_map)
-    if manual_label is not None:
-        return manual_label
-    return _first_label_for_any_source(seed_track_ids, candidate_track_id, feedback_map)
+    return matched_judged_label(seed_track_ids, candidate_track_id, preferred_source, feedback_map)
 
 
 def _first_label_for_source(
@@ -623,15 +635,8 @@ def _first_label_for_any_source(
     return sorted(matches, key=lambda label: (int(label["seed_track_id"]), str(label["source"])))[0]
 
 
-def _session_feedback_source(session: Mapping[str, Any]) -> str:
-    request = session.get("request")
-    if not isinstance(request, Mapping):
-        return DEFAULT_FEEDBACK_SOURCE
-    source = request.get("feedback_source") or request.get("label_source") or request.get("source")
-    if source is None:
-        return DEFAULT_FEEDBACK_SOURCE
-    text = str(source).strip()
-    return text or DEFAULT_FEEDBACK_SOURCE
+def _session_feedback_source(session: Mapping[str, Any]) -> str | None:
+    return judged_session_feedback_source(session, default=None)
 
 
 def _event_mappings(events: object) -> tuple[Mapping[str, Any], ...]:

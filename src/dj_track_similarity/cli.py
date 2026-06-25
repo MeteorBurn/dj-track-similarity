@@ -389,17 +389,19 @@ def evaluation_report(
     db_path: Optional[Path] = typer.Option(None, "--db"),
     output_path: Path = typer.Option(..., "--output", dir_okay=False, writable=True),
     k: Optional[list[int]] = typer.Option(None, "--k", min=1, help="Metric cutoff. Repeat for multiple values."),
+    judged_only: bool = typer.Option(False, "--judged-only", help="Evaluate only matched judged result labels and apply PR-23 label gates."),
 ) -> None:
     try:
-        report = build_search_evaluation_report(_evaluation_db(db_path), k_values=k or [5, 10])
+        report = build_search_evaluation_report(_evaluation_db(db_path), k_values=k or [5, 10, 20], judged_only=judged_only)
         _write_json_report(output_path, report)
     except ValueError as error:
         typer.secho(str(error), err=True, fg=typer.colors.RED)
         raise typer.Exit(1) from error
     counts = report["counts"]
     typer.echo(
-        f"status={report['status']} output={output_path} sessions_total={counts['sessions_total']} "
-        f"sessions_with_labels={counts['sessions_with_labels']} judged_results={counts['judged_results']}"
+        f"status={report['status']} label_status={report['label_status']} output={output_path} "
+        f"sessions_total={counts['sessions_total']} sessions_with_labels={counts['sessions_with_labels']} "
+        f"judged_results={counts['judged_results']} judged_pairs={report['judged_pairs']}"
     )
 
 
@@ -410,19 +412,20 @@ def evaluation_run_ablation(
     k: Optional[list[int]] = typer.Option(None, "--k", min=1, help="Metric cutoff. Repeat for multiple values."),
     rrf_k: int = typer.Option(60, "--rrf-k", min=1, help="RRF smoothing constant for source-rank fusion."),
     score_profile_path: Optional[Path] = typer.Option(None, "--score-profile", exists=True, dir_okay=False, readable=True, help="Optional score profile JSON for weighted RRF diagnostics."),
+    judged_only: bool = typer.Option(False, "--judged-only", help="Compute ranking metrics only over matched judged results and apply PR-23 label gates."),
 ) -> None:
     try:
         score_profile = load_score_profile(score_profile_path) if score_profile_path is not None else None
-        report = build_source_ablation_report(_evaluation_db(db_path), k_values=k or [5, 10], rrf_k=rrf_k, score_profile=score_profile)
+        report = build_source_ablation_report(_evaluation_db(db_path), k_values=k or [5, 10, 20], rrf_k=rrf_k, score_profile=score_profile, judged_only=judged_only)
         _write_json_report(output_path, report)
     except ValueError as error:
         typer.secho(str(error), err=True, fg=typer.colors.RED)
         raise typer.Exit(1) from error
     counts = report["counts"]
     typer.echo(
-        f"status={report['status']} output={output_path} sessions_total={counts['sessions_total']} "
+        f"status={report['status']} label_status={report['label_status']} output={output_path} sessions_total={counts['sessions_total']} "
         f"sessions_with_labels={counts['sessions_with_labels']} judged_results={counts['judged_results']} "
-        f"sources_seen={','.join(counts['sources_seen'])}"
+        f"judged_pairs={report['judged_pairs']} sources_seen={','.join(counts['sources_seen'])}"
     )
 
 
@@ -455,6 +458,7 @@ def evaluation_run_calibration(
     min_samples: int = typer.Option(30, "--min-samples", min=1, help="Minimum judged samples required for probability metrics."),
     accepted_threshold: int = typer.Option(2, "--accepted-threshold", min=0, max=3, help="Ratings at or above this value are accepted labels."),
     rrf_k: int = typer.Option(60, "--rrf-k", min=1, help="RRF smoothing constant for rrf score mode."),
+    judged_only: bool = typer.Option(False, "--judged-only", help="Apply PR-23 matched judged-label gates before reporting calibration as ok."),
     record: bool = typer.Option(False, "--record/--no-record", help="Record an ok calibration summary to calibration_runs."),
 ) -> None:
     try:
@@ -466,6 +470,7 @@ def evaluation_run_calibration(
             min_samples=min_samples,
             accepted_threshold=accepted_threshold,
             rrf_k=rrf_k,
+            judged_only=judged_only,
         )
         report["recorded"] = False
         if record and report["status"] == "ok":
@@ -483,9 +488,9 @@ def evaluation_run_calibration(
         typer.secho(str(error), err=True, fg=typer.colors.RED)
         raise typer.Exit(1) from error
     typer.echo(
-        f"status={report['status']} calibration_status={report['calibration_status']} output={output_path} "
+        f"status={report['status']} calibration_status={report['calibration_status']} label_status={report['label_status']} output={output_path} "
         f"score_mode={report['score_mode']} sample_count={report['sample_count']} "
-        f"positive_count={report['positive_count']} recorded={report['recorded']}"
+        f"positive_count={report['positive_count']} judged_pairs={report['judged_pairs']} recorded={report['recorded']}"
     )
 
 
@@ -545,7 +550,7 @@ def evaluation_apply_score_profile(
 ) -> None:
     try:
         profile = load_score_profile(profile_path)
-        report = build_score_profile_application_report(_evaluation_db(db_path), profile, k_values=k or [5, 10], rrf_k=rrf_k)
+        report = build_score_profile_application_report(_evaluation_db(db_path), profile, k_values=k or [5, 10, 20], rrf_k=rrf_k)
         _write_json_report(output_path, report)
     except ValueError as error:
         typer.secho(str(error), err=True, fg=typer.colors.RED)
@@ -574,7 +579,7 @@ def evaluation_sweep_risk_penalty(
             _evaluation_db(db_path),
             profile,
             weights=weights,
-            k_values=k or [5, 10],
+            k_values=k or [5, 10, 20],
             rrf_k=rrf_k,
         )
         _write_json_report(output_path, report)

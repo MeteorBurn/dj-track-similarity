@@ -192,6 +192,14 @@ require them.
 Search-quality reports use only explicit evaluation feedback plus already
 recorded search sessions/result events; likes and Rhythm Lab labels are not
 treated as ground truth by default.
+PR-23 judged label gates count only feedback rows that can be matched back to a
+recorded `search_result_events` row for the same seed/candidate/source. Extra
+feedback rows that do not appear in a recorded result are still stored as audit
+data but do not raise `judged_pairs` for judged-only reports. The gate is:
+fewer than 50 matched judged pairs is `insufficient_data`, 50-199 is diagnostics
+only, 200-499 may justify considering a candidate score profile, and 500+ may
+justify considering a default update through explicit manual review only. No
+report updates production defaults automatically.
 
 `dj-sim eval export-candidates` can create blinded manual-labeling CSVs from
 existing exact MERT, MAEST, balanced SONARA, and CLAP audio-embedding search sources. With session

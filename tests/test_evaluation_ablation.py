@@ -140,6 +140,25 @@ def test_source_ablation_metrics_preserve_unjudged_rank_positions(tmp_path: Path
     assert metrics["hit_rate_at_2"] == 1.0
 
 
+def test_source_ablation_judged_only_metrics_drop_unjudged_rank_positions(tmp_path: Path) -> None:
+    db, track_ids = _ablation_library(tmp_path, ["unjudged", "relevant"])
+    session_id = _candidate_pool_session(db, track_ids["seed"])
+    _candidate_event(db, session_id, track_ids["unjudged"], {"mert": {"rank": 1, "score": 0.9}})
+    _candidate_event(db, session_id, track_ids["relevant"], {"mert": {"rank": 2, "score": 0.8}})
+    db.upsert_track_pair_feedback(track_ids["seed"], track_ids["relevant"], 3, source="manual")
+
+    report = build_source_ablation_report(db, k_values=[1], rrf_k=60, judged_only=True)
+
+    source_variant = report["sessions"][0]["variants"]["source:mert"]
+    metrics = report["variants"]["source:mert"]["metrics"]
+    assert report["status"] == "insufficient_data"
+    assert report["evaluation_mode"] == "judged_validation"
+    assert report["judged_pairs"] == 1
+    assert source_variant["relevances_for_metrics"] == [3]
+    assert metrics["mean_precision_at_1"] == 1.0
+    assert metrics["mean_strong_match_rate_at_1"] == 1.0
+
+
 def test_weighted_rrf_order_changes_when_profile_emphasizes_source(tmp_path: Path) -> None:
     db, track_ids = _ablation_library(tmp_path, ["candidate_a", "candidate_b"])
     session_id = _candidate_pool_session(db, track_ids["seed"])

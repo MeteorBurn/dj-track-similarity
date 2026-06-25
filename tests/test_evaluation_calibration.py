@@ -85,6 +85,20 @@ def test_rank_percentile_and_rrf_reports_are_json_safe_diagnostics(tmp_path: Pat
     json.dumps(rrf_report, allow_nan=False)
 
 
+def test_calibration_judged_only_applies_pr23_label_gate(tmp_path: Path) -> None:
+    db, _track_ids = _calibration_library(tmp_path)
+
+    report = build_calibration_report(db, score_mode="rrf", bins=2, min_samples=1, accepted_threshold=2, judged_only=True)
+
+    assert report["status"] == "insufficient_data"
+    assert report["calibration_status"] == "insufficient_data"
+    assert report["evaluation_mode"] == "judged_validation"
+    assert report["label_status"] == "insufficient_data"
+    assert report["judged_pairs"] == 2
+    assert report["brier_score"] is None
+    assert report["metric_availability"]["explanation_tag_agreement_at_3"]["coverage"] == 0.0
+
+
 def test_rrf_calibration_accepts_recorded_clap_source(tmp_path: Path) -> None:
     db, _track_ids = _calibration_library(tmp_path, source_payloads=({"clap": {"rank": 1}}, {"clap": {"rank": 2}}))
 
@@ -140,6 +154,38 @@ def test_run_calibration_cli_writes_report_without_recording_by_default(tmp_path
     assert report["recorded"] is False
     assert report["sample_count"] == 2
     assert db.count_evaluation_rows()["calibration_runs"] == 0
+
+
+def test_run_calibration_cli_judged_only_writes_gate_guidance(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    output_path = tmp_path / "calibration.json"
+    _calibration_library(tmp_path, db_path=db_path)
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "eval",
+            "run-calibration",
+            "--db",
+            str(db_path),
+            "--output",
+            str(output_path),
+            "--score-mode",
+            "rrf",
+            "--bins",
+            "2",
+            "--min-samples",
+            "1",
+            "--judged-only",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "status=insufficient_data" in result.output
+    assert "label_status=insufficient_data" in result.output
+    report = json.loads(output_path.read_text(encoding="utf-8"))
+    assert report["judged_only"] is True
+    assert "Fewer than 50" in report["label_guidance"]
 
 
 def _calibration_library(

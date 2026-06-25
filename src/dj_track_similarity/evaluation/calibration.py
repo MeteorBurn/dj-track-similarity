@@ -6,7 +6,12 @@ import math
 from typing import TYPE_CHECKING, Any
 
 from .ablation import DEFAULT_RRF_K, _build_session_variants, _candidate_pool_sessions
-from .candidates import DEFAULT_FEEDBACK_SOURCE
+from .judged import (
+    build_judged_label_gate,
+    matching_label as matched_judged_label,
+    session_feedback_source as judged_session_feedback_source,
+)
+from .metrics import explanation_tag_agreement_at_k
 
 if TYPE_CHECKING:
     from dj_track_similarity.database import LibraryDatabase
@@ -107,6 +112,7 @@ def build_calibration_report(
     min_samples: int = DEFAULT_MIN_SAMPLES,
     accepted_threshold: int = DEFAULT_ACCEPTED_THRESHOLD,
     rrf_k: int = DEFAULT_RRF_K,
+    judged_only: bool = False,
 ) -> dict[str, Any]:
     clean_score_mode = _score_mode(score_mode)
     clean_bins = _positive_int(bins, "bins")
@@ -115,6 +121,7 @@ def build_calibration_report(
     clean_rrf_k = _positive_int(rrf_k, "rrf_k")
     sessions = db.list_search_sessions_with_events()
     feedback_map = db.get_pair_feedback_map()
+    judged_gate = build_judged_label_gate(sessions, feedback_map, judged_only=judged_only)
     samples, score_status = _calibration_samples(
         clean_score_mode,
         sessions,
@@ -132,6 +139,8 @@ def build_calibration_report(
         min_samples=clean_min_samples,
         accepted_threshold=clean_accepted_threshold,
         rrf_k=clean_rrf_k,
+        judged_only=judged_only,
+        judged_gate=judged_gate,
     )
 
 
@@ -170,17 +179,28 @@ def _calibration_report(
     min_samples: int,
     accepted_threshold: int,
     rrf_k: int,
+    judged_only: bool,
+    judged_gate: Mapping[str, Any],
 ) -> dict[str, Any]:
     probabilities = [sample.score for sample in samples]
     labels = [sample.label for sample in samples]
     sample_count = len(samples)
     positive_count = sum(labels)
     status = _report_status(sample_count, min_samples, score_status)
+    status = _judged_only_status(status, judged_only=judged_only, judged_gate=judged_gate)
     metrics_ready = status == "ok"
     probability_tables_ready = sample_count > 0 and score_status is None
     return {
         "status": status,
         "calibration_status": _calibration_status(status),
+        "evaluation_mode": judged_gate["evaluation_mode"],
+        "label_status": judged_gate["label_status"],
+        "judged_pairs": judged_gate["judged_pairs"],
+        "judged_seeds": judged_gate["judged_seeds"],
+        "can_create_candidate_profile": judged_gate["can_create_candidate_profile"],
+        "can_update_defaults": judged_gate["can_update_defaults"],
+        "label_guidance": judged_gate["guidance"],
+        "judged_only": judged_only,
         "score_mode": score_mode,
         "score_kind": SCORE_KINDS[score_mode],
         "accepted_threshold": accepted_threshold,
@@ -200,7 +220,9 @@ def _calibration_report(
         "reliability_bins": reliability_bins(probabilities, labels, bins=bins) if probability_tables_ready else [],
         "threshold_table": threshold_table(probabilities, labels) if probability_tables_ready else [],
         "score_quantiles": score_quantiles(probabilities),
-        "notes": _report_notes(status),
+        "judged_label_gate": dict(judged_gate),
+        "metric_availability": {"explanation_tag_agreement_at_3": explanation_tag_agreement_at_k(3)},
+        "notes": _report_notes(status, sample_count=sample_count, min_samples=min_samples, judged_gate=judged_gate),
     }
 
 
@@ -246,7 +268,7 @@ def _rrf_samples(
 ) -> tuple[CalibrationSample, ...]:
     samples: list[CalibrationSample] = []
     for session in _candidate_pool_sessions(sessions):
-        variant = _build_session_variants(session, feedback_map, rrf_k, None).get("fusion:rrf_all")
+        variant = _build_session_variants(session, feedback_map, rrf_k, None, False).get("fusion:rrf_all")
         if variant is None or variant.judged_results <= 0:
             continue
         scores_by_track_id = _minmax_rank_scores(variant.ranked_candidates)
@@ -307,16 +329,10 @@ def _event_sample(
 def _matching_label(
     seed_track_ids: Sequence[int],
     candidate_track_id: int,
-    preferred_source: str,
+    preferred_source: str | None,
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
 ) -> Mapping[str, Any] | None:
-    preferred_label = _first_label_for_source(seed_track_ids, candidate_track_id, preferred_source, feedback_map)
-    if preferred_label is not None:
-        return preferred_label
-    manual_label = _first_label_for_source(seed_track_ids, candidate_track_id, DEFAULT_FEEDBACK_SOURCE, feedback_map)
-    if manual_label is not None:
-        return manual_label
-    return _first_label_for_any_source(seed_track_ids, candidate_track_id, feedback_map)
+    return matched_judged_label(seed_track_ids, candidate_track_id, preferred_source, feedback_map)
 
 
 def _first_label_for_source(
@@ -429,10 +445,23 @@ def _calibration_status(status: str) -> str:
     return status
 
 
-def _report_notes(status: str) -> list[str]:
+def _judged_only_status(status: str, *, judged_only: bool, judged_gate: Mapping[str, Any]) -> str:
+    if status != "ok":
+        return status
+    if not judged_only:
+        return status
+    if judged_gate.get("label_status") == "insufficient_data":
+        return "insufficient_data"
+    return status
+
+
+def _report_notes(status: str, *, sample_count: int, min_samples: int, judged_gate: Mapping[str, Any]) -> list[str]:
     notes = list(DIAGNOSTIC_NOTES)
     if status == "insufficient_data":
-        notes.append("The labeled sample count is below min_samples, so probability metrics are withheld.")
+        if sample_count < min_samples:
+            notes.append("The labeled sample count is below min_samples, so probability metrics are withheld.")
+        elif judged_gate.get("label_status") == "insufficient_data":
+            notes.append("The matched judged-pair count is below the PR-23 50-pair gate, so probability metrics are withheld.")
     if status == "uncalibrated_score_out_of_range":
         notes.append("At least one selected event total_score falls outside [0, 1]; choose a diagnostic transform before probability metrics.")
     return notes
@@ -447,15 +476,8 @@ def _event_sort_key(event: Mapping[str, Any]) -> tuple[int, int]:
     return int(event["rank"]), int(event["id"])
 
 
-def _session_feedback_source(session: Mapping[str, Any]) -> str:
-    request = session.get("request")
-    if not isinstance(request, Mapping):
-        return DEFAULT_FEEDBACK_SOURCE
-    source = request.get("feedback_source") or request.get("label_source") or request.get("source")
-    if source is None:
-        return DEFAULT_FEEDBACK_SOURCE
-    text = str(source).strip()
-    return text or DEFAULT_FEEDBACK_SOURCE
+def _session_feedback_source(session: Mapping[str, Any]) -> str | None:
+    return judged_session_feedback_source(session, default=None)
 
 
 def _score_mode(value: str) -> str:

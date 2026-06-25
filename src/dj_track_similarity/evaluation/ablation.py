@@ -9,11 +9,21 @@ from typing import TYPE_CHECKING, Any
 from .candidates import ALLOWED_CANDIDATE_SOURCES, DEFAULT_FEEDBACK_SOURCE
 from .metrics import (
     bad_suggestion_rate_at_k,
+    explanation_tag_agreement_at_k,
     hit_rate_at_k,
+    maybe_rate_at_k,
     mean_average_precision,
     mean_reciprocal_rank,
     ndcg_at_k,
     precision_at_k,
+    reject_rate_at_k,
+    strong_match_rate_at_k,
+)
+from .judged import (
+    build_judged_label_gate,
+    matching_label as matched_judged_label,
+    report_status_for_judged_gate,
+    session_feedback_source as judged_session_feedback_source,
 )
 from .reports import RELEVANCE_THRESHOLD
 from .score_profiles import LABEL_POLICY, ScoreProfile, rank_candidates_with_profile, score_profile_to_dict
@@ -23,7 +33,7 @@ if TYPE_CHECKING:
 
 
 DEFAULT_RRF_K = 60
-DEFAULT_K_VALUES = (5, 10)
+DEFAULT_K_VALUES = (5, 10, 20)
 
 
 @dataclass(frozen=True)
@@ -76,14 +86,17 @@ def build_source_ablation_report(
     k_values: Sequence[int] = DEFAULT_K_VALUES,
     rrf_k: int = DEFAULT_RRF_K,
     score_profile: ScoreProfile | None = None,
+    judged_only: bool = False,
 ) -> dict[str, Any]:
     clean_k_values = _clean_k_values(k_values)
     clean_rrf_k = _positive_int(rrf_k, "rrf_k")
     clean_score_profile = _clean_score_profile(score_profile)
-    sessions = _candidate_pool_sessions(db.list_search_sessions_with_events())
+    raw_sessions = db.list_search_sessions_with_events()
+    sessions = _candidate_pool_sessions(raw_sessions)
     feedback_map = db.get_pair_feedback_map()
+    judged_gate = build_judged_label_gate(raw_sessions, feedback_map, judged_only=judged_only)
     session_variants = {
-        session.session_id: _build_session_variants(session, feedback_map, clean_rrf_k, clean_score_profile) for session in sessions
+        session.session_id: _build_session_variants(session, feedback_map, clean_rrf_k, clean_score_profile, judged_only) for session in sessions
     }
     variant_names = _variant_names(session_variants)
     baseline_metrics = _aggregate_variant_metrics(session_variants, "fusion:rrf_all", clean_k_values)
@@ -99,13 +112,24 @@ def build_source_ablation_report(
         for variant_name in variant_names
     }
     counts = _report_counts(sessions, session_variants)
+    default_status = "ok" if counts["judged_results"] > 0 else "insufficient_data"
     return {
-        "status": "ok" if counts["judged_results"] > 0 else "insufficient_data",
+        "status": report_status_for_judged_gate(default_status, judged_gate, judged_only=judged_only),
+        "evaluation_mode": judged_gate["evaluation_mode"],
+        "label_status": judged_gate["label_status"],
+        "judged_pairs": judged_gate["judged_pairs"],
+        "judged_seeds": judged_gate["judged_seeds"],
+        "can_create_candidate_profile": judged_gate["can_create_candidate_profile"],
+        "can_update_defaults": judged_gate["can_update_defaults"],
+        "label_guidance": judged_gate["guidance"],
         "k_values": list(clean_k_values),
         "rrf_k": clean_rrf_k,
         "label_policy": LABEL_POLICY,
+        "judged_only": judged_only,
         "score_profile": _score_profile_report_metadata(clean_score_profile),
         "counts": counts,
+        "judged_label_gate": judged_gate,
+        "metric_availability": {"explanation_tag_agreement_at_3": explanation_tag_agreement_at_k(3)},
         "variants": variants,
         "sessions": [_session_report(session, session_variants.get(session.session_id, {})) for session in sessions],
         "confidence_intervals": None,
@@ -188,6 +212,7 @@ def _build_session_variants(
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
     rrf_k: int,
     score_profile: ScoreProfile | None,
+    judged_only: bool,
 ) -> dict[str, SessionVariant]:
     source_ranks = _source_ranks(session.candidate_events)
     if not source_ranks:
@@ -208,7 +233,7 @@ def _build_session_variants(
             variants[f"fusion:rrf_without_{removed_source}"] = _rrf_ranking(source_ranks, kept_sources, rrf_k)
 
     return {
-        variant_name: _session_variant(ranked_candidates, session, feedback_map)
+        variant_name: _session_variant(ranked_candidates, session, feedback_map, judged_only)
         for variant_name, ranked_candidates in variants.items()
         if ranked_candidates
     }
@@ -295,6 +320,7 @@ def _session_variant(
     ranked_candidates: Sequence[RankedCandidate],
     session: CandidatePoolSession,
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
+    judged_only: bool,
 ) -> SessionVariant:
     relevances_for_metrics: list[int] = []
     judged_relevances: list[int] = []
@@ -303,8 +329,9 @@ def _session_variant(
     for candidate in ranked_candidates:
         label = _matching_label(session.seed_track_ids, candidate.candidate_track_id, session.feedback_source, feedback_map)
         if label is None:
-            relevances_for_metrics.append(0)
             unjudged_candidate_track_ids.append(candidate.candidate_track_id)
+            if not judged_only:
+                relevances_for_metrics.append(0)
             continue
         rating = int(label["rating"])
         relevances_for_metrics.append(rating)
@@ -325,13 +352,7 @@ def _matching_label(
     preferred_source: str,
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
 ) -> Mapping[str, Any] | None:
-    preferred_label = _first_label_for_source(seed_track_ids, candidate_track_id, preferred_source, feedback_map)
-    if preferred_label is not None:
-        return preferred_label
-    manual_label = _first_label_for_source(seed_track_ids, candidate_track_id, DEFAULT_FEEDBACK_SOURCE, feedback_map)
-    if manual_label is not None:
-        return manual_label
-    return _first_label_for_any_source(seed_track_ids, candidate_track_id, feedback_map)
+    return matched_judged_label(seed_track_ids, candidate_track_id, preferred_source, feedback_map)
 
 
 def _first_label_for_source(
@@ -436,6 +457,9 @@ def _aggregate_variant_metrics(
         metrics[f"mean_bad_suggestion_rate_at_{k}"] = _mean(
             bad_suggestion_rate_at_k(relevances, k) for relevances in relevance_lists
         )
+        metrics[f"mean_strong_match_rate_at_{k}"] = _mean(strong_match_rate_at_k(relevances, k) for relevances in relevance_lists)
+        metrics[f"mean_maybe_rate_at_{k}"] = _mean(maybe_rate_at_k(relevances, k) for relevances in relevance_lists)
+        metrics[f"mean_reject_rate_at_{k}"] = _mean(reject_rate_at_k(relevances, k) for relevances in relevance_lists)
         metrics[f"hit_rate_at_{k}"] = hit_rate_at_k(relevance_lists, k, threshold=RELEVANCE_THRESHOLD)
     return metrics
 
@@ -448,6 +472,9 @@ def _empty_metrics(k_values: Sequence[int]) -> dict[str, float]:
         metrics[f"mean_reciprocal_rank_at_{k}"] = 0.0
         metrics[f"mean_precision_at_{k}"] = 0.0
         metrics[f"mean_bad_suggestion_rate_at_{k}"] = 0.0
+        metrics[f"mean_strong_match_rate_at_{k}"] = 0.0
+        metrics[f"mean_maybe_rate_at_{k}"] = 0.0
+        metrics[f"mean_reject_rate_at_{k}"] = 0.0
         metrics[f"hit_rate_at_{k}"] = 0.0
     return metrics
 
@@ -547,14 +574,7 @@ def _session_report(
 
 
 def _session_feedback_source(session: Mapping[str, Any]) -> str:
-    request = session.get("request")
-    if not isinstance(request, Mapping):
-        return DEFAULT_FEEDBACK_SOURCE
-    source = request.get("feedback_source") or request.get("label_source") or request.get("source")
-    if source is None:
-        return DEFAULT_FEEDBACK_SOURCE
-    text = str(source).strip()
-    return text or DEFAULT_FEEDBACK_SOURCE
+    return judged_session_feedback_source(session) or DEFAULT_FEEDBACK_SOURCE
 
 
 def _clean_k_values(k_values: Sequence[int]) -> tuple[int, ...]:

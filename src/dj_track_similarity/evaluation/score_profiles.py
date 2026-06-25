@@ -8,15 +8,20 @@ import math
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from .candidates import ALLOWED_CANDIDATE_SOURCES, DEFAULT_FEEDBACK_SOURCE
+from .candidates import ALLOWED_CANDIDATE_SOURCES
 from .metrics import (
     bad_suggestion_rate_at_k,
+    explanation_tag_agreement_at_k,
     hit_rate_at_k,
+    maybe_rate_at_k,
     mean_average_precision,
     mean_reciprocal_rank,
     ndcg_at_k,
     precision_at_k,
+    reject_rate_at_k,
+    strong_match_rate_at_k,
 )
+from .judged import build_judged_label_gate, matching_label as matched_judged_label, session_feedback_source as judged_session_feedback_source
 from .reports import RELEVANCE_THRESHOLD
 
 if TYPE_CHECKING:
@@ -27,7 +32,7 @@ SCORE_PROFILE_VERSION = 1
 PROFILE_KIND: Literal["unsupervised_source_profile"] = "unsupervised_source_profile"
 WEIGHT_KIND: Literal["unsupervised_internal_profile"] = "unsupervised_internal_profile"
 DEFAULT_RRF_K = 60
-DEFAULT_K_VALUES = (5, 10)
+DEFAULT_K_VALUES = (5, 10, 20)
 WEIGHT_SUM_TOLERANCE = 1e-6
 LABEL_POLICY = "unjudged_as_non_relevant_preserve_rank_positions"
 DEFAULT_LIMITATIONS = (
@@ -185,16 +190,18 @@ def build_score_profile_application_report(
     *,
     k_values: Sequence[int] = DEFAULT_K_VALUES,
     rrf_k: int = DEFAULT_RRF_K,
+    judged_only: bool = False,
 ) -> dict[str, Any]:
     validate_score_profile(profile)
     clean_k_values = _clean_k_values(k_values)
     clean_rrf_k = _positive_int(rrf_k, "rrf_k")
     sessions = db.list_search_sessions_with_events()
     feedback_map = db.get_pair_feedback_map()
+    judged_gate = build_judged_label_gate(sessions, feedback_map, judged_only=judged_only)
     ranked_sessions = [
         ranked_session
         for session in sessions
-        if (ranked_session := _ranked_session_report(session, feedback_map, profile, clean_rrf_k)) is not None
+        if (ranked_session := _ranked_session_report(session, feedback_map, profile, clean_rrf_k, judged_only)) is not None
     ]
     judged_results = sum(int(session["judged_results"]) for session in ranked_sessions)
     unjudged_results = sum(int(session["unjudged_results"]) for session in ranked_sessions)
@@ -202,7 +209,14 @@ def build_score_profile_application_report(
     ranked_candidate_count = sum(int(session["ranked_candidate_count"]) for session in ranked_sessions)
     report: dict[str, Any] = {
         "status": "ok" if ranked_sessions else "insufficient_data",
-        "label_status": "ok" if judged_results > 0 else "insufficient_data",
+        "evaluation_mode": judged_gate["evaluation_mode"],
+        "label_status": judged_gate["label_status"],
+        "judged_pairs": judged_gate["judged_pairs"],
+        "judged_seeds": judged_gate["judged_seeds"],
+        "can_create_candidate_profile": judged_gate["can_create_candidate_profile"],
+        "can_update_defaults": judged_gate["can_update_defaults"],
+        "label_guidance": judged_gate["guidance"],
+        "judged_only": judged_only,
         "label_policy": LABEL_POLICY,
         "profile_name": profile.name,
         "profile_kind": profile.profile_kind,
@@ -226,6 +240,8 @@ def build_score_profile_application_report(
             "ranked_candidate_count": ranked_candidate_count,
             "label_policy": LABEL_POLICY,
         },
+        "judged_label_gate": judged_gate,
+        "metric_availability": {"explanation_tag_agreement_at_3": explanation_tag_agreement_at_k(3)},
         "ranked_sessions": ranked_sessions,
         "limitations": list(profile.limitations),
         "note": "Automatic internal score profile using weighted RRF over recorded source ranks only; unjudged candidates are treated as non-relevant for conservative metrics without changing rank positions. Not probability, not human ground truth, and not production search scoring.",
@@ -240,6 +256,7 @@ def _ranked_session_report(
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
     profile: ScoreProfile,
     rrf_k: int,
+    judged_only: bool,
 ) -> dict[str, Any] | None:
     candidate_source_contributions = _candidate_source_contributions(session.get("events"))
     if not candidate_source_contributions:
@@ -258,8 +275,9 @@ def _ranked_session_report(
     for candidate in ranked_candidates:
         label = _matching_label(seed_track_ids, candidate.candidate_track_id, feedback_source, feedback_map)
         if label is None:
-            relevances_for_metrics.append(0)
             unjudged_candidate_track_ids.append(candidate.candidate_track_id)
+            if not judged_only:
+                relevances_for_metrics.append(0)
             continue
         rating = int(label["rating"])
         relevances_for_metrics.append(rating)
@@ -353,6 +371,9 @@ def _aggregate_profile_metrics(ranked_sessions: Sequence[Mapping[str, Any]], k_v
         metrics[f"mean_reciprocal_rank_at_{k}"] = mean_reciprocal_rank(relevance_lists, k, threshold=RELEVANCE_THRESHOLD)
         metrics[f"mean_precision_at_{k}"] = _mean(precision_at_k(relevances, k, threshold=RELEVANCE_THRESHOLD) for relevances in relevance_lists)
         metrics[f"mean_bad_suggestion_rate_at_{k}"] = _mean(bad_suggestion_rate_at_k(relevances, k) for relevances in relevance_lists)
+        metrics[f"mean_strong_match_rate_at_{k}"] = _mean(strong_match_rate_at_k(relevances, k) for relevances in relevance_lists)
+        metrics[f"mean_maybe_rate_at_{k}"] = _mean(maybe_rate_at_k(relevances, k) for relevances in relevance_lists)
+        metrics[f"mean_reject_rate_at_{k}"] = _mean(reject_rate_at_k(relevances, k) for relevances in relevance_lists)
         metrics[f"hit_rate_at_{k}"] = hit_rate_at_k(relevance_lists, k, threshold=RELEVANCE_THRESHOLD)
     return metrics
 
@@ -365,6 +386,9 @@ def _empty_metrics(k_values: Sequence[int]) -> dict[str, float]:
         metrics[f"mean_reciprocal_rank_at_{k}"] = 0.0
         metrics[f"mean_precision_at_{k}"] = 0.0
         metrics[f"mean_bad_suggestion_rate_at_{k}"] = 0.0
+        metrics[f"mean_strong_match_rate_at_{k}"] = 0.0
+        metrics[f"mean_maybe_rate_at_{k}"] = 0.0
+        metrics[f"mean_reject_rate_at_{k}"] = 0.0
         metrics[f"hit_rate_at_{k}"] = 0.0
     return metrics
 
@@ -372,16 +396,10 @@ def _empty_metrics(k_values: Sequence[int]) -> dict[str, float]:
 def _matching_label(
     seed_track_ids: Sequence[int],
     candidate_track_id: int,
-    preferred_source: str,
+    preferred_source: str | None,
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
 ) -> Mapping[str, Any] | None:
-    preferred_label = _first_label_for_source(seed_track_ids, candidate_track_id, preferred_source, feedback_map)
-    if preferred_label is not None:
-        return preferred_label
-    manual_label = _first_label_for_source(seed_track_ids, candidate_track_id, DEFAULT_FEEDBACK_SOURCE, feedback_map)
-    if manual_label is not None:
-        return manual_label
-    return _first_label_for_any_source(seed_track_ids, candidate_track_id, feedback_map)
+    return matched_judged_label(seed_track_ids, candidate_track_id, preferred_source, feedback_map)
 
 
 def _first_label_for_source(
@@ -413,15 +431,8 @@ def _first_label_for_any_source(
     return sorted(matches, key=lambda label: (int(label["seed_track_id"]), str(label["source"])))[0]
 
 
-def _session_feedback_source(session: Mapping[str, Any]) -> str:
-    request = session.get("request")
-    if not isinstance(request, Mapping):
-        return DEFAULT_FEEDBACK_SOURCE
-    source = request.get("feedback_source") or request.get("label_source") or request.get("source")
-    if source is None:
-        return DEFAULT_FEEDBACK_SOURCE
-    text = str(source).strip()
-    return text or DEFAULT_FEEDBACK_SOURCE
+def _session_feedback_source(session: Mapping[str, Any]) -> str | None:
+    return judged_session_feedback_source(session, default=None)
 
 
 def _score_profile_from_mapping(payload: Mapping[str, Any]) -> ScoreProfile:

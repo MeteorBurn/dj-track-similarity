@@ -110,6 +110,8 @@ class ClassifierJobManager:
             self._update(job_id, state="failed", finished_at=time.time())
             self._append_event(job_id, "error", error_text)
             raise
+        for warning in getattr(scorer, "manifest_warnings", ()):
+            self._append_event(job_id, "warn", str(warning))
 
         for track in tracks:
             if self.get(job_id).cancel_requested:

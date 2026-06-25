@@ -8,6 +8,9 @@ from typing import Any
 from .metadata_payload import json_safe_value
 
 
+PROMOTED_SCORE_PROFILE_SETTING_KEY = "evaluation.promoted_score_profile"
+
+
 class EvaluationRepository:
     def list_search_sessions_with_events(self) -> list[dict[str, Any]]:
         with self.connect() as connection:
@@ -89,6 +92,41 @@ class EvaluationRepository:
         )
         with self.connect() as connection:
             return {table: int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]) for table in tables}
+
+    def get_promoted_score_profile(self) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT value FROM library_settings WHERE key = ?",
+                (PROMOTED_SCORE_PROFILE_SETTING_KEY,),
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            payload = json.loads(str(row["value"]))
+        except json.JSONDecodeError as error:
+            raise RuntimeError("Promoted score profile setting is not valid JSON") from error
+        if not isinstance(payload, dict):
+            raise RuntimeError("Promoted score profile setting must be a JSON object")
+        return payload
+
+    def set_promoted_score_profile(self, profile: Mapping[str, Any]) -> dict[str, Any]:
+        clean_profile = _json_object(profile, "Promoted score profile")
+        profile_json = _json_text(clean_profile)
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO library_settings (key, value)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (PROMOTED_SCORE_PROFILE_SETTING_KEY, profile_json),
+            )
+        promoted_profile = self.get_promoted_score_profile()
+        if promoted_profile is None:
+            raise RuntimeError("Failed to persist promoted score profile")
+        return promoted_profile
 
     def create_search_session(self, mode: str, seed_track_ids: Sequence[int], request: Mapping[str, Any]) -> int:
         clean_mode = _required_text(mode, "Search session mode")
@@ -258,6 +296,12 @@ class EvaluationRepository:
 
 def _json_text(value: object) -> str:
     return json.dumps(json_safe_value(value), ensure_ascii=False, sort_keys=True, allow_nan=False)
+
+
+def _json_object(value: object, field_name: str) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field_name} must be a JSON object")
+    return dict(value)
 
 
 def _required_text(value: object, field_name: str) -> str:

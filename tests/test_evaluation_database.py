@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.db_evaluation import PROMOTED_SCORE_PROFILE_SETTING_KEY
 from dj_track_similarity.db_schema import CURRENT_SCHEMA_VERSION
 
 
@@ -117,6 +118,28 @@ def test_evaluation_repository_rejects_invalid_rating_before_sqlite_check(tmp_pa
     with db.connect() as connection:
         count = connection.execute("SELECT COUNT(*) FROM track_pair_feedback").fetchone()[0]
     assert count == 0
+
+
+def test_evaluation_repository_stores_promoted_score_profile_marker(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    promoted_profile = {
+        "profile_name": "judged_default",
+        "source": "judged_feedback",
+        "promotion_source": "score_profile_optimizer",
+        "weights": {"mert": 1.0},
+        "risk_weights": {"transition_risk": 0.0},
+    }
+
+    stored_profile = db.set_promoted_score_profile(promoted_profile)
+
+    assert stored_profile == promoted_profile
+    assert db.get_promoted_score_profile() == promoted_profile
+    with db.connect() as connection:
+        row = connection.execute(
+            "SELECT value FROM library_settings WHERE key = ?",
+            (PROMOTED_SCORE_PROFILE_SETTING_KEY,),
+        ).fetchone()
+    assert json.loads(row["value"]) == promoted_profile
 
 
 def test_evaluation_foreign_keys_cascade_with_tracks_and_sessions(tmp_path: Path) -> None:

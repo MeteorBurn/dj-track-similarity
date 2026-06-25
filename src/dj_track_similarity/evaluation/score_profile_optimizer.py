@@ -44,6 +44,7 @@ PROPOSAL_NOTES = (
     "RRF, adjusted scores, and raw source scores are ranking diagnostics, not confidence or probability.",
     "Default review is manual-only even when the PR-23 500+ judged-pair gate is reached.",
 )
+PROMOTED_PROFILE_SOURCE = "score_profile_optimizer"
 
 
 @dataclass(frozen=True)
@@ -247,6 +248,137 @@ def optimizer_record_metrics(report: Mapping[str, Any]) -> dict[str, Any]:
         "bootstrap_stability": dict(report["bootstrap_stability"]),
         "can_apply_as_default": bool(report["can_apply_as_default"]),
     }
+
+
+def build_promoted_score_profile_payload(report: Mapping[str, Any]) -> dict[str, Any]:
+    _require_promotable_optimizer_report(report)
+    weights = _report_weights(report)
+    risk_weights = _report_risk_weights(report)
+    guardrails = _required_mapping(report.get("guardrails"), "guardrails")
+    payload = {
+        "profile_name": _required_text(report.get("profile_name"), "profile_name"),
+        "source": SOURCE,
+        "promotion_source": PROMOTED_PROFILE_SOURCE,
+        "label_status": _required_text(report.get("label_status"), "label_status"),
+        "created_at": _required_text(report.get("created_at"), "created_at"),
+        "promoted_at": _utc_timestamp(),
+        "objective": _objective(str(report.get("objective", DEFAULT_OBJECTIVE))),
+        "split_by": _split_by(str(report.get("split_by", DEFAULT_SPLIT_BY))),
+        "judged_pairs": _non_negative_int(report.get("judged_pairs"), "judged_pairs"),
+        "judged_seeds": _non_negative_int(report.get("judged_seeds"), "judged_seeds"),
+        "rrf_k": _positive_int(report.get("rrf_k"), "rrf_k"),
+        "k_values": list(_clean_k_values(_required_sequence(report.get("k_values"), "k_values"))),
+        "train_metrics": dict(_required_mapping(report.get("train_metrics"), "train_metrics")),
+        "validation_metrics": dict(_required_mapping(report.get("validation_metrics"), "validation_metrics")),
+        "baseline_validation_metrics": dict(
+            _required_mapping(report.get("baseline_validation_metrics"), "baseline_validation_metrics"),
+        ),
+        "sources": list(weights),
+        "weights": weights,
+        "risk_weights": risk_weights,
+        "can_apply_as_default": True,
+        "guardrails": {
+            "split_by": "seed_track_id",
+            "min_judged_pairs": _positive_int(guardrails.get("min_judged_pairs"), "guardrails.min_judged_pairs"),
+            "effective_min_judged_pairs": _positive_int(
+                guardrails.get("effective_min_judged_pairs"),
+                "guardrails.effective_min_judged_pairs",
+            ),
+            "bad_rate_did_not_increase": True,
+            "validation_ndcg_improved": True,
+            "bootstrap_stability_passed": True,
+        },
+        "decision": _required_text(report.get("decision"), "decision"),
+        "default_update_policy": _required_text(report.get("default_update_policy"), "default_update_policy"),
+    }
+    _validate_promoted_score_profile_payload(payload)
+    return payload
+
+
+def _require_promotable_optimizer_report(report: Mapping[str, Any]) -> None:
+    if not isinstance(report, Mapping):
+        raise ValueError("Optimizer report must be a JSON object")
+    if report.get("source") != SOURCE:
+        raise ValueError("Only judged-feedback optimizer reports can be promoted")
+    if report.get("status") != "ok":
+        raise ValueError("Only optimizer reports with status=ok can be promoted")
+    if not bool(report.get("can_update_defaults")):
+        raise ValueError(
+            "Cannot promote score profile until the PR-23 500 matched judged-pair default-review gate is met",
+        )
+    guardrails = _required_mapping(report.get("guardrails"), "guardrails")
+    checks = _required_mapping(guardrails.get("checks"), "guardrails.checks")
+    failed_checks = sorted(name for name, passed in checks.items() if not bool(passed))
+    if failed_checks:
+        raise ValueError("Cannot promote score profile because guardrails failed: " + ", ".join(failed_checks))
+
+
+def _report_weights(report: Mapping[str, Any]) -> dict[str, float]:
+    raw_weights = _required_mapping(report.get("weights"), "weights")
+    sources = _source_list(report.get("sources"))
+    weights = {
+        str(source).strip().lower(): _non_negative_finite_float(weight, f"weights.{source}")
+        for source, weight in raw_weights.items()
+    }
+    if set(weights) != set(sources):
+        raise ValueError("Promoted score profile weights must match optimizer sources exactly")
+    _assert_normalized_weights(weights)
+    return weights
+
+
+def _report_risk_weights(report: Mapping[str, Any]) -> dict[str, float]:
+    raw_risk_weights = _required_mapping(report.get("risk_weights"), "risk_weights")
+    risk_weights = {
+        _required_text(name, "risk weight name"): _non_negative_finite_float(weight, f"risk_weights.{name}")
+        for name, weight in raw_risk_weights.items()
+    }
+    if not risk_weights:
+        raise ValueError("Promoted score profile requires at least one risk weight")
+    return risk_weights
+
+
+def _validate_promoted_score_profile_payload(payload: Mapping[str, Any]) -> None:
+    _report_weights(payload)
+    _report_risk_weights(payload)
+    if payload.get("source") != SOURCE:
+        raise ValueError("Promoted score profile source must be judged_feedback")
+    if payload.get("promotion_source") != PROMOTED_PROFILE_SOURCE:
+        raise ValueError("Promoted score profile promotion_source must be score_profile_optimizer")
+    if not bool(payload.get("can_apply_as_default")):
+        raise ValueError("Promoted score profile must be marked can_apply_as_default")
+    guardrails = _required_mapping(payload.get("guardrails"), "guardrails")
+    required_true_guardrails = ("bad_rate_did_not_increase", "validation_ndcg_improved", "bootstrap_stability_passed")
+    failed_guardrails = [name for name in required_true_guardrails if guardrails.get(name) is not True]
+    if failed_guardrails:
+        raise ValueError("Promoted score profile guardrails must all pass: " + ", ".join(failed_guardrails))
+    validation_metrics = _required_mapping(payload.get("validation_metrics"), "validation_metrics")
+    baseline_metrics = _required_mapping(payload.get("baseline_validation_metrics"), "baseline_validation_metrics")
+    metric_cutoff = GUARDRAIL_METRIC_CUTOFF
+    _non_negative_finite_float(validation_metrics.get(f"ndcg_at_{metric_cutoff}"), f"validation_metrics.ndcg_at_{metric_cutoff}")
+    _non_negative_finite_float(baseline_metrics.get(f"ndcg_at_{metric_cutoff}"), f"baseline_validation_metrics.ndcg_at_{metric_cutoff}")
+
+
+def _required_mapping(value: object, field_name: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field_name} must be a JSON object")
+    return value
+
+
+def _required_sequence(value: object, field_name: str) -> Sequence[Any]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise ValueError(f"{field_name} must be a JSON array")
+    return value
+
+
+def _source_list(value: object) -> tuple[str, ...]:
+    raw_sources = _required_sequence(value, "sources")
+    sources = tuple(dict.fromkeys(str(source).strip().lower() for source in raw_sources if str(source).strip()))
+    if not sources:
+        raise ValueError("sources must contain at least one source")
+    unknown_sources = sorted(source for source in sources if source not in ALLOWED_CANDIDATE_SOURCES)
+    if unknown_sources:
+        raise ValueError("Unknown optimizer sources: " + ", ".join(unknown_sources))
+    return sources
 
 
 def _optimizer_request(

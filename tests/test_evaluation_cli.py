@@ -306,6 +306,7 @@ def test_eval_optimize_score_profile_cli_writes_report_without_recording_by_defa
     assert report["source"] == "judged_feedback"
     assert report["weights"]["mert"] > report["weights"]["maest"]
     assert LibraryDatabase(db_path).count_evaluation_rows() == before_counts
+    assert LibraryDatabase(db_path).get_promoted_score_profile() is None
 
 
 def test_eval_optimize_score_profile_cli_record_writes_only_calibration_run(tmp_path: Path) -> None:
@@ -338,6 +339,7 @@ def test_eval_optimize_score_profile_cli_record_writes_only_calibration_run(tmp_
     assert after_counts["search_sessions"] == before_counts["search_sessions"]
     assert after_counts["search_result_events"] == before_counts["search_result_events"]
     assert after_counts["track_pair_feedback"] == before_counts["track_pair_feedback"]
+    assert LibraryDatabase(db_path).get_promoted_score_profile() is None
     report = json.loads(output_path.read_text(encoding="utf-8"))
     assert report["recorded"] is True
     with LibraryDatabase(db_path).connect() as connection:
@@ -345,6 +347,73 @@ def test_eval_optimize_score_profile_cli_record_writes_only_calibration_run(tmp_
     assert row["profile_name"] == "hybrid_judged_v1"
     assert row["search_mode"] == "score_profile_optimizer"
     assert json.loads(row["metrics_json"])["status"] == "ok"
+
+
+def test_eval_optimize_score_profile_cli_promote_writes_library_setting_only(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    output_path = tmp_path / "optimizer.json"
+    _build_optimizer_cli_library(db_path, tmp_path, seed_count=250)
+    before_counts = LibraryDatabase(db_path).count_evaluation_rows()
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "eval",
+            "optimize-score-profile",
+            "--db",
+            str(db_path),
+            "--output",
+            str(output_path),
+            "--grid-step",
+            "0.5",
+            "--bootstrap-samples",
+            "0",
+            "--promote",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "promoted=True" in result.output
+    after_counts = LibraryDatabase(db_path).count_evaluation_rows()
+    assert after_counts == before_counts
+    promoted_profile = LibraryDatabase(db_path).get_promoted_score_profile()
+    assert promoted_profile is not None
+    assert promoted_profile["profile_name"] == "hybrid_judged_v1"
+    assert promoted_profile["source"] == "judged_feedback"
+    assert promoted_profile["promotion_source"] == "score_profile_optimizer"
+    assert promoted_profile["can_apply_as_default"] is True
+    assert promoted_profile["judged_pairs"] == 500
+    assert promoted_profile["weights"]["mert"] > promoted_profile["weights"]["maest"]
+    report = json.loads(output_path.read_text(encoding="utf-8"))
+    assert report["promoted"] is True
+
+
+def test_eval_optimize_score_profile_cli_promote_rejects_candidate_only_gate(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    output_path = tmp_path / "optimizer.json"
+    _build_optimizer_cli_library(db_path, tmp_path, seed_count=100)
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "eval",
+            "optimize-score-profile",
+            "--db",
+            str(db_path),
+            "--output",
+            str(output_path),
+            "--grid-step",
+            "0.5",
+            "--bootstrap-samples",
+            "0",
+            "--promote",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "500 matched judged-pair" in result.output
+    assert LibraryDatabase(db_path).get_promoted_score_profile() is None
+    assert not output_path.exists()
 
 
 def test_eval_sweep_risk_penalty_cli_writes_json_summary(tmp_path: Path) -> None:
@@ -357,8 +426,20 @@ def test_eval_sweep_risk_penalty_cli_writes_json_summary(tmp_path: Path) -> None
     safe_id = db.upsert_track(path=tmp_path / "safe.wav", size=10, mtime=1)
     _write_score_profile(profile_path, {"mert": 1.0})
     session_id = db.create_search_session("evaluation_weighted_candidate_pool", [seed_id], {"feedback_source": "manual", "sources": ["mert"]})
-    db.record_search_result_event(session_id, risky_id, rank=1, total_score=0.0, score_breakdown={"sources": {"mert": {"rank": 1}}, "transition_risk": 1.0})
-    db.record_search_result_event(session_id, safe_id, rank=2, total_score=0.0, score_breakdown={"sources": {"mert": {"rank": 2}}, "transition_risk": 0.0})
+    db.record_search_result_event(
+        session_id,
+        risky_id,
+        rank=1,
+        total_score=0.0,
+        score_breakdown={"sources": {"mert": {"rank": 1}}, "transition_risk": 1.0, "transition_risk_version": "v2"},
+    )
+    db.record_search_result_event(
+        session_id,
+        safe_id,
+        rank=2,
+        total_score=0.0,
+        score_breakdown={"sources": {"mert": {"rank": 2}}, "transition_risk": 0.0, "transition_risk_version": "v2"},
+    )
     db.upsert_track_pair_feedback(seed_id, safe_id, 3, source="manual")
 
     result = CliRunner().invoke(

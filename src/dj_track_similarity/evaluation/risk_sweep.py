@@ -7,7 +7,7 @@ import json
 import math
 from typing import TYPE_CHECKING, Any
 
-from ..transition_diagnostics import compute_transition_diagnostics
+from ..transition_diagnostics import TRANSITION_RISK_V2, TRANSITION_RISK_VERSIONS, compute_transition_diagnostics
 from .candidates import ALLOWED_CANDIDATE_SOURCES
 from .metrics import (
     bad_suggestion_rate_at_k,
@@ -66,16 +66,18 @@ def build_risk_penalty_sweep_report(
     weights: Sequence[float] | None = None,
     k_values: Sequence[int] = DEFAULT_K_VALUES,
     rrf_k: int = DEFAULT_RRF_K,
+    risk_version: str = TRANSITION_RISK_V2,
 ) -> dict[str, Any]:
     validate_score_profile(profile)
     clean_weights = _clean_risk_weights(DEFAULT_RISK_SWEEP_WEIGHTS if weights is None else weights)
     clean_k_values = _clean_k_values(k_values)
     clean_rrf_k = _positive_int(rrf_k, "rrf_k")
+    clean_risk_version = _risk_version(risk_version)
 
     raw_sessions = db.list_search_sessions_with_events()
     feedback_map = db.get_pair_feedback_map()
     judged_gate = build_judged_label_gate(raw_sessions, feedback_map, judged_only=False)
-    parsed_sessions, warnings = _recorded_candidate_sessions(db, profile, feedback_map, clean_rrf_k, raw_sessions)
+    parsed_sessions, warnings = _recorded_candidate_sessions(db, profile, feedback_map, clean_rrf_k, clean_risk_version, raw_sessions)
     variants = {
         _variant_key(weight): _variant_report(parsed_sessions, weight, clean_k_values)
         for weight in clean_weights
@@ -103,6 +105,8 @@ def build_risk_penalty_sweep_report(
         "weights": dict(profile.weights),
         "sources": list(profile.sources),
         "risk_weights": list(clean_weights),
+        "risk_version": clean_risk_version,
+        "risk_versions": list(TRANSITION_RISK_VERSIONS),
         "k_values": list(clean_k_values),
         "rrf_k": clean_rrf_k,
         "ranked_session_count": len(parsed_sessions),
@@ -135,13 +139,14 @@ def _recorded_candidate_sessions(
     profile: ScoreProfile,
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
     rrf_k: int,
+    risk_version: str,
     raw_sessions: Sequence[Mapping[str, Any]],
 ) -> tuple[tuple[RiskSweepSession, ...], list[str]]:
     warnings: list[str] = []
     track_cache: dict[int, Track] = {}
     sessions: list[RiskSweepSession] = []
     for session in raw_sessions:
-        parsed_session = _recorded_candidate_session(db, session, profile, feedback_map, rrf_k, track_cache, warnings)
+        parsed_session = _recorded_candidate_session(db, session, profile, feedback_map, rrf_k, risk_version, track_cache, warnings)
         if parsed_session is None:
             continue
         sessions.append(parsed_session)
@@ -156,6 +161,7 @@ def _recorded_candidate_session(
     profile: ScoreProfile,
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
     rrf_k: int,
+    risk_version: str,
     track_cache: dict[int, Track],
     warnings: list[str],
 ) -> RiskSweepSession | None:
@@ -163,7 +169,7 @@ def _recorded_candidate_session(
     if not seed_track_ids:
         return None
 
-    candidates = _session_candidates(db, session, seed_track_ids, profile, feedback_map, rrf_k, track_cache, warnings)
+    candidates = _session_candidates(db, session, seed_track_ids, profile, feedback_map, rrf_k, risk_version, track_cache, warnings)
     if not candidates:
         return None
     return RiskSweepSession(
@@ -182,6 +188,7 @@ def _session_candidates(
     profile: ScoreProfile,
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
     rrf_k: int,
+    risk_version: str,
     track_cache: dict[int, Track],
     warnings: list[str],
 ) -> tuple[RiskSweepCandidate, ...]:
@@ -199,6 +206,7 @@ def _session_candidates(
             feedback_map,
             rrf_k,
             max_source_count,
+            risk_version,
             track_cache,
             warnings,
         )
@@ -226,6 +234,7 @@ def _raw_candidate(
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
     rrf_k: int,
     max_source_count: int,
+    risk_version: str,
     track_cache: dict[int, Track],
     warnings: list[str],
 ) -> dict[str, Any] | None:
@@ -235,7 +244,7 @@ def _raw_candidate(
     raw_rrf_score = _weighted_rrf_score(sources, profile, rrf_k)
     if raw_rrf_score <= 0.0:
         return None
-    transition_risk, risk_source = _event_transition_risk(db, event, seed_track_ids[0], candidate_track_id, len(sources), max_source_count, track_cache)
+    transition_risk, risk_source = _event_transition_risk(db, event, seed_track_ids[0], candidate_track_id, len(sources), max_source_count, risk_version, track_cache)
     if risk_source == "missing":
         warnings.append(f"session_id={session.get('id')} candidate_track_id={candidate_track_id} has no usable transition risk")
     rating = _matching_rating(seed_track_ids, candidate_track_id, _session_feedback_source(session), feedback_map)
@@ -442,28 +451,46 @@ def _event_transition_risk(
     candidate_track_id: int,
     source_count: int,
     max_source_count: int,
+    risk_version: str,
     track_cache: dict[int, Track],
 ) -> tuple[float | None, str]:
-    stored_risk = _stored_transition_risk(event)
+    stored_risk = _stored_transition_risk(event, risk_version)
     if stored_risk is not None:
         return stored_risk, "stored"
-    recomputed_risk = _recomputed_transition_risk(db, seed_track_id, candidate_track_id, source_count, max_source_count, track_cache)
+    recomputed_risk = _recomputed_transition_risk(db, seed_track_id, candidate_track_id, source_count, max_source_count, risk_version, track_cache)
     if recomputed_risk is not None:
         return recomputed_risk, "recomputed"
     return None, "missing"
 
 
-def _stored_transition_risk(event: Mapping[str, Any]) -> float | None:
+def _stored_transition_risk(event: Mapping[str, Any], risk_version: str) -> float | None:
     score_breakdown = event.get("score_breakdown")
     if not isinstance(score_breakdown, Mapping):
+        return None
+    diagnostics = score_breakdown.get("transition_diagnostics")
+    if isinstance(diagnostics, Mapping):
+        if risk_version == "v1":
+            v1_risk = _optional_risk(diagnostics.get("transition_risk_v1"))
+            if v1_risk is not None:
+                return v1_risk
+        if _stored_risk_version_matches(diagnostics.get("risk_version"), risk_version):
+            diagnostic_risk = _optional_risk(diagnostics.get("transition_risk"))
+            if diagnostic_risk is not None:
+                return diagnostic_risk
+    if not _stored_risk_version_matches(_stored_risk_version(score_breakdown), risk_version):
         return None
     direct_risk = _optional_risk(score_breakdown.get("transition_risk"))
     if direct_risk is not None:
         return direct_risk
-    diagnostics = score_breakdown.get("transition_diagnostics")
-    if isinstance(diagnostics, Mapping):
-        return _optional_risk(diagnostics.get("transition_risk"))
     return None
+
+
+def _stored_risk_version(score_breakdown: Mapping[str, Any]) -> object:
+    return score_breakdown.get("transition_risk_version", score_breakdown.get("risk_version"))
+
+
+def _stored_risk_version_matches(value: object, risk_version: str) -> bool:
+    return str(value or "").strip().lower() == risk_version
 
 
 def _recomputed_transition_risk(
@@ -472,6 +499,7 @@ def _recomputed_transition_risk(
     candidate_track_id: int,
     source_count: int,
     max_source_count: int,
+    risk_version: str,
     track_cache: dict[int, Track],
 ) -> float | None:
     try:
@@ -479,7 +507,7 @@ def _recomputed_transition_risk(
         candidate_track = _cached_track(db, candidate_track_id, track_cache)
     except KeyError:
         return None
-    diagnostics = compute_transition_diagnostics(seed_track, candidate_track, source_count=source_count, max_source_count=max_source_count)
+    diagnostics = compute_transition_diagnostics(seed_track, candidate_track, source_count=source_count, max_source_count=max_source_count, risk_version=risk_version)
     return diagnostics.transition_risk
 
 
@@ -670,6 +698,13 @@ def _risk_weight(value: object) -> float:
     if number < 0.0 or number > 1.0:
         raise ValueError("weight must be between 0 and 1")
     return number
+
+
+def _risk_version(value: object) -> str:
+    text = str(value or "").strip().lower()
+    if text in TRANSITION_RISK_VERSIONS:
+        return text
+    raise ValueError(f"transition risk version must be one of: {', '.join(TRANSITION_RISK_VERSIONS)}")
 
 
 def _positive_int(value: object, field_name: str) -> int:

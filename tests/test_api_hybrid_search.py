@@ -9,6 +9,18 @@ import dj_track_similarity.api as api
 from dj_track_similarity.api import create_app
 from dj_track_similarity.database import LibraryDatabase
 
+RISK_BREAKDOWN_KEYS = {
+    "bpm",
+    "tonal",
+    "energy_jump",
+    "density_jump",
+    "texture_clash",
+    "mood_clash",
+    "vocal_conflict",
+    "source_disagreement",
+    "confidence_missingness",
+}
+
 
 def test_hybrid_search_endpoint_returns_unified_diagnostics(monkeypatch, tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
@@ -42,8 +54,9 @@ def test_hybrid_search_endpoint_returns_unified_diagnostics(monkeypatch, tmp_pat
     assert payload["results"][0]["total_score"] == payload["results"][0]["adjusted_score"]
     assert payload["results"][0]["calibrated_score"] is None
     assert set(payload["results"][0]["match_character"]) == {"groove", "density", "texture", "mood", "tonal", "vocalness", "energy_flow", "novelty"}
-    assert set(payload["results"][0]["risk_breakdown"]) == {"bpm", "tonal", "energy_jump", "source_disagreement"}
+    assert set(payload["results"][0]["risk_breakdown"]) == RISK_BREAKDOWN_KEYS
     assert payload["results"][0]["source_support"]["maest"]["available"] is True
+    assert payload["results"][0]["classifier_support"] == {}
     assert payload["results"][0]["explanation"]
     assert payload["results"][0]["feedback"] is None
     assert payload["session_id"] is None
@@ -155,6 +168,41 @@ def test_hybrid_search_endpoint_accepts_clap_as_neutral_missing_source(monkeypat
     assert payload["results"]
     assert any("source=clap returned no candidates" in warning for warning in payload["warnings"])
     assert payload["results"][0]["transition_diagnostics"]["components"]["source_disagreement_risk"] == 0.0
+
+
+def test_hybrid_search_endpoint_accepts_classifier_controls(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db, track_ids = _hybrid_library(db_path, tmp_path)
+    db.save_classifier_score(
+        track_ids["maest_top"],
+        classifier="voice_presence",
+        score=0.8,
+        label="positive",
+        confidence=0.8,
+        probabilities={"positive": 0.8},
+        feature_set="combined",
+        model_id="test",
+    )
+
+    response = _client(monkeypatch, db_path).post(
+        "/api/search/hybrid",
+        json={
+            "seed_track_ids": [track_ids["seed"]],
+            "sources": ["mert", "maest"],
+            "weights": {"mert": 0.0, "maest": 1.0},
+            "classifier_preferences": {"voice_presence": 0.5},
+            "classifier_risk_weights": {"voice_presence": 1.0},
+            "include_diagnostics": True,
+            "limit": 1,
+        },
+    )
+
+    assert response.status_code == 200
+    row = response.json()["results"][0]
+    assert row["classifier_support"]["voice_presence"]["available"] is True
+    assert row["classifier_support"]["voice_presence"]["risk_contribution"] == 0.8
+    assert row["risk_breakdown"]["vocal_conflict"] == 0.8
+    assert "classifier_voice_presence" in row["score_breakdown"]
 
 
 def test_hybrid_search_endpoint_does_not_touch_audio_paths(monkeypatch, tmp_path: Path) -> None:

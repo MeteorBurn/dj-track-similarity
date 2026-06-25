@@ -8,6 +8,18 @@ from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.hybrid_explanation import MATCH_CHARACTER_AXES
 from dj_track_similarity.hybrid_search import build_hybrid_search_preview
 
+RISK_BREAKDOWN_KEYS = {
+    "bpm",
+    "tonal",
+    "energy_jump",
+    "density_jump",
+    "texture_clash",
+    "mood_clash",
+    "vocal_conflict",
+    "source_disagreement",
+    "confidence_missingness",
+}
+
 
 def test_hybrid_result_rows_expose_pr22_explanation_contract(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
@@ -22,8 +34,9 @@ def test_hybrid_result_rows_expose_pr22_explanation_contract(tmp_path: Path) -> 
     assert row.total_score == row.score
     assert row.calibrated_score is None
     assert tuple(row.match_character) == MATCH_CHARACTER_AXES
-    assert set(row.risk_breakdown) == {"bpm", "tonal", "energy_jump", "source_disagreement"}
+    assert set(row.risk_breakdown) == RISK_BREAKDOWN_KEYS
     assert row.source_support["mert"]["available"] is True
+    assert row.classifier_support == {}
     assert row.explanation
 
 

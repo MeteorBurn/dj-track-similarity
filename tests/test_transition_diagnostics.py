@@ -68,3 +68,51 @@ def test_source_disagreement_risk_uses_source_counts() -> None:
 
     assert diagnostics.components["source_disagreement_risk"] == 0.75
     assert diagnostics.transition_risk == 0.75
+
+
+def test_transition_risk_v2_adds_stored_feature_components() -> None:
+    diagnostics = compute_transition_diagnostics(
+        {"metadata": {"sonara_features": {"onset_density": 0.25, "spectral_centroid_mean": 1000.0, "valence": 0.8}}},
+        {"metadata": {"sonara_features": {"onset_density": 0.75, "spectral_centroid_mean": 2000.0, "valence": 0.2}}},
+    )
+
+    assert diagnostics.risk_version == "v2"
+    assert diagnostics.components["density_jump_risk"] == pytest.approx(0.5)
+    assert diagnostics.components["texture_clash_risk"] == pytest.approx(0.5)
+    assert diagnostics.components["mood_clash_risk"] == pytest.approx(0.6)
+    assert diagnostics.components["confidence_missingness_risk"] == 0.0
+    assert diagnostics.transition_risk_v1 is None
+
+
+def test_missing_vocal_classifier_scores_do_not_add_missingness_risk() -> None:
+    diagnostics = compute_transition_diagnostics(
+        {"metadata": {"sonara_features": {"onset_density": 0.25, "spectral_centroid_mean": 1000.0, "valence": 0.8}}},
+        {"metadata": {"sonara_features": {"onset_density": 0.75, "spectral_centroid_mean": 2000.0, "valence": 0.2}}},
+        classifier_risk_weights={"voice_presence": 1.0},
+    )
+
+    assert diagnostics.components["vocal_conflict_risk"] is None
+    assert diagnostics.components["confidence_missingness_risk"] == 0.0
+
+
+def test_transition_risk_v1_remains_available() -> None:
+    diagnostics = compute_transition_diagnostics(
+        {"bpm": 120.0, "energy": 0.1, "metadata": {"sonara_features": {"onset_density": 0.2}}},
+        {"bpm": 126.0, "energy": 0.9, "metadata": {"sonara_features": {"onset_density": 0.9}}},
+        risk_version="v1",
+    )
+
+    assert diagnostics.risk_version == "v1"
+    assert set(diagnostics.components) == {"bpm_risk", "key_risk", "energy_jump_risk", "source_disagreement_risk"}
+    assert "density_jump_risk" not in diagnostics.components
+    assert diagnostics.transition_risk == pytest.approx((0.4166666667 + 0.8) / 2)
+
+
+def test_vocal_conflict_risk_uses_requested_classifier_score() -> None:
+    diagnostics = compute_transition_diagnostics(
+        {"classifier_scores": {"voice_presence": {"score": 0.1}}},
+        {"classifier_scores": {"voice_presence": {"score": 0.8}}},
+        classifier_risk_weights={"voice_presence": 1.0},
+    )
+
+    assert diagnostics.components["vocal_conflict_risk"] == 0.8

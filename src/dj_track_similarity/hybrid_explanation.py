@@ -23,7 +23,12 @@ RISK_BREAKDOWN_COMPONENTS = {
     "bpm_risk": "bpm",
     "key_risk": "tonal",
     "energy_jump_risk": "energy_jump",
+    "density_jump_risk": "density_jump",
+    "texture_clash_risk": "texture_clash",
+    "mood_clash_risk": "mood_clash",
+    "vocal_conflict_risk": "vocal_conflict",
     "source_disagreement_risk": "source_disagreement",
+    "confidence_missingness_risk": "confidence_missingness",
 }
 EMBEDDING_SOURCES = {"mert", "maest", "clap"}
 SONARA_GROOVE_FIELDS = ("bpm", "onset_density", "danceability")
@@ -49,6 +54,7 @@ class HybridExplanation:
     score_breakdown: Mapping[str, Mapping[str, float | int]]
     risk_breakdown: Mapping[str, float | None]
     source_support: Mapping[str, Mapping[str, Any]]
+    classifier_support: Mapping[str, Mapping[str, Any]]
     match_character: Mapping[str, float]
     warnings: tuple[str, ...]
     explanation: tuple[str, ...]
@@ -64,6 +70,7 @@ def build_hybrid_explanation(
     transition_diagnostics: Mapping[str, Any],
     sources: Sequence[str],
     total_score: float,
+    classifier_support: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> HybridExplanation:
     clean_total_score = _finite_float(total_score, "total_score")
     clean_score_breakdown = _clean_score_breakdown(score_breakdown)
@@ -74,6 +81,7 @@ def build_hybrid_explanation(
         source_seed_diagnostics=source_seed_diagnostics,
         score_breakdown=clean_score_breakdown,
     )
+    clean_classifier_support = _clean_classifier_support(classifier_support or {})
     match_character = _match_character(
         candidate_track=candidate_track,
         seed_tracks=seed_tracks,
@@ -84,15 +92,22 @@ def build_hybrid_explanation(
         match_character=match_character,
         risk_breakdown=risk_breakdown,
         source_support=source_support,
+        classifier_support=clean_classifier_support,
         transition_diagnostics=transition_diagnostics,
     )
-    explanation = _explanation_lines(match_character=match_character, source_support=source_support, risk_breakdown=risk_breakdown)
+    explanation = _explanation_lines(
+        match_character=match_character,
+        source_support=source_support,
+        classifier_support=clean_classifier_support,
+        risk_breakdown=risk_breakdown,
+    )
     return HybridExplanation(
         total_score=clean_total_score,
         calibrated_score=None,
         score_breakdown=clean_score_breakdown,
         risk_breakdown=risk_breakdown,
         source_support=source_support,
+        classifier_support=clean_classifier_support,
         match_character=match_character,
         warnings=warnings,
         explanation=explanation,
@@ -131,6 +146,20 @@ def _source_support(
             "best_seed_track_id": _optional_int(diagnostics.get("best_seed_track_id")),
             "best_rank": _optional_int(diagnostics.get("best_rank")),
             "supporting_seed_track_ids": _int_list(diagnostics.get("supporting_seed_track_ids")),
+        }
+    return support
+
+
+def _clean_classifier_support(classifier_support: Mapping[str, Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
+    support: dict[str, dict[str, Any]] = {}
+    for classifier_key, details in sorted(classifier_support.items()):
+        support[str(classifier_key)] = {
+            "available": details.get("available") is True,
+            "score": _optional_unit_interval(details.get("score")),
+            "preference": _optional_signed_unit(details.get("preference")),
+            "risk_weight": _optional_unit_interval(details.get("risk_weight")),
+            "score_contribution": _optional_finite_float(details.get("score_contribution")),
+            "risk_contribution": _optional_unit_interval(details.get("risk_contribution")),
         }
     return support
 
@@ -361,12 +390,14 @@ def _warnings(
     match_character: Mapping[str, float],
     risk_breakdown: Mapping[str, float | None],
     source_support: Mapping[str, Mapping[str, Any]],
+    classifier_support: Mapping[str, Mapping[str, Any]],
     transition_diagnostics: Mapping[str, Any],
 ) -> tuple[str, ...]:
     warning_items: list[tuple[int, str]] = []
     warning_items.extend(_risk_warning_items(risk_breakdown))
     warning_items.extend(_axis_warning_items(match_character))
     warning_items.extend(_source_warning_items(source_support))
+    warning_items.extend(_classifier_warning_items(classifier_support))
     warning_items.extend(_transition_warning_items(transition_diagnostics))
     deduped = {text: severity for severity, text in warning_items}
     return tuple(text for text, _severity in sorted(deduped.items(), key=lambda item: (item[1], item[0])))
@@ -377,7 +408,12 @@ def _risk_warning_items(risk_breakdown: Mapping[str, float | None]) -> list[tupl
         "bpm": "BPM",
         "tonal": "tonal",
         "energy_jump": "energy jump",
+        "density_jump": "density jump",
+        "texture_clash": "texture clash",
+        "mood_clash": "mood clash",
+        "vocal_conflict": "vocal conflict",
         "source_disagreement": "source disagreement",
+        "confidence_missingness": "missing-data",
     }
     warning_items: list[tuple[int, str]] = []
     for name, label in labels.items():
@@ -409,6 +445,21 @@ def _source_warning_items(source_support: Mapping[str, Mapping[str, Any]]) -> li
     return []
 
 
+def _classifier_warning_items(classifier_support: Mapping[str, Mapping[str, Any]]) -> list[tuple[int, str]]:
+    warning_items: list[tuple[int, str]] = []
+    for classifier_key, support in classifier_support.items():
+        if support.get("available") is not True:
+            continue
+        score_contribution = _optional_finite_float(support.get("score_contribution")) or 0.0
+        risk_contribution = _optional_unit_interval(support.get("risk_contribution"))
+        if risk_contribution is not None and risk_contribution >= 0.45:
+            warning_items.append((1, f"Classifier signal: {classifier_key} suggests a vocal/listening-risk check."))
+        if abs(score_contribution) >= 0.08:
+            direction = "supports" if score_contribution > 0 else "pulls down"
+            warning_items.append((3, f"Classifier signal: {classifier_key} {direction} this row."))
+    return warning_items
+
+
 def _transition_warning_items(transition_diagnostics: Mapping[str, Any]) -> list[tuple[int, str]]:
     raw_warnings = transition_diagnostics.get("warnings")
     if not isinstance(raw_warnings, list):
@@ -433,12 +484,14 @@ def _explanation_lines(
     *,
     match_character: Mapping[str, float],
     source_support: Mapping[str, Mapping[str, Any]],
+    classifier_support: Mapping[str, Mapping[str, Any]],
     risk_breakdown: Mapping[str, float | None],
 ) -> tuple[str, ...]:
     strongest_axes = _strongest_axes(match_character)
     lines = [
         f"Strongest match axes: {', '.join(_axis_label(axis) for axis in strongest_axes)}.",
         f"Reason signals: {_source_support_phrase(source_support)}.",
+        f"Classifier signals: {_classifier_support_phrase(classifier_support)}.",
         f"Risk estimate: {_risk_phrase(risk_breakdown)}.",
     ]
     return tuple(lines)
@@ -458,12 +511,49 @@ def _source_support_phrase(source_support: Mapping[str, Mapping[str, Any]]) -> s
     return f"{', '.join(available_sources)} support this row"
 
 
+def _classifier_support_phrase(classifier_support: Mapping[str, Mapping[str, Any]]) -> str:
+    active = [
+        _classifier_support_item(classifier_key, support)
+        for classifier_key, support in classifier_support.items()
+        if support.get("available") is True
+    ]
+    active = [item for item in active if item]
+    if active:
+        return "; ".join(active[:3])
+    if classifier_support:
+        return "requested classifier scores are unavailable, kept neutral"
+    return "no classifier controls requested"
+
+
+def _classifier_support_item(classifier_key: str, support: Mapping[str, Any]) -> str:
+    score = _optional_unit_interval(support.get("score"))
+    if score is None:
+        return ""
+    contribution = _optional_finite_float(support.get("score_contribution"))
+    risk = _optional_unit_interval(support.get("risk_contribution"))
+    parts = [f"{classifier_key} {score:.2f}"]
+    if contribution is not None and contribution != 0.0:
+        parts.append(f"score {contribution:+.2f}")
+    if risk is not None:
+        parts.append(f"risk {risk:.2f}")
+    if len(parts) == 1:
+        return parts[0]
+    return f"{parts[0]} ({', '.join(parts[1:])})"
+
+
 def _risk_phrase(risk_breakdown: Mapping[str, float | None]) -> str:
     available_risks = {name: risk for name, risk in risk_breakdown.items() if risk is not None}
     if not available_risks:
         return "risk data unavailable, neutral values used"
     highest_name, highest_risk = max(available_risks.items(), key=lambda item: (item[1], item[0]))
-    return f"highest component is {highest_name.replace('_', ' ')} at {highest_risk:.2f}"
+    return f"highest component is {_risk_label(highest_name)} at {highest_risk:.2f}"
+
+
+def _risk_label(name: str) -> str:
+    labels = {
+        "confidence_missingness": "missing-data",
+    }
+    return labels.get(name, name.replace("_", " "))
 
 
 def _axis_label(axis: str) -> str:
@@ -482,6 +572,13 @@ def _optional_unit_interval(value: object) -> float | None:
     if number is None:
         return None
     return _clamp01(number)
+
+
+def _optional_signed_unit(value: object) -> float | None:
+    number = _optional_finite_float(value)
+    if number is None:
+        return None
+    return min(1.0, max(-1.0, number))
 
 
 def _optional_finite_float(value: object) -> float | None:

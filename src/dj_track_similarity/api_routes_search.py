@@ -90,6 +90,9 @@ def register_search_routes(
                 rrf_k=request.rrf_k,
                 random_seed=request.random_seed,
                 transition_risk_weight=request.transition_risk_weight,
+                transition_risk_version=request.transition_risk_version,
+                classifier_preferences=request.classifier_preferences,
+                classifier_risk_weights=request.classifier_risk_weights,
                 record_session=request.record_session,
             )
         except ValueError as error:

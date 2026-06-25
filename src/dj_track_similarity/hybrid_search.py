@@ -18,7 +18,9 @@ from .evaluation.score_profiles import ScoreProfile, score_profile_from_dict
 from .evaluation.weighted_candidates import weighted_rrf_components, weighted_rrf_score
 from .hybrid_explanation import build_hybrid_explanation
 from .models import Track
-from .transition_diagnostics import COMPONENT_NAMES, TransitionDiagnostics, compute_transition_diagnostics
+from .classifier_scoring import promoted_classifiers
+from .sonara_similarity_scoring import optional_float
+from .transition_diagnostics import COMPONENT_NAMES, TRANSITION_RISK_V2, TRANSITION_RISK_VERSIONS, V2_COMPONENT_WEIGHTS, TransitionDiagnostics, compute_transition_diagnostics
 
 
 DEFAULT_HYBRID_SOURCES = ("mert", "maest", "sonara", "clap")
@@ -27,10 +29,12 @@ HYBRID_SEARCH_SESSION_MODE = "hybrid_search_preview"
 HYBRID_SEARCH_LIMITATIONS = (
     "Hybrid search is an explicit weighted rank-fusion preview over existing MERT, MAEST, SONARA, and CLAP analysis data.",
     "CLAP is used only as stored audio embeddings in this preview; prompt-aware CLAP hybrid search is not part of this path.",
+    "Optional classifier controls read stored promoted classifier scores only; missing scores stay neutral and no audio is decoded.",
     "The score is an optional transition-risk-adjusted weighted RRF preview score; it is diagnostic ranking output, not calibrated human-taste evidence.",
     "Transition risk is diagnostic only and is not AutoMix, beatgrid, cue-point detection, or a calibrated transition estimate.",
-    "The endpoint reads the selected SQLite database only and does not write sessions, train classifiers, modify production search scoring, or write audio files.",
+    "The endpoint reads the selected SQLite database only. By default it writes no rows; with record_session=true it writes only evaluation search_sessions/search_result_events rows and never trains classifiers, modifies production search scoring, or writes audio files.",
 )
+CLASSIFIER_SCORE_ADJUSTMENT_SCALE = 0.15
 
 
 @dataclass(frozen=True)
@@ -48,6 +52,7 @@ class HybridSearchResultRow:
     score_breakdown: Mapping[str, Mapping[str, float | int]]
     risk_breakdown: Mapping[str, float | None]
     source_support: Mapping[str, Mapping[str, Any]]
+    classifier_support: Mapping[str, Mapping[str, Any]]
     match_character: Mapping[str, float]
     warnings: tuple[str, ...]
     explanation: tuple[str, ...]
@@ -70,6 +75,7 @@ class HybridSearchResultRow:
             "score_breakdown": dict(self.score_breakdown),
             "risk_breakdown": dict(self.risk_breakdown),
             "source_support": {source: dict(support) for source, support in self.source_support.items()},
+            "classifier_support": {classifier: dict(support) for classifier, support in self.classifier_support.items()},
             "match_character": dict(self.match_character),
             "warnings": list(self.warnings),
             "explanation": list(self.explanation),
@@ -114,6 +120,7 @@ class _ScoredHybridCandidate:
     candidate: _HybridCandidate
     raw_rrf_score: float
     score_breakdown: Mapping[str, Mapping[str, float | int]]
+    classifier_adjustment: float
     tie_token: int
 
 
@@ -125,6 +132,20 @@ class _RankedHybridCandidate:
     transition_risk: float | None
     transition_risk_penalty: float
     transition_diagnostics: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class _ClassifierControls:
+    preferences: Mapping[str, float]
+    risk_weights: Mapping[str, float]
+
+    @property
+    def requested_keys(self) -> tuple[str, ...]:
+        return tuple(sorted(set(self.preferences) | set(self.risk_weights)))
+
+    @property
+    def has_score_preferences(self) -> bool:
+        return any(value != 0.0 for value in self.preferences.values())
 
 
 def build_hybrid_search_preview(
@@ -139,6 +160,9 @@ def build_hybrid_search_preview(
     rrf_k: int = 60,
     random_seed: int = 123,
     transition_risk_weight: float = 0.0,
+    transition_risk_version: str = TRANSITION_RISK_V2,
+    classifier_preferences: Mapping[str, float] | None = None,
+    classifier_risk_weights: Mapping[str, float] | None = None,
     record_session: bool = False,
 ) -> HybridSearchResult:
     clean_seed_track_ids = _positive_unique_ints(seed_track_ids, "seed_track_id")
@@ -150,6 +174,11 @@ def build_hybrid_search_preview(
     clean_rrf_k = _positive_int(rrf_k, "rrf_k")
     clean_random_seed = _int_value(random_seed, "random_seed")
     clean_transition_risk_weight = _risk_weight(transition_risk_weight, "transition_risk_weight")
+    clean_transition_risk_version = _transition_risk_version(transition_risk_version)
+    clean_classifier_controls = _classifier_controls(
+        classifier_preferences=classifier_preferences,
+        classifier_risk_weights=classifier_risk_weights,
+    )
     clean_record_session = bool(record_session)
 
     candidate_rows, warnings = generate_candidate_pool_rows(
@@ -168,6 +197,7 @@ def build_hybrid_search_preview(
         weights=clean_weights,
         rrf_k=clean_rrf_k,
         random_seed=clean_random_seed,
+        classifier_controls=clean_classifier_controls,
     )
     results = _ranked_result_rows(
         db,
@@ -179,7 +209,10 @@ def build_hybrid_search_preview(
         feedback_map=db.get_pair_feedback_map(),
         feedback_source=HYBRID_UI_FEEDBACK_SOURCE,
         transition_risk_weight=clean_transition_risk_weight,
+        transition_risk_version=clean_transition_risk_version,
+        classifier_controls=clean_classifier_controls,
     )
+    all_warnings = tuple([*warnings, *_classifier_control_warnings(clean_classifier_controls, results)])
     session_id = _record_hybrid_search_session(
         db,
         results,
@@ -191,12 +224,14 @@ def build_hybrid_search_preview(
         rrf_k=clean_rrf_k,
         random_seed=clean_random_seed,
         transition_risk_weight=clean_transition_risk_weight,
+        transition_risk_version=clean_transition_risk_version,
+        classifier_controls=clean_classifier_controls,
         feedback_source=HYBRID_UI_FEEDBACK_SOURCE,
         record_session=clean_record_session,
     )
     return HybridSearchResult(
         results=results,
-        warnings=warnings,
+        warnings=all_warnings,
         weights_used=clean_weights,
         sources=clean_sources,
         limitations=HYBRID_SEARCH_LIMITATIONS,
@@ -208,6 +243,9 @@ def build_hybrid_search_preview(
             "rrf_k": clean_rrf_k,
             "random_seed": clean_random_seed,
             "transition_risk_weight": clean_transition_risk_weight,
+            "transition_risk_version": clean_transition_risk_version,
+            "classifier_preferences": dict(clean_classifier_controls.preferences),
+            "classifier_risk_weights": dict(clean_classifier_controls.risk_weights),
             "record_session": clean_record_session,
             "session_id": session_id,
             "candidate_rows": len(candidate_rows),
@@ -287,10 +325,13 @@ def _scored_hybrid_candidates(
     weights: Mapping[str, float],
     rrf_k: int,
     random_seed: int,
+    classifier_controls: _ClassifierControls,
 ) -> tuple[_ScoredHybridCandidate, ...]:
     scored_candidates: list[_ScoredHybridCandidate] = []
     for candidate in candidates:
-        score_breakdown = _weighted_rrf_components_with_source_scores(candidate.source_contributions, weights, rrf_k)
+        source_score_breakdown = _weighted_rrf_components_with_source_scores(candidate.source_contributions, weights, rrf_k)
+        classifier_score_breakdown, classifier_adjustment = _classifier_score_breakdown(candidate.track, classifier_controls)
+        score_breakdown = {**source_score_breakdown, **classifier_score_breakdown}
         raw_rrf_score = weighted_rrf_score(candidate.source_contributions, weights, rrf_k)
         if raw_rrf_score <= 0:
             continue
@@ -299,6 +340,7 @@ def _scored_hybrid_candidates(
                 candidate=candidate,
                 raw_rrf_score=raw_rrf_score,
                 score_breakdown=score_breakdown,
+                classifier_adjustment=classifier_adjustment,
                 tie_token=_tie_token(random_seed, candidate.track.id),
             ),
         )
@@ -333,6 +375,8 @@ def _ranked_result_rows(
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
     feedback_source: str,
     transition_risk_weight: float,
+    transition_risk_version: str,
+    classifier_controls: _ClassifierControls,
 ) -> tuple[HybridSearchResultRow, ...]:
     max_score = max((candidate.raw_rrf_score for candidate in scored_candidates), default=0.0)
     transition_sources = _effective_transition_sources(scored_candidates, sources)
@@ -343,17 +387,25 @@ def _ranked_result_rows(
         seed_tracks=seed_tracks,
         max_score=max_score,
         transition_risk_weight=transition_risk_weight,
+        transition_risk_version=transition_risk_version,
+        classifier_controls=classifier_controls,
     )
     result_rows: list[HybridSearchResultRow] = []
     for rank, ranked_candidate in enumerate(ranked_candidates, start=1):
         candidate = ranked_candidate.scored_candidate
         candidate_track = db.get_track(candidate.candidate.track.id)
+        classifier_support = _classifier_support(
+            candidate_track,
+            classifier_controls,
+            score_breakdown=candidate.score_breakdown,
+        )
         explanation = build_hybrid_explanation(
             candidate_track=candidate_track,
             seed_tracks=seed_tracks,
             source_contributions=candidate.candidate.source_contributions,
             source_seed_diagnostics=candidate.candidate.source_seed_diagnostics,
             score_breakdown=candidate.score_breakdown,
+            classifier_support=classifier_support,
             transition_diagnostics=ranked_candidate.transition_diagnostics,
             sources=sources,
             total_score=ranked_candidate.adjusted_score,
@@ -373,6 +425,7 @@ def _ranked_result_rows(
                 score_breakdown=explanation.score_breakdown,
                 risk_breakdown=explanation.risk_breakdown,
                 source_support=explanation.source_support,
+                classifier_support=explanation.classifier_support,
                 match_character=explanation.match_character,
                 warnings=explanation.warnings,
                 explanation=explanation.explanation,
@@ -412,6 +465,8 @@ def _record_hybrid_search_session(
     rrf_k: int,
     random_seed: int,
     transition_risk_weight: float,
+    transition_risk_version: str,
+    classifier_controls: _ClassifierControls,
     feedback_source: str,
     record_session: bool,
 ) -> int | None:
@@ -428,6 +483,9 @@ def _record_hybrid_search_session(
             "rrf_k": rrf_k,
             "random_seed": random_seed,
             "transition_risk_weight": transition_risk_weight,
+            "transition_risk_version": transition_risk_version,
+            "classifier_preferences": dict(classifier_controls.preferences),
+            "classifier_risk_weights": dict(classifier_controls.risk_weights),
             "feedback_source": feedback_source,
             "record_session": True,
             "candidate_count": len(results),
@@ -453,9 +511,10 @@ def _hybrid_event_score_breakdown(row: HybridSearchResultRow, *, rrf_k: int) -> 
             "contribution": details.get("contribution"),
         }
         for source, details in sorted(row.score_breakdown.items())
+        if source in ALLOWED_CANDIDATE_SOURCES
     }
     return {
-        "score_kind": "weighted_rrf_adjusted" if row.transition_risk_weight > 0 else "weighted_rrf",
+        "score_kind": _hybrid_score_kind(row),
         "rank": row.rank,
         "total_score": row.total_score,
         "calibrated_score": row.calibrated_score,
@@ -465,7 +524,7 @@ def _hybrid_event_score_breakdown(row: HybridSearchResultRow, *, rrf_k: int) -> 
         "transition_risk_penalty": row.transition_risk_penalty,
         "transition_risk_weight": row.transition_risk_weight,
         "rrf_k": rrf_k,
-        "source_ranks": {source: details.get("rank") for source, details in sorted(row.score_breakdown.items())},
+        "source_ranks": {source: details.get("rank") for source, details in sorted(source_payload.items())},
         "weighted_rrf": {
             "score": row.score,
             "components": source_payload,
@@ -474,11 +533,26 @@ def _hybrid_event_score_breakdown(row: HybridSearchResultRow, *, rrf_k: int) -> 
         "score_breakdown": {source: dict(details) for source, details in sorted(row.score_breakdown.items())},
         "risk_breakdown": dict(row.risk_breakdown),
         "source_support": {source: dict(support) for source, support in sorted(row.source_support.items())},
+        "classifier_support": {classifier: dict(support) for classifier, support in sorted(row.classifier_support.items())},
         "match_character": dict(row.match_character),
         "warnings": list(row.warnings),
         "explanation": list(row.explanation),
         "transition_diagnostics": dict(row.transition_diagnostics),
     }
+
+
+def _hybrid_score_kind(row: HybridSearchResultRow) -> str:
+    has_classifier_adjustment = any(
+        abs(float(support.get("score_contribution") or 0.0)) > 0.0
+        for support in row.classifier_support.values()
+    )
+    if row.transition_risk_weight > 0 and has_classifier_adjustment:
+        return "weighted_rrf_classifier_risk_adjusted"
+    if row.transition_risk_weight > 0:
+        return "weighted_rrf_adjusted"
+    if has_classifier_adjustment:
+        return "weighted_rrf_classifier_adjusted"
+    return "weighted_rrf"
 
 
 def _ranked_candidates_with_transition_risk(
@@ -489,8 +563,11 @@ def _ranked_candidates_with_transition_risk(
     seed_tracks: Sequence[Track],
     max_score: float,
     transition_risk_weight: float,
+    transition_risk_version: str,
+    classifier_controls: _ClassifierControls,
 ) -> tuple[_RankedHybridCandidate, ...]:
-    candidates_to_score = scored_candidates if transition_risk_weight > 0 else scored_candidates[:limit]
+    applies_adjustment = transition_risk_weight > 0 or classifier_controls.has_score_preferences
+    candidates_to_score = scored_candidates if applies_adjustment else scored_candidates[:limit]
     ranked_candidates = tuple(
         _ranked_candidate(
             candidate,
@@ -498,10 +575,12 @@ def _ranked_candidates_with_transition_risk(
             seed_tracks=seed_tracks,
             max_score=max_score,
             transition_risk_weight=transition_risk_weight,
+            transition_risk_version=transition_risk_version,
+            classifier_controls=classifier_controls,
         )
         for candidate in candidates_to_score
     )
-    if transition_risk_weight <= 0:
+    if not applies_adjustment:
         return ranked_candidates
     return tuple(
         sorted(
@@ -523,12 +602,20 @@ def _ranked_candidate(
     seed_tracks: Sequence[Track],
     max_score: float,
     transition_risk_weight: float,
+    transition_risk_version: str,
+    classifier_controls: _ClassifierControls,
 ) -> _RankedHybridCandidate:
     normalized_rrf_score = _normalized_response_score(candidate.raw_rrf_score, max_score)
-    transition_diagnostics = _candidate_transition_diagnostics(candidate.candidate, seed_tracks=seed_tracks, sources=sources)
+    transition_diagnostics = _candidate_transition_diagnostics(
+        candidate.candidate,
+        seed_tracks=seed_tracks,
+        sources=sources,
+        risk_version=transition_risk_version,
+        classifier_risk_weights=classifier_controls.risk_weights,
+    )
     transition_risk = transition_diagnostics["transition_risk"]
     transition_risk_penalty = transition_risk_weight * (float(transition_risk) if transition_risk is not None else 0.0)
-    adjusted_score = normalized_rrf_score - transition_risk_penalty
+    adjusted_score = normalized_rrf_score + candidate.classifier_adjustment - transition_risk_penalty
     return _RankedHybridCandidate(
         scored_candidate=candidate,
         normalized_rrf_score=normalized_rrf_score,
@@ -601,7 +688,14 @@ def _sorted_reason_tag_union(rows: Sequence[Mapping[str, Any]]) -> list[str]:
     return sorted({str(tag) for row in rows for tag in row["reason_tags"]})
 
 
-def _candidate_transition_diagnostics(candidate: _HybridCandidate, *, seed_tracks: Sequence[Track], sources: Sequence[str]) -> dict[str, Any]:
+def _candidate_transition_diagnostics(
+    candidate: _HybridCandidate,
+    *,
+    seed_tracks: Sequence[Track],
+    sources: Sequence[str],
+    risk_version: str,
+    classifier_risk_weights: Mapping[str, float],
+) -> dict[str, Any]:
     seed_tracks_by_id = {track.id: track for track in seed_tracks}
     supporting_seed_track_ids, seed_scope = _transition_seed_scope(candidate, seed_tracks_by_id)
     diagnostics = tuple(
@@ -610,6 +704,8 @@ def _candidate_transition_diagnostics(candidate: _HybridCandidate, *, seed_track
             candidate.track,
             source_count=len(candidate.source_contributions),
             max_source_count=len(sources),
+            risk_version=risk_version,
+            classifier_risk_weights=classifier_risk_weights,
         )
         for seed_track_id in supporting_seed_track_ids
     )
@@ -617,6 +713,7 @@ def _candidate_transition_diagnostics(candidate: _HybridCandidate, *, seed_track
         diagnostics,
         supporting_seed_track_ids=supporting_seed_track_ids,
         seed_scope=seed_scope,
+        risk_version=risk_version,
     )
 
 
@@ -670,17 +767,26 @@ def _mean_transition_diagnostics(
     *,
     supporting_seed_track_ids: Sequence[int],
     seed_scope: str,
+    risk_version: str,
 ) -> dict[str, Any]:
     components = {
-        name: _mean_optional(diagnostic.components[name] for diagnostic in diagnostics)
+        name: _mean_optional(diagnostic.components.get(name) for diagnostic in diagnostics)
         for name in COMPONENT_NAMES
     }
-    transition_risk = _mean_optional(components[name] for name in COMPONENT_NAMES)
+    transition_risk = _weighted_mean_components(components, V2_COMPONENT_WEIGHTS)
+    components_v1 = {
+        name: _mean_optional((diagnostic.components_v1 or {}).get(name) for diagnostic in diagnostics)
+        for name in ("bpm_risk", "key_risk", "energy_jump_risk", "source_disagreement_risk")
+    }
+    transition_risk_v1 = _mean_optional(diagnostic.transition_risk_v1 for diagnostic in diagnostics)
     warnings = sorted({warning for diagnostic in diagnostics for warning in diagnostic.warnings})
     available_components = [name for name in COMPONENT_NAMES if components[name] is not None]
     return {
         "transition_risk": transition_risk,
         "components": components,
+        "transition_risk_v1": transition_risk_v1,
+        "components_v1": components_v1,
+        "risk_version": risk_version,
         "warnings": warnings,
         "available_components": available_components,
         "supporting_seed_count": len(supporting_seed_track_ids),
@@ -688,6 +794,108 @@ def _mean_transition_diagnostics(
         "seed_scope": seed_scope,
         "method": "mean_aggregated_component_risks",
     }
+
+
+def _classifier_score_breakdown(
+    track: Track,
+    controls: _ClassifierControls,
+) -> tuple[dict[str, dict[str, float | int]], float]:
+    if not controls.preferences:
+        return {}, 0.0
+    denominator = sum(abs(preference) for preference in controls.preferences.values())
+    if denominator <= 0.0:
+        return {}, 0.0
+
+    adjustment = 0.0
+    breakdown: dict[str, dict[str, float | int]] = {}
+    for classifier_key, preference in controls.preferences.items():
+        score = _track_classifier_score(track, classifier_key)
+        if score is None:
+            continue
+        contribution = CLASSIFIER_SCORE_ADJUSTMENT_SCALE * preference * (score * 2.0 - 1.0) / denominator
+        adjustment += contribution
+        breakdown[_classifier_breakdown_key(classifier_key)] = {
+            "rank": 0,
+            "score": score,
+            "weight": preference,
+            "contribution": contribution,
+        }
+    return breakdown, adjustment
+
+
+def _classifier_support(
+    track: Track,
+    controls: _ClassifierControls,
+    *,
+    score_breakdown: Mapping[str, Mapping[str, float | int]],
+) -> dict[str, dict[str, Any]]:
+    support: dict[str, dict[str, Any]] = {}
+    for classifier_key in controls.requested_keys:
+        score = _track_classifier_score(track, classifier_key)
+        contribution = optional_float((score_breakdown.get(_classifier_breakdown_key(classifier_key)) or {}).get("contribution"))
+        risk_weight = float(controls.risk_weights.get(classifier_key, 0.0))
+        support[classifier_key] = {
+            "available": score is not None,
+            "score": score,
+            "preference": controls.preferences.get(classifier_key, 0.0),
+            "risk_weight": risk_weight,
+            "score_contribution": contribution,
+            "risk_contribution": _clamp01(score * risk_weight) if score is not None and risk_weight > 0.0 else None,
+        }
+    return support
+
+
+def _classifier_control_warnings(
+    controls: _ClassifierControls,
+    rows: Sequence[HybridSearchResultRow],
+) -> tuple[str, ...]:
+    if not controls.requested_keys:
+        return ()
+    available_keys = {
+        key
+        for row in rows
+        for key, support in row.classifier_support.items()
+        if support.get("available") is True
+    }
+    promoted_key_status = _promoted_classifier_status_by_key()
+    warnings: list[str] = []
+    for classifier_key in controls.requested_keys:
+        if classifier_key not in available_keys:
+            warnings.append(f"Classifier signal {classifier_key!r} has no stored scores in this preview; contribution stayed neutral.")
+            continue
+        status = promoted_key_status.get(classifier_key)
+        if status is None:
+            warnings.append(f"Classifier signal {classifier_key!r} has stored scores but no promoted manifest was discovered; using it as an uncalibrated local signal.")
+        elif status == "legacy":
+            warnings.append(f"Classifier signal {classifier_key!r} uses a legacy manifest state; stored scores were used as an uncalibrated local signal.")
+        elif status not in {"valid"}:
+            warnings.append(f"Classifier signal {classifier_key!r} has manifest status {status!r}; stored scores were used without rescoring.")
+    return tuple(warnings)
+
+
+def _promoted_classifier_status_by_key() -> dict[str, str]:
+    try:
+        classifiers = promoted_classifiers()
+    except (OSError, ValueError):
+        return {}
+    return {
+        str(classifier.get("classifier_key")): str(classifier.get("manifest_status") or "unknown")
+        for classifier in classifiers
+        if classifier.get("classifier_key")
+    }
+
+
+def _track_classifier_score(track: Track, classifier_key: str) -> float | None:
+    payload = (track.classifier_scores or {}).get(classifier_key)
+    if not isinstance(payload, Mapping):
+        return None
+    score = optional_float(payload.get("score"))
+    return _clamp01(score) if score is not None else None
+
+
+def _classifier_breakdown_key(classifier_key: str) -> str:
+    safe_key = "_".join(part for part in str(classifier_key).strip().split() if part)
+    return f"classifier_{safe_key}"
 
 
 def _resolve_weights(
@@ -750,6 +958,55 @@ def _clean_sources(sources: Sequence[str] | None) -> tuple[str, ...]:
     return clean_sources
 
 
+def _classifier_controls(
+    *,
+    classifier_preferences: Mapping[str, float] | None,
+    classifier_risk_weights: Mapping[str, float] | None,
+) -> _ClassifierControls:
+    preferences = _clean_signed_weight_map(classifier_preferences, "classifier_preferences")
+    risk_weights = _clean_unit_weight_map(classifier_risk_weights, "classifier_risk_weights")
+    return _ClassifierControls(preferences=preferences, risk_weights=risk_weights)
+
+
+def _clean_signed_weight_map(values: Mapping[str, float] | None, field_name: str) -> dict[str, float]:
+    if not values:
+        return {}
+    clean_values: dict[str, float] = {}
+    for key, value in values.items():
+        classifier_key = str(key).strip()
+        if not classifier_key:
+            continue
+        if classifier_key in clean_values:
+            raise ValueError(f"{field_name} contains duplicate classifier key {classifier_key!r}")
+        weight = _signed_weight(value, f"{field_name}.{classifier_key}")
+        if weight != 0.0:
+            clean_values[classifier_key] = weight
+    return clean_values
+
+
+def _clean_unit_weight_map(values: Mapping[str, float] | None, field_name: str) -> dict[str, float]:
+    if not values:
+        return {}
+    clean_values: dict[str, float] = {}
+    for key, value in values.items():
+        classifier_key = str(key).strip()
+        if not classifier_key:
+            continue
+        if classifier_key in clean_values:
+            raise ValueError(f"{field_name} contains duplicate classifier key {classifier_key!r}")
+        weight = _risk_weight(value, f"{field_name}.{classifier_key}")
+        if weight != 0.0:
+            clean_values[classifier_key] = weight
+    return clean_values
+
+
+def _transition_risk_version(value: object) -> str:
+    text = str(value or "").strip().lower()
+    if text in TRANSITION_RISK_VERSIONS:
+        return text
+    raise ValueError(f"transition_risk_version must be one of: {', '.join(TRANSITION_RISK_VERSIONS)}")
+
+
 def _load_seed_tracks(db: LibraryDatabase, seed_track_ids: Sequence[int]) -> tuple[Track, ...]:
     seed_tracks: list[Track] = []
     unknown: list[int] = []
@@ -810,11 +1067,45 @@ def _risk_weight(value: object, field_name: str) -> float:
     return number
 
 
+def _signed_weight(value: object, field_name: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be between -1 and 1")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{field_name} must be between -1 and 1") from error
+    if not math.isfinite(number) or not -1.0 <= number <= 1.0:
+        raise ValueError(f"{field_name} must be between -1 and 1")
+    return number
+
+
+def _clamp01(value: float) -> float:
+    if not math.isfinite(value):
+        return 0.0
+    return min(1.0, max(0.0, value))
+
+
 def _mean_optional(values: Iterable[float | None]) -> float | None:
     numbers = [float(value) for value in values if value is not None]
     if not numbers:
         return None
     return sum(numbers) / len(numbers)
+
+
+def _weighted_mean_components(values: Mapping[str, float | None], weights: Mapping[str, float]) -> float | None:
+    weighted_sum = 0.0
+    total_weight = 0.0
+    for name, value in values.items():
+        if value is None:
+            continue
+        weight = max(0.0, float(weights.get(name, 1.0)))
+        if weight <= 0.0:
+            continue
+        weighted_sum += float(value) * weight
+        total_weight += weight
+    if total_weight <= 0.0:
+        return None
+    return weighted_sum / total_weight
 
 
 def _normalized_response_score(raw_score: float, max_score: float) -> float:

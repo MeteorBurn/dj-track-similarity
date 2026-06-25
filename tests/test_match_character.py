@@ -7,6 +7,17 @@ from dj_track_similarity.models import Track
 
 
 FORBIDDEN_COPY = ("confidence", "probability", "guaranteed", "perfect transition")
+RISK_BREAKDOWN_KEYS = {
+    "bpm",
+    "tonal",
+    "energy_jump",
+    "density_jump",
+    "texture_clash",
+    "mood_clash",
+    "vocal_conflict",
+    "source_disagreement",
+    "confidence_missingness",
+}
 
 
 def test_match_character_axes_are_finite_unit_values() -> None:
@@ -33,7 +44,11 @@ def test_match_character_axes_are_finite_unit_values() -> None:
         assert 0.0 <= value <= 1.0
     assert explanation.calibrated_score is None
     assert explanation.source_support["mert"]["available"] is True
-    assert explanation.risk_breakdown == {"bpm": 0.05, "tonal": 0.0, "energy_jump": 0.05, "source_disagreement": 0.0}
+    assert set(explanation.risk_breakdown) == RISK_BREAKDOWN_KEYS
+    assert explanation.risk_breakdown["bpm"] == 0.05
+    assert explanation.risk_breakdown["tonal"] == 0.0
+    assert explanation.risk_breakdown["energy_jump"] == 0.05
+    assert explanation.risk_breakdown["source_disagreement"] == 0.0
 
 
 def test_missing_axis_data_is_neutral_and_marked_unavailable() -> None:

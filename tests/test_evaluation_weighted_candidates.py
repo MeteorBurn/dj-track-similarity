@@ -122,9 +122,11 @@ def test_weighted_candidates_record_session_in_profile_rank_order(monkeypatch: p
     sessions = db.list_search_sessions_with_events()
     assert result.session_ids == (sessions[0]["id"],)
     assert sessions[0]["mode"] == "evaluation_weighted_candidate_pool"
+    assert sessions[0]["request"]["transition_risk_version"] == "v2"
     assert [event["track_id"] for event in sessions[0]["events"]] == [row.candidate_track_id for row in result.rows]
     assert [event["rank"] for event in sessions[0]["events"]] == [1, 2]
     assert sessions[0]["events"][0]["score_breakdown"]["score_kind"] == "weighted_rrf"
+    assert sessions[0]["events"][0]["score_breakdown"]["transition_risk_version"] == "v2"
     assert sessions[0]["events"][0]["score_breakdown"]["profile_weights"] == {"maest": 0.9, "mert": 0.1}
     assert "components" in sessions[0]["events"][0]["score_breakdown"]["weighted_rrf"]
 

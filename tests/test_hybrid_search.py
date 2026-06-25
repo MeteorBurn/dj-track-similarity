@@ -11,6 +11,18 @@ import dj_track_similarity.hybrid_search as hybrid_search
 from dj_track_similarity.hybrid_explanation import MATCH_CHARACTER_AXES
 from dj_track_similarity.hybrid_search import build_hybrid_search_preview
 
+RISK_BREAKDOWN_KEYS = {
+    "bpm",
+    "tonal",
+    "energy_jump",
+    "density_jump",
+    "texture_clash",
+    "mood_clash",
+    "vocal_conflict",
+    "source_disagreement",
+    "confidence_missingness",
+}
+
 
 def test_hybrid_search_uses_equal_weights_by_default(tmp_path: Path) -> None:
     db, track_ids = _hybrid_library(tmp_path)
@@ -33,7 +45,7 @@ def test_hybrid_search_uses_equal_weights_by_default(tmp_path: Path) -> None:
     assert result.results[0].total_score == result.results[0].adjusted_score
     assert result.results[0].calibrated_score is None
     assert tuple(result.results[0].match_character) == MATCH_CHARACTER_AXES
-    assert set(result.results[0].risk_breakdown) == {"bpm", "tonal", "energy_jump", "source_disagreement"}
+    assert set(result.results[0].risk_breakdown) == RISK_BREAKDOWN_KEYS
 
 
 def test_hybrid_search_custom_weights_change_order(tmp_path: Path) -> None:
@@ -132,7 +144,7 @@ def test_hybrid_search_missing_transition_risk_has_no_penalty(monkeypatch: pytes
     monkeypatch.setattr(
         hybrid_search,
         "_candidate_transition_diagnostics",
-        lambda _candidate, *, seed_tracks, sources: {"transition_risk": None, "warnings": []},
+        lambda _candidate, *, seed_tracks, sources, risk_version, classifier_risk_weights: {"transition_risk": None, "warnings": []},
     )
 
     result = build_hybrid_search_preview(
@@ -147,6 +159,73 @@ def test_hybrid_search_missing_transition_risk_has_no_penalty(monkeypatch: pytes
     assert result.results[0].transition_risk is None
     assert result.results[0].transition_risk_penalty == 0.0
     assert result.results[0].adjusted_score == pytest.approx(1.0)
+
+
+def test_hybrid_classifier_preferences_are_neutral_when_scores_are_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_ids = {
+        "seed": _track(db, tmp_path, "seed"),
+        "candidate": _track(db, tmp_path, "candidate"),
+    }
+    rows = (_candidate_row(db, track_ids["seed"], track_ids["candidate"], {"mert": (1, 0.9)}),)
+    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
+
+    baseline = build_hybrid_search_preview(db, seed_track_ids=[track_ids["seed"]], sources=["mert"], per_source=1, limit=1)
+    controlled = build_hybrid_search_preview(
+        db,
+        seed_track_ids=[track_ids["seed"]],
+        sources=["mert"],
+        per_source=1,
+        limit=1,
+        classifier_preferences={"break_energy": 1.0},
+    )
+
+    assert controlled.results[0].score == pytest.approx(baseline.results[0].score)
+    assert "classifier_break_energy" not in controlled.results[0].score_breakdown
+    assert controlled.results[0].classifier_support["break_energy"]["available"] is False
+    assert any("break_energy" in warning and "neutral" in warning for warning in controlled.warnings)
+
+
+def test_hybrid_classifier_preferences_are_scoped_by_classifier_key(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_ids = {
+        "seed": _track(db, tmp_path, "seed"),
+        "candidate": _track(db, tmp_path, "candidate"),
+    }
+    db.save_classifier_score(
+        track_ids["candidate"],
+        classifier="abstract_edge",
+        score=1.0,
+        label="positive",
+        confidence=1.0,
+        probabilities={"positive": 1.0},
+        feature_set="combined",
+        model_id="test",
+    )
+    rows = (_candidate_row(db, track_ids["seed"], track_ids["candidate"], {"mert": (1, 0.9)}),)
+    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
+
+    wrong_key = build_hybrid_search_preview(
+        db,
+        seed_track_ids=[track_ids["seed"]],
+        sources=["mert"],
+        per_source=1,
+        limit=1,
+        classifier_preferences={"break_energy": 1.0},
+    )
+    matching_key = build_hybrid_search_preview(
+        db,
+        seed_track_ids=[track_ids["seed"]],
+        sources=["mert"],
+        per_source=1,
+        limit=1,
+        classifier_preferences={"abstract_edge": 1.0},
+    )
+
+    assert wrong_key.results[0].adjusted_score == pytest.approx(1.0)
+    assert matching_key.results[0].adjusted_score == pytest.approx(1.0 + hybrid_search.CLASSIFIER_SCORE_ADJUSTMENT_SCALE)
+    assert matching_key.results[0].score_breakdown["classifier_abstract_edge"]["contribution"] > 0
+    assert matching_key.results[0].classifier_support["abstract_edge"]["available"] is True
 
 
 def test_hybrid_search_excludes_zero_weight_source_only_candidates(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

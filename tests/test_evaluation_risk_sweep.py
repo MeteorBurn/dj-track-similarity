@@ -87,6 +87,55 @@ def test_risk_sweep_recomputes_source_risk_from_effective_recorded_sources(tmp_p
     assert candidate["transition_risk"] == 0.0
 
 
+def test_risk_sweep_can_select_stored_v1_or_v2_risk(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed_id = _track(db, tmp_path, "seed")
+    candidate_id = _track(db, tmp_path, "candidate")
+    session_id = db.create_search_session("hybrid_search_preview", [seed_id], {"feedback_source": "hybrid_ui", "sources": ["mert"]})
+    db.record_search_result_event(
+        session_id,
+        candidate_id,
+        rank=1,
+        total_score=0.0,
+        score_breakdown={
+            "sources": {"mert": {"rank": 1, "score": 1.0}},
+            "transition_diagnostics": {"transition_risk": 0.7, "transition_risk_v1": 0.2, "risk_version": "v2"},
+        },
+    )
+
+    v1_report = build_risk_penalty_sweep_report(db, _score_profile(), weights=[0.0], k_values=[1], risk_version="v1")
+    v2_report = build_risk_penalty_sweep_report(db, _score_profile(), weights=[0.0], k_values=[1], risk_version="v2")
+
+    v1_candidate = v1_report["variants"]["transition_risk_weight:0"]["ranked_sessions"][0]["ranked_candidates"][0]
+    v2_candidate = v2_report["variants"]["transition_risk_weight:0"]["ranked_sessions"][0]["ranked_candidates"][0]
+    assert v1_report["risk_version"] == "v1"
+    assert v2_report["risk_version"] == "v2"
+    assert v1_candidate["transition_risk"] == 0.2
+    assert v2_candidate["transition_risk"] == 0.7
+
+
+def test_risk_sweep_recomputes_unversioned_stored_risk_for_requested_v2(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed_id = _track(db, tmp_path, "seed")
+    candidate_id = _track(db, tmp_path, "candidate")
+    session_id = db.create_search_session("hybrid_search_preview", [seed_id], {"feedback_source": "hybrid_ui", "sources": ["mert"]})
+    db.record_search_result_event(
+        session_id,
+        candidate_id,
+        rank=1,
+        total_score=0.0,
+        score_breakdown={
+            "sources": {"mert": {"rank": 1, "score": 1.0}},
+            "transition_risk": 0.9,
+        },
+    )
+
+    report = build_risk_penalty_sweep_report(db, _score_profile(), weights=[0.0], k_values=[1], risk_version="v2")
+
+    candidate = report["variants"]["transition_risk_weight:0"]["ranked_sessions"][0]["ranked_candidates"][0]
+    assert candidate["transition_risk"] == 0.0
+
+
 def test_risk_sweep_rejects_invalid_weight(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
 
@@ -108,6 +157,7 @@ def _record_pool(db: LibraryDatabase, seed_id: int, candidates: list[tuple[int, 
             score_breakdown={
                 "sources": {"mert": {"rank": rank, "score": 1.0 / rank}},
                 "transition_risk": risk,
+                "transition_risk_version": "v2",
             },
         )
 

@@ -39,6 +39,8 @@ EvaluationPairReasonTag = Literal[
 ]
 EvaluationTrackId = Annotated[int, Field(ge=1)]
 EvaluationTopK = Annotated[int, Field(ge=1, le=100)]
+ClassifierPreference = Annotated[float, Field(ge=-1.0, le=1.0)]
+ClassifierRiskWeight = Annotated[float, Field(ge=0.0, le=1.0)]
 
 
 class ScanRequest(BaseModel):
@@ -174,6 +176,9 @@ class HybridSearchRequest(BaseModel):
     rrf_k: int = Field(default=60, ge=1, le=1000)
     random_seed: int = 123
     transition_risk_weight: float = Field(default=0.0, ge=0.0, le=1.0)
+    transition_risk_version: Literal["v1", "v2"] = "v2"
+    classifier_preferences: dict[str, ClassifierPreference] = Field(default_factory=dict)
+    classifier_risk_weights: dict[str, ClassifierRiskWeight] = Field(default_factory=dict)
     include_diagnostics: bool = True
     record_session: bool = False
 
@@ -200,6 +205,7 @@ class HybridSearchResult(BaseModel):
     score_breakdown: dict[str, dict[str, float | int]]
     risk_breakdown: dict[str, float | None] = Field(default_factory=dict)
     source_support: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    classifier_support: dict[str, dict[str, Any]] = Field(default_factory=dict)
     match_character: dict[str, float] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
     explanation: list[str] = Field(default_factory=list)

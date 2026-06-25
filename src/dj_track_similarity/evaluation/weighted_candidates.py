@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..models import Track
-from ..transition_diagnostics import compute_transition_diagnostics
+from ..transition_diagnostics import TRANSITION_RISK_V2, compute_transition_diagnostics
 from .candidates import (
     ALLOWED_CANDIDATE_SOURCES,
     DEFAULT_FEEDBACK_SOURCE,
@@ -386,6 +386,7 @@ def _record_weighted_candidate_sessions(
                 "random_seed": request.random_seed,
                 "rrf_k": request.rrf_k,
                 "transition_risk_weight": request.transition_risk_weight,
+                "transition_risk_version": TRANSITION_RISK_V2,
                 "feedback_source": DEFAULT_FEEDBACK_SOURCE,
                 "score_profile": score_profile_to_dict(profile),
                 "score_profile_name": profile.name,
@@ -414,6 +415,7 @@ def _score_breakdown(row: WeightedCandidateRow, profile: ScoreProfile, rrf_k: in
         "adjusted_score": row.adjusted_score,
         "raw_rrf_score": row.raw_rrf_score,
         "transition_risk": row.transition_risk,
+        "transition_risk_version": TRANSITION_RISK_V2,
         "transition_risk_penalty": row.transition_risk_penalty,
         "transition_risk_weight": row.transition_risk_weight,
         "rrf_k": rrf_k,

@@ -87,6 +87,23 @@ is written to the system temporary directory by default so generated reports do
 not become tracked runtime artifacts. Use `-Smoke` for a reduced local check of
 the same orchestration path before running the full gate.
 
+The milestone gate is non-ML by default. To add the explicit ML/CUDA check, pass
+`-IncludeMl` and point `-MlPython` (or `DJ_TRACK_SIMILARITY_ML_PYTHON`) at a
+prepared Python executable:
+
+```powershell
+.\scripts\verify_dev_milestone.ps1 -Smoke -IncludeMl -MlPython "<prepared-venv>\Scripts\python.exe"
+```
+
+This mode invokes the prepared environment read-only: it does not reinstall,
+uninstall, or repoint packages, and it disables Python bytecode writes for the ML
+commands. For the ML preflight and ML pytest run, the gate temporarily prepends
+this repository's `src` directory to `PYTHONPATH` so imports verify the current
+working tree instead of any editable install attached to the prepared
+environment. The preflight fails before pytest if Torch, Torchaudio,
+Torchvision, TorchCodec, CUDA availability, a tiny CUDA tensor operation, or the
+`dj_track_similarity` import path is wrong.
+
 Merge `dev` to `main` only after the full non-ML backend suite, frontend checks,
 documentation build, schema/migration smoke, and an abstracted v4 SQLite smoke
 are green. These checks must use temporary databases or explicit copies and must

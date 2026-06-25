@@ -10,6 +10,15 @@ from typing import Optional, Sequence
 
 import typer
 
+from .ann_index import (
+    DEFAULT_RECALL_THRESHOLD,
+    PersistentAnnVectorSearchBackend,
+    benchmark_persistent_index,
+    build_persistent_index,
+    clear_persistent_indexes,
+    resolve_index_dir,
+    verify_persistent_index,
+)
 from .analysis_config import (
     ANALYSIS_MODEL_ORDER,
     DEFAULT_ANALYSIS_DEVICE,
@@ -27,8 +36,10 @@ from .analysis_config import (
     parse_analysis_models_text,
 )
 from .analysis_jobs import AnalysisJobManager
+from .classifier_production import build_classifier_calibration_report, normalize_label_suggestion_mode, suggest_classifier_labels
 from .classifier_scoring import analyze_classifier as run_classifier_analysis
 from .database import LibraryDatabase
+from .db_evaluation import PROMOTED_SCORE_PROFILE_SETTING_KEY
 from .db_schema import CURRENT_SCHEMA_VERSION
 from .dependencies import require_ffmpeg
 from .embedding import ClapEmbeddingAdapter
@@ -39,6 +50,7 @@ from .evaluation.labels import load_pair_feedback_labels, load_transition_feedba
 from .evaluation.reports import build_search_evaluation_report
 from .evaluation.risk_sweep import build_risk_penalty_sweep_report
 from .evaluation.score_profile_optimizer import (
+    build_promoted_score_profile_payload,
     build_score_profile_optimizer_report,
     optimizer_record_config,
     optimizer_record_metrics,
@@ -56,11 +68,16 @@ from .logging_config import configure_logging, set_analysis_diagnostics_enabled
 from .runtime import get_torch_runtime_info, recommended_torch_index
 from .scanner import scan_library
 from .search import SearchFilters, SimilaritySearch
+from .vector_index import VectorIndexUnavailable
 
 
 app = typer.Typer(help="Local dj-track-similarity utility.")
 eval_app = typer.Typer(help="Build local evaluation diagnostics and optional manual-feedback reports.")
+classifier_app = typer.Typer(help="Inspect promoted classifier production reports and label suggestions.")
+index_app = typer.Typer(help="Build, verify, benchmark, and clear optional persistent ANN sidecar indexes.")
 app.add_typer(eval_app, name="eval")
+app.add_typer(classifier_app, name="classifier")
+app.add_typer(index_app, name="index")
 LOGGER = logging.getLogger(__name__)
 
 
@@ -69,6 +86,10 @@ def _db(path: Optional[Path]) -> LibraryDatabase:
     db_path = path or Path("dj-track-similarity.sqlite")
     LOGGER.info("CLI database opened db_path=%s log_path=%s", db_path, log_path)
     return LibraryDatabase(db_path)
+
+
+def _cli_db_path(path: Optional[Path]) -> Path:
+    return (path or Path("dj-track-similarity.sqlite")).expanduser().resolve(strict=False)
 
 
 def _evaluation_db(path: Optional[Path]) -> LibraryDatabase:
@@ -88,6 +109,14 @@ def _evaluation_db(path: Optional[Path]) -> LibraryDatabase:
 def _write_json_report(path: Path, report: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _emit_json_report(report: dict[str, object], output_path: Path | None) -> None:
+    if output_path is not None:
+        _write_json_report(output_path, report)
+        typer.echo(f"output={output_path} status={report.get('status', 'ok')}")
+        return
+    typer.echo(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
 
 
 def _load_json_object(path: Path, description: str) -> dict[str, object]:
@@ -218,6 +247,125 @@ def _parse_analysis_device(value: str | None) -> str:
         return normalize_analysis_device(value)
     except ValueError as error:
         raise typer.BadParameter(str(error)) from error
+
+
+@index_app.command("build")
+def index_build(
+    adapter: str = typer.Option(..., "--adapter", "--embedding-key", help="Embedding adapter to index: mert, maest, or clap."),
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+    index_dir: Optional[Path] = typer.Option(None, "--index-dir", file_okay=False, help="Sidecar directory. Defaults beside the selected database."),
+    backend: str = typer.Option("auto", "--backend", help="Index backend: auto, hnswlib, or exact-numpy. auto prefers hnswlib."),
+    ef_construction: int = typer.Option(200, "--ef-construction", min=1, help="HNSW ef_construction setting."),
+    m: int = typer.Option(16, "--m", min=1, help="HNSW M setting."),
+    ef_search: int = typer.Option(100, "--ef-search", min=1, help="HNSW ef_search setting saved in the manifest."),
+) -> None:
+    try:
+        result = build_persistent_index(
+            _db(db_path),
+            adapter,
+            index_dir=index_dir,
+            backend=backend,
+            ef_construction=ef_construction,
+            m=m,
+            ef_search=ef_search,
+        )
+    except (ValueError, VectorIndexUnavailable) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+
+    for warning in result.warnings:
+        typer.secho(f"warning: {warning}", err=True, fg=typer.colors.YELLOW)
+    typer.echo(
+        f"status=ok adapter={result.adapter} backend={result.backend} tracks={result.embedding_count} "
+        f"dim={result.embedding_dim} build_seconds={result.build_seconds:.3f} "
+        f"index_size_bytes={result.index_size_bytes} index_dir={result.index_dir} "
+        f"artifact={result.artifact_path} manifest={result.manifest_path}"
+    )
+
+
+@index_app.command("verify")
+def index_verify(
+    adapter: str = typer.Option(..., "--adapter", "--embedding-key", help="Embedding adapter to verify: mert, maest, or clap."),
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+    index_dir: Optional[Path] = typer.Option(None, "--index-dir", file_okay=False, help="Sidecar directory. Defaults beside the selected database."),
+) -> None:
+    try:
+        verification = verify_persistent_index(_db(db_path), adapter, index_dir=index_dir)
+    except (ValueError, VectorIndexUnavailable) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+
+    output = (
+        f"status={verification.status} adapter={verification.adapter} index_dir={verification.index_dir} "
+        f"artifact={verification.artifact_path} manifest={verification.manifest_path}"
+    )
+    if verification.is_usable:
+        typer.echo(output)
+        return
+    typer.secho(output, err=True, fg=typer.colors.RED)
+    if verification.reasons:
+        typer.secho(f"reasons={','.join(verification.reasons)}", err=True, fg=typer.colors.RED)
+    typer.secho(verification.message, err=True, fg=typer.colors.RED)
+    raise typer.Exit(1)
+
+
+@index_app.command("benchmark")
+def index_benchmark(
+    adapter: str = typer.Option(..., "--adapter", "--embedding-key", help="Embedding adapter to benchmark: mert, maest, or clap."),
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+    index_dir: Optional[Path] = typer.Option(None, "--index-dir", file_okay=False, help="Sidecar directory. Defaults beside the selected database."),
+    compare: str = typer.Option("exact", "--compare", help="Comparison backend. Only exact is supported."),
+    threshold: float = typer.Option(DEFAULT_RECALL_THRESHOLD, "--threshold", min=0.0, max=1.0, help="Pass/fail threshold for the primary Recall@K."),
+    recall_k: int = typer.Option(50, "--recall-k", min=1, help="Primary recall cutoff. Defaults to Recall@50."),
+    k: Optional[list[int]] = typer.Option(None, "--k", min=1, help="Additional recall cutoff. Repeat for multiple values."),
+    seed_count: int = typer.Option(20, "--seed-count", min=1, help="Number of deterministic seed embeddings to sample."),
+    random_seed: int = typer.Option(123, "--random-seed", help="Deterministic seed sampling value."),
+    output_path: Optional[Path] = typer.Option(None, "--output", dir_okay=False, writable=True, help="Optional JSON report path."),
+) -> None:
+    if compare.strip().lower() != "exact":
+        raise typer.BadParameter("Only --compare exact is supported")
+    try:
+        report = benchmark_persistent_index(
+            _db(db_path),
+            adapter,
+            index_dir=index_dir,
+            threshold=threshold,
+            recall_k=recall_k,
+            k_values=k,
+            seed_count=seed_count,
+            random_seed=random_seed,
+        )
+        if output_path is not None:
+            _write_json_report(output_path, report)
+    except (ValueError, VectorIndexUnavailable) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+
+    primary = report["recall"][f"recall_at_{report['primary_recall_k']}"]["mean"]
+    output_text = str(output_path) if output_path is not None else "not_written"
+    typer.echo(
+        f"status={report['status']} adapter={report['adapter']} backend={report['backend']} "
+        f"recall_at_{report['primary_recall_k']}={float(primary):.4f} threshold={float(report['threshold']):.4f} "
+        f"seeds={report['seed_count']} output={output_text}"
+    )
+    if report["status"] != "pass":
+        raise typer.Exit(1)
+
+
+@index_app.command("clear")
+def index_clear(
+    adapter: Optional[str] = typer.Option(None, "--adapter", "--embedding-key", help="Optional adapter to clear. Omit to clear all generated sidecar index files."),
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+    index_dir: Optional[Path] = typer.Option(None, "--index-dir", file_okay=False, help="Sidecar directory. Defaults beside the selected database."),
+) -> None:
+    try:
+        resolved_index_dir = resolve_index_dir(_cli_db_path(db_path), index_dir)
+        result = clear_persistent_indexes(resolved_index_dir, adapter=adapter)
+    except ValueError as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+    adapter_text = result.adapter or "all"
+    typer.echo(f"status=ok adapter={adapter_text} deleted={result.deleted_count} index_dir={result.index_dir}")
 
 
 @eval_app.command("export-candidates")
@@ -430,7 +578,8 @@ def evaluation_run_ablation(
     typer.echo(
         f"status={report['status']} label_status={report['label_status']} output={output_path} sessions_total={counts['sessions_total']} "
         f"sessions_with_labels={counts['sessions_with_labels']} judged_results={counts['judged_results']} "
-        f"judged_pairs={report['judged_pairs']} sources_seen={','.join(counts['sources_seen'])}"
+        f"judged_pairs={report['judged_pairs']} sources_seen={','.join(counts['sources_seen'])} "
+        f"classifier_adjusted_events={counts['classifier_adjusted_events']}"
     )
 
 
@@ -513,6 +662,11 @@ def evaluation_optimize_score_profile(
     grid_step: float = typer.Option(0.25, "--grid-step", min=0.01, max=1.0, help="Bounded source-weight grid step."),
     bootstrap_samples: int = typer.Option(30, "--bootstrap-samples", min=0, help="Deterministic validation bootstrap samples; 0 disables the stability check."),
     record: bool = typer.Option(False, "--record/--no-record", help="Record an ok diagnostic optimizer summary to calibration_runs."),
+    promote: bool = typer.Option(
+        False,
+        "--promote/--no-promote",
+        help="Explicitly promote an ok 500+ judged-pair optimizer profile into library_settings.",
+    ),
 ) -> None:
     try:
         db = _evaluation_db(db_path)
@@ -529,6 +683,8 @@ def evaluation_optimize_score_profile(
             bootstrap_samples=bootstrap_samples,
         )
         report["recorded"] = False
+        report["promoted"] = False
+        promotion_payload = build_promoted_score_profile_payload(report) if promote else None
         if record and report["status"] == "ok":
             report["calibration_run_id"] = db.record_calibration_run(
                 str(report["profile_name"]),
@@ -539,6 +695,10 @@ def evaluation_optimize_score_profile(
             report["recorded"] = True
         elif record:
             report["record_note"] = "Optimizer summaries are recorded only when status is ok."
+        if promotion_payload is not None:
+            db.set_promoted_score_profile(promotion_payload)
+            report["promoted"] = True
+            report["promoted_setting_key"] = PROMOTED_SCORE_PROFILE_SETTING_KEY
         if output_path is not None:
             _write_json_report(output_path, report)
     except (ValueError, sqlite3.IntegrityError) as error:
@@ -556,7 +716,7 @@ def evaluation_optimize_score_profile(
     typer.echo(
         f"status={report['status']} decision={report['decision']} label_status={report['label_status']} output={output_text} "
         f"judged_pairs={report['judged_pairs']} validation_ndcg_at_{metric_cutoff}={validation_ndcg} "
-        f"baseline_validation_ndcg_at_{metric_cutoff}={baseline_ndcg} weights={weights_text} recorded={report['recorded']}"
+        f"baseline_validation_ndcg_at_{metric_cutoff}={baseline_ndcg} weights={weights_text} recorded={report['recorded']} promoted={report['promoted']}"
     )
 
 
@@ -638,6 +798,7 @@ def evaluation_sweep_risk_penalty(
     weights: Optional[list[float]] = typer.Option(None, "--weight", help="Transition-risk penalty weight from 0.0 to 1.0. Repeat for a sweep."),
     k: Optional[list[int]] = typer.Option(None, "--k", min=1, help="Metric/diagnostic cutoff. Repeat for multiple values."),
     rrf_k: int = typer.Option(60, "--rrf-k", min=1, help="RRF smoothing constant for weighted source-rank fusion."),
+    transition_risk_version: str = typer.Option("v2", "--transition-risk-version", help="Transition-risk diagnostics version to sweep: v1 or v2."),
 ) -> None:
     try:
         profile = load_score_profile(profile_path)
@@ -647,6 +808,7 @@ def evaluation_sweep_risk_penalty(
             weights=weights,
             k_values=k or [5, 10, 20],
             rrf_k=rrf_k,
+            risk_version=transition_risk_version,
         )
         _write_json_report(output_path, report)
     except ValueError as error:
@@ -664,8 +826,56 @@ def evaluation_sweep_risk_penalty(
         f"status={report['status']} label_status={report['label_status']} output={output_path} "
         f"profile={report['profile_name']} ranked_sessions={counts['ranked_session_count']} "
         f"judged_results={counts['judged_results']} weights={','.join(str(weight) for weight in report['risk_weights'])}"
+        f" risk_version={report['risk_version']}"
         f"{best_text}"
     )
+
+
+@classifier_app.command("calibration-report")
+def classifier_calibration_report(
+    classifier: str = typer.Option(..., "--classifier", help="Promoted classifier key."),
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+    output_path: Optional[Path] = typer.Option(None, "--output", dir_okay=False, writable=True),
+    min_feedback: int = typer.Option(
+        30,
+        "--min-feedback",
+        min=1,
+        help="Candidate feedback rows requested before diagnostics are considered usable.",
+    ),
+) -> None:
+    try:
+        report = build_classifier_calibration_report(
+            _db(db_path),
+            classifier,
+            min_feedback=min_feedback,
+        )
+        _emit_json_report(report, output_path)
+    except (ValueError, sqlite3.IntegrityError) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+
+
+@classifier_app.command("suggest-labels")
+def classifier_suggest_labels(
+    classifier: str = typer.Option(..., "--classifier", help="Promoted classifier key."),
+    mode: str = typer.Option("uncertainty", "--mode", help="Suggestion mode: uncertainty, hard_negative, diversity, disagreement, or high_impact_unlabeled."),
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+    limit: int = typer.Option(25, "--limit", min=1, max=500),
+    random_seed: int = typer.Option(123, "--random-seed", help="Deterministic tie-ordering seed."),
+    output_path: Optional[Path] = typer.Option(None, "--output", dir_okay=False, writable=True),
+) -> None:
+    try:
+        report = suggest_classifier_labels(
+            _db(db_path),
+            classifier,
+            mode=normalize_label_suggestion_mode(mode),
+            limit=limit,
+            random_seed=random_seed,
+        )
+        _emit_json_report(report, output_path)
+    except (ValueError, sqlite3.IntegrityError) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
 
 
 @app.command()
@@ -766,7 +976,13 @@ def analyze_classifier(
     model_path: Optional[Path] = typer.Option(None, "--model"),
     limit: Optional[int] = typer.Option(None, "--limit"),
 ) -> None:
-    result = run_classifier_analysis(_db(db_path), classifier=classifier, model_path=model_path, limit=limit)
+    try:
+        result = run_classifier_analysis(_db(db_path), classifier=classifier, model_path=model_path, limit=limit)
+    except (FileNotFoundError, RuntimeError, ValueError) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+    for warning in result.get("warnings", []):
+        typer.secho(f"warning: {warning}", err=True, fg=typer.colors.YELLOW)
     typer.echo(
         f"classifier={result['classifier']} scored={result['scored']} "
         f"skipped={result['skipped']} model={result['model']}"
@@ -808,14 +1024,22 @@ def text_search(
     limit: int = typer.Option(50, "--limit", min=1, max=500),
     min_similarity: Optional[float] = typer.Option(None, "--min-similarity"),
     device: str = typer.Option(DEFAULT_ANALYSIS_DEVICE, "--device", help="CLAP device: auto, cpu, or cuda."),
+    use_ann_index: bool = typer.Option(False, "--use-ann-index", help="Opt in to the persistent CLAP ANN sidecar. Missing or stale indexes fall back to exact search."),
+    index_dir: Optional[Path] = typer.Option(None, "--index-dir", file_okay=False, help="Persistent index sidecar directory for --use-ann-index."),
 ) -> None:
     adapter = ClapEmbeddingAdapter(device=_parse_analysis_device(device))
     vector = adapter.embed_text(query.strip())
-    results = SimilaritySearch(_db(db_path), embedding_key=adapter.embedding_key).search_vector(
+    db = _db(db_path)
+    vector_backend = None
+    if use_ann_index:
+        vector_backend = PersistentAnnVectorSearchBackend(db, embedding_key=adapter.embedding_key, index_dir=index_dir)
+    results = SimilaritySearch(db, embedding_key=adapter.embedding_key, vector_backend=vector_backend).search_vector(
         vector,
         filters=SearchFilters(min_similarity=min_similarity),
         limit=limit,
     )
+    if isinstance(vector_backend, PersistentAnnVectorSearchBackend) and vector_backend.last_fallback_reason:
+        typer.secho(f"warning: ANN sidecar unavailable; used exact search fallback: {vector_backend.last_fallback_reason}", err=True, fg=typer.colors.YELLOW)
     for result in results:
         typer.echo(f"{result.score:.3f}\t{result.track.id}\t{result.track.path}")
 

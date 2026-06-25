@@ -19,6 +19,7 @@ venv/
 *.log.*
 *.state.json
 state.*.json
+.dj-track-similarity-indexes/
 models/classifiers/*/model.joblib
 models/classifiers/*/model.json
 scripts/audio_repair/*

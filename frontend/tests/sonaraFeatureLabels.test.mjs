@@ -97,6 +97,40 @@ test("metadata dialog names the mutagen tag block", () => {
   assert.match(mutagenBlock, /metadata-grid mutagen-grid/);
 });
 
+test("metadata dialog does not scroll the mutagen tag grid", () => {
+  const styles = readFileSync(stylesPath, "utf8");
+  const dialogRule = cssRule(styles, ".metadata-dialog");
+  const mutagenBlockRule = cssRule(styles, ".mutagen-block");
+  const mutagenGridRule = cssRule(styles, ".mutagen-grid");
+
+  assert.match(dialogRule, /display:\s*flex;/);
+  assert.match(dialogRule, /flex-direction:\s*column;/);
+  assert.match(dialogRule, /gap:\s*10px;/);
+  assert.match(dialogRule, /overflow-y:\s*auto;/);
+  assert.match(mutagenBlockRule, /flex:\s*0 0 auto;/);
+  assert.match(mutagenBlockRule, /overflow:\s*visible;/);
+  assert.match(mutagenGridRule, /max-height:\s*none;/);
+  assert.match(mutagenGridRule, /overflow:\s*visible;/);
+  assert.doesNotMatch(mutagenGridRule, /scrollbar-gutter:\s*stable;/);
+});
+
+test("metadata dialog keeps SONARA as the scrollable feature block", () => {
+  const styles = readFileSync(stylesPath, "utf8");
+  const sonaraBlockRule = cssRule(styles, ".sonara-block");
+  const sonaraFeatureGroupsRule = cssRule(styles, ".sonara-feature-groups");
+  const tagGridRule = cssRule(styles, ".tag-grid");
+
+  assert.match(sonaraBlockRule, /flex:\s*1 1 260px;/);
+  assert.match(sonaraBlockRule, /min-height:\s*140px;/);
+  assert.match(sonaraBlockRule, /overflow:\s*hidden;/);
+  assert.match(sonaraFeatureGroupsRule, /flex:\s*1 1 auto;/);
+  assert.match(sonaraFeatureGroupsRule, /overflow:\s*auto;/);
+  assert.match(sonaraFeatureGroupsRule, /padding-right:\s*6px;/);
+  assert.match(sonaraFeatureGroupsRule, /scrollbar-gutter:\s*stable;/);
+  assert.match(tagGridRule, /max-height:\s*260px;/);
+  assert.match(tagGridRule, /overflow:\s*auto;/);
+});
+
 test("metadata dialog exposes a compact copy button for file path", () => {
   const source = readFileSync(dialogPath, "utf8");
   const styles = readFileSync(stylesPath, "utf8");

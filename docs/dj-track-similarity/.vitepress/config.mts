@@ -1,93 +1,201 @@
 import { defineConfig } from "vitepress";
 
 const enNav = [
-  { text: "Guide", link: "/project-guide.html" },
-  { text: "Install", link: "/install.html" },
-  { text: "CLI", link: "/cli.html" },
-  { text: "API", link: "/api.html" },
-  { text: "Rhythm Lab", link: "/rhythm-lab.html" }
+  { text: "Start", link: "/getting-started/quickstart.html" },
+  { text: "User Guide", link: "/user-guide/" },
+  { text: "Workflows", link: "/workflows/" },
+  { text: "Tools", link: "/tools-and-scripts/" },
+  { text: "Reference", link: "/reference/" },
+  { text: "Help", link: "/help/" }
 ];
 
 const ruNav = [
-  { text: "Руководство", link: "/ru/project-guide.html" },
-  { text: "Установка", link: "/ru/install.html" },
-  { text: "CLI", link: "/ru/cli.html" },
-  { text: "API", link: "/ru/api.html" },
-  { text: "Rhythm Lab", link: "/ru/rhythm-lab.html" }
+  { text: "Старт", link: "/ru/getting-started/quickstart.html" },
+  { text: "UI-гайд", link: "/ru/user-guide/" },
+  { text: "Workflows", link: "/ru/workflows/" },
+  { text: "Tools", link: "/ru/tools-and-scripts/" },
+  { text: "Reference", link: "/ru/reference/" },
+  { text: "Help", link: "/ru/help/" }
 ];
 
 const enSidebar = [
   {
-    text: "Project",
+    text: "Start",
     items: [
       { text: "Home", link: "/" },
-      { text: "Guide", link: "/project-guide.html" },
-      { text: "Install", link: "/install.html" },
-      { text: "Overview", link: "/overview.html" },
-      { text: "Architecture", link: "/architecture.html" },
-      { text: "Database", link: "/database.html" },
-      { text: "Ideas", link: "/ideas.html" },
-      { text: "Development", link: "/development.html" }
+      { text: "Getting Started", link: "/getting-started/" },
+      { text: "Quickstart", link: "/getting-started/quickstart.html" },
+      { text: "Install", link: "/getting-started/install.html" },
+      { text: "First Library", link: "/getting-started/first-library.html" },
+      { text: "First Analysis", link: "/getting-started/first-analysis.html" }
     ]
   },
   {
-    text: "Usage",
+    text: "User Guide",
     items: [
-      { text: "Models", link: "/models.html" },
-      { text: "Analysis", link: "/analysis.html" },
-      { text: "Search & Tags", link: "/search-and-tags.html" },
-      { text: "CLI", link: "/cli.html" },
-      { text: "Web API", link: "/api.html" }
+      { text: "Guide Index", link: "/user-guide/" },
+      { text: "Browse Library", link: "/user-guide/browse-library.html" },
+      { text: "Analyze Library", link: "/user-guide/analyze-library.html" },
+      { text: "Search With Seeds", link: "/user-guide/search-with-seeds.html" },
+      { text: "Smart Set Builder", link: "/user-guide/smart-set-builder.html" },
+      { text: "Text Search", link: "/user-guide/text-search.html" },
+      { text: "CLASS Tab", link: "/user-guide/class-tab.html" },
+      { text: "Export Playlists", link: "/user-guide/export-playlists.html" },
+      { text: "Tags and Audio Writes", link: "/user-guide/tags-and-audio-writes.html" }
     ]
   },
   {
-    text: "Rhythm Lab",
-    items: [{ text: "Rhythm Lab", link: "/rhythm-lab.html" }]
+    text: "Workflows",
+    items: [
+      { text: "Workflow Index", link: "/workflows/" },
+      { text: "Prepare a Set", link: "/workflows/prepare-a-set.html" },
+      { text: "Find Compatible Tracks", link: "/workflows/find-compatible-tracks.html" },
+      { text: "Build Crates", link: "/workflows/build-crates.html" },
+      { text: "Train a Personal Classifier", link: "/workflows/train-personal-classifier.html" },
+      { text: "Maintain the Library", link: "/workflows/maintain-library.html" }
+    ]
   },
   {
-    text: "Maintenance",
+    text: "Concepts",
     items: [
-      { text: "Metadata Repair", link: "/scripts/repair-audio-metadata.html" },
-      { text: "Dedup & Cleanup", link: "/scripts/audio-dedup.html" },
-      { text: "DB Optimization", link: "/scripts/optimize-database.html" }
+      { text: "Concept Index", link: "/concepts/" },
+      { text: "Local-first Safety", link: "/concepts/local-first-safety.html" },
+      { text: "Features, Embeddings, Tags", link: "/concepts/features-embeddings-tags.html" },
+      { text: "Similarity Scores", link: "/concepts/similarity-scores.html" },
+      { text: "SET Routing", link: "/concepts/smart-set-builder-routing.html" },
+      { text: "Classifiers and Rhythm Lab", link: "/concepts/classifiers-and-rhythm-lab.html" }
+    ]
+  },
+  {
+    text: "Tools",
+    items: [
+      { text: "Tools Index", link: "/tools-and-scripts/" },
+      { text: "Rhythm Lab", link: "/tools-and-scripts/rhythm-lab.html" },
+      { text: "Audio Dedup", link: "/tools-and-scripts/audio-dedup.html" },
+      { text: "Audio Repair", link: "/tools-and-scripts/repair-audio-metadata.html" },
+      { text: "Optimize Database", link: "/tools-and-scripts/optimize-database.html" }
+    ]
+  },
+  {
+    text: "Reference",
+    items: [
+      { text: "Reference Index", link: "/reference/" },
+      { text: "CLI", link: "/reference/cli.html" },
+      { text: "API", link: "/reference/api.html" },
+      { text: "Database", link: "/reference/database.html" },
+      { text: "Configuration", link: "/reference/configuration.html" },
+      { text: "Analysis Families", link: "/reference/analysis-families.html" },
+      { text: "UI Controls", link: "/reference/ui-controls.html" }
+    ]
+  },
+  {
+    text: "Developer",
+    items: [
+      { text: "Developer Index", link: "/developer/" },
+      { text: "Architecture", link: "/developer/architecture.html" },
+      { text: "Development", link: "/developer/development.html" },
+      { text: "Testing and Verification", link: "/developer/testing-and-verification.html" },
+      { text: "Release Checklist", link: "/developer/release-checklist.html" }
+    ]
+  },
+  {
+    text: "Help",
+    items: [
+      { text: "Help Index", link: "/help/" },
+      { text: "Troubleshooting", link: "/help/troubleshooting.html" },
+      { text: "FAQ", link: "/help/faq.html" },
+      { text: "Known Limits", link: "/help/known-limits.html" }
     ]
   }
 ];
 
 const ruSidebar = [
   {
-    text: "Проект",
+    text: "Старт",
     items: [
       { text: "Главная", link: "/ru/" },
-      { text: "Руководство", link: "/ru/project-guide.html" },
-      { text: "Установка", link: "/ru/install.html" },
-      { text: "Обзор", link: "/ru/overview.html" },
-      { text: "Архитектура", link: "/ru/architecture.html" },
-      { text: "База данных", link: "/ru/database.html" },
-      { text: "Идеи", link: "/ru/ideas.html" },
-      { text: "Разработка", link: "/ru/development.html" }
+      { text: "Getting Started", link: "/ru/getting-started/" },
+      { text: "Quickstart", link: "/ru/getting-started/quickstart.html" },
+      { text: "Install", link: "/ru/getting-started/install.html" },
+      { text: "First Library", link: "/ru/getting-started/first-library.html" },
+      { text: "First Analysis", link: "/ru/getting-started/first-analysis.html" }
     ]
   },
   {
-    text: "Использование",
+    text: "UI-гайд",
     items: [
-      { text: "Модели", link: "/ru/models.html" },
-      { text: "Анализ", link: "/ru/analysis.html" },
-      { text: "Поиск и теги", link: "/ru/search-and-tags.html" },
-      { text: "CLI", link: "/ru/cli.html" },
-      { text: "Web API", link: "/ru/api.html" }
+      { text: "Guide Index", link: "/ru/user-guide/" },
+      { text: "Browse Library", link: "/ru/user-guide/browse-library.html" },
+      { text: "Analyze Library", link: "/ru/user-guide/analyze-library.html" },
+      { text: "Search With Seeds", link: "/ru/user-guide/search-with-seeds.html" },
+      { text: "Smart Set Builder", link: "/ru/user-guide/smart-set-builder.html" },
+      { text: "Text Search", link: "/ru/user-guide/text-search.html" },
+      { text: "CLASS Tab", link: "/ru/user-guide/class-tab.html" },
+      { text: "Export Playlists", link: "/ru/user-guide/export-playlists.html" },
+      { text: "Tags and Audio Writes", link: "/ru/user-guide/tags-and-audio-writes.html" }
     ]
   },
   {
-    text: "Rhythm Lab",
-    items: [{ text: "Rhythm Lab", link: "/ru/rhythm-lab.html" }]
+    text: "Workflows",
+    items: [
+      { text: "Workflow Index", link: "/ru/workflows/" },
+      { text: "Prepare a Set", link: "/ru/workflows/prepare-a-set.html" },
+      { text: "Find Compatible Tracks", link: "/ru/workflows/find-compatible-tracks.html" },
+      { text: "Build Crates", link: "/ru/workflows/build-crates.html" },
+      { text: "Train a Personal Classifier", link: "/ru/workflows/train-personal-classifier.html" },
+      { text: "Maintain the Library", link: "/ru/workflows/maintain-library.html" }
+    ]
   },
   {
-    text: "Обслуживание",
+    text: "Concepts",
     items: [
-      { text: "Восстановление метаданных", link: "/ru/scripts/repair-audio-metadata.html" },
-      { text: "Дубли и очистка", link: "/ru/scripts/audio-dedup.html" },
-      { text: "Оптимизация БД", link: "/ru/scripts/optimize-database.html" }
+      { text: "Concept Index", link: "/ru/concepts/" },
+      { text: "Local-first Safety", link: "/ru/concepts/local-first-safety.html" },
+      { text: "Features, Embeddings, Tags", link: "/ru/concepts/features-embeddings-tags.html" },
+      { text: "Similarity Scores", link: "/ru/concepts/similarity-scores.html" },
+      { text: "SET Routing", link: "/ru/concepts/smart-set-builder-routing.html" },
+      { text: "Classifiers and Rhythm Lab", link: "/ru/concepts/classifiers-and-rhythm-lab.html" }
+    ]
+  },
+  {
+    text: "Tools",
+    items: [
+      { text: "Tools Index", link: "/ru/tools-and-scripts/" },
+      { text: "Rhythm Lab", link: "/ru/tools-and-scripts/rhythm-lab.html" },
+      { text: "Audio Dedup", link: "/ru/tools-and-scripts/audio-dedup.html" },
+      { text: "Audio Repair", link: "/ru/tools-and-scripts/repair-audio-metadata.html" },
+      { text: "Optimize Database", link: "/ru/tools-and-scripts/optimize-database.html" }
+    ]
+  },
+  {
+    text: "Reference",
+    items: [
+      { text: "Reference Index", link: "/ru/reference/" },
+      { text: "CLI", link: "/ru/reference/cli.html" },
+      { text: "API", link: "/ru/reference/api.html" },
+      { text: "Database", link: "/ru/reference/database.html" },
+      { text: "Configuration", link: "/ru/reference/configuration.html" },
+      { text: "Analysis Families", link: "/ru/reference/analysis-families.html" },
+      { text: "UI Controls", link: "/ru/reference/ui-controls.html" }
+    ]
+  },
+  {
+    text: "Developer",
+    items: [
+      { text: "Developer Index", link: "/ru/developer/" },
+      { text: "Architecture", link: "/ru/developer/architecture.html" },
+      { text: "Development", link: "/ru/developer/development.html" },
+      { text: "Testing and Verification", link: "/ru/developer/testing-and-verification.html" },
+      { text: "Release Checklist", link: "/ru/developer/release-checklist.html" }
+    ]
+  },
+  {
+    text: "Help",
+    items: [
+      { text: "Help Index", link: "/ru/help/" },
+      { text: "Troubleshooting", link: "/ru/help/troubleshooting.html" },
+      { text: "FAQ", link: "/ru/help/faq.html" },
+      { text: "Known Limits", link: "/ru/help/known-limits.html" }
     ]
   }
 ];
@@ -115,7 +223,7 @@ export default defineConfig({
       title: "dj-track-similarity",
       description: "Документация локального инструмента анализа DJ-библиотеки и похожести треков.",
       themeConfig: {
-        siteTitle: "Документация DJ Track Similarity",
+        siteTitle: "DJ Track Similarity Docs",
         nav: ruNav,
         sidebar: ruSidebar,
         outline: {
@@ -134,7 +242,7 @@ export default defineConfig({
     }
   },
   themeConfig: {
-    siteTitle: "DJ Track Similarity",
+    siteTitle: "DJ Track Similarity Docs",
     logo: { light: "/logo-light.svg", dark: "/logo-dark.svg", alt: "DJ Track Similarity" },
     nav: enNav,
     sidebar: enSidebar,

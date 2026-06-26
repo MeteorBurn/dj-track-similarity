@@ -1,0 +1,38 @@
+{
+  "version": "0.2",
+  "language": "en-US",
+  "ignorePaths": [
+    "node_modules/**",
+    "site/**",
+    "ru/**"
+  ],
+  "words": [
+    "addopts",
+    "AIFF",
+    "ALAC",
+    "CLAP",
+    "CUDA",
+    "Dedup",
+    "FFmpeg",
+    "ffprobe",
+    "MAEST",
+    "MERT",
+    "multiclass",
+    "Mutagen",
+    "pytest",
+    "readback",
+    "rescan",
+    "rescoring",
+    "retag",
+    "scikit",
+    "SONARA",
+    "TorchCodec",
+    "torchaudio",
+    "Typer",
+    "unreviewed",
+    "venv",
+    "VitePress",
+    "Vorbis",
+    "TCON"
+  ]
+}

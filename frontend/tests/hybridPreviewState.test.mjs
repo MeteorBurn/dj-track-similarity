@@ -90,8 +90,9 @@ test("hybrid preview layout wraps controls and hardens overflow", () => {
   assert.match(selectableRowRule, /cursor:\s*pointer;/);
   assert.match(selectedRowRule, /border-color:\s*var\(--accent-soft-border\);/);
   assert.match(styles, /\.hybrid-preview-panel\s*\{[\s\S]*min-width:\s*0;[\s\S]*overflow:\s*hidden;/);
-  assert.match(styles, /\.hybrid-source-grid\s*\{[\s\S]*display:\s*flex;[\s\S]*flex-wrap:\s*wrap;/);
-  assert.match(styles, /\.hybrid-classifier-toggle-grid\s*\{[\s\S]*display:\s*flex;[\s\S]*flex-wrap:\s*wrap;/);
+  assert.match(styles, /\.hybrid-source-grid\s*\{[\s\S]*display:\s*grid;[\s\S]*grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(178px,\s*1fr\)\);/);
+  assert.match(styles, /\.hybrid-source-toggle input\[type="checkbox"\],\s*\.hybrid-classifier-controls input\[type="checkbox"\]\s*\{[\s\S]*height:\s*14px;[\s\S]*min-height:\s*14px;[\s\S]*width:\s*14px;/);
+  assert.match(styles, /\.hybrid-classifier-toggle-grid\s*\{[\s\S]*display:\s*grid;[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/);
   assert.match(styles, /\.hybrid-result-details\s*\{[\s\S]*display:\s*grid;[\s\S]*min-width:\s*0;[\s\S]*overflow-wrap:\s*anywhere;/);
   assert.match(styles, /\.hybrid-result-summary-content\s*\{[\s\S]*display:\s*inline-flex;[\s\S]*flex-wrap:\s*wrap;/);
   assert.doesNotMatch(styles, /minmax\(320px,\s*1\.35fr\)/);

@@ -168,6 +168,17 @@ def test_delete_profile_by_name_or_key_removes_profile_scoped_data(tmp_path: Pat
         confidence=0.8,
         probabilities={"vocal": 0.8, "instrumental": 0.2},
     )
+    scoped.upsert_label_queue_items(
+        mode="uncertainty",
+        items=[
+            {
+                "source_track_id": track_id,
+                "score": 0.48,
+                "priority": 10.0,
+                "reason": {"reason": "near decision boundary"},
+            }
+        ],
+    )
     scoped.record_training_checkpoint({"vocal": 1, "instrumental": 0}, model_artifact="model.joblib")
 
     deleted = labels.delete_profile(name="Vocal Presence")
@@ -183,6 +194,7 @@ def test_delete_profile_by_name_or_key_removes_profile_scoped_data(tmp_path: Pat
         for table in (
             "classifier_profile_labels",
             "classifier_labels",
+            "classifier_label_queue",
             "classifier_predictions",
             "classifier_training_checkpoints",
         ):
@@ -203,6 +215,80 @@ def test_delete_profile_by_name_or_key_removes_profile_scoped_data(tmp_path: Pat
     )
 
     assert labels.delete_profile(classifier_key="texture").name == "Texture"
+
+
+def test_label_queue_upserts_state_transitions_and_profile_isolation(tmp_path: Path) -> None:
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    labels.create_profile(
+        classifier_key="vocal_presence",
+        name="Vocal Presence",
+        labels=[
+            {"key": "vocal", "name": "Vocal", "role": "positive"},
+            {"key": "instrumental", "name": "Instrumental", "role": "negative"},
+        ],
+    )
+    break_queue = RhythmLabDatabase(labels.path, classifier_key="break_energy")
+    vocal_queue = RhythmLabDatabase(labels.path, classifier_key="vocal_presence")
+
+    break_queue.upsert_label_queue_items(
+        mode="uncertainty",
+        items=[
+            {"source_track_id": 101, "score": 0.49, "priority": 4.0, "reason": {"rank": 1}},
+            {"source_track_id": 102, "score": 0.52, "priority": 3.0, "reason": {"rank": 2}},
+        ],
+    )
+    break_queue.mark_queue_item(101, mode="uncertainty", state="skipped")
+    break_queue.upsert_label_queue_items(
+        mode="uncertainty",
+        items=[
+            {"source_track_id": 101, "score": 0.51, "priority": 9.0, "reason": {"rank": 1, "updated": True}},
+        ],
+    )
+    vocal_queue.upsert_label_queue_items(
+        mode="uncertainty",
+        items=[
+            {"source_track_id": 101, "score": 0.2, "priority": 5.0, "reason": {"profile": "vocal"}},
+        ],
+    )
+
+    break_items = break_queue.label_queue_items()
+    vocal_items = vocal_queue.label_queue_items()
+    skipped = break_queue.label_queue_items(state="skipped")
+
+    assert len(break_items) == 2
+    assert len(vocal_items) == 1
+    assert skipped[0]["source_track_id"] == 101
+    assert skipped[0]["state"] == "skipped"
+    assert skipped[0]["score"] == 0.51
+    assert skipped[0]["priority"] == 9.0
+    assert skipped[0]["reason"]["updated"] is True
+
+    cleared = break_queue.clear_label_queue(state="skipped")
+
+    assert cleared == 1
+    assert [item["source_track_id"] for item in break_queue.label_queue_items()] == [102]
+    assert [item["source_track_id"] for item in vocal_queue.label_queue_items()] == [101]
+
+
+def test_archive_profile_marks_only_that_profile_queue_archived(tmp_path: Path) -> None:
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    labels.create_profile(
+        classifier_key="vocal_presence",
+        name="Vocal Presence",
+        labels=[
+            {"key": "vocal", "name": "Vocal", "role": "positive"},
+            {"key": "instrumental", "name": "Instrumental", "role": "negative"},
+        ],
+    )
+    break_queue = RhythmLabDatabase(labels.path, classifier_key="break_energy")
+    vocal_queue = RhythmLabDatabase(labels.path, classifier_key="vocal_presence")
+    break_queue.upsert_label_queue_items(mode="uncertainty", items=[{"source_track_id": 1, "priority": 1, "reason": {}}])
+    vocal_queue.upsert_label_queue_items(mode="uncertainty", items=[{"source_track_id": 2, "priority": 1, "reason": {}}])
+
+    labels.archive_profile("vocal_presence")
+
+    assert break_queue.label_queue_items()[0]["state"] == "suggested"
+    assert vocal_queue.label_queue_items()[0]["state"] == "archived"
 
 
 def test_profile_training_min_added_can_be_created_and_updated(tmp_path: Path) -> None:
@@ -2188,6 +2274,57 @@ def test_cli_train_accepts_separate_source_and_labels_databases(tmp_path: Path) 
     assert result.returncode == 0, result.stderr
     assert payload["sonara"]["status"] == "trained"
     assert payload["mert"]["status"] == "skipped"
+
+
+def test_cli_suggest_labels_can_write_queue(tmp_path: Path) -> None:
+    source_path = tmp_path / "source.sqlite"
+    source = LibraryDatabase(source_path)
+    first_id = _track(source, tmp_path, "first.wav", title="First")
+    second_id = _track(source, tmp_path, "second.wav", title="Second")
+    for track_id, score in ((first_id, 0.49), (second_id, 0.9)):
+        source.save_classifier_score(
+            track_id,
+            classifier="break_energy",
+            score=score,
+            label="medium" if score < 0.8 else "high",
+            confidence=max(score, 1.0 - score),
+            probabilities={"broken": score, "straight": 1.0 - score},
+            feature_set="combined",
+            model_id="test-model",
+        )
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(LAB_ROOT / "rhythm_lab_cli.py"),
+            "suggest-labels",
+            "--source",
+            str(source_path),
+            "--labels",
+            str(labels.path),
+            "--profile",
+            "break_energy",
+            "--mode",
+            "uncertainty",
+            "--limit",
+            "2",
+            "--write-queue",
+        ],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    payload = json.loads(result.stdout)
+    queued = labels.label_queue_items()
+    assert result.returncode == 0, result.stderr
+    assert payload["queue_written"] == 2
+    assert [item["source_track_id"] for item in queued] == [first_id, second_id]
+    assert queued[0]["mode"] == "uncertainty"
+    assert queued[0]["reason"]["label_status"] == "unlabeled"
 
 
 def test_cli_delete_profile_accepts_name_or_key_with_confirmation(tmp_path: Path) -> None:

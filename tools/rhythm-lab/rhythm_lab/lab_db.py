@@ -20,6 +20,21 @@ ProfileType = Literal["binary", "multiclass"]
 PROFILE_TYPES: tuple[str, ...] = ("binary", "multiclass")
 ProfileLabelRole = Literal["positive", "negative", "review", "class"]
 PROFILE_LABEL_ROLES: tuple[str, ...] = ("positive", "negative", "review", "class")
+LABEL_QUEUE_MODES: tuple[str, ...] = (
+    "uncertainty",
+    "hard_negative",
+    "diversity",
+    "disagreement",
+    "high_impact_unlabeled",
+)
+LABEL_QUEUE_STATES: tuple[str, ...] = (
+    "suggested",
+    "accepted_for_labeling",
+    "labeled",
+    "skipped",
+    "used_for_training",
+    "archived",
+)
 DEFAULT_ARTIFACT_DIR = Path(__file__).resolve().parents[1] / "artifacts" / "break-energy"
 DEFAULT_ARTIFACT_PREFIX = "break-energy"
 DEFAULT_TRAINING_MIN_ADDED = 50
@@ -100,6 +115,12 @@ class RhythmLabDatabase:
 
                 CREATE INDEX IF NOT EXISTS idx_classifier_predictions_lookup
                 ON classifier_predictions(classifier_key, label, confidence);
+
+                CREATE INDEX IF NOT EXISTS idx_classifier_label_queue_state
+                ON classifier_label_queue(classifier_key, state, priority DESC, updated_at);
+
+                CREATE INDEX IF NOT EXISTS idx_classifier_label_queue_track_mode
+                ON classifier_label_queue(classifier_key, source_track_id, mode);
                 """
             )
 
@@ -268,6 +289,7 @@ class RhythmLabDatabase:
             )
             for table in (
                 "classifier_labels",
+                "classifier_label_queue",
                 "classifier_predictions",
                 "classifier_training_checkpoints",
                 "classifier_profile_labels",
@@ -290,6 +312,14 @@ class RhythmLabDatabase:
                 """
                 UPDATE classifier_profiles
                 SET archived_at = COALESCE(archived_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP
+                WHERE classifier_key = ?
+                """,
+                (key,),
+            )
+            connection.execute(
+                """
+                UPDATE classifier_label_queue
+                SET state = 'archived', updated_at = CURRENT_TIMESTAMP
                 WHERE classifier_key = ?
                 """,
                 (key,),
@@ -436,6 +466,99 @@ class RhythmLabDatabase:
                 (self.classifier_key,),
             ).fetchall()
         return {str(row["label"]): int(row["count"]) for row in rows}
+
+    def upsert_label_queue_items(self, *, mode: str, items: list[dict[str, object]]) -> int:
+        clean_mode = _validate_queue_mode(mode)
+        rows: list[tuple[object, ...]] = []
+        for item in items:
+            source_track_id = _validate_source_track_id(item.get("source_track_id", item.get("track_id")))
+            priority = _validate_queue_priority(item.get("priority", 0.0))
+            score = _optional_queue_score(item.get("score"))
+            reason = item.get("reason", item.get("reason_json", {}))
+            reason_payload = reason if isinstance(reason, dict) else {"reason": str(reason)}
+            rows.append(
+                (
+                    self.classifier_key,
+                    source_track_id,
+                    clean_mode,
+                    score,
+                    priority,
+                    metadata_to_json(reason_payload),
+                )
+            )
+        if not rows:
+            return 0
+        with self.connect() as connection:
+            connection.executemany(
+                """
+                INSERT INTO classifier_label_queue(
+                    classifier_key, source_track_id, mode, score, priority, reason_json
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(classifier_key, source_track_id, mode) DO UPDATE SET
+                    score = excluded.score,
+                    priority = excluded.priority,
+                    reason_json = excluded.reason_json,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                rows,
+            )
+        return len(rows)
+
+    def label_queue_items(self, *, state: str | None = None) -> list[dict[str, object]]:
+        params: list[object] = [self.classifier_key]
+        state_clause = ""
+        if state is not None:
+            state_clause = "AND state = ?"
+            params.append(_validate_queue_state(state))
+        with self.connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT id, classifier_key, source_track_id, mode, score, priority, reason_json,
+                       state, created_at, updated_at
+                FROM classifier_label_queue
+                WHERE classifier_key = ?
+                  {state_clause}
+                ORDER BY priority DESC, updated_at DESC, source_track_id
+                """,
+                tuple(params),
+            ).fetchall()
+        return [_queue_row_payload(row) for row in rows]
+
+    def mark_queue_item(self, source_track_id: int, *, mode: str, state: str) -> dict[str, object]:
+        clean_track_id = _validate_source_track_id(source_track_id)
+        clean_mode = _validate_queue_mode(mode)
+        clean_state = _validate_queue_state(state)
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE classifier_label_queue
+                SET state = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE classifier_key = ? AND source_track_id = ? AND mode = ?
+                """,
+                (clean_state, self.classifier_key, clean_track_id, clean_mode),
+            )
+            if cursor.rowcount == 0:
+                raise KeyError(f"Queue item not found for {self.classifier_key}:{clean_track_id}:{clean_mode}")
+            row = connection.execute(
+                """
+                SELECT id, classifier_key, source_track_id, mode, score, priority, reason_json,
+                       state, created_at, updated_at
+                FROM classifier_label_queue
+                WHERE classifier_key = ? AND source_track_id = ? AND mode = ?
+                """,
+                (self.classifier_key, clean_track_id, clean_mode),
+            ).fetchone()
+        return _queue_row_payload(row)
+
+    def clear_label_queue(self, *, state: str) -> int:
+        clean_state = _validate_queue_state(state)
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM classifier_label_queue WHERE classifier_key = ? AND state = ?",
+                (self.classifier_key, clean_state),
+            )
+            return int(cursor.rowcount)
 
     def training_labels(self) -> dict[int, str]:
         training_keys = self.get_profile().training_label_keys
@@ -664,6 +787,7 @@ def _ensure_unique_profile_names(connection: sqlite3.Connection) -> None:
 
 def _ensure_classifier_tables(connection: sqlite3.Connection) -> None:
     connection.execute(_classifier_labels_table_sql("classifier_labels"))
+    connection.execute(_classifier_label_queue_table_sql("classifier_label_queue"))
     connection.execute(_classifier_predictions_table_sql("classifier_predictions"))
     connection.execute(_classifier_training_checkpoints_table_sql("classifier_training_checkpoints"))
 
@@ -979,6 +1103,69 @@ def _validate_label_key(key: str) -> str:
     return value
 
 
+def _validate_queue_mode(mode: object) -> str:
+    value = str(mode or "").strip().lower().replace("-", "_")
+    if value not in LABEL_QUEUE_MODES:
+        raise ValueError(f"Unsupported label queue mode: {value}")
+    return value
+
+
+def _validate_queue_state(state: object) -> str:
+    value = str(state or "").strip().lower().replace("-", "_")
+    if value not in LABEL_QUEUE_STATES:
+        raise ValueError(f"Unsupported label queue state: {value}")
+    return value
+
+
+def _validate_source_track_id(value: object) -> int:
+    if isinstance(value, bool):
+        raise ValueError("Queue source_track_id must be a positive integer")
+    try:
+        number = int(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError("Queue source_track_id must be a positive integer") from error
+    if number <= 0:
+        raise ValueError("Queue source_track_id must be a positive integer")
+    return number
+
+
+def _validate_queue_priority(value: object) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError("Queue priority must be numeric") from error
+    return number
+
+
+def _optional_queue_score(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError("Queue score must be numeric") from error
+
+
+def _queue_row_payload(row: sqlite3.Row) -> dict[str, object]:
+    try:
+        reason = json.loads(str(row["reason_json"]))
+    except json.JSONDecodeError:
+        reason = {}
+    return {
+        "id": int(row["id"]),
+        "classifier_key": str(row["classifier_key"]),
+        "source_track_id": int(row["source_track_id"]),
+        "track_id": int(row["source_track_id"]),
+        "mode": str(row["mode"]),
+        "score": float(row["score"]) if row["score"] is not None else None,
+        "priority": float(row["priority"]),
+        "reason": reason if isinstance(reason, dict) else {},
+        "state": str(row["state"]),
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
 def _default_artifact_dir(classifier_key: str) -> Path:
     return Path(__file__).resolve().parents[1] / "artifacts" / classifier_key.replace("_", "-")
 
@@ -1009,6 +1196,27 @@ def _classifier_labels_table_sql(table: str) -> str:
             note TEXT,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY(classifier_key, source_track_id)
+        )
+    """
+
+
+def _classifier_label_queue_table_sql(table: str) -> str:
+    modes = "', '".join(LABEL_QUEUE_MODES)
+    states = "', '".join(LABEL_QUEUE_STATES)
+    return f"""
+        CREATE TABLE IF NOT EXISTS {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            classifier_key TEXT NOT NULL,
+            source_track_id INTEGER NOT NULL,
+            mode TEXT NOT NULL CHECK(mode IN ('{modes}')),
+            score REAL,
+            priority REAL NOT NULL,
+            reason_json TEXT NOT NULL CHECK(json_valid(reason_json)),
+            state TEXT NOT NULL DEFAULT 'suggested' CHECK(state IN ('{states}')),
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(classifier_key, source_track_id, mode),
+            FOREIGN KEY(classifier_key) REFERENCES classifier_profiles(classifier_key) ON DELETE CASCADE
         )
     """
 

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import csv
 from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
 import shutil
+
+from dj_track_similarity.classifier_production import normalize_label_suggestion_mode, suggest_classifier_labels
+from dj_track_similarity.database import LibraryDatabase
 
 from .lab_db import BREAK_ENERGY_CLASSIFIER_KEY, RhythmLabDatabase
 from .predictions import apply_model_to_lab, export_predictions_csv
@@ -61,6 +65,42 @@ def build_parser() -> argparse.ArgumentParser:
     calibration_parser.add_argument("--artifact", type=Path, default=None)
     calibration_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
     calibration_parser.set_defaults(func=_calibration_report)
+
+    suggest_parser = subcommands.add_parser("suggest-labels", help="Rank classifier label suggestions and optionally persist them to the lab queue.")
+    _add_data_options(suggest_parser)
+    suggest_parser.add_argument("--profile", default=BREAK_ENERGY_CLASSIFIER_KEY)
+    suggest_parser.add_argument("--mode", default="uncertainty")
+    suggest_parser.add_argument("--limit", type=int, default=25)
+    suggest_parser.add_argument("--random-seed", type=int, default=123)
+    suggest_parser.add_argument("--write-queue", action="store_true", help="Upsert suggestions into classifier_label_queue.")
+    suggest_parser.set_defaults(func=_suggest_labels)
+
+    queue_parser = subcommands.add_parser("queue", help="List persistent active-learning queue rows.")
+    queue_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
+    queue_parser.add_argument("--profile", default=BREAK_ENERGY_CLASSIFIER_KEY)
+    queue_parser.add_argument("--state", default=None)
+    queue_parser.set_defaults(func=_queue_list)
+
+    queue_export_parser = subcommands.add_parser("queue-export", help="Export persistent active-learning queue rows to CSV.")
+    queue_export_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
+    queue_export_parser.add_argument("--profile", default=BREAK_ENERGY_CLASSIFIER_KEY)
+    queue_export_parser.add_argument("--state", default=None)
+    queue_export_parser.add_argument("--output", type=Path, required=True)
+    queue_export_parser.set_defaults(func=_queue_export)
+
+    queue_mark_parser = subcommands.add_parser("queue-mark", help="Set one queue row state explicitly.")
+    queue_mark_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
+    queue_mark_parser.add_argument("--profile", default=BREAK_ENERGY_CLASSIFIER_KEY)
+    queue_mark_parser.add_argument("--track-id", type=int, required=True)
+    queue_mark_parser.add_argument("--mode", default="uncertainty")
+    queue_mark_parser.add_argument("--state", required=True)
+    queue_mark_parser.set_defaults(func=_queue_mark)
+
+    queue_clear_parser = subcommands.add_parser("queue-clear", help="Delete queue rows in one state for one profile.")
+    queue_clear_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
+    queue_clear_parser.add_argument("--profile", default=BREAK_ENERGY_CLASSIFIER_KEY)
+    queue_clear_parser.add_argument("--state", required=True)
+    queue_clear_parser.set_defaults(func=_queue_clear)
 
     delete_parser = subcommands.add_parser("delete-profile", help="Permanently delete one classifier profile and its lab data.")
     delete_target = delete_parser.add_mutually_exclusive_group(required=True)
@@ -208,6 +248,51 @@ def _calibration_report(args: argparse.Namespace) -> None:
     print(json.dumps({"profile": profile.classifier_key, "artifact": str(artifact), "calibration": report}, ensure_ascii=False, indent=2, sort_keys=True))
 
 
+def _suggest_labels(args: argparse.Namespace) -> None:
+    mode = normalize_label_suggestion_mode(args.mode)
+    labels_db = RhythmLabDatabase(args.labels, classifier_key=args.profile)
+    report = suggest_classifier_labels(
+        LibraryDatabase(args.source),
+        args.profile,
+        mode=mode,
+        limit=max(1, int(args.limit)),
+        random_seed=int(args.random_seed),
+    )
+    if args.write_queue:
+        written = labels_db.upsert_label_queue_items(
+            mode=mode,
+            items=_queue_items_from_suggestions(report.get("suggestions", [])),
+        )
+        report["queue_written"] = written
+    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+
+
+def _queue_list(args: argparse.Namespace) -> None:
+    rows = RhythmLabDatabase(args.labels, classifier_key=args.profile).label_queue_items(state=args.state)
+    print(json.dumps({"profile": args.profile, "state": args.state, "count": len(rows), "items": rows}, ensure_ascii=False, indent=2, sort_keys=True))
+
+
+def _queue_export(args: argparse.Namespace) -> None:
+    rows = RhythmLabDatabase(args.labels, classifier_key=args.profile).label_queue_items(state=args.state)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    _write_queue_csv(args.output, rows)
+    print(f"output={args.output} rows={len(rows)}")
+
+
+def _queue_mark(args: argparse.Namespace) -> None:
+    row = RhythmLabDatabase(args.labels, classifier_key=args.profile).mark_queue_item(
+        args.track_id,
+        mode=args.mode,
+        state=args.state,
+    )
+    print(json.dumps(row, ensure_ascii=False, sort_keys=True))
+
+
+def _queue_clear(args: argparse.Namespace) -> None:
+    deleted = RhythmLabDatabase(args.labels, classifier_key=args.profile).clear_label_queue(state=args.state)
+    print(f"profile={args.profile} state={args.state} deleted={deleted}")
+
+
 def _delete_profile(args: argparse.Namespace) -> None:
     target = args.profile if args.profile is not None else args.name
     if args.confirm != target:
@@ -285,6 +370,67 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _queue_items_from_suggestions(suggestions: object) -> list[dict[str, object]]:
+    if not isinstance(suggestions, list):
+        return []
+    items: list[dict[str, object]] = []
+    total = len(suggestions)
+    for suggestion in suggestions:
+        if not isinstance(suggestion, dict):
+            continue
+        track = suggestion.get("track")
+        if not isinstance(track, dict):
+            continue
+        rank = int(suggestion.get("rank") or len(items) + 1)
+        items.append(
+            {
+                "source_track_id": track.get("id"),
+                "score": suggestion.get("score"),
+                "priority": float(total - rank + 1),
+                "reason": {
+                    "rank": rank,
+                    "reason": suggestion.get("reason"),
+                    "label_status": suggestion.get("label_status"),
+                    "feedback_count": suggestion.get("feedback_count"),
+                },
+            }
+        )
+    return items
+
+
+def _write_queue_csv(path: Path, rows: list[dict[str, object]]) -> None:
+    fieldnames = [
+        "id",
+        "classifier_key",
+        "source_track_id",
+        "mode",
+        "score",
+        "priority",
+        "state",
+        "reason_json",
+        "created_at",
+        "updated_at",
+    ]
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(
+                {
+                    "id": row["id"],
+                    "classifier_key": row["classifier_key"],
+                    "source_track_id": row["source_track_id"],
+                    "mode": row["mode"],
+                    "score": row["score"],
+                    "priority": row["priority"],
+                    "state": row["state"],
+                    "reason_json": json.dumps(row.get("reason", {}), ensure_ascii=False, sort_keys=True),
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                }
+            )
 
 
 def _serve(args: argparse.Namespace) -> None:

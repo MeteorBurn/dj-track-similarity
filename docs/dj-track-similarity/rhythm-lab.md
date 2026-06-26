@@ -390,3 +390,34 @@ The main app also exposes report-only classifier production diagnostics through
 `dj-sim classifier calibration-report`, `dj-sim classifier suggest-labels`, and
 matching local API endpoints. These reports use stored main-app classifier scores
 and feedback rows only; Rhythm Lab labels remain in the separate lab database.
+
+## Active-Learning Queue
+
+Rhythm Lab can persist label suggestions into its own lab database. The queue
+lives in `tools/rhythm-lab/data/rhythm_lab.sqlite` table
+`classifier_label_queue`, scoped by `classifier_key`. It does not write to the
+main library database and it never turns main-app feedback into training labels
+without an explicit Rhythm Lab labeling action.
+
+Write suggestions into the queue:
+
+```powershell
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py suggest-labels --profile live_instrumentation --source C:\db\library_v4.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --mode uncertainty --write-queue
+```
+
+List, export, mark, or clear queue rows:
+
+```powershell
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py queue --profile live_instrumentation --state suggested --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py queue-export --profile live_instrumentation --output .\queue.csv --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py queue-mark --profile live_instrumentation --track-id 123 --mode uncertainty --state skipped --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py queue-clear --profile live_instrumentation --state skipped --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+```
+
+Supported queue modes are `uncertainty`, `hard_negative`, `diversity`,
+`disagreement`, and `high_impact_unlabeled`. Supported states are `suggested`,
+`accepted_for_labeling`, `labeled`, `skipped`, `used_for_training`, and
+`archived`. Repeated suggestions update priority and reason for the same
+`classifier_key`, track, and mode; they do not reset an existing state such as
+`skipped`. Deleting a profile removes only that profile's queue rows, while
+archiving a profile marks only that profile's queue rows as `archived`.

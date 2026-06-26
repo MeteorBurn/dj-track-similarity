@@ -102,6 +102,17 @@ def test_benchmark_reports_recall_threshold_result(tmp_path: Path) -> None:
 
     assert report["status"] == "pass"
     assert report["compare"] == "exact"
+    assert report["track_count"] == 4
+    assert report["embedding_dim"] == 3
+    assert report["index_size_bytes"] > 0
+    assert report["build_seconds"] is not None
+    assert report["verify_status"] == "ok"
+    assert report["recall_at_10"] == 1.0
+    assert report["recall_at_50"] == 1.0
+    assert report["recall_at_100"] == 1.0
+    assert report["p50_latency"] is not None
+    assert report["p95_latency"] is not None
+    assert report["fallback_reason"] is None
     assert report["recall"]["recall_at_2"]["mean"] == 1.0
     assert report["threshold"] == 0.97
 

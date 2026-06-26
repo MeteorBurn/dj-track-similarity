@@ -510,6 +510,10 @@ def benchmark_persistent_index(
     status = "pass" if primary_recall is not None and primary_recall >= clean_threshold else "fail"
     manifest = verification.manifest or {}
     artifact_path = verification.artifact_path
+    ann_latency = _latency_summary(ann_latencies)
+    exact_latency = _latency_summary(exact_latencies)
+    index_size_bytes = _file_size(artifact_path) if artifact_path is not None else 0
+    build_seconds = manifest.get("build_seconds")
     return {
         "benchmark": "persistent_ann_recall",
         "schema_version": 1,
@@ -517,24 +521,35 @@ def benchmark_persistent_index(
         "status": status,
         "adapter": clean_adapter,
         "backend": persistent_searcher.backend_name,
+        "track_count": snapshot.embedding_count,
         "compare": "exact",
         "threshold": clean_threshold,
         "primary_recall_k": clean_recall_k,
         "seed_count": len(seed_indices),
         "embedding_count": snapshot.embedding_count,
         "embedding_dim": snapshot.embedding_dim,
+        "index_size_bytes": index_size_bytes,
+        "build_seconds": build_seconds,
+        "verify_status": verification.status,
+        "recall_at_10": recalls["recall_at_10"]["mean"],
+        "recall_at_50": recalls["recall_at_50"]["mean"],
+        "recall_at_100": recalls["recall_at_100"]["mean"],
+        "p50_latency": ann_latency["p50_ms"],
+        "p95_latency": ann_latency["p95_ms"],
+        "latency_unit": "ms",
+        "fallback_reason": None,
         "recall": recalls,
         "latency": {
-            "exact": _latency_summary(exact_latencies),
-            "ann": _latency_summary(ann_latencies),
+            "exact": exact_latency,
+            "ann": ann_latency,
         },
         "index": {
             "index_dir": str(verification.index_dir),
             "manifest_path": str(verification.manifest_path) if verification.manifest_path is not None else None,
             "artifact_path": str(artifact_path) if artifact_path is not None else None,
-            "index_size_bytes": _file_size(artifact_path) if artifact_path is not None else 0,
+            "index_size_bytes": index_size_bytes,
             "created_at": manifest.get("created_at"),
-            "build_seconds": manifest.get("build_seconds"),
+            "build_seconds": build_seconds,
             "settings": manifest.get("settings", {}),
         },
     }

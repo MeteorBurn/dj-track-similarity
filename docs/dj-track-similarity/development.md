@@ -165,6 +165,33 @@ timings keep exact NumPy as the reference. HNSW benchmark reports also include
 `recall_at_k` against exact results for the sampled searches. The script does not
 change production scoring, result ordering, or endpoints.
 
+## Persistent ANN sidecar benchmark workflow
+
+`dj-sim index` is the persistent sidecar workflow for real embedding databases.
+Use it only on an explicit schema-v4 database path or a copy made with the v4
+copy script. Do not point destructive maintenance commands at a user database
+when a copy is enough for benchmarking. The index commands write sidecar files
+beside the selected database by default, or under `--index-dir` when supplied;
+benchmark reports should be written outside git, such as `D:\Reports\djts-ann`.
+
+Focused real-copy workflow:
+
+```powershell
+$db = "C:\db\library_v4_copy.sqlite"
+$reports = "D:\Reports\djts-ann"
+New-Item -ItemType Directory -Force $reports | Out-Null
+dj-sim index build --adapter mert --db $db --backend hnswlib
+dj-sim index verify --adapter mert --db $db
+dj-sim index benchmark --adapter mert --compare exact --db $db --recall-k 50 --threshold 0.97 --seed-count 100 --output "$reports\index_mert_benchmark.json"
+```
+
+Repeat for `clap`, and optionally `maest`, when those embeddings are populated.
+The benchmark report records recall, p50/p95 ANN latency in milliseconds, index
+size, build seconds, verification status, embedding dimension, and pass/fail
+status. Missing or stale indexes fail benchmark instead of silently claiming ANN
+quality. Runtime search stays exact by default; persistent ANN remains explicit
+opt-in.
+
 ## Library schema copy scripts
 
 The main app expects the current library schema and does not runtime-migrate old

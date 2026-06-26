@@ -386,7 +386,32 @@ python -m pip install -e ".[ann]"
 `benchmark` compares the sidecar result set with exact search and reports
 Recall@50 by default. The default pass threshold is `0.97`; use `--threshold`,
 `--recall-k`, and repeated `--k` options for local experiments. A stale or
-missing sidecar fails benchmark instead of silently claiming quality.
+missing sidecar fails benchmark instead of silently claiming quality. The JSON
+report keeps the nested `recall`, `latency`, and `index` sections and also
+includes flat evidence fields for review: `adapter`, `backend`, `track_count`,
+`embedding_dim`, `index_size_bytes`, `build_seconds`, `verify_status`,
+`recall_at_10`, `recall_at_50`, `recall_at_100`, `p50_latency`, `p95_latency`,
+`latency_unit`, optional `fallback_reason`, and top-level `status`.
+
+For a real-library benchmark, work on a schema-v4 copy of the library database
+and write reports outside the repository, for example:
+
+```powershell
+$db = "C:\db\library_v4_copy.sqlite"
+$reports = "D:\Reports\djts-ann"
+New-Item -ItemType Directory -Force $reports | Out-Null
+dj-sim index build --adapter mert --db $db --backend hnswlib
+dj-sim index verify --adapter mert --db $db
+dj-sim index benchmark --adapter mert --compare exact --db $db --recall-k 50 --threshold 0.97 --seed-count 100 --output "$reports\index_mert_benchmark.json"
+dj-sim index build --adapter clap --db $db --backend hnswlib
+dj-sim index verify --adapter clap --db $db
+dj-sim index benchmark --adapter clap --compare exact --db $db --recall-k 50 --threshold 0.97 --seed-count 100 --output "$reports\index_clap_benchmark.json"
+```
+
+Run the same sequence for `maest` only when that embedding family is populated
+enough to benchmark. Exact search remains the default runtime path; ANN indexes
+are used only by explicit index commands or explicit search flags such as
+`--use-ann-index`.
 
 `clear` removes only generated files named like `embeddings_<adapter>_*` inside
 the resolved sidecar directory. It is non-interactive, scoped to that directory,

@@ -346,7 +346,9 @@ def index_benchmark(
     typer.echo(
         f"status={report['status']} adapter={report['adapter']} backend={report['backend']} "
         f"recall_at_{report['primary_recall_k']}={float(primary):.4f} threshold={float(report['threshold']):.4f} "
-        f"seeds={report['seed_count']} output={output_text}"
+        f"seeds={report['seed_count']} p50_latency_ms={float(report['p50_latency']):.3f} "
+        f"p95_latency_ms={float(report['p95_latency']):.3f} index_size_bytes={report['index_size_bytes']} "
+        f"output={output_text}"
     )
     if report["status"] != "pass":
         raise typer.Exit(1)

@@ -1,5 +1,5 @@
-import { X } from "lucide-react";
-import { Fragment } from "react";
+import { Check, Copy, X } from "lucide-react";
+import { Fragment, useState } from "react";
 import { Track } from "./api";
 import { formatMaestGenreLabel, hasMaestSyncopatedRhythm, SYNCOPATED_RHYTHM_LABEL } from "./syncopatedRhythm";
 import { basename, displayTrack, trackHasAnalysis } from "./trackDisplay";
@@ -67,6 +67,7 @@ export function TrackMetadataDialog({
   track: Track;
   onClose: () => void;
 }) {
+  const [filePathCopied, setFilePathCopied] = useState(false);
   const genres = track.genres || [];
   const scores = track.genre_scores || {};
   const trackHasSyncopatedRhythm = hasMaestSyncopatedRhythm(track.metadata);
@@ -76,6 +77,14 @@ export function TrackMetadataDialog({
   const analysisBadges = readableAnalysisBadges(track);
   const primaryEntries = readablePrimaryTrackInfo(track);
   const metadataEntries = readableTrackTags(track.metadata);
+
+  async function copyFilePath() {
+    const copied = await copyTextToClipboard(track.path);
+    if (!copied) return;
+    setFilePathCopied(true);
+    window.setTimeout(() => setFilePathCopied(false), 1400);
+  }
+
   return (
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
       <section className="metadata-dialog" role="dialog" aria-modal="true" aria-label="Теги трека" onClick={(event) => event.stopPropagation()}>
@@ -96,7 +105,25 @@ export function TrackMetadataDialog({
           <strong>Mutagen tags</strong>
           <dl className="metadata-grid mutagen-grid">
             {primaryEntries.map(([key, value]) => (
-              <Fragment key={key}><dt>{key}</dt><dd>{value}</dd></Fragment>
+              <Fragment key={key}>
+                <dt>{key}</dt>
+                {key === "File Path" ? (
+                  <dd className="metadata-file-path-row">
+                    <span className="metadata-file-path-value">{value}</span>
+                    <button
+                      className="icon-button metadata-copy-path-button"
+                      title={filePathCopied ? "Copied" : "Copy file path"}
+                      aria-label={`Copy file path: ${track.path}`}
+                      onClick={() => void copyFilePath()}
+                      type="button"
+                    >
+                      {filePathCopied ? <Check size={14} /> : <Copy size={14} />}
+                    </button>
+                  </dd>
+                ) : (
+                  <dd>{value}</dd>
+                )}
+              </Fragment>
             ))}
             {metadataEntries.map(([key, value]) => (
               <Fragment key={key}><dt>{key}</dt><dd>{formatTagValue(value)}</dd></Fragment>
@@ -152,6 +179,32 @@ export function TrackMetadataDialog({
       </section>
     </div>
   );
+}
+
+async function copyTextToClipboard(text: string) {
+  try {
+    if (window.navigator.clipboard?.writeText) {
+      await window.navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Fall through to the textarea fallback below.
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.left = "-1000px";
+  textarea.style.position = "fixed";
+  textarea.style.top = "-1000px";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+  try {
+    return document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textarea);
+  }
 }
 
 function readableClassifierScores(track: Track) {

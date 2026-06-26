@@ -4,6 +4,11 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const dialogPath = fileURLToPath(new URL("../src/TrackMetadataDialog.tsx", import.meta.url));
+const stylesPath = fileURLToPath(new URL("../src/styles.css", import.meta.url));
+
+function cssRule(source, selector) {
+  return source.match(new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{[^}]*\\}`))?.[0] || "";
+}
 
 test("spectral centroid uses the canonical display label", () => {
   const source = readFileSync(dialogPath, "utf8");
@@ -90,6 +95,32 @@ test("metadata dialog names the mutagen tag block", () => {
 
   assert.match(mutagenBlock, /<strong>Mutagen tags<\/strong>/);
   assert.match(mutagenBlock, /metadata-grid mutagen-grid/);
+});
+
+test("metadata dialog exposes a compact copy button for file path", () => {
+  const source = readFileSync(dialogPath, "utf8");
+  const styles = readFileSync(stylesPath, "utf8");
+  const rowRule = cssRule(styles, ".metadata-file-path-row");
+  const buttonRule = cssRule(styles, "button.metadata-copy-path-button");
+
+  assert.match(source, /import \{ Check, Copy, X \} from "lucide-react";/);
+  assert.match(source, /const \[filePathCopied, setFilePathCopied\] = useState\(false\);/);
+  assert.match(source, /className="metadata-file-path-row"/);
+  assert.match(source, /className="metadata-file-path-value"/);
+  assert.match(source, /className="icon-button metadata-copy-path-button"/);
+  assert.match(source, /aria-label=\{`Copy file path: \$\{track\.path\}`\}/);
+  assert.match(source, /copyTextToClipboard\(track\.path\)/);
+  assert.match(source, /navigator\.clipboard\.writeText\(text\)/);
+  assert.match(source, /textarea\.focus\(\);/);
+  assert.match(source, /document\.execCommand\("copy"\)/);
+  assert.match(source, /textarea\.setSelectionRange\(0, textarea\.value\.length\);/);
+  assert.match(rowRule, /display:\s*inline-flex;/);
+  assert.match(rowRule, /flex-wrap:\s*wrap;/);
+  assert.match(buttonRule, /background:\s*transparent;/);
+  assert.match(buttonRule, /color:\s*var\(--text-faint\);/);
+  assert.match(buttonRule, /height:\s*18px;/);
+  assert.match(buttonRule, /min-width:\s*18px;/);
+  assert.match(buttonRule, /width:\s*18px;/);
 });
 
 test("mutagen bpm and key labels omit tag suffix", () => {

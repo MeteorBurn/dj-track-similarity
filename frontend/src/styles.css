@@ -2692,6 +2692,43 @@ meter {
   overflow-wrap: anywhere;
 }
 
+.metadata-file-path-row {
+  align-items: center;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.metadata-file-path-value {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+button.metadata-copy-path-button {
+  background: transparent;
+  border-color: var(--border-muted);
+  color: var(--text-faint);
+  flex: 0 0 auto;
+  height: 18px;
+  min-height: 18px;
+  min-width: 18px;
+  padding: 0;
+  width: 18px;
+}
+
+button.metadata-copy-path-button svg {
+  height: 11px;
+  width: 11px;
+}
+
+button.metadata-copy-path-button:hover:not(:disabled) {
+  background: var(--surface-muted);
+  border-color: var(--border);
+  color: var(--text-muted);
+}
+
 .genre-block,
 .classifier-score-block {
   border-top: 1px solid var(--border-muted);

@@ -28,8 +28,7 @@ Read the relevant page in `docs/dj-track-similarity/` before making changes to
 documented behavior, public commands, API contracts, database fields, analysis
 outputs, UI workflows, Rhythm Lab, or stable maintenance scripts. When such
 behavior changes, update the matching page in `docs/dj-track-similarity/` in the
-same change. Do not update `docs/superpowers/` as project documentation; it is
-agent workflow material and should stay separate.
+same change.
 
 When any Markdown source under `docs/dj-track-similarity/` changes, rebuild the
 static HTML documentation before finishing by running `npm run build` from
@@ -57,6 +56,9 @@ The project is a Python backend/CLI plus a React/Vite frontend:
 
 This workspace may not always be a Git repository. Do not assume commits,
 branches, or history are available.
+
+For local checks and manual runs against the real library database, use
+`C:\db\abstracted.sqlite` unless the user gives another path.
 
 ## Safety Invariants
 
@@ -269,7 +271,7 @@ dj-sim analyze-genres --device cpu --batch-size 2 --limit 3 --db .\data\library.
 dj-sim analyze-classifier live_instrumentation --limit 3 --db .\data\library.sqlite
 .\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py serve --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 .\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source C:\db\abstracted.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
-.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source C:\db\abstracted_v4.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --calibrate
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source C:\db\abstracted.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --calibrate
 .\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 .\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite --require-calibration
 dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 5 --db .\data\library.sqlite

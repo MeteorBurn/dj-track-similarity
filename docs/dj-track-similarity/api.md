@@ -163,8 +163,13 @@ embeddings, or CLAP embeddings are missing for the candidate tracks.
 `GET /api/classifiers` needs no database; it discovers promoted profiles on
 disk and includes manifest status fields. A missing `model.json` is reported as
 `legacy` with warnings. Invalid manifests are listed with errors but are not
-accepted for scoring. The UI can start promoted classifier scoring from the same analysis
-control block as the audio models by enabling `CLASSIFIERS`; the frontend sends
+accepted for scoring. When a manifest includes `hybrid_signal`, the payload
+also exposes that role/axis/label/default-weight metadata for the Hybrid UI.
+The older `voice_presence`, `abstract_edge`, `break_energy`, and
+`live_instrumentation` keys receive legacy fallback `hybrid_signal` metadata for
+compatibility, but new classifier roles should live in `model.json`. The UI can
+start promoted classifier scoring from the same analysis control block as the
+audio models by enabling `CLASSIFIERS`; the frontend sends
 the discovered profile keys as `/api/analysis/jobs` `classifier_keys`. The
 analysis job runs those classifiers per decoded track batch after the selected
 audio models for that batch complete. If CLAP is selected, the classifier step
@@ -217,8 +222,10 @@ endpoint rejects requests that provide both inline weights and a score profile.
 Classifier preferences are signed `-1.0` to `1.0` values keyed by promoted
 `classifier_key`; positive values prefer higher stored scores and negative values
 prefer lower stored scores. Classifier risk weights are `0.0` to `1.0` values,
-currently used for modest vocal-conflict risk when a matching stored vocal/voice
-classifier score exists. Missing classifier scores stay neutral.
+used for classifier risk roles such as vocalness or texture. Missing classifier
+scores stay neutral. If the selected promoted manifest has a `model_id`, each
+stored score's `model_id` is compared against it; stale rows remain usable as
+warned local signals but are not reported as fresh calibrated evidence.
 
 Hybrid search generates candidates from the existing exact source search paths,
 excludes seed tracks, and fuses source ranks with weighted reciprocal-rank
@@ -239,7 +246,11 @@ has a `track`, a preview rank `score`/`total_score` (the adjusted display score)
 `classifier_support`, and `match_character` axes
 (`groove`, `density`, `texture`, `mood`, `tonal`, `vocalness`, `energy_flow`,
 `novelty`). Missing explanation inputs are shown as neutral/unavailable rather
-than as negative evidence. Rows also include sorted diagnostic `warnings`, short
+than as negative evidence. `classifier_support` entries include availability,
+stored score, requested preference/risk weight, score/risk contribution,
+manifest role/axis/label when known, production/manifest status, and `fresh` /
+`stale` identity flags when a current manifest `model_id` can be compared with
+the stored score. Rows also include sorted diagnostic `warnings`, short
 `explanation` lines, additive `transition_risk` / `transition_diagnostics`, and
 existing `feedback` for `source="hybrid_ui"` when that candidate has already been
 rated from the UI; missing feedback is `null` and means unrated. With

@@ -1,6 +1,6 @@
 import { Dispatch, Fragment, SetStateAction, useEffect, useRef, useState } from "react";
 import { Download, FolderOpen, ListFilter, ListMusic, Pause, Play, RotateCcw, Search, Tags, Trash2, X } from "lucide-react";
-import { AnalysisJobStatus, api, HybridMatchAxis, HybridSearchResult, HybridSearchSource, PromotedClassifier, SearchResult, SetBuilderBpmChange, SetBuilderBpmMode, SetBuilderClassifierFlow, SetBuilderEnergyCurve, SetBuilderGeneratePayload, SetBuilderMode, SetBuilderSeedMode, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
+import { AnalysisJobStatus, api, HybridClassifierSignal, HybridMatchAxis, HybridSearchResult, HybridSearchSource, PromotedClassifier, SearchResult, SetBuilderBpmChange, SetBuilderBpmMode, SetBuilderClassifierFlow, SetBuilderEnergyCurve, SetBuilderGeneratePayload, SetBuilderMode, SetBuilderSeedMode, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
 import type { EvaluationPairFeedbackResult, EvaluationPairFeedbackState, EvaluationPairReasonTag } from "./api";
 import { classifierScoringBlockedReason } from "./classifierCompatibility";
 import type { ClapPromptPreset } from "./clapPrompt";
@@ -193,38 +193,17 @@ const hybridAxisLabels: Record<HybridMatchAxis, string> = {
   novelty: "Novelty"
 };
 
-type HybridClassifierToggle = "vocalRisk" | "abstractEdge" | "breakEnergy" | "liveInstrumentation";
-
-const hybridClassifierOptions: Array<{ key: HybridClassifierToggle; classifierKey: string; label: string; title: string; preference?: number; riskWeight?: number }> = [
-  {
-    key: "vocalRisk",
-    classifierKey: "voice_presence",
-    label: "Penalize vocal risk",
-    title: "Uses stored voice_presence classifier scores as a modest vocal-conflict risk signal. Missing scores stay neutral.",
-    riskWeight: 1.0
-  },
-  {
-    key: "abstractEdge",
-    classifierKey: "abstract_edge",
-    label: "Boost abstract edge",
-    title: "Uses stored abstract_edge classifier scores as a small leftfield preference boost. Missing scores stay neutral.",
-    preference: 0.6
-  },
-  {
-    key: "breakEnergy",
-    classifierKey: "break_energy",
-    label: "Boost break energy",
-    title: "Uses stored break_energy classifier scores as a small groove/rhythm preference boost. Missing scores stay neutral.",
-    preference: 0.6
-  },
-  {
-    key: "liveInstrumentation",
-    classifierKey: "live_instrumentation",
-    label: "Boost live instrumentation",
-    title: "Uses stored live_instrumentation classifier scores as a small organic-texture preference boost. Missing scores stay neutral.",
-    preference: 0.4
-  }
-];
+type HybridClassifierSignalOption = {
+  key: string;
+  classifierKey: string;
+  label: string;
+  title: string;
+  role: string;
+  axis: string;
+  enabledByDefault: boolean;
+  preference?: number;
+  riskWeight?: number;
+};
 
 type PairFeedbackRating = 0 | 1 | 2 | 3;
 
@@ -369,12 +348,7 @@ export function SearchPlaylistPanel({
   const [hybridLimit, setHybridLimit] = useState(25);
   const [hybridTransitionRiskWeight, setHybridTransitionRiskWeight] = useState(0);
   const [hybridUseClassifierPreferences, setHybridUseClassifierPreferences] = useState(false);
-  const [hybridClassifierToggles, setHybridClassifierToggles] = useState<Record<HybridClassifierToggle, boolean>>({
-    vocalRisk: false,
-    abstractEdge: false,
-    breakEnergy: false,
-    liveInstrumentation: false
-  });
+  const [hybridClassifierToggles, setHybridClassifierToggles] = useState<Record<string, boolean>>({});
   const [hybridLoading, setHybridLoading] = useState(false);
   const [hybridError, setHybridError] = useState("");
   const [hybridResults, setHybridResults] = useState<HybridSearchResult[]>([]);
@@ -441,11 +415,11 @@ export function SearchPlaylistPanel({
   const autoSeedCountControlTitle = autoSeedCountDisabled ? `${setAutoSeedCountTitle} Активно только когда выбран Auto - random start.` : setAutoSeedCountTitle;
   const bpmControlsDisabled = setBpmMode === "general";
   const selectedHybridSources = hybridSourceKeys.filter((source) => hybridSources[source]);
-  const availableHybridClassifierKeys = new Set(classifiers.map((classifier) => classifier.classifier_key));
+  const hybridClassifierOptions = hybridClassifierSignalOptions(classifiers);
   const hybridSeedMessage = hybridSeedRequirementMessage(seeds.length);
   const hybridSourceMessage = selectedHybridSources.length ? "" : "Enable at least one Hybrid preview source.";
   const hybridReadinessMessage = hybridSeedMessage || hybridSourceMessage;
-  const hybridInputKey = formatHybridInputKey(seeds, hybridSources, hybridWeights, hybridPerSource, hybridLimit, hybridTransitionRiskWeight, hybridUseClassifierPreferences, hybridClassifierToggles);
+  const hybridInputKey = formatHybridInputKey(seeds, hybridSources, hybridWeights, hybridPerSource, hybridLimit, hybridTransitionRiskWeight, hybridUseClassifierPreferences, hybridClassifierToggles, hybridClassifierOptions);
   const hybridInputKeyRef = useRef(hybridInputKey);
   const hybridPreviewIsCurrent = hybridPreviewKey === hybridInputKey;
   const showHybridDiagnostics = hybridPreviewIsCurrent && !hybridReadinessMessage && !hybridError;
@@ -515,7 +489,7 @@ export function SearchPlaylistPanel({
     setHybridWeights((current) => ({ ...current, [source]: clampNumber(value, 0, 1) }));
   }
 
-  function setHybridClassifierToggle(toggle: HybridClassifierToggle, enabled: boolean) {
+  function setHybridClassifierToggle(toggle: string, enabled: boolean) {
     setHybridClassifierToggles((current) => ({ ...current, [toggle]: enabled }));
   }
 
@@ -628,8 +602,8 @@ export function SearchPlaylistPanel({
         limit: hybridLimit,
         transition_risk_weight: hybridTransitionRiskWeight,
         transition_risk_version: "v2",
-        classifier_preferences: hybridUseClassifierPreferences ? hybridClassifierPreferences(hybridClassifierToggles, availableHybridClassifierKeys) : {},
-        classifier_risk_weights: hybridUseClassifierPreferences ? hybridClassifierRiskWeights(hybridClassifierToggles, availableHybridClassifierKeys) : {},
+        classifier_preferences: hybridUseClassifierPreferences ? hybridClassifierPreferences(hybridClassifierToggles, hybridClassifierOptions) : {},
+        classifier_risk_weights: hybridUseClassifierPreferences ? hybridClassifierRiskWeights(hybridClassifierToggles, hybridClassifierOptions) : {},
         include_diagnostics: true,
         record_session: true
       });
@@ -912,22 +886,22 @@ export function SearchPlaylistPanel({
                   Use classifier preferences
                 </label>
                 <div className="hybrid-classifier-toggle-grid">
-                  {hybridClassifierOptions.map((option) => {
-                    const available = availableHybridClassifierKeys.has(option.classifierKey);
-                    const title = available ? option.title : `${option.title} Promoted classifier ${option.classifierKey} is not available in this app session.`;
-                    return (
-                      <label className={`toggle hybrid-classifier-toggle ${available ? "" : "disabled-filter"}`} key={option.key} title={title}>
+                  {hybridClassifierOptions.length ? (
+                    hybridClassifierOptions.map((option) => (
+                      <label className="toggle hybrid-classifier-toggle" key={option.key} title={option.title}>
                         <input
                           type="checkbox"
-                          checked={hybridClassifierToggles[option.key]}
-                          disabled={!hybridUseClassifierPreferences || !available}
-                          title={title}
+                          checked={hybridClassifierToggleEnabled(hybridClassifierToggles, option)}
+                          disabled={!hybridUseClassifierPreferences}
+                          title={option.title}
                           onChange={(event) => setHybridClassifierToggle(option.key, event.target.checked)}
                         />
                         {option.label}
                       </label>
-                    );
-                  })}
+                    ))
+                  ) : (
+                    <span className="muted-inline">No Hybrid classifier signals</span>
+                  )}
                 </div>
               </div>
               <div className="search-filter-grid hybrid-preview-grid">
@@ -1360,7 +1334,7 @@ function HybridWhyThisTrack({ result }: { result: HybridSearchResult }) {
         <div className="hybrid-classifier-support" aria-label="Hybrid classifier support">
           {classifierRows.map(([classifierKey, support]) => (
             <span key={classifierKey} title={hybridClassifierSupportTitle(classifierKey, support)}>
-              CLASS {classifierKey} {formatOptionalUnitScore(support.score)}
+              CLASS {support.label || classifierKey} {formatOptionalUnitScore(support.score)}
             </span>
           ))}
         </div>
@@ -1546,29 +1520,82 @@ function formatHybridInputKey(
   limit: number,
   transitionRiskWeight: number,
   useClassifierPreferences: boolean,
-  classifierToggles: Record<HybridClassifierToggle, boolean>
+  classifierToggles: Record<string, boolean>,
+  classifierOptions: HybridClassifierSignalOption[]
 ) {
   const sourceState = hybridSourceKeys.map((source) => `${source}:${sources[source] ? "1" : "0"}:${weights[source]}`).join("|");
-  const classifierState = hybridClassifierOptions.map((option) => `${option.key}:${classifierToggles[option.key] ? "1" : "0"}`).join("|");
+  const classifierState = classifierOptions.map((option) => `${option.key}:${hybridClassifierToggleEnabled(classifierToggles, option) ? "1" : "0"}`).join("|");
   return `${seeds.join(",")}|${sourceState}|${perSource}|${limit}|risk:${transitionRiskWeight}|class:${useClassifierPreferences ? "1" : "0"}:${classifierState}`;
 }
 
-function hybridClassifierPreferences(toggles: Record<HybridClassifierToggle, boolean>, availableKeys: Set<string>) {
+function hybridClassifierPreferences(toggles: Record<string, boolean>, classifierOptions: HybridClassifierSignalOption[]) {
   const preferences: Record<string, number> = {};
-  for (const option of hybridClassifierOptions) {
-    if (!toggles[option.key] || !option.preference || !availableKeys.has(option.classifierKey)) continue;
+  for (const option of classifierOptions) {
+    if (!hybridClassifierToggleEnabled(toggles, option) || !option.preference) continue;
     preferences[option.classifierKey] = option.preference;
   }
   return preferences;
 }
 
-function hybridClassifierRiskWeights(toggles: Record<HybridClassifierToggle, boolean>, availableKeys: Set<string>) {
+function hybridClassifierRiskWeights(toggles: Record<string, boolean>, classifierOptions: HybridClassifierSignalOption[]) {
   const riskWeights: Record<string, number> = {};
-  for (const option of hybridClassifierOptions) {
-    if (!toggles[option.key] || !option.riskWeight || !availableKeys.has(option.classifierKey)) continue;
+  for (const option of classifierOptions) {
+    if (!hybridClassifierToggleEnabled(toggles, option) || !option.riskWeight) continue;
     riskWeights[option.classifierKey] = option.riskWeight;
   }
   return riskWeights;
+}
+
+function hybridClassifierSignalOptions(classifiers: PromotedClassifier[]): HybridClassifierSignalOption[] {
+  const options: HybridClassifierSignalOption[] = [];
+  for (const classifier of classifiers) {
+    const signal = classifier.hybrid_signal;
+    if (!signal || !hybridSignalAllowsMode(signal, "hybrid")) continue;
+    const label = signal.label || classifier.name || classifier.classifier_key;
+    options.push({
+      key: classifier.classifier_key,
+      classifierKey: classifier.classifier_key,
+      label,
+      title: hybridClassifierSignalTitle(classifier, signal, label),
+      role: signal.role || "context_modifier",
+      axis: signal.axis || "novelty",
+      enabledByDefault: signal.enabled_by_default === true,
+      preference: hybridSignalPreference(signal),
+      riskWeight: hybridSignalRiskWeight(signal)
+    });
+  }
+  return options;
+}
+
+function hybridSignalAllowsMode(signal: HybridClassifierSignal, mode: string) {
+  if (!signal.allowed_modes?.length) return true;
+  return signal.allowed_modes.includes(mode);
+}
+
+function hybridSignalPreference(signal: HybridClassifierSignal) {
+  if (signal.role === "risk_penalty") return undefined;
+  if (typeof signal.default_preference === "number") return clampNumber(signal.default_preference, -1, 1);
+  if (signal.role === "preference_penalty") return -0.6;
+  if (signal.role === "preference_boost") return 0.6;
+  return undefined;
+}
+
+function hybridSignalRiskWeight(signal: HybridClassifierSignal) {
+  if (signal.role !== "risk_penalty") return undefined;
+  if (typeof signal.default_risk_weight === "number") return clampNumber(signal.default_risk_weight, 0, 1);
+  return 1.0;
+}
+
+function hybridClassifierToggleEnabled(toggles: Record<string, boolean>, option: HybridClassifierSignalOption) {
+  return toggles[option.key] ?? option.enabledByDefault;
+}
+
+function hybridClassifierSignalTitle(classifier: PromotedClassifier, signal: HybridClassifierSignal, label: string) {
+  const description = signal.description || `Uses stored ${classifier.classifier_key} classifier scores as a local Hybrid signal.`;
+  const role = signal.role ? ` Role: ${signal.role.replaceAll("_", " ")}.` : "";
+  const axis = signal.axis ? ` Axis: ${hybridAxisLabels[signal.axis as HybridMatchAxis] || String(signal.axis)}.` : "";
+  const source = classifier.hybrid_signal_source ? ` Source: ${classifier.hybrid_signal_source.replaceAll("_", " ")}.` : "";
+  return `${label}. ${description}${role}${axis}${source} Type: checkbox on/off. Missing scores stay neutral.`;
 }
 
 function formatHybridDiagnosticTitle(limitations: string[]) {
@@ -1658,10 +1685,15 @@ function hybridSourceSupportTitle(source: HybridSearchSource, support?: HybridSe
 }
 
 function hybridClassifierSupportTitle(classifierKey: string, support: HybridSearchResult["classifier_support"][string]) {
+  const label = support.label || classifierKey;
+  const role = support.role ? ` role ${String(support.role).replaceAll("_", " ")}` : "";
+  const axis = support.axis ? ` axis ${String(support.axis).replaceAll("_", " ")}` : "";
+  const status = support.production_status || support.manifest_status ? ` status ${support.production_status || support.manifest_status}` : "";
+  const stale = support.stale ? " stale stored score" : support.fresh ? " fresh stored score" : "";
   const preference = typeof support.preference === "number" && support.preference !== 0 ? ` preference ${formatSigned(support.preference)}` : "";
   const contribution = typeof support.score_contribution === "number" && support.score_contribution !== 0 ? ` score contribution ${formatSigned(support.score_contribution)}` : "";
   const risk = typeof support.risk_contribution === "number" ? ` risk contribution ${support.risk_contribution.toFixed(2)}` : "";
-  return `Classifier ${classifierKey}: stored score ${formatOptionalUnitScore(support.score)}.${preference}${contribution}${risk}`;
+  return `Classifier ${label}: stored score ${formatOptionalUnitScore(support.score)}.${role}${axis}${status}${stale}${preference}${contribution}${risk}`;
 }
 
 function formatHybridWeightsTitle(weights: Record<string, number>) {

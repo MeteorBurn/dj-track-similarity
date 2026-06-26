@@ -46,6 +46,18 @@ export type SearchResult = {
 
 export type HybridSearchSource = "mert" | "maest" | "sonara" | "clap";
 export type HybridMatchAxis = "groove" | "density" | "texture" | "mood" | "tonal" | "vocalness" | "energy_flow" | "novelty";
+export type HybridClassifierSignalRole = "preference_boost" | "preference_penalty" | "risk_penalty" | "context_modifier";
+export type HybridClassifierSignal = {
+  role: HybridClassifierSignalRole;
+  axis: HybridMatchAxis;
+  label?: string | null;
+  description?: string | null;
+  enabled_by_default?: boolean | null;
+  default_preference?: number | null;
+  default_risk_weight?: number | null;
+  allowed_modes?: string[] | null;
+  missing_score_policy?: string | null;
+};
 
 export type HybridSearchPayload = {
   seed_track_ids: number[];
@@ -129,6 +141,18 @@ export type HybridSearchResult = {
     risk_weight?: number | null;
     score_contribution?: number | null;
     risk_contribution?: number | null;
+    fresh?: boolean | null;
+    stale?: boolean | null;
+    stored_model_id?: string | null;
+    current_model_id?: string | null;
+    manifest_status?: string | null;
+    production_status?: string | null;
+    role?: HybridClassifierSignalRole | string | null;
+    axis?: HybridMatchAxis | string | null;
+    label?: string | null;
+    description?: string | null;
+    missing_score_policy?: string | null;
+    hybrid_signal_source?: string | null;
   }>;
   match_character: Record<HybridMatchAxis, number>;
   warnings: string[];
@@ -273,8 +297,15 @@ export type PromotedClassifier = {
   manifest_version?: number | null;
   score_semantics?: string;
   calibration_status?: string;
+  production_status?: string;
+  model_id?: string | null;
+  artifact_hash?: string | null;
+  promoted_at?: string | null;
+  calibration?: Record<string, unknown>;
   has_calibrated_probability?: boolean;
   required_inputs?: string[];
+  hybrid_signal?: HybridClassifierSignal | null;
+  hybrid_signal_source?: string | null;
 };
 
 export type GenreTagJobStatus = {

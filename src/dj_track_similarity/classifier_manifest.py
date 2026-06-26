@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import math
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -10,6 +11,56 @@ CLASSIFIER_MANIFEST_VERSION = 1
 CLASSIFIER_REQUIRED_INPUTS = ("sonara", "mert", "maest")
 CLASSIFIER_SCORE_SEMANTICS = "positive_label_probability"
 COMPATIBLE_MANIFEST_STATUSES = {"valid", "legacy"}
+CLASSIFIER_HYBRID_SIGNAL_ROLES = ("preference_boost", "preference_penalty", "risk_penalty", "context_modifier")
+CLASSIFIER_HYBRID_SIGNAL_AXES = (
+    "groove",
+    "density",
+    "texture",
+    "mood",
+    "tonal",
+    "vocalness",
+    "energy_flow",
+    "novelty",
+)
+CLASSIFIER_HYBRID_SIGNAL_MISSING_POLICIES = ("neutral",)
+LEGACY_HYBRID_SIGNALS: dict[str, dict[str, object]] = {
+    "voice_presence": {
+        "role": "risk_penalty",
+        "axis": "vocalness",
+        "label": "Penalize vocal risk",
+        "description": "Uses stored voice_presence classifier scores as a modest vocal-conflict risk signal. Missing scores stay neutral.",
+        "default_risk_weight": 1.0,
+        "allowed_modes": ["hybrid"],
+        "missing_score_policy": "neutral",
+    },
+    "abstract_edge": {
+        "role": "preference_boost",
+        "axis": "novelty",
+        "label": "Boost abstract edge",
+        "description": "Uses stored abstract_edge classifier scores as a small leftfield preference boost. Missing scores stay neutral.",
+        "default_preference": 0.6,
+        "allowed_modes": ["hybrid"],
+        "missing_score_policy": "neutral",
+    },
+    "break_energy": {
+        "role": "preference_boost",
+        "axis": "groove",
+        "label": "Boost break energy",
+        "description": "Uses stored break_energy classifier scores as a small groove/rhythm preference boost. Missing scores stay neutral.",
+        "default_preference": 0.6,
+        "allowed_modes": ["hybrid"],
+        "missing_score_policy": "neutral",
+    },
+    "live_instrumentation": {
+        "role": "preference_boost",
+        "axis": "texture",
+        "label": "Boost live instrumentation",
+        "description": "Uses stored live_instrumentation classifier scores as a small organic-texture preference boost. Missing scores stay neutral.",
+        "default_preference": 0.4,
+        "allowed_modes": ["hybrid"],
+        "missing_score_policy": "neutral",
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -37,6 +88,8 @@ class ClassifierManifestSummary:
     calibration_status: str = "uncalibrated"
     calibration: dict[str, Any] | None = None
     required_inputs: tuple[str, ...] = CLASSIFIER_REQUIRED_INPUTS
+    hybrid_signal: dict[str, Any] | None = None
+    hybrid_signal_source: str | None = None
 
     @property
     def is_scoring_compatible(self) -> bool:
@@ -84,6 +137,7 @@ class ClassifierManifestSummary:
             "calibration": dict(self.calibration or {}),
             "has_calibrated_probability": self.has_calibrated_probability,
             "required_inputs": list(self.required_inputs),
+            **classifier_hybrid_signal_api_fields(self),
         }
 
 
@@ -170,6 +224,24 @@ def classifier_manifest_api_fields(summary: ClassifierManifestSummary) -> dict[s
         "calibration": dict(summary.calibration or {}),
         "has_calibrated_probability": summary.has_calibrated_probability,
         "required_inputs": list(summary.required_inputs),
+        **classifier_hybrid_signal_api_fields(summary),
+    }
+
+
+def legacy_hybrid_signal_for_classifier(classifier_key: str) -> dict[str, object] | None:
+    signal = LEGACY_HYBRID_SIGNALS.get(str(classifier_key).strip())
+    return dict(signal) if signal is not None else None
+
+
+def classifier_hybrid_signal_api_fields(summary: ClassifierManifestSummary) -> dict[str, object]:
+    signal = summary.hybrid_signal
+    source = summary.hybrid_signal_source
+    if signal is None:
+        signal = legacy_hybrid_signal_for_classifier(summary.classifier_key)
+        source = "legacy_fallback" if signal is not None else None
+    return {
+        "hybrid_signal": dict(signal) if signal is not None else None,
+        "hybrid_signal_source": source,
     }
 
 
@@ -219,6 +291,7 @@ def _parse_manifest_payload(
     calibration_status = "uncalibrated"
     calibration_payload: dict[str, Any] | None = None
     required_inputs = CLASSIFIER_REQUIRED_INPUTS
+    hybrid_signal = _hybrid_signal(payload.get("hybrid_signal"), errors, warnings)
 
     if manifest_version is None:
         warnings.append("model.json has no manifest_version; treating it as a legacy-compatible production manifest")
@@ -268,6 +341,8 @@ def _parse_manifest_payload(
         calibration_status=calibration_status,
         calibration=calibration_payload,
         required_inputs=required_inputs,
+        hybrid_signal=hybrid_signal,
+        hybrid_signal_source="manifest" if hybrid_signal is not None else None,
     )
 
 
@@ -360,3 +435,87 @@ def _production_required_inputs(value: object, errors: list[str]) -> tuple[str, 
     if unknown:
         errors.append(f"model.json production.required_inputs contains unsupported inputs: {', '.join(unknown)}")
     return cleaned or CLASSIFIER_REQUIRED_INPUTS
+
+
+def _hybrid_signal(value: object, errors: list[str], warnings: list[str]) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        errors.append("model.json hybrid_signal must be an object")
+        return None
+
+    role = _optional_text(value.get("role"))
+    axis = _optional_text(value.get("axis"))
+    if role is None:
+        errors.append("model.json hybrid_signal.role is required")
+    elif role not in CLASSIFIER_HYBRID_SIGNAL_ROLES:
+        errors.append(f"model.json hybrid_signal.role {role!r} is not supported")
+    if axis is None:
+        errors.append("model.json hybrid_signal.axis is required")
+    elif axis not in CLASSIFIER_HYBRID_SIGNAL_AXES:
+        errors.append(f"model.json hybrid_signal.axis {axis!r} is not supported")
+    if role is None or axis is None or role not in CLASSIFIER_HYBRID_SIGNAL_ROLES or axis not in CLASSIFIER_HYBRID_SIGNAL_AXES:
+        return None
+
+    signal: dict[str, Any] = {
+        "role": role,
+        "axis": axis,
+    }
+    for field_name in ("label", "description"):
+        text = _optional_text(value.get(field_name))
+        if text is not None:
+            signal[field_name] = text
+
+    if "enabled_by_default" in value:
+        if isinstance(value.get("enabled_by_default"), bool):
+            signal["enabled_by_default"] = bool(value["enabled_by_default"])
+        else:
+            warnings.append("model.json hybrid_signal.enabled_by_default is not a boolean")
+
+    for field_name in ("default_preference", "default_risk_weight"):
+        if field_name not in value:
+            continue
+        number = _optional_float(value.get(field_name), f"hybrid_signal.{field_name}", warnings)
+        if number is None:
+            continue
+        if field_name == "default_preference":
+            signal[field_name] = max(-1.0, min(1.0, number))
+        else:
+            signal[field_name] = max(0.0, min(1.0, number))
+
+    allowed_modes = _optional_string_list(value.get("allowed_modes"), "hybrid_signal.allowed_modes", warnings)
+    if allowed_modes is not None:
+        signal["allowed_modes"] = allowed_modes
+
+    policy = _optional_text(value.get("missing_score_policy"))
+    if policy is not None:
+        if policy not in CLASSIFIER_HYBRID_SIGNAL_MISSING_POLICIES:
+            warnings.append(f"model.json hybrid_signal.missing_score_policy {policy!r} is not supported")
+        else:
+            signal["missing_score_policy"] = policy
+
+    return signal
+
+
+def _optional_float(value: object, field_name: str, warnings: list[str]) -> float | None:
+    if value is None or isinstance(value, bool):
+        warnings.append(f"model.json {field_name} must be a number")
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        warnings.append(f"model.json {field_name} must be a number")
+        return None
+    if not math.isfinite(number):
+        warnings.append(f"model.json {field_name} must be finite")
+        return None
+    return number
+
+
+def _optional_string_list(value: object, field_name: str, warnings: list[str]) -> list[str] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        warnings.append(f"model.json {field_name} must be a list")
+        return None
+    return [text for item in value if (text := _optional_text(item)) is not None]

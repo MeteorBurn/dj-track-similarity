@@ -290,6 +290,16 @@ when available, a stable `model_id`, the copied artifact `artifact_hash`, and
 `promoted_at`. Those promoted files are local runtime artifacts and are ignored
 by git.
 
+Promoted runtime manifests may also carry an optional `hybrid_signal` object for
+the main app's Hybrid preview controls. When present, it describes the classifier
+axis (`groove`, `texture`, `vocalness`, and so on), role (`preference_boost`,
+`preference_penalty`, `risk_penalty`, or a display/modifier role), label,
+description, default preference/risk weight, allowed modes, and neutral
+missing-score policy. The main app reads this metadata to render Hybrid
+classifier controls dynamically. The older built-in classifier keys still have
+legacy fallback roles, but new reusable profiles should put their intent in
+`model.json` instead of relying on UI code changes.
+
 ## Profile Deletion
 
 Delete is a destructive operation. It permanently removes the profile row and

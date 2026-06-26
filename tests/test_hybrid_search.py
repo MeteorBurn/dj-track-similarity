@@ -183,6 +183,7 @@ def test_hybrid_classifier_preferences_are_neutral_when_scores_are_missing(monke
     assert controlled.results[0].score == pytest.approx(baseline.results[0].score)
     assert "classifier_break_energy" not in controlled.results[0].score_breakdown
     assert controlled.results[0].classifier_support["break_energy"]["available"] is False
+    assert not any("break_energy" in line for line in controlled.results[0].explanation)
     assert any("break_energy" in warning and "neutral" in warning for warning in controlled.warnings)
 
 
@@ -226,6 +227,189 @@ def test_hybrid_classifier_preferences_are_scoped_by_classifier_key(monkeypatch:
     assert matching_key.results[0].adjusted_score == pytest.approx(1.0 + hybrid_search.CLASSIFIER_SCORE_ADJUSTMENT_SCALE)
     assert matching_key.results[0].score_breakdown["classifier_abstract_edge"]["contribution"] > 0
     assert matching_key.results[0].classifier_support["abstract_edge"]["available"] is True
+
+
+def test_hybrid_classifier_support_uses_manifest_signal_metadata(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_ids = {
+        "seed": _track(db, tmp_path, "seed"),
+        "candidate": _track(db, tmp_path, "candidate"),
+    }
+    db.save_classifier_score(
+        track_ids["candidate"],
+        classifier="deep_groove",
+        score=0.9,
+        label="positive",
+        confidence=0.9,
+        probabilities={"positive": 0.9},
+        feature_set="combined",
+        model_id="groove-v2",
+    )
+    rows = (_candidate_row(db, track_ids["seed"], track_ids["candidate"], {"mert": (1, 0.9)}),)
+    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
+    monkeypatch.setattr(
+        hybrid_search,
+        "promoted_classifiers",
+        lambda: [
+            {
+                "classifier_key": "deep_groove",
+                "manifest_status": "valid",
+                "production_status": "valid_calibrated",
+                "model_id": "groove-v2",
+                "hybrid_signal": {
+                    "role": "preference_boost",
+                    "axis": "groove",
+                    "label": "Boost deep groove",
+                    "description": "Uses stored deep_groove scores as a groove preference.",
+                    "default_preference": 0.55,
+                    "allowed_modes": ["hybrid"],
+                    "missing_score_policy": "neutral",
+                },
+                "hybrid_signal_source": "manifest",
+            }
+        ],
+    )
+
+    result = build_hybrid_search_preview(
+        db,
+        seed_track_ids=[track_ids["seed"]],
+        sources=["mert"],
+        per_source=1,
+        limit=1,
+        classifier_preferences={"deep_groove": 0.55},
+    )
+
+    support = result.results[0].classifier_support["deep_groove"]
+    assert support["available"] is True
+    assert support["role"] == "preference_boost"
+    assert support["axis"] == "groove"
+    assert support["label"] == "Boost deep groove"
+    assert support["fresh"] is True
+    assert support["stale"] is False
+    assert support["production_status"] == "valid_calibrated"
+    assert result.results[0].score_breakdown["classifier_deep_groove"]["contribution"] > 0
+    assert any("Boost deep groove" in line and "groove" in line for line in result.results[0].explanation)
+
+
+def test_hybrid_classifier_support_marks_stale_scores_without_dropping_signal(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_ids = {
+        "seed": _track(db, tmp_path, "seed"),
+        "candidate": _track(db, tmp_path, "candidate"),
+    }
+    db.save_classifier_score(
+        track_ids["candidate"],
+        classifier="deep_groove",
+        score=0.9,
+        label="positive",
+        confidence=0.9,
+        probabilities={"positive": 0.9},
+        feature_set="combined",
+        model_id="old-model",
+    )
+    rows = (_candidate_row(db, track_ids["seed"], track_ids["candidate"], {"mert": (1, 0.9)}),)
+    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
+    monkeypatch.setattr(
+        hybrid_search,
+        "promoted_classifiers",
+        lambda: [
+            {
+                "classifier_key": "deep_groove",
+                "manifest_status": "valid",
+                "production_status": "valid_calibrated",
+                "model_id": "new-model",
+                "hybrid_signal": {
+                    "role": "preference_boost",
+                    "axis": "groove",
+                    "label": "Boost deep groove",
+                    "default_preference": 0.55,
+                    "allowed_modes": ["hybrid"],
+                    "missing_score_policy": "neutral",
+                },
+                "hybrid_signal_source": "manifest",
+            }
+        ],
+    )
+
+    result = build_hybrid_search_preview(
+        db,
+        seed_track_ids=[track_ids["seed"]],
+        sources=["mert"],
+        per_source=1,
+        limit=1,
+        classifier_preferences={"deep_groove": 0.55},
+    )
+
+    support = result.results[0].classifier_support["deep_groove"]
+    assert support["available"] is True
+    assert support["fresh"] is False
+    assert support["stale"] is True
+    assert result.results[0].score_breakdown["classifier_deep_groove"]["contribution"] > 0
+    assert any("deep_groove" in warning and "stale" in warning.lower() for warning in result.warnings)
+
+
+def test_hybrid_risk_classifier_signal_feeds_risk_breakdown_and_warnings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_ids = {
+        "seed": _track(db, tmp_path, "seed"),
+        "candidate": _track(db, tmp_path, "candidate"),
+    }
+    db.save_classifier_score(
+        track_ids["candidate"],
+        classifier="harsh_noise",
+        score=0.8,
+        label="positive",
+        confidence=0.8,
+        probabilities={"positive": 0.8},
+        feature_set="combined",
+        model_id="noise-v1",
+    )
+    rows = (_candidate_row(db, track_ids["seed"], track_ids["candidate"], {"mert": (1, 0.9)}),)
+    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
+    monkeypatch.setattr(
+        hybrid_search,
+        "promoted_classifiers",
+        lambda: [
+            {
+                "classifier_key": "harsh_noise",
+                "manifest_status": "valid",
+                "production_status": "valid_calibrated",
+                "model_id": "noise-v1",
+                "hybrid_signal": {
+                    "role": "risk_penalty",
+                    "axis": "texture",
+                    "label": "Penalize harsh noise",
+                    "default_risk_weight": 0.75,
+                    "allowed_modes": ["hybrid"],
+                    "missing_score_policy": "neutral",
+                },
+                "hybrid_signal_source": "manifest",
+            }
+        ],
+    )
+
+    result = build_hybrid_search_preview(
+        db,
+        seed_track_ids=[track_ids["seed"]],
+        sources=["mert"],
+        per_source=1,
+        limit=1,
+        classifier_risk_weights={"harsh_noise": 0.75},
+    )
+
+    row = result.results[0]
+    support = row.classifier_support["harsh_noise"]
+    assert support["role"] == "risk_penalty"
+    assert support["axis"] == "texture"
+    assert support["risk_contribution"] == pytest.approx(0.6)
+    assert row.risk_breakdown["texture_clash"] == pytest.approx(0.6)
+    assert any("Penalize harsh noise" in warning and "texture" in warning for warning in row.warnings)
 
 
 def test_hybrid_search_excludes_zero_weight_source_only_candidates(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

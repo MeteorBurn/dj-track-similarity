@@ -18,6 +18,7 @@ from .evaluation.score_profiles import ScoreProfile, score_profile_from_dict
 from .evaluation.weighted_candidates import weighted_rrf_components, weighted_rrf_score
 from .hybrid_explanation import build_hybrid_explanation
 from .models import Track
+from .classifier_manifest import legacy_hybrid_signal_for_classifier
 from .classifier_scoring import promoted_classifiers
 from .sonara_similarity_scoring import optional_float
 from .transition_diagnostics import COMPONENT_NAMES, TRANSITION_RISK_V2, TRANSITION_RISK_VERSIONS, V2_COMPONENT_WEIGHTS, TransitionDiagnostics, compute_transition_diagnostics
@@ -390,6 +391,7 @@ def _ranked_result_rows(
         transition_risk_version=transition_risk_version,
         classifier_controls=classifier_controls,
     )
+    classifier_metadata = _promoted_classifier_metadata_by_key() if classifier_controls.requested_keys else {}
     result_rows: list[HybridSearchResultRow] = []
     for rank, ranked_candidate in enumerate(ranked_candidates, start=1):
         candidate = ranked_candidate.scored_candidate
@@ -398,6 +400,7 @@ def _ranked_result_rows(
             candidate_track,
             classifier_controls,
             score_breakdown=candidate.score_breakdown,
+            classifier_metadata=classifier_metadata,
         )
         explanation = build_hybrid_explanation(
             candidate_track=candidate_track,
@@ -828,12 +831,19 @@ def _classifier_support(
     controls: _ClassifierControls,
     *,
     score_breakdown: Mapping[str, Mapping[str, float | int]],
+    classifier_metadata: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, dict[str, Any]]:
     support: dict[str, dict[str, Any]] = {}
     for classifier_key in controls.requested_keys:
-        score = _track_classifier_score(track, classifier_key)
+        payload = _track_classifier_payload(track, classifier_key)
+        score = _classifier_payload_score(payload)
         contribution = optional_float((score_breakdown.get(_classifier_breakdown_key(classifier_key)) or {}).get("contribution"))
         risk_weight = float(controls.risk_weights.get(classifier_key, 0.0))
+        metadata = classifier_metadata.get(classifier_key, {})
+        signal = _classifier_hybrid_signal(classifier_key, metadata)
+        expected_model_id = _optional_text(metadata.get("model_id"))
+        stored_model_id = _optional_text(payload.get("model_id")) if payload is not None else None
+        fresh, stale = _stored_score_freshness(score=score, expected_model_id=expected_model_id, stored_model_id=stored_model_id)
         support[classifier_key] = {
             "available": score is not None,
             "score": score,
@@ -841,7 +851,24 @@ def _classifier_support(
             "risk_weight": risk_weight,
             "score_contribution": contribution,
             "risk_contribution": _clamp01(score * risk_weight) if score is not None and risk_weight > 0.0 else None,
+            "fresh": fresh,
+            "stale": stale,
+            "stored_model_id": stored_model_id,
+            "current_model_id": expected_model_id,
+            "manifest_status": _optional_text(metadata.get("manifest_status")),
+            "production_status": _optional_text(metadata.get("production_status")),
+            "hybrid_signal_source": _optional_text(metadata.get("hybrid_signal_source")),
         }
+        if signal:
+            support[classifier_key].update(
+                {
+                    "role": _optional_text(signal.get("role")),
+                    "axis": _optional_text(signal.get("axis")),
+                    "label": _optional_text(signal.get("label")),
+                    "description": _optional_text(signal.get("description")),
+                    "missing_score_policy": _optional_text(signal.get("missing_score_policy")),
+                }
+            )
     return support
 
 
@@ -857,40 +884,88 @@ def _classifier_control_warnings(
         for key, support in row.classifier_support.items()
         if support.get("available") is True
     }
-    promoted_key_status = _promoted_classifier_status_by_key()
     warnings: list[str] = []
     for classifier_key in controls.requested_keys:
         if classifier_key not in available_keys:
             warnings.append(f"Classifier signal {classifier_key!r} has no stored scores in this preview; contribution stayed neutral.")
             continue
-        status = promoted_key_status.get(classifier_key)
+        key_support = [
+            support
+            for row in rows
+            if (support := row.classifier_support.get(classifier_key)) is not None and support.get("available") is True
+        ]
+        if any(support.get("stale") is True for support in key_support):
+            warnings.append(
+                f"Classifier signal {classifier_key!r} has stale stored scores for this preview; "
+                "using them as an uncalibrated local signal until the classifier is rescored."
+            )
+        status = next((_optional_text(support.get("manifest_status")) for support in key_support if support.get("manifest_status")), None)
+        production_status = next((_optional_text(support.get("production_status")) for support in key_support if support.get("production_status")), None)
         if status is None:
             warnings.append(f"Classifier signal {classifier_key!r} has stored scores but no promoted manifest was discovered; using it as an uncalibrated local signal.")
         elif status == "legacy":
             warnings.append(f"Classifier signal {classifier_key!r} uses a legacy manifest state; stored scores were used as an uncalibrated local signal.")
         elif status not in {"valid"}:
             warnings.append(f"Classifier signal {classifier_key!r} has manifest status {status!r}; stored scores were used without rescoring.")
+        elif production_status in {"valid_uncalibrated", "experimental"}:
+            warnings.append(f"Classifier signal {classifier_key!r} is {production_status.replace('_', ' ')}; stored scores were used as a local signal.")
     return tuple(warnings)
 
 
-def _promoted_classifier_status_by_key() -> dict[str, str]:
+def _promoted_classifier_metadata_by_key() -> dict[str, Mapping[str, Any]]:
     try:
         classifiers = promoted_classifiers()
     except (OSError, ValueError):
         return {}
     return {
-        str(classifier.get("classifier_key")): str(classifier.get("manifest_status") or "unknown")
+        str(classifier.get("classifier_key")): classifier
         for classifier in classifiers
         if classifier.get("classifier_key")
     }
 
 
 def _track_classifier_score(track: Track, classifier_key: str) -> float | None:
+    return _classifier_payload_score(_track_classifier_payload(track, classifier_key))
+
+
+def _track_classifier_payload(track: Track, classifier_key: str) -> Mapping[str, Any] | None:
     payload = (track.classifier_scores or {}).get(classifier_key)
     if not isinstance(payload, Mapping):
         return None
+    return payload
+
+
+def _classifier_payload_score(payload: Mapping[str, Any] | None) -> float | None:
+    if payload is None:
+        return None
     score = optional_float(payload.get("score"))
     return _clamp01(score) if score is not None else None
+
+
+def _classifier_hybrid_signal(classifier_key: str, metadata: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    signal = metadata.get("hybrid_signal")
+    if isinstance(signal, Mapping):
+        return signal
+    return legacy_hybrid_signal_for_classifier(classifier_key)
+
+
+def _stored_score_freshness(
+    *,
+    score: float | None,
+    expected_model_id: str | None,
+    stored_model_id: str | None,
+) -> tuple[bool | None, bool | None]:
+    if score is None or expected_model_id is None:
+        return None, None
+    fresh = stored_model_id == expected_model_id
+    return fresh, not fresh
+
+
+def _optional_text(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _classifier_breakdown_key(classifier_key: str) -> str:

@@ -57,6 +57,17 @@ test("hybrid preview exposes CLAP as a stored audio source", () => {
   assert.match(source, /stored MERT, MAEST, SONARA, and CLAP analysis data only/);
 });
 
+test("hybrid classifier controls are driven by promoted classifier signal metadata", () => {
+  assert.doesNotMatch(source, /type HybridClassifierToggle = "vocalRisk" \| "abstractEdge" \| "breakEnergy" \| "liveInstrumentation";/);
+  assert.doesNotMatch(source, /const hybridClassifierOptions: Array<\{ key: HybridClassifierToggle;/);
+  assert.match(source, /type HybridClassifierSignalOption/);
+  assert.match(source, /hybridClassifierSignalOptions\(classifiers\)/);
+  assert.match(source, /classifier\.hybrid_signal/);
+  assert.match(source, /hybridClassifierPreferences\(hybridClassifierToggles, hybridClassifierOptions\)/);
+  assert.match(source, /hybridClassifierRiskWeights\(hybridClassifierToggles, hybridClassifierOptions\)/);
+  assert.match(source, /support\.label \|\| classifierKey/);
+});
+
 test("hybrid preview renders PR-22 why-this-track diagnostics", () => {
   assert.match(source, /function HybridWhyThisTrack/);
   assert.match(source, /Why this track\?/);

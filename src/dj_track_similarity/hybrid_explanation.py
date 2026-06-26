@@ -74,14 +74,14 @@ def build_hybrid_explanation(
 ) -> HybridExplanation:
     clean_total_score = _finite_float(total_score, "total_score")
     clean_score_breakdown = _clean_score_breakdown(score_breakdown)
-    risk_breakdown = _risk_breakdown(transition_diagnostics)
+    clean_classifier_support = _clean_classifier_support(classifier_support or {})
+    risk_breakdown = _risk_breakdown(transition_diagnostics, classifier_support=clean_classifier_support)
     source_support = _source_support(
         sources,
         source_contributions=source_contributions,
         source_seed_diagnostics=source_seed_diagnostics,
         score_breakdown=clean_score_breakdown,
     )
-    clean_classifier_support = _clean_classifier_support(classifier_support or {})
     match_character = _match_character(
         candidate_track=candidate_track,
         seed_tracks=seed_tracks,
@@ -160,18 +160,45 @@ def _clean_classifier_support(classifier_support: Mapping[str, Mapping[str, Any]
             "risk_weight": _optional_unit_interval(details.get("risk_weight")),
             "score_contribution": _optional_finite_float(details.get("score_contribution")),
             "risk_contribution": _optional_unit_interval(details.get("risk_contribution")),
+            "fresh": _optional_bool(details.get("fresh")),
+            "stale": _optional_bool(details.get("stale")),
+            "stored_model_id": _optional_text(details.get("stored_model_id")),
+            "current_model_id": _optional_text(details.get("current_model_id")),
+            "manifest_status": _optional_text(details.get("manifest_status")),
+            "production_status": _optional_text(details.get("production_status")),
+            "role": _optional_text(details.get("role")),
+            "axis": _optional_text(details.get("axis")),
+            "label": _optional_text(details.get("label")),
+            "description": _optional_text(details.get("description")),
+            "missing_score_policy": _optional_text(details.get("missing_score_policy")),
+            "hybrid_signal_source": _optional_text(details.get("hybrid_signal_source")),
         }
     return support
 
 
-def _risk_breakdown(transition_diagnostics: Mapping[str, Any]) -> dict[str, float | None]:
+def _risk_breakdown(
+    transition_diagnostics: Mapping[str, Any],
+    *,
+    classifier_support: Mapping[str, Mapping[str, Any]],
+) -> dict[str, float | None]:
     components = transition_diagnostics.get("components")
     if not isinstance(components, Mapping):
-        return {name: None for name in RISK_BREAKDOWN_COMPONENTS.values()}
-    return {
-        stable_name: _optional_unit_interval(components.get(component_name))
-        for component_name, stable_name in RISK_BREAKDOWN_COMPONENTS.items()
-    }
+        breakdown = {name: None for name in RISK_BREAKDOWN_COMPONENTS.values()}
+    else:
+        breakdown = {
+            stable_name: _optional_unit_interval(components.get(component_name))
+            for component_name, stable_name in RISK_BREAKDOWN_COMPONENTS.items()
+        }
+    for support in classifier_support.values():
+        if support.get("available") is not True or support.get("role") != "risk_penalty":
+            continue
+        risk = _optional_unit_interval(support.get("risk_contribution"))
+        if risk is None:
+            continue
+        key = _classifier_risk_breakdown_key(_optional_text(support.get("axis")))
+        existing = _optional_unit_interval(breakdown.get(key))
+        breakdown[key] = risk if existing is None else max(existing, risk)
+    return breakdown
 
 
 def _match_character(
@@ -450,13 +477,21 @@ def _classifier_warning_items(classifier_support: Mapping[str, Mapping[str, Any]
     for classifier_key, support in classifier_support.items():
         if support.get("available") is not True:
             continue
+        label = _classifier_label(classifier_key, support)
+        axis = _optional_text(support.get("axis"))
+        role = _optional_text(support.get("role"))
+        if support.get("stale") is True:
+            warning_items.append((1, f"Classifier signal: {label} has stale stored scores; treat it as a local listening cue."))
         score_contribution = _optional_finite_float(support.get("score_contribution")) or 0.0
         risk_contribution = _optional_unit_interval(support.get("risk_contribution"))
         if risk_contribution is not None and risk_contribution >= 0.45:
-            warning_items.append((1, f"Classifier signal: {classifier_key} suggests a vocal/listening-risk check."))
+            axis_text = f" {axis}" if axis else ""
+            warning_items.append((1, f"Classifier signal: {label} suggests a{axis_text} listening-risk check."))
         if abs(score_contribution) >= 0.08:
             direction = "supports" if score_contribution > 0 else "pulls down"
-            warning_items.append((3, f"Classifier signal: {classifier_key} {direction} this row."))
+            axis_text = f" on {axis}" if axis else ""
+            role_text = f" ({role.replace('_', ' ')})" if role else ""
+            warning_items.append((3, f"Classifier signal: {label} {direction} this row{axis_text}{role_text}."))
     return warning_items
 
 
@@ -521,7 +556,7 @@ def _classifier_support_phrase(classifier_support: Mapping[str, Mapping[str, Any
     if active:
         return "; ".join(active[:3])
     if classifier_support:
-        return "requested classifier scores are unavailable, kept neutral"
+        return "no classifier score contributed"
     return "no classifier controls requested"
 
 
@@ -531,14 +566,47 @@ def _classifier_support_item(classifier_key: str, support: Mapping[str, Any]) ->
         return ""
     contribution = _optional_finite_float(support.get("score_contribution"))
     risk = _optional_unit_interval(support.get("risk_contribution"))
-    parts = [f"{classifier_key} {score:.2f}"]
+    label = _classifier_label(classifier_key, support)
+    axis = _optional_text(support.get("axis"))
+    role = _optional_text(support.get("role"))
+    if role == "risk_penalty":
+        descriptor = f"{label} increases {_axis_label(axis) if axis else 'classifier'} risk"
+    elif contribution is not None and contribution < 0:
+        descriptor = f"{label} pulls down {_axis_label(axis) if axis else 'classifier'} preference"
+    elif role in {"preference_boost", "preference_penalty"}:
+        descriptor = f"{label} supports {_axis_label(axis) if axis else 'classifier'} preference"
+    else:
+        descriptor = f"{label} score"
+    parts = [f"{descriptor} {score:.2f}"]
     if contribution is not None and contribution != 0.0:
-        parts.append(f"score {contribution:+.2f}")
+        parts.append(f"score contribution {contribution:+.2f}")
     if risk is not None:
         parts.append(f"risk {risk:.2f}")
     if len(parts) == 1:
         return parts[0]
     return f"{parts[0]} ({', '.join(parts[1:])})"
+
+
+def _classifier_label(classifier_key: str, support: Mapping[str, Any]) -> str:
+    return _optional_text(support.get("label")) or classifier_key
+
+
+def _classifier_risk_breakdown_key(axis: str | None) -> str:
+    if axis == "vocalness":
+        return "vocal_conflict"
+    if axis == "texture":
+        return "texture_clash"
+    if axis == "mood":
+        return "mood_clash"
+    if axis == "tonal":
+        return "tonal"
+    if axis == "energy_flow":
+        return "energy_jump"
+    if axis in {"groove", "density"}:
+        return "density_jump"
+    if axis == "novelty":
+        return "source_disagreement"
+    return "confidence_missingness"
 
 
 def _risk_phrase(risk_breakdown: Mapping[str, float | None]) -> str:
@@ -579,6 +647,17 @@ def _optional_signed_unit(value: object) -> float | None:
     if number is None:
         return None
     return min(1.0, max(-1.0, number))
+
+
+def _optional_bool(value: object) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
+def _optional_text(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _optional_finite_float(value: object) -> float | None:

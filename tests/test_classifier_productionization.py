@@ -48,6 +48,40 @@ def test_promoted_classifiers_report_valid_and_invalid_manifest_status(tmp_path:
     assert payloads["legacy_profile"]["manifest_warnings"]
 
 
+def test_promoted_classifiers_expose_hybrid_signal_manifest_metadata(tmp_path: Path) -> None:
+    root = tmp_path / "models" / "classifiers"
+    profile_dir = root / "deep-groove"
+    profile_dir.mkdir(parents=True)
+    (profile_dir / "model.joblib").write_bytes(b"model")
+    _write_manifest(
+        profile_dir / "model.json",
+        classifier_key="deep_groove",
+        hybrid_signal={
+            "role": "preference_boost",
+            "axis": "groove",
+            "label": "Boost deep groove",
+            "description": "Uses stored deep_groove scores as a groove preference.",
+            "default_preference": 0.55,
+            "allowed_modes": ["hybrid", "set"],
+            "missing_score_policy": "neutral",
+        },
+    )
+
+    payload = promoted_classifiers(root)[0]
+
+    assert payload["classifier_key"] == "deep_groove"
+    assert payload["hybrid_signal"] == {
+        "role": "preference_boost",
+        "axis": "groove",
+        "label": "Boost deep groove",
+        "description": "Uses stored deep_groove scores as a groove preference.",
+        "default_preference": 0.55,
+        "allowed_modes": ["hybrid", "set"],
+        "missing_score_policy": "neutral",
+    }
+    assert payload["hybrid_signal_source"] == "manifest"
+
+
 def test_classifier_scorer_rejects_manifest_payload_mismatch(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     model_path = _write_model(tmp_path / "models" / "classifiers" / "break-energy" / "model.joblib")
@@ -276,6 +310,7 @@ def _write_manifest(
     classifier_key: str,
     positive_label: str = "broken",
     model_id: str | None = None,
+    hybrid_signal: dict[str, object] | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -291,6 +326,7 @@ def _write_manifest(
                 "positive_label": positive_label,
                 "negative_label": "straight",
                 **({"model_id": model_id} if model_id is not None else {}),
+                **({"hybrid_signal": hybrid_signal} if hybrid_signal is not None else {}),
                 "trained_label_counts": {"broken": 10, "straight": 10},
                 "production": {
                     "score_semantics": "positive_label_probability",

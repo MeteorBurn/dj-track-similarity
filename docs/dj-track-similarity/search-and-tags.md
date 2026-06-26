@@ -214,11 +214,17 @@ the currently selected seed tracks and requires `1-5` seeds. MERT, MAEST,
 SONARA, and CLAP sources can be enabled or disabled, each source has an inline weight, and
 the UI exposes `Per-source` (`1-100`, default `30`) plus `Result limit`
 (`1-100`, default `25`) and `Risk penalty` (`0.0-1.0`, default `0.0`). The
-classifier block is off by default. When enabled, it can send compact stored-score
-controls for `voice_presence` vocal risk, `abstract_edge`, `break_energy`, and
-`live_instrumentation` boosts if those promoted classifier keys are available.
-Missing classifier scores stay neutral. Equal default source weights are sent
-unless you edit them, and the risk penalty is off unless you opt in.
+classifier block is off by default. When enabled, it renders controls from each
+promoted classifier manifest's optional `hybrid_signal` block. That block tells
+the UI which axis the classifier describes, whether the role is a preference or
+risk signal, the label/help text, and the default preference or risk weight.
+The older built-in keys (`voice_presence`, `abstract_edge`, `break_energy`, and
+`live_instrumentation`) still get legacy fallback signal metadata, but new
+profiles should use `model.json` `hybrid_signal` instead of TypeScript changes.
+Missing classifier scores stay neutral, and stale stored scores are warned as
+uncalibrated local signals instead of fresh calibrated evidence. Equal default
+source weights are sent unless you edit them, and the risk penalty is off unless
+you opt in.
 
 Hybrid preview rows also expose optional evaluation feedback controls. Rating
 buttons map to `Strong = 3`, `Works = 2`, `Maybe = 1`, and `Reject = 0`. Reason
@@ -265,7 +271,12 @@ missing risk applies no penalty.
 
 Hybrid preview rows include a row-level `Why this track?` panel. It labels the
 content as an unsupervised diagnostic, shows the adjusted score, match-axis bars,
-source support, classifier support when active, risk estimate components, sorted warnings, and reason bullets.
+source support, classifier support when active, risk estimate components, sorted
+warnings, and reason bullets. Classifier preference roles appear in the score
+breakdown and positive reason text only when a stored score exists; risk roles
+feed the risk breakdown and listening-check warnings. A requested classifier
+with no stored score stays neutral and is not described as supporting or hurting
+the row.
 These fields explain stored-signal support for a candidate; they are not a
 calibrated estimate of whether a human will like the result.
 

@@ -386,6 +386,7 @@ export function SearchPlaylistPanel({
   const [hybridFeedbackDrafts, setHybridFeedbackDrafts] = useState<Record<number, HybridFeedbackDraft>>({});
   const [hybridFeedbackSaving, setHybridFeedbackSaving] = useState<Record<number, boolean>>({});
   const [hybridFeedbackErrors, setHybridFeedbackErrors] = useState<Record<number, string>>({});
+  const [hybridSelectedResultId, setHybridSelectedResultId] = useState<number | null>(null);
   const [evaluationLabelCounts, setEvaluationLabelCounts] = useState<{ pair: number; transition: number } | null>(null);
   const playlistPageState = playlistPage(playlist, playlistOffset, playlistPageSize);
   useEffect(() => {
@@ -449,6 +450,7 @@ export function SearchPlaylistPanel({
   const hybridPreviewIsCurrent = hybridPreviewKey === hybridInputKey;
   const showHybridDiagnostics = hybridPreviewIsCurrent && !hybridReadinessMessage && !hybridError;
   const showHybridResults = showHybridDiagnostics && hybridResults.length > 0;
+  const selectedHybridResult = showHybridResults ? hybridResults.find((result) => result.track.id === hybridSelectedResultId) || hybridResults[0] : null;
   const hybridDiagnosticTitle = formatHybridDiagnosticTitle(showHybridDiagnostics ? hybridLimitations : []);
   const hasStoredClapEmbeddings = clapEmbeddingCount > 0;
   const clapSearchTitle = hasStoredClapEmbeddings
@@ -467,6 +469,7 @@ export function SearchPlaylistPanel({
     setHybridFeedbackDrafts({});
     setHybridFeedbackSaving({});
     setHybridFeedbackErrors({});
+    setHybridSelectedResultId(null);
   }, [hybridInputKey]);
 
   useEffect(() => {
@@ -583,6 +586,7 @@ export function SearchPlaylistPanel({
       setHybridFeedbackDrafts({});
       setHybridFeedbackSaving({});
       setHybridFeedbackErrors({});
+      setHybridSelectedResultId(null);
       setHybridError(seedMessage);
       return;
     }
@@ -597,6 +601,7 @@ export function SearchPlaylistPanel({
       setHybridFeedbackDrafts({});
       setHybridFeedbackSaving({});
       setHybridFeedbackErrors({});
+      setHybridSelectedResultId(null);
       setHybridError("Enable at least one Hybrid preview source.");
       return;
     }
@@ -613,6 +618,7 @@ export function SearchPlaylistPanel({
     setHybridFeedbackDrafts({});
     setHybridFeedbackSaving({});
     setHybridFeedbackErrors({});
+    setHybridSelectedResultId(null);
     try {
       const response = await api.hybridSearch({
         seed_track_ids: seeds,
@@ -632,6 +638,7 @@ export function SearchPlaylistPanel({
       setHybridSessionId(response.session_id ?? null);
       setHybridFeedbackDrafts(hybridFeedbackDraftsFromResults(response.results));
       setHybridFeedbackErrors({});
+      setHybridSelectedResultId(response.results[0]?.track.id ?? null);
       setHybridWarnings(response.warnings);
       setHybridLimitations(response.limitations);
       setHybridWeightsUsed(response.weights_used);
@@ -649,6 +656,7 @@ export function SearchPlaylistPanel({
       setHybridFeedbackDrafts({});
       setHybridFeedbackSaving({});
       setHybridFeedbackErrors({});
+      setHybridSelectedResultId(null);
       setHybridError(message);
     } finally {
       setHybridLoading(false);
@@ -975,20 +983,21 @@ export function SearchPlaylistPanel({
                       onTogglePlaylist={togglePlaylist}
                       onPreview={setPreview}
                       onDetails={setMetadataTrack}
-                      rowSlot={
-                        <div className="hybrid-row-diagnostics">
-                          <HybridWhyThisTrack result={result} />
-                          <HybridFeedbackControls
-                            draft={hybridFeedbackDrafts[result.track.id] || emptyHybridFeedbackDraft()}
-                            saving={Boolean(hybridFeedbackSaving[result.track.id])}
-                            error={hybridFeedbackErrors[result.track.id] || ""}
-                            onRate={(rating) => setHybridFeedbackRating(result, rating)}
-                            onToggleReason={(reasonTag) => toggleHybridFeedbackReason(result, reasonTag)}
-                          />
-                        </div>
-                      }
+                      selected={selectedHybridResult?.track.id === result.track.id}
+                      onSelect={() => setHybridSelectedResultId(result.track.id)}
+                      selectTitle={`Show Hybrid diagnostics for ${displayTrack(result.track)}`}
                     />
                   ))}
+                  {selectedHybridResult ? (
+                    <HybridResultDetails
+                      result={selectedHybridResult}
+                      draft={hybridFeedbackDrafts[selectedHybridResult.track.id] || emptyHybridFeedbackDraft()}
+                      saving={Boolean(hybridFeedbackSaving[selectedHybridResult.track.id])}
+                      error={hybridFeedbackErrors[selectedHybridResult.track.id] || ""}
+                      onRate={(rating) => setHybridFeedbackRating(selectedHybridResult, rating)}
+                      onToggleReason={(reasonTag) => toggleHybridFeedbackReason(selectedHybridResult, reasonTag)}
+                    />
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -1255,6 +1264,58 @@ export function SearchPlaylistPanel({
         </div>
       </section>
     </aside>
+  );
+}
+
+function HybridResultDetails({
+  result,
+  draft,
+  saving,
+  error,
+  onRate,
+  onToggleReason
+}: {
+  result: HybridSearchResult;
+  draft: HybridFeedbackDraft;
+  saving: boolean;
+  error: string;
+  onRate: (rating: PairFeedbackRating) => void;
+  onToggleReason: (reasonTag: EvaluationPairReasonTag) => void;
+}) {
+  const topSources = hybridTopSources(result);
+  const topAxes = hybridTopMatchAxes(result);
+  return (
+    <div className="hybrid-result-details" title="Selected Hybrid row details, feedback, source support, classifier support, and risk diagnostics.">
+      <div className="hybrid-result-details-header">
+        <strong>{displayTrack(result.track)}</strong>
+        <span className="hybrid-result-summary-content">
+          <span className="hybrid-summary-chip">Risk {formatOptionalUnitScore(result.transition_risk)}</span>
+          {topSources.map(({ source, support }) => (
+            <span className="hybrid-summary-chip active" key={source} title={hybridSourceSupportTitle(source, support)}>
+              {source.toUpperCase()} {hybridSourceSupportLabel(support)}
+            </span>
+          ))}
+          {topAxes.map(({ axis, value }) => (
+            <span className="hybrid-summary-chip" key={axis}>
+              {hybridAxisLabels[axis]} {value.toFixed(2)}
+            </span>
+          ))}
+          <span className={`hybrid-feedback-state compact ${error ? "error" : ""}`}>
+            {error || (saving ? "Saving feedback..." : hybridFeedbackStateText(draft))}
+          </span>
+        </span>
+      </div>
+      <div className="hybrid-row-diagnostics">
+        <HybridWhyThisTrack result={result} />
+        <HybridFeedbackControls
+          draft={draft}
+          saving={saving}
+          error={error}
+          onRate={onRate}
+          onToggleReason={onToggleReason}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -1547,6 +1608,28 @@ function hybridAvailableSourceCount(result: HybridSearchResult) {
   const sourceSupport = result.source_support || {};
   const availableSources = Object.values(sourceSupport).filter((support) => support.available).length;
   return availableSources || Object.keys(result.score_breakdown).length;
+}
+
+function hybridTopSources(result: HybridSearchResult) {
+  return hybridSourceKeys
+    .map((source) => ({ source, support: result.source_support[source] }))
+    .filter(({ support }) => support?.available)
+    .sort((left, right) => {
+      const leftRank = typeof left.support.rank === "number" ? left.support.rank : Number.POSITIVE_INFINITY;
+      const rightRank = typeof right.support.rank === "number" ? right.support.rank : Number.POSITIVE_INFINITY;
+      if (leftRank !== rightRank) return leftRank - rightRank;
+      const leftScore = typeof left.support.score === "number" ? left.support.score : -1;
+      const rightScore = typeof right.support.score === "number" ? right.support.score : -1;
+      return rightScore - leftScore;
+    })
+    .slice(0, 2);
+}
+
+function hybridTopMatchAxes(result: HybridSearchResult) {
+  return hybridAxisOrder
+    .map((axis) => ({ axis, value: clampNumber(result.match_character[axis], 0, 1) }))
+    .sort((left, right) => right.value - left.value)
+    .slice(0, 2);
 }
 
 function formatUnitScore(value: number) {

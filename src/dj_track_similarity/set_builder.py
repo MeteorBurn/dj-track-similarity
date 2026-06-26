@@ -14,6 +14,7 @@ from .db_schema import TRACK_CLASSIFIER_SCORES_FIELD
 from .metadata_payload import optional_float, string_or_none
 from .models import Track
 from .sonara_similarity_scoring import unwrap_feature_value
+from .track_resolution import camelot_compatibility, resolve_track_bpm, resolve_track_key
 
 
 SET_BUILDER_MODES = {"similar_crate", "weird_adjacent", "balanced_set", "discovery"}
@@ -1581,24 +1582,15 @@ def _transition(previous: _Candidate | None, candidate: _Candidate) -> dict[str,
 
 
 def _track_bpm(candidate: _Candidate) -> float | None:
-    metadata = candidate.track.metadata or {}
-    tag_bpm = optional_float(metadata.get("bpm"))
-    if tag_bpm is not None:
-        return tag_bpm
-    if candidate.track.bpm is not None:
-        return float(candidate.track.bpm)
-    return candidate.sonara_values.get("bpm")
+    return resolve_track_bpm(
+        candidate.track,
+        sonara_values=candidate.sonara_values,
+        sonara_features=candidate.sonara_features,
+    )
 
 
 def _track_key(candidate: _Candidate) -> str | None:
-    metadata = candidate.track.metadata or {}
-    tag_key = string_or_none(metadata.get("key")) or string_or_none(metadata.get("initialkey"))
-    if tag_key:
-        return tag_key
-    if candidate.track.musical_key:
-        return candidate.track.musical_key
-    value = unwrap_feature_value(candidate.sonara_features.get("key"))
-    return string_or_none(value)
+    return resolve_track_key(candidate.track, sonara_features=candidate.sonara_features)
 
 
 def _tempo_distance(candidate_bpm: float | None, previous_bpm: float | None) -> float | None:
@@ -1610,41 +1602,7 @@ def _tempo_distance(candidate_bpm: float | None, previous_bpm: float | None) -> 
 
 
 def _key_relation(candidate_key: str | None, previous_key: str | None) -> tuple[str, float]:
-    if not candidate_key or not previous_key:
-        return "unknown", 0.55
-    candidate = _parse_camelot(candidate_key)
-    previous = _parse_camelot(previous_key)
-    if candidate is None or previous is None:
-        return ("same", 1.0) if candidate_key.strip().casefold() == previous_key.strip().casefold() else ("unknown", 0.55)
-    candidate_number, candidate_letter = candidate
-    previous_number, previous_letter = previous
-    if candidate_number == previous_number and candidate_letter == previous_letter:
-        return "same", 1.0
-    if candidate_number == previous_number and candidate_letter != previous_letter:
-        return "relative", 0.9
-    if candidate_letter == previous_letter and candidate_number in {_wrap_camelot(previous_number - 1), _wrap_camelot(previous_number + 1)}:
-        return "adjacent", 0.95
-    return "clash", 0.2
-
-
-def _parse_camelot(value: str) -> tuple[int, str] | None:
-    text = value.strip().upper()
-    if len(text) not in {2, 3}:
-        return None
-    number_text, letter = text[:-1], text[-1]
-    if letter not in {"A", "B"}:
-        return None
-    try:
-        number = int(number_text)
-    except ValueError:
-        return None
-    if not 1 <= number <= 12:
-        return None
-    return number, letter
-
-
-def _wrap_camelot(number: int) -> int:
-    return ((number - 1) % 12) + 1
+    return camelot_compatibility(candidate_key, previous_key)
 
 
 def _combined_similarity(candidate: _Candidate, seed: _Candidate, ranges: dict[str, tuple[float, float]]) -> float:

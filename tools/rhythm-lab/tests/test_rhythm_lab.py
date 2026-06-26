@@ -2085,6 +2085,9 @@ def test_promote_calibrated_artifact_writes_identity_and_calibration_manifest(tm
     assert metadata["artifact_hash"].startswith("sha256:")
     assert metadata["production"]["calibration"]["status"] == "calibrated"
     assert metadata["production"]["calibration"]["validation_roc_auc"] is not None
+    limitations = metadata["production"]["limitations"]
+    assert any("calibrated positive-label probabilities" in limitation for limitation in limitations)
+    assert all("not a calibrated probability" not in limitation for limitation in limitations)
 
 
 def test_export_predictions_csv_orders_by_profile_positive_probability(tmp_path: Path) -> None:

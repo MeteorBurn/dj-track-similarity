@@ -35,6 +35,35 @@ def test_bpm_quarter_quadruple_not_treated_as_low_risk() -> None:
     assert diagnostics.transition_risk == diagnostics.components["bpm_risk"]
 
 
+def test_resolves_tag_bpm_and_key_before_sonara_overwritten_columns() -> None:
+    diagnostics = compute_transition_diagnostics(
+        {"bpm": 130.0, "musical_key": "2A", "metadata": {"bpm": 100.0, "key": "8A"}},
+        {"bpm": 160.0, "musical_key": "2B", "metadata": {"bpm": 104.0, "key": "9A"}},
+    )
+
+    assert diagnostics.components["bpm_risk"] == pytest.approx((4.0 / 100.0) / 0.12)
+    assert diagnostics.components["key_risk"] < 0.1
+
+
+def test_resolves_sonara_bpm_and_key_when_tags_are_missing() -> None:
+    diagnostics = compute_transition_diagnostics(
+        {"metadata": {"sonara_features": {"bpm": {"type": "float", "value": 120.0}, "key": {"type": "str", "value": "8A"}}}},
+        {"metadata": {"sonara_features": {"bpm": {"type": "float", "value": 123.0}, "key": {"type": "str", "value": "9A"}}}},
+    )
+
+    assert diagnostics.components["bpm_risk"] == pytest.approx((3.0 / 120.0) / 0.12)
+    assert diagnostics.components["key_risk"] < 0.1
+
+
+def test_adjacent_camelot_key_has_lower_risk_than_clash() -> None:
+    adjacent = compute_transition_diagnostics({"musical_key": "8A"}, {"musical_key": "9A"})
+    clash = compute_transition_diagnostics({"musical_key": "8A"}, {"musical_key": "2B"})
+
+    assert adjacent.components["key_risk"] < clash.components["key_risk"]
+    assert adjacent.components["key_risk"] < 0.1
+    assert clash.components["key_risk"] > 0.7
+
+
 def test_missing_data_returns_none_component() -> None:
     diagnostics = compute_transition_diagnostics(
         {"musical_key": "8A"},

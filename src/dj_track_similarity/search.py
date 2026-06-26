@@ -7,6 +7,7 @@ import numpy as np
 
 from .database import LibraryDatabase
 from .models import SearchResult, Track
+from .track_resolution import camelot_compatible
 from .vector_index import ExactVectorSearchBackend, VectorSearchBackend, VectorSearchHit
 
 
@@ -248,34 +249,4 @@ def _key_compatible(track: Track, seeds: list[Track]) -> bool:
 
 
 def _camelot_compatible(candidate: str, seed: str) -> bool:
-    parsed_candidate = _parse_camelot(candidate)
-    parsed_seed = _parse_camelot(seed)
-    if parsed_candidate is None or parsed_seed is None:
-        return candidate.strip().lower() == seed.strip().lower()
-    candidate_number, candidate_letter = parsed_candidate
-    seed_number, seed_letter = parsed_seed
-    if candidate_number == seed_number:
-        return True
-    if candidate_letter != seed_letter:
-        return False
-    return candidate_number in {_wrap_camelot(seed_number - 1), _wrap_camelot(seed_number + 1)}
-
-
-def _parse_camelot(value: str) -> tuple[int, str] | None:
-    text = value.strip().upper()
-    if len(text) not in {2, 3}:
-        return None
-    number_text, letter = text[:-1], text[-1]
-    if letter not in {"A", "B"}:
-        return None
-    try:
-        number = int(number_text)
-    except ValueError:
-        return None
-    if number < 1 or number > 12:
-        return None
-    return number, letter
-
-
-def _wrap_camelot(number: int) -> int:
-    return ((number - 1) % 12) + 1
+    return camelot_compatible(candidate, seed)

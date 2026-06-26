@@ -5,9 +5,10 @@ from dataclasses import dataclass
 import math
 from typing import Any
 
-from .metadata_payload import optional_float, string_or_none
+from .metadata_payload import optional_float
 from .models import Track
 from .sonara_similarity_scoring import unwrap_feature_value
+from .track_resolution import camelot_compatibility, resolve_track_bpm, resolve_track_key
 
 
 TRANSITION_RISK_V1 = "v1"
@@ -165,9 +166,8 @@ def _bpm_risk(seed_bpm: float | None, candidate_bpm: float | None) -> tuple[floa
 def _key_risk(seed_key: str | None, candidate_key: str | None) -> tuple[float | None, str | None]:
     if seed_key is None or candidate_key is None:
         return None, "missing_key"
-    if seed_key.casefold() == candidate_key.casefold():
-        return 0.0, None
-    return 0.5, None
+    _relation, compatibility_score = camelot_compatibility(candidate_key, seed_key)
+    return _clamp(1.0 - compatibility_score), None
 
 
 def _energy_jump_risk(seed_energy: float | None, candidate_energy: float | None) -> tuple[float | None, str | None]:
@@ -278,17 +278,11 @@ def _confidence_missingness_risk(components: Mapping[str, float | None]) -> tupl
 
 
 def _track_bpm(track: Mapping[str, Any] | Track) -> float | None:
-    return optional_float(_first_present(_track_value(track, "bpm"), _track_metadata(track).get("bpm")))
+    return resolve_track_bpm(track)
 
 
 def _track_key(track: Mapping[str, Any] | Track) -> str | None:
-    metadata = _track_metadata(track)
-    return (
-        string_or_none(_track_value(track, "musical_key"))
-        or string_or_none(_track_value(track, "key"))
-        or string_or_none(metadata.get("key"))
-        or string_or_none(metadata.get("initialkey"))
-    )
+    return resolve_track_key(track)
 
 
 def _track_energy(track: Mapping[str, Any] | Track) -> float | None:

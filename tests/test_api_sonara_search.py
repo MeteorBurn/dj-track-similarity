@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 import dj_track_similarity.api as api
@@ -75,6 +76,32 @@ def test_search_endpoints_reject_unknown_context_parameter(monkeypatch, tmp_path
 
     assert mert_response.status_code == 422
     assert sonara_response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"limit": 0},
+        {"limit": -1},
+        {"limit": 501},
+        {"min_similarity": -0.1},
+        {"min_similarity": 1.1},
+        {"bpm_tolerance": -0.1},
+        {"energy_min": -0.1},
+        {"energy_max": 1.1},
+        {"energy_min": 0.8, "energy_max": 0.2},
+        {"epsilon": -0.1},
+        {"noise": -0.1},
+        {"noise": 1.1},
+    ],
+)
+def test_generic_search_endpoint_rejects_invalid_numeric_fields(monkeypatch, tmp_path: Path, payload: dict[str, float]) -> None:
+    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
+    client = TestClient(create_app(tmp_path / "library.sqlite"))
+
+    response = client.post("/api/search", json={"seed_track_ids": [1], **payload})
+
+    assert response.status_code == 422
 
 
 def _add_sonara_track(db: LibraryDatabase, name: str, features: dict[str, object]) -> int:

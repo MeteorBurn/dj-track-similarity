@@ -112,14 +112,20 @@ class SearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     seed_track_ids: list[int]
-    limit: int = 10
-    bpm_tolerance: float | None = None
+    limit: int = Field(default=10, ge=1, le=500)
+    bpm_tolerance: float | None = Field(default=None, ge=0.0)
     key_compatibility: str | None = None
-    energy_min: float | None = None
-    energy_max: float | None = None
-    min_similarity: float | None = None
-    epsilon: float | None = Field(default=None, alias="Epsilon")
-    noise: float = 0.0
+    energy_min: float | None = Field(default=None, ge=0.0, le=1.0)
+    energy_max: float | None = Field(default=None, ge=0.0, le=1.0)
+    min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
+    epsilon: float | None = Field(default=None, alias="Epsilon", ge=0.0)
+    noise: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def reject_inverted_energy_bounds(self) -> "SearchRequest":
+        if self.energy_min is not None and self.energy_max is not None and self.energy_min > self.energy_max:
+            raise ValueError("energy_min must be less than or equal to energy_max")
+        return self
 
 
 class SonaraMixerWeights(BaseModel):

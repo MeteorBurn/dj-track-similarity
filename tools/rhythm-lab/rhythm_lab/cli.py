@@ -207,10 +207,7 @@ def promote_profile_model(
             "score_semantics": "positive_label_probability",
             "required_inputs": ["sonara", "mert", "maest"],
             "calibration": _manifest_calibration_payload(production_calibration),
-            "limitations": [
-                "Scores are the promoted model's positive-label probability, not a calibrated probability.",
-                "Promotion copies a local artifact and manifest; it does not benchmark the classifier.",
-            ],
+            "limitations": _manifest_limitations(production_calibration),
         },
         "trained_label_counts": labels_db.label_counts(),
     }
@@ -362,6 +359,18 @@ def _manifest_calibration_payload(calibration: dict[str, object]) -> dict[str, o
             if key in gate:
                 payload[key] = gate[key]
     return payload
+
+
+def _manifest_limitations(calibration: dict[str, object]) -> list[str]:
+    status = str(calibration.get("status") or "uncalibrated")
+    if status == "calibrated":
+        score_limitation = "Scores are calibrated positive-label probabilities for the promoted model."
+    else:
+        score_limitation = "Scores are the promoted model's positive-label probability, not a calibrated probability."
+    return [
+        score_limitation,
+        "Promotion copies a local artifact and manifest; it does not benchmark the classifier.",
+    ]
 
 
 def _sha256_file(path: Path) -> str:

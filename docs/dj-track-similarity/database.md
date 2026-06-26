@@ -127,7 +127,8 @@ profiles, which remain JSON report artifacts outside SQLite:
   metadata.
 - `feature_set`: feature family used by the classifier artifact, currently
   `combined`.
-- `model_id`: promoted model path used for scoring.
+- `model_id`: stable promoted manifest model identity when the manifest has one;
+  older legacy rows may contain the local model path used for scoring.
 - `analyzed_at`: local scoring timestamp.
 
 The primary key is `(track_id, classifier)`, so rerunning a classifier updates
@@ -138,7 +139,9 @@ usually mean the promoted classifier has not scored that track yet, or the track
 was missing required Sonara, MERT, or MAEST inputs during scoring.
 Classifier calibration reports and label suggestions read this table together
 with `tracks`, `track_likes`, and optional app feedback rows. They do not add a
-queue table or modify stored classifier scores.
+queue table or modify stored classifier scores. Calibration reports compare the
+stored `model_id` with the current promoted manifest `model_id`; mismatches are
+reported as stale rows and are not treated as fresh calibrated evidence.
 
 ### `track_search_fts`
 

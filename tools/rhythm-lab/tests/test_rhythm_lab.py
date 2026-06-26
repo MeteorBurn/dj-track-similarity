@@ -17,6 +17,7 @@ sys.path.insert(0, str(LAB_ROOT))
 from dj_track_similarity.database import LibraryDatabase
 
 from rhythm_lab.features import build_labeled_feature_matrix
+from rhythm_lab.cli import PromotionError, promote_profile_model
 from rhythm_lab.lab_db import RhythmLabDatabase
 from rhythm_lab.predictions import _predict_probabilities, apply_model_to_lab, export_predictions_csv
 from rhythm_lab.source_db import SourceDatabase
@@ -1902,6 +1903,102 @@ def test_train_feature_set_writes_generic_positive_discovery_metrics(tmp_path: P
     assert "positive_recall_mean" in cross_validation
     assert "broken_recall_mean" not in cross_validation
     assert cross_validation["fold_count"] >= 2
+
+
+def test_train_feature_set_can_write_calibrated_validation_report(tmp_path: Path) -> None:
+    matrix = np.asarray(
+        [[float(index), 0.0] for index in range(60)]
+        + [[float(index + 200), 1.0] for index in range(60)],
+        dtype=np.float32,
+    )
+    labels = ["broken"] * 60 + ["straight"] * 60
+
+    result = train_feature_set(
+        matrix,
+        labels,
+        feature_names=["axis", "marker"],
+        feature_set="combined",
+        artifact_dir=tmp_path / "artifacts",
+        calibrate=True,
+    )
+
+    payload = joblib.load(result.artifact_path)
+    metrics = json.loads(result.metrics_path.read_text(encoding="utf-8"))
+    calibration = metrics["production_calibration"]
+    validation = calibration["validation"]
+    assert payload["production_calibration"]["status"] == "calibrated"
+    assert calibration["status"] == "calibrated"
+    assert calibration["method"] == "sigmoid"
+    assert validation["sample_count"] > 0
+    assert validation["positive_count"] > 0
+    assert validation["negative_count"] > 0
+    assert validation["brier"] <= 1.0
+    assert validation["ece10"] <= 1.0
+    assert calibration["thresholds"]["default"] == 0.5
+
+
+def test_promote_require_calibration_blocks_uncalibrated_artifact(tmp_path: Path) -> None:
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    artifact_dir = tmp_path / "artifacts"
+    matrix = np.asarray(
+        [[float(index), 0.0] for index in range(6)]
+        + [[float(index + 20), 1.0] for index in range(6)],
+        dtype=np.float32,
+    )
+    train_feature_set(
+        matrix,
+        ["broken"] * 6 + ["straight"] * 6,
+        feature_names=["axis", "marker"],
+        feature_set="combined",
+        artifact_dir=artifact_dir,
+    )
+
+    try:
+        promote_profile_model(
+            labels.path,
+            "break_energy",
+            artifacts=artifact_dir,
+            target_root=tmp_path / "models" / "classifiers",
+            require_calibration=True,
+        )
+    except PromotionError as error:
+        assert "calibration" in str(error).lower()
+    else:  # pragma: no cover - defensive guard.
+        raise AssertionError("uncalibrated artifact was promoted with require_calibration=True")
+
+    assert not (tmp_path / "models" / "classifiers" / "break-energy" / "model.joblib").exists()
+
+
+def test_promote_calibrated_artifact_writes_identity_and_calibration_manifest(tmp_path: Path) -> None:
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    artifact_dir = tmp_path / "artifacts"
+    matrix = np.asarray(
+        [[float(index), 0.0] for index in range(60)]
+        + [[float(index + 200), 1.0] for index in range(60)],
+        dtype=np.float32,
+    )
+    train_feature_set(
+        matrix,
+        ["broken"] * 60 + ["straight"] * 60,
+        feature_names=["axis", "marker"],
+        feature_set="combined",
+        artifact_dir=artifact_dir,
+        calibrate=True,
+    )
+
+    promoted = promote_profile_model(
+        labels.path,
+        "break_energy",
+        artifacts=artifact_dir,
+        target_root=tmp_path / "models" / "classifiers",
+        require_calibration=True,
+    )
+
+    metadata = promoted["metadata"]
+    assert metadata["model_id"].startswith("break_energy_")
+    assert metadata["artifact_hash"].startswith("sha256:")
+    assert metadata["production"]["calibration"]["status"] == "calibrated"
+    assert metadata["production"]["calibration"]["validation_roc_auc"] is not None
 
 
 def test_export_predictions_csv_orders_by_profile_positive_probability(tmp_path: Path) -> None:

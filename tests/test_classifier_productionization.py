@@ -73,6 +73,22 @@ def test_classifier_calibration_report_is_insufficient_without_feedback(tmp_path
     assert report["status_gate"]["calibrated_probability_available"] is False
 
 
+def test_classifier_calibration_report_marks_scores_stale_when_model_identity_changes(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = _track(db, tmp_path, "scored.wav")
+    _save_score(db, track_id, "break_energy", 0.72)
+    classifier_info = _classifier_info(tmp_path, "break_energy", model_id="new-model-identity")
+
+    report = build_classifier_calibration_report(db, "break_energy", classifier_info=classifier_info)
+
+    assert report["status"] == "stale"
+    assert report["coverage"]["tracks_scored"] == 1
+    assert report["coverage"]["stale_scores"] == 1
+    assert report["coverage"]["fresh_scores"] == 0
+    assert report["status_gate"]["calibrated_probability_available"] is False
+    assert "stale" in report["status_gate"]["decision"].lower()
+
+
 def test_classifier_label_suggestions_prioritize_uncertain_unlabeled_scores(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     low_id = _track(db, tmp_path, "low.wav")
@@ -224,12 +240,12 @@ def _save_score(db: LibraryDatabase, track_id: int, classifier: str, score: floa
     )
 
 
-def _classifier_info(tmp_path: Path, classifier_key: str) -> dict[str, object]:
+def _classifier_info(tmp_path: Path, classifier_key: str, *, model_id: str | None = None) -> dict[str, object]:
     model_path = tmp_path / "models" / "classifiers" / classifier_key.replace("_", "-") / "model.joblib"
     model_path.parent.mkdir(parents=True, exist_ok=True)
     model_path.write_bytes(b"model")
     metadata_path = model_path.with_name("model.json")
-    _write_manifest(metadata_path, classifier_key=classifier_key)
+    _write_manifest(metadata_path, classifier_key=classifier_key, model_id=model_id)
     return {
         "classifier_key": classifier_key,
         "model_path": str(model_path),
@@ -254,7 +270,13 @@ def _write_model(path: Path) -> Path:
     return path
 
 
-def _write_manifest(path: Path, *, classifier_key: str, positive_label: str = "broken") -> None:
+def _write_manifest(
+    path: Path,
+    *,
+    classifier_key: str,
+    positive_label: str = "broken",
+    model_id: str | None = None,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(
@@ -268,6 +290,7 @@ def _write_manifest(path: Path, *, classifier_key: str, positive_label: str = "b
                 "label_order": ["broken", "straight"],
                 "positive_label": positive_label,
                 "negative_label": "straight",
+                **({"model_id": model_id} if model_id is not None else {}),
                 "trained_label_counts": {"broken": 10, "straight": 10},
                 "production": {
                     "score_semantics": "positive_label_probability",

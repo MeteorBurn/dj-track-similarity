@@ -187,7 +187,10 @@ It returns coverage, score quantiles/buckets, manifest/calibration status, and a
 conservative status gate. `insufficient_data` means there are not enough app
 feedback rows to treat the output as more than diagnostics. The endpoint does not
 decode audio, train a model, write a calibration artifact, or claim benchmark
-quality.
+quality. When the current promoted manifest has a `model_id`, the report also
+separates fresh and stale score rows by comparing it with stored
+`track_classifier_scores.model_id`; stale rows are warned and are not treated as
+fresh calibrated evidence.
 
 `GET /api/classifiers/{classifier_key}/label-suggestions` accepts optional
 `mode`, `limit`, and `random_seed` query parameters. Modes are `uncertainty`,

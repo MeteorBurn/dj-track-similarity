@@ -260,6 +260,22 @@ Promote the latest combined model for any profile into the main project:
 .\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
+Training can also request a production calibration pass:
+
+```powershell
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite --calibrate
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py calibration-report --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+```
+
+`--calibrate` fits a sigmoid-calibrated classifier only when the label gate is
+satisfied: at least 100 training labels, at least 20 positive labels, and at
+least 20 negative labels for binary profiles. The metrics JSON and joblib
+payload still record validation diagnostics when the gate is not satisfied, but
+the status remains `uncalibrated` with a reason. Use
+`promote --require-calibration` when you want promotion to fail unless the
+selected combined artifact is calibrated. Use `promote --allow-uncalibrated`
+when you intentionally want to promote an experimental uncalibrated artifact.
+
 The Rhythm Lab toolbar also exposes a promote button next to the train-refresh
 button. It is enabled only after the active profile has an existing trained
 combined model artifact. The button uses the same promotion path as the CLI.
@@ -269,9 +285,10 @@ Promotion copies the latest `<artifact-prefix>-combined-*.joblib` artifact to
 `models/classifiers/<artifact-prefix>/model.json`. The metadata is written from
 the selected profile and artifact payload (`classifier_key`, profile name,
 labels, feature set, and label counts), plus production metadata that states the
-score semantics, required stored inputs, and default `uncalibrated` calibration
-status. Those promoted files are local runtime
-artifacts and are ignored by git.
+score semantics, required stored inputs, calibration status, validation metrics
+when available, a stable `model_id`, the copied artifact `artifact_hash`, and
+`promoted_at`. Those promoted files are local runtime artifacts and are ignored
+by git.
 
 ## Profile Deletion
 
@@ -363,7 +380,7 @@ all selected promoted classifiers, but it skips stored scores that already
 exist.
 
 The user-facing score is the classifier probability for the profile's positive
-training label. It is not presented as a calibrated probability unless future
+training label. It is not presented as a calibrated probability unless
 calibration metadata is explicitly recorded in the promoted manifest. Because UI displays can round probabilities, a value shown as
 `1.0000` may be slightly below mathematical `1.0`. Use thresholds such as
 `0.99`, `0.95`, or `0.90` for practical filtering instead of relying on exact

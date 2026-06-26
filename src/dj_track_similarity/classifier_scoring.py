@@ -156,7 +156,7 @@ class ClassifierScorer:
             confidence=float(confidence),
             probabilities=probabilities,
             feature_set=self.feature_set,
-            model_id=str(self.path),
+            model_id=self.manifest.model_id if self.manifest is not None and self.manifest.model_id else str(self.path),
         )
 
 

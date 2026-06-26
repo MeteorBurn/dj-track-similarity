@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -30,6 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_data_options(train_parser)
     train_parser.add_argument("--profile", default=BREAK_ENERGY_CLASSIFIER_KEY)
     train_parser.add_argument("--artifacts", type=Path, default=None)
+    train_parser.add_argument("--calibrate", action="store_true", help="Fit a calibrated classifier when label gates are satisfied.")
     train_parser.set_defaults(func=_train)
 
     predict_parser = subcommands.add_parser("predict", help="Apply a trained model artifact to feature-complete source tracks.")
@@ -49,7 +51,16 @@ def build_parser() -> argparse.ArgumentParser:
     promote_parser.add_argument("--artifacts", type=Path, default=None)
     promote_parser.add_argument("--target", type=Path, default=DEFAULT_CLASSIFIER_TARGET_ROOT)
     promote_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
+    promote_parser.add_argument("--require-calibration", action="store_true", help="Fail unless the selected artifact has a calibrated production report.")
+    promote_parser.add_argument("--allow-uncalibrated", action="store_true", help="Allow experimental promotion when the artifact is not calibrated.")
     promote_parser.set_defaults(func=_promote_profile)
+
+    calibration_parser = subcommands.add_parser("calibration-report", help="Print the latest combined artifact calibration report.")
+    calibration_parser.add_argument("--profile", default=BREAK_ENERGY_CLASSIFIER_KEY)
+    calibration_parser.add_argument("--artifacts", type=Path, default=None)
+    calibration_parser.add_argument("--artifact", type=Path, default=None)
+    calibration_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
+    calibration_parser.set_defaults(func=_calibration_report)
 
     delete_parser = subcommands.add_parser("delete-profile", help="Permanently delete one classifier profile and its lab data.")
     delete_target = delete_parser.add_mutually_exclusive_group(required=True)
@@ -83,7 +94,7 @@ def _add_data_options(parser: argparse.ArgumentParser) -> None:
 def _train(args: argparse.Namespace) -> None:
     profile = RhythmLabDatabase(args.labels, classifier_key=args.profile).get_profile()
     artifact_dir = args.artifacts or Path(profile.artifact_dir)
-    results = benchmark_lab_database(args.source, args.labels, artifact_dir, classifier_key=args.profile)
+    results = benchmark_lab_database(args.source, args.labels, artifact_dir, classifier_key=args.profile, calibrate=args.calibrate)
     print(json.dumps(results, ensure_ascii=False, indent=2, sort_keys=True))
 
 
@@ -106,6 +117,8 @@ def promote_profile_model(
     artifacts: str | Path | None = None,
     artifact_path: str | Path | None = None,
     target_root: str | Path = DEFAULT_CLASSIFIER_TARGET_ROOT,
+    require_calibration: bool = False,
+    allow_uncalibrated: bool = False,
 ) -> dict[str, object]:
     labels_db = RhythmLabDatabase(labels_path, classifier_key=profile_key)
     profile = labels_db.get_profile()
@@ -122,15 +135,25 @@ def promote_profile_model(
         )
     if str(payload.get("feature_set")) != "combined":
         raise PromotionError(f"Expected a combined artifact, got feature_set={payload.get('feature_set')!r}")
+    production_calibration = _artifact_calibration_payload(payload)
+    if require_calibration and production_calibration.get("status") != "calibrated":
+        reason = production_calibration.get("reason") or production_calibration.get("status") or "unknown"
+        raise PromotionError(f"Artifact calibration is required but not available: {reason}")
 
     target = Path(target_root) / profile.artifact_prefix
     target.mkdir(parents=True, exist_ok=True)
     model_path = target / "model.joblib"
     metadata_path = target / "model.json"
     shutil.copy2(artifact, model_path)
+    artifact_hash = _sha256_file(model_path)
+    promoted_at = datetime.now(timezone.utc)
+    promoted_stamp = promoted_at.strftime("%Y%m%dT%H%M%SZ")
+    model_id = f"{profile.classifier_key}_{promoted_stamp}_{artifact_hash[:8]}"
     metadata = {
         "classifier_key": profile.classifier_key,
         "manifest_version": 1,
+        "model_id": model_id,
+        "artifact_hash": f"sha256:{artifact_hash}",
         "profile_name": profile.name,
         "profile_type": profile.profile_type,
         "feature_set": payload.get("feature_set"),
@@ -139,15 +162,11 @@ def promote_profile_model(
         "positive_label": payload.get("positive_label", profile.positive_label),
         "negative_label": profile.negative_label,
         "source_artifact": str(artifact),
-        "promoted_at": datetime.now(timezone.utc).isoformat(),
+        "promoted_at": promoted_at.isoformat(),
         "production": {
             "score_semantics": "positive_label_probability",
             "required_inputs": ["sonara", "mert", "maest"],
-            "calibration": {
-                "status": "uncalibrated",
-                "method": None,
-                "report": None,
-            },
+            "calibration": _manifest_calibration_payload(production_calibration),
             "limitations": [
                 "Scores are the promoted model's positive-label probability, not a calibrated probability.",
                 "Promotion copies a local artifact and manifest; it does not benchmark the classifier.",
@@ -155,6 +174,8 @@ def promote_profile_model(
         },
         "trained_label_counts": labels_db.label_counts(),
     }
+    if production_calibration.get("status") == "uncalibrated" and allow_uncalibrated:
+        metadata["production"]["calibration"]["allowed_uncalibrated"] = True
     metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
     return {
         "model_path": model_path,
@@ -171,10 +192,20 @@ def _promote_profile(args: argparse.Namespace) -> None:
             args.profile,
             artifacts=args.artifacts,
             target_root=args.target,
+            require_calibration=args.require_calibration,
+            allow_uncalibrated=args.allow_uncalibrated,
         )
     except PromotionError as error:
         raise SystemExit(str(error)) from error
     print(f"model={result['model_path']} metadata={result['metadata_path']} source={result['source_artifact']}")
+
+
+def _calibration_report(args: argparse.Namespace) -> None:
+    profile = RhythmLabDatabase(args.labels, classifier_key=args.profile).get_profile()
+    artifact = Path(args.artifact) if args.artifact is not None else _latest_combined_artifact(args.artifacts or profile.artifact_dir, profile.artifact_prefix)
+    payload = _load_artifact_payload(artifact)
+    report = _artifact_calibration_payload(payload)
+    print(json.dumps({"profile": profile.classifier_key, "artifact": str(artifact), "calibration": report}, ensure_ascii=False, indent=2, sort_keys=True))
 
 
 def _delete_profile(args: argparse.Namespace) -> None:
@@ -206,6 +237,54 @@ def _load_artifact_payload(path: Path) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise PromotionError(f"Unsupported artifact payload: {path}")
     return payload
+
+
+def _artifact_calibration_payload(payload: dict[str, object]) -> dict[str, object]:
+    calibration = payload.get("production_calibration")
+    if isinstance(calibration, dict):
+        return dict(calibration)
+    return {
+        "status": "uncalibrated",
+        "method": None,
+        "reason": "missing_calibration_report",
+        "validation": {},
+        "thresholds": {"default": 0.5, "precision_80": None, "recall_80": None},
+        "gate": {},
+    }
+
+
+def _manifest_calibration_payload(calibration: dict[str, object]) -> dict[str, object]:
+    validation = calibration.get("validation") if isinstance(calibration.get("validation"), dict) else {}
+    gate = calibration.get("gate") if isinstance(calibration.get("gate"), dict) else {}
+    status = str(calibration.get("status") or "uncalibrated")
+    payload: dict[str, object] = {
+        "status": "calibrated" if status == "calibrated" else "uncalibrated",
+        "method": calibration.get("method") if status == "calibrated" else None,
+        "reason": None if status == "calibrated" else calibration.get("reason"),
+        "brier": validation.get("brier"),
+        "ece10": validation.get("ece10"),
+        "validation_roc_auc": validation.get("roc_auc"),
+        "validation_average_precision": validation.get("average_precision"),
+        "validation_f1": validation.get("f1_at_0_5"),
+        "label_count": gate.get("actual_labels"),
+        "positive_count": gate.get("actual_positive"),
+        "negative_count": gate.get("actual_negative"),
+        "split": calibration.get("split"),
+        "thresholds": calibration.get("thresholds") if isinstance(calibration.get("thresholds"), dict) else {},
+    }
+    if status != "calibrated":
+        for key in ("min_required_labels", "min_required_positive", "min_required_negative", "actual_labels", "actual_positive", "actual_negative"):
+            if key in gate:
+                payload[key] = gate[key]
+    return payload
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _serve(args: argparse.Namespace) -> None:

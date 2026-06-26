@@ -72,12 +72,21 @@ def build_classifier_calibration_report(
     score_rows = _load_classifier_score_rows(db, key)
     scores = [row.score for row in score_rows]
     feedback = _classifier_feedback_summary(db, key)
-    status = _calibration_report_status(manifest, score_rows, feedback["candidate_feedback_count"], min_feedback)
+    freshness = _score_freshness(manifest, score_rows)
+    status = _calibration_report_status(
+        manifest,
+        score_rows,
+        feedback["candidate_feedback_count"],
+        min_feedback,
+        stale_scores=freshness["stale_scores"],
+    )
     warnings = [*manifest.warnings]
     if manifest.status == "legacy":
         warnings.append("Legacy promoted classifier: re-promote from Rhythm Lab to write production metadata.")
     if not manifest.has_calibrated_probability:
         warnings.append("Stored classifier scores are model output probabilities, not calibrated probabilities.")
+    if freshness["stale_scores"]:
+        warnings.append("Stored classifier scores were produced by a different model identity and are stale until this classifier is rescored.")
     if feedback["candidate_feedback_count"] < min_feedback:
         warnings.append(
             f"Only {feedback['candidate_feedback_count']} candidate feedback rows are available; "
@@ -90,6 +99,7 @@ def build_classifier_calibration_report(
         "coverage": {
             "tracks_total": total_tracks,
             "tracks_scored": len(score_rows),
+            **freshness,
             "coverage_ratio": _ratio(len(score_rows), total_tracks),
             "feature_sets": _count_values(row.feature_set for row in score_rows),
             "model_ids": _count_values(row.model_id for row in score_rows),
@@ -104,11 +114,19 @@ def build_classifier_calibration_report(
         "available_labels_feedback": feedback,
         "status_gate": {
             "manifest_scoring_compatible": manifest.is_scoring_compatible,
-            "calibrated_probability_available": manifest.has_calibrated_probability,
+            "calibrated_probability_available": manifest.has_calibrated_probability and freshness["stale_scores"] == 0 and bool(score_rows),
             "min_feedback_requested": max(1, int(min_feedback)),
             "feedback_rows_available": feedback["candidate_feedback_count"],
+            "fresh_scores": freshness["fresh_scores"],
+            "stale_scores": freshness["stale_scores"],
             "can_claim_benchmark_quality": False,
-            "decision": _status_gate_decision(manifest, score_rows, feedback["candidate_feedback_count"], min_feedback),
+            "decision": _status_gate_decision(
+                manifest,
+                score_rows,
+                feedback["candidate_feedback_count"],
+                min_feedback,
+                stale_scores=freshness["stale_scores"],
+            ),
         },
         "warnings": warnings,
         "limitations": [
@@ -327,9 +345,13 @@ def _calibration_report_status(
     score_rows: Sequence[ClassifierScoreRow],
     feedback_count: int,
     min_feedback: int,
+    *,
+    stale_scores: int = 0,
 ) -> str:
     if not manifest.is_scoring_compatible:
         return "invalid_manifest"
+    if score_rows and stale_scores > 0:
+        return "stale"
     if not score_rows or feedback_count < max(1, int(min_feedback)):
         return "insufficient_data"
     return "diagnostic_only"
@@ -340,14 +362,42 @@ def _status_gate_decision(
     score_rows: Sequence[ClassifierScoreRow],
     feedback_count: int,
     min_feedback: int,
+    *,
+    stale_scores: int = 0,
 ) -> str:
     if not manifest.is_scoring_compatible:
         return "Classifier scoring is blocked until the promoted manifest is fixed."
     if not score_rows:
         return "No stored classifier scores are available yet."
+    if stale_scores:
+        return "Stored classifier scores are stale for the current manifest model identity; rescore this classifier before treating them as fresh calibrated evidence."
     if feedback_count < max(1, int(min_feedback)):
         return "Insufficient app feedback for calibration diagnostics; use this as a coverage report only."
     return "Enough app feedback exists for diagnostics, but this report still does not prove benchmark quality."
+
+
+def _score_freshness(
+    manifest: ClassifierManifestSummary,
+    score_rows: Sequence[ClassifierScoreRow],
+) -> dict[str, object]:
+    expected_model_id = manifest.model_id
+    if not expected_model_id:
+        return {
+            "expected_model_id": None,
+            "fresh_scores": len(score_rows),
+            "stale_scores": 0,
+            "unknown_freshness_scores": len(score_rows),
+            "stale_model_ids": {},
+        }
+    stale_model_ids = _count_values(row.model_id for row in score_rows if row.model_id != expected_model_id)
+    stale_scores = sum(stale_model_ids.values())
+    return {
+        "expected_model_id": expected_model_id,
+        "fresh_scores": len(score_rows) - stale_scores,
+        "stale_scores": stale_scores,
+        "unknown_freshness_scores": 0,
+        "stale_model_ids": stale_model_ids,
+    }
 
 
 def _ordered_suggestion_rows(

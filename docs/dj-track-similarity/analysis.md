@@ -169,9 +169,10 @@ Those files are produced outside the main app by Rhythm Lab's promotion command:
 The promoted `model.joblib` and `model.json` files are local artifacts and are
 ignored by git. The manifest records classifier key, label order, positive label,
 feature set, training-label counts, production score semantics, required stored
-inputs, and calibration status. Older local artifacts without a manifest are
-treated as legacy and warned; invalid manifests are rejected for scoring instead
-of silently mixing classifier keys or label definitions. The source Rhythm Lab training artifacts remain in the
+inputs, calibration status, stable `model_id`, artifact hash, and promotion time.
+Older local artifacts without a manifest are treated as legacy and warned;
+invalid manifests are rejected for scoring instead of silently mixing classifier
+keys or label definitions. The source Rhythm Lab training artifacts remain in the
 classifier-specific lab workspace:
 
 ```text
@@ -202,4 +203,6 @@ stored scores.
 Classifier production diagnostics are available through
 `dj-sim classifier calibration-report`, `dj-sim classifier suggest-labels`, and
 the matching `/api/classifiers/{key}/...` endpoints. They read stored scores and
-feedback rows only; they do not decode audio or update classifier scores.
+feedback rows only; they do not decode audio or update classifier scores. When a
+stored classifier row was produced by an older promoted `model_id`, the report
+marks it stale and does not count it as fresh calibrated evidence.

@@ -268,7 +268,9 @@ Promoted runtime classifiers are expected to have both `model.joblib` and a
 manifest is treated as a legacy local artifact and produces a warning; an invalid
 manifest rejects scoring with a clear error. Scores remain the promoted model's
 positive-label probability unless the manifest explicitly carries calibration
-metadata.
+metadata. New manifests also carry a stable `model_id` and `artifact_hash`; when
+present, scoring stores that `model_id` in `track_classifier_scores` so reports
+can detect stale rows after a profile is retrained or promoted again.
 
 ### `dj-sim classifier`
 
@@ -298,7 +300,9 @@ suggest-labels
 classifier score coverage, score distribution, available app feedback counts,
 and a conservative status gate. With little or no feedback it reports
 `insufficient_data`; it does not claim benchmark quality from stored scores
-alone.
+alone. If stored `track_classifier_scores.model_id` values do not match the
+current promoted manifest `model_id`, the report returns `stale` and does not
+present those rows as fresh calibrated evidence.
 
 Options:
 

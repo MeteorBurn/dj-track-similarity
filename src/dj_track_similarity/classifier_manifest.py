@@ -30,8 +30,12 @@ class ClassifierManifestSummary:
     negative_label: str | None = None
     trained_label_counts: dict[str, int] | None = None
     manifest_version: int | None = None
+    model_id: str | None = None
+    artifact_hash: str | None = None
+    promoted_at: str | None = None
     score_semantics: str = CLASSIFIER_SCORE_SEMANTICS
     calibration_status: str = "uncalibrated"
+    calibration: dict[str, Any] | None = None
     required_inputs: tuple[str, ...] = CLASSIFIER_REQUIRED_INPUTS
 
     @property
@@ -41,6 +45,16 @@ class ClassifierManifestSummary:
     @property
     def has_calibrated_probability(self) -> bool:
         return self.calibration_status == "calibrated"
+
+    @property
+    def production_status(self) -> str:
+        if self.status in {"invalid", "legacy"}:
+            return self.status
+        if self.calibration_status == "calibrated":
+            return "valid_calibrated"
+        if self.calibration_status == "experimental":
+            return "experimental"
+        return "valid_uncalibrated"
 
     def to_api_dict(self) -> dict[str, object]:
         return {
@@ -61,8 +75,13 @@ class ClassifierManifestSummary:
             "negative_label": self.negative_label,
             "trained_label_counts": dict(self.trained_label_counts or {}),
             "manifest_version": self.manifest_version,
+            "model_id": self.model_id,
+            "artifact_hash": self.artifact_hash,
+            "promoted_at": self.promoted_at,
             "score_semantics": self.score_semantics,
             "calibration_status": self.calibration_status,
+            "production_status": self.production_status,
+            "calibration": dict(self.calibration or {}),
             "has_calibrated_probability": self.has_calibrated_probability,
             "required_inputs": list(self.required_inputs),
         }
@@ -142,8 +161,13 @@ def classifier_manifest_api_fields(summary: ClassifierManifestSummary) -> dict[s
         "manifest_warnings": list(summary.warnings),
         "is_scoring_compatible": summary.is_scoring_compatible,
         "manifest_version": summary.manifest_version,
+        "model_id": summary.model_id,
+        "artifact_hash": summary.artifact_hash,
+        "promoted_at": summary.promoted_at,
         "score_semantics": summary.score_semantics,
         "calibration_status": summary.calibration_status,
+        "production_status": summary.production_status,
+        "calibration": dict(summary.calibration or {}),
         "has_calibrated_probability": summary.has_calibrated_probability,
         "required_inputs": list(summary.required_inputs),
     }
@@ -187,9 +211,13 @@ def _parse_manifest_payload(
     profile_type = _optional_text(payload.get("profile_type"))
     negative_label = _optional_text(payload.get("negative_label"))
     manifest_version = _optional_int(payload.get("manifest_version"), "manifest_version", errors)
+    model_id = _optional_text(payload.get("model_id"))
+    artifact_hash = _optional_text(payload.get("artifact_hash"))
+    promoted_at = _optional_text(payload.get("promoted_at"))
     production = payload.get("production")
     score_semantics = CLASSIFIER_SCORE_SEMANTICS
     calibration_status = "uncalibrated"
+    calibration_payload: dict[str, Any] | None = None
     required_inputs = CLASSIFIER_REQUIRED_INPUTS
 
     if manifest_version is None:
@@ -213,6 +241,7 @@ def _parse_manifest_payload(
             errors.append("model.json production.calibration must be an object")
         else:
             calibration_status = _optional_text(calibration.get("status")) or "uncalibrated"
+            calibration_payload = dict(calibration)
 
     status = "invalid" if errors else "valid"
     return ClassifierManifestSummary(
@@ -232,8 +261,12 @@ def _parse_manifest_payload(
         negative_label=negative_label,
         trained_label_counts=trained_label_counts,
         manifest_version=manifest_version,
+        model_id=model_id,
+        artifact_hash=artifact_hash,
+        promoted_at=promoted_at,
         score_semantics=score_semantics,
         calibration_status=calibration_status,
+        calibration=calibration_payload,
         required_inputs=required_inputs,
     )
 

@@ -101,6 +101,11 @@ branches, or history are available.
   promoting a new classifier should score only missing rows for that classifier
   and must not require deleting or recomputing stored scores for other promoted
   classifiers.
+- After a classifier is retrained and promoted, existing scores for that same
+  `classifier_key` may be stale because they were produced by an older
+  `model_id`. Recompute that classifier deliberately by resetting only that
+  classifier's `track_classifier_scores` rows before rescoring; do not clear
+  scores for unrelated classifiers.
 - Rhythm Lab must never write to source audio files. It opens the main project
   SQLite database read-only for browsing, analysis metadata, training inputs,
   and preview. Its only source-database write path is the explicit liked-track
@@ -210,6 +215,20 @@ branches, or history are available.
   `combined` requires existing SONARA features plus MERT and MAEST embeddings;
   do not remove SONARA from the combined classifier path. Rhythm Lab summary UI
   should expose SONARA, MAEST, and MERT coverage counters.
+- Rhythm Lab `train-refresh` in the UI is readiness-gated by newly added labels
+  since the last training checkpoint. If a profile needs a forced retrain on the
+  same label set, use the CLI `train` command explicitly rather than weakening
+  the UI readiness gate.
+- Classifier calibration is opt-in training behavior. `--calibrate` may fit a
+  calibrated binary classifier when the profile has enough training data
+  (currently at least 100 labels total, 20 positive, and 20 negative); otherwise
+  training should still produce an uncalibrated artifact with a diagnostic
+  calibration report. Use `promote --require-calibration` only when a calibrated
+  artifact is intentionally required.
+- Promoted classifier manifests should carry stable production metadata such as
+  `model_id`, `artifact_hash`, `promoted_at`, `production.calibration`, and
+  `production.required_inputs`. Legacy manifests may remain scoring-compatible,
+  but malformed manifests should block scoring clearly.
 - Keep library browsing scalable: `/api/tracks` remains server-side
   paginated/searchable with lightweight rows, `/api/library/summary` provides
   counters, and full metadata loads via `/api/tracks/{id}` only on dialog open.
@@ -250,7 +269,9 @@ dj-sim analyze-genres --device cpu --batch-size 2 --limit 3 --db .\data\library.
 dj-sim analyze-classifier live_instrumentation --limit 3 --db .\data\library.sqlite
 .\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py serve --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 .\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source C:\db\abstracted.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source C:\db\abstracted_v4.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --calibrate
 .\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite --require-calibration
 dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 5 --db .\data\library.sqlite
 dj-sim relocate-library .\music-old .\music-new --db .\data\library.sqlite
 dj-sim relocate-library .\music-old .\music-new --apply --db .\data\library.sqlite
@@ -336,6 +357,12 @@ changes:
   `.\.venv\Scripts\python.exe -m pytest tools\rhythm-lab\tests\test_rhythm_lab.py --override-ini addopts=`
   and, for promoted classifier scoring boundaries, include
   `tests\test_break_energy.py`.
+- For classifier train/promote hardening, a useful smoke is: copy the source DB
+  and labels DB with the SQLite backup API, run `rhythm_lab_cli.py train
+  --calibrate`, run `rhythm_lab_cli.py promote --require-calibration` into a
+  temporary target, then reset only that copied classifier's scores and run
+  `dj-sim analyze-classifier --model <temp model> --limit 5` against the copied
+  source DB.
 - Audio dedup report changes: run
   `.\.venv\Scripts\python.exe -m pytest scripts\tests\test_audio_dedup.py --override-ini addopts=`.
 - Relocation changes: verify dry-run does not modify paths, apply preserves IDs

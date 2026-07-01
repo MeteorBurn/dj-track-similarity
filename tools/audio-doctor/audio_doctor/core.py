@@ -22,10 +22,11 @@ from pathlib import Path, PureWindowsPath
 
 READBACK_FAILURE = "Genre tag was not readable after WAV save:"
 ID3_CHUNK_IDS = {b"id3 ", b"ID3 "}
-SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_OUT_DIR = SCRIPT_DIR / "reports"
-DEFAULT_RUN_DIR = SCRIPT_DIR / "state"
-DEFAULT_BACKUP_DIR = SCRIPT_DIR / "backups"
+PACKAGE_DIR = Path(__file__).resolve().parent
+TOOL_ROOT = PACKAGE_DIR.parent
+DEFAULT_OUT_DIR = TOOL_ROOT / "data" / "reports"
+DEFAULT_RUN_DIR = TOOL_ROOT / "data" / "state"
+DEFAULT_BACKUP_DIR = TOOL_ROOT / "data" / "backups"
 AUDIO_EXTENSIONS = {
     ".aif",
     ".aiff",
@@ -133,6 +134,10 @@ MUTAGEN_KEY_TEXT_LIMIT = 160
 
 
 class RepairError(Exception):
+    pass
+
+
+class AudioDoctorCancelled(RuntimeError):
     pass
 
 
@@ -346,6 +351,8 @@ def run_paths(
     skipped_by_reason: int,
     missing_db_files: int,
     skipped_state_results: list[StateRepairResult],
+    progress_callback: Callable[[int, int, Path, FileRepairResult], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> RepairRunResult:
     if state_mode:
         reporter.line(f"Total tracks: {len(all_paths)}")
@@ -369,12 +376,17 @@ def run_paths(
         no_backup=no_backup,
         keep_id3=keep_id3,
         workers=workers,
+        should_cancel=should_cancel,
     )
     for index, path, result in indexed_results:
+        if should_cancel is not None and should_cancel():
+            raise AudioDoctorCancelled("Audio Doctor job cancelled")
         results.append(result)
         if state is not None and state_path is not None:
             update_state_entry(state, path, result, apply_changes=apply_changes)
             save_state(state_path, state)
+        if progress_callback is not None:
+            progress_callback(index, total, path, result)
         if not summary_only:
             reporter.line(
                 format_result(result, dry_run=not apply_changes, index=index, total=total, color=use_color),
@@ -430,10 +442,13 @@ def process_paths(
     no_backup: bool,
     keep_id3: str,
     workers: int,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> Iterator[tuple[int, Path, FileRepairResult]]:
     worker_count = max(1, workers)
     if apply_changes or worker_count == 1 or len(paths) <= 1:
         for index, path in enumerate(paths, start=1):
+            if should_cancel is not None and should_cancel():
+                raise AudioDoctorCancelled("Audio Doctor job cancelled")
             yield (
                 index,
                 path,
@@ -449,6 +464,8 @@ def process_paths(
 
     def check_one(item: tuple[int, Path]) -> tuple[int, Path, FileRepairResult]:
         index, path = item
+        if should_cancel is not None and should_cancel():
+            raise AudioDoctorCancelled("Audio Doctor job cancelled")
         return (
             index,
             path,
@@ -480,7 +497,7 @@ def write_report_bundle(
     now = datetime.now()
     generated_at = now.isoformat(timespec="seconds")
     stamp = now.strftime("%Y%m%d_%H%M%S")
-    json_path = _unique_report_path(out_dir / f"audio_repair_report_{stamp}.json")
+    json_path = _unique_report_path(out_dir / f"audio_doctor_report_{stamp}.json")
     xlsx_path = json_path.with_suffix(".xlsx")
     log_path = json_path.with_suffix(".log")
     payload = build_report_payload(
@@ -764,7 +781,7 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
     assert isinstance(status_counts, dict)
     assert isinstance(reason_counts, dict)
     rows: list[list[object]] = [
-        ["Audio repair summary"],
+        ["Audio Doctor summary"],
         ["Generated at", payload["generated_at"]],
         ["Mode", payload["mode"]],
         ["Total collected", payload["total_collected"]],
@@ -891,7 +908,7 @@ def _xlsx_core_props(generated_at: str) -> str:
     timestamp = generated_at if generated_at.endswith("Z") else f"{generated_at}Z"
     return f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-<dc:title>Audio repair report</dc:title>
+<dc:title>Audio Doctor report</dc:title>
 <dc:creator>dj-track-similarity</dc:creator>
 <dcterms:created xsi:type="dcterms:W3CDTF">{escape(timestamp)}</dcterms:created>
 </cp:coreProperties>'''
@@ -1077,7 +1094,7 @@ def write_text_log(path: Path, payload: dict[str, object]) -> None:
     assert isinstance(reason_counts, dict)
     assert isinstance(state, dict)
     lines = [
-        f"audio_repair {payload['mode']} run",
+        f"audio_doctor {payload['mode']} run",
         f"generated_at={payload['generated_at']}",
         f"total_collected={payload['total_collected']}",
         f"processed_count={payload['processed_count']}",
@@ -1169,7 +1186,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--backup-dir",
         type=Path,
-        help="Directory for full-file backups used only with --apply. Default: scripts/audio_repair/backups.",
+        help="Directory for full-file backups used only with --apply. Default: tools/audio-doctor/data/backups.",
     )
     parser.add_argument(
         "--no-backup",
@@ -1200,7 +1217,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--out-dir",
         type=Path,
         default=DEFAULT_OUT_DIR,
-        help="Directory for JSON, XLSX, and structured log reports. Default: scripts/audio_repair/reports.",
+        help="Directory for JSON, XLSX, and structured log reports. Default: tools/audio-doctor/data/reports.",
     )
     parser.add_argument("--no-report", action="store_true", help="Do not write the JSON/XLSX/log report bundle.")
     parser.add_argument(
@@ -1208,7 +1225,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         type=Path,
         help=(
             "Folder/DB-mode state file. Default is derived from the resolved --folder/--db source(s) "
-            "and stored in scripts/audio_repair/state."
+            "and stored in tools/audio-doctor/data/state."
         ),
     )
     parser.add_argument(

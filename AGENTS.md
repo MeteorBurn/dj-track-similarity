@@ -48,11 +48,9 @@ The project is a Python backend/CLI plus a React/Vite frontend:
 - `tools/rhythm-lab/`: auxiliary classifier labeling/training UI and CLI for
   user-created classifier profiles. It runs separately from
   `dj_track_similarity`, but stays in this repository as a helper project.
-- `scripts/audio_repair/repair_audio_metadata.py`: standalone dry-run-first audio metadata
-  diagnostic/repair helper.
-- `scripts/audio_repair/`: repair helper script plus runtime
-  state/log/report/backup workspace; commit only `repair_audio_metadata.py` and
-  `.gitkeep`.
+- `tools/audio-doctor/`: standalone dry-run-first audio metadata/container
+  diagnostic/repair helper plus main-UI job backend. Commit only source files,
+  README, and `.gitkeep` placeholders under generated data directories.
 - `tools/audio-dedup/`: duplicate-audio candidate tool and main-UI job backend.
   By default it reads the project SQLite database and writes ignored reports
   only; `--apply` / UI apply mode is the explicit destructive cleanup mode.
@@ -81,10 +79,12 @@ For local checks and manual runs against the real library database, use
 - WAV genre writing must use Mutagen WAVE/ID3 handling and read back `TCON`.
   Do not add custom RIFF repair/validation to the app path; failed WAV writes
   should fail that track and let the batch continue.
-- `scripts/audio_repair/repair_audio_metadata.py --apply` is separate and may rewrite only
+- `tools/audio-doctor/audio_doctor_cli.py --apply` is separate and may rewrite only
   files it reports as `REPAIRABLE`; dry-run must not write/copy audio, apply is
-  sequential, and full-file backups are created by default.
-- `scripts/audio_repair/repair_audio_metadata.py --db` opens the selected
+  sequential, and full-file backups are created by default. UI/API apply mode
+  must require exact `APPLY REPAIR` confirmation and should run from prior
+  dry-run state.
+- `tools/audio-doctor/audio_doctor_cli.py --db` opens the selected
   SQLite library database read-only, reads existing `tracks.path` values, and
   may remap stored roots with `--db-root` plus `--file-root` before checking the
   filesystem. Missing remapped files are skipped, not repaired.
@@ -120,7 +120,8 @@ For local checks and manual runs against the real library database, use
   temporary databases (`tmp_path` or explicit `--db`).
 - Do not commit generated local artifacts: `*.sqlite`, `*.log`, `__pycache__/`,
   `.pytest_cache/`, `frontend/node_modules/`, transient temp folders, or
-  generated `scripts/audio_repair/` contents except `repair_audio_metadata.py`.
+  generated Audio Doctor state/report/backup files under
+  `tools/audio-doctor/data/` except `.gitkeep`.
   Generated documentation output under `docs/dj-track-similarity/site/` must
   also stay out of git.
   Rhythm Lab generated state and
@@ -285,7 +286,8 @@ dj-sim relocate-library .\music-old .\music-new --apply --db .\data\library.sqli
 dj-sim doctor
 ```
 
-Focused repair-script test when only `scripts/audio_repair/repair_audio_metadata.py` changes:
+Focused Audio Doctor test when only `tools/audio-doctor/audio_doctor/`
+changes:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest scripts\tests\test_repair_audio_metadata.py --override-ini addopts=
@@ -317,6 +319,8 @@ changes:
   predictions, feature matrices, training artifacts, and the standalone lab UI.
 - `tools/audio-dedup/audio_dedup/`: duplicate-audio candidate reporting and
   explicit confirmed `--apply` cleanup from an existing library database.
+- `tools/audio-doctor/audio_doctor/`: dry-run-first metadata/container
+  inspection and verified repair helpers used by CLI and main-UI jobs.
 - `src/dj_track_similarity/search.py`, `sonara_similarity.py`: embedding search
   and Sonara search over cached feature rows.
 - `src/dj_track_similarity/tags.py`, `wave_tags.py`: MAEST-to-standard-genre

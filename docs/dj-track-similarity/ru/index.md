@@ -20,7 +20,7 @@ flowchart LR
 
 ## Безопасность
 
-Обычные сценарии читают аудио и пишут только SQLite. Явные исключения: genre tag apply, audio repair `--apply`, Audio Dedup apply/delete. Relocation apply меняет только сохранённые пути в SQLite.
+Обычные сценарии читают аудио и пишут только SQLite. Явные исключения: genre tag apply, Audio Doctor `--apply`, Audio Dedup apply/delete. Relocation apply меняет только сохранённые пути в SQLite.
 
 ## Разделы
 

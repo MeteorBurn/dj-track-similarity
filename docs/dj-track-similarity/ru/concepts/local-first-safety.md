@@ -13,6 +13,6 @@ Scan, Refresh Tags, analysis, search, preview, reset, clear, relocation preview 
 ## Явные исключения
 
 - Genre apply пишет стандартный genre tag из сохранённых MAEST labels.
-- Audio repair `--apply` может переписать файлы, помеченные как `REPAIRABLE`, и по умолчанию создаёт full-file backups. Dry-run ничего не пишет.
+- Audio Doctor `--apply` может переписать файлы, помеченные как `REPAIRABLE`, и по умолчанию создаёт full-file backups. Dry-run ничего не пишет.
 - Audio Dedup apply/delete может удалить подтверждённые duplicate candidates после точного подтверждения.
 - Relocation apply не двигает и не копирует аудио; он обновляет только сохранённые `tracks.path` значения после проверок missing files и conflicts.

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from .analysis_jobs import AnalysisJobManager
 from .audio_dedup_jobs import AudioDedupJobManager
+from .audio_doctor_jobs import AudioDoctorJobManager
 from .classifier_jobs import ClassifierJobManager
 from .database import LibraryDatabase
 from .scan_jobs import ScanJobManager
@@ -29,6 +30,7 @@ class AppDatabaseState:
         self.db: LibraryDatabase | None = None
         self.analysis_jobs: AnalysisJobManager | None = None
         self.audio_dedup_jobs: AudioDedupJobManager | None = None
+        self.audio_doctor_jobs: AudioDoctorJobManager | None = None
         self.classifier_jobs: ClassifierJobManager | None = None
         self.scan_jobs: ScanJobManager | None = None
         self.genre_tag_jobs: GenreTagJobManager | None = None
@@ -59,6 +61,7 @@ class AppDatabaseState:
             self.db = db
             self.analysis_jobs = AnalysisJobManager(db)
             self.audio_dedup_jobs = AudioDedupJobManager(db)
+            self.audio_doctor_jobs = AudioDoctorJobManager(db)
             self.classifier_jobs = ClassifierJobManager(db)
             self.scan_jobs = ScanJobManager(db)
             self.genre_tag_jobs = GenreTagJobManager(db)
@@ -84,6 +87,11 @@ class AppDatabaseState:
         assert self.audio_dedup_jobs is not None
         return self.audio_dedup_jobs
 
+    def require_audio_doctor_jobs(self) -> AudioDoctorJobManager:
+        self.require_db()
+        assert self.audio_doctor_jobs is not None
+        return self.audio_doctor_jobs
+
     def require_scan_jobs(self) -> ScanJobManager:
         self.require_db()
         assert self.scan_jobs is not None
@@ -98,6 +106,7 @@ class AppDatabaseState:
         managers = [
             self.analysis_jobs,
             self.audio_dedup_jobs,
+            self.audio_doctor_jobs,
             self.classifier_jobs,
             self.scan_jobs,
             self.genre_tag_jobs,

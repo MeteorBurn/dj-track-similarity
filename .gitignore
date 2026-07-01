@@ -22,11 +22,14 @@ state.*.json
 .dj-track-similarity-indexes/
 models/classifiers/*/model.joblib
 models/classifiers/*/model.json
-scripts/audio_repair/*
-!scripts/audio_repair/.gitkeep
-!scripts/audio_repair/repair_audio_metadata.py
 tools/audio-dedup/data/reports/*
 !tools/audio-dedup/data/reports/.gitkeep
+tools/audio-doctor/data/backups/*
+tools/audio-doctor/data/reports/*
+tools/audio-doctor/data/state/*
+!tools/audio-doctor/data/backups/.gitkeep
+!tools/audio-doctor/data/reports/.gitkeep
+!tools/audio-doctor/data/state/.gitkeep
 
 # Local audio libraries and temp data
 tmp_*/

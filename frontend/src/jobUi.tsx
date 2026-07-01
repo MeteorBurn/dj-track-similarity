@@ -1,4 +1,4 @@
-import { AnalysisJobStatus, AnalysisModel, api, AudioDedupJobStatus, GenreTagJobStatus, ScanStats } from "./api";
+import { AnalysisJobStatus, AnalysisModel, api, AudioDedupJobStatus, AudioDoctorJobStatus, GenreTagJobStatus, ScanStats } from "./api";
 import { basename, formatEta } from "./trackDisplay";
 
 export type ActivityEvent = { id: number; time: number; level: "info" | "ok" | "warn" | "error"; message: string; detail?: string };
@@ -17,19 +17,21 @@ export function UnifiedLog({
   scanJob,
   analysisJob,
   audioDedupJob,
+  audioDoctorJob,
   genreTagJob,
   events,
   className = ""
 }: {
-  processKind: "scan" | "analysis" | "genre_tags" | "audio_dedup";
+  processKind: "scan" | "analysis" | "genre_tags" | "audio_dedup" | "audio_doctor";
   scanJob: ScanStats | null;
   analysisJob: AnalysisJobStatus | null;
   audioDedupJob?: AudioDedupJobStatus | null;
+  audioDoctorJob?: AudioDoctorJobStatus | null;
   genreTagJob: GenreTagJobStatus | null;
   events: ActivityEvent[];
   className?: string;
 }) {
-  const mergedEvents = unifiedLogEvents(scanJob, analysisJob, audioDedupJob || null, genreTagJob, events);
+  const mergedEvents = unifiedLogEvents(scanJob, analysisJob, audioDedupJob || null, audioDoctorJob || null, genreTagJob, events);
   return (
     <section className={`log-panel ${className}`.trim()}>
       <div className="log-title">
@@ -37,7 +39,7 @@ export function UnifiedLog({
         <span>{mergedEvents.length}</span>
       </div>
       <div className="log-body">
-        <ProcessStatus kind={processKind} scanJob={scanJob} analysisJob={analysisJob} audioDedupJob={audioDedupJob || null} genreTagJob={genreTagJob} />
+        <ProcessStatus kind={processKind} scanJob={scanJob} analysisJob={analysisJob} audioDedupJob={audioDedupJob || null} audioDoctorJob={audioDoctorJob || null} genreTagJob={genreTagJob} />
         <UnifiedEventList events={mergedEvents} />
       </div>
     </section>
@@ -49,14 +51,19 @@ function ProcessStatus({
   scanJob,
   analysisJob,
   audioDedupJob,
+  audioDoctorJob,
   genreTagJob
 }: {
-  kind: "scan" | "analysis" | "genre_tags" | "audio_dedup";
+  kind: "scan" | "analysis" | "genre_tags" | "audio_dedup" | "audio_doctor";
   scanJob: ScanStats | null;
   analysisJob: AnalysisJobStatus | null;
   audioDedupJob: AudioDedupJobStatus | null;
+  audioDoctorJob: AudioDoctorJobStatus | null;
   genreTagJob: GenreTagJobStatus | null;
 }) {
+  if (kind === "audio_doctor") {
+    return <AudioDoctorProcessStatus job={audioDoctorJob} />;
+  }
   if (kind === "audio_dedup") {
     return <AudioDedupProcessStatus job={audioDedupJob} />;
   }
@@ -73,6 +80,7 @@ function unifiedLogEvents(
   scanJob: ScanStats | null,
   analysisJob: AnalysisJobStatus | null,
   audioDedupJob: AudioDedupJobStatus | null,
+  audioDoctorJob: AudioDoctorJobStatus | null,
   genreTagJob: GenreTagJobStatus | null,
   activityEvents: ActivityEvent[]
 ) {
@@ -118,7 +126,15 @@ function unifiedLogEvents(
     message: event.message,
     detail: event.path ? basename(event.path) : undefined
   }));
-  return [...uiEvents, ...scanEvents, ...analysisEvents, ...genreTagEvents, ...audioDedupEvents].sort((left, right) => right.timeMs - left.timeMs).slice(0, 120);
+  const audioDoctorEvents: UnifiedLogEvent[] = (audioDoctorJob?.events || []).map((event, index) => ({
+    id: `audio-doctor-${event.timestamp}-${index}`,
+    timeMs: event.timestamp * 1000,
+    level: event.level as ActivityEvent["level"],
+    source: "audio doctor",
+    message: event.message,
+    detail: event.path ? basename(event.path) : undefined
+  }));
+  return [...uiEvents, ...scanEvents, ...analysisEvents, ...genreTagEvents, ...audioDedupEvents, ...audioDoctorEvents].sort((left, right) => right.timeMs - left.timeMs).slice(0, 120);
 }
 
 function isPerClassifierAnalysisEvent(message: string) {
@@ -194,6 +210,7 @@ function sourceLabel(source: string) {
   if (source === "analysis") return "analysis";
   if (source === "genre tags") return "genre tags";
   if (source === "audio dedup") return "audio dedup";
+  if (source === "audio doctor") return "audio doctor";
   return "UI";
 }
 
@@ -205,13 +222,15 @@ export function stageIndicatorLabel(
   scanJob: ScanStats | null,
   analysisJob: AnalysisJobStatus | null,
   genreTagJob?: GenreTagJobStatus | null,
-  audioDedupJob?: AudioDedupJobStatus | null
+  audioDedupJob?: AudioDedupJobStatus | null,
+  audioDoctorJob?: AudioDoctorJobStatus | null
 ) {
   if (scanJob?.state && ["queued", "running"].includes(scanJob.state)) return "Идет сканирование";
   if (analysisJob && ["queued", "running"].includes(analysisJob.state)) return "Идет анализ";
   if (genreTagJob && ["queued", "running"].includes(genreTagJob.state)) return "Идет запись жанров";
   if (audioDedupJob && ["queued", "running"].includes(audioDedupJob.state)) return "Идет поиск дублей";
-  if (scanJob?.state === "cancelled" || analysisJob?.state === "cancelled" || genreTagJob?.state === "cancelled" || audioDedupJob?.state === "cancelled") return "Этап остановлен";
+  if (audioDoctorJob && ["queued", "running"].includes(audioDoctorJob.state)) return "Идет Audio Doctor";
+  if (scanJob?.state === "cancelled" || analysisJob?.state === "cancelled" || genreTagJob?.state === "cancelled" || audioDedupJob?.state === "cancelled" || audioDoctorJob?.state === "cancelled") return "Этап остановлен";
   return "Процесс не запущен";
 }
 
@@ -352,6 +371,36 @@ export function AudioDedupProcessStatus({ job }: { job: AudioDedupJobStatus | nu
         <span>groups {job.groups}</span>
         <span>safe {job.safe_candidates}</span>
         {job.apply ? <span>deleted {job.deleted}</span> : null}
+        {job.failed ? <span>fail {job.failed}</span> : null}
+        <span>{percent}%</span>
+      </div>
+      {job.avg_seconds_per_item != null && <span className="analysis-muted">{job.avg_seconds_per_item.toFixed(2)} s/item{etaSeconds ? ` · ETA ${formatEta(etaSeconds)}` : ""}</span>}
+      {job.current_path && <span className="analysis-current">Сейчас: {basename(job.current_path)}</span>}
+      {job.errors.length > 0 && <span className="analysis-error">{job.errors[0].error}</span>}
+    </div>
+  );
+}
+
+export function AudioDoctorProcessStatus({ job }: { job: AudioDoctorJobStatus | null }) {
+  if (!job) {
+    return <div className="process-box">Audio Doctor не запущен</div>;
+  }
+  const percent = job.total ? Math.round((job.processed / job.total) * 100) : job.state === "completed" ? 100 : 0;
+  const running = ["queued", "running"].includes(job.state);
+  const etaSeconds = running && job.avg_seconds_per_item && job.total ? Math.max(0, (job.total - job.processed) * job.avg_seconds_per_item) : null;
+  return (
+    <div className="process-box">
+      <div className="process-head">
+        <strong>{job.state}</strong>
+        <span>{job.current_step || job.folder || job.db_path}</span>
+      </div>
+      <progress value={job.total ? job.processed : job.state === "completed" ? 1 : 0} max={job.total || 1} />
+      <div className="process-grid">
+        <span>{job.processed}/{job.total || 0}</span>
+        <span>ok {job.ok}</span>
+        <span>repair {job.repairable}</span>
+        {job.repaired ? <span>done {job.repaired}</span> : null}
+        {job.suspicious ? <span>review {job.suspicious}</span> : null}
         {job.failed ? <span>fail {job.failed}</span> : null}
         <span>{percent}%</span>
       </div>

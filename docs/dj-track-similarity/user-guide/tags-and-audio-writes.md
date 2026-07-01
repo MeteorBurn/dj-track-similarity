@@ -18,4 +18,4 @@ MP3/WAV/AIFF ID3 use `TCON`; FLAC/Vorbis-style tags use `GENRE`; MP4/M4A/ALAC us
 
 ## Other explicit exceptions
 
-Audio repair `--apply` can rewrite repairable files. Audio Dedup apply/delete can delete duplicate candidates after exact confirmation.
+Audio Doctor `--apply` can rewrite repairable files. UI/API repair mode requires exact `APPLY REPAIR` confirmation. Audio Dedup apply/delete can delete duplicate candidates after exact confirmation.

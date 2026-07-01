@@ -286,7 +286,7 @@ test("model search default limit is ten", () => {
   const schemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "api_schemas.py"), "utf8");
 
   assert.match(appSource, /limit:\s*10/);
-  assert.match(schemaSource, /class SearchRequest[\s\S]*limit:\s*int\s*=\s*10/);
+  assert.match(schemaSource, /class SearchRequest[\s\S]*limit:\s*int\s*=\s*Field\(default=10/);
   assert.match(schemaSource, /class SonaraSearchRequest[\s\S]*limit:\s*int\s*=\s*Field\(default=10/);
   assert.match(schemaSource, /class TextSearchRequest[\s\S]*limit:\s*int\s*=\s*Field\(default=10/);
 });

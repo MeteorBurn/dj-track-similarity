@@ -26,7 +26,7 @@ flowchart LR
 
 ## Safety in one sentence
 
-Most app workflows read audio and write SQLite only. The explicit exceptions are MAEST genre tag apply, audio repair `--apply`, and Audio Dedup apply/delete; relocation apply updates stored SQLite paths only.
+Most app workflows read audio and write SQLite only. The explicit exceptions are MAEST genre tag apply, Audio Doctor `--apply`, and Audio Dedup apply/delete; relocation apply updates stored SQLite paths only.
 
 ## Start here
 

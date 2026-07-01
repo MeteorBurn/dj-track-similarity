@@ -6,7 +6,7 @@
 
 ## Does analysis change audio?
 
-No. Analysis writes SQLite state. Explicit exceptions are genre tag apply, audio repair `--apply`, and Audio Dedup apply/delete.
+No. Analysis writes SQLite state. Explicit exceptions are genre tag apply, Audio Doctor `--apply`, and Audio Dedup apply/delete.
 
 ## Should I trust the top result?
 

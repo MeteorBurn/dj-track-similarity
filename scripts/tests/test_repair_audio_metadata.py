@@ -10,8 +10,8 @@ import zipfile
 
 
 def _load_repair_module():
-    path = Path(__file__).resolve().parents[1] / "audio_repair" / "repair_audio_metadata.py"
-    spec = importlib.util.spec_from_file_location("repair_audio_metadata", path)
+    path = Path(__file__).resolve().parents[2] / "tools" / "audio-doctor" / "audio_doctor" / "core.py"
+    spec = importlib.util.spec_from_file_location("audio_doctor_core", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     assert spec.loader is not None
@@ -320,7 +320,7 @@ def test_main_writes_file_log_for_each_processed_track(monkeypatch, tmp_path: Pa
     assert "[1/2]" in stdout
 
 
-def test_main_writes_audio_repair_report_bundle(monkeypatch, tmp_path: Path, capsys) -> None:
+def test_main_writes_audio_doctor_report_bundle(monkeypatch, tmp_path: Path, capsys) -> None:
     repair = _load_repair_module()
     out_dir = tmp_path / "reports"
     wav_path = tmp_path / "repair.wav"
@@ -351,7 +351,7 @@ def test_main_writes_audio_repair_report_bundle(monkeypatch, tmp_path: Path, cap
 
     assert exit_code == 0
     stdout = capsys.readouterr().out
-    report_paths = sorted(out_dir.glob("audio_repair_report_*.json"))
+    report_paths = sorted(out_dir.glob("audio_doctor_report_*.json"))
     assert len(report_paths) == 1
     json_path = report_paths[0]
     xlsx_path = json_path.with_suffix(".xlsx")
@@ -376,12 +376,12 @@ def test_main_writes_audio_repair_report_bundle(monkeypatch, tmp_path: Path, cap
     assert "Summary" in workbook_xml
     assert "Results" in workbook_xml
     assert "Problems" in workbook_xml
-    assert "Audio repair summary" in summary_xml
+    assert "Audio Doctor summary" in summary_xml
     assert "Duplicate audio summary" not in summary_xml
     assert "REPAIR AVAILABLE" in results_xml
     assert "OVERSIZED_DATA" in results_xml
     log_text = log_path.read_text(encoding="utf-8")
-    assert "audio_repair dry-run run" in log_text
+    assert "audio_doctor dry-run run" in log_text
     assert "status_count_repairable=1" in log_text
     assert "reason_count_OVERSIZED_DATA=1" in log_text
     assert f"json={json_path}" in stdout
@@ -419,7 +419,7 @@ def test_report_includes_current_state_entries_for_skipped_files(monkeypatch, tm
         ["--folder", str(folder), "--state", str(state_path), "--out-dir", str(out_dir), "--no-file-log"]
     )
 
-    report_paths = sorted(out_dir.glob("audio_repair_report_*.json"))
+    report_paths = sorted(out_dir.glob("audio_doctor_report_*.json"))
     payload = json.loads(report_paths[0].read_text(encoding="utf-8"))
     results = {Path(result["path"]): result for result in payload["results"]}
     assert first_exit == 0
@@ -504,9 +504,9 @@ def test_apply_skips_nonrepairable_dry_run_state_and_reports_repaired_state(
         ]
     )
 
-    payload = json.loads(sorted(out_dir.glob("audio_repair_report_*.json"))[0].read_text(encoding="utf-8"))
+    payload = json.loads(sorted(out_dir.glob("audio_doctor_report_*.json"))[0].read_text(encoding="utf-8"))
     repeat_payload = json.loads(
-        sorted(repeat_out_dir.glob("audio_repair_report_*.json"))[0].read_text(encoding="utf-8")
+        sorted(repeat_out_dir.glob("audio_doctor_report_*.json"))[0].read_text(encoding="utf-8")
     )
     state = json.loads(state_path.read_text(encoding="utf-8"))
     entries = {entry["title"]: entry for entry in state["files"].values()}
@@ -735,7 +735,7 @@ def test_db_mode_state_skips_checked_files(monkeypatch, tmp_path: Path, capsys) 
 
 def test_default_folder_state_path_is_folder_dependent_and_reused(monkeypatch, tmp_path: Path, capsys) -> None:
     repair = _load_repair_module()
-    run_dir = tmp_path / "audio_repair"
+    run_dir = tmp_path / "audio_doctor"
     monkeypatch.setattr(repair, "DEFAULT_RUN_DIR", run_dir)
     first_folder = tmp_path / "library-a"
     second_folder = tmp_path / "library-b"
@@ -778,7 +778,7 @@ def test_default_folder_state_path_is_folder_dependent_and_reused(monkeypatch, t
 
 def test_default_state_path_uses_safe_folder_label(monkeypatch, tmp_path: Path) -> None:
     repair = _load_repair_module()
-    run_dir = tmp_path / "audio_repair"
+    run_dir = tmp_path / "audio_doctor"
     monkeypatch.setattr(repair, "DEFAULT_RUN_DIR", run_dir)
     folder = tmp_path / "Library Name #1"
     folder.mkdir()
@@ -792,7 +792,7 @@ def test_default_state_path_uses_safe_folder_label(monkeypatch, tmp_path: Path) 
 
 def test_default_backup_dir_is_under_script_work_dir(monkeypatch, tmp_path: Path) -> None:
     repair = _load_repair_module()
-    backup_dir = tmp_path / "audio_repair" / "backups"
+    backup_dir = tmp_path / "audio_doctor" / "backups"
     audio_path = tmp_path / "track.wav"
     audio_bytes = b"RIFF\x00\x00\x00\x00WAVE"
     audio_path.write_bytes(audio_bytes)

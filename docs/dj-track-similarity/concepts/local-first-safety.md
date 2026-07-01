@@ -16,7 +16,7 @@ flowchart TD
     C[Search and SET preview] --> D[Browser/API response]
     E[Export] --> F[M3U or CSV]
     G[Genre apply] --> H[Audio genre tag]
-    I[Audio repair apply] --> J[Repairable audio file]
+    I[Audio Doctor apply] --> J[Repairable audio file]
     K[Audio dedup apply] --> L[Confirmed duplicate delete]
 ```
 

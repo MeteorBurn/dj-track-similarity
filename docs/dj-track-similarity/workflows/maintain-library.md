@@ -14,4 +14,4 @@
 
 ## Risky tools
 
-Audio Dedup is report-only by default and destructive only with apply confirmation. Audio repair is dry-run-first and writes only with `--apply`. Database optimization creates a SQLite backup before maintenance.
+Audio Dedup is report-only by default and destructive only with apply confirmation. Audio Doctor is dry-run-first and writes only with `--apply` or UI/API `APPLY REPAIR`. Database optimization creates a SQLite backup before maintenance.

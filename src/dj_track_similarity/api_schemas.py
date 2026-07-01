@@ -96,6 +96,23 @@ class AudioDedupJobRequest(BaseModel):
     confirmation: str | None = None
 
 
+class AudioDoctorJobRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_mode: str = Field(default="db", pattern="^(db|folder)$")
+    folder: str | None = None
+    db_roots: list[str] = Field(default_factory=list)
+    file_root: str | None = None
+    keep_id3: str = Field(default="first", pattern="^(first|last|none)$")
+    limit: int | None = Field(default=None, ge=1)
+    workers: int = Field(default=1, ge=1, le=32)
+    reasons: list[str] = Field(default_factory=list)
+    out_dir: str | None = None
+    state_path: str | None = None
+    apply: bool = False
+    confirmation: str | None = None
+
+
 class ClassifierAnalyzeRequest(BaseModel):
     limit: int | None = None
 

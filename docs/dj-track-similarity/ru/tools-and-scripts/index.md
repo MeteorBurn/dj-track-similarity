@@ -8,7 +8,7 @@
 
 - [Rhythm Lab](rhythm-lab.md) — label and train personal classifiers.
 - [Audio Dedup](audio-dedup.md) — report likely duplicates before any delete.
-- [Repair audio metadata](repair-audio-metadata.md) — dry-run-first metadata repair.
+- [Audio Doctor](audio-doctor.md) — dry-run-first metadata/container repair.
 - [Optimize database](optimize-database.md) — backup, VACUUM, ANALYZE, and integrity checks.
 
 ## Privacy

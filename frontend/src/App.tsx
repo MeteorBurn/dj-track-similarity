@@ -1,9 +1,10 @@
 import type { MouseEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { CopyX, FlaskConical, Moon, Power, RefreshCcw, ScrollText, Square, Sun } from "lucide-react";
-import { AnalysisJobStatus, AnalysisModel, api, AudioDedupJobPayload, AudioDedupJobStatus, GenreTagJobStatus, PromotedClassifier, RhythmLabLaunchResult, ScanStats, SetBuilderGeneratePayload, Track } from "./api";
+import { CopyX, FlaskConical, Moon, Power, RefreshCcw, ScrollText, Square, Sun, Wrench } from "lucide-react";
+import { AnalysisJobStatus, AnalysisModel, api, AudioDedupJobPayload, AudioDedupJobStatus, AudioDoctorJobPayload, AudioDoctorJobStatus, GenreTagJobStatus, PromotedClassifier, RhythmLabLaunchResult, ScanStats, SetBuilderGeneratePayload, Track } from "./api";
 import { analysisSelectionOrder, isAudioAnalysisModel, type AnalysisSelection } from "./analysisSelection";
 import { AudioDedupDialog } from "./AudioDedupDialog";
+import { AudioDoctorDialog } from "./AudioDoctorDialog";
 import { clapPromptPresets, defaultClapPromptPresetKey, promptQueriesFromText } from "./clapPrompt";
 import { classifierScoringBlockedReason } from "./classifierCompatibility";
 import type { ConfirmationRequest } from "./confirmation";
@@ -116,9 +117,10 @@ export function App() {
   const [musicRoot, setMusicRoot] = useState("");
   const [analysisJob, setAnalysisJob] = useState<AnalysisJobStatus | null>(null);
   const [audioDedupJob, setAudioDedupJob] = useState<AudioDedupJobStatus | null>(null);
+  const [audioDoctorJob, setAudioDoctorJob] = useState<AudioDoctorJobStatus | null>(null);
   const [scanJob, setScanJob] = useState<ScanStats | null>(null);
   const [genreTagJob, setGenreTagJob] = useState<GenreTagJobStatus | null>(null);
-  const [processLogKind, setProcessLogKind] = useState<"scan" | "analysis" | "genre_tags" | "audio_dedup">("scan");
+  const [processLogKind, setProcessLogKind] = useState<"scan" | "analysis" | "genre_tags" | "audio_dedup" | "audio_doctor">("scan");
   const [analysisLimit, setAnalysisLimit] = useState(0);
   const [scanWorkers, setScanWorkers] = useState(4);
   const [analysisTrackBatchSize, setAnalysisTrackBatchSize] = useState(4);
@@ -128,6 +130,7 @@ export function App() {
   const [notice, setNotice] = useState<Notice>(defaultNotice);
   const [logFrameOpen, setLogFrameOpen] = useState(false);
   const [audioDedupOpen, setAudioDedupOpen] = useState(false);
+  const [audioDoctorOpen, setAudioDoctorOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme());
   const [confirmation, setConfirmation] = useState<ConfirmationRequest | null>(null);
   const [busy, setBusy] = useState(false);
@@ -156,15 +159,17 @@ export function App() {
   const analysisRunning = Boolean(analysisJob && ["queued", "running"].includes(analysisJob.state));
   const genreTagRunning = Boolean(genreTagJob && ["queued", "running"].includes(genreTagJob.state));
   const audioDedupRunning = Boolean(audioDedupJob && ["queued", "running"].includes(audioDedupJob.state));
-  const stageRunning = scanRunning || analysisRunning || genreTagRunning || audioDedupRunning;
+  const audioDoctorRunning = Boolean(audioDoctorJob && ["queued", "running"].includes(audioDoctorJob.state));
+  const stageRunning = scanRunning || analysisRunning || genreTagRunning || audioDedupRunning || audioDoctorRunning;
   const logHasErrors = useMemo(() => {
     const hasErrorEvent = activityLog.some((event) => event.level === "error")
       || (scanJob?.events || []).some((event) => event.level === "error")
       || (analysisJob?.events || []).some((event) => event.level === "error")
       || (audioDedupJob?.events || []).some((event) => event.level === "error")
+      || (audioDoctorJob?.events || []).some((event) => event.level === "error")
       || (genreTagJob?.events || []).some((event) => event.level === "error");
-    return hasErrorEvent || Boolean(analysisJob?.errors.length) || Boolean(audioDedupJob?.errors.length) || Boolean(genreTagJob?.errors.length);
-  }, [activityLog, analysisJob, audioDedupJob, genreTagJob, scanJob]);
+    return hasErrorEvent || Boolean(analysisJob?.errors.length) || Boolean(audioDedupJob?.errors.length) || Boolean(audioDoctorJob?.errors.length) || Boolean(genreTagJob?.errors.length);
+  }, [activityLog, analysisJob, audioDedupJob, audioDoctorJob, genreTagJob, scanJob]);
   const canStartScan = Boolean(databasePath && musicRoot);
   const analysisModelCounts: Record<AnalysisSelection, number> = {
     sonara: librarySummary.sonara,
@@ -278,6 +283,28 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [audioDedupJob?.job_id, audioDedupJob?.state]);
 
+  useEffect(() => {
+    if (!audioDoctorJob || !["queued", "running"].includes(audioDoctorJob.state)) return;
+    const timer = window.setInterval(() => {
+      void api.audioDoctorJob(audioDoctorJob.job_id).then((job) => {
+        setAudioDoctorJob(job);
+        if (["completed", "cancelled", "failed"].includes(job.state)) {
+          if (job.apply) void refreshLibrary();
+          if (job.state === "completed") {
+            appendActivity("ok", "Audio Doctor завершен", `repairable ${job.repairable} · repaired ${job.repaired}`);
+            setNotice({ kind: "ok", text: job.xlsx_path ? "Audio Doctor: XLSX готов" : "Audio Doctor завершен" });
+          }
+          if (job.state === "cancelled") {
+            appendActivity("warn", "Audio Doctor остановлен", job.current_step || job.folder || job.db_path);
+          }
+        }
+      }).catch((error) => {
+        setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
+      });
+    }, 1200);
+    return () => window.clearInterval(timer);
+  }, [audioDoctorJob?.job_id, audioDoctorJob?.state]);
+
   async function initializeDatabase() {
     try {
       const promotedClassifiers = await api.classifiers();
@@ -336,6 +363,12 @@ export function App() {
           setAudioDedupJob(job);
           if (["queued", "running"].includes(job.state)) setProcessLogKind("audio_dedup");
         }
+      }).catch(() => undefined),
+      api.latestAudioDoctorJob().then((job) => {
+        if (job) {
+          setAudioDoctorJob(job);
+          if (["queued", "running"].includes(job.state)) setProcessLogKind("audio_doctor");
+        }
       }).catch(() => undefined)
     ]);
   }
@@ -347,6 +380,7 @@ export function App() {
     setScanJob(null);
     setAnalysisJob(null);
     setAudioDedupJob(null);
+    setAudioDoctorJob(null);
     setGenreTagJob(null);
   }
 
@@ -834,6 +868,41 @@ export function App() {
     }
   }
 
+  async function handleAudioDoctorStart(payload: AudioDoctorJobPayload) {
+    const sourceLabel = payload.source_mode === "folder" ? payload.folder || "folder" : databasePath || "selected db";
+    appendActivity(payload.apply ? "warn" : "info", "Audio Doctor запущен", sourceLabel);
+    setProcessLogKind("audio_doctor");
+    setAudioDoctorJob(null);
+    await run(
+      () => api.audioDoctorJobStart(payload),
+      (job) => {
+        setAudioDoctorJob(job);
+        appendActivity("ok", "Audio Doctor job создан", `${job.job_id.slice(0, 8)} · ${job.source_mode}`);
+        return `Audio Doctor job ${job.job_id.slice(0, 8)}`;
+      }
+    );
+  }
+
+  async function handleCancelAudioDoctor() {
+    if (!audioDoctorJob) return;
+    await run(
+      () => api.cancelAudioDoctorJob(audioDoctorJob.job_id),
+      (job) => {
+        setAudioDoctorJob(job);
+        appendActivity("warn", "Audio Doctor cancel requested", job.job_id.slice(0, 8));
+        return `Cancel requested: ${job.job_id.slice(0, 8)}`;
+      }
+    );
+  }
+
+  function handleOpenAudioDoctorXlsx() {
+    if (!audioDoctorJob?.job_id || !audioDoctorJob.xlsx_path) return;
+    const opened = window.open(api.audioDoctorXlsxUrl(audioDoctorJob.job_id), "_blank", "noopener,noreferrer");
+    if (!opened) {
+      setNotice({ kind: "error", text: "Браузер заблокировал открытие XLSX" });
+    }
+  }
+
   async function handleStopActiveStage() {
     if (scanRunning) {
       await handleCancelScan();
@@ -849,6 +918,10 @@ export function App() {
     }
     if (audioDedupRunning) {
       await handleCancelAudioDedup();
+      return;
+    }
+    if (audioDoctorRunning) {
+      await handleCancelAudioDoctor();
     }
   }
 
@@ -995,6 +1068,15 @@ export function App() {
             <FlaskConical size={16} />
           </button>
           <button
+            className="icon-button audio-doctor-launch-button"
+            title="Открыть Audio Doctor"
+            aria-label="Открыть Audio Doctor"
+            onClick={() => setAudioDoctorOpen(true)}
+            type="button"
+          >
+            <Wrench size={16} />
+          </button>
+          <button
             className="icon-button audio-dedup-launch-button"
             title="Открыть Audio Dedup"
             aria-label="Открыть Audio Dedup"
@@ -1022,7 +1104,7 @@ export function App() {
           >
             <Square size={15} />
           </button>
-          <span className={`process-indicator ${stageRunning ? "running" : ""}`} title={stageIndicatorLabel(scanJob, analysisJob, genreTagJob, audioDedupJob)} aria-label={stageIndicatorLabel(scanJob, analysisJob, genreTagJob, audioDedupJob)}>
+          <span className={`process-indicator ${stageRunning ? "running" : ""}`} title={stageIndicatorLabel(scanJob, analysisJob, genreTagJob, audioDedupJob, audioDoctorJob)} aria-label={stageIndicatorLabel(scanJob, analysisJob, genreTagJob, audioDedupJob, audioDoctorJob)}>
             <RefreshCcw size={17} />
           </span>
           <div className={`notice ${notice.kind}`}>{notice.text}</div>
@@ -1179,6 +1261,7 @@ export function App() {
           scanJob={scanJob}
           analysisJob={analysisJob}
           audioDedupJob={audioDedupJob}
+          audioDoctorJob={audioDoctorJob}
           genreTagJob={genreTagJob}
           activityLog={activityLog}
           onClose={() => setLogFrameOpen(false)}
@@ -1194,6 +1277,18 @@ export function App() {
           onCancelJob={handleCancelAudioDedup}
           onOpenXlsx={handleOpenAudioDedupXlsx}
           onClose={() => setAudioDedupOpen(false)}
+        />
+      )}
+      {audioDoctorOpen && (
+        <AudioDoctorDialog
+          databasePath={databasePath}
+          defaultRoot={musicRoot}
+          job={audioDoctorJob}
+          onChooseFolder={handleChooseAudioDedupFolder}
+          onStart={handleAudioDoctorStart}
+          onCancelJob={handleCancelAudioDoctor}
+          onOpenXlsx={handleOpenAudioDoctorXlsx}
+          onClose={() => setAudioDoctorOpen(false)}
         />
       )}
       <TooltipLayer tooltip={tooltip} />

@@ -10,7 +10,7 @@
 - Analysis/classifiers: `/api/analysis/jobs`, job status/cancel routes, `/api/analysis/reset`, `/api/classifiers`, classifier analyze/reset/report/suggestions routes.
 - Search/SET: `/api/search`, `/api/search/sonara`, `/api/search/text`, `/api/set-builder/generate`.
 - Exports/tags: `/api/export`, `/api/tags/genres/apply`, and `/api/tags/genres/jobs` routes.
-- Helpers: `/api/audio-dedup/jobs`, `/api/evaluation/*`, and `/api/rhythm-lab/*`.
+- Helpers: `/api/audio-doctor/jobs`, `/api/audio-dedup/jobs`, `/api/evaluation/*`, and `/api/rhythm-lab/*`.
 
 ## Analysis payload
 

@@ -16,7 +16,7 @@ npm run build
 
 ## Focused examples
 
-- Audio repair script: `scripts\tests\test_repair_audio_metadata.py`.
+- Audio Doctor: `scripts\tests\test_repair_audio_metadata.py` and `tests\test_api_audio_doctor.py`.
 - Audio Dedup: `scripts\tests\test_audio_dedup.py`.
 - Rhythm Lab: `tools\rhythm-lab\tests\test_rhythm_lab.py`.
 

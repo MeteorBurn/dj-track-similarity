@@ -12,4 +12,4 @@
 - Smart Set Builder works best with complete MERT, MAEST, CLAP, and SONARA coverage.
 - Classifier quality depends on your labels.
 - Exports and reports can reveal private local paths.
-- Audio repair and duplicate deletion are advanced tools; run dry-run/report first.
+- Audio Doctor repair and duplicate deletion are advanced tools; run dry-run/report first.

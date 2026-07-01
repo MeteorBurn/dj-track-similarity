@@ -4,10 +4,12 @@ import logging
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api_routes_audio_dedup import register_audio_dedup_routes
+from .api_routes_audio_doctor import register_audio_doctor_routes
+from .api_routes_docs import register_docs_routes
 from .api_routes_analysis import register_analysis_routes
 from .api_routes_database import register_database_routes
 from .api_routes_evaluation import register_evaluation_routes
@@ -97,6 +99,7 @@ def create_app(
     register_library_routes(app, state, ffmpeg_path=ffmpeg_path, promoted_classifiers=promoted_classifiers)
     register_analysis_routes(app, state, promoted_classifiers=promoted_classifiers)
     register_audio_dedup_routes(app, state)
+    register_audio_doctor_routes(app, state)
     register_evaluation_routes(app, state)
     register_search_routes(app, state, clap_embedding_adapter=ClapEmbeddingAdapter)
     register_set_builder_routes(app, state, promoted_classifiers=promoted_classifiers)
@@ -110,37 +113,7 @@ def create_app(
     )
 
     package_path = Path(__file__).resolve()
-    docs_candidates = [
-        package_path.parents[2] / "docs" / "dj-track-similarity" / "site",
-        package_path.parent.parent / "docs" / "dj-track-similarity" / "site",
-    ]
-    docs_dir = next((candidate for candidate in docs_candidates if candidate.exists()), None)
-    if docs_dir is not None:
-        app.mount("/docs", StaticFiles(directory=docs_dir, html=True), name="docs")
-    else:
-
-        @app.get("/docs", include_in_schema=False)
-        @app.get("/docs/{path:path}", include_in_schema=False)
-        async def docs_not_built(path: str = ""):
-            return HTMLResponse(
-                """
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Documentation is not built</title>
-  </head>
-  <body>
-    <main>
-      <h1>Documentation is not built</h1>
-      <p>Run <code>npm run build</code> from <code>docs/dj-track-similarity</code>, then reload this page.</p>
-    </main>
-  </body>
-</html>
-""".strip(),
-                status_code=503,
-            )
+    register_docs_routes(app, package_path)
 
     static_candidates = [
         package_path.parents[2] / "frontend" / "dist",

@@ -369,6 +369,63 @@ export type AudioDedupJobPayload = {
   confirmation?: string | null;
 };
 
+export type AudioDoctorSourceMode = "db" | "folder";
+export type AudioDoctorKeepId3 = "first" | "last" | "none";
+
+export type AudioDoctorJobStatus = {
+  job_id: string;
+  state: "queued" | "running" | "completed" | "cancelled" | "failed";
+  source_mode: AudioDoctorSourceMode;
+  db_path: string;
+  folder?: string | null;
+  db_roots: string[];
+  file_root?: string | null;
+  keep_id3: AudioDoctorKeepId3;
+  limit?: number | null;
+  workers: number;
+  reasons: string[];
+  apply: boolean;
+  total: number;
+  processed: number;
+  ok: number;
+  notice: number;
+  repairable: number;
+  repaired: number;
+  suspicious: number;
+  tag_error: number;
+  failed: number;
+  skipped_state: number;
+  skipped_reason: number;
+  missing_db_files: number;
+  current_path?: string | null;
+  current_step?: string | null;
+  json_path?: string | null;
+  xlsx_path?: string | null;
+  log_path?: string | null;
+  state_path?: string | null;
+  started_at?: number | null;
+  finished_at?: number | null;
+  avg_seconds_per_item?: number | null;
+  errors: Array<{ error: string }>;
+  events: Array<{ timestamp: number; level: string; message: string; path?: string | null }>;
+  cancel_requested: boolean;
+};
+
+export type AudioDoctorJobPayload = {
+  source_mode: AudioDoctorSourceMode;
+  folder?: string | null;
+  db_roots?: string[];
+  file_root?: string | null;
+  keep_id3?: AudioDoctorKeepId3;
+  limit?: number | null;
+  workers?: number;
+  reasons?: string[];
+  out_dir?: string | null;
+  state_path?: string | null;
+  apply?: boolean;
+  confirmation?: string | null;
+};
+
 export type AnalysisResetResult = {
   adapter: string;
   tracks_updated: number;
@@ -702,6 +759,18 @@ export const api = {
       method: "POST"
     }),
   audioDedupXlsxUrl: (jobId: string) => `/api/audio-dedup/jobs/${encodeURIComponent(jobId)}/report/xlsx`,
+  audioDoctorJobStart: (payload: AudioDoctorJobPayload) =>
+    request<AudioDoctorJobStatus>("/api/audio-doctor/jobs", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  latestAudioDoctorJob: () => request<AudioDoctorJobStatus | null>("/api/audio-doctor/jobs/latest"),
+  audioDoctorJob: (jobId: string) => request<AudioDoctorJobStatus>(`/api/audio-doctor/jobs/${jobId}`),
+  cancelAudioDoctorJob: (jobId: string) =>
+    request<AudioDoctorJobStatus>(`/api/audio-doctor/jobs/${jobId}/cancel`, {
+      method: "POST"
+    }),
+  audioDoctorXlsxUrl: (jobId: string) => `/api/audio-doctor/jobs/${encodeURIComponent(jobId)}/report/xlsx`,
   analysisJobStart: (payload: {
     models?: AnalysisModel[];
     classifier_keys?: string[];

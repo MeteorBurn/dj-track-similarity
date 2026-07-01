@@ -374,9 +374,10 @@ main {
   background: rgba(255, 95, 137, 0.2);
 }
 
-.source-actions .meta {
-  flex: 1 1 100%;
-  max-width: 100%;
+.source-status-line {
+  grid-column: 4;
+  grid-row: 2;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -438,6 +439,11 @@ main {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.42;
+}
+
+.meta.source-status-line {
+  font-size: 10px;
+  line-height: 1.2;
 }
 
 .guidance-panel,
@@ -820,6 +826,12 @@ menu {
   .collection-controls {
     flex-wrap: wrap;
     justify-content: flex-start;
+  }
+
+  .source-status-line {
+    grid-column: auto;
+    grid-row: auto;
+    flex: 1 1 100%;
   }
 
   #collectionSelect {

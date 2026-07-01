@@ -622,7 +622,7 @@ async function trainRefresh() {
   trainRefreshEl.disabled = true;
   refreshCandidatesEl.disabled = true;
   promoteClassifierEl.disabled = true;
-  refreshCandidatesStatusEl.textContent = "training model and refreshing candidates...";
+  refreshCandidatesStatusEl.textContent = "training model...";
   try {
     const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/training/train-refresh`, { method: "POST" });
     const data = await parseRefreshResponse(response);
@@ -641,7 +641,7 @@ async function promoteClassifier() {
     return;
   }
   promoteClassifierEl.disabled = true;
-  refreshCandidatesStatusEl.textContent = "promoting latest combined model...";
+  refreshCandidatesStatusEl.textContent = "promoting model...";
   try {
     const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/promote`, { method: "POST" });
     const data = await parseRefreshResponse(response);

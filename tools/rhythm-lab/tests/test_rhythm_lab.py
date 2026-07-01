@@ -1283,6 +1283,8 @@ def test_static_ui_source_actions_use_single_status_line() -> None:
     styles = (LAB_ROOT / "rhythm_lab" / "static" / "styles.css").read_text(encoding="utf-8").replace("\r\n", "\n")
 
     assert 'id="sourceActionLog"' not in html
+    assert '<span id="refreshCandidatesStatus" class="meta source-status-line"></span>' in html
+    assert html.index('class="source-actions"') < html.index('id="refreshCandidatesStatus"')
     assert 'sourceActionLogEl' not in script
     assert 'SOURCE_ACTION_LOG_LIMIT' not in script
     assert "handleSourceActionClick" not in script
@@ -1291,11 +1293,12 @@ def test_static_ui_source_actions_use_single_status_line() -> None:
     assert 'trainRefreshEl.addEventListener("click", () => trainRefresh().catch(showError));' in script
     assert 'promoteClassifierEl.addEventListener("click", () => promoteClassifier().catch(showError));' in script
     assert 'refreshCandidatesStatusEl.textContent = "refreshing candidates...";' in script
-    assert 'refreshCandidatesStatusEl.textContent = "training model and refreshing candidates...";' in script
-    assert 'refreshCandidatesStatusEl.textContent = "promoting latest combined model...";' in script
+    assert 'refreshCandidatesStatusEl.textContent = "training model...";' in script
+    assert 'refreshCandidatesStatusEl.textContent = "promoting model...";' in script
     assert ".source-action-log" not in styles
-    assert ".source-actions .meta {\n  flex: 1 1 100%;" in styles
-    assert "  max-width: 100%;" in styles
+    assert ".source-status-line {\n  grid-column: 4;" in styles
+    assert ".meta.source-status-line {\n  font-size: 10px;" in styles
+    assert "  text-overflow: ellipsis;" in styles
 
 
 def test_artifact_cleanup_keeps_recent_files_per_feature_and_protected_artifact(tmp_path: Path) -> None:
@@ -1725,8 +1728,8 @@ def test_web_app_serves_static_profile_ui_without_hardcoded_label_buttons(tmp_pa
     script = client.get("/static/app.js").text
     styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
 
-    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260702-source-status-line" />' in html
-    assert '<script src="/static/app.js?v=rhythm-lab-20260702-source-status-line" defer></script>' in html
+    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260702-source-status-line-compact" />' in html
+    assert '<script src="/static/app.js?v=rhythm-lab-20260702-source-status-line-compact" defer></script>' in html
     assert 'id="profileSelect"' in html
     assert "/api/profiles" in script
     assert "function renderLabelButtons" in script
@@ -2078,7 +2081,7 @@ def test_web_app_header_profile_controls_align_with_source_controls(tmp_path: Pa
     assert ".source-actions {\n  grid-column: 4;\n  display: inline-flex;\n  align-items: center;\n  justify-content: flex-start;" in styles
     assert "#archiveProfile,\n#trainingTab {\n  width: var(--header-action-width);" in styles
     assert "#trainingTab {\n  flex: 0 0 var(--header-action-width);" in styles
-    assert ".source-actions .meta {\n  flex: 1 1 100%;" in styles
+    assert ".source-status-line {\n  grid-column: 4;" in styles
 
 
 def test_web_app_header_badge_aligns_with_title_text(tmp_path: Path) -> None:

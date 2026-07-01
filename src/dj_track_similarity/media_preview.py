@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import tempfile
+import wave
 from pathlib import Path
 
 from fastapi.responses import FileResponse
@@ -10,10 +11,21 @@ from starlette.background import BackgroundTask
 
 
 LOGGER = logging.getLogger(__name__)
+AIFF_PREVIEW_SUFFIXES = {".aif", ".aiff"}
+BROWSER_SAFE_WAV_SAMPLE_WIDTH = 2
 
 
 class AudioPreviewError(RuntimeError):
     """Raised when an audio preview response cannot be prepared."""
+
+
+def requires_browser_preview_transcode(path: Path) -> bool:
+    suffix = path.suffix.lower()
+    if suffix in AIFF_PREVIEW_SUFFIXES:
+        return True
+    if suffix == ".wav":
+        return not _is_browser_safe_wav(path)
+    return False
 
 
 def transcoded_wav_file_response(path: Path, ffmpeg_path: str) -> FileResponse:
@@ -63,6 +75,18 @@ def _decode_stderr(stderr: object) -> str:
     if isinstance(stderr, str):
         return stderr.strip()
     return ""
+
+
+def _is_browser_safe_wav(path: Path) -> bool:
+    try:
+        with wave.open(str(path), "rb") as audio:
+            return (
+                audio.getsampwidth() == BROWSER_SAFE_WAV_SAMPLE_WIDTH
+                and audio.getnchannels() > 0
+                and audio.getframerate() > 0
+            )
+    except (EOFError, OSError, wave.Error):
+        return False
 
 
 def _delete_temp_file(path: Path) -> None:

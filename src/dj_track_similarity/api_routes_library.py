@@ -9,10 +9,7 @@ from fastapi.responses import FileResponse
 from .api_route_utils import query_classifier_min_scores, valid_classifier_min_scores
 from .api_schemas import FilteredTracksRequest, RelocateLibraryRequest, ScanRequest, TagRefreshRequest, TrackLikedRequest
 from .api_state import AppDatabaseState
-from .media_preview import AudioPreviewError, transcoded_wav_file_response
-
-
-AIFF_PREVIEW_SUFFIXES = {".aif", ".aiff"}
+from .media_preview import AudioPreviewError, requires_browser_preview_transcode, transcoded_wav_file_response
 
 
 def register_library_routes(
@@ -126,7 +123,7 @@ def register_library_routes(
         if not path.exists():
             raise HTTPException(status_code=404, detail="Audio file is missing")
         try:
-            if path.suffix.lower() in AIFF_PREVIEW_SUFFIXES:
+            if requires_browser_preview_transcode(path):
                 return transcoded_wav_file_response(path, ffmpeg_path)
             return FileResponse(path)
         except AudioPreviewError as error:

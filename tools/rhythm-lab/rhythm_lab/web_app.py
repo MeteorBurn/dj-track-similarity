@@ -17,6 +17,7 @@ from starlette.background import BackgroundTask
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.dependencies import require_ffmpeg
 from dj_track_similarity.logging_config import install_asyncio_exception_logging
+from dj_track_similarity.media_preview import requires_browser_preview_transcode
 
 from .cli import DEFAULT_CLASSIFIER_TARGET_ROOT, PromotionError, promote_profile_model
 from .lab_db import ClassifierProfile, RhythmLabDatabase
@@ -26,7 +27,6 @@ from .training import benchmark_lab_database
 
 
 LOGGER = logging.getLogger(__name__)
-AIFF_PREVIEW_SUFFIXES = {".aif", ".aiff"}
 STATIC_DIR = Path(__file__).with_name("static")
 FAVICON_PATH = STATIC_DIR / "favicon.svg"
 TRAIN_REFRESH_MIN_ADDED = 50
@@ -533,7 +533,7 @@ def create_app(
         path = Path(track.path)
         if not path.is_file():
             raise HTTPException(status_code=404, detail="Audio file is missing")
-        if path.suffix.lower() in AIFF_PREVIEW_SUFFIXES:
+        if requires_browser_preview_transcode(path):
             try:
                 return _transcoded_wav_file_response(path, require_ffmpeg())
             except RuntimeError as error:
@@ -856,7 +856,7 @@ def _transcoded_wav_file_response(path: Path, ffmpeg_path: str) -> FileResponse:
     except (OSError, subprocess.CalledProcessError) as error:
         _delete_temp_file(temp_path)
         LOGGER.warning("ffmpeg preview transcode failed path=%s error=%s", path, error)
-        raise RuntimeError("AIFF preview transcode failed") from error
+        raise RuntimeError("Audio preview transcode failed") from error
     return FileResponse(
         temp_path,
         media_type="audio/wav",

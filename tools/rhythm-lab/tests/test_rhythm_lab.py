@@ -8,6 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 import csv
+import wave
 import joblib
 
 import numpy as np
@@ -1985,6 +1986,41 @@ def test_web_app_serves_aiff_preview_as_seekable_browser_audio(monkeypatch, tmp_
     assert calls[0][-2:] == ["-y", calls[0][-1]]
 
 
+def test_web_app_serves_24_bit_wav_preview_as_seekable_browser_audio(monkeypatch, tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    import rhythm_lab.web_app as web_app
+
+    source_path = tmp_path / "source.sqlite"
+    source = LibraryDatabase(source_path)
+    path = tmp_path / "preview-24.wav"
+    _write_wav(path, sample_width=3)
+    track_id = source.upsert_track(path=path, size=path.stat().st_size, mtime=1, metadata={"title": "Preview 24"})
+    labels_path = tmp_path / "labels.sqlite"
+    calls = []
+
+    def fake_run(command, *, stderr, check):
+        calls.append(command)
+        Path(command[-1]).write_bytes(b"RIFFbrowser-compatible-wav")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(web_app, "require_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(web_app.subprocess, "run", fake_run)
+    client = TestClient(create_app(source_path, labels_db_path=labels_path))
+
+    response = client.get(f"/media/{track_id}")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("audio/wav")
+    assert response.headers["accept-ranges"] == "bytes"
+    assert response.headers["content-disposition"].startswith("inline;")
+    assert response.headers["content-length"] == str(len(b"RIFFbrowser-compatible-wav"))
+    assert response.content == b"RIFFbrowser-compatible-wav"
+    assert calls
+    assert calls[0][4] == str(path)
+    assert calls[0][-2:] == ["-y", calls[0][-1]]
+
+
 def test_web_app_audio_preview_is_compact(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
@@ -2584,3 +2620,11 @@ def _track(db: LibraryDatabase, tmp_path: Path, name: str, *, title: str) -> int
     path = tmp_path / name
     path.write_bytes(b"RIFF0000WAVE")
     return db.upsert_track(path=path, size=path.stat().st_size, mtime=1, metadata={"title": title})
+
+
+def _write_wav(path: Path, *, sample_width: int) -> None:
+    with wave.open(str(path), "wb") as audio:
+        audio.setnchannels(2)
+        audio.setsampwidth(sample_width)
+        audio.setframerate(44100)
+        audio.writeframes(b"\x00" * sample_width * 2 * 128)

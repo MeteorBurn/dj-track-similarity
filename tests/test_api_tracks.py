@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 import subprocess
+import wave
 
 from fastapi.testclient import TestClient
 
@@ -508,6 +509,46 @@ def test_media_endpoint_transcodes_aiff_preview_to_browser_playable_wav(monkeypa
     ]]
 
 
+def test_media_endpoint_transcodes_24_bit_wav_preview_to_browser_playable_wav(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    path = tmp_path / "preview-24.wav"
+    _write_wav(path, sample_width=3)
+    track_id = db.upsert_track(path=path, size=path.stat().st_size, mtime=1, metadata={"title": "Preview 24"})
+    calls: list[list[str]] = []
+
+    def fake_run(command: list[str], *, stderr: int, check: bool) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        Path(command[-1]).write_bytes(b"RIFFbrowser-compatible-wav")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(api_module, "require_ffmpeg", lambda: "ffmpeg-test")
+    monkeypatch.setattr(media_preview_module.subprocess, "run", fake_run)
+
+    response = TestClient(create_app(db_path)).get(f"/media/{track_id}")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("audio/wav")
+    assert response.headers["accept-ranges"] == "bytes"
+    assert response.headers["content-disposition"].startswith("inline;")
+    assert response.headers["content-length"] == str(len(b"RIFFbrowser-compatible-wav"))
+    assert response.content == b"RIFFbrowser-compatible-wav"
+    assert calls == [[
+        "ffmpeg-test",
+        "-v",
+        "error",
+        "-i",
+        str(path),
+        "-vn",
+        "-f",
+        "wav",
+        "-codec:a",
+        "pcm_s16le",
+        "-y",
+        calls[0][-1],
+    ]]
+
+
 def test_media_endpoint_reports_preview_transcode_failure_without_traceback(monkeypatch, tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
@@ -543,3 +584,11 @@ def _add_track(
         mtime=1,
         metadata={"artist": artist, "title": title, **metadata},
     )
+
+
+def _write_wav(path: Path, *, sample_width: int) -> None:
+    with wave.open(str(path), "wb") as audio:
+        audio.setnchannels(2)
+        audio.setsampwidth(sample_width)
+        audio.setframerate(44100)
+        audio.writeframes(b"\x00" * sample_width * 2 * 128)

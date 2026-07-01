@@ -1332,9 +1332,21 @@ def test_web_app_html_contains_source_database_controls(tmp_path: Path) -> None:
     client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
     html = client.get("/").text
     script = client.get("/static/app.js").text
+    styles = client.get("/static/styles.css").text
+    stop_button_rule = styles.split(".icon-button.rhythm-lab-stop-button {", 1)[1].split("}", 1)[0]
 
     assert "<strong>Rhythm Lab</strong>" in html
     assert 'id="activeProfileName">No profile selected</span>' in html
+    assert 'id="shutdownLab"' in html
+    assert html.index('id="shutdownLab"') < html.index('id="activeProfileName"')
+    assert 'class="icon-button rhythm-lab-stop-button"' in html
+    assert 'aria-label="Stop Rhythm Lab"' in html
+    assert 'fetch("/api/shutdown"' in script
+    assert "async function shutdownLab()" in script
+    assert ".icon-button.rhythm-lab-stop-button" in styles
+    assert "width: 30px" in stop_button_rule
+    assert "height: 30px" in stop_button_rule
+    assert "margin-left: 14px" in stop_button_rule
     assert 'id="sourcePath"' in html
     assert 'id="chooseSource"' in html
     assert 'id="loadSource"' in html
@@ -1345,6 +1357,24 @@ def test_web_app_html_contains_source_database_controls(tmp_path: Path) -> None:
     assert "coverageBadge(\"SONARA\", data.sonara || 0, \"sonara\")" in script
     assert "labelCountBadges(data.labels || {})" in script
     assert "`${data.tracks} tracks | MAEST ${data.maest} | MERT ${data.mert} | Labels: ${formatLabelCounts(data.labels)}`" not in script
+
+
+def test_web_app_shutdown_endpoint_uses_shutdown_callback(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    calls = []
+    client = TestClient(
+        create_app(
+            labels_db_path=tmp_path / "labels.sqlite",
+            shutdown_callback=lambda: calls.append("shutdown"),
+        )
+    )
+
+    response = client.post("/api/shutdown")
+
+    assert response.status_code == 200
+    assert response.json() == {"stopping": True}
+    assert calls == ["shutdown"]
 
 
 def test_web_app_requires_explicit_profile_selection_on_startup(tmp_path: Path) -> None:
@@ -1367,8 +1397,8 @@ def test_web_app_serves_static_profile_ui_without_hardcoded_label_buttons(tmp_pa
     script = client.get("/static/app.js").text
     styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
 
-    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260616" />' in html
-    assert '<script src="/static/app.js?v=rhythm-lab-20260616" defer></script>' in html
+    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260701" />' in html
+    assert '<script src="/static/app.js?v=rhythm-lab-20260701" defer></script>' in html
     assert 'id="profileSelect"' in html
     assert "/api/profiles" in script
     assert "function renderLabelButtons" in script

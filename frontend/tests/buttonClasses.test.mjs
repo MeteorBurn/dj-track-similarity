@@ -410,16 +410,14 @@ test("topbar rhythm lab launch button opens the lab in a separate window", () =>
   assert.match(actionsBlock, /rhythm-lab-launch-button[\s\S]*stop-active-stage-button/);
 });
 
-test("topbar rhythm lab stop button shuts down the managed lab process", () => {
+test("topbar keeps only rhythm lab launch control", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
-  const apiSource = readFileSync(join(srcDir, "api.ts"), "utf8");
   const actionsBlock = appSource.match(/<div className="topbar-actions">([\s\S]*?)<\/div>/)?.[1] || "";
 
-  assert.match(apiSource, /stopRhythmLab:\s*\(\)\s*=>/);
-  assert.match(apiSource, /\/api\/rhythm-lab\/stop/);
-  assert.match(appSource, /api\.stopRhythmLab\(\)/);
-  assert.match(appSource, /Не удалось остановить Rhythm Lab/);
-  assert.match(actionsBlock, /rhythm-lab-launch-button[\s\S]*rhythm-lab-stop-button[\s\S]*stop-active-stage-button/);
+  assert.match(actionsBlock, /rhythm-lab-launch-button[\s\S]*stop-active-stage-button/);
+  assert.doesNotMatch(actionsBlock, /rhythm-lab-stop-button/);
+  assert.doesNotMatch(appSource, /api\.stopRhythmLab\(\)/);
+  assert.doesNotMatch(appSource, /handleStopRhythmLab/);
 });
 
 test("library controls keep pagination left and actions pinned right", () => {

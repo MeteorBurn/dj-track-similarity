@@ -1,6 +1,6 @@
 import type { MouseEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { CopyX, FlaskConical, Moon, Power, RefreshCcw, ScrollText, Square, Sun, Wrench } from "lucide-react";
+import { CopyX, FlaskConical, Moon, RefreshCcw, ScrollText, Square, Sun, Wrench } from "lucide-react";
 import { AnalysisJobStatus, AnalysisModel, api, AudioDedupJobPayload, AudioDedupJobStatus, AudioDoctorJobPayload, AudioDoctorJobStatus, GenreTagJobStatus, PromotedClassifier, RhythmLabLaunchResult, ScanStats, SetBuilderGeneratePayload, Track } from "./api";
 import { analysisSelectionOrder, isAudioAnalysisModel, type AnalysisSelection } from "./analysisSelection";
 import { AudioDedupDialog } from "./AudioDedupDialog";
@@ -1011,19 +1011,6 @@ export function App() {
     }
   }
 
-  async function handleStopRhythmLab() {
-    try {
-      const result = await api.stopRhythmLab();
-      const status = result.stopped ? "Rhythm Lab остановлен" : result.running ? "Rhythm Lab запущен не из этой кнопки" : "Rhythm Lab не запущен";
-      setNotice({ kind: result.running && !result.stopped ? "error" : "ok", text: status });
-      appendActivity(result.running && !result.stopped ? "warn" : "ok", status, result.url);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setNotice({ kind: "error", text: message });
-      appendActivity("error", "Не удалось остановить Rhythm Lab", message);
-    }
-  }
-
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -1084,15 +1071,6 @@ export function App() {
             type="button"
           >
             <CopyX size={16} />
-          </button>
-          <button
-            className="icon-button rhythm-lab-stop-button"
-            title="Остановить Rhythm Lab"
-            aria-label="Остановить Rhythm Lab"
-            onClick={() => void handleStopRhythmLab()}
-            type="button"
-          >
-            <Power size={16} />
           </button>
           <button
             className="icon-button stop-button stop-active-stage-button"

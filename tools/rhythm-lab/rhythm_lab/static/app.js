@@ -4,6 +4,7 @@ const sourcePathEl = document.getElementById("sourcePath");
 const sourceStatusEl = document.getElementById("sourceStatus");
 const profileSelectEl = document.getElementById("profileSelect");
 const activeProfileNameEl = document.getElementById("activeProfileName");
+const shutdownLabEl = document.getElementById("shutdownLab");
 const libraryTabEl = document.getElementById("libraryTab");
 const candidatesTabEl = document.getElementById("candidatesTab");
 const likedTabEl = document.getElementById("likedTab");
@@ -49,6 +50,7 @@ document.getElementById("load").addEventListener("click", () => loadActive({ res
 document.getElementById("chooseSource").addEventListener("click", () => chooseSource().catch(showError));
 document.getElementById("loadSource").addEventListener("click", () => switchSource(sourcePathEl.value).catch(showError));
 document.getElementById("newProfile").addEventListener("click", () => profileDialogEl.showModal());
+shutdownLabEl.addEventListener("click", () => shutdownLab().catch(showError));
 archiveProfileEl.addEventListener("click", () => archiveActiveProfile().catch(showError));
 document.getElementById("cancelProfileButton").addEventListener("click", () => profileDialogEl.close());
 document.getElementById("newProfileForm").addEventListener("submit", event => createProfile(event).catch(showError));
@@ -259,6 +261,20 @@ function applySourceState(data) {
 
 function clearSourceError() {
   sourceStatusEl.classList.remove("error");
+}
+
+async function shutdownLab() {
+  shutdownLabEl.disabled = true;
+  shutdownLabEl.classList.add("stopping");
+  refreshCandidatesStatusEl.textContent = "stopping Rhythm Lab...";
+  const response = await fetch("/api/shutdown", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({})
+  });
+  await parseJsonResponse(response);
+  refreshCandidatesStatusEl.textContent = "Rhythm Lab stopping...";
+  window.setTimeout(() => window.close(), 300);
 }
 
 async function switchView(view) {

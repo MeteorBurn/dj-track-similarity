@@ -6,6 +6,10 @@
 
 ## Commands
 
+The main app top bar launches Rhythm Lab in a separate window. Stop the lab from
+inside that Rhythm Lab window with its power button; the main app keeps only the
+launch shortcut.
+
 ```powershell
 .\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py serve --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 .\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py train --profile <classifier-key> --source <library-db> --labels tools\rhythm-lab\data\rhythm_lab.sqlite

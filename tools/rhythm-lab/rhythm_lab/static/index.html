@@ -4,8 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260616" />
-  <script src="/static/app.js?v=rhythm-lab-20260616" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260701" />
+  <script src="/static/app.js?v=rhythm-lab-20260701" defer></script>
   <title>Rhythm Lab</title>
 </head>
 <body>
@@ -13,6 +13,12 @@
     <section class="top-bar">
       <div>
         <strong>Rhythm Lab</strong>
+        <button id="shutdownLab" type="button" class="icon-button rhythm-lab-stop-button" title="Stop Rhythm Lab" aria-label="Stop Rhythm Lab">
+          <svg class="lucide lucide-power" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v10" />
+            <path d="M18.4 6.6a9 9 0 1 1-12.77.04" />
+          </svg>
+        </button>
         <span class="classifier-profile classifier-gradient" id="activeProfileName">No profile selected</span>
       </div>
       <div class="profile-controls">

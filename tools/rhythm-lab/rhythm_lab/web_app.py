@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 import json
 import logging
+import os
 from pathlib import Path
 import subprocess
 import tempfile
 import threading
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
@@ -134,6 +136,7 @@ def create_app(
     *,
     labels_db_path: str | Path,
     classifier_target_root: str | Path | None = None,
+    shutdown_callback: Callable[[], None] | None = None,
 ) -> FastAPI:
     labels_path = Path(labels_db_path)
     labels_db = RhythmLabDatabase(labels_path)
@@ -165,6 +168,11 @@ def create_app(
         if static_root not in target.parents or not target.is_file():
             raise HTTPException(status_code=404, detail="Static asset not found")
         return FileResponse(target)
+
+    @app.post("/api/shutdown")
+    def shutdown_lab():
+        callback = shutdown_callback or _schedule_process_shutdown
+        return JSONResponse({"stopping": True}, background=BackgroundTask(callback))
 
     @app.get("/api/source/current")
     def current_source():
@@ -820,3 +828,9 @@ def _delete_temp_file(path: Path) -> None:
 
 def _index_html() -> str:
     return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+
+def _schedule_process_shutdown() -> None:
+    timer = threading.Timer(0.2, lambda: os._exit(0))
+    timer.daemon = True
+    timer.start()

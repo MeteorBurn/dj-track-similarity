@@ -380,7 +380,8 @@ test("clap search exposes prompt presets and optional negative contrast fields w
   assert.match(searchSource, /clapUseNegativePrompt \? "intent-add active" : ""/);
   assert.match(searchSource, /aria-label="Use negative prompt"/);
   assert.match(searchSource, /clap-negative-checkbox/);
-  assert.match(searchSource, /clap-negative-toggle-text/);
+  assert.doesNotMatch(searchSource, /clap-negative-toggle-text/);
+  assert.doesNotMatch(searchSource, />\s*Use\s*</);
   assert.match(searchSource, /onClapUseNegativePromptChange/);
   assert.match(searchSource, /hasStoredClapEmbeddings/);
   assert.match(searchSource, /clap-search-requirement/);

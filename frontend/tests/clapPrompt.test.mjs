@@ -33,6 +33,23 @@ test("clap prompt presets provide direct Find and Negative text", () => {
   assert.ok(preset.negativeQuery.length > 30);
 });
 
+test("clap prompt presets expose the curated profile order", () => {
+  const { clapPromptPresets } = loadClapPromptModule();
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(clapPromptPresets.map((item) => [item.key, item.label]))),
+    [
+      ["adaptive_contrast", "Adaptive"],
+      ["breaks_broken", "Breaks / Syncopated drums"],
+      ["deep_warmup", "Deep Warm-up"],
+      ["vocals_speech", "Vocals / Speech"],
+      ["instrumental", "Instrumental"],
+      ["acoustic_organic", "Acoustic / Organic"],
+      ["ambient_drone", "Ambient / Drone"],
+    ],
+  );
+});
+
 test("manual CLAP prompt text becomes one positive and one enabled negative query", () => {
   const { promptQueriesFromText } = loadClapPromptModule();
 

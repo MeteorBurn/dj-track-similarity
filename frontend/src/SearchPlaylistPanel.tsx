@@ -1129,7 +1129,6 @@ export function SearchPlaylistPanel({
                   <span className="clap-negative-checkbox" aria-hidden="true">
                     {clapUseNegativePrompt ? <Check size={14} strokeWidth={2.4} /> : null}
                   </span>
-                  <span className="clap-negative-toggle-text">Use</span>
                 </label>
               </div>
             </div>

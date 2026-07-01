@@ -1,16 +1,20 @@
 # Reference
 
-Audience: power users and developers  
-Goal: locate exact commands, endpoints, fields, and controls  
-Type: reference index
+> Audience: Power users and integrators.
+> Goal: Look up concise current contracts after learning the workflow.
+> Type: reference
 
-Use reference pages after you know the workflow you want.
+Start with the page that matches the job in front of you. The docs keep human workflow pages separate from compact reference so you can read only what you need.
 
-| Reference | Contents |
-| --- | --- |
-| [CLI](cli.md) | commands, flags, subcommand groups |
-| [API](api.md) | endpoint groups and payload models |
-| [Database](database.md) | SQLite tables and stored state |
-| [Configuration](configuration.md) | ports, paths, environment variables |
-| [Analysis families](analysis-families.md) | SONARA, MAEST, MERT, CLAP, classifiers |
-| [UI controls](ui-controls.md) | current tabs and important controls |
+## Pages
+
+- [CLI](cli.md) — current command names and options.
+- [API](api.md) — active endpoints and payload shapes.
+- [Database](database.md) — schema and write boundaries.
+- [Configuration](configuration.md) — paths, ports, devices, and docs build.
+- [Analysis families](analysis-families.md) — what each model writes.
+- [UI controls](ui-controls.md) — labels, ranges, and meanings.
+
+## Privacy habit
+
+Use placeholders such as `<library-db>` and `<music-folder>` in notes, issues, and examples. Do not publish private paths, usernames, real track names, or personal library data.

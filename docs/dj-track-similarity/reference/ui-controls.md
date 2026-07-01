@@ -1,47 +1,31 @@
 # UI controls reference
 
-Audience: UI users and developers  
-Goal: name the current high-impact controls  
-Type: reference
+> Audience: Users tuning controls after learning the workflow.
+> Goal: Summarize key labels, types, and ranges.
+> Type: reference
 
-## Search tabs
+## Analysis
 
-The search/listening panel is split into:
+| Control | Meaning |
+| --- | --- |
+| Analyze limit | `0` means whole library in the UI; positive values limit missing tracks |
+| Device | `auto`, `cpu`, or `cuda` |
+| Track batch size | decoded tracks grouped together |
+| Inference batch size | model forward-pass batch size |
 
-- `SET`
-- `SONARA`
-- `MERT`
-- `CLAP`
-- `CLASS`
+## SET
 
-## SET controls
-
-Current SET controls include:
-
-- `Seed source`
-- `Set mode`
-- `Track limit`
-- `Auto anchors`
-- `Energy curve`
-- `Diversity`
-- `BPM mode`
-- `BPM change`
-- `Start BPM`
-- `Target BPM`
-- classifier `Target boost`
-- classifier `Avoid cut`
-- `Curve start`
-- `Curve end`
-- `Reset sliders`
-
-SET controls should have hover help for purpose, type/format, and range.
-
-## Analysis controls
-
-`Analyze limit = 0` means the whole library for missing results in the selected
-analysis family. Positive values limit the number of missing results processed.
-
-## Audio dedup apply confirmation
-
-The UI duplicate cleanup apply mode requires the exact confirmation text
-`APPLY DELETE`.
+| Control | Type/range | Meaning |
+| --- | --- | --- |
+| Seed source | manual/auto | selected seeds or auto anchors |
+| Set mode | four modes | similar crate, weird adjacent, balanced set, discovery |
+| Track limit | integer | preview length |
+| Auto anchors | 1-5 | waypoint count in auto mode |
+| Energy curve | warmup/balanced/peak/wave | intensity route |
+| Diversity | 0.00-1.00 | closeness vs exploration |
+| BPM mode | general/low_to_high/high_to_low | compatibility or actual trajectory |
+| BPM change | slow/medium/fast | trajectory speed |
+| Start BPM, Target BPM | 20-300 or blank | trajectory bounds |
+| Target boost, Avoid cut | classifier sliders | optional modifiers |
+| Curve start, Curve end | classifier flow | flat/rise/fall shaping |
+| Reset sliders | action | reset diversity and classifier slider values only |

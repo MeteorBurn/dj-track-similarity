@@ -1,52 +1,17 @@
-# Audio dedup
+# Audio Dedup
 
-Audience: careful power users  
-Goal: generate duplicate-audio reports and understand explicit apply mode  
-Type: how-to/reference
+> Audience: Users looking for duplicate audio candidates.
+> Goal: Generate reports first and apply deletion only with explicit confirmation.
+> Type: how-to
 
-The duplicate-audio tool reads an existing project SQLite database and compares
-tracks inside a selected stored path root. By default it writes reports only.
-
-## Report-only run
-
-Activate the project environment once:
+## Report mode
 
 ```powershell
-.\.venv\Scripts\Activate.ps1
+.\.venv\Scripts\python.exe tools\audio-dedup\audio_dedup_cli.py --db <library-db> --root <music-folder>
 ```
 
-All following commands assume the environment is active.
+Default mode writes JSON/XLSX/log reports and deletes nothing.
 
-```powershell
-python tools\audio-dedup\audio_dedup_cli.py `
-  --db .\data\library.sqlite `
-  --root D:\Music `
-  --preset safe
-```
+## Apply
 
-Useful options:
-
-- `--path-contains` filters stored paths and can be repeated.
-- `--preset` is `safe`, `balanced`, or `aggressive`.
-- `--min-score` and `--min-similarity` override preset thresholds.
-- `--limit-groups` limits the number of duplicate groups written.
-- `--out-dir` changes the report directory.
-
-## Apply mode
-
-```powershell
-python tools\audio-dedup\audio_dedup_cli.py `
-  --db .\data\library.sqlite `
-  --root D:\Music `
-  --preset safe `
-  --apply
-```
-
-Apply mode writes reports first, then prompts for confirmation before deleting
-safe duplicate candidates and their database rows. Do not run apply mode from
-routine tests or broad verification.
-
-## Main UI job
-
-The UI exposes the same safety boundary. Apply mode requires the exact
-confirmation text `APPLY DELETE`.
+`--apply` is destructive. It prompts for exact confirmation `APPLY DELETE`, deletes only safe duplicate candidates inside the selected root, and removes SQLite rows only after files are successfully deleted.

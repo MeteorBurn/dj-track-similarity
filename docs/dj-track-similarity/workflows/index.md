@@ -1,19 +1,19 @@
 # Workflows
 
-Audience: DJs, power users, and returning users  
-Goal: choose a practical route through the app  
-Type: how-to index
+> Audience: DJs and collectors with a concrete job to do.
+> Goal: Follow practical recipes instead of reading reference first.
+> Type: how-to
 
-These workflows combine the UI, CLI, and helper tools into end-to-end tasks.
-They are intentionally more practical than the reference pages.
+Start with the page that matches the job in front of you. The docs keep human workflow pages separate from compact reference so you can read only what you need.
 
-| Task | Start here |
-| --- | --- |
-| Prepare a temporary set idea | [Prepare a set](prepare-a-set.md) |
-| Find tracks that fit a seed | [Find compatible tracks](find-compatible-tracks.md) |
-| Build crates for later review | [Build crates](build-crates.md) |
-| Train and promote a classifier | [Train a personal classifier](train-personal-classifier.md) |
-| Maintain the library safely | [Maintain the library](maintain-library.md) |
+## Pages
 
-If you need exact flags, endpoints, or table names, use the
-[reference](../reference/index.md) section after choosing a workflow.
+- [Prepare a set](prepare-a-set.md) — from seed ideas to an exportable shortlist.
+- [Find compatible tracks](find-compatible-tracks.md) — use seed and transition clues.
+- [Build crates](build-crates.md) — turn similarity into listening piles.
+- [Train a personal classifier](train-personal-classifier.md) — label, train, promote, and score.
+- [Maintain a library](maintain-library.md) — refresh tags, relocate paths, and keep reports safe.
+
+## Privacy habit
+
+Use placeholders such as `<library-db>` and `<music-folder>` in notes, issues, and examples. Do not publish private paths, usernames, real track names, or personal library data.

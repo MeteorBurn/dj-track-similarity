@@ -1,37 +1,17 @@
-# Export playlists
+# Export a playlist preview
 
-Audience: UI users  
-Goal: write a reviewed temporary set to disk  
-Type: how-to
+> Audience: Users ready to take a shortlist into another tool.
+> Goal: Export selected tracks as M3U or CSV without changing audio files.
+> Type: how-to
 
-Export writes playlist or report files from the current set. It does not
-rewrite audio files.
+## UI flow
 
-## Build a current set
+Add candidates from search or SET preview to the current set, review the order, choose M3U or CSV, then choose an output folder.
 
-Add tracks from:
+## API
 
-- library rows;
-- seed-search results;
-- a Smart Set Builder preview.
+The UI calls `/api/export` with a name, track IDs, output directory, and format `m3u` or `csv`.
 
-Review the order before exporting.
+## Privacy
 
-## Export formats
-
-The API supports:
-
-- `m3u`;
-- `csv`.
-
-Choose an output directory that is safe to write. Avoid committing generated
-exports if they contain private library paths.
-
-## What export stores
-
-Export stores a file that points at selected tracks. It does not:
-
-- write tags;
-- move audio;
-- delete audio;
-- change analysis state.
+CSV and M3U exports can include local paths. Do not publish them if they reveal private collection structure.

@@ -1,64 +1,21 @@
-# Repair audio metadata
+# Repair audio metadata helper
 
-Audience: careful power users  
-Goal: inspect and optionally repair known metadata/container issues  
-Type: how-to/reference
-
-`scripts/audio_repair/repair_audio_metadata.py` is a standalone helper. It is
-dry-run-first and separate from the app's normal tag-writing path.
+> Audience: Power users investigating broken metadata or WAV ID3 issues.
+> Goal: Use the dry-run-first repair script with clear backup expectations.
+> Type: how-to
 
 ## Dry-run
 
-Activate the project environment once:
-
 ```powershell
-.\.venv\Scripts\Activate.ps1
+.\.venv\Scripts\python.exe scripts\audio_repair\repair_audio_metadata.py --folder <music-folder>
 ```
 
-All following commands assume the environment is active.
+Dry-run does not write or copy audio.
 
-Inspect a folder:
+## Database input
 
-```powershell
-python scripts\audio_repair\repair_audio_metadata.py --folder D:\Music
-```
+`--db` opens SQLite read-only. `--db-root` plus `--file-root` remaps stored roots before filesystem checks; missing remapped files are skipped.
 
-Inspect paths from a project database:
+## Apply backup
 
-```powershell
-python scripts\audio_repair\repair_audio_metadata.py `
-  --db .\data\library.sqlite `
-  --db-root D:\Music
-```
-
-Dry-run is read-only. It does not copy or write audio files.
-
-## Reports and state
-
-The script can write JSON, XLSX, and structured log reports under
-`scripts/audio_repair/reports` by default. Folder and DB mode use state files
-under `scripts/audio_repair/state` so you can later process selected reasons.
-
-## Apply
-
-```powershell
-python scripts\audio_repair\repair_audio_metadata.py `
-  --folder D:\Music `
-  --reason REPAIRABLE `
-  --apply
-```
-
-Apply mode is sequential. It rewrites only files the script reports as
-repairable. Full-file backups are created by default under
-`scripts/audio_repair/backups`.
-
-Use `--no-backup` only when you already have a separate backup.
-
-## Common selectors
-
-- `--log` extracts post-save readback-failed WAV paths from a project log.
-- `--since` and `--until` restrict log timestamps.
-- `--file-root` remaps paths collected from a `--db-root`.
-- `--limit` processes only the first selected paths.
-- `--workers` controls parallel dry-run workers; apply always runs
-  sequentially.
+`--apply` writes only repairable files. Unless `--no-backup` is used, it creates a full-file backup before writing, deletes it after successful verification, or restores from it on failure and then deletes it. Do not treat backups as a retained archive.

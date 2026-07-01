@@ -1,48 +1,25 @@
 # Configuration reference
 
-Audience: power users and developers  
-Goal: list runtime paths, ports, and environment variables  
-Type: reference
+> Audience: Users wiring local paths, ports, and builds.
+> Goal: Know important runtime and docs settings.
+> Type: reference
 
-## Common ports
+## Paths
 
-| Component | Default |
-| --- | --- |
-| Main FastAPI server | `127.0.0.1:8765` |
-| Frontend Vite dev server | `127.0.0.1:5173` |
-| Rhythm Lab | `127.0.0.1:8777` |
+- Source package: `src/dj_track_similarity/`.
+- Frontend source: `frontend/`.
+- Docs source: `docs/dj-track-similarity/`.
+- Docs output: `docs/dj-track-similarity/site/` (local build output, ignored by Git).
+- Promoted classifiers: `models/classifiers/<artifact-prefix>/`.
 
-Before starting a local UI/server process, check whether the intended port is
-already in use.
+## Ports
 
-## FFmpeg
+Main backend uses `8765`, frontend Vite uses `5173`, and Rhythm Lab uses `8777`. Check for an existing project process before starting another fixed-port server.
 
-The server and robust audio decoding require FFmpeg. Either put `ffmpeg` on
-`PATH` or set:
+## Runtime
 
-```powershell
-$env:DJ_TRACK_SIMILARITY_FFMPEG = "C:\path\to\ffmpeg.exe"
-```
+`ffmpeg` must be on `PATH` or configured through `DJ_TRACK_SIMILARITY_FFMPEG`. Analysis device values are `auto`, `cpu`, and `cuda`.
 
-The matching `ffprobe` is resolved near FFmpeg when available.
+## Docs
 
-## Logging environment variables
-
-| Variable | Purpose |
-| --- | --- |
-| `DJ_TRACK_SIMILARITY_LOG` | log file path |
-| `DJ_TRACK_SIMILARITY_LOG_LEVEL` | default log level |
-| `DJ_TRACK_SIMILARITY_LOG_TRACK_EVENTS` | enable track event logs |
-| `DJ_TRACK_SIMILARITY_ANALYSIS_DIAGNOSTICS` | enable analysis diagnostics |
-
-## Documentation build
-
-The docs VitePress root is `docs/dj-track-similarity`.
-
-```powershell
-cd docs\dj-track-similarity
-npm run build
-```
-
-The generated site is `docs/dj-track-similarity/site` and is served by the main
-backend at `/docs/`.
+From `docs\dj-track-similarity`, run `npm run build` for local preview or deployment. VitePress uses `base: "/docs/"` and `outDir: "site"`. The backend serves `/docs/` from that folder when it exists; otherwise it shows a clear not-built page.

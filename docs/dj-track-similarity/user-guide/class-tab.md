@@ -1,37 +1,21 @@
-# CLASS tab and promoted classifiers
+# Use the CLASS tab
 
-Audience: Rhythm Lab users  
-Goal: use promoted classifier scores in the main UI  
-Type: how-to
+> Audience: Users with promoted Rhythm Lab classifiers.
+> Goal: Score personal classifiers and use their results safely.
+> Type: how-to
 
-The `CLASS` tab discovers promoted local classifier profiles from
-`models/classifiers/*/model.json`. A promoted classifier writes scores into the
-project database, then those scores become filters or modifiers in UI workflows.
+## Discovery
 
-## What the score means
+The tab discovers promoted classifier profiles from `models/classifiers/*/model.json`.
 
-For binary classifier profiles, the user-facing score is the promoted model's
-positive-label probability stored in `track_classifier_scores.score`.
+## Scoring
 
-Missing scores are neutral in SET. They do not count as a negative judgment.
+Promoted scoring reads existing SONARA features plus MERT and MAEST embeddings, then writes `track_classifier_scores` scoped by classifier key. It does not decode or modify audio.
 
-## Score a promoted classifier
+## Retraining
 
-Use the classifier scoring control for one promoted profile. The app should
-score only missing rows for that classifier key unless you intentionally reset
-that classifier's rows.
+After retraining and promoting the same classifier key, reset only that classifier's stored scores before rescoring. Other classifier keys should remain untouched.
 
-After retraining and promoting a new model for the same key, reset only that
-classifier's stored scores and rescore it.
+## SET
 
-## Keep scopes separate
-
-Classifier scoring:
-
-- reads existing SONARA, MERT, and MAEST-derived inputs;
-- writes only SQLite `track_classifier_scores`;
-- does not decode audio for normal scoring;
-- does not clear scores for unrelated classifier keys.
-
-Use [Train a personal classifier](../workflows/train-personal-classifier.md)
-for the labeling/training/promotion workflow.
+Classifier sliders are optional modifiers. Missing scores remain neutral.

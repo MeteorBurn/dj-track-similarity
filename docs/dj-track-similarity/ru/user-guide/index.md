@@ -1,16 +1,20 @@
-# User guide
+# Руководство пользователя
 
-Аудитория: обычные пользователи UI  
-Цель: работать с библиотекой, search, SET, CLASS и export  
-Тип: how-to index
+> Audience: Пользователи этого раздела.
+> Goal: Найти нужную страницу и не смешивать workflow с reference.
+> Type: how-to
 
-| Задача | Страница |
-| --- | --- |
-| Browse library и preview | [Browse library](browse-library.md) |
-| Запустить analysis jobs | [Analyze library](analyze-library.md) |
-| Искать по seed tracks | [Search with seeds](search-with-seeds.md) |
-| Создать SET preview | [Smart Set Builder](smart-set-builder.md) |
-| Искать по text prompt | [Text search](text-search.md) |
-| Использовать classifier scores | [CLASS tab](class-tab.md) |
-| Export playlists | [Export playlists](export-playlists.md) |
-| Понять tag writes | [Tags and audio writes](tags-and-audio-writes.md) |
+## Pages
+
+- [Browse library](browse-library.md) — filter, paginate, preview, and inspect tracks.
+- [Analyze library](analyze-library.md) — start and monitor analysis jobs.
+- [Search with seeds](search-with-seeds.md) — use SET, SONARA, and MERT seed workflows.
+- [Smart Set Builder](smart-set-builder.md) — generate ordered previews.
+- [Text search](text-search.md) — use CLAP prompts.
+- [CLASS tab](class-tab.md) — score promoted classifiers.
+- [Export playlists](export-playlists.md) — write M3U or CSV from a preview.
+- [Tags and audio writes](tags-and-audio-writes.md) — know exactly when audio is changed.
+
+## Privacy
+
+Используйте `<library-db>` и `<music-folder>` в публичных examples. Не публикуйте private paths, usernames, real track names или personal library contents.

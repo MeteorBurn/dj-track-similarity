@@ -1,46 +1,18 @@
-# Local-first safety
+# Local-first safety model
 
-Аудитория: все пользователи  
-Цель: показать, что может изменять каждый workflow  
-Тип: explanation
+> Audience: Пользователи и разработчики, которым важны границы записи.
+> Goal: Понять, что пишет SQLite, отчёты, теги или удаляет файлы.
+> Type: how-to
 
-Проект построен вокруг local files и explicit write boundaries. App не
-загружает ваше аудио наружу.
+Основная модель простая: обычные сценарии приложения читают аудио и пишут состояние в SQLite. Только явно названные действия трогают исходные аудиофайлы или удаляют файлы.
 
-## Normal read-only audio workflows
+## Read-only по умолчанию
 
-Эти workflows могут читать audio files и писать SQLite state, но не
-переписывают source audio:
+Scan, Refresh Tags, analysis, search, preview, reset, clear, relocation preview и export не переписывают исходное аудио. Они обновляют базу, возвращают ответы API или создают M3U/CSV.
 
-- scanning tags into the library database;
-- refreshing tag metadata;
-- SONARA, MAEST, MERT, CLAP and classifier analysis;
-- browsing and preview playback;
-- seed search, text search, SONARA search and SET previews;
-- reset and clear actions for database analysis state;
-- playlist/report export.
+## Явные исключения
 
-Browser preview может транскодировать AIFF/AIF в WAV для streaming. Это
-read-only media response, не rewrite source file.
-
-## What writes SQLite
-
-Main app хранит library rows, metadata, analysis results, embeddings, search
-state, likes и classifier scores в SQLite. Writes идут через database layer с
-path-scoped lock.
-
-## What writes reports
-
-Exports, duplicate reports и audio repair reports пишут local files в selected
-output directory. Reports отделены от source audio.
-
-## What can write audio tags
-
-Explicit standard-genre write workflow может писать stored MAEST genre labels в
-standard audio genre tags. Это не часть normal analysis или search.
-
-## What can delete audio
-
-Только duplicate cleanup apply mode предназначен для удаления audio files, и
-только после explicit apply workflow and confirmation. Routine verification and
-tests не должны запускать destructive apply mode.
+- Genre apply пишет стандартный genre tag из сохранённых MAEST labels.
+- Audio repair `--apply` может переписать файлы, помеченные как `REPAIRABLE`, и по умолчанию создаёт full-file backups. Dry-run ничего не пишет.
+- Audio Dedup apply/delete может удалить подтверждённые duplicate candidates после точного подтверждения.
+- Relocation apply не двигает и не копирует аудио; он обновляет только сохранённые `tracks.path` значения после проверок missing files и conflicts.

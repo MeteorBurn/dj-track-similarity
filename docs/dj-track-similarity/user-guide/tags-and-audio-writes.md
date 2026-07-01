@@ -1,45 +1,21 @@
-# Tags and audio writes
+# Know when audio files can be written
 
-Audience: careful users and power users  
-Goal: understand the explicit tag-writing exception  
-Type: how-to
+> Audience: Users deciding whether to run tag or repair actions.
+> Goal: Separate read-only workflows from explicit audio writes and deletes.
+> Type: how-to
 
-Most app workflows are read-only toward source audio. Genre tag writing is the
-intentional exception: it can write stored MAEST genre labels into standard
-audio genre tags.
+## Read-only by default
 
-## What can write tags
+Scan, Refresh Tags, analysis, search, previews, export, reset, clear, and relocation preview read files or write SQLite/reports only.
 
-The explicit app path is:
+## Genre tag apply
 
-```text
-POST /api/tags/genres/apply
-```
+`/api/tags/genres/apply` and genre tag jobs write stored MAEST genres to the standard genre field while preserving title, artist, album, BPM, key, and other normal tags.
 
-or the matching UI job.
+## Tag fields
 
-It writes only the standard genre field from stored MAEST labels. It should
-preserve title, artist, album, BPM, key, and other normal tags.
+MP3/WAV/AIFF ID3 use `TCON`; FLAC/Vorbis-style tags use `GENRE`; MP4/M4A/ALAC use `©gen`. WAV uses Mutagen WAVE/ID3 and reads back `TCON`.
 
-## Formats
+## Other explicit exceptions
 
-The tag-writing code uses standard fields:
-
-- `TCON` for MP3/WAV/AIFF ID3;
-- `GENRE` for FLAC/Vorbis-style tags;
-- `©gen` for MP4/M4A/ALAC.
-
-## Batch behavior
-
-Failed writes should fail that track and let the batch continue. For WAV, the
-app uses Mutagen WAVE/ID3 handling and reads back `TCON`; it does not add custom
-RIFF repair logic to the tag-writing path.
-
-## Before writing tags
-
-Make sure:
-
-- MAEST labels are present and worth writing;
-- you have backups if the files matter;
-- you understand this is not the same workflow as search, analysis, preview, or
-  export.
+Audio repair `--apply` can rewrite repairable files. Audio Dedup apply/delete can delete duplicate candidates after exact confirmation.

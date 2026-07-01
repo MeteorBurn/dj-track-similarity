@@ -1,20 +1,18 @@
-# Getting Started
+# Getting started
 
-Audience: new users  
-Goal: get from a fresh checkout to a visible local library  
-Type: tutorial map
+> Audience: New users.
+> Goal: Get from checkout to first searchable library.
+> Type: tutorial
 
-Start here if you want the shortest path to a useful result. The pages in this
-section assume Windows PowerShell and a local project checkout.
+Start with the page that matches the job in front of you. The docs keep human workflow pages separate from compact reference so you can read only what you need.
 
-1. [Quickstart](quickstart.md): create the environment, install the app, scan a
-   folder, and open the UI.
-2. [Install](install.md): choose base, SONARA, ML, Rhythm Lab, and ANN
-   dependency groups.
-3. [First library](first-library.md): understand what scan stores and how to
-   choose a safe first folder.
-4. [First analysis](first-analysis.md): choose SONARA, MAEST, MERT, CLAP, or
-   classifier scoring without wasting time.
+## Pages
 
-After that, move to the [User guide](../user-guide/index.md) for daily UI work
-or [Workflows](../workflows/index.md) for DJ preparation scenarios.
+- [Quickstart](quickstart.md) — shortest safe path.
+- [Install](install.md) — environment and dependencies.
+- [First library](first-library.md) — scan your music folder.
+- [First analysis](first-analysis.md) — run the unified analysis job.
+
+## Privacy habit
+
+Use placeholders such as `<library-db>` and `<music-folder>` in notes, issues, and examples. Do not publish private paths, usernames, real track names, or personal library data.

@@ -1,64 +1,23 @@
-# Create your first library
+# Build your first library
 
-Audience: new users  
-Goal: understand scan and the first database  
-Type: tutorial
+> Audience: Users adding local tracks for the first time.
+> Goal: Scan a music folder into SQLite and understand what the scan writes.
+> Type: tutorial
 
-A library is a SQLite database that points at your local audio files. Scan reads
-file metadata with Mutagen and stores rows in SQLite. It does not rewrite the
-audio files.
+## What a library is
 
-## Pick a safe first folder
-
-Start with a small folder:
-
-- a few tracks you can rescan freely;
-- no private paths you plan to publish in screenshots;
-- enough variety to make search results visible later.
+A library is a SQLite database with track paths, file facts, readable Mutagen tags, metadata JSON, and analysis flags. Scan reads metadata and writes SQLite rows; it does not retag audio.
 
 ## Scan
 
-Activate the project environment once, then run:
-
 ```powershell
-New-Item -ItemType Directory -Force .\data
-dj-sim scan <music-library> --db .\data\library.sqlite
+dj-sim scan <music-folder> --db .\data\library.sqlite
 ```
 
-Expected result:
+## UI path
 
-```text
-added=<n> updated=<n> unchanged=<n> skipped=<n>
-```
+Start the server, choose or enter a music folder, start scan, watch the process log, then browse the paginated library list.
 
-The database stores file path, size, modified time, title, artist, album, BPM,
-key, duration, energy, and JSON metadata when available.
+## Refresh Tags
 
-## Open it in the UI
-
-```powershell
-dj-sim serve --host 127.0.0.1 --port 8765 --db .\data\library.sqlite
-```
-
-Open `http://127.0.0.1:8765/`.
-
-In the UI, the library panel supports:
-
-- text search by artist, title, genre, and path;
-- LIKE and FTS search modes;
-- liked-track filtering;
-- seed selection;
-- preview playback;
-- metadata dialog with separated Mutagen tags, SONARA features, MAEST genres,
-  and classifier scores.
-
-## What scan does not do
-
-Scan does not:
-
-- analyze audio with SONARA, MAEST, MERT, or CLAP;
-- train classifiers;
-- write tags into source files;
-- move, copy, or delete audio.
-
-Run [First analysis](first-analysis.md) when the library rows are visible.
+Refresh Tags repeats the metadata read for existing rows and updates SQLite only.

@@ -1,47 +1,6 @@
-# UI controls reference
+# Ui Controls
 
-Аудитория: UI users и developers  
-Цель: назвать current high-impact controls  
-Тип: reference
+> Audience: Пользователи этой страницы.
+> Type: how-to
 
-## Search tabs
-
-Search/listening panel split into:
-
-- `SET`
-- `SONARA`
-- `MERT`
-- `CLAP`
-- `CLASS`
-
-## SET controls
-
-Current SET controls:
-
-- `Seed source`
-- `Set mode`
-- `Track limit`
-- `Auto anchors`
-- `Energy curve`
-- `Diversity`
-- `BPM mode`
-- `BPM change`
-- `Start BPM`
-- `Target BPM`
-- classifier `Target boost`
-- classifier `Avoid cut`
-- `Curve start`
-- `Curve end`
-- `Reset sliders`
-
-SET controls should have hover help for purpose, type/format and range.
-
-## Analysis controls
-
-`Analyze limit = 0` means whole library for missing results in selected
-analysis family. Positive values limit missing results processed.
-
-## Audio dedup apply confirmation
-
-UI duplicate cleanup apply mode requires exact confirmation text
-`APPLY DELETE`.
+Analysis: `Analyze limit = 0` means whole library in UI; device is `auto`, `cpu` or `cuda`. SET controls include Seed source, Set mode, Track limit, Auto anchors, Energy curve, Diversity 0.00-1.00, BPM mode, BPM change, Start BPM, Target BPM, Target boost, Avoid cut, Curve start, Curve end, Reset sliders.

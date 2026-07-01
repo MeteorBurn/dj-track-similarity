@@ -1,32 +1,6 @@
-# Known limits
+# Known Limits
 
-Аудитория: все пользователи  
-Цель: clearly state non-goals and practical boundaries  
-Тип: explanation
+> Audience: Пользователи этой страницы.
+> Type: how-to
 
-`dj-track-similarity` useful for local library exploration, but it has limits.
-
-## Not a commercial product
-
-Project is public personal/enthusiast utility. Expect practical local workflows
-rather than polished hosted service.
-
-## Not a research benchmark
-
-Scores useful for ranking and discovery, not for proving objective musical
-truth.
-
-## Analysis coverage matters
-
-Search modes depend on stored analysis. Track without required features or
-embeddings may be invisible to specific search mode.
-
-## Metadata quality matters
-
-Artist guards, BPM fallback behavior, browsing and exports are better when file
-tags are clean.
-
-## Apply modes need care
-
-Tag writing, audio repair and duplicate cleanup can modify files or database
-rows. They are intentionally separate from normal browsing and search.
+This is a local personal project. Large analysis jobs can be slow. Scores are not objective truth. SET needs complete coverage for best results. Classifier quality depends on labels. Exports and reports can reveal private paths. Repair and dedup apply modes are advanced and risky.

@@ -1,75 +1,34 @@
 # Train a personal classifier
 
-Audience: power users using Rhythm Lab  
-Goal: label tracks, train a profile, promote it, and score the main library  
-Type: tutorial
+> Audience: Power users who want their own taste signals in the main app.
+> Goal: Label in Rhythm Lab, train, promote, and score safely.
+> Type: how-to
 
-Rhythm Lab is the separate local tool for personal classifier profiles. It reads
-the main project database for track metadata and analysis inputs, but keeps lab
-labels, predictions, queues, and training checkpoints under
-`tools/rhythm-lab/data/`.
+Personal classifiers are useful when your taste signal is hard to express as one prompt or feature slider, such as "live percussion feel" or "avoid festival vocals." Expect an iterative loop: label a clear idea, train, listen to mistakes, add better labels, then train again.
 
-## 1. Activate the environment
+## Flow
 
-From the project root:
+- Launch Rhythm Lab from the main UI or CLI.
+- Pick a binary or multiclass profile.
+- Add enough labels for the active profile.
+- Train; calibration is optional and data-gated.
+- Promote to `models/classifiers/<artifact-prefix>/`.
+- Score that classifier in the main app CLASS tab.
 
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
+## Pick the profile type
 
-All following commands assume the environment is active.
+- Use a binary profile when you want one positive idea and one negative counterexample. This is the easiest starting point for a yes/no taste signal.
+- Use a multiclass profile when tracks should belong to one of several user-defined classes. One track can hold only one current class label for the active multiclass profile.
 
-## 2. Start Rhythm Lab
+## What each stage means
 
-```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py serve `
-  --source .\data\library.sqlite `
-  --labels tools\rhythm-lab\data\rhythm_lab.sqlite `
-  --host 127.0.0.1 `
-  --port 8777
-```
+- Labeling creates training examples in Rhythm Lab state under `tools/rhythm-lab/data/`; it does not edit source audio.
+- Training reads existing SONARA, MERT, and MAEST inputs, then writes classifier artifacts under `tools/rhythm-lab/artifacts/<artifact-prefix>/`. Calibration is optional and only applies when the label set is large enough.
+- Promotion copies the selected trained model into `models/classifiers/<artifact-prefix>/` so the main app can discover it.
+- Scoring writes that promoted model's probabilities to `track_classifier_scores` in SQLite. Scores are scoped by `classifier_key`, so scoring one promoted classifier should not erase scores for another.
 
-Open `http://127.0.0.1:8777/`.
+Beginner expectation: the first model is usually a rough filter, not a final taste engine. Use the CLASS tab results as listening suggestions and improve the labels when obvious false positives or false negatives appear.
 
-## 3. Label a profile
+## Safety
 
-Create or select a classifier profile in the lab UI.
-
-- Binary profiles use one positive and one negative training label.
-- Multiclass profiles use `class` labels.
-- A track can hold only one current class label for the active multiclass
-  profile.
-
-## 4. Train
-
-```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py train `
-  --profile live_instrumentation `
-  --source .\data\library.sqlite `
-  --labels tools\rhythm-lab\data\rhythm_lab.sqlite
-```
-
-Add `--calibrate` when you intentionally want calibration and have enough
-labels. If the gate is not satisfied, training can still produce an
-uncalibrated artifact with a diagnostic calibration report.
-
-## 5. Promote
-
-```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py promote `
-  --profile live_instrumentation `
-  --labels tools\rhythm-lab\data\rhythm_lab.sqlite
-```
-
-Use `--require-calibration` only when an uncalibrated production artifact should
-be rejected.
-
-## 6. Score the main library
-
-After promotion, run classifier scoring from the main app or CLI for that
-classifier key. Scores are written to `track_classifier_scores` and stay scoped
-to the promoted profile.
-
-If you retrain and promote the same classifier key, deliberately reset only
-that classifier's old scores before rescoring. Do not clear scores for other
-classifier keys.
+Rhythm Lab does not write source audio. Promoted scoring writes only `track_classifier_scores` in SQLite.

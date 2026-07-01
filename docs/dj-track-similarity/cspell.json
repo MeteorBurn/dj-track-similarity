@@ -1,38 +1,9 @@
 {
   "version": "0.2",
-  "language": "en-US",
-  "ignorePaths": [
-    "node_modules/**",
-    "site/**",
-    "ru/**"
-  ],
+  "language": "en,ru",
+  "ignoreRegExpList": ["/[А-Яа-яЁё]+/g"],
   "words": [
-    "addopts",
-    "AIFF",
-    "ALAC",
-    "CLAP",
-    "CUDA",
-    "Dedup",
-    "FFmpeg",
-    "ffprobe",
-    "MAEST",
-    "MERT",
-    "multiclass",
-    "Mutagen",
-    "pytest",
-    "readback",
-    "rescan",
-    "rescoring",
-    "retag",
-    "scikit",
-    "SONARA",
-    "TorchCodec",
-    "torchaudio",
-    "Typer",
-    "unreviewed",
-    "venv",
-    "VitePress",
-    "Vorbis",
-    "TCON"
-  ]
+    "AGENTS", "AIFF", "ALAC", "CLAP", "Diataxis", "FFmpeg", "MAEST", "MERT", "Mutagen", "PyTorch", "Rhythm", "SONARA", "SQLite", "TCON", "Torchaudio", "Typer", "VitePress", "Vorbis", "WAL", "classifier", "classifiers", "crates", "cuda", "dedup", "embeddings", "frontend", "metadata", "multiclass", "pytest", "rescoring", "retag", "shortlist", "syncopated", "transcoded", "venv"
+  ],
+  "ignorePaths": ["site/**", "node_modules/**"]
 }

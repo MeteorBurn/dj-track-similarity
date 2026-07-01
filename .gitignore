@@ -46,7 +46,11 @@ frontend/.vite/
 frontend/.vite-temp/
 docs/dj-track-similarity/node_modules/
 docs/dj-track-similarity/.vitepress/cache/
+docs/dj-track-similarity/site/
 docs-legacy/
+
+# Vale package cache
+.vale/styles/
 
 # Environment
 .env

@@ -1,12 +1,16 @@
-# Developer docs
+# Разработчику
 
-Аудитория: contributors and AI agents working in repo  
-Цель: найти architecture, development, testing and release notes  
-Тип: reference index
+> Audience: Пользователи этого раздела.
+> Goal: Найти нужную страницу и не смешивать workflow с reference.
+> Type: explanation
 
-| Page | Contents |
-| --- | --- |
-| [Architecture](architecture.md) | runtime module map and boundaries |
-| [Development](development.md) | setup and local commands |
-| [Testing and verification](testing-and-verification.md) | focused checks by change type |
-| [Release checklist](release-checklist.md) | docs and code release gate |
+## Pages
+
+- [Architecture](architecture.md) — backend, database, frontend, and tools.
+- [Development](development.md) — local setup and commands.
+- [Testing and verification](testing-and-verification.md) — risk-based checks.
+- [Release checklist](release-checklist.md) — final audit before publishing.
+
+## Privacy
+
+Используйте `<library-db>` и `<music-folder>` в публичных examples. Не публикуйте private paths, usernames, real track names или personal library contents.

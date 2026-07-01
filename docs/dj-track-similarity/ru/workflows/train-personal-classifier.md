@@ -1,73 +1,30 @@
-# Train a personal classifier
+# Обучить личный classifier
 
-Аудитория: power users, использующие Rhythm Lab  
-Цель: разметить tracks, обучить profile, promote его и score main library  
-Тип: tutorial
+> Audience: Пользователи, которым нужны собственные taste signals в основном приложении.
+> Goal: Разметить в Rhythm Lab, обучить, promote и безопасно посчитать scores.
+> Type: how-to
 
-Rhythm Lab - отдельный local tool для personal classifier profiles. Он читает
-main project database для metadata и analysis inputs, но labels, predictions,
-queues и checkpoints хранит в `tools/rhythm-lab/data/`.
+Personal classifier полезен, когда вкус трудно выразить одним prompt или feature slider: например, "живые барабаны" или "избегать фестивального вокала". Ожидайте итерацию: разметить понятную идею, обучить, послушать ошибки, добавить labels и обучить снова.
 
-## 1. Activate environment
+## Поток
 
-Из корня проекта:
+- Запустите Rhythm Lab из основного UI или CLI.
+- Выберите binary или multiclass profile.
+- Добавьте достаточно labels для активного profile.
+- Запустите training; calibration опциональна и требует достаточно данных.
+- Выполните promote модели в `models/classifiers/<artifact-prefix>/`.
+- Посчитайте scores этого classifier во вкладке CLASS основного приложения.
 
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
+## Binary или multiclass
 
-Все следующие команды предполагают активное окружение.
+- Binary profile подходит для одного positive idea и одного negative counterexample. Это самый простой старт для yes/no сигнала.
+- Multiclass profile подходит, когда трек должен принадлежать одному из нескольких пользовательских классов. В активном multiclass profile у трека может быть только один текущий class label.
 
-## 2. Start Rhythm Lab
+## Что означает каждый этап
 
-```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py serve `
-  --source .\data\library.sqlite `
-  --labels tools\rhythm-lab\data\rhythm_lab.sqlite `
-  --host 127.0.0.1 `
-  --port 8777
-```
+- Labeling пишет состояние Rhythm Lab под `tools/rhythm-lab/data/`; source audio не меняется.
+- Training читает существующие SONARA, MERT и MAEST inputs и пишет artifacts под `tools/rhythm-lab/artifacts/<artifact-prefix>/`.
+- Promotion копирует выбранную модель в `models/classifiers/<artifact-prefix>/`, где её видит основное приложение.
+- Scoring пишет probabilities в `track_classifier_scores` SQLite. Scores scoped by `classifier_key`, поэтому scoring одного classifier не должен стирать scores другого.
 
-Откройте `http://127.0.0.1:8777/`.
-
-## 3. Label a profile
-
-Создайте или выберите classifier profile в lab UI.
-
-- Binary profiles используют один positive и один negative training label.
-- Multiclass profiles используют `class` labels.
-- Один track может иметь только один current class label для active profile.
-
-## 4. Train
-
-```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py train `
-  --profile live_instrumentation `
-  --source .\data\library.sqlite `
-  --labels tools\rhythm-lab\data\rhythm_lab.sqlite
-```
-
-Добавьте `--calibrate`, когда намеренно нужна calibration и labels достаточно.
-Если gate не выполнен, training может создать uncalibrated artifact с diagnostic
-calibration report.
-
-## 5. Promote
-
-```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py promote `
-  --profile live_instrumentation `
-  --labels tools\rhythm-lab\data\rhythm_lab.sqlite
-```
-
-Используйте `--require-calibration` только когда uncalibrated production
-artifact должен быть rejected.
-
-## 6. Score main library
-
-После promotion запустите classifier scoring из main app или CLI для этого
-classifier key. Scores пишутся в `track_classifier_scores` и остаются scoped to
-profile.
-
-Если вы retrain/promote тот же classifier key, deliberately reset только старые
-scores этого classifier перед rescoring. Не очищайте scores других classifier
-keys.
+Первую модель воспринимайте как rough filter. Результаты во вкладке CLASS — это suggestions for listening, а не автоматическое решение.

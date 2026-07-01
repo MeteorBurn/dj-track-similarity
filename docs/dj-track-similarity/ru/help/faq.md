@@ -1,36 +1,6 @@
-# FAQ
+# Faq
 
-Аудитория: new and returning users  
-Цель: short conceptual answers  
-Тип: explanation
+> Audience: Пользователи этой страницы.
+> Type: how-to
 
-## Does the app upload my music?
-
-No. Documented workflows are local. Audio analysis reads local files and writes
-local SQLite state.
-
-## Does scan rewrite audio tags?
-
-No. Scan reads selected metadata into SQLite. Standard-genre write workflow is a
-separate explicit action.
-
-## Why several analysis families?
-
-They answer different questions. SONARA is feature-oriented, MERT is audio seed
-similarity, CLAP supports text prompts, MAEST contributes embeddings and genre
-analysis, and classifiers represent concepts you train.
-
-## Can SET make a finished DJ set?
-
-No. SET makes ranked and ordered preview. Listen, adjust and export only after
-review.
-
-## Why are some tracks missing from SET?
-
-SET requires feature-complete candidates: SONARA, MERT, MAEST and CLAP audio
-embeddings.
-
-## Can I use this as a research benchmark?
-
-No. It is a practical local utility and personal project, not a formal
-benchmark.
+Analysis does not change audio files. Scores are shortlists, not truth. SET works best with MERT, MAEST, CLAP and SONARA coverage. CLI whole library analysis: `dj-sim analyze --models sonara,maest,mert,clap --db <library-db>`. Do not share reports with private paths.

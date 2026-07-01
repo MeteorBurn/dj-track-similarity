@@ -1,15 +1,17 @@
-# Concepts
+# Концепции
 
-Аудитория: пользователи, которым нужна mental model  
-Цель: объяснить safety, features, scores, routing и classifiers  
-Тип: explanation index
+> Audience: Пользователи этого раздела.
+> Goal: Найти нужную страницу и не смешивать workflow с reference.
+> Type: explanation
 
-Эти страницы объясняют, почему UI и CLI разделены именно так.
+## Pages
 
-| Concept | Page |
-| --- | --- |
-| Что может писать files или database rows | [Local-first safety](local-first-safety.md) |
-| Tags, features, embeddings, classifier scores | [Features, embeddings, tags](features-embeddings-tags.md) |
-| Как читать ranking scores | [Similarity scores](similarity-scores.md) |
-| Как SET строит route previews | [Smart Set Builder routing](smart-set-builder-routing.md) |
-| Как Rhythm Lab связан с promoted classifiers | [Classifiers and Rhythm Lab](classifiers-and-rhythm-lab.md) |
+- [Local-first safety](local-first-safety.md) — what writes where.
+- [Features, embeddings, tags](features-embeddings-tags.md) — three different kinds of data.
+- [Similarity scores](similarity-scores.md) — how to read scores without over-trusting them.
+- [Smart Set Builder routing](smart-set-builder-routing.md) — how SET previews are shaped.
+- [Classifiers and Rhythm Lab](classifiers-and-rhythm-lab.md) — personal labels and promoted scores.
+
+## Privacy
+
+Используйте `<library-db>` и `<music-folder>` в публичных examples. Не публикуйте private paths, usernames, real track names или personal library contents.

@@ -1,31 +1,22 @@
-# Similarity scores
+# Read similarity scores as suggestions
 
-Audience: users reading ranked results  
-Goal: explain what scores can and cannot mean  
-Type: explanation
+> Audience: Users interpreting search results.
+> Goal: Explain scores without making them sound absolute.
+> Type: explanation
 
-Similarity scores are ranking hints. They help sort candidates, but they are
-not objective judgments of musical quality or transition success.
+Scores help sort candidates inside one search mode. They are not universal quality ratings, and they do not replace listening.
 
-## Why scores differ
+## Meaning
 
-Different search modes answer different questions:
+A score says that, under the selected feature or embedding space, a candidate is close to the seed or prompt. It does not prove the track is mix-ready.
 
-- SONARA compares analyzed feature rows.
-- MERT compares audio embeddings from selected seeds.
-- CLAP compares text prompts or CLAP signals against stored embeddings.
-- CLASS uses promoted classifier probabilities.
-- SET combines several signals and then orders a route with constraints.
+Read scores as ranking hints: the top cluster is usually more important than the exact decimal value. A lower-scored track can still be the better DJ choice if it has the right intro, vocal spacing, groove, or energy.
 
-The same track can rank differently across these modes.
+## Why tabs differ
 
-## Do not compare every number directly
+- SONARA scores come from measured feature groups.
+- MERT scores come from MERT embeddings.
+- CLAP text scores compare prompt embeddings with CLAP audio embeddings.
+- Hybrid/SET combines sources and routing logic.
 
-A high score in one mode is not automatically stronger than a lower-looking
-score in another mode. Treat each result list in the context of its own search
-method.
-
-## Listen before exporting
-
-Use scores to reduce the search space. Use your ears and DJ judgement to decide
-whether the track actually belongs in the set or crate.
+Scores are comparable within the same tab or mode because they came from the same scoring surface. They are not equivalent across tabs: `0.82` in CLAP text search does not mean the same thing as `0.82` in SONARA or a SET preview. Compare candidates within the list you asked for, then decide by ear.

@@ -30,11 +30,14 @@ outputs, UI workflows, Rhythm Lab, or stable maintenance scripts. When such
 behavior changes, update the matching page in `docs/dj-track-similarity/` in the
 same change.
 
-When any Markdown source under `docs/dj-track-similarity/` changes, rebuild the
-static HTML documentation before finishing by running `npm run build` from
-`docs/dj-track-similarity/`. The generated HTML lives in
-`docs/dj-track-similarity/site/` and is served from the main UI documentation
-button at `/docs/`.
+When any Markdown source under `docs/dj-track-similarity/` changes, run the
+focused documentation checks that match the change. Build the static HTML
+documentation when you need to preview or deploy it by running `npm run build`
+from `docs/dj-track-similarity/`. The generated HTML lives in
+`docs/dj-track-similarity/site/`, is ignored by Git, and is served from the main
+UI documentation button at `/docs/` when present. If it has not been built, the
+backend should show a clear "documentation is not built" page instead of a
+missing route.
 
 The project is a Python backend/CLI plus a React/Vite frontend:
 
@@ -118,6 +121,8 @@ For local checks and manual runs against the real library database, use
 - Do not commit generated local artifacts: `*.sqlite`, `*.log`, `__pycache__/`,
   `.pytest_cache/`, `frontend/node_modules/`, transient temp folders, or
   generated `scripts/audio_repair/` contents except `repair_audio_metadata.py`.
+  Generated documentation output under `docs/dj-track-similarity/site/` must
+  also stay out of git.
   Rhythm Lab generated state and
   training artifacts under `tools/rhythm-lab/data/` and
   `tools/rhythm-lab/artifacts/*/` must also stay out of git except `.gitkeep`.

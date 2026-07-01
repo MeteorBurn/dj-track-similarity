@@ -1,35 +1,17 @@
-# Search with seeds
+# Search with seed tracks
 
-Audience: DJs and UI users  
-Goal: find related tracks from selected seed tracks  
-Type: how-to
+> Audience: DJs building candidate lists from known tracks.
+> Goal: Use SET, SONARA, and MERT seed workflows without confusing their roles.
+> Type: how-to
 
-Seed search starts from one or more selected tracks and asks the app for related
-candidates. The result is a review list, not a final musical verdict.
+## Seed idea
 
-## Select seeds
+A seed is a track you already trust. Add one or a few seeds, then ask a search family for nearby candidates.
 
-In the library or result rows, use the seed action. Keep seeds focused:
+## Tabs
 
-- one track is enough for a narrow search;
-- several tracks can describe a crate or a small set direction;
-- avoid mixing unrelated ideas unless you want broad discovery.
+SET generates an ordered read-only preview. SONARA compares stored audio features. MERT compares stored MERT embeddings.
 
-## SONARA search
+## Review
 
-Use SONARA when you want feature-based matching: energy, rhythm, loudness,
-timbre, harmonic descriptors, and tempo-related features.
-
-The SONARA tab supports modes such as balanced, vibe, sound, DJ transition, and
-custom mixer settings. It requires stored SONARA features.
-
-## MERT search
-
-Use MERT when you want audio embedding similarity from seed tracks. It requires
-stored MERT embeddings.
-
-## Review results
-
-Each result row shows a score and reason/breakdown hints when available. Treat
-the score as a ranking aid. Preview the track, inspect metadata, then add only
-useful candidates to the current set.
+Similarity scores are prompts for listening. Preview candidates before adding them to a set.

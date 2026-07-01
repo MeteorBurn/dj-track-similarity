@@ -1,30 +1,20 @@
-# Similarity scores
+# Читать similarity scores как подсказки
 
-Аудитория: пользователи ranked results  
-Цель: объяснить, что могут и не могут значить scores  
-Тип: explanation
+> Audience: Пользователи, которые оценивают результаты поиска.
+> Goal: Объяснить scores без ощущения абсолютной истины.
+> Type: how-to
 
-Similarity scores - ranking hints. Они помогают сортировать candidates, но не
-являются objective judgement of musical quality или transition success.
+Similarity score — это сигнал сортировки внутри выбранного режима, а не оценка качества трека. Он говорит, что кандидат близок к seed или prompt в конкретном пространстве features/embeddings.
 
-## Why scores differ
+## Как читать числа
 
-Разные search modes отвечают на разные вопросы:
+Смотрите на верхнюю группу результатов, а не на точную десятичную разницу. Трек с меньшим score может быть лучшим DJ-выбором, если у него подходящий intro, groove, вокальная плотность, энергия или напряжение.
 
-- SONARA compares analyzed feature rows.
-- MERT compares audio embeddings from selected seeds.
-- CLAP compares text prompts or CLAP signals against stored embeddings.
-- CLASS uses promoted classifier probabilities.
-- SET combines several signals and then orders a route with constraints.
+## Почему вкладки отличаются
 
-Один track может rank differently в разных modes.
+- SONARA scores идут из measured feature groups.
+- MERT scores идут из MERT embeddings.
+- CLAP text scores сравнивают prompt embeddings с CLAP audio embeddings.
+- Hybrid/SET объединяет несколько источников и routing logic.
 
-## Do not compare every number directly
-
-High score в одном mode не обязательно сильнее lower-looking score в другом
-mode. Читайте result list в контексте его search method.
-
-## Listen before exporting
-
-Используйте scores, чтобы сузить search space. Решение о том, подходит ли track
-в set или crate, принимайте ушами и DJ judgement.
+Scores сравнимы внутри одной вкладки или режима, потому что там одна scoring surface. Они не равны между вкладками: `0.82` в CLAP text search не означает то же самое, что `0.82` в SONARA или SET preview. Сначала сравните кандидатов внутри текущего списка, затем решайте на слух.

@@ -1,58 +1,35 @@
-# Prepare a set
+# Prepare a set from a few anchors
 
-Audience: DJs using the browser UI  
-Goal: turn a few tracks into a reviewed export  
-Type: tutorial
+> Audience: DJs turning a rough idea into an ordered shortlist.
+> Goal: Move from seed tracks to an exportable set preview.
+> Type: how-to
 
-This workflow starts with tracks you trust, creates candidates, builds a
-preview, and exports only after you review the result.
+Treat the generated set as a shortlist, not a finished performance. The app can order candidates, but your ears still decide whether the transitions, tension, and room energy make sense.
 
-## Before you start
+## Flow
 
-You need a scanned library and enough analysis for the search mode you plan to
-use:
+- Scan and analyze enough of the library.
+- Pick one to five seed tracks.
+- Generate a SET preview in balanced or similar-crate mode.
+- Tune energy curve, diversity, and BPM mode.
+- Preview, prune, then export M3U or CSV.
 
-- SONARA features for explainable feature search;
-- MERT embeddings for audio seed similarity;
-- CLAP embeddings for text prompts;
-- SONARA, MERT, MAEST, and CLAP for Smart Set Builder.
+## Checkpoints
 
-## 1. Pick the first anchors
+1. Before generating: confirm the seeds represent the set idea and have enough analysis coverage for the search mode you want to use.
+2. After generating: listen through the proposed order, especially the first two transitions, the peak section, and any large tempo or energy moves.
+3. While pruning: remove tracks that are technically similar but wrong for the room, vocal density, drum feel, key tension, or personal taste.
+4. Before export: check the final count, order, and file availability. Export M3U when your DJ software should load files directly; export CSV when you want a review sheet.
 
-In the library table, find one to five tracks that represent the sound you want.
-Avoid picking several tracks by the same known artist if you plan to use Smart
-Set Builder, because the SET route keeps a strict artist guard.
+## Diagram
 
-## 2. Search around the anchors
+```mermaid
+flowchart LR
+    A[Seed ideas] --> B[SET preview]
+    B --> C[Listen and prune]
+    C --> D[Export set file]
+```
 
-Use the search tab that matches the job:
+## Safety
 
-| Need | Tab |
-| --- | --- |
-| similar audio feel from selected tracks | `MERT` |
-| explainable musical features | `SONARA` |
-| text prompt such as "dark rolling techno" | `CLAP` |
-| ordered set preview | `SET` |
-| promoted personal concept | `CLASS` |
-
-Add only tracks you want to audition. Search results are candidates, not a
-finished set.
-
-## 3. Generate a SET preview
-
-Open `SET`, choose `Manual` or `Auto`, set the track limit, energy curve,
-diversity, and BPM mode, then generate a preview.
-
-The preview is read-only. It becomes part of the current set only when you use
-the explicit add action.
-
-## 4. Listen and remove weak links
-
-Use preview playback, metadata, BPM/key, and your own judgement. Similarity
-scores are ranking hints; they do not know the room, crowd, or transition
-style.
-
-## 5. Export
-
-When the current set looks useful, export it as a playlist/report from the UI.
-Export writes playlist/report files. It does not rewrite source audio.
+A preview is not a write to audio files. Adding it to the current set is an explicit UI action.

@@ -1,45 +1,24 @@
 # Database reference
 
-Audience: developers and careful power users  
-Goal: describe the current SQLite storage model  
-Type: reference
-
-The main library database is SQLite. Schema writes are handled by the project
-database layer, which configures WAL and a busy timeout and serializes writes
-per database path.
-
-## Current schema version
-
-The current library schema version is `4`.
+> Audience: Developers and power users inspecting SQLite state.
+> Goal: Understand current tables and what writes them.
+> Type: reference
 
 ## Core tables
 
 | Table | Purpose |
 | --- | --- |
-| `tracks` | paths, tags, derived fields, metadata JSON, analysis flags |
-| `embeddings` | vector embeddings keyed by track and embedding key |
-| `library_settings` | small database-scoped settings |
-| `track_classifier_scores` | promoted classifier scores by track and key |
-| `track_likes` | user liked-track state |
+| `tracks` | paths, file facts, display tags, analysis flags, metadata JSON |
+| `embeddings` | MERT, MAEST, and CLAP vectors keyed by track and embedding key |
+| `library_settings` | app settings and promoted score profile payloads |
+| `track_classifier_scores` | promoted classifier scores scoped by classifier key |
+| `track_likes` | liked-track state |
 | `track_search_fts` | full-text search support |
 
-The `embeddings` table uses `(track_id, embedding_key)` as its primary key.
-Classifier scores are scoped by `(track_id, classifier)`.
+## Evaluation tables
 
-## Track fields
+`search_sessions`, `search_result_events`, `track_pair_feedback`, `transition_feedback`, and `calibration_runs` support local evaluation and feedback.
 
-Track rows include stored path, artist, title, album, BPM, musical key, energy,
-duration, analysis availability flags, and `metadata_json`.
+## Write boundary
 
-Stored `metadata_json` must remain JSON-safe.
-
-## What not to edit manually
-
-Avoid hand-editing embeddings, classifier scores, search FTS rows, and schema
-metadata. Use project commands or focused helper scripts so indexes and caches
-stay coherent.
-
-## Local user state
-
-Treat project SQLite files as local user state. Tests should use temporary
-databases, not a real music-library database.
+Keep app writes routed through `LibraryDatabase` with the shared lock, WAL, and busy timeout.

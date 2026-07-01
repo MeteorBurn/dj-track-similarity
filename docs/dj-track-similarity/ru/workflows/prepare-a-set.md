@@ -1,56 +1,26 @@
-# Prepare a set
+# Подготовить сет из нескольких anchors
 
-Аудитория: DJs, работающие в browser UI  
-Цель: превратить несколько tracks в reviewed export  
-Тип: tutorial
+> Audience: Диджеи, которые превращают идею в упорядоченный shortlist.
+> Goal: Пройти от seed tracks до exportable set preview.
+> Type: how-to
 
-Workflow начинается с trusted tracks, затем создает candidates, строит preview
-и экспортирует только после ручной проверки.
+Считайте SET preview черновиком, а не готовым выступлением. Приложение помогает выбрать и упорядочить кандидатов, но переходы, напряжение и настроение всё равно проверяются на слух.
 
-## Before you start
+## Поток
 
-Нужна scanned library и analysis для выбранного search mode:
+- Просканируйте и проанализируйте достаточную часть библиотеки.
+- Выберите 1-5 seed tracks.
+- Сгенерируйте SET preview в balanced или similar-crate режиме.
+- Настройте `Energy curve`, `Diversity` и `BPM mode`.
+- Прослушайте, удалите лишнее и экспортируйте M3U или CSV.
 
-- SONARA features для explainable feature search;
-- MERT embeddings для audio seed similarity;
-- CLAP embeddings для text prompts;
-- SONARA, MERT, MAEST и CLAP для Smart Set Builder.
+## Контрольные точки
 
-## 1. Pick first anchors
+1. До генерации: проверьте, что seeds действительно описывают идею сета и имеют нужное analysis coverage.
+2. После генерации: прослушайте порядок, особенно первые переходы, peak section и любые большие сдвиги tempo/energy.
+3. Во время отбора убирайте треки, которые похожи технически, но не подходят по room energy, вокалу, барабанному feel, key tension или вкусу.
+4. Перед export проверьте итоговое количество, порядок и доступность файлов. M3U полезен для загрузки файлов в DJ software; CSV удобен как review sheet.
 
-В library table найдите один-пять tracks, представляющих нужный sound. Если
-планируете SET, не выбирайте несколько tracks одного known artist: SET сохраняет
-strict artist guard.
+## Безопасность
 
-## 2. Search around anchors
-
-Используйте tab под задачу:
-
-| Need | Tab |
-| --- | --- |
-| похожий audio feel от selected tracks | `MERT` |
-| explainable musical features | `SONARA` |
-| text prompt вроде "dark rolling techno" | `CLAP` |
-| ordered set preview | `SET` |
-| promoted personal concept | `CLASS` |
-
-Добавляйте только candidates, которые хотите слушать. Search results не
-являются finished set.
-
-## 3. Generate SET preview
-
-Откройте `SET`, выберите `Manual` или `Auto`, задайте track limit, energy curve,
-diversity и BPM mode, затем generate preview.
-
-Preview read-only. Оно становится частью current set только через явное add
-action.
-
-## 4. Listen and remove weak links
-
-Используйте playback, metadata, BPM/key и собственный DJ judgement. Similarity
-scores - ranking hints, а не знание о room, crowd или transition style.
-
-## 5. Export
-
-Когда current set полезен, export его как playlist/report из UI. Export пишет
-playlist/report files и не переписывает source audio.
+Preview не пишет в аудиофайлы. Добавление preview в current set — отдельное явное действие в UI.

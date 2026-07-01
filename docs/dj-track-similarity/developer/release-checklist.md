@@ -1,36 +1,18 @@
 # Release checklist
 
-Audience: maintainers  
-Goal: provide a compact release gate  
-Type: checklist
+> Audience: Maintainers doing a final audit.
+> Goal: Check safety, contracts, builds, and public wording before publishing.
+> Type: how-to
 
-Before publishing or merging a release-sized docs/code change, verify the
-actual changed surface.
+## Checklist
 
-## Source checks
+- No examples expose private paths, usernames, real track names, secrets, or local database locations.
+- CLI docs use the unified `dj-sim analyze` command.
+- API docs mention active endpoints only.
+- Frontend and docs builds ran when touched.
+- Focused tests cover touched behavior.
+- Generated reports, SQLite files, logs, node_modules, and local model artifacts are not staged.
 
-- Current behavior was checked against code, CLI help, API schemas, tests, or
-  command output.
-- Old docs were not used as trusted facts without verification.
-- Generated local artifacts are not being added accidentally.
-- Real user databases and audio files were not modified during routine tests.
+## Safety audit
 
-## Build checks
-
-- Backend focused tests passed for changed behavior.
-- Frontend build passed if frontend source changed.
-- Docs build passed if Markdown under `docs/dj-track-similarity` changed.
-- `git diff --check` passed.
-
-## Safety checks
-
-- Destructive/apply workflows require explicit confirmation.
-- Tag-writing docs mention that genre writing is the deliberate audio-write
-  exception.
-- Database maintenance docs mention backups and integrity checks.
-- Rhythm Lab docs keep lab state separate from runtime promoted models.
-
-## Publish notes
-
-Call out breaking URL moves, required rebuilds, and any known gaps. Keep
-generated `site/` changes separate from source review when possible.
+Review any code path that writes audio tags, deletes audio, relocates paths, resets analysis, or clears the database.

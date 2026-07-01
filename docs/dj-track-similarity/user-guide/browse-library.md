@@ -1,50 +1,17 @@
-# Browse the library
+# Browse the library without loading everything
 
-Audience: UI users  
-Goal: find, preview, and inspect tracks  
-Type: how-to
+> Audience: UI users with a scanned library.
+> Goal: Find tracks, inspect metadata, and preview audio safely.
+> Type: how-to
 
-The library panel shows lightweight paginated track rows. Full metadata loads
-only when you open a track dialog.
+## List behavior
 
-## Select the database
+The library is server-side paginated. Search by artist, title, genre, or path; use liked and classifier filters to narrow crates.
 
-Start the server with a database:
+## Metadata dialog
 
-```powershell
-dj-sim serve --host 127.0.0.1 --port 8765 --db .\data\library.sqlite
-```
+The dialog keeps Mutagen tags, SONARA features, MAEST genres, and classifier scores in separate blocks so sources stay clear.
 
-Or use the database picker in the UI. The top bar shows summary counters for
-tracks and analysis coverage.
+## Preview
 
-## Search and filter
-
-The library search field uses text such as artist, title, genre, or path. The
-search mode toggle supports:
-
-- `LIKE`: simple broad matching;
-- `FTS`: full-text search through the SQLite search index.
-
-You can also show liked tracks only, filter for the MAEST syncopated-rhythm
-flag, and reverse the current page order.
-
-## Work with rows
-
-Track rows expose compact actions:
-
-- preview or pause audio;
-- open the metadata dialog;
-- like or unlike a track;
-- mark a track as a seed;
-- add or remove a track from the current set.
-
-The metadata dialog keeps sources separate: Mutagen file tags, SONARA features,
-classifier scores, and MAEST genre labels are shown as different blocks. This
-helps you spot disagreement instead of hiding it.
-
-## Refresh tags
-
-`RefreshTags` rereads file tags for already discovered tracks. It updates
-SQLite metadata. It does not rewrite audio, and it does not remove SONARA,
-MAEST, MERT, CLAP, or classifier analysis state.
+Browser preview streams through `/media/{track_id}`. AIFF may be transcoded to WAV for playback, but source files are not rewritten or cached.

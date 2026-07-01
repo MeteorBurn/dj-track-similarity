@@ -360,12 +360,16 @@ cd frontend
 npm run build
 ```
 
-Build the docs site after editing Markdown under `docs/dj-track-similarity/`:
+Build the docs site for local preview or deployment:
 
 ```powershell
 cd docs\dj-track-similarity
 npm run build
 ```
+
+The docs build output is written to `docs/dj-track-similarity/site/` and is not
+tracked in Git. If that folder is missing, the backend `/docs/` route shows a
+short "documentation is not built" page.
 
 There is currently no separate `CONTRIBUTING.md` or license file in the
 repository. Use the development guide and focused tests as the source of truth

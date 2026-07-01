@@ -1,44 +1,19 @@
-# Tags and audio writes
+# Когда приложение может писать в аудиофайлы
 
-Аудитория: осторожные пользователи и power users  
-Цель: понять явное исключение для tag writing  
-Тип: how-to
+> Audience: Пользователи, которые выбирают tag apply, repair или dedup actions.
+> Goal: Отделить read-only сценарии от явных записей тегов и удалений.
+> Type: how-to
 
-Большинство app workflows read-only по отношению к source audio. Genre tag
-writing - намеренное исключение: оно может записать stored MAEST genre labels в
-standard audio genre tags.
+По умолчанию приложение читает аудио и пишет только SQLite или отчёты. Scan, Refresh Tags, analysis, search, previews, export, reset, clear и relocation preview не переписывают исходные аудиофайлы.
 
-## Что может писать tags
+## Genre tag apply
 
-Явный app path:
+`/api/tags/genres/apply` и genre tag jobs — явный путь записи жанров. Они берут сохранённые MAEST genres и перезаписывают только стандартное поле жанра, сохраняя title, artist, album, BPM, key и другие обычные теги.
 
-```text
-POST /api/tags/genres/apply
-```
+## Поля тегов
 
-или соответствующий UI job.
+MP3/WAV/AIFF ID3 используют `TCON`; FLAC/Vorbis-style tags используют `GENRE`; MP4/M4A/ALAC используют `©gen`. WAV пишется через Mutagen WAVE/ID3 и проверяется обратным чтением `TCON`.
 
-Он пишет только standard genre field из stored MAEST labels. Title, artist,
-album, BPM, key и другие normal tags должны сохраняться.
+## Другие явные исключения
 
-## Formats
-
-Tag-writing code использует standard fields:
-
-- `TCON` for MP3/WAV/AIFF ID3;
-- `GENRE` for FLAC/Vorbis-style tags;
-- `©gen` for MP4/M4A/ALAC.
-
-## Batch behavior
-
-Failed writes должны fail только этот track и позволить batch продолжиться. Для
-WAV app использует Mutagen WAVE/ID3 handling и read back `TCON`; custom RIFF
-repair logic не добавляется в tag-writing path.
-
-## Перед записью tags
-
-Убедитесь, что:
-
-- MAEST labels есть и их стоит записывать;
-- у вас есть backups, если файлы важны;
-- вы понимаете, что это не search, analysis, preview или export.
+Audio repair `--apply` может переписывать только файлы, которые скрипт определил как `REPAIRABLE`; dry-run не пишет аудио. Audio Dedup apply/delete может удалить подтверждённые дубли только после точного подтверждения.

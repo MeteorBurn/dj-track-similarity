@@ -1,17 +1,16 @@
-# Tools and scripts
+# Инструменты и скрипты
 
-Аудитория: power users  
-Цель: найти helper tools и не смешивать их с обычными workflows app  
-Тип: how-to index
+> Audience: Пользователи этого раздела.
+> Goal: Найти нужную страницу и не смешивать workflow с reference.
+> Type: how-to
 
-Эти tools - локальные helpers вокруг main database и audio library.
+## Pages
 
-| Tool | Для чего |
-| --- | --- |
-| [Rhythm Lab](rhythm-lab.md) | labeling, training, promotion classifier profiles |
-| [Audio dedup](audio-dedup.md) | duplicate candidate reports и explicit cleanup |
-| [Audio repair](repair-audio-metadata.md) | dry-run-first metadata/container repair checks |
-| [Optimize database](optimize-database.md) | SQLite backup, integrity check, compact, analyze |
+- [Rhythm Lab](rhythm-lab.md) — label and train personal classifiers.
+- [Audio Dedup](audio-dedup.md) — report likely duplicates before any delete.
+- [Repair audio metadata](repair-audio-metadata.md) — dry-run-first metadata repair.
+- [Optimize database](optimize-database.md) — backup, VACUUM, ANALYZE, and integrity checks.
 
-Сначала используйте reports and dry-runs. Apply modes описаны отдельно, потому
-что могут менять files или database rows.
+## Privacy
+
+Используйте `<library-db>` и `<music-folder>` в публичных examples. Не публикуйте private paths, usernames, real track names или personal library contents.

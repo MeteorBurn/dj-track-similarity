@@ -1,16 +1,18 @@
 # Reference
 
-Аудитория: power users и developers  
-Цель: найти exact commands, endpoints, fields и controls  
-Тип: reference index
+> Audience: Пользователи этого раздела.
+> Goal: Найти нужную страницу и не смешивать workflow с reference.
+> Type: reference
 
-Используйте reference pages после выбора workflow.
+## Pages
 
-| Reference | Contents |
-| --- | --- |
-| [CLI](cli.md) | commands, flags, subcommand groups |
-| [API](api.md) | endpoint groups and payload models |
-| [Database](database.md) | SQLite tables and stored state |
-| [Configuration](configuration.md) | ports, paths, environment variables |
-| [Analysis families](analysis-families.md) | SONARA, MAEST, MERT, CLAP, classifiers |
-| [UI controls](ui-controls.md) | current tabs and important controls |
+- [CLI](cli.md) — current command names and options.
+- [API](api.md) — active endpoints and payload shapes.
+- [Database](database.md) — schema and write boundaries.
+- [Configuration](configuration.md) — paths, ports, devices, and docs build.
+- [Analysis families](analysis-families.md) — what each model writes.
+- [UI controls](ui-controls.md) — labels, ranges, and meanings.
+
+## Privacy
+
+Используйте `<library-db>` и `<music-folder>` в публичных examples. Не публикуйте private paths, usernames, real track names или personal library contents.

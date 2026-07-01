@@ -1,49 +1,17 @@
-# Text search with CLAP
+# Search by text with CLAP
 
-Audience: UI and CLI users  
-Goal: search by describing sound in words  
-Type: how-to
+> Audience: Users who think in descriptions rather than seed tracks.
+> Goal: Use CLAP text prompts against stored CLAP audio embeddings.
+> Type: how-to
 
-CLAP text search compares a written prompt with stored CLAP audio embeddings.
-It is useful for rough sonic direction: scene, drums, bass, texture,
-instruments, space, and vocal presence.
+## Before searching
 
-## Requirement
+Run CLAP analysis first. The UI shows a requirement message when stored CLAP embeddings are missing.
 
-Run CLAP audio analysis first:
+## Prompt style
 
-```powershell
-dj-sim analyze --models clap --db .\data\library.sqlite
-```
+Use concrete audio words: mood, density, instrumentation, rhythm, vocal presence, or mix role. Negative prompts can steer away from unwanted traits.
 
-## Write a prompt
+## Meaning
 
-Prefer concrete audio language:
-
-```text
-dark hypnotic techno, rolling bass, dry percussion, no vocals
-```
-
-Avoid relying only on abstract mood words. CLAP does not know your DJ context;
-it ranks by model similarity.
-
-## Search from the UI
-
-Open the `CLAP` tab, choose or type a prompt, optionally add a negative prompt,
-then run `CLAP search`.
-
-## Search from CLI
-
-```powershell
-dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" `
-  --limit 25 `
-  --db .\data\library.sqlite
-```
-
-Expected result:
-
-```text
-<score>    <track_id>    <path>
-```
-
-Review matches manually before adding them to a set.
+A high score means the prompt vector is close to the stored audio embedding. It is not proof that the track fits your exact context.

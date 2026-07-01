@@ -1,33 +1,15 @@
 # Known limits
 
-Audience: all users  
-Goal: state non-goals and practical boundaries clearly  
-Type: explanation
+> Audience: Users calibrating expectations.
+> Goal: State current boundaries plainly.
+> Type: explanation
 
-`dj-track-similarity` is useful for local library exploration, but it has
-limits.
+## Limits
 
-## Not a commercial product
-
-The project is a public personal/enthusiast utility. Expect practical local
-workflows rather than a polished hosted service.
-
-## Not a research benchmark
-
-Scores are useful for ranking and discovery, not for proving objective musical
-truth.
-
-## Analysis coverage matters
-
-Search modes depend on stored analysis. A track without the required features or
-embeddings may be invisible to a specific search mode.
-
-## Metadata quality matters
-
-Artist guards, BPM fallback behavior, browsing, and exports are better when
-file tags are clean.
-
-## Apply modes need care
-
-Tag writing, audio repair, and duplicate cleanup can modify files or database
-rows. They are intentionally separate from normal browsing and search.
+- This is a local personal/enthusiast project, not a polished hosted service.
+- Similarity scores are model and feature signals, not objective truth.
+- Large analysis jobs depend on CPU/GPU, FFmpeg, and PyTorch setup.
+- Smart Set Builder works best with complete MERT, MAEST, CLAP, and SONARA coverage.
+- Classifier quality depends on your labels.
+- Exports and reports can reveal private local paths.
+- Audio repair and duplicate deletion are advanced tools; run dry-run/report first.

@@ -1,11 +1,17 @@
 # Help
 
-Audience: all users  
-Goal: fix common problems and understand limits  
-Type: help index
+> Audience: Users who hit a problem or limitation.
+> Goal: Diagnose common failures quickly.
+> Type: how-to
 
-| Page | Use it for |
-| --- | --- |
-| [Troubleshooting](troubleshooting.md) | install, FFmpeg, server, search, and job issues |
-| [FAQ](faq.md) | short conceptual answers |
-| [Known limits](known-limits.md) | honest boundaries and non-goals |
+Start with the page that matches the job in front of you. The docs keep human workflow pages separate from compact reference so you can read only what you need.
+
+## Pages
+
+- [Troubleshooting](troubleshooting.md) — symptom-based fixes.
+- [FAQ](faq.md) — short answers.
+- [Known limits](known-limits.md) — current boundaries.
+
+## Privacy habit
+
+Use placeholders such as `<library-db>` and `<music-folder>` in notes, issues, and examples. Do not publish private paths, usernames, real track names, or personal library data.

@@ -1,41 +1,20 @@
 # Features, embeddings, and tags
 
-Audience: users comparing analysis families  
-Goal: separate the project data types clearly  
-Type: explanation
+> Audience: Readers confused by analysis terms.
+> Goal: Separate human tags, measured features, and vector embeddings.
+> Type: explanation
 
-The app stores several kinds of information. They look similar in the UI, but
-they are not interchangeable.
+## Comparison
 
-## File tags
+| Data | Source | Stored where | Used for |
+| --- | --- | --- | --- |
+| Mutagen tags | File metadata | `tracks` and metadata JSON | browsing |
+| SONARA features | Audio analysis | SQLite metadata/features | SONARA and SET |
+| MERT embeddings | Audio model | `embeddings` | seed similarity |
+| CLAP embeddings | Audio/text model | `embeddings` | text and audio similarity |
+| MAEST data | Genre/model analysis | metadata and embeddings | genre display and SET inputs |
+| Classifier scores | Promoted local model | `track_classifier_scores` | CLASS and optional SET modifiers |
 
-Tags come from the audio file metadata: title, artist, album, BPM, key, and
-other human-facing fields. Scan and RefreshTags read a fixed practical
-whitelist into SQLite.
+## Boundary
 
-For Smart Set Builder, tag BPM is preferred when present. SONARA BPM is a
-fallback.
-
-## SONARA features
-
-SONARA writes feature values, model metadata, and derived working fields such as
-BPM, key, duration, and energy into SQLite. These are analyzed values, not file
-tags copied back to audio.
-
-## Embeddings
-
-MERT, CLAP, and MAEST store vector embeddings in SQLite. Search and SET can use
-these vectors as similarity signals.
-
-MAEST also produces genre analysis, but SET selection should not rely on MAEST
-genre labels. MAEST embeddings are a different signal.
-
-## Classifier scores
-
-Promoted classifier profiles write scores to `track_classifier_scores`. A score
-belongs to one classifier key. Missing classifier scores are neutral for SET.
-
-## Reports and exports
-
-Reports, playlists, and helper-tool output are local files. They are not the
-same thing as library state and can usually be regenerated.
+Analysis does not rewrite tags. Standard genre tag writing is an explicit separate action.

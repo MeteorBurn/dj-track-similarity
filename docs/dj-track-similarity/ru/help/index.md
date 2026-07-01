@@ -1,11 +1,15 @@
-# Help
+# Помощь
 
-Аудитория: все пользователи  
-Цель: fix common problems and understand limits  
-Тип: help index
+> Audience: Пользователи этого раздела.
+> Goal: Найти нужную страницу и не смешивать workflow с reference.
+> Type: how-to
 
-| Page | Use it for |
-| --- | --- |
-| [Troubleshooting](troubleshooting.md) | install, FFmpeg, server, search and job issues |
-| [FAQ](faq.md) | short conceptual answers |
-| [Known limits](known-limits.md) | honest boundaries and non-goals |
+## Pages
+
+- [Troubleshooting](troubleshooting.md) — symptom-based fixes.
+- [FAQ](faq.md) — short answers.
+- [Known limits](known-limits.md) — current boundaries.
+
+## Privacy
+
+Используйте `<library-db>` и `<music-folder>` в публичных examples. Не публикуйте private paths, usernames, real track names или personal library contents.

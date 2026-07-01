@@ -1,75 +1,24 @@
-# Install the project
+# Install for local analysis
 
-Audience: users and power users  
-Goal: choose the right dependency set  
-Type: how-to
+> Audience: Users setting up the project locally.
+> Goal: Install Python dependencies and know when Node/npm is needed.
+> Type: tutorial
 
-The project has a small base install plus optional extras. Start with the base
-install unless you already know you need model analysis or Rhythm Lab.
+## Requirements
 
-## Base install
+- Python 3.10+.
+- `ffmpeg` on `PATH` or `DJ_TRACK_SIMILARITY_FFMPEG`.
+- Node/npm only for rebuilding frontend or docs.
+- A PyTorch stack that matches your CPU/GPU environment.
+
+## Install
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
-```
-
-Expected result:
-
-```text
-dj-sim --help
-```
-
-prints the CLI command list. Keep the environment active for later commands.
-
-## Optional extras
-
-| Extra | Use it when |
-| --- | --- |
-| `dev` | You want normal local checks and pytest. |
-| `sonara` | You want SONARA local audio features. |
-| `ml` | You want MAEST, MERT, CLAP, PyTorch, and TorchCodec. |
-| `rhythm-lab` | You want classifier labeling and training with scikit-learn. |
-| `ann` | You want optional persistent ANN sidecar indexes. |
-
-Common installs:
-
-```powershell
-python -m pip install -e ".[sonara,dev]"
-python -m pip install -e ".[sonara,ml,dev]"
 python -m pip install -e ".[sonara,ml,rhythm-lab,dev]"
-```
-
-For ANN experiments:
-
-```powershell
-python -m pip install -e ".[sonara,ml,ann,dev]"
-```
-
-## FFmpeg
-
-Server startup requires FFmpeg. Put `ffmpeg` on `PATH`, or set:
-
-```powershell
-$env:DJ_TRACK_SIMILARITY_FFMPEG = "C:\path\to\ffmpeg.exe"
-```
-
-On Windows, TorchCodec-backed torchaudio decoding needs a shared FFmpeg build
-with DLLs available on `PATH`.
-
-## Verify the install
-
-```powershell
 dj-sim doctor
 ```
 
-Expected result:
+## Build assets
 
-```text
-doctor reports Python, FFmpeg, optional PyTorch/CUDA state, and the selected
-analysis device behavior.
-```
-
-If `doctor` reports missing FFmpeg or unavailable CUDA, fix that before running
-long analysis jobs.
+Build frontend from `frontend/` when frontend source changes. Build docs from `docs\dj-track-similarity` with `npm run build`; output goes to `site/`.

@@ -1,17 +1,18 @@
 # Tools and scripts
 
-Audience: power users  
-Goal: find helper tools without mixing them into normal app workflows  
-Type: how-to index
+> Audience: Power users and maintainers.
+> Goal: Use helper tools deliberately and safely.
+> Type: how-to
 
-These tools are local helpers around the main database and audio library.
+Start with the page that matches the job in front of you. The docs keep human workflow pages separate from compact reference so you can read only what you need.
 
-| Tool | Use it for |
-| --- | --- |
-| [Rhythm Lab](rhythm-lab.md) | labeling, training, promoting classifier profiles |
-| [Audio dedup](audio-dedup.md) | duplicate candidate reports and explicit cleanup |
-| [Audio repair](repair-audio-metadata.md) | dry-run-first metadata/container repair checks |
-| [Optimize database](optimize-database.md) | SQLite backup, integrity check, compact, analyze |
+## Pages
 
-Use reports and dry-runs first. Apply modes are documented separately because
-they can change files or database rows.
+- [Rhythm Lab](rhythm-lab.md) — label and train personal classifiers.
+- [Audio Dedup](audio-dedup.md) — report likely duplicates before any delete.
+- [Repair audio metadata](repair-audio-metadata.md) — dry-run-first metadata repair.
+- [Optimize database](optimize-database.md) — backup, VACUUM, ANALYZE, and integrity checks.
+
+## Privacy habit
+
+Use placeholders such as `<library-db>` and `<music-folder>` in notes, issues, and examples. Do not publish private paths, usernames, real track names, or personal library data.

@@ -1,43 +1,21 @@
-# Analyze the library
+# Analyze the library from the UI
 
-Audience: UI users  
-Goal: run analysis jobs from the browser UI  
-Type: how-to
+> Audience: UI users running model jobs.
+> Goal: Choose analysis families, safe limits, and device settings.
+> Type: how-to
 
-Analysis jobs fill the local SQLite database with features, embeddings, labels,
-or classifier scores. Choose the smallest useful job for the workflow you want.
+## Pick models
 
-## Controls
+Run SONARA, MAEST, MERT, CLAP, or a subset. CLASSIFIERS can run when promoted classifier models are available.
 
-The Library panel exposes model checkboxes and job controls for:
+## Limit behavior
 
-- SONARA;
-- MAEST;
-- MERT;
-- CLAP;
-- CLASSIFIERS, when promoted classifier models exist.
+UI `Analyze limit = 0` means whole library. Positive values count missing results for the selected model family. CLI whole-library analysis omits `--limit`.
 
-Important settings:
+## Advanced controls
 
-- `Analyze limit`: `0` means the whole missing set for selected families.
-- `Device`: `AUTO`, `CPU`, or `CUDA`.
-- `Track batch size`: number of decoded tracks handled together.
-- `Inference batch size`: MAEST/MERT/CLAP model forward-pass batch size.
+Device is `auto`, `cpu`, or `cuda`. Track batch size controls decoded tracks held together; inference batch size controls model forward-pass batching; Top K controls stored MAEST labels.
 
-## Recommended order
+## Write boundary
 
-1. Run SONARA on a small limit to unlock feature-based browsing and seed search.
-2. Run MERT when you want seed-track audio similarity.
-3. Run CLAP when you want text search.
-4. Run MAEST when you want genre labels, syncopated-rhythm filtering, or
-   classifier inputs.
-5. Run CLASSIFIERS after promoting models from Rhythm Lab.
-
-## Reset behavior
-
-Analysis reset controls remove database records for the selected family. They
-do not rewrite source audio files.
-
-Classifier reset is scoped to stored classifier scores in SQLite. Recompute a
-classifier after retraining and promoting a new model for the same
-`classifier_key`.
+Analysis writes SQLite metadata, features, and embeddings. It does not write audio tags.

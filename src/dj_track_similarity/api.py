@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api_routes_audio_dedup import register_audio_dedup_routes
@@ -117,6 +117,30 @@ def create_app(
     docs_dir = next((candidate for candidate in docs_candidates if candidate.exists()), None)
     if docs_dir is not None:
         app.mount("/docs", StaticFiles(directory=docs_dir, html=True), name="docs")
+    else:
+
+        @app.get("/docs", include_in_schema=False)
+        @app.get("/docs/{path:path}", include_in_schema=False)
+        async def docs_not_built(path: str = ""):
+            return HTMLResponse(
+                """
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Documentation is not built</title>
+  </head>
+  <body>
+    <main>
+      <h1>Documentation is not built</h1>
+      <p>Run <code>npm run build</code> from <code>docs/dj-track-similarity</code>, then reload this page.</p>
+    </main>
+  </body>
+</html>
+""".strip(),
+                status_code=503,
+            )
 
     static_candidates = [
         package_path.parents[2] / "frontend" / "dist",

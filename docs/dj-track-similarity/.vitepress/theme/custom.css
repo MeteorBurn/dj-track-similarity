@@ -1163,6 +1163,317 @@ body {
   line-height: 1.55;
 }
 
+/* ─── Documentation readability pass ───────────────────────────────────────── */
+:root {
+  --dts-doc-content-max-width: 1040px;
+  --dts-doc-aside-width: 260px;
+  --dts-doc-readable-width: 860px;
+  --dts-doc-wide-width: 1040px;
+}
+
+.VPDoc.has-aside > .container > .content .content-container,
+.VPDoc:not(.has-aside) > .container > .content .content-container {
+  max-width: min(100%, var(--dts-doc-wide-width));
+}
+
+.vp-doc {
+  max-width: var(--dts-doc-wide-width);
+  color: var(--vp-c-text-1);
+  font-size: clamp(17px, 0.28vw + 16px, 18.5px);
+  line-height: 1.78;
+}
+
+.vp-doc > h1,
+.vp-doc > h2,
+.vp-doc > h3,
+.vp-doc > h4,
+.vp-doc > p,
+.vp-doc > ul,
+.vp-doc > ol,
+.vp-doc > blockquote,
+.vp-doc > .custom-block {
+  max-width: var(--dts-doc-readable-width);
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.vp-doc > table,
+.vp-doc > div[class*="language-"],
+.vp-doc > .dts-mermaid {
+  max-width: var(--dts-doc-wide-width);
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.vp-doc p {
+  margin: 1.08em 0;
+  color: var(--vp-c-text-2);
+  line-height: 1.78;
+}
+
+.vp-doc li {
+  margin: 0.45em 0;
+  color: var(--vp-c-text-2);
+  line-height: 1.72;
+}
+
+.vp-doc li > p {
+  margin: 0.55em 0;
+}
+
+.vp-doc ul,
+.vp-doc ol {
+  margin-top: 0.9em;
+  margin-bottom: 1.3em;
+  padding-left: 1.5rem;
+}
+
+.vp-doc h1 {
+  margin-top: 0;
+  margin-bottom: 18px;
+  font-size: clamp(2.35rem, 4vw, 3.25rem);
+  font-weight: 850;
+  line-height: 1.04;
+}
+
+.vp-doc h1::after {
+  margin-top: 16px;
+}
+
+.vp-doc h2 {
+  margin-top: 52px;
+  margin-bottom: 18px;
+  padding-top: 30px;
+  font-size: clamp(1.6rem, 1.8vw, 2rem);
+  font-weight: 790;
+  line-height: 1.18;
+}
+
+.vp-doc h3 {
+  margin-top: 34px;
+  margin-bottom: 12px;
+  font-size: clamp(1.23rem, 1.1vw, 1.45rem);
+  font-weight: 740;
+  line-height: 1.28;
+}
+
+.vp-doc h4 {
+  margin-top: 26px;
+  margin-bottom: 10px;
+  color: var(--vp-c-text-1);
+  font-size: 1.08rem;
+  font-weight: 720;
+  line-height: 1.35;
+}
+
+.vp-doc blockquote {
+  margin-top: 22px;
+  margin-bottom: 22px;
+  padding: 8px 0 8px 18px;
+  border-left: 4px solid var(--vp-c-brand-1);
+  color: var(--vp-c-text-2);
+}
+
+.vp-doc table {
+  margin-top: 24px;
+  margin-bottom: 30px;
+  border-radius: 10px;
+  font-size: 0.94rem;
+  line-height: 1.55;
+  box-shadow: 0 12px 34px rgba(33, 43, 46, 0.08);
+}
+
+.dark .vp-doc table {
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+}
+
+.vp-doc th {
+  padding: 13px 16px;
+  color: var(--vp-c-text-1);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.vp-doc td {
+  padding: 13px 16px;
+  color: var(--vp-c-text-2);
+  line-height: 1.55;
+}
+
+.vp-doc :not(pre) > code {
+  border: 1px solid rgba(8, 116, 124, 0.18);
+  border-radius: 6px;
+  padding: 0.14em 0.42em;
+  font-size: 0.9em;
+  font-weight: 650;
+}
+
+.dark .vp-doc :not(pre) > code {
+  border-color: rgba(120, 215, 223, 0.24);
+}
+
+.vp-doc div[class*="language-"] {
+  margin-top: 24px;
+  margin-bottom: 30px;
+  border-radius: 10px;
+}
+
+.vp-doc div[class*="language-"] pre,
+.vp-doc div[class*="language-"] code {
+  font-size: 0.9rem;
+  line-height: 1.62;
+}
+
+.vp-doc .custom-block {
+  margin-top: 24px;
+  margin-bottom: 28px;
+  padding: 18px 20px;
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(33, 43, 46, 0.07);
+}
+
+.dark .vp-doc .custom-block {
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
+}
+
+.vp-doc .custom-block-title {
+  margin-bottom: 8px;
+  color: var(--vp-c-text-1);
+  font-size: 0.88rem;
+  font-weight: 820;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+}
+
+.vp-doc .custom-block p {
+  margin: 0.7em 0 0;
+  line-height: 1.68;
+}
+
+.vp-doc .dts-mermaid {
+  position: relative;
+  min-height: 176px;
+  margin-top: 28px;
+  margin-bottom: 34px;
+  padding: 44px 22px 22px;
+  border: 1px solid var(--vp-c-border);
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, rgba(8, 116, 124, 0.08), transparent 38%),
+    var(--dts-panel-strong);
+  box-shadow: var(--dts-shadow-card);
+  overflow-x: auto;
+}
+
+.dark .vp-doc .dts-mermaid {
+  background:
+    linear-gradient(135deg, rgba(120, 215, 223, 0.1), transparent 38%),
+    var(--dts-panel-strong);
+}
+
+.vp-doc .dts-mermaid::before {
+  content: "Mermaid diagram";
+  position: absolute;
+  top: 15px;
+  left: 20px;
+  color: var(--vp-c-brand-1);
+  font-size: 0.75rem;
+  font-weight: 820;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.vp-doc .dts-mermaid:not([data-mermaid-rendered])::after {
+  content: "Rendering diagram…";
+  display: block;
+  color: var(--vp-c-text-3);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.vp-doc .dts-mermaid-source {
+  display: none !important;
+}
+
+.vp-doc .dts-mermaid-rendered {
+  display: flex;
+  min-width: min-content;
+  justify-content: center;
+}
+
+.vp-doc .dts-mermaid svg {
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+.vp-doc .dts-mermaid-error {
+  margin: 0;
+  color: var(--vp-c-danger-1);
+  font-weight: 650;
+}
+
+.VPDocAside .outline-title {
+  color: var(--vp-c-text-1);
+  font-size: 0.82rem;
+  font-weight: 820;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.VPDocAside .outline-link {
+  padding: 5px 0;
+  color: var(--vp-c-text-2);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.VPDocAside .outline-link.active {
+  color: var(--vp-c-brand-1);
+}
+
+.vp-doc .dts-hero h1 {
+  max-width: 720px;
+  margin: 0;
+  font-size: clamp(2.7rem, 7vw, 5.4rem);
+  line-height: 0.96;
+}
+
+.vp-doc .dts-hero-lead {
+  max-width: 650px;
+  margin: 22px 0 0;
+  color: var(--vp-c-text-2);
+  font-size: clamp(1.03rem, 2vw, 1.28rem);
+  line-height: 1.58;
+}
+
+.vp-doc .dts-workbench h2 {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: clamp(1.45rem, 2.2vw, 2rem);
+  line-height: 1.18;
+}
+
+.vp-doc .dts-workbench-copy p:last-child {
+  margin-bottom: 0;
+  color: var(--vp-c-text-2);
+}
+
+.vp-doc .dts-signal-chain li {
+  margin: 0;
+  color: inherit;
+  line-height: normal;
+}
+
+.vp-doc .dts-status-board p {
+  margin: 0;
+  color: var(--vp-c-text-2);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
 @media (max-width: 959px) {
   html,
   body,

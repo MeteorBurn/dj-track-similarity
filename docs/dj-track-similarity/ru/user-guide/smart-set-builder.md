@@ -1,63 +1,37 @@
 # Smart Set Builder
 
-Аудитория: DJs и продвинутые пользователи UI  
-Цель: генерировать ordered read-only set previews  
-Тип: how-to
+> Audience: Диджеи, которые готовят упорядоченный маршрут прослушивания.
+> Goal: Понять SET preview и настройки, которые на него влияют.
+> Type: how-to
 
-Smart Set Builder в tab `SET` строит ordered preview из manual seeds или auto
-anchors. Он не изменяет библиотеку. Preview добавляется в current set только
-явным действием.
+Smart Set Builder создаёт preview, а не готовый сет. Сначала используйте его как упорядоченный shortlist, затем слушайте, удаляйте лишнее и добавляйте preview в current set только явным действием.
 
-## Requirements
+## Требования
 
-SET требует feature-complete candidates:
+Лучший маршрут требует сохранённых MERT, MAEST и CLAP audio embeddings плюс SONARA features. Smart Set может использовать MAEST embeddings, но не выбирает треки по MAEST genre labels.
 
-- SONARA features;
-- MERT embeddings;
-- MAEST embeddings;
-- CLAP audio embeddings.
+## Seed source и Set mode
 
-MAEST genre labels не являются selection source для SET. MAEST embeddings могут
-использоваться как один similarity signal.
+- Manual seeds подходят, когда у вас уже есть 1-5 anchor tracks. Это удобно для конкретного звука, лейбла, тайм-слота или перехода. Если у ручных seeds совпадает известный artist, preview отклоняется, чтобы не начинать с однообразного маршрута.
+- Auto seeds подходят, когда хочется исследовать feature-complete library. Auto mode выбирает первый anchor из анализированных треков, а остальные waypoint anchors берёт из связанных кандидатов.
+- Similar-crate режим держит маршрут ближе к anchors. Более balanced режим помогает пройти через совместимые соседние зоны, а не застрять в одной узкой группе.
 
-## Seed source
+## Размер, энергия и темп
 
-- `Manual`: использовать selected tracks как seeds.
-- `Auto`: выбрать первый anchor из feature-complete library, затем построить
-  related waypoint anchors и bridge tracks.
+- `Track limit` задаёт длину preview. Сначала держите его небольшим, затем увеличивайте, когда маршрут уже звучит цельно.
+- `Auto anchors` расширяет auto route через дополнительные waypoint anchors; слишком большое значение может сделать маршрут менее сфокусированным.
+- `Energy curve` задаёт общий подъём, спад или ровную линию энергии.
+- `Diversity` отталкивает результаты от почти одинаковых треков. Увеличивайте его, если список слишком однообразный; уменьшайте, если нужен плотный crate.
+- `BPM mode = general` оставляет обычную transition compatibility, включая half/double tempo matching.
+- `BPM mode = low_to_high` или `high_to_low` добавляет реальную BPM-траекторию. `BPM change` задаёт скорость подъёма или спуска.
+- `Start BPM` и `Target BPM` можно оставить пустыми: приложение выведет их из первого seed/anchor и диапазона библиотеки. Заполняйте их только для конкретного tempo plan.
 
-Manual seeds с одинаковым known artist отклоняются. Generated previews тоже
-сохраняют строгий known-artist guard.
+## Classifier sliders
 
-## Core controls
+Promoted classifiers — необязательные taste modifiers. `Target boost` поднимает треки, похожие на положительный сигнал; `Avoid cut` помогает избегать нежелательного класса; curve controls задают, где по маршруту classifier важнее. Missing classifier scores остаются нейтральными.
 
-| Control | Meaning |
-| --- | --- |
-| `Set mode` | Similar crate, weird adjacent, balanced set или discovery. |
-| `Track limit` | Количество preview tracks, от 1 до 500. |
-| `Auto anchors` | Количество automatic anchors, от 1 до 5. |
-| `Energy curve` | Warmup, balanced, peak или wave intensity shape. |
-| `Diversity` | Насколько широко route исследует related candidates. |
+`Reset sliders` возвращает настройки к базе, чтобы менять по одному параметру и слышать эффект.
 
-## BPM controls
+## Защита от повторов
 
-`BPM mode = general` сохраняет обычную transition compatibility.
-`low_to_high` или `high_to_low` добавляют actual BPM trajectory.
-
-Если в file tags есть BPM, SET предпочитает его. SONARA BPM используется как
-fallback. Half/double tempo matching помогает transition compatibility, но не
-переписывает actual BPM trajectory.
-
-## Classifier controls
-
-Promoted classifier scores - optional modifiers. Missing scores остаются
-neutral. Preference может быть positive или negative, flow - flat, rise или
-fall.
-
-`Reset sliders` сбрасывает diversity и classifier preference/flow values, но не
-меняет seed source, mode, limit, anchors, energy curve или BPM controls.
-
-## Добавить preview
-
-Сгенерируйте preview, послушайте, проверьте список и только потом используйте
-add action для переноса preview в current set. Export остается отдельным шагом.
+Artist guard оставляет не больше одного трека с известным artist в одном preview.

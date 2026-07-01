@@ -1,18 +1,16 @@
-# Getting started
+# Первые шаги
 
-Аудитория: новые пользователи  
-Цель: быстро получить первый рабочий локальный результат  
-Тип: tutorial index
+> Audience: Пользователи этого раздела.
+> Goal: Найти нужную страницу и не смешивать workflow с reference.
+> Type: tutorial
 
-Начните с минимального локального запуска, затем добавляйте анализ по мере
-необходимости.
+## Pages
 
-| Шаг | Страница |
-| --- | --- |
-| Установка и первый UI | [Quickstart](quickstart.md) |
-| Подробная установка | [Install](install.md) |
-| Первое сканирование | [First library](first-library.md) |
-| Первый анализ | [First analysis](first-analysis.md) |
+- [Quickstart](quickstart.md) — shortest safe path.
+- [Install](install.md) — environment and dependencies.
+- [First library](first-library.md) — scan your music folder.
+- [First analysis](first-analysis.md) — run the unified analysis job.
 
-Если вы уже знаете проект, можно перейти сразу в
-[User guide](../user-guide/index.md) или [Reference](../reference/index.md).
+## Privacy
+
+Используйте `<library-db>` и `<music-folder>` в публичных examples. Не публикуйте private paths, usernames, real track names или personal library contents.

@@ -1,59 +1,34 @@
-# Choose your first analysis
+# Run your first analysis
 
-Audience: new users  
-Goal: run the smallest useful analysis pass  
-Type: tutorial
+> Audience: Users who have scanned tracks and want useful search results.
+> Goal: Run the current unified analysis job and understand limit behavior.
+> Type: tutorial
 
-Analysis creates local SQLite state that search can use. Pick the analysis
-family that matches your immediate goal instead of running everything first.
+Run analysis after scanning so the app can compare tracks by measured audio features and model embeddings. Start small, confirm the results are useful, then scale up to the whole library.
 
-## Quick choice
-
-| Goal | Start with |
-| --- | --- |
-| Explainable rhythm, loudness, energy, and texture controls | SONARA |
-| Seed-track audio similarity | MERT |
-| Text-to-music prompts | CLAP |
-| Genre labels and classifier inputs | MAEST |
-| Your own labeled concept, after Rhythm Lab promotion | CLASSIFIERS |
-
-## Run a small SONARA pass first
+## Unified command
 
 ```powershell
-dj-sim analyze --models sonara --limit 25 --db .\data\library.sqlite
+dj-sim analyze --models sonara,maest,mert,clap --limit 25 --db .\data\library.sqlite
 ```
 
-Expected result:
+`--limit 25` means the command processes a small number of tracks missing the requested analysis results. That keeps the first run fast enough to confirm decoding, model loading, and GPU/CPU behavior.
 
-```text
-The command reports progress and marks analyzed tracks in the database.
-```
+## What each model unlocks
 
-In the UI, the summary badges update and the SONARA tab can search from seed
-tracks.
+- `sonara` stores measured audio features used by the SONARA tab, Smart Set transition routing, energy cues, and analyzed BPM/key fallback values.
+- `maest` stores genre labels and MAEST embeddings. Genre tag apply uses the stored labels; Smart Set selection may use MAEST embeddings, not MAEST genre labels.
+- `mert` stores MERT embeddings for seed-based similarity search and hybrid comparison.
+- `clap` stores CLAP audio embeddings for CLAP text search and Smart Set routing signals.
 
-## Run heavier model analysis deliberately
+## Options
 
-MERT, CLAP, and MAEST require the `ml` extra. They can be slow on CPU.
+Use `--models`, `--device auto|cpu|cuda`, `--top-k`, `--track-batch-size`, `--inference-batch-size`, and `--diagnostics`. `auto` chooses CUDA when PyTorch sees a GPU, otherwise CPU. Use `--diagnostics` when you need decoder fallback and batch timing details.
 
-```powershell
-dj-sim analyze --models mert --limit 25 --db .\data\library.sqlite
-dj-sim analyze --models clap --limit 25 --db .\data\library.sqlite
-dj-sim analyze --models maest --limit 25 --db .\data\library.sqlite
-```
+For the whole library in the CLI, omit `--limit`. Do not pass `--limit 0` to mean all tracks in the CLI.
 
-Use `--device cuda` only when `dj-sim doctor` shows CUDA is available. The
-default `--device auto` selects CUDA when PyTorch can see it, otherwise CPU.
+## UI limit
 
-## Analyze limit
+In the UI, `Analyze limit = 0` means whole library because the UI sends `null` or no limit to `/api/analysis/jobs`. Positive limits count tracks missing the selected analysis family.
 
-In the UI, `Analyze limit = 0` means the whole library. A positive limit counts
-missing results for the selected analysis family.
-
-## What happens next
-
-- Use [Search with seeds](../user-guide/search-with-seeds.md) after SONARA or
-  MERT analysis.
-- Use [Text search](../user-guide/text-search.md) after CLAP analysis.
-- Use [Smart Set Builder](../user-guide/smart-set-builder.md) after SONARA,
-  MERT, MAEST, and CLAP audio embeddings are present.
+Use a positive UI limit for the same reason as the CLI first batch: it confirms dependencies and expected runtime before committing to a long analysis job.

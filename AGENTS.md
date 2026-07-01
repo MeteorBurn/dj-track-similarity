@@ -1,401 +1,284 @@
 # Agent Instructions
 
-## Project Snapshot
+## Purpose And Source Of Truth
 
-`dj-track-similarity` is a public personal/enthusiast project for local DJ
-music-library analysis and track similarity. Keep public docs honest, practical,
-and modest: this is not a polished commercial product or a research benchmark.
+`dj-track-similarity` is a public personal/enthusiast project for local DJ music-library analysis,
+similarity search, set preparation, and safe helper tools. Keep public claims practical and modest:
+this is not a polished commercial product or research benchmark.
 
-User-facing project documentation should be English unless the user asks
-otherwise. The English documentation index is
-`docs/dj-track-similarity/project-guide.md`; use its linked topic pages for full
-CLI/API/script details instead of duplicating long references here. Russian
-documentation lives under `docs/dj-track-similarity/ru/` and is updated only on
-explicit request; keep routine documentation maintenance current in the English
-version first.
+Verify behavior from current source, tests, schemas, and runtime evidence. Docs are navigation aids,
+not authority for logic, commands, API contracts, database fields, analysis outputs, UI workflows,
+Rhythm Lab behavior, or maintenance scripts.
 
-## Project Documentation
+User-facing docs are English unless the user asks otherwise. The English entrypoint is
+`docs/dj-track-similarity/project-guide.md`; follow linked topic pages instead of duplicating long
+references here. Russian docs live under `docs/dj-track-similarity/ru/` and are opt-in.
 
-Project documentation lives under `docs/dj-track-similarity/`, with the
-canonical English documentation tree at the documentation root and the Russian
-localization under `docs/dj-track-similarity/ru/`. Treat
-`docs/dj-track-similarity/project-guide.md` as the English entrypoint, then
-follow its links to the focused topic pages for installation, overview,
-architecture, database, analysis models, analysis families, search/tag writing,
-CLI, API, Rhythm Lab, development, and stable maintenance scripts.
+For local manual checks against the real library, use `C:\db\abstracted.sqlite` unless the user gives
+another path. This workspace may not always be a Git repo, so inspect before relying on branches,
+history, or commits.
 
-Do not treat project documentation as current or authoritative evidence for
-project behavior. Verify logic, commands, API contracts, database fields,
-analysis outputs, UI workflows, Rhythm Lab behavior, and maintenance scripts from
-the current source code, tests, schemas, and direct runtime evidence. Use docs
-only to find the page that needs updating, then update that page to match the
-verified current behavior.
+## Repo Map
 
-When any Markdown source under `docs/dj-track-similarity/` changes, run the
-focused documentation checks that match the change. Build the static HTML
-documentation when you need to preview or deploy it by running `npm run build`
-from `docs/dj-track-similarity/`. The generated HTML lives in
-`docs/dj-track-similarity/site/`, is ignored by Git, and is served from the main
-UI documentation button at `/docs/` when present. If it has not been built, the
-backend should show a clear "documentation is not built" page instead of a
-missing route.
+- `src/dj_track_similarity/`: backend, CLI, FastAPI routes, SQLite access, scanning, analysis,
+  embeddings, classifiers, search, exports, tags, media preview, logging, and runtime helpers.
+- `frontend/`: React/Vite/TypeScript main UI. `frontend/src/api.ts` mirrors backend contracts;
+  `frontend/dist` is the backend-served bundle.
+- `tests/`: backend/API/search/jobs/tags/evaluation pytest coverage.
+- `scripts/`: focused maintenance and benchmark scripts plus tests.
+- `docs/dj-track-similarity/`: VitePress source; `npm run build` writes ignored `site/` output.
+- `tools/rhythm-lab/`: standalone classifier labeling/training UI and CLI.
+- `tools/audio-doctor/`: dry-run-first metadata/container diagnostic and repair helper plus UI jobs.
+- `tools/audio-dedup/`: duplicate-audio candidate reporter plus explicit confirmed cleanup mode.
+- `logs/`: runtime logs only; keep `.gitkeep`, never commit generated `*.log`.
 
-The project is a Python backend/CLI plus a React/Vite frontend:
+Hot paths: `database.py`/`db_*` own SQLite; `api.py`, `api_schemas.py`, and `api_routes_*.py` own
+HTTP contracts; `cli.py` owns Typer commands; `scanner.py`, `audio_loader.py`, `sonara_features.py`,
+`genres.py`, `embedding.py`, `analysis_jobs.py`, `classifier_scoring.py`, `set_builder.py`,
+`sonara_similarity.py`, `tags.py`, `wave_tags.py`, and `media_preview.py` own safety-sensitive logic.
 
-- `src/dj_track_similarity/`: database, scanning, analysis, classifiers,
-  search, export, tags, API, and CLI.
-- `frontend/`: React UI built with Vite and TypeScript.
-- `tests/`: pytest coverage for backend/API/search/jobs/tags.
-- `tools/rhythm-lab/`: auxiliary classifier labeling/training UI and CLI for
-  user-created classifier profiles. It runs separately from
-  `dj_track_similarity`, but stays in this repository as a helper project.
-- `tools/audio-doctor/`: standalone dry-run-first audio metadata/container
-  diagnostic/repair helper plus main-UI job backend. Commit only source files,
-  README, and `.gitkeep` placeholders under generated data directories.
-- `tools/audio-dedup/`: duplicate-audio candidate tool and main-UI job backend.
-  By default it reads the project SQLite database and writes ignored reports
-  only; `--apply` / UI apply mode is the explicit destructive cleanup mode.
+## Generated And Local Artifacts
 
-This workspace may not always be a Git repository. Do not assume commits,
-branches, or history are available.
+Do not commit generated local state: `*.sqlite`, `*.log`, `__pycache__/`, `.pytest_cache/`,
+virtualenvs, `frontend/node_modules/`, temp folders, `frontend/dist` unless explicitly requested, or
+`docs/dj-track-similarity/site/`.
 
-For local checks and manual runs against the real library database, use
-`C:\db\abstracted.sqlite` unless the user gives another path.
+Keep only source, README files, and `.gitkeep` placeholders under generated data areas. Audio Doctor
+state/reports/backups under `tools/audio-doctor/data/`, duplicate reports under
+`tools/audio-dedup/data/reports/`, Rhythm Lab data under `tools/rhythm-lab/data/`, Rhythm Lab
+artifacts under `tools/rhythm-lab/artifacts/*/`, and promoted local classifier assets under
+`models/classifiers/*/model.joblib` and `models/classifiers/*/model.json` stay out of git unless the
+user explicitly changes that policy.
 
-## Runtime Logs
-
-Runtime logs that are written by the main app or helper processes launched from
-it live under `logs/`. The main app writes `logs/dj-track-similarity.log`; the
-Rhythm Lab process launched from the main UI writes `logs/rhythm-lab.log` and
-mirrors new lines back to the main server console with a `[Rhythm Lab]` prefix.
-
-The main app log owns the project-wide daily rotation rule. When
-`logs/dj-track-similarity.log` rolls over at midnight, every active `*.log` file
-in `logs/` is archived with the same dated suffix, truncated for the next day,
-and old backups are pruned with the same retention rule. Future runtime logs
-started by the main app should use `logs/<name>.log` so they share that policy.
-
-Keep `logs/.gitkeep` tracked so the directory exists, but never commit generated
-`logs/*.log` files. Tool report logs under `tools/audio-doctor/data/reports/`
-and `tools/audio-dedup/data/reports/` are report artifacts, not shared runtime
-logs.
+Runtime logs written by the main app or launched helpers live under `logs/`. `logs/dj-track-similarity.log`
+owns daily rotation: when it rolls at midnight, active `logs/*.log` files get the same dated suffix,
+are truncated, and old backups are pruned with the same retention rule. Future app-started logs
+should use `logs/<name>.log`.
 
 ## Safety Invariants
 
-- Treat real audio files as user data. Scanning, RefreshTags, analysis, search,
-  preview, reset, clear, relocation preview, and export must not modify audio.
-- Browser preview may transcode `.aif`/`.aiff` to WAV for `/media/{track_id}`;
-  this is read-only streaming and must not rewrite/cache source audio.
-- Library relocation updates only stored `tracks.path` values in SQLite. It must
-  be previewable, reject missing target files/conflicts on apply, preserve track
-  IDs and all analysis/tag metadata, and never move/copy/delete/retag audio.
-- `/api/tags/genres/apply` is the explicit app-level standard-tag write path:
-  overwrite only the standard genre field from stored MAEST labels, preserving
-  title/artist/album/BPM/key and other normal tags.
-- Genre writes are upserts: replace any existing genre values with one normalized
-  `;`-separated MAEST genre string. Use `TCON` for MP3/WAV/AIFF ID3, `GENRE`
-  for FLAC/Vorbis-style tags, and `\xa9gen` for MP4/M4A/ALAC.
-- WAV genre writing must use Mutagen WAVE/ID3 handling and read back `TCON`.
-  Do not add custom RIFF repair/validation to the app path; failed WAV writes
-  should fail that track and let the batch continue.
-- `tools/audio-doctor/audio_doctor_cli.py --apply` is separate and may rewrite only
-  files it reports as `REPAIRABLE`; dry-run must not write/copy audio, apply is
-  sequential, and full-file backups are created by default. UI/API apply mode
-  must require exact `APPLY REPAIR` confirmation and should run from prior
-  dry-run state.
-- `tools/audio-doctor/audio_doctor_cli.py --db` opens the selected
-  SQLite library database read-only, reads existing `tracks.path` values, and
-  may remap stored roots with `--db-root` plus `--file-root` before checking the
-  filesystem. Missing remapped files are skipped, not repaired.
-- `tools/audio-dedup/audio_dedup_cli.py` is report-only by default. It opens
-  SQLite read-only and writes JSON/XLSX/log reports under
-  `tools/audio-dedup/data/reports/` by default. With explicit `--apply`, it
-  must prompt for exact confirmation, delete only safe duplicate candidates
-  inside the selected `--root`, and remove SQLite rows only for tracks whose
-  files were successfully deleted. The main UI apply mode must require the same
-  exact `APPLY DELETE` confirmation. Do not invoke apply mode in tests or
-  routine verification runs.
-- Keep SQLite writes routed through `LibraryDatabase`, with the shared
-  path-scoped write lock, WAL, and busy timeout so scan/RefreshTags/Sonara/
-  MAEST/MERT/CLAP/reset writes queue safely.
-- Promoted classifier scoring is database-only. It must read existing SONARA
-  features plus MERT and MAEST embeddings, then write only
-  `track_classifier_scores`; it must not decode audio or modify audio files.
-- Promoted classifier scoring must stay scoped by `classifier_key`. Adding or
-  promoting a new classifier should score only missing rows for that classifier
-  and must not require deleting or recomputing stored scores for other promoted
-  classifiers.
-- After a classifier is retrained and promoted, existing scores for that same
-  `classifier_key` may be stale because they were produced by an older
-  `model_id`. Recompute that classifier deliberately by resetting only that
-  classifier's `track_classifier_scores` rows before rescoring; do not clear
-  scores for unrelated classifiers.
-- Rhythm Lab must never write to source audio files. It opens the main project
-  SQLite database read-only for browsing, analysis metadata, training inputs,
-  and preview. Its only source-database write path is the explicit liked-track
-  toggle, which updates `track_likes` through `LibraryDatabase`; lab labels,
-  predictions, and checkpoints stay under `tools/rhythm-lab/data/`.
-- Treat `dj-track-similarity.sqlite` as local user state. Tests must use
-  temporary databases (`tmp_path` or explicit `--db`).
-- Do not commit generated local artifacts: `*.sqlite`, `*.log`, `__pycache__/`,
-  `.pytest_cache/`, `frontend/node_modules/`, transient temp folders, or
-  generated Audio Doctor state/report/backup files under
-  `tools/audio-doctor/data/` except `.gitkeep`.
-  Generated documentation output under `docs/dj-track-similarity/site/` must
-  also stay out of git.
-  Rhythm Lab generated state and
-  training artifacts under `tools/rhythm-lab/data/` and
-  `tools/rhythm-lab/artifacts/*/` must also stay out of git except `.gitkeep`.
-  Generated duplicate-audio reports under `tools/audio-dedup/data/reports/` must
-  also stay out of git except `.gitkeep`.
-- Server startup requires `ffmpeg` on `PATH` or `DJ_TRACK_SIMILARITY_FFMPEG`;
-  keep missing-ffmpeg errors clear and actionable.
-- The verified Windows CUDA ML stack is PyTorch `2.11.0`, Torchaudio
-  `2.11.0`, Torchvision `0.26.0`, TorchCodec `0.13.0`, nnaudio, CUDA wheel
-  index `cu130`, and `numpy>=1.26,<2.0`. Keep the PyTorch-family packages
-  synchronized unless a deliberate dependency upgrade is being tested.
-- TorchCodec-backed Torchaudio decoding on Windows requires an FFmpeg shared
-  build with DLLs on `PATH`; the verified portable build is GyanD
-  `ffmpeg 8.1.1-full_build-shared` under `C:\Utils\tools\ffmpeg\bin`.
+### Audio Files And Tags
 
-## Analysis And UI Contracts
+- Treat real audio as user data. Scanning, RefreshTags, analysis, search, preview, reset, clear,
+  relocation preview, and export must not modify audio.
+- Browser preview may transcode `.aif`/`.aiff` to a temporary WAV for `/media/{track_id}`; this is
+  read-only streaming and must not rewrite or cache source audio.
+- `/api/tags/genres/apply` is the explicit app-level standard-tag write path. It overwrites only the
+  standard genre field from stored MAEST labels and preserves title, artist, album, BPM, key, and
+  other normal tags.
+- Genre writes are upserts to one normalized `;`-separated MAEST genre string: `TCON` for MP3/WAV/AIFF
+  ID3, `GENRE` for FLAC/Vorbis-style tags, and `\xa9gen` for MP4/M4A/ALAC.
+- WAV genre writing must use Mutagen WAVE/ID3 handling and read back `TCON`. Do not add custom RIFF
+  repair/validation to the app tag-write path; failed WAV writes should fail that track and let the
+  batch continue.
 
-- Mutagen scan/RefreshTags read only the fixed human-relevant whitelist and
-  update SQLite only. Stored metadata must be JSON-safe.
-- Sonara writes only SQLite metadata (`sonara_features`, `sonara_model`) plus
-  derived working BPM/key/duration/energy fields. Sonara BPM/key are analyzed
-  values, not copied file tags.
-- Keep Sonara playlist storage focused on the grouped UI contract. Do not store
-  placeholder `unavailable` rows, helper diagnostics, or `chord_sequence`.
-- Keep Sonara database keys canonical (`*_mean` stays in SQLite). Friendly UI
-  labels may omit `mean`, but do not rename stored keys or derive Camelot data.
-- Shared audio loading is native-first standard decoding: Sonara starts with
-  `sonara.analyze_file`; Sonara fallback, MAEST, MERT, and CLAP use the shared
-  loader (`torchaudio` with TorchCodec when provided, Python `wave` for WAV,
-  then `ffmpeg`).
-- MAEST analysis writes only SQLite metadata and must use the three-window
-  30-second policy with direct `model(audio_batch, melspectrogram_input=False)`
-  logits, not `predict_labels()` for batch work.
-- MERT/CLAP/MAEST use one selected device plus inference batching. `auto` picks
-  CUDA when PyTorch sees a GPU, otherwise CPU; explicit `cuda` must error if
-  unavailable.
-- In the UI, `Analyze limit = 0` means whole library. Positive limits count
-  missing results for the selected analysis family.
-- Search UI stays split into SET, SONARA, MERT, CLAP, and CLASS tabs. SET calls
-  `/api/set-builder/generate` and must stay a read-only preview generator:
-  manual mode uses `1-5` selected seed tracks, auto mode samples the first
-  anchor from the full feature-complete library and then samples remaining
-  waypoint anchors from related candidates, manual seeds with the same known
-  artist are rejected, and the preview is added to the current set only through
-  an explicit user action. SONARA sends
-  custom mixer/modifiers to `/api/search/sonara`; MERT seed search uses
-  `/api/search`; CLAP text search uses `/api/search/text` and requires `clap`
-  embeddings.
-- Smart Set Builder requires stored MERT, MAEST, and CLAP audio embeddings plus
-  stored SONARA features. It may use MAEST embeddings, but must not use MAEST
-  genre labels for track selection. BPM/key are soft transition-ordering
-  signals: prefer file tags first, then SONARA fallback. Its default
-  `bpm_mode=general` keeps those normal transition rules only; explicit
-  `low_to_high` or `high_to_low` adds an actual-BPM trajectory with
-  `bpm_change=slow|medium|fast` and optional `bpm_start` / `bpm_target`, whose
-  missing values are inferred from the first seed/anchor and library BPM range.
-  Keep half/double tempo matching for transition compatibility, not for the
-  actual-BPM trajectory. Promoted classifiers are optional stored-score
-  modifiers only; missing classifier scores stay neutral. Keep the artist guard
-  strict: at most one track per known artist in one preview.
-- SET UI controls should stay explicitly labelled with hover help for purpose,
-  type/format, and range. Current user-facing controls include `Seed source`,
-  `Set mode`, `Track limit`, `Auto anchors`, `Energy curve`, `Diversity`,
-  `BPM mode`, `BPM change`, `Start BPM`, `Target BPM`, classifier
-  `Target boost`, `Avoid cut`, `Curve start`, `Curve end`, and `Reset sliders`.
-- SONARA search should read analyzed tracks through
-  `LibraryDatabase.load_sonara_feature_rows()` so repeated searches reuse parsed
-  feature rows. Keep this cache behavior-preserving: do not change scoring math,
-  feature ranges, or result ordering as part of cache/performance work.
-- Invalidate the SONARA feature-row cache whenever track rows, stored metadata,
-  SONARA features, resets, clears, or relocation updates can affect search
-  results.
-- The search/listening panel also has a CLASS tab for classifier controls. It
-  discovers promoted local classifier profiles from
-  `models/classifiers/*/model.json`. Keep generated classifier assets
-  (`model.joblib`, `model.json`) out of git.
-- The CLASS tab may expose per-classifier scoring controls. Those controls
-  should call the single-classifier scoring path for that promoted profile and
-  should preserve scores belonging to other classifier keys.
-- Promoted classifier scores are stored in `track_classifier_scores` with their
-  profile `classifier_key`. The user-facing score is the promoted model's
-  positive-label probability stored as `score`; per-label probabilities remain
-  in `probabilities_json`.
-- Rhythm Lab's lab DB uses `classifier_labels`, `classifier_predictions`, and
-  `classifier_training_checkpoints`, scoped by `classifier_key`. Do not
-  reintroduce `rhythm_*` lab tables except in a one-way migration that removes
-  them after data is copied.
-- Rhythm Lab profiles support `profile_type = "binary"` and
-  `profile_type = "multiclass"`. Binary profiles use exactly one positive and
-  one negative training label plus optional review labels. Multiclass profiles
-  use `class` labels only, can have arbitrary user-defined classes, and one
-  track can hold only one current label for the active profile.
-- Rhythm Lab training artifacts are classifier-scoped under
-  `tools/rhythm-lab/artifacts/<artifact-prefix>/`. Promoted runtime models for
-  the main app stay separate under `models/classifiers/<artifact-prefix>/`.
-- Rhythm Lab training benchmarks `sonara`, `mert`, `maest`, and `combined`.
-  `combined` requires existing SONARA features plus MERT and MAEST embeddings;
-  do not remove SONARA from the combined classifier path. Rhythm Lab summary UI
-  should expose SONARA, MAEST, and MERT coverage counters.
-- Rhythm Lab `train-refresh` in the UI is readiness-gated by newly added labels
-  since the last training checkpoint. If a profile needs a forced retrain on the
-  same label set, use the CLI `train` command explicitly rather than weakening
-  the UI readiness gate.
-- Classifier calibration is opt-in training behavior. `--calibrate` may fit a
-  calibrated binary classifier when the profile has enough training data
-  (currently at least 100 labels total, 20 positive, and 20 negative); otherwise
-  training should still produce an uncalibrated artifact with a diagnostic
-  calibration report. Use `promote --require-calibration` only when a calibrated
-  artifact is intentionally required.
-- Promoted classifier manifests should carry stable production metadata such as
-  `model_id`, `artifact_hash`, `promoted_at`, `production.calibration`, and
-  `production.required_inputs`. Legacy manifests may remain scoring-compatible,
-  but malformed manifests should block scoring clearly.
-- Keep library browsing scalable: `/api/tracks` remains server-side
-  paginated/searchable with lightweight rows, `/api/library/summary` provides
-  counters, and full metadata loads via `/api/tracks/{id}` only on dialog open.
-- Reset controls are database-only per analysis family. Database clear deletes
-  SQLite records only and must require explicit UI confirmation.
-- Metadata dialog must keep Mutagen tags, SONARA features, and MAEST genres
-  visually separate; preserve the current display order and source boundaries.
-  Classifier scores may be shown as their own block below SONARA features.
-- Keep hover help on user-editable controls with purpose, type/format, and range.
+### SQLite And Destructive State
+
+- Route SQLite writes through `LibraryDatabase`, with the shared path-scoped write lock, WAL, and busy
+  timeout so scan, RefreshTags, SONARA, MAEST, MERT, CLAP, reset, relocation, and classifier writes
+  queue safely.
+- Treat `dj-track-similarity.sqlite` as local user state. Tests must use temp DBs via `tmp_path` or
+  explicit `--db`.
+- Library relocation updates only stored `tracks.path` values. It must be previewable, reject missing
+  target files and conflicts on apply, preserve track IDs plus analysis/tag metadata, and never
+  move/copy/delete/retag audio.
+- Reset controls are database-only per analysis family. Database clear deletes SQLite records only and
+  must require explicit UI confirmation.
+- Destructive SQLite maintenance on real DBs needs a backup or copied DB first, must rebuild affected
+  FTS state such as `track_search_fts`, and should finish with integrity/orphan checks.
+
+### Audio Doctor And Audio Dedup
+
+- `tools/audio-doctor/audio_doctor_cli.py` is dry-run-first. `--apply` may rewrite only files
+  previously reported as `REPAIRABLE`, runs sequentially, and creates full-file backups by default.
+  UI/API apply mode must require exact `APPLY REPAIR` confirmation and should run from prior dry-run
+  state.
+- `tools/audio-doctor/audio_doctor_cli.py --db` opens the selected SQLite library read-only, reads
+  existing `tracks.path`, may remap roots with `--db-root` plus `--file-root`, and skips missing
+  remapped files.
+- `tools/audio-dedup/audio_dedup_cli.py` is report-only by default. It opens SQLite read-only and writes
+  JSON/XLSX/log reports under `tools/audio-dedup/data/reports/`.
+- Audio Dedup `--apply` must prompt for exact `APPLY DELETE`, delete only safe duplicate candidates
+  inside selected `--root`, and remove SQLite rows only for tracks whose files were deleted. UI apply
+  mode requires the same confirmation. Do not invoke apply mode in tests or routine checks.
+
+### Classifiers And Rhythm Lab
+
+- Promoted classifier scoring is database-only. It reads existing SONARA features plus MERT and MAEST
+  embeddings, writes only `track_classifier_scores`, and must not decode or modify audio.
+- Promoted classifier scoring is scoped by `classifier_key`. Adding or promoting one classifier scores
+  only missing rows for that classifier and must not delete or recompute scores for other classifiers.
+- After retraining and promoting a classifier, scores for that same `classifier_key` may be stale from
+  an older `model_id`; reset only that classifier's `track_classifier_scores` rows before rescoring.
+- Missing classifier scores stay neutral. Malformed manifests block scoring clearly. Production
+  manifests should carry `model_id`, `artifact_hash`, `promoted_at`, `production.calibration`, and
+  `production.required_inputs`.
+- Rhythm Lab never writes source audio. It opens the main SQLite DB read-only for browsing, analysis
+  metadata, training inputs, and preview. Its only source-DB write path is the explicit liked-track
+  toggle via `LibraryDatabase`; labels, predictions, and checkpoints stay under `tools/rhythm-lab/data/`.
+- Rhythm Lab uses `classifier_labels`, `classifier_predictions`, and `classifier_training_checkpoints`,
+  all scoped by `classifier_key`. Do not reintroduce `rhythm_*` tables except in a one-way migration
+  that removes them after copied data is verified.
+
+### Runtime, Subprocesses, And Dependencies
+
+- Server startup requires `ffmpeg` on `PATH` or `DJ_TRACK_SIMILARITY_FFMPEG`; keep missing-ffmpeg errors
+  clear and actionable.
+- Before starting local UI/server processes, check for existing listeners and matching project
+  processes. Keep one instance per fixed port: main backend `8765`, Vite frontend `5173`, Rhythm Lab
+  `8777`.
+- TorchCodec-backed Torchaudio decoding on Windows requires an FFmpeg shared build with DLLs on `PATH`;
+  the verified portable build is GyanD `ffmpeg 8.1.1-full_build-shared` under `C:\Utils\tools\ffmpeg\bin`.
+- Verified Windows CUDA ML stack: PyTorch `2.11.0`, Torchaudio `2.11.0`, Torchvision `0.26.0`,
+  TorchCodec `0.13.0`, nnaudio, CUDA wheel index `cu130`, and `numpy>=1.26,<2.0`. Keep PyTorch-family
+  packages synchronized unless a dependency upgrade is deliberate.
+
+## Runtime And UI Contracts
+
+### Analysis
+
+- Mutagen scan and RefreshTags read only the fixed human-relevant metadata whitelist and update SQLite
+  only. Stored metadata must be JSON-safe.
+- SONARA writes only SQLite metadata (`sonara_features`, `sonara_model`) plus derived working
+  BPM/key/duration/energy fields. SONARA BPM/key are analyzed values, not copied file tags.
+- Keep SONARA database keys canonical (`*_mean` stays in SQLite). Friendly UI labels may omit `mean`,
+  but do not rename stored keys or derive Camelot data. Do not store placeholder `unavailable` rows,
+  helper diagnostics, or `chord_sequence` in SONARA playlist storage.
+- Shared audio loading is native-first: SONARA starts with `sonara.analyze_file`; SONARA fallback,
+  MAEST, MERT, and CLAP use the shared loader (`torchaudio` with TorchCodec when provided, Python
+  `wave` for WAV, then `ffmpeg`).
+- MAEST writes only SQLite metadata and uses the three-window 30-second policy with direct
+  `model(audio_batch, melspectrogram_input=False)` logits, not `predict_labels()` for batch work.
+- MERT, CLAP, and MAEST use one selected device plus inference batching. `auto` picks CUDA when PyTorch
+  sees a GPU; explicit `cuda` must error if unavailable.
+- In the UI, `Analyze limit = 0` means whole library. Positive limits count missing results for the
+  selected analysis family.
+
+### Search, SET, SONARA, And CLASS
+
+- Search UI stays split into SET, SONARA, MERT, CLAP, and CLASS tabs.
+- SET calls `/api/set-builder/generate` and is read-only preview generation. Manual mode uses `1-5`
+  selected seeds and rejects manual seeds with the same known artist. Auto mode samples the first anchor
+  from the full feature-complete library, then samples remaining waypoint anchors from related candidates.
+  Preview enters the current set only through explicit user action.
+- Smart Set Builder requires stored MERT, MAEST, and CLAP audio embeddings plus stored SONARA features.
+  It may use MAEST embeddings, but must not use MAEST genre labels for track selection.
+- Smart Set Builder BPM/key are soft transition-ordering signals: prefer file tag BPM, then SONARA
+  fallback. Default `bpm_mode=general` keeps normal transition rules only; `low_to_high` and
+  `high_to_low` add actual-BPM trajectory with `bpm_change=slow|medium|fast` and optional `bpm_start` /
+  `bpm_target`. Missing values are inferred from the first seed/anchor and library BPM range.
+  Half/double tempo matching is for transition compatibility, not actual-BPM trajectory.
+- Promoted classifiers are optional stored-score modifiers in SET. Missing scores stay neutral. Keep
+  the artist guard strict: at most one track per known artist in one preview.
+- SET controls must stay explicitly labeled with hover help for purpose, type/format, and range. Current
+  controls include `Seed source`, `Set mode`, `Track limit`, `Auto anchors`, `Energy curve`, `Diversity`,
+  `BPM mode`, `BPM change`, `Start BPM`, `Target BPM`, classifier `Target boost`, `Avoid cut`,
+  `Curve start`, `Curve end`, and `Reset sliders`.
+- SONARA custom search sends mixer/modifier payloads to `/api/search/sonara`. MERT seed search uses
+  `/api/search`; CLAP text search uses `/api/search/text` and requires `clap` embeddings.
+- SONARA search should read analyzed tracks through `LibraryDatabase.load_sonara_feature_rows()` so
+  repeated searches reuse parsed feature rows. Keep cache work behavior-preserving: do not change scoring math,
+  feature ranges, or ordering. Invalidate the cache whenever track rows, metadata, SONARA features,
+  resets, clears, or relocation updates can affect results.
+- CLASS discovers promoted local profiles from `models/classifiers/*/model.json`. Per-classifier controls
+  should call the single-classifier scoring path for that profile and preserve other classifier keys.
+
+### Library, Metadata, And Rhythm Lab UI
+
+- Keep library browsing scalable: `/api/tracks` stays server-side paginated/searchable with lightweight
+  rows, `/api/library/summary` provides counters, and `/api/tracks/{id}` loads full metadata only on
+  dialog open.
+- Metadata dialog keeps Mutagen tags, SONARA features, MAEST genres, and classifier scores visually
+  separate; preserve source boundaries and display order.
+- Rhythm Lab profiles support `profile_type = "binary"` and `profile_type = "multiclass"`. Binary
+  profiles use exactly one positive and one negative training label plus optional review labels.
+  Multiclass profiles use `class` labels only, support arbitrary classes, and one track can hold only one
+  current label for the active profile.
+- Rhythm Lab artifacts are classifier-scoped under `tools/rhythm-lab/artifacts/<artifact-prefix>/`;
+  promoted runtime models stay under `models/classifiers/<artifact-prefix>/`.
+- Rhythm Lab training benchmarks `sonara`, `mert`, `maest`, and `combined`. `combined` requires existing
+  SONARA features plus MERT and MAEST embeddings. Keep SONARA in this path and expose SONARA, MAEST, and
+  MERT coverage counters.
+- Rhythm Lab `train-refresh` is readiness-gated by newly added labels since the last training checkpoint.
+  Use CLI `train` for forced retrain on the same label set instead of weakening the UI gate.
+- Classifier calibration is opt-in. `--calibrate` may fit calibrated binary classifiers with enough data
+  (currently at least 100 labels total, 20 positive, 20 negative). Otherwise training still produces an
+  uncalibrated artifact with a diagnostic report. Use `promote --require-calibration` only intentionally.
+
+## Development Workflow
+
+- Keep Python compatible with 3.10+ and follow existing module patterns.
+- Keep edits scoped. Inspect before editing when behavior, safety, or repo state matters. Preserve
+  unrelated worktree changes.
+- Prefer durable current behavior over legacy compatibility. Do not add fallback paths, compatibility
+  shims, or parallel old/new behavior unless the user asks.
+- Keep FastAPI request/response shapes aligned with `frontend/src/api.ts`.
+- If changing scan/analysis job state, update backend tests plus frontend polling/display logic.
+- If changing Mutagen tags, SONARA features, MAEST jobs, classifier jobs, audio decoding, search, library
+  browsing, relocation, analysis controls, SQLite writes, UI controls, custom tags, or standard genre
+  writes, update the focused tests, frontend/API surfaces, and `docs/dj-track-similarity/` pages.
+- Use deterministic test data and test-local stub adapters; automated tests should not depend on the real
+  user music library.
+- After frontend source changes, run `npm run build` from `frontend/`.
+- When Markdown under `docs/dj-track-similarity/` changes, run focused docs checks. Build static docs with
+  `npm run build` from `docs/dj-track-similarity/` when previewing or deploying. If generated docs are
+  absent, the backend should show a clear "documentation is not built" page.
+
+## Plugin And External Tool Routing
+
+- Superpowers: use workflow skills for non-trivial planning, TDD, debugging, implementation-plan
+  execution, branch finishing, and verification discipline; do not let skill ceremony expand narrow work.
+- Codex Security: use security-scan/review/fix skills when the user asks for security work. For normal
+  edits, preserve invariants around audio mutation, SQLite writes, destructive apply modes, subprocesses,
+  secrets, and generated artifacts.
+- OpenAI Developers: use official OpenAI/Codex docs when changing OpenAI API, SDK, ChatGPT Apps, Codex,
+  or `AGENTS.md` behavior. For OpenAI API-backed code or `OPENAI_API_KEY` work, use the secure Platform
+  connector flow and never print plaintext secrets.
+- GitHub: resolve local branch/upstream with `git` first for current-checkout work, then use GitHub tools
+  or `gh` for PRs, issues, Actions, and remote metadata. For publish requests from a mixed tree, inspect
+  status/diff first, stage only intended files, and keep push-only separate from commit+push. Current
+  remote is `https://github.com/MeteorBurn/dj-track-similarity`.
 
 ## Common Commands
 
-For the CLI, API, and maintenance script documentation index, see
-`docs/dj-track-similarity/project-guide.md` and its linked topic pages.
+Use the project-local venv when present: `.\.venv\Scripts\python.exe -m pip install -e ".[dev]"`,
+`.\.venv\Scripts\python.exe -m pytest`, and the focused pytest commands in the verification matrix.
 
-```powershell
-python -m pip install -e ".[dev]"
-python -m pip install -e ".[sonara,ml,rhythm-lab,dev]"
-pytest
-dj-sim serve --host 127.0.0.1 --port 8765
-dj-sim serve --host 127.0.0.1 --port 8765 --log-track-events
-scripts\run_server.cmd
-cd frontend
-npm run build
-npm run dev
-cd docs\dj-track-similarity
-npm run build
-```
+Common local runs: `dj-sim serve --host 127.0.0.1 --port 8765`, `scripts\run_server.cmd`,
+`cd frontend; npm run build; npm run dev`, and `cd docs\dj-track-similarity; npm run build`.
 
-Useful focused CLI examples:
+Focused CLI examples: `dj-sim scan <path-to-music> --db .\data\library.sqlite`,
+`dj-sim analyze --models sonara,maest,mert,clap --limit 3 --db .\data\library.sqlite`,
+`dj-sim analyze-classifier live_instrumentation --limit 3 --db .\data\library.sqlite`,
+`dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 5 --db .\data\library.sqlite`,
+`dj-sim relocate-library .\music-old .\music-new --apply --db .\data\library.sqlite`, and
+`dj-sim doctor`.
 
-```powershell
-dj-sim scan <path-to-music> --db .\data\library.sqlite
-dj-sim analyze-sonara --limit 3 --batch-size 4 --db .\data\library.sqlite
-dj-sim analyze --adapter mert --device cpu --batch-size 2 --limit 3 --db .\data\library.sqlite
-dj-sim analyze --adapter clap --device cpu --batch-size 2 --limit 3 --db .\data\library.sqlite
-dj-sim analyze-genres --device cpu --batch-size 2 --limit 3 --db .\data\library.sqlite
-dj-sim analyze-classifier live_instrumentation --limit 3 --db .\data\library.sqlite
-.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py serve --labels tools\rhythm-lab\data\rhythm_lab.sqlite
-.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source C:\db\abstracted.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
-.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source C:\db\abstracted.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --calibrate
-.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
-.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite --require-calibration
-dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 5 --db .\data\library.sqlite
-dj-sim relocate-library .\music-old .\music-new --db .\data\library.sqlite
-dj-sim relocate-library .\music-old .\music-new --apply --db .\data\library.sqlite
-dj-sim doctor
-```
+Rhythm Lab examples: `.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py serve --labels tools\rhythm-lab\data\rhythm_lab.sqlite`,
+`.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source C:\db\abstracted.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite`,
+and `.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite`.
 
-Focused Audio Doctor test when only `tools/audio-doctor/audio_doctor/`
-changes:
+## Verification Matrix
 
-```powershell
-.\.venv\Scripts\python.exe -m pytest scripts\tests\test_repair_audio_metadata.py --override-ini addopts=
-```
-
-Focused duplicate-report test when only `tools/audio-dedup/audio_dedup/`
-changes:
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest scripts\tests\test_audio_dedup.py --override-ini addopts=
-```
-
-## Code Map
-
-- `src/dj_track_similarity/database.py`: SQLite schema access, path-scoped write
-  serialization, track rows, summaries, embeddings, analysis metadata, search
-  caches, relocation, resets, and clear.
-- `src/dj_track_similarity/scanner.py`: supported audio discovery and Mutagen
-  metadata extraction.
-- `src/dj_track_similarity/audio_loader.py`: shared standard decoder path.
-- `src/dj_track_similarity/sonara_features.py` / `sonara_jobs.py`: Sonara
-  feature extraction and jobs.
-- `src/dj_track_similarity/genres.py` / `genre_jobs.py`: MAEST genre analysis.
-- `src/dj_track_similarity/embedding.py` / `analysis_jobs.py`: MERT/CLAP
-  embeddings and jobs.
-- `src/dj_track_similarity/classifier_scoring.py` / `classifier_jobs.py`:
-  promoted classifier scoring and cancellable classifier jobs.
-- `tools/rhythm-lab/rhythm_lab/`: separate classifier lab package for labels,
-  predictions, feature matrices, training artifacts, and the standalone lab UI.
-- `tools/audio-dedup/audio_dedup/`: duplicate-audio candidate reporting and
-  explicit confirmed `--apply` cleanup from an existing library database.
-- `tools/audio-doctor/audio_doctor/`: dry-run-first metadata/container
-  inspection and verified repair helpers used by CLI and main-UI jobs.
-- `src/dj_track_similarity/search.py`, `sonara_similarity.py`: embedding search
-  and Sonara search over cached feature rows.
-- `src/dj_track_similarity/tags.py`, `wave_tags.py`: MAEST-to-standard-genre
-  writes and guarded WAV handling.
-- `src/dj_track_similarity/api.py`, `cli.py`: FastAPI and Typer entrypoints.
-- `frontend/src/api.ts`: frontend API contract mirror.
-- `frontend/src/App.tsx` and panels/dialogs: main UI surface. Avoid broad
-  refactors unless the task is specifically frontend-structure work.
-
-## Development Conventions
-
-- Keep Python compatible with 3.10+.
-- Prefer small, scoped edits that follow existing module patterns.
-- Keep FastAPI request/response shapes aligned with `frontend/src/api.ts`.
-- If changing scan/analysis job state, update backend tests and frontend
-  polling/display logic.
-- If changing Mutagen tags, Sonara features, MAEST job state, classifier jobs,
-  audio decoding, search, library browsing, relocation, analysis controls,
-  SQLite writes, UI controls, custom tags, or standard genre writes, update the
-  corresponding focused tests, frontend/API surfaces, and
-  `docs/dj-track-similarity/` documentation pages.
-- Prefer deterministic test data and test-local stub adapters over real audio
-  analysis in automated tests.
-- Do not add legacy compatibility layers, fallback paths, or parallel old/new
-  behavior unless the user explicitly asks for compatibility. Prefer migrating
-  code, docs, tests, local DB schemas, and local artifact layout in one pass.
-- After frontend source changes, run `npm run build` from `frontend/` before
-  finishing. The backend served at `http://localhost:8765/` uses the generated
-  `frontend/dist` bundle, not Vite hot reload.
-- Before starting any local UI/server process, check whether the intended port
-  already has a listener and whether a matching project process is already
-  running. Keep one instance per fixed project port: main backend `8765`,
-  frontend Vite `5173`, and Rhythm Lab `8777`.
-
-## Verification Expectations
-
-- Backend changes: run focused pytest for the touched behavior; use full
-  `pytest` for broad/shared changes.
-- Frontend changes: run `npm run build` in `frontend/`.
-- API contract changes: exercise the affected endpoint through tests or a local
-  server.
-- CLI behavior changes: run the specific `dj-sim ...` command with a temporary
-  database when practical.
-- Rhythm Lab changes: run
-  `.\.venv\Scripts\python.exe -m pytest tools\rhythm-lab\tests\test_rhythm_lab.py --override-ini addopts=`
-  and, for promoted classifier scoring boundaries, include
-  `tests\test_break_energy.py`.
-- For classifier train/promote hardening, a useful smoke is: copy the source DB
-  and labels DB with the SQLite backup API, run `rhythm_lab_cli.py train
-  --calibrate`, run `rhythm_lab_cli.py promote --require-calibration` into a
-  temporary target, then reset only that copied classifier's scores and run
-  `dj-sim analyze-classifier --model <temp model> --limit 5` against the copied
-  source DB.
-- Audio dedup report changes: run
-  `.\.venv\Scripts\python.exe -m pytest scripts\tests\test_audio_dedup.py --override-ini addopts=`.
-- Relocation changes: verify dry-run does not modify paths, apply preserves IDs
-  and analysis state, and conflicts/missing files block apply.
-- Sonara changes: prefer stubbed helpers or small temp WAV fixtures; never rely
-  on a real user music library in automated tests.
+- Instruction-only edits: inspect `git diff -- AGENTS.md`, run `git diff --check -- AGENTS.md`, and verify
+  sentinel contracts with `rg`. Do not run backend/frontend tests unless source or docs behavior changed.
+- Backend changes: run focused pytest for touched behavior; use full `.\.venv\Scripts\python.exe -m pytest`
+  for broad/shared changes.
+- Frontend changes: run `npm run build` in `frontend/`; add targeted `npm test` or `npm run typecheck`
+  when the touched area needs it.
+- API contract changes: exercise the affected endpoint through tests or a local server, and align
+  `frontend/src/api.ts`.
+- CLI changes: run the specific `dj-sim ...` command with a temp DB when practical.
+- Docs changes: normally run `npm run build` from `docs/dj-track-similarity/`.
+- Rhythm Lab changes: run `.\.venv\Scripts\python.exe -m pytest tools\rhythm-lab\tests\test_rhythm_lab.py --override-ini addopts=`.
+  For promoted classifier scoring boundaries, include `tests\test_break_energy.py`.
+- Classifier train/promote hardening: copy source and labels DBs with the SQLite backup API, run
+  `rhythm_lab_cli.py train --calibrate`, promote with `--require-calibration` into a temp target, reset
+  only that copied classifier's scores, then run `dj-sim analyze-classifier --model <temp model> --limit 5`
+  against the copied source DB.
+- Audio Doctor changes: run `.\.venv\Scripts\python.exe -m pytest scripts\tests\test_repair_audio_metadata.py --override-ini addopts=`.
+- Audio Dedup changes: run `.\.venv\Scripts\python.exe -m pytest scripts\tests\test_audio_dedup.py --override-ini addopts=`.
+- Relocation changes: verify dry-run does not modify paths, apply preserves IDs and analysis state, and
+  conflicts/missing files block apply.
+- SONARA changes: prefer stubbed helpers or small temp WAV fixtures; never rely on a real user music
+  library in automated tests.

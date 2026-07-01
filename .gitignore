@@ -17,6 +17,8 @@ venv/
 *.db
 *.log
 *.log.*
+logs/*
+!logs/.gitkeep
 *.state.json
 state.*.json
 .dj-track-similarity-indexes/

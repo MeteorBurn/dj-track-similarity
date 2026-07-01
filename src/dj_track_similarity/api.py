@@ -22,7 +22,7 @@ from .api_state import AppDatabaseState, DatabaseBusy, DatabaseNotSelected
 from .classifier_scoring import promoted_classifiers
 from .dependencies import require_ffmpeg
 from .embedding import ClapEmbeddingAdapter
-from .logging_config import configure_logging
+from .logging_config import configure_logging, install_asyncio_exception_logging
 from .rhythm_lab_launcher import launch_rhythm_lab, rhythm_lab_status, stop_rhythm_lab
 
 
@@ -86,6 +86,7 @@ def create_app(
     LOGGER.debug("ffmpeg available path=%s", ffmpeg_path)
     state = AppDatabaseState(db_path)
     app = FastAPI(title="dj-track-similarity Utility")
+    app.router.on_startup.append(install_asyncio_exception_logging)
 
     @app.middleware("http")
     async def log_http_error_responses(request: Request, call_next):

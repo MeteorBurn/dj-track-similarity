@@ -7,6 +7,7 @@ import dj_track_similarity.api as api
 import dj_track_similarity.api_state as api_state
 from dj_track_similarity.api import create_app
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.logging_config import install_asyncio_exception_logging
 
 
 def test_app_without_db_starts_unselected_and_blocks_database_endpoints() -> None:
@@ -19,6 +20,12 @@ def test_app_without_db_starts_unselected_and_blocks_database_endpoints() -> Non
     assert current.json() == {"path": None, "selected": False, "music_root": None}
     assert summary.status_code == 400
     assert summary.json()["detail"] == "Database is not selected"
+
+
+def test_app_registers_asyncio_exception_logging_startup() -> None:
+    app = create_app()
+
+    assert install_asyncio_exception_logging in app.router.on_startup
 
 
 def test_http_error_responses_are_written_to_app_log(monkeypatch, tmp_path: Path) -> None:

@@ -24,7 +24,7 @@ from rhythm_lab.lab_db import RhythmLabDatabase
 from rhythm_lab.predictions import _predict_probabilities, apply_model_to_lab, export_predictions_csv
 from rhythm_lab.source_db import SourceDatabase
 from rhythm_lab.training import train_feature_set
-from rhythm_lab.web_app import create_app
+from rhythm_lab.web_app import create_app, install_rhythm_lab_asyncio_exception_logging
 
 
 def test_source_database_opens_existing_project_database_read_only(tmp_path: Path) -> None:
@@ -1397,6 +1397,12 @@ def test_web_app_http_error_responses_are_logged(caplog, tmp_path: Path) -> None
 
     assert response.status_code == 400
     assert "HTTP request returned error method=POST path=/api/source/switch status=400" in caplog.text
+
+
+def test_web_app_registers_asyncio_exception_logging_startup(tmp_path: Path) -> None:
+    app = create_app(labels_db_path=tmp_path / "labels.sqlite")
+
+    assert install_rhythm_lab_asyncio_exception_logging in app.router.on_startup
 
 
 def test_web_app_source_switch_accepts_quoted_or_padded_manual_path(tmp_path: Path) -> None:

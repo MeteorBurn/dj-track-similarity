@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -8,6 +9,8 @@ from logging.handlers import TimedRotatingFileHandler
 import dj_track_similarity.logging_config as logging_config
 from dj_track_similarity.logging_config import (
     LOG_ENV_VAR,
+    handle_asyncio_exception_context,
+    install_asyncio_exception_logging,
     configure_logging,
     exception_summary,
     log_failure,
@@ -69,6 +72,68 @@ def test_uvicorn_log_config_writes_server_and_access_logs_to_file(tmp_path):
     assert config["loggers"]["uvicorn.error"]["handlers"] == ["default", "file"]
     assert config["loggers"]["uvicorn.access"]["handlers"] == ["access", "file"]
     assert config["loggers"]["dj_track_similarity"]["handlers"] == ["file"]
+
+
+def test_asyncio_transport_reset_is_logged_without_default_traceback(caplog):
+    class FakeLoop:
+        default_called = False
+
+        def default_exception_handler(self, _context):
+            self.default_called = True
+
+    logger = logging.getLogger("dj_track_similarity.asyncio")
+    context = {
+        "message": "Exception in callback _ProactorBasePipeTransport._call_connection_lost(None)",
+        "exception": ConnectionResetError(10054, "remote host closed connection"),
+        "handle": "_ProactorBasePipeTransport._call_connection_lost(None)",
+    }
+    loop = FakeLoop()
+
+    with caplog.at_level(logging.INFO, logger="dj_track_similarity"):
+        handle_asyncio_exception_context(loop, context, logger=logger, previous_handler=None)
+
+    assert "Client disconnected during asyncio transport cleanup" in caplog.text
+    assert "Traceback" not in caplog.text
+    assert loop.default_called is False
+
+
+def test_unknown_asyncio_exception_is_logged_and_forwarded(caplog):
+    class FakeLoop:
+        default_called = False
+
+        def default_exception_handler(self, _context):
+            self.default_called = True
+
+    logger = logging.getLogger("dj_track_similarity.asyncio")
+    context = {
+        "message": "Exception in callback scheduled-work",
+        "exception": RuntimeError("scheduler exploded"),
+    }
+    forwarded: list[dict[str, object]] = []
+
+    def previous_handler(_loop, forwarded_context):
+        forwarded.append(forwarded_context)
+
+    with caplog.at_level(logging.ERROR, logger="dj_track_similarity"):
+        handle_asyncio_exception_context(FakeLoop(), context, logger=logger, previous_handler=previous_handler)
+
+    assert "Asyncio event loop exception message=Exception in callback scheduled-work" in caplog.text
+    assert "RuntimeError: scheduler exploded" in caplog.text
+    assert forwarded == [context]
+
+
+def test_install_asyncio_exception_logging_is_idempotent():
+    async def run_check() -> None:
+        loop = asyncio.get_running_loop()
+
+        install_asyncio_exception_logging()
+        first_handler = loop.get_exception_handler()
+        install_asyncio_exception_logging()
+
+        assert first_handler is not None
+        assert loop.get_exception_handler() is first_handler
+
+    asyncio.run(run_check())
 
 
 def test_configure_logging_defaults_to_logs_directory(monkeypatch, tmp_path):

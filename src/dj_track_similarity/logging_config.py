@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import errno
 import logging
 import os
 import time
+from collections.abc import Callable
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
@@ -18,6 +21,7 @@ FILE_LOG_FORMAT = "[%(asctime)s] [%(levelname)s] %(name)s %(message)s"
 CONSOLE_LOG_FORMAT = "[%(asctime)s] [%(levelname)s] %(message)s"
 _LOG_TRACK_EVENTS: bool | None = None
 _ANALYSIS_DIAGNOSTICS: bool | None = None
+_ASYNCIO_HANDLER_MARKER = "_dj_track_similarity_asyncio_exception_logging"
 
 
 def configure_logging(
@@ -125,6 +129,63 @@ def uvicorn_log_config(level: int | str = "info", log_path: str | Path | None = 
     return config
 
 
+def install_asyncio_exception_logging(logger_name: str = "dj_track_similarity.asyncio") -> None:
+    loop = asyncio.get_running_loop()
+    if getattr(loop, _ASYNCIO_HANDLER_MARKER, False):
+        return
+
+    logger = logging.getLogger(logger_name)
+    previous_handler = loop.get_exception_handler()
+
+    def exception_handler(event_loop: asyncio.AbstractEventLoop, context: dict[str, object]) -> None:
+        handle_asyncio_exception_context(
+            event_loop,
+            context,
+            logger=logger,
+            previous_handler=previous_handler,
+        )
+
+    setattr(exception_handler, _ASYNCIO_HANDLER_MARKER, True)
+    loop.set_exception_handler(exception_handler)
+    setattr(loop, _ASYNCIO_HANDLER_MARKER, True)
+
+
+def handle_asyncio_exception_context(
+    loop: asyncio.AbstractEventLoop,
+    context: dict[str, object],
+    *,
+    logger: logging.Logger,
+    previous_handler: Callable[[asyncio.AbstractEventLoop, dict[str, object]], None] | None,
+) -> None:
+    error = context.get("exception")
+    message = str(context.get("message") or "Unhandled asyncio exception")
+    if _is_windows_transport_reset(context):
+        summary = exception_summary(error) if isinstance(error, Exception) else repr(error)
+        logger.info(
+            "Client disconnected during asyncio transport cleanup message=%s error=%s",
+            message,
+            summary,
+        )
+        return
+
+    if isinstance(error, BaseException):
+        logger.error(
+            "Asyncio event loop exception message=%s",
+            message,
+            exc_info=(type(error), error, error.__traceback__),
+        )
+    else:
+        logger.error(
+            "Asyncio event loop exception message=%s context=%s",
+            message,
+            _safe_asyncio_context(context),
+        )
+    if previous_handler is not None:
+        previous_handler(loop, context)
+    else:
+        loop.default_exception_handler(context)
+
+
 def parse_log_level(level: int | str) -> int:
     if isinstance(level, int):
         return level
@@ -191,6 +252,33 @@ def log_job_event(
 def exception_summary(error: Exception) -> str:
     message = str(error).strip()
     return message or type(error).__name__
+
+
+def _is_windows_transport_reset(context: dict[str, object]) -> bool:
+    error = context.get("exception")
+    if not isinstance(error, ConnectionResetError):
+        return False
+    if _connection_reset_code(error) not in {10054, errno.ECONNRESET}:
+        return False
+    handle_text = str(context.get("handle") or "")
+    message = str(context.get("message") or "")
+    return "_ProactorBasePipeTransport._call_connection_lost" in f"{message} {handle_text}"
+
+
+def _connection_reset_code(error: ConnectionResetError) -> int | None:
+    winerror = getattr(error, "winerror", None)
+    if isinstance(winerror, int):
+        return winerror
+    if isinstance(error.errno, int):
+        return error.errno
+    for arg in error.args:
+        if isinstance(arg, int):
+            return arg
+    return None
+
+
+def _safe_asyncio_context(context: dict[str, object]) -> dict[str, str]:
+    return {key: repr(value) for key, value in context.items() if key != "exception"}
 
 
 def log_failure(logger: logging.Logger, message: str, *args: object, **kwargs: object) -> None:

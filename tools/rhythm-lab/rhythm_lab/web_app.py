@@ -16,6 +16,7 @@ from starlette.background import BackgroundTask
 
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.dependencies import require_ffmpeg
+from dj_track_similarity.logging_config import install_asyncio_exception_logging
 
 from .cli import DEFAULT_CLASSIFIER_TARGET_ROOT, PromotionError, promote_profile_model
 from .lab_db import ClassifierProfile, RhythmLabDatabase
@@ -143,6 +144,7 @@ def create_app(
     source_state = SourceDatabaseState(source_db_path)
     target_root = Path(classifier_target_root) if classifier_target_root is not None else DEFAULT_CLASSIFIER_TARGET_ROOT
     app = FastAPI(title="Rhythm Lab")
+    app.router.on_startup.append(install_rhythm_lab_asyncio_exception_logging)
 
     @app.middleware("http")
     async def log_http_error_responses(request: Request, call_next):
@@ -539,6 +541,10 @@ def create_app(
         return FileResponse(path)
 
     return app
+
+
+def install_rhythm_lab_asyncio_exception_logging() -> None:
+    install_asyncio_exception_logging(logger_name="rhythm_lab")
 
 
 def _profile_payload(profile: ClassifierProfile) -> dict[str, object]:

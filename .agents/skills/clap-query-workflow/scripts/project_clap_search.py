@@ -11,11 +11,31 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
+
+
+DB_ENV_VARS = ("DJ_SIM_DB", "DJ_TRACK_SIMILARITY_DB")
+
+
+def db_path_from_env() -> Path | None:
+    for name in DB_ENV_VARS:
+        value = os.environ.get(name)
+        if value and value.strip():
+            return Path(value.strip())
+    return None
+
+
+def resolve_db_path(value: Path | None, *, purpose: str) -> Path:
+    db_path = value or db_path_from_env()
+    if db_path is None:
+        env_names = ", ".join(DB_ENV_VARS)
+        raise SystemExit(f"{purpose} requires --db or one of these environment variables: {env_names}.")
+    return db_path.expanduser().resolve(strict=False)
 
 
 def read_lines(path: Path | None) -> list[str]:
@@ -257,7 +277,7 @@ def run_source_file_search(args: argparse.Namespace) -> int:
     if not source_files:
         raise SystemExit("At least one --source-file or --source-file-list entry is required for source-file search")
 
-    db_path = Path(args.db).expanduser().resolve(strict=False)
+    db_path = resolve_db_path(args.db, purpose="Source-file search")
     if not db_path.is_file():
         raise SystemExit(f"SQLite DB does not exist: {db_path}")
 
@@ -273,12 +293,13 @@ def run_text_search(args: argparse.Namespace) -> int:
 
     base_url = args.base_url.rstrip("/")
     if not args.no_db_check:
-        expected_db = args.expected_db or Path("C:/db/abstracted.sqlite")
-        current = get_json(base_url + "/api/database/current", timeout=args.timeout)
-        actual = current.get("path") if isinstance(current, dict) else None
-        expected = str(Path(expected_db).expanduser().resolve(strict=False))
-        if str(actual or "").casefold() != expected.casefold():
-            raise SystemExit(f"API is using a different database: actual={actual!r} expected={expected!r}")
+        expected_db = args.expected_db or db_path_from_env()
+        if expected_db is not None:
+            current = get_json(base_url + "/api/database/current", timeout=args.timeout)
+            actual = current.get("path") if isinstance(current, dict) else None
+            expected = str(expected_db.expanduser().resolve(strict=False))
+            if str(actual or "").casefold() != expected.casefold():
+                raise SystemExit(f"API is using a different database: actual={actual!r} expected={expected!r}")
 
     positives = clean_lines(args.positive) + read_lines(args.positive_file)
     negatives = clean_lines(args.negative) + read_lines(args.negative_file)
@@ -315,9 +336,22 @@ def main() -> int:
     parser.add_argument("--source-file", action="append", default=[], help="Audio source file path. Repeat for multiple source files.")
     parser.add_argument("--source-file-list", type=Path, default=None, help="UTF-8 file with one source audio path per line.")
     parser.add_argument("--source-mode", choices=("db", "analyze"), default="db", help="db: use stored source CLAP embeddings from SQLite. analyze: compute temporary source CLAP embeddings from files and search stored DB embeddings without saving.")
-    parser.add_argument("--db", type=Path, default=Path("C:/db/abstracted.sqlite"), help="SQLite DB for source-file search.")
+    parser.add_argument(
+        "--db",
+        type=Path,
+        default=None,
+        help="SQLite DB for source-file search. Required unless DJ_SIM_DB or DJ_TRACK_SIMILARITY_DB is set.",
+    )
     parser.add_argument("--embedding-key", default="clap", help="Stored embedding key for source-file search. Defaults to clap.")
-    parser.add_argument("--expected-db", type=Path, default=None, help="For API text mode, require /api/database/current to match this DB path. Defaults to C:/db/abstracted.sqlite.")
+    parser.add_argument(
+        "--expected-db",
+        type=Path,
+        default=None,
+        help=(
+            "For API text mode, require /api/database/current to match this DB path. "
+            "If omitted, uses DJ_SIM_DB or DJ_TRACK_SIMILARITY_DB when set; otherwise skips the DB identity check."
+        ),
+    )
     parser.add_argument("--no-db-check", action="store_true", help="Skip /api/database/current check for API text mode.")
     parser.add_argument("--preset", default=None)
     parser.add_argument("--limit", type=int, default=25)

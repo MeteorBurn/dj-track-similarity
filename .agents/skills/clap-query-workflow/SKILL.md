@@ -9,11 +9,11 @@ Use this skill as the project operator for CLAP search in `dj-track-similarity`:
 
 ## Project Defaults
 
-- Project: `E:\Projects\dj-track-similarity`
-- Default real library DB: `C:\db\abstracted.sqlite` unless the user provides another DB.
+- Project: the user's current `dj-track-similarity` checkout. Helper scripts discover the repo root from their own location.
+- Library DB: user-local. Pass it with `--db` / `--expected-db`, or set `DJ_SIM_DB` or `DJ_TRACK_SIMILARITY_DB`.
 - Running app/API: prefer `http://localhost:8765` or `http://127.0.0.1:8765` when available.
 - API endpoint for text prompts: `POST /api/search/text`
-- Text API helper checks `/api/database/current` and expects `C:\db\abstracted.sqlite` by default; override only when the user explicitly provides another DB.
+- Text API helper checks `/api/database/current` only when `--expected-db`, `DJ_SIM_DB`, or `DJ_TRACK_SIMILARITY_DB` provides the expected DB path.
 - Source-file DB search: use stored SQLite `embeddings.embedding_key = 'clap'`; do not decode source audio and do not compute new audio embeddings.
 - Source-file analyze search: decode only the user-provided source files, compute temporary CLAP audio embeddings, compare them to stored DB CLAP embeddings, and do not save anything.
 - Main contract files: `src/dj_track_similarity/api_schemas.py`, `src/dj_track_similarity/api_routes_search.py`, `src/dj_track_similarity/search.py`, `frontend/src/api.ts`, `frontend/src/clapPrompt.ts`.
@@ -51,6 +51,12 @@ Use multiple source files together as one CLAP audio-to-audio query by averaging
 
 ## Running Project Search
 
+Set the user's local library DB once per shell, or pass the same path through `--db` / `--expected-db` in each command:
+
+```powershell
+$env:DJ_SIM_DB = "<path-to-library.sqlite>"
+```
+
 Text prompt search through the running API:
 
 ```powershell
@@ -62,7 +68,6 @@ python .agents\skills\clap-query-workflow\scripts\project_clap_search.py `
   --positive "A club electronic track with syncopated drums, broken rhythm, dry percussion, and tight low-end." `
   --negative "This audio contains prominent singing vocals." `
   --negative "This audio is a straight four-on-the-floor house track." `
-  --expected-db "C:\db\abstracted.sqlite" `
   --limit 25
 ```
 
@@ -71,9 +76,8 @@ Source-file CLAP search using already computed SQLite embeddings:
 ```powershell
 python .agents\skills\clap-query-workflow\scripts\project_clap_search.py `
   --source-mode db `
-  --source-file "D:\Music\seed-one.flac" `
-  --source-file "D:\Music\seed-two.flac" `
-  --db "C:\db\abstracted.sqlite" `
+  --source-file "<path-to-seed-one.flac>" `
+  --source-file "<path-to-seed-two.flac>" `
   --limit 25
 ```
 
@@ -82,9 +86,8 @@ Source-file CLAP search by temporarily analyzing input files, without writing to
 ```powershell
 python .agents\skills\clap-query-workflow\scripts\project_clap_search.py `
   --source-mode analyze `
-  --source-file "D:\Downloads\reference-one.flac" `
-  --source-file "D:\Downloads\reference-two.flac" `
-  --db "C:\db\abstracted.sqlite" `
+  --source-file "<path-to-reference-one.flac>" `
+  --source-file "<path-to-reference-two.flac>" `
   --device auto `
   --limit 25
 ```
@@ -151,7 +154,7 @@ Use `assets/project_prompt_bank.json` for the project starter bank. Keep each co
 - `references/clap_prompting_reference.md`: detailed LAION-CLAP prompt engineering rules from the merged external skill.
 - `scripts/project_clap_search.py`: posts optimized prompt banks to the running local project API, searches from source files via stored SQLite CLAP embeddings, or temporarily analyzes source files and searches against stored DB embeddings.
 - `scripts/validate_prompt_bank.py`: validates prompt bank structure and length.
-- `scripts/score_prompt_bank.py`: standalone audio-file scorer for experiments outside the project DB; do not use it as the normal path for searching the user's stored library.
+- `scripts/score_prompt_bank.py`: standalone audio-file scorer for experiments outside the project DB; do not use it as the normal path for searching the user's stored library. It must load PyTorch checkpoints in `weights_only=True` mode.
 
 ## Implementation Changes
 
@@ -168,8 +171,9 @@ When changing project CLAP code:
 
 ## Verification
 
-- Skill validation: `python C:\Users\Meteorburn\.codex\skills\.system\skill-creator\scripts\quick_validate.py .agents\skills\clap-query-workflow`
+- Skill validation: `python "$env:CODEX_HOME\skills\.system\skill-creator\scripts\quick_validate.py" .agents\skills\clap-query-workflow`
 - Prompt bank validation: `python .agents\skills\clap-query-workflow\scripts\validate_prompt_bank.py .agents\skills\clap-query-workflow\assets\project_prompt_bank.json`
 - API helper smoke: `python .agents\skills\clap-query-workflow\scripts\project_clap_search.py --help`
+- Standalone scorer safety test: `.\.venv\Scripts\python.exe -m pytest tests\test_clap_query_workflow_scripts.py --override-ini addopts=`
 - Frontend prompt changes: `cd frontend; npm test -- tests/clapPrompt.test.mjs tests/clapSimilaritySemantics.test.mjs`
 - Backend scoring/API changes: `.\.venv\Scripts\python.exe -m pytest tests\test_api_text_search.py --override-ini addopts=`

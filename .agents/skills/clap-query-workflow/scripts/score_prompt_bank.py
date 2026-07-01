@@ -8,7 +8,7 @@ tracks when enable_fusion=False.
 Example:
     python scripts/score_prompt_bank.py \
         --prompt-bank assets/prompt_bank.starter.json \
-        --ckpt /models/music_audioset_epoch_15_esc_90.14.pt \
+        --ckpt <path-to-laion-clap-music-checkpoint.pt> \
         --audio track1.wav track2.mp3 \
         --alpha 0.35 \
         --out scores.json
@@ -41,6 +41,27 @@ def require_dependencies():
             f"Original import error: {exc}"
         ) from exc
     return _np, librosa, laion_clap, torch
+
+
+def load_checkpoint_weights_only(model: Any, torch: Any, ckpt_path: Path) -> None:
+    """Load a LAION-CLAP checkpoint without allowing arbitrary pickle objects."""
+    original_torch_load = torch.load
+
+    def torch_load_weights_only(*args: Any, **kwargs: Any) -> Any:
+        kwargs["weights_only"] = True
+        return original_torch_load(*args, **kwargs)
+
+    torch.load = torch_load_weights_only
+    try:
+        model.load_ckpt(str(ckpt_path), verbose=False)
+    except TypeError as exc:
+        if "weights_only" in str(exc):
+            raise SystemExit(
+                "Safe checkpoint loading requires a PyTorch version whose torch.load supports weights_only=True."
+            ) from exc
+        raise
+    finally:
+        torch.load = original_torch_load
 
 
 def l2norm(x: np.ndarray, axis: int = -1, eps: float = 1e-12) -> np.ndarray:
@@ -226,7 +247,7 @@ def main() -> int:
     bank = load_prompt_bank(args.prompt_bank)
 
     model = laion_clap.CLAP_Module(enable_fusion=False, amodel=args.amodel, device=device)
-    model.load_ckpt(str(args.ckpt), verbose=False)
+    load_checkpoint_weights_only(model, torch, args.ckpt)
 
     labels, label_vectors = build_label_bank(model, bank)
     label_vectors = l2norm(label_vectors, axis=-1)

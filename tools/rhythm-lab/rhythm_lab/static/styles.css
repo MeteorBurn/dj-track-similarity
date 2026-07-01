@@ -370,6 +370,15 @@ main {
   width: 104px;
 }
 
+#libraryOrder {
+  width: 132px;
+}
+
+.shuffle-library-order {
+  border-color: rgba(57, 214, 223, 0.42);
+  background: rgba(57, 214, 223, 0.1);
+}
+
 #candidateMinPositive {
   width: 88px;
 }

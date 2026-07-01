@@ -1302,6 +1302,49 @@ def test_web_app_tracks_endpoint_uses_source_sql_pagination(monkeypatch, tmp_pat
     assert first_id != second_id
 
 
+def test_web_app_tracks_endpoint_supports_stable_random_library_order(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    source_path = tmp_path / "source.sqlite"
+    source = LibraryDatabase(source_path)
+    for title in ("Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf", "Hotel"):
+        _track(source, tmp_path, f"{title.lower()}.wav", title=title)
+    labels_path = tmp_path / "labels.sqlite"
+    client = TestClient(create_app(source_path, labels_db_path=labels_path))
+
+    normal = client.get(
+        "/api/profiles/break_energy/tracks",
+        params={"limit": 8, "order": "normal"},
+    ).json()
+    first_random = client.get(
+        "/api/profiles/break_energy/tracks",
+        params={"limit": 4, "offset": 0, "order": "random", "seed": "12345"},
+    ).json()
+    second_random = client.get(
+        "/api/profiles/break_energy/tracks",
+        params={"limit": 4, "offset": 4, "order": "random", "seed": "12345"},
+    ).json()
+    repeated_random = client.get(
+        "/api/profiles/break_energy/tracks",
+        params={"limit": 8, "order": "random", "seed": "12345"},
+    ).json()
+    reshuffled = client.get(
+        "/api/profiles/break_energy/tracks",
+        params={"limit": 8, "order": "random", "seed": "67890"},
+    ).json()
+
+    normal_ids = [item["id"] for item in normal["items"]]
+    paged_random_ids = [item["id"] for item in first_random["items"] + second_random["items"]]
+    repeated_random_ids = [item["id"] for item in repeated_random["items"]]
+    reshuffled_ids = [item["id"] for item in reshuffled["items"]]
+
+    assert normal_ids == sorted(normal_ids)
+    assert paged_random_ids == repeated_random_ids
+    assert sorted(repeated_random_ids) == normal_ids
+    assert repeated_random_ids != normal_ids
+    assert reshuffled_ids != repeated_random_ids
+
+
 def test_web_app_marks_labels_used_in_previous_training_checkpoint(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
@@ -1545,8 +1588,8 @@ def test_web_app_serves_static_profile_ui_without_hardcoded_label_buttons(tmp_pa
     script = client.get("/static/app.js").text
     styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
 
-    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260701-bpm" />' in html
-    assert '<script src="/static/app.js?v=rhythm-lab-20260701-bpm" defer></script>' in html
+    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260701-random-order-init" />' in html
+    assert '<script src="/static/app.js?v=rhythm-lab-20260701-random-order-init" defer></script>' in html
     assert 'id="profileSelect"' in html
     assert "/api/profiles" in script
     assert "function renderLabelButtons" in script
@@ -1614,6 +1657,7 @@ def test_static_ui_non_submit_buttons_have_explicit_button_type(tmp_path: Path) 
         "settingsTab",
         "refreshCandidates",
         "trainRefresh",
+        "shuffleLibraryOrder",
         "load",
         "prevPage",
         "nextPage",
@@ -1724,21 +1768,35 @@ def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path
 
     assert 'id="commonFilters"' in html
     assert '<section id="candidateFilters" class="filters candidate-filters-placeholder">' in html
+    assert 'id="libraryOrder"' in html
+    assert '<option value="normal" selected>Normal order</option>' in html
+    assert '<option value="random">Random</option>' in html
+    assert 'id="shuffleLibraryOrder"' in html
     assert 'id="candidateMinPositive" type="number" min="0" max="1" step="0.05" value="0"' in html
     assert 'id="syncopated"' not in html
     assert 'id="bpmMin" type="number" min="0" step="0.1" placeholder="BPM from"' in html
     assert 'id="bpmMax" type="number" min="0" step="0.1" placeholder="BPM to"' in html
-    assert html.index('id="candidateFilters"') < html.index('<section class="pager">')
+    assert html.index('id="label"') < html.index('id="candidateFilters"')
+    assert html.index('id="candidateFilters"') < html.index('id="libraryOrder"')
+    assert html.index('id="libraryOrder"') < html.index('id="shuffleLibraryOrder"')
+    assert html.index('id="shuffleLibraryOrder"') < html.index('id="candidatePredicted"')
+    assert html.index('id="candidateMinBroken"') < html.index('<section class="pager">')
     assert "const syncopatedEl" not in script
     assert 'bpmMinEl.addEventListener("change", () => loadActive({ reset: true }));' in script
     assert 'bpmMaxEl.addEventListener("change", () => loadActive({ reset: true }));' in script
     assert 'labelEl.addEventListener("change", () => loadActive({ reset: true }));' in script
+    assert 'libraryOrderEl.addEventListener("change", () => updateLibraryOrder({ reset: true }));' in script
+    assert 'shuffleLibraryOrderEl.addEventListener("click", () => shuffleLibraryOrder());' in script
     assert 'candidatePredictedEl.addEventListener("change", () => loadActive({ reset: true }));' in script
     assert 'candidateMinBrokenEl.addEventListener("change", () => loadActive({ reset: true }));' in script
     assert ".candidate-filters-placeholder > *" in styles
     assert ".filters[hidden]," in styles
-    assert 'candidateFiltersEl.hidden = view === "training" || view === "settings";' in script
-    assert 'candidateFiltersEl.classList.toggle("candidate-filters-placeholder", view !== "candidates");' in script
+    assert "function updateFilterPanelControls()" in script
+    assert 'candidateFiltersEl.hidden = activeView === "training" || activeView === "settings";' in script
+    assert 'candidateFiltersEl.classList.toggle("candidate-filters-placeholder", activeView !== "library" && activeView !== "candidates");' in script
+    assert 'libraryOrderEl.disabled = activeView !== "library";' in script
+    assert 'shuffleLibraryOrderEl.hidden = activeView !== "library";' in script
+    assert 'candidatePredictedEl.hidden = activeView !== "candidates";' in script
     assert 'id="refreshCandidates"' in html
     assert 'id="trainRefresh"' in html
     assert '<button id="trainRefresh" type="button" class="icon-button train-refresh"' in html
@@ -1763,6 +1821,8 @@ def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path
     assert "bpm_min: bpmFilterValue(bpmMinEl.value)," in script
     assert "bpm_max: bpmFilterValue(bpmMaxEl.value)," in script
     assert "label: labelEl.value," in script
+    assert 'params.set("order", libraryOrderEl.value);' in script
+    assert 'params.set("seed", String(libraryRandomSeed));' in script
     assert "predicted: candidatePredictedEl.value," in script
     assert "probability_focus: candidateMinBrokenEl.value," in script
     assert "min_positive: probabilityFilterValue()," in script

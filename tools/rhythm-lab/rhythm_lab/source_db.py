@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from pathlib import Path
+import hashlib
 import json
 import sqlite3
 
@@ -49,6 +50,7 @@ class SourceDatabase:
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA query_only = ON")
+        connection.create_function("rhythm_lab_random_rank", 2, _stable_random_rank, deterministic=True)
         return connection
 
     def count_tracks(self) -> int:
@@ -144,9 +146,12 @@ class SourceDatabase:
         bpm_max: float | None = None,
         liked: str = "all",
         label: str = "all",
+        order: str = "normal",
+        seed: int = 0,
         limit: int = 100,
         offset: int = 0,
     ) -> dict[str, object]:
+        order_sql = _track_page_order_sql(order=order)
         where_parts, params = _track_page_filter_sql(
             query=query,
             syncopated=syncopated,
@@ -159,6 +164,7 @@ class SourceDatabase:
         where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
         bounded_limit = max(1, min(500, int(limit)))
         bounded_offset = max(0, int(offset))
+        random_seed = _random_seed_value(seed)
         labels_uri = (
             f"file:{Path(labels_db_path).expanduser().resolve(strict=False).as_posix()}?mode=ro"
         )
@@ -198,7 +204,7 @@ class SourceDatabase:
                 LEFT JOIN labels.classifier_training_checkpoints cp
                   ON cp.classifier_key = ?
                 {where_sql}
-                ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
+                {order_sql}
                 LIMIT ? OFFSET ?
                 """,
                 (
@@ -207,6 +213,7 @@ class SourceDatabase:
                     classifier_key,
                     classifier_key,
                     *params,
+                    *((random_seed,) if order == "random" else ()),
                     bounded_limit,
                     bounded_offset,
                 ),
@@ -581,6 +588,29 @@ def _prediction_page_order_sql(*, probability_focus: str, profile_type: str) -> 
     if probability_focus == "balanced":
         return f"ORDER BY ABS(positive_probability - negative_probability) ASC, confidence DESC, {path_expr} ASC"
     return f"ORDER BY positive_probability DESC, confidence DESC, {path_expr} ASC"
+
+
+def _track_page_order_sql(*, order: str) -> str:
+    path_expr = "COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path"
+    if order == "normal":
+        return f"ORDER BY {path_expr}"
+    if order == "random":
+        return f"ORDER BY rhythm_lab_random_rank(?, t.id), {path_expr}"
+    raise ValueError(f"Unknown library order: {order}")
+
+
+def _random_seed_value(seed: object) -> int:
+    try:
+        value = int(seed)
+    except (TypeError, ValueError) as error:
+        raise ValueError("Library random seed must be an integer") from error
+    return max(0, value)
+
+
+def _stable_random_rank(seed: object, track_id: object) -> int:
+    payload = f"{int(seed)}:{int(track_id)}".encode("ascii")
+    digest = hashlib.blake2b(payload, digest_size=8).digest()
+    return int.from_bytes(digest, byteorder="big", signed=False) & 0x7FFFFFFFFFFFFFFF
 
 
 def _prediction_page_item(

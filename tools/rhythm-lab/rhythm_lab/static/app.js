@@ -15,6 +15,8 @@ const candidateFiltersEl = document.getElementById("candidateFilters");
 const bpmMinEl = document.getElementById("bpmMin");
 const bpmMaxEl = document.getElementById("bpmMax");
 const labelEl = document.getElementById("label");
+const libraryOrderEl = document.getElementById("libraryOrder");
+const shuffleLibraryOrderEl = document.getElementById("shuffleLibraryOrder");
 const candidatePredictedEl = document.getElementById("candidatePredicted");
 const candidateMinBrokenEl = document.getElementById("candidateMinBroken");
 const candidateMinPositiveEl = document.getElementById("candidateMinPositive");
@@ -46,6 +48,7 @@ let activeAudio = null;
 let activeView = "library";
 const viewOffsets = { library: 0, candidates: 0, liked: 0, training: 0, settings: 0 };
 let loadSequence = 0;
+let libraryRandomSeed = makeLibraryRandomSeed();
 
 document.getElementById("load").addEventListener("click", () => loadActive({ reset: true }));
 document.getElementById("chooseSource").addEventListener("click", () => chooseSource().catch(showError));
@@ -77,6 +80,8 @@ queryEl.addEventListener("keydown", event => { if (event.key === "Enter") loadAc
 bpmMinEl.addEventListener("change", () => loadActive({ reset: true }));
 bpmMaxEl.addEventListener("change", () => loadActive({ reset: true }));
 labelEl.addEventListener("change", () => loadActive({ reset: true }));
+libraryOrderEl.addEventListener("change", () => updateLibraryOrder({ reset: true }));
+shuffleLibraryOrderEl.addEventListener("click", () => shuffleLibraryOrder());
 candidatePredictedEl.addEventListener("change", () => loadActive({ reset: true }));
 candidateMinBrokenEl.addEventListener("change", () => loadActive({ reset: true }));
 candidateMinPositiveEl.addEventListener("change", () => {
@@ -103,6 +108,7 @@ async function init() {
   updateNewProfileTypeControls();
   await loadProfiles();
   await loadSourceState();
+  updateFilterPanelControls();
   await loadActive({ reset: true });
 }
 
@@ -164,6 +170,7 @@ function clearActiveProfile() {
   refreshCandidatesEl.disabled = true;
   trainRefreshEl.disabled = true;
   promoteClassifierEl.disabled = true;
+  updateLibraryOrderControls();
 }
 
 function renderProfileControls() {
@@ -205,6 +212,7 @@ function renderProfileControls() {
   const renameSelect = document.getElementById("renameLabelSelect");
   renameSelect.innerHTML = "";
   activeProfile.labels.forEach(label => addOption(renameSelect, label.key, `${label.name} (${label.key})`));
+  updateLibraryOrderControls();
 }
 
 function addOption(select, value, text) {
@@ -288,13 +296,48 @@ async function switchView(view) {
   likedTabEl.classList.toggle("active", view === "liked");
   trainingTabEl.classList.toggle("active", view === "training");
   settingsTabEl.classList.toggle("active", view === "settings");
-  commonFiltersEl.hidden = view === "training" || view === "settings";
-  candidateFiltersEl.hidden = view === "training" || view === "settings";
-  candidateFiltersEl.classList.toggle("candidate-filters-placeholder", view !== "candidates");
+  updateFilterPanelControls();
   trainingPanelEl.hidden = view !== "training";
   settingsPanelEl.hidden = view !== "settings";
   tracksEl.hidden = view === "training" || view === "settings";
   await loadActive();
+}
+
+function updateFilterPanelControls() {
+  commonFiltersEl.hidden = activeView === "training" || activeView === "settings";
+  candidateFiltersEl.hidden = activeView === "training" || activeView === "settings";
+  candidateFiltersEl.classList.toggle("candidate-filters-placeholder", activeView !== "library" && activeView !== "candidates");
+  updateLibraryOrderControls();
+}
+
+function updateLibraryOrder(options = {}) {
+  updateFilterPanelControls();
+  return loadActive(options);
+}
+
+function shuffleLibraryOrder() {
+  libraryRandomSeed = makeLibraryRandomSeed();
+  updateFilterPanelControls();
+  return loadTracks({ reset: true });
+}
+
+function updateLibraryOrderControls() {
+  const libraryView = activeView === "library";
+  const candidateView = activeView === "candidates";
+  libraryOrderEl.hidden = !libraryView;
+  libraryOrderEl.disabled = activeView !== "library";
+  shuffleLibraryOrderEl.hidden = activeView !== "library";
+  shuffleLibraryOrderEl.disabled = !libraryView || libraryOrderEl.value !== "random";
+  candidatePredictedEl.hidden = activeView !== "candidates";
+  candidatePredictedEl.disabled = !candidateView;
+  candidateMinBrokenEl.hidden = activeView !== "candidates";
+  candidateMinBrokenEl.disabled = !candidateView;
+  candidateMinPositiveEl.hidden = activeView !== "candidates";
+  candidateMinPositiveEl.disabled = !candidateView;
+}
+
+function makeLibraryRandomSeed() {
+  return Math.floor(Math.random() * 2147483647);
 }
 
 async function loadActive(options = {}) {
@@ -385,6 +428,8 @@ async function loadTracks(options = {}) {
     limit: String(limit),
     offset: String(offset)
   });
+  params.set("order", libraryOrderEl.value);
+  params.set("seed", String(libraryRandomSeed));
   const data = await fetch(`/api/profiles/${activeProfile.classifier_key}/tracks?${params}`).then(parseJsonResponse);
   if (sequence !== loadSequence || activeView !== "library") return;
   total = data.total;

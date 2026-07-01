@@ -312,6 +312,8 @@ def create_app(
         bpm_max: str = "",
         liked: str = Query(default="all", pattern="^(all|yes|no)$"),
         label: str = "all",
+        order: str = Query(default="normal", pattern="^(normal|random)$"),
+        seed: int = Query(default=0, ge=0),
         limit: int = Query(default=100, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
     ):
@@ -333,6 +335,8 @@ def create_app(
                 bpm_max=bpm_max_value,
                 liked=liked,
                 label=label,
+                order=order,
+                seed=seed,
                 limit=limit,
                 offset=offset,
             )

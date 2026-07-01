@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from typer.testing import CliRunner
 import pytest
 
@@ -82,6 +84,8 @@ def test_serve_passes_bracketed_log_config_to_uvicorn(monkeypatch):
     assert log_config["formatters"]["default"]["format"] == "[%(asctime)s] [%(levelname)s] %(message)s"
     assert log_config["formatters"]["default"]["datefmt"] == "%Y-%m-%d] [%H:%M:%S"
     assert log_config["loggers"]["uvicorn"]["level"] == "WARNING"
+    assert log_config["handlers"]["file"]["filename"] == str(Path("app.log").resolve())
+    assert log_config["loggers"]["uvicorn.access"]["handlers"] == ["access", "file"]
 
 
 def test_relocate_library_cli_applies_path_updates(tmp_path):

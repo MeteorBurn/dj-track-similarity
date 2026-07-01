@@ -47,8 +47,7 @@ def configure_logging(
         logger.removeHandler(handler)
         handler.close()
 
-    handler = ProjectTimedRotatingFileHandler(path, when="midnight", interval=1, backupCount=1, encoding="utf-8")
-    handler.name = FILE_HANDLER_NAME
+    handler = project_file_handler(path)
     handler.setLevel(numeric_level)
     handler.setFormatter(logging.Formatter(FILE_LOG_FORMAT, datefmt=LOG_DATE_FORMAT))
     logger.addHandler(handler)
@@ -56,9 +55,17 @@ def configure_logging(
     return path
 
 
-def uvicorn_log_config(level: int | str = "info") -> dict[str, object]:
+def project_file_handler(filename: str | Path) -> ProjectTimedRotatingFileHandler:
+    path = Path(filename).resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handler = ProjectTimedRotatingFileHandler(path, when="midnight", interval=1, backupCount=1, encoding="utf-8")
+    handler.name = FILE_HANDLER_NAME
+    return handler
+
+
+def uvicorn_log_config(level: int | str = "info", log_path: str | Path | None = None) -> dict[str, object]:
     normalized_level = logging.getLevelName(parse_log_level(level))
-    return {
+    config: dict[str, object] = {
         "version": 1,
         "disable_existing_loggers": False,
         "formatters": {
@@ -92,6 +99,30 @@ def uvicorn_log_config(level: int | str = "info") -> dict[str, object]:
             "rhythm_lab": {"handlers": ["default"], "level": normalized_level, "propagate": False},
         },
     }
+    if log_path is not None:
+        resolved_log_path = Path(log_path).resolve()
+        formatters = config["formatters"]
+        handlers = config["handlers"]
+        loggers = config["loggers"]
+        assert isinstance(formatters, dict)
+        assert isinstance(handlers, dict)
+        assert isinstance(loggers, dict)
+        formatters["file"] = {
+            "class": "logging.Formatter",
+            "format": FILE_LOG_FORMAT,
+            "datefmt": LOG_DATE_FORMAT,
+        }
+        handlers["file"] = {
+            "()": "dj_track_similarity.logging_config.project_file_handler",
+            "filename": str(resolved_log_path),
+            "formatter": "file",
+            "level": normalized_level,
+        }
+        loggers["uvicorn"] = {"handlers": ["default", "file"], "level": normalized_level, "propagate": False}
+        loggers["uvicorn.error"] = {"handlers": ["default", "file"], "level": normalized_level, "propagate": False}
+        loggers["uvicorn.access"] = {"handlers": ["access", "file"], "level": normalized_level, "propagate": False}
+        loggers["dj_track_similarity"] = {"handlers": ["file"], "level": normalized_level, "propagate": True}
+    return config
 
 
 def parse_log_level(level: int | str) -> int:

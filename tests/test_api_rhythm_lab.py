@@ -112,7 +112,9 @@ def test_rhythm_lab_launcher_uses_project_python_and_source(monkeypatch, tmp_pat
     if rhythm_lab_launcher.sys.platform == "win32":
         creationflags = int(popen_kwargs[0]["creationflags"])
         assert creationflags & rhythm_lab_launcher.subprocess.CREATE_NEW_PROCESS_GROUP
-        assert creationflags & rhythm_lab_launcher.subprocess.DETACHED_PROCESS
+        assert creationflags & rhythm_lab_launcher.subprocess.CREATE_NO_WINDOW
+        assert not creationflags & rhythm_lab_launcher.subprocess.DETACHED_PROCESS
+        assert popen_kwargs[0]["startupinfo"].wShowWindow == rhythm_lab_launcher.subprocess.SW_HIDE
 
 
 def test_rhythm_lab_launcher_writes_pid_and_stops_managed_process(monkeypatch, tmp_path: Path) -> None:

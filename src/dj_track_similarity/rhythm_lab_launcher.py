@@ -59,7 +59,8 @@ def launch_rhythm_lab(source_db: Path | None = None) -> dict[str, Any]:
     if sys.platform == "win32":
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
 
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("ab") as log_file:

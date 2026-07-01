@@ -7,18 +7,41 @@
 ## Requirements
 
 - Python 3.10+.
-- `ffmpeg` on `PATH` or `DJ_TRACK_SIMILARITY_FFMPEG`.
-- Node/npm only for rebuilding frontend or docs.
-- A PyTorch stack that matches your CPU/GPU environment.
+- `ffmpeg` on `PATH` or `DJ_TRACK_SIMILARITY_FFMPEG` pointing to the executable.
+- A PyTorch stack that matches your CPU/GPU environment when you run MERT, MAEST, or CLAP analysis.
+- Node/npm only for rebuilding frontend or docs assets.
 
-## Install
+## Base install
+
+The base package is enough for scanning, browsing the UI, serving the backend, and working with already stored data:
 
 ```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
+```
+
+## Analysis install
+
+Install the local ML extras when you want SONARA, MERT, MAEST, CLAP, or Rhythm Lab workflows:
+
+```powershell
 python -m pip install -e ".[sonara,ml,rhythm-lab,dev]"
 dj-sim doctor
 ```
 
+Keep the PyTorch-family packages synchronized with the wheel set you actually use. `dj-sim doctor` prints the detected Torch/CUDA state and suggested install index when it can infer one.
+
+## Optional ANN index install
+
+Persistent ANN sidecar indexes are optional. Install `hnswlib` through the `ann` extra when you want HNSW-backed indexes:
+
+```powershell
+python -m pip install -e ".[ann]"
+```
+
+Without this extra, `dj-sim index build --backend auto` can still fall back to an exact NumPy sidecar. See [Persistent ANN indexes](../tools-and-scripts/persistent-ann-indexes.md) for usage.
+
 ## Build assets
 
-Build frontend from `frontend/` when frontend source changes. Build docs from `docs\dj-track-similarity` with `npm run build`; output goes to `site/`.
+Build frontend from `frontend/` only when frontend source changes. Build docs from `docs\dj-track-similarity` with `npm run build` only when you intentionally need local site output or deployment output. The docs build writes `site/`, which is ignored by Git.

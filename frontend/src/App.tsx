@@ -1246,6 +1246,7 @@ export function App() {
           handleSetBuilderGenerate={(payload) => void handleSetBuilderGenerate(payload)}
           addGeneratedSetToPlaylist={handleAddGeneratedSetToPlaylist}
           addSeed={addSeed}
+          toggleLiked={(track) => void handleToggleTrackLiked(track)}
           togglePlaylist={togglePlaylist}
           playingTrackId={playingTrackId}
           setPreview={togglePreview}

@@ -494,6 +494,25 @@ test("track rows do not show analysis availability inside track copy", () => {
   }
 });
 
+test("candidate result rows expose the shared liked toggle", () => {
+  const rowsSource = readFileSync(join(srcDir, "TrackRows.tsx"), "utf8");
+  const searchSource = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
+  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+  const resultRowSource = rowsSource.match(/export function ResultRow[\s\S]*?\n}\n\nfunction scoreBreakdownTitle/)?.[0] || "";
+  const resultListSource = searchSource.match(/<div className="results-list">[\s\S]*?<\/div>\s*<\/section>/)?.[0] || "";
+  const searchPanelSource = appSource.match(/<SearchPlaylistPanel[\s\S]*?\/>/)?.[0] || "";
+
+  assert.match(resultRowSource, /onToggleLiked/);
+  assert.match(resultRowSource, /track-liked-button/);
+  assert.match(resultRowSource, /aria-pressed=\{track\.liked\}/);
+  assert.ok(resultRowSource.indexOf("<meter") < resultRowSource.indexOf("result-metadata-button"));
+  assert.ok(resultRowSource.indexOf("similarity-score") < resultRowSource.indexOf("result-metadata-button"));
+  assert.ok(resultRowSource.indexOf("result-metadata-button") < resultRowSource.indexOf("track-liked-button"));
+  assert.ok(resultRowSource.indexOf("track-liked-button") < resultRowSource.indexOf("result-seed-button"));
+  assert.match(resultListSource, /onToggleLiked=\{toggleLiked\}/);
+  assert.match(searchPanelSource, /toggleLiked=\{\(track\) => void handleToggleTrackLiked\(track\)\}/);
+});
+
 test("library search mode active state highlights the active mode text", () => {
   const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
   const activeRule = styles.match(/\.library-search-mode-toggle button\.active\s*{([\s\S]*?)}/)?.[1] || "";

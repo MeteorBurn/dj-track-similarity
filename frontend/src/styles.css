@@ -794,7 +794,7 @@ h2 {
 /* App shell and topbar */
 .app-shell {
   min-height: 100vh;
-  padding: 16px;
+  padding: 10px 12px 12px;
 }
 
 .topbar {
@@ -803,7 +803,7 @@ h2 {
   gap: 18px;
   justify-content: space-between;
   margin: 0 auto 14px;
-  max-width: 1680px;
+  max-width: 1880px;
 }
 
 .topbar h1 {
@@ -938,7 +938,7 @@ h2 {
   grid-template-columns: minmax(240px, 0.82fr) minmax(280px, 1.04fr) minmax(360px, 1.24fr);
   height: calc(100vh - 86px);
   margin: 0 auto;
-  max-width: 1680px;
+  max-width: 1880px;
 }
 
 .panel {
@@ -1936,7 +1936,7 @@ h2 {
 }
 
 .result-row {
-  grid-template-columns: 34px minmax(0, 1fr) 34px 86px 54px 34px 34px;
+  grid-template-columns: 34px minmax(112px, 1fr) minmax(76px, 108px) 48px 34px 34px 34px 34px;
 }
 
 .result-row.selectable {
@@ -2823,6 +2823,11 @@ meter {
   width: 86px;
 }
 
+.result-row meter {
+  min-width: 0;
+  width: 100%;
+}
+
 .library-preview-player {
   display: flex;
   flex-direction: column;
@@ -3267,7 +3272,7 @@ button.metadata-copy-path-button:hover:not(:disabled) {
   }
 
   .result-row {
-    grid-template-columns: 34px minmax(0, 1fr) 34px 34px 34px;
+    grid-template-columns: 34px minmax(0, 1fr) 34px 34px 34px 34px;
   }
 
   .result-row meter,

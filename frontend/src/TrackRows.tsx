@@ -79,6 +79,7 @@ export function ResultRow({
   isSeed,
   inPlaylist,
   onSeed,
+  onToggleLiked,
   onTogglePlaylist,
   onPreview,
   onDetails,
@@ -131,9 +132,21 @@ export function ResultRow({
           <span className="result-reason-chip" title={breakdownTitle}>{reason.replaceAll("_", " ")}</span>
         ) : null}
       </div>
-      <button className="icon-button result-metadata-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={(event) => { event.stopPropagation(); onDetails(track); }}><Tags size={15} /></button>
       <meter min={0} max={1} value={Math.max(0, Math.min(1, score))} title={breakdownTitle} />
       <span className="similarity-score" title={breakdownTitle}>{score.toFixed(3)}</span>
+      <button className="icon-button result-metadata-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={(event) => { event.stopPropagation(); onDetails(track); }}><Tags size={15} /></button>
+      {onToggleLiked && (
+        <button
+          className={`icon-button track-liked-button ${track.liked ? "active intent-liked" : ""}`}
+          title={track.liked ? "Убрать лайк" : "Лайкнуть"}
+          aria-label={track.liked ? `Убрать лайк с ${displayTrack(track)}` : `Лайкнуть ${displayTrack(track)}`}
+          aria-pressed={track.liked}
+          onClick={(event) => { event.stopPropagation(); onToggleLiked(track); }}
+          type="button"
+        >
+          <Heart size={15} fill={track.liked ? "currentColor" : "none"} />
+        </button>
+      )}
       <button className={`icon-button result-seed-button ${isSeed ? "active" : ""}`} title="Seed" aria-label={`Seed ${displayTrack(track)}`} onClick={(event) => { event.stopPropagation(); onSeed(track); }}><Search size={15} /></button>
       <button
         className={`icon-button result-playlist-toggle-button ${inPlaylist ? "intent-remove active" : "intent-add"}`}

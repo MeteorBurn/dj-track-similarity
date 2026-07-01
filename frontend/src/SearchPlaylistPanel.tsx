@@ -280,6 +280,7 @@ export function SearchPlaylistPanel({
   handleSetBuilderGenerate,
   addGeneratedSetToPlaylist,
   addSeed,
+  toggleLiked,
   togglePlaylist,
   playingTrackId,
   setPreview,
@@ -325,6 +326,7 @@ export function SearchPlaylistPanel({
   handleSetBuilderGenerate: (payload: SetBuilderGeneratePayload) => void;
   addGeneratedSetToPlaylist: () => void;
   addSeed: (track: Track) => void;
+  toggleLiked: (track: Track) => void;
   togglePlaylist: (track: Track) => void;
   playingTrackId: number | null;
   setPreview: (track: Track) => void;
@@ -965,6 +967,7 @@ export function SearchPlaylistPanel({
                       isSeed={seedSet.has(result.track.id)}
                       inPlaylist={playlistSet.has(result.track.id)}
                       onSeed={addSeed}
+                      onToggleLiked={toggleLiked}
                       onTogglePlaylist={togglePlaylist}
                       onPreview={setPreview}
                       onDetails={setMetadataTrack}
@@ -1187,6 +1190,7 @@ export function SearchPlaylistPanel({
               isSeed={seedSet.has(track.id)}
               inPlaylist={playlistSet.has(track.id)}
               onSeed={addSeed}
+              onToggleLiked={toggleLiked}
               onTogglePlaylist={togglePlaylist}
               onPreview={setPreview}
               onDetails={setMetadataTrack}

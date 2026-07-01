@@ -1,6 +1,7 @@
 from typer.testing import CliRunner
 import pytest
 
+import dj_track_similarity.api as api
 import dj_track_similarity.cli as cli
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.logging_config import set_analysis_diagnostics_enabled
@@ -58,6 +59,29 @@ def test_serve_reports_missing_ffmpeg_without_traceback(monkeypatch):
     assert result.exit_code == 1
     assert "ffmpeg is required" in result.output
     assert "Traceback" not in result.output
+
+
+def test_serve_passes_bracketed_log_config_to_uvicorn(monkeypatch):
+    import uvicorn
+
+    captured = {}
+    monkeypatch.setattr(cli, "require_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(api, "create_app", lambda *args, **kwargs: object())
+    monkeypatch.setattr(cli, "configure_logging", lambda **_kwargs: "app.log")
+
+    def fake_run(app, **kwargs):
+        captured["app"] = app
+        captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(uvicorn, "run", fake_run)
+
+    result = CliRunner().invoke(cli.app, ["serve", "--log-level", "warning"])
+
+    assert result.exit_code == 0
+    log_config = captured["kwargs"]["log_config"]
+    assert log_config["formatters"]["default"]["format"] == "[%(asctime)s] [%(levelname)s] %(message)s"
+    assert log_config["formatters"]["default"]["datefmt"] == "%Y-%m-%d] [%H:%M:%S"
+    assert log_config["loggers"]["uvicorn"]["level"] == "WARNING"
 
 
 def test_relocate_library_cli_applies_path_updates(tmp_path):

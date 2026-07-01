@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const source = readFileSync(fileURLToPath(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url)), "utf8");
+const appSource = readFileSync(fileURLToPath(new URL("../src/App.tsx", import.meta.url)), "utf8");
 const styles = readFileSync(fileURLToPath(new URL("../src/styles.css", import.meta.url)), "utf8");
 
 function cssRule(selector) {
@@ -47,6 +48,15 @@ test("hybrid preview initializes and submits PR-21 feedback state", () => {
   assert.match(source, /seed_track_ids: seeds/);
   assert.match(source, /source: hybridFeedbackSource/);
   assert.match(source, /Evaluation labels:/);
+});
+
+test("hybrid evaluation label summary waits for a selected database", () => {
+  assert.match(appSource, /databasePath=\{databasePath\}/);
+  assert.match(source, /databasePath: string \| null;/);
+  assert.match(
+    source,
+    /useEffect\(\(\) => \{[\s\S]*if \(!databasePath\) \{[\s\S]*setEvaluationLabelCounts\(null\);[\s\S]*return;[\s\S]*\}[\s\S]*void refreshEvaluationLabelCounts\(\);[\s\S]*\}, \[databasePath\]\);/
+  );
 });
 
 test("hybrid preview exposes CLAP as a stored audio source", () => {

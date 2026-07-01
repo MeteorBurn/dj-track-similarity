@@ -10,6 +10,7 @@ import shutil
 
 from dj_track_similarity.classifier_production import normalize_label_suggestion_mode, suggest_classifier_labels
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.logging_config import uvicorn_log_config
 
 from .lab_db import BREAK_ENERGY_CLASSIFIER_KEY, RhythmLabDatabase
 from .predictions import apply_model_to_lab, export_predictions_csv
@@ -447,4 +448,9 @@ def _serve(args: argparse.Namespace) -> None:
 
     from .web_app import create_app
 
-    uvicorn.run(create_app(args.source, labels_db_path=args.labels), host=args.host, port=args.port)
+    uvicorn.run(
+        create_app(args.source, labels_db_path=args.labels),
+        host=args.host,
+        port=args.port,
+        log_config=uvicorn_log_config(),
+    )

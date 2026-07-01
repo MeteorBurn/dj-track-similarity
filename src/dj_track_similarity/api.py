@@ -87,6 +87,22 @@ def create_app(
     state = AppDatabaseState(db_path)
     app = FastAPI(title="dj-track-similarity Utility")
 
+    @app.middleware("http")
+    async def log_http_error_responses(request: Request, call_next):
+        try:
+            response = await call_next(request)
+        except Exception:
+            LOGGER.exception("HTTP request crashed method=%s path=%s", request.method, request.url.path)
+            raise
+        if response.status_code >= 400:
+            LOGGER.warning(
+                "HTTP request returned error method=%s path=%s status=%s",
+                request.method,
+                request.url.path,
+                response.status_code,
+            )
+        return response
+
     @app.exception_handler(DatabaseNotSelected)
     async def database_not_selected(_: Request, error: DatabaseNotSelected):
         return JSONResponse(status_code=400, content={"detail": str(error)})

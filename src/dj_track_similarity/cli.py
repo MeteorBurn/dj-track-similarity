@@ -64,7 +64,7 @@ from .evaluation.score_profiles import (
 from .evaluation.seed_sampling import export_seed_sample, write_seed_sample_csv
 from .evaluation.source_profile import build_source_profile, load_seed_track_ids_from_csv
 from .evaluation.weighted_candidates import build_weighted_candidate_pool, write_weighted_candidate_pool_csv
-from .logging_config import configure_logging, set_analysis_diagnostics_enabled
+from .logging_config import configure_logging, set_analysis_diagnostics_enabled, uvicorn_log_config
 from .runtime import get_torch_runtime_info, recommended_torch_index
 from .scanner import scan_library
 from .search import SearchFilters, SimilaritySearch
@@ -1078,4 +1078,5 @@ def serve(
         ),
         host=host,
         port=port,
+        log_config=uvicorn_log_config(log_level),
     )

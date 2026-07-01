@@ -1188,6 +1188,7 @@ export function App() {
           clapPresetKey={clapPresetKey}
           onClapPresetChange={setClapPresetKey}
           clapPromptPresets={clapPromptPresets}
+          databasePath={databasePath}
           busy={busy || !databasePath}
           filters={filters}
           setFilters={setFilters}

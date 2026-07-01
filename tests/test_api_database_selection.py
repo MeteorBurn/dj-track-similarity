@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -18,6 +19,20 @@ def test_app_without_db_starts_unselected_and_blocks_database_endpoints() -> Non
     assert current.json() == {"path": None, "selected": False, "music_root": None}
     assert summary.status_code == 400
     assert summary.json()["detail"] == "Database is not selected"
+
+
+def test_http_error_responses_are_written_to_app_log(monkeypatch, tmp_path: Path) -> None:
+    log_path = tmp_path / "app.log"
+    monkeypatch.setenv("DJ_TRACK_SIMILARITY_LOG", str(log_path))
+    client = TestClient(create_app())
+
+    response = client.get("/api/library/summary")
+
+    assert response.status_code == 400
+    for handler in logging.getLogger("dj_track_similarity").handlers:
+        handler.flush()
+    contents = log_path.read_text(encoding="utf-8")
+    assert "HTTP request returned error method=GET path=/api/library/summary status=400" in contents
 
 
 def test_database_switch_creates_new_sqlite_file(tmp_path: Path) -> None:

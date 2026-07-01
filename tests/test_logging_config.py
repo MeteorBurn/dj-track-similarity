@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from logging.handlers import TimedRotatingFileHandler
 
+import dj_track_similarity.logging_config as logging_config
 from dj_track_similarity.logging_config import (
     LOG_ENV_VAR,
     configure_logging,
@@ -26,6 +28,34 @@ def test_configure_logging_writes_file(tmp_path):
     assert configured == log_path.resolve()
     assert log_path.exists()
     assert "hello file log" in log_path.read_text(encoding="utf-8")
+
+
+def test_file_log_records_wrap_date_time_and_level_in_brackets(tmp_path):
+    log_path = tmp_path / "app.log"
+    configure_logging(log_path, level=logging.INFO)
+
+    logger = logging.getLogger("dj_track_similarity.test")
+    logger.warning("bracketed status")
+    for handler in logging.getLogger("dj_track_similarity").handlers:
+        handler.flush()
+
+    contents = log_path.read_text(encoding="utf-8")
+    assert re.search(
+        r"^\[\d{4}-\d{2}-\d{2}\] \[\d{2}:\d{2}:\d{2}\] \[WARNING\] dj_track_similarity\.test bracketed status$",
+        contents,
+        flags=re.MULTILINE,
+    )
+
+
+def test_uvicorn_log_config_wraps_console_date_time_and_level_in_brackets():
+    config = logging_config.uvicorn_log_config("warning")
+
+    assert config["formatters"]["default"]["format"] == "[%(asctime)s] [%(levelname)s] %(message)s"
+    assert config["formatters"]["default"]["datefmt"] == "%Y-%m-%d] [%H:%M:%S"
+    assert config["formatters"]["access"]["format"] == "[%(asctime)s] [%(levelname)s] %(message)s"
+    assert config["loggers"]["uvicorn"]["level"] == "WARNING"
+    assert config["loggers"]["uvicorn.access"]["level"] == "WARNING"
+    assert config["loggers"]["rhythm_lab"] == {"handlers": ["default"], "level": "WARNING", "propagate": False}
 
 
 def test_configure_logging_defaults_to_logs_directory(monkeypatch, tmp_path):

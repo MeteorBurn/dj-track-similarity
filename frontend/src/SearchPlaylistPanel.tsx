@@ -249,6 +249,7 @@ export function SearchPlaylistPanel({
   clapPresetKey,
   onClapPresetChange,
   clapPromptPresets,
+  databasePath,
   busy,
   filters,
   setFilters,
@@ -291,6 +292,7 @@ export function SearchPlaylistPanel({
   clapPresetKey: string;
   onClapPresetChange: (value: string) => void;
   clapPromptPresets: ClapPromptPreset[];
+  databasePath: string | null;
   busy: boolean;
   filters: SearchFiltersState;
   setFilters: Dispatch<SetStateAction<SearchFiltersState>>;
@@ -447,8 +449,12 @@ export function SearchPlaylistPanel({
   }, [hybridInputKey]);
 
   useEffect(() => {
+    if (!databasePath) {
+      setEvaluationLabelCounts(null);
+      return;
+    }
     void refreshEvaluationLabelCounts();
-  }, []);
+  }, [databasePath]);
 
   function setSonaraMixerValue(key: keyof SonaraMixerWeights, value: number) {
     setFilters((current) => ({ ...current, sonaraMixer: { ...current.sonaraMixer, [key]: value } }));

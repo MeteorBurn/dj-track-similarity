@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 import threading
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
@@ -143,6 +143,22 @@ def create_app(
     source_state = SourceDatabaseState(source_db_path)
     target_root = Path(classifier_target_root) if classifier_target_root is not None else DEFAULT_CLASSIFIER_TARGET_ROOT
     app = FastAPI(title="Rhythm Lab")
+
+    @app.middleware("http")
+    async def log_http_error_responses(request: Request, call_next):
+        try:
+            response = await call_next(request)
+        except Exception:
+            LOGGER.exception("HTTP request crashed method=%s path=%s", request.method, request.url.path)
+            raise
+        if response.status_code >= 400:
+            LOGGER.warning(
+                "HTTP request returned error method=%s path=%s status=%s",
+                request.method,
+                request.url.path,
+                response.status_code,
+            )
+        return response
 
     def profile_db(profile_key: str) -> RhythmLabDatabase:
         return RhythmLabDatabase(labels_path, classifier_key=profile_key)

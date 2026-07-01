@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import argparse
 import json
+import logging
 import sqlite3
 import subprocess
 import sys
@@ -1384,6 +1386,19 @@ def test_web_app_source_switch_requires_existing_database(tmp_path: Path) -> Non
     assert current["path"] == str(source_path.resolve())
 
 
+def test_web_app_http_error_responses_are_logged(caplog, tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    missing_path = tmp_path / "missing.sqlite"
+    client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
+
+    with caplog.at_level(logging.WARNING, logger="rhythm_lab"):
+        response = client.post("/api/source/switch", json={"path": str(missing_path)})
+
+    assert response.status_code == 400
+    assert "HTTP request returned error method=POST path=/api/source/switch status=400" in caplog.text
+
+
 def test_web_app_source_switch_accepts_quoted_or_padded_manual_path(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
@@ -1403,6 +1418,35 @@ def test_cli_serve_does_not_load_source_database_by_default() -> None:
     args = build_parser().parse_args(["serve"])
 
     assert args.source is None
+
+
+def test_cli_serve_passes_bracketed_log_config_to_uvicorn(monkeypatch, tmp_path: Path) -> None:
+    import rhythm_lab.cli as lab_cli
+    import rhythm_lab.web_app as web_app
+    import uvicorn
+
+    captured = {}
+    monkeypatch.setattr(web_app, "create_app", lambda *args, **kwargs: object())
+
+    def fake_run(app, **kwargs):
+        captured["app"] = app
+        captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(uvicorn, "run", fake_run)
+
+    lab_cli._serve(
+        argparse.Namespace(
+            source=None,
+            labels=tmp_path / "labels.sqlite",
+            host="127.0.0.1",
+            port=8777,
+        )
+    )
+
+    log_config = captured["kwargs"]["log_config"]
+    assert log_config["formatters"]["default"]["format"] == "[%(asctime)s] [%(levelname)s] %(message)s"
+    assert log_config["formatters"]["default"]["datefmt"] == "%Y-%m-%d] [%H:%M:%S"
+    assert log_config["loggers"]["uvicorn"]["level"] == "INFO"
 
 
 def test_web_app_uses_existing_database_file_dialog(monkeypatch, tmp_path: Path) -> None:

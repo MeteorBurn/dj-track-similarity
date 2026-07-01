@@ -13,6 +13,9 @@ LOG_TRACK_EVENTS_ENV_VAR = "DJ_TRACK_SIMILARITY_LOG_TRACK_EVENTS"
 ANALYSIS_DIAGNOSTICS_ENV_VAR = "DJ_TRACK_SIMILARITY_ANALYSIS_DIAGNOSTICS"
 DEFAULT_LOG_PATH = Path("logs") / "dj-track-similarity.log"
 FILE_HANDLER_NAME = "dj_track_similarity_file"
+LOG_DATE_FORMAT = "%Y-%m-%d] [%H:%M:%S"
+FILE_LOG_FORMAT = "[%(asctime)s] [%(levelname)s] %(name)s %(message)s"
+CONSOLE_LOG_FORMAT = "[%(asctime)s] [%(levelname)s] %(message)s"
 _LOG_TRACK_EVENTS: bool | None = None
 _ANALYSIS_DIAGNOSTICS: bool | None = None
 
@@ -47,12 +50,48 @@ def configure_logging(
     handler = ProjectTimedRotatingFileHandler(path, when="midnight", interval=1, backupCount=1, encoding="utf-8")
     handler.name = FILE_HANDLER_NAME
     handler.setLevel(numeric_level)
-    handler.setFormatter(
-        logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
-    )
+    handler.setFormatter(logging.Formatter(FILE_LOG_FORMAT, datefmt=LOG_DATE_FORMAT))
     logger.addHandler(handler)
     logger.info("File logging configured path=%s", path)
     return path
+
+
+def uvicorn_log_config(level: int | str = "info") -> dict[str, object]:
+    normalized_level = logging.getLevelName(parse_log_level(level))
+    return {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "default": {
+                "class": "logging.Formatter",
+                "format": CONSOLE_LOG_FORMAT,
+                "datefmt": LOG_DATE_FORMAT,
+            },
+            "access": {
+                "class": "logging.Formatter",
+                "format": CONSOLE_LOG_FORMAT,
+                "datefmt": LOG_DATE_FORMAT,
+            },
+        },
+        "handlers": {
+            "default": {
+                "class": "logging.StreamHandler",
+                "formatter": "default",
+                "stream": "ext://sys.stderr",
+            },
+            "access": {
+                "class": "logging.StreamHandler",
+                "formatter": "access",
+                "stream": "ext://sys.stdout",
+            },
+        },
+        "loggers": {
+            "uvicorn": {"handlers": ["default"], "level": normalized_level, "propagate": False},
+            "uvicorn.error": {"handlers": ["default"], "level": normalized_level, "propagate": False},
+            "uvicorn.access": {"handlers": ["access"], "level": normalized_level, "propagate": False},
+            "rhythm_lab": {"handlers": ["default"], "level": normalized_level, "propagate": False},
+        },
+    }
 
 
 def parse_log_level(level: int | str) -> int:

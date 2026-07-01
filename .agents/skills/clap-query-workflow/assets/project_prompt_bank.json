@@ -1,0 +1,127 @@
+{
+  "meta": {
+    "name": "dj_track_similarity_clap_project_prompt_bank",
+    "target_model": "lukewys/laion_clap:music_audioset_epoch_15_esc_90.14.pt",
+    "architecture": "HTSAT-base",
+    "enable_fusion": false,
+    "embedding_dim": 512,
+    "language": "en",
+    "negative_weight": 0.35,
+    "notes": "Project-aligned CLAP prompt bank. Adaptive is intentionally excluded."
+  },
+  "labels": {
+    "breaks_broken": {
+      "display_name": "Breaks / Syncopated drums",
+      "prompts": [
+        "broken beat electronic music.",
+        "This audio is a broken beat electronic track.",
+        "This audio is a syncopated drum track.",
+        "A club electronic track with syncopated drums, broken rhythm, dry percussion, and tight low-end.",
+        "An electronic dance track with shuffled breakbeats, off-grid percussion, and a restless rhythmic groove."
+      ],
+      "hard_negatives": [
+        "This audio is a straight four-on-the-floor house track.",
+        "This audio is beatless ambient drone music.",
+        "This audio is a vocal pop song.",
+        "This audio is acoustic folk music."
+      ]
+    },
+    "deep_warmup": {
+      "display_name": "Deep Warm-up",
+      "prompts": [
+        "deep warm-up electronic music.",
+        "This audio is a deep warm-up club track.",
+        "This audio is a restrained deep house track.",
+        "A low-energy electronic club track with warm bass, muted drums, spacious texture, and a patient groove.",
+        "A subtle late-night warm-up track with deep low-end, soft percussion, and understated atmosphere."
+      ],
+      "hard_negatives": [
+        "This audio is peak-time techno with aggressive drums.",
+        "This audio is a bright vocal pop song.",
+        "This audio is high-energy EDM with big drops.",
+        "This audio is rock music with electric guitars."
+      ]
+    },
+    "vocals_speech": {
+      "display_name": "Vocals / Speech",
+      "prompts": [
+        "vocals and speech.",
+        "This audio contains prominent singing vocals.",
+        "This audio contains spoken word or speech.",
+        "A music track with clear lead vocals, spoken phrases, or voice-focused sections.",
+        "A vocal-forward audio recording with speech, rap, chanting, or singing as a prominent element."
+      ],
+      "hard_negatives": [
+        "This audio is an instrumental electronic dance track.",
+        "This audio is beatless ambient instrumental music.",
+        "This audio is a percussion-focused club track.",
+        "This audio is an instrumental acoustic performance."
+      ]
+    },
+    "vocals_music": {
+      "display_name": "Vocals with Music",
+      "prompts": [
+        "vocal music track.",
+        "This audio is a music track with vocals.",
+        "This audio is a song with singing over instrumental music.",
+        "A full music track with prominent vocals, drums, bass, harmony, and produced instrumental backing.",
+        "A vocal-led recording where singing or spoken phrases sit clearly over a musical arrangement."
+      ],
+      "hard_negatives": [
+        "This audio is speech or spoken word without music.",
+        "This audio is an instrumental electronic dance track.",
+        "This audio is isolated a cappella vocals without instrumental backing.",
+        "This audio is beatless ambient instrumental music."
+      ]
+    },
+    "instrumental": {
+      "display_name": "Instrumental",
+      "prompts": [
+        "instrumental electronic music.",
+        "This audio is an instrumental electronic dance track.",
+        "This audio is an instrumental club track.",
+        "An instrumental club track focused on drums, bass, rhythm, and production texture.",
+        "An electronic dance track with groove, low-end, percussion, and atmosphere as the main elements."
+      ],
+      "hard_negatives": [
+        "This audio contains prominent singing vocals.",
+        "This audio is speech or spoken word.",
+        "This audio is rap music with spoken vocals.",
+        "This audio is a vocal pop song."
+      ]
+    },
+    "acoustic_organic": {
+      "display_name": "Acoustic / Organic",
+      "prompts": [
+        "acoustic organic music.",
+        "This audio is an acoustic or organic music track.",
+        "This audio contains organic instruments and natural percussion.",
+        "A warm organic track with acoustic instruments, hand percussion, natural timbre, and live-sounding texture.",
+        "A music recording with organic drums, plucked strings, wood tones, and earthy acoustic resonance."
+      ],
+      "hard_negatives": [
+        "This audio is synthetic electronic dance music.",
+        "This audio is drum machine techno.",
+        "This audio is ambient synthesizer drone music.",
+        "This audio is vocal pop with glossy electronic production."
+      ]
+    },
+    "ambient_drone": {
+      "display_name": "Ambient / Drone",
+      "prompts": [
+        "ambient drone.",
+        "This audio is an ambient drone track.",
+        "This audio is beatless ambient music.",
+        "A slow atmospheric track with sustained tones, soft textures, minimal rhythm, and spacious ambience.",
+        "An ambient electronic piece with drones, evolving pads, field-like texture, and a calm immersive atmosphere."
+      ],
+      "hard_negatives": [
+        "This audio is a breakbeat club track with syncopated drums.",
+        "This audio is peak-time techno with driving kick drums.",
+        "This audio contains prominent singing vocals.",
+        "This audio is acoustic folk music."
+      ]
+    }
+  },
+  "global_hard_negatives": []
+}

@@ -128,4 +128,4 @@ def test_search_contrast_vectors_rank_positive_over_negative_match(tmp_path: Pat
 
     assert [result.track.id for result in results] == [positive_match, mixed_match, negative_match]
     assert results[0].score > results[1].score > results[2].score
-    assert results[0].score_breakdown == {"positive": 1.0, "negative": 0.0, "contrast": 1.0}
+    assert results[0].score_breakdown == {"positive": 1.0, "negative": 0.0, "contrast": 1.0, "negative_weight": 0.35}

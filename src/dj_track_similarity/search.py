@@ -123,7 +123,7 @@ class SimilaritySearch:
         negative_vectors: list[np.ndarray] | None = None,
         filters: SearchFilters | None = None,
         limit: int = 50,
-        negative_weight: float = 1.0,
+        negative_weight: float = 0.35,
     ) -> list[SearchResult]:
         if not positive_vectors:
             raise ValueError("At least one positive query vector is required")
@@ -132,8 +132,8 @@ class SimilaritySearch:
         if matrix.size == 0:
             return []
 
-        positives = _normalize_matrix(positive_vectors)
-        positive_scores = np.max(matrix @ positives.T, axis=1)
+        positive_bank = _normalize(np.mean(_normalize_matrix(positive_vectors), axis=0))
+        positive_scores = matrix @ positive_bank
         if negative_vectors:
             negatives = _normalize_matrix(negative_vectors)
             negative_scores = np.max(matrix @ negatives.T, axis=1)
@@ -151,6 +151,7 @@ class SimilaritySearch:
                 "positive": float(positive_scores[int(index)]),
                 "negative": float(negative_scores[int(index)]),
                 "contrast": score,
+                "negative_weight": max(0.0, negative_weight),
             }
             candidates.append((track, score, _ranking_score(track, score, filters.noise), breakdown))
 

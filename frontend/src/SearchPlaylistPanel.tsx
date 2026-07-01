@@ -1072,11 +1072,12 @@ export function SearchPlaylistPanel({
               <div className="clap-prompt-row">
                 <label className="clap-query-field" title={helpText.textPrompt}>
                   Text query
-                  <input
+                  <textarea
                     value={textQuery}
                     onChange={(event) => onTextQueryChange(event.target.value)}
-                    placeholder="Melancholic minimal house with broken drums, warm chords, no vocals"
+                    placeholder={"breakbeat.\nThis audio is a breakbeat track.\nA breakbeat track with broken drums and syncopated percussion."}
                     title={helpText.textPrompt}
+                    rows={5}
                   />
                 </label>
                 <div className="clap-prompt-actions" ref={clapPresetMenuRef}>
@@ -1108,18 +1109,19 @@ export function SearchPlaylistPanel({
                 </div>
               </div>
               <div className="clap-negative-row">
-                <label className="clap-negative-field" title="Negative CLAP prompt. Type: text. Optional contrast prompt; presets fill this field directly.">
+                <label className="clap-negative-field" title="Hard-negative CLAP bank. Type: multiline text. One line is one unwanted audible class; presets fill this field directly.">
                   Negative
-                  <input
+                  <textarea
                     className="clap-negative-input"
                     value={clapNegativeQuery}
                     onChange={(event) => onClapNegativeQueryChange(event.target.value)}
-                    placeholder="bright pop, straight drums, vocals"
-                    title="Negative CLAP prompt. Type: text. Optional contrast prompt; presets fill this field directly."
+                    placeholder={"This audio is a vocal pop song.\nThis audio is a straight four-on-the-floor house track."}
+                    title="Hard-negative CLAP bank. Type: multiline text. One line is one unwanted audible class; presets fill this field directly."
                     disabled={!clapUseNegativePrompt}
+                    rows={4}
                   />
                 </label>
-                <label className={`icon-button add-visible-tracks-button clap-negative-toggle ${clapUseNegativePrompt ? "intent-add active" : ""}`} title="Send the Negative field as CLAP negative_queries. Type: checkbox on/off. When disabled, the text stays in the field but is not included in search.">
+                <label className={`icon-button add-visible-tracks-button clap-negative-toggle ${clapUseNegativePrompt ? "intent-add active" : ""}`} title="Apply Negative as hard-negative CLAP queries. Type: checkbox on/off. When disabled, the text stays in the field but is not included in search.">
                   <input
                     type="checkbox"
                     aria-label="Use negative prompt"

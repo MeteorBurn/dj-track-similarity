@@ -16,7 +16,7 @@ Read scores as ranking hints: the top cluster is usually more important than the
 
 - SONARA scores come from measured feature groups.
 - MERT scores come from MERT embeddings.
-- CLAP text scores compare prompt embeddings with CLAP audio embeddings.
+- CLAP text scores compare prompt embeddings with CLAP audio embeddings. When `Negative` is enabled, the score is the pooled positive prompt score minus a weighted hard-negative match.
 - Hybrid/SET combines sources and routing logic.
 
 Scores are comparable within the same tab or mode because they came from the same scoring surface. They are not equivalent across tabs: `0.82` in CLAP text search does not mean the same thing as `0.82` in SONARA or a SET preview. Compare candidates within the list you asked for, then decide by ear.

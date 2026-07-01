@@ -2683,6 +2683,22 @@ h2 {
   min-width: 0;
 }
 
+.clap-query-field textarea,
+.clap-negative-field textarea {
+  line-height: 1.35;
+  min-height: 0;
+  resize: vertical;
+  white-space: pre-wrap;
+}
+
+.clap-query-field textarea {
+  min-height: 132px;
+}
+
+.clap-negative-field textarea {
+  min-height: 108px;
+}
+
 .clap-negative-row {
   align-items: end;
   display: grid;

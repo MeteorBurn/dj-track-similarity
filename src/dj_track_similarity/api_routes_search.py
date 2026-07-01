@@ -10,6 +10,8 @@ from .hybrid_search import build_hybrid_search_preview
 from .search import SearchFilters, SimilaritySearch
 from .sonara_similarity import SonaraSimilaritySearch
 
+CLAP_NEGATIVE_WEIGHT = 0.35
+
 
 def register_search_routes(
     app: FastAPI,
@@ -62,7 +64,7 @@ def register_search_routes(
         filters = SearchFilters(min_similarity=request.min_similarity)
         try:
             searcher = SimilaritySearch(state.require_db(), embedding_key=adapter.embedding_key)
-            if request.adaptive_contrast and negative_queries:
+            if request.adaptive_contrast and (negative_queries or len(positive_queries) > 1):
                 positive_vectors = [adapter.embed_text(text) for text in positive_queries]
                 negative_vectors = [adapter.embed_text(text) for text in negative_queries]
                 return searcher.search_contrast_vectors(
@@ -70,6 +72,7 @@ def register_search_routes(
                     negative_vectors=negative_vectors,
                     filters=filters,
                     limit=request.limit,
+                    negative_weight=CLAP_NEGATIVE_WEIGHT,
                 )
             vector = adapter.embed_text(positive_queries[0])
             return searcher.search_vector(vector, filters=filters, limit=request.limit)

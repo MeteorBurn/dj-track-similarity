@@ -16,6 +16,10 @@
 
 `/api/analysis/jobs` accepts `models`, `classifier_keys`, `limit`, `device`, `top_k`, `track_batch_size`, and `inference_batch_size`.
 
+## CLAP text search
+
+`/api/search/text` accepts `query`, optional multiline-derived `positive_queries`, optional `negative_queries`, `adaptive_contrast`, `limit`, `min_similarity`, and `device`. Multiple positive queries are pooled into one CLAP text vector; negative queries are treated as hard-negative candidates with a fixed `0.35` margin weight.
+
 ## Writes
 
 Search and SET routes are previews. Genre tag routes are explicit audio tag write paths. Export writes playlist/report files only.

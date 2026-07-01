@@ -16,7 +16,7 @@ export const helpText = {
   analysisInferenceBatchSize: "Сколько окон/семплов MAEST, MERT и CLAP прогоняют за один model forward pass. Тип: целое число 1-128. Для RTX 3090 дефолт 24.",
   librarySearch: "Фильтр библиотеки. Формат: текст. Ищет по artist, title, album, path, MAEST genres и syncopated rhythm.",
   similarity: "Минимальный similarity. Тип: число с точкой, диапазон 0.00-1.00.",
-  clapSimilarity: "Минимальный CLAP text-to-audio similarity. Тип: число с точкой, диапазон 0.00-1.00; рабочие raw text scores часто около 0.35-0.55 и ниже MERT/CLAP audio-to-audio seed scores. При заполненном Avoid итоговый score является contrast: positive минус negative.",
+  clapSimilarity: "Минимальный CLAP text-to-audio similarity. Тип: число с точкой, диапазон 0.00-1.00; рабочие raw text scores часто около 0.35-0.55 и ниже MERT/CLAP audio-to-audio seed scores. При включенном Negative итоговый score является contrast: positive минус negative.",
   sonaraMixerTimbre: "Вес тембра и спектральной фактуры: MFCC, centroid, bandwidth, rolloff, flatness, contrast. Повышай для похожего материала звука.",
   sonaraMixerRhythm: "Вес ритмической текстуры: onset density, zero crossing, danceability, chord movement. Повышай для кликов, ломанности и микро-грува.",
   sonaraMixerDynamics: "Вес динамики: energy, RMS, LUFS, dynamic range. Повышай для похожего давления, дыхания и громкости.",

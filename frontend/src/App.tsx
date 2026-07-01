@@ -112,7 +112,8 @@ export function App() {
     resetSearchPlaylistState
   } = useSearchPlaylist({ onActivity: appendActivity });
   const [clapPresetKey, setClapPresetKey] = useState(defaultClapPromptPresetKey);
-  const [clapAvoidQuery, setClapAvoidQuery] = useState("");
+  const [clapNegativeQuery, setClapNegativeQuery] = useState("");
+  const [clapUseNegativePrompt, setClapUseNegativePrompt] = useState(true);
   const [clapMinSimilarity, setClapMinSimilarity] = useState(0);
   const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
   const [musicRoot, setMusicRoot] = useState("");
@@ -744,10 +745,10 @@ export function App() {
       setNotice({ kind: "error", text: "Введите текстовый запрос для CLAP" });
       return;
     }
-    const manualQueries = promptQueriesFromText(prompt, clapAvoidQuery);
+    const manualQueries = promptQueriesFromText(prompt, clapNegativeQuery, clapUseNegativePrompt);
     const positiveQueries = manualQueries.positiveQueries;
     const negativeQueries = manualQueries.negativeQueries;
-    appendActivity("info", "CLAP search запущен", negativeQueries.length ? `${prompt} · avoid ${negativeQueries[0]}` : prompt);
+    appendActivity("info", "CLAP search запущен", negativeQueries.length ? `${prompt} · negative ${negativeQueries[0]}` : prompt);
     await run(
       () =>
         api.textSearch({
@@ -1209,8 +1210,10 @@ export function App() {
           seedTracks={seedTracks}
           textQuery={textQuery}
           onTextQueryChange={setTextQuery}
-          clapAvoidQuery={clapAvoidQuery}
-          onClapAvoidQueryChange={setClapAvoidQuery}
+          clapNegativeQuery={clapNegativeQuery}
+          onClapNegativeQueryChange={setClapNegativeQuery}
+          clapUseNegativePrompt={clapUseNegativePrompt}
+          onClapUseNegativePromptChange={setClapUseNegativePrompt}
           clapPresetKey={clapPresetKey}
           onClapPresetChange={setClapPresetKey}
           clapPromptPresets={clapPromptPresets}

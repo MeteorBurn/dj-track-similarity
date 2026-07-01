@@ -21,23 +21,32 @@ function loadClapPromptModule() {
   return module.exports;
 }
 
-test("clap prompt presets provide direct Find and Avoid text", () => {
+test("clap prompt presets provide direct Find and Negative text", () => {
   const { clapPromptPresets } = loadClapPromptModule();
 
   const preset = clapPromptPresets.find((item) => item.key === "vocals_speech");
 
   assert.ok(preset);
   assert.match(preset.query, /vocals|speech|human voice/i);
-  assert.match(preset.avoidQuery, /instrumental|no vocals/i);
+  assert.match(preset.negativeQuery, /instrumental|no vocals/i);
   assert.ok(preset.query.length > 40);
-  assert.ok(preset.avoidQuery.length > 30);
+  assert.ok(preset.negativeQuery.length > 30);
 });
 
-test("manual CLAP prompt text becomes one positive and one negative query", () => {
+test("manual CLAP prompt text becomes one positive and one enabled negative query", () => {
   const { promptQueriesFromText } = loadClapPromptModule();
 
-  const queries = promptQueriesFromText(" acid techno,  rolling bass ", " bright pop, vocals ");
+  const queries = promptQueriesFromText(" acid techno,  rolling bass ", " bright pop, vocals ", true);
 
   assert.deepEqual([...queries.positiveQueries], ["acid techno, rolling bass"]);
   assert.deepEqual([...queries.negativeQueries], ["bright pop, vocals"]);
+});
+
+test("manual CLAP prompt text omits disabled negative prompt text", () => {
+  const { promptQueriesFromText } = loadClapPromptModule();
+
+  const queries = promptQueriesFromText(" acid techno,  rolling bass ", " bright pop, vocals ", false);
+
+  assert.deepEqual([...queries.positiveQueries], ["acid techno, rolling bass"]);
+  assert.deepEqual([...queries.negativeQueries], []);
 });

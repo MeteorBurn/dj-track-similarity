@@ -19,7 +19,10 @@
     "vite": "^7.2.7"
   },
   "devDependencies": {
+    "@playwright/cli": "^0.1.15",
+    "@playwright/test": "^1.61.1",
     "@types/react": "^19.2.15",
-    "@types/react-dom": "^19.2.3"
+    "@types/react-dom": "^19.2.3",
+    "playwright": "^1.61.1"
   }
 }

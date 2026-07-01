@@ -2679,8 +2679,97 @@ h2 {
 }
 
 .clap-query-field,
-.clap-avoid-field {
+.clap-negative-field {
   min-width: 0;
+}
+
+.clap-negative-row {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) max-content;
+}
+
+.clap-negative-toggle {
+  align-items: center;
+  align-self: end;
+  background: var(--button-bg);
+  border: 1px solid var(--button-border);
+  border-radius: 6px;
+  color: var(--button-text);
+  cursor: pointer;
+  display: flex;
+  flex-direction: row;
+  font-size: 12px;
+  font-weight: 650;
+  gap: 6px;
+  height: 34px;
+  justify-content: center;
+  min-height: 34px;
+  min-width: 68px;
+  padding: 0 9px;
+  position: relative;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+  white-space: nowrap;
+}
+
+.clap-negative-toggle input[type="checkbox"] {
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  position: absolute;
+  padding: 0;
+  pointer-events: none;
+  width: 1px;
+}
+
+.clap-negative-toggle.intent-add {
+  background: var(--accent-muted-bg);
+  border-color: var(--accent-muted-border);
+  color: var(--accent);
+}
+
+.clap-negative-toggle:hover {
+  border-color: var(--accent-border-hover);
+  color: var(--accent-hover);
+}
+
+.clap-negative-toggle.active {
+  background: var(--accent-strong-bg);
+  border-color: var(--accent-border);
+  color: var(--accent-active-text);
+}
+
+.clap-negative-checkbox {
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--button-border);
+  border-radius: 4px;
+  display: flex;
+  flex: 0 0 16px;
+  height: 16px;
+  justify-content: center;
+  width: 16px;
+}
+
+.clap-negative-toggle.active .clap-negative-checkbox {
+  background: var(--accent-active-bg);
+  border-color: var(--accent-active-border);
+}
+
+.clap-negative-toggle input[type="checkbox"]:focus-visible + .clap-negative-checkbox {
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.clap-negative-toggle-text {
+  min-width: 22px;
+  text-align: left;
+}
+
+.clap-negative-input:disabled {
+  background: var(--surface-disabled);
+  border-color: var(--surface-disabled-border);
+  color: var(--text-disabled);
 }
 
 .clap-prompt-actions {

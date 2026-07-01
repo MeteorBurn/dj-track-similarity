@@ -1,5 +1,5 @@
 import { Dispatch, Fragment, SetStateAction, useEffect, useRef, useState } from "react";
-import { Download, FolderOpen, ListFilter, ListMusic, Pause, Play, RotateCcw, Search, Tags, Trash2, X } from "lucide-react";
+import { Check, Download, FolderOpen, ListFilter, ListMusic, Pause, Play, RotateCcw, Search, Tags, Trash2, X } from "lucide-react";
 import { AnalysisJobStatus, api, HybridClassifierSignal, HybridMatchAxis, HybridSearchResult, HybridSearchSource, PromotedClassifier, SearchResult, SetBuilderBpmChange, SetBuilderBpmMode, SetBuilderClassifierFlow, SetBuilderEnergyCurve, SetBuilderGeneratePayload, SetBuilderMode, SetBuilderSeedMode, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
 import type { EvaluationPairFeedbackResult, EvaluationPairFeedbackState, EvaluationPairReasonTag } from "./api";
 import { classifierScoringBlockedReason } from "./classifierCompatibility";
@@ -245,8 +245,10 @@ export function SearchPlaylistPanel({
   seedTracks,
   textQuery,
   onTextQueryChange,
-  clapAvoidQuery,
-  onClapAvoidQueryChange,
+  clapNegativeQuery,
+  onClapNegativeQueryChange,
+  clapUseNegativePrompt,
+  onClapUseNegativePromptChange,
   clapPresetKey,
   onClapPresetChange,
   clapPromptPresets,
@@ -291,8 +293,10 @@ export function SearchPlaylistPanel({
   seedTracks: Track[];
   textQuery: string;
   onTextQueryChange: (value: string) => void;
-  clapAvoidQuery: string;
-  onClapAvoidQueryChange: (value: string) => void;
+  clapNegativeQuery: string;
+  onClapNegativeQueryChange: (value: string) => void;
+  clapUseNegativePrompt: boolean;
+  onClapUseNegativePromptChange: (value: boolean) => void;
   clapPresetKey: string;
   onClapPresetChange: (value: string) => void;
   clapPromptPresets: ClapPromptPreset[];
@@ -676,7 +680,7 @@ export function SearchPlaylistPanel({
   function applyClapPromptPreset(preset: ClapPromptPreset) {
     onClapPresetChange(preset.key);
     onTextQueryChange(preset.query);
-    onClapAvoidQueryChange(preset.avoidQuery);
+    onClapNegativeQueryChange(preset.negativeQuery);
     setClapPresetMenuOpen(false);
   }
 
@@ -1041,7 +1045,7 @@ export function SearchPlaylistPanel({
               </div>
             </div>
             <div className="search-filter-grid">
-              <label title={helpText.clapSimilarity}>Similarity<input type="number" value={clapMinSimilarity} min={0} max={1} step={0.01} title={helpText.clapSimilarity} onChange={(event) => onClapMinSimilarityChange(Number(event.target.value))} /></label>
+              <label title={helpText.similarity}>Similarity<input type="number" value={filters.minSimilarity} min={0} max={1} step={0.01} title={helpText.similarity} onChange={(event) => setFilters({ ...filters, minSimilarity: Number(event.target.value) })} /></label>
               <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => setFilters({ ...filters, limit: Number(event.target.value) })} /></label>
             </div>
             <button className="sonara-search-button" title="Найти похожие треки через SONARA по выбранным seed-трекам" disabled={busy || !seeds.length} onClick={handleSonaraSearch}>
@@ -1103,19 +1107,34 @@ export function SearchPlaylistPanel({
                   ) : null}
                 </div>
               </div>
-              <label className="clap-avoid-field" title="Negative CLAP prompt. Type: text. Optional; presets fill this field directly.">
-                Avoid
-                <input
-                  className="clap-avoid-input"
-                  value={clapAvoidQuery}
-                  onChange={(event) => onClapAvoidQueryChange(event.target.value)}
-                  placeholder="bright pop, straight drums, vocals"
-                  title="Negative CLAP prompt. Type: text. Optional; presets fill this field directly."
-                />
-              </label>
+              <div className="clap-negative-row">
+                <label className="clap-negative-field" title="Negative CLAP prompt. Type: text. Optional contrast prompt; presets fill this field directly.">
+                  Negative
+                  <input
+                    className="clap-negative-input"
+                    value={clapNegativeQuery}
+                    onChange={(event) => onClapNegativeQueryChange(event.target.value)}
+                    placeholder="bright pop, straight drums, vocals"
+                    title="Negative CLAP prompt. Type: text. Optional contrast prompt; presets fill this field directly."
+                    disabled={!clapUseNegativePrompt}
+                  />
+                </label>
+                <label className={`icon-button add-visible-tracks-button clap-negative-toggle ${clapUseNegativePrompt ? "intent-add active" : ""}`} title="Send the Negative field as CLAP negative_queries. Type: checkbox on/off. When disabled, the text stays in the field but is not included in search.">
+                  <input
+                    type="checkbox"
+                    aria-label="Use negative prompt"
+                    checked={clapUseNegativePrompt}
+                    onChange={(event) => onClapUseNegativePromptChange(event.target.checked)}
+                  />
+                  <span className="clap-negative-checkbox" aria-hidden="true">
+                    {clapUseNegativePrompt ? <Check size={14} strokeWidth={2.4} /> : null}
+                  </span>
+                  <span className="clap-negative-toggle-text">Use</span>
+                </label>
+              </div>
             </div>
             <div className="search-filter-grid">
-              <label title={helpText.similarity}>Similarity<input type="number" value={filters.minSimilarity} min={0} max={1} step={0.01} title={helpText.similarity} onChange={(event) => setFilters({ ...filters, minSimilarity: Number(event.target.value) })} /></label>
+              <label title={helpText.clapSimilarity}>Similarity<input type="number" value={clapMinSimilarity} min={0} max={1} step={0.01} title={helpText.clapSimilarity} onChange={(event) => onClapMinSimilarityChange(Number(event.target.value))} /></label>
               <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => setFilters({ ...filters, limit: Number(event.target.value) })} /></label>
             </div>
             <button className="clap-text-search-button" title={clapSearchTitle} disabled={busy || !textQuery.trim() || !hasStoredClapEmbeddings} onClick={handleTextSearch} type="button">

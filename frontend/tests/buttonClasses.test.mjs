@@ -362,7 +362,7 @@ test("class search tab shows classifier threshold and scoped analysis controls",
   assert.doesNotMatch(classPanel, />\s*Reset\s*</);
 });
 
-test("clap search exposes prompt presets and adaptive contrast fields without prompt generation", () => {
+test("clap search exposes prompt presets and optional negative contrast fields without prompt generation", () => {
   const searchSource = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
   const apiSource = readFileSync(join(srcDir, "api.ts"), "utf8");
@@ -373,7 +373,15 @@ test("clap search exposes prompt presets and adaptive contrast fields without pr
   assert.match(searchSource, /document\.addEventListener\("pointerdown"/);
   assert.match(searchSource, /clapPresetMenuRef/);
   assert.doesNotMatch(searchSource, /clap-generate-button/);
-  assert.match(searchSource, /clap-avoid-input/);
+  assert.match(searchSource, />\s*Negative\s*</);
+  assert.doesNotMatch(searchSource, />\s*Avoid\s*</);
+  assert.match(searchSource, /clap-negative-input/);
+  assert.match(searchSource, /icon-button add-visible-tracks-button clap-negative-toggle/);
+  assert.match(searchSource, /clapUseNegativePrompt \? "intent-add active" : ""/);
+  assert.match(searchSource, /aria-label="Use negative prompt"/);
+  assert.match(searchSource, /clap-negative-checkbox/);
+  assert.match(searchSource, /clap-negative-toggle-text/);
+  assert.match(searchSource, /onClapUseNegativePromptChange/);
   assert.match(searchSource, /hasStoredClapEmbeddings/);
   assert.match(searchSource, /clap-search-requirement/);
   assert.match(searchSource, /disabled=\{busy \|\| !textQuery\.trim\(\) \|\| !hasStoredClapEmbeddings\}/);
@@ -383,6 +391,8 @@ test("clap search exposes prompt presets and adaptive contrast fields without pr
   assert.doesNotMatch(appSource, /generateClapPrompt/);
   assert.match(appSource, /api\.textSearch/);
   assert.doesNotMatch(appSource, /api\.hybridSearch\(\{[\s\S]*query: prompt/);
+  assert.match(appSource, /const\s+\[clapUseNegativePrompt,\s*setClapUseNegativePrompt\]\s*=\s*useState\(true\)/);
+  assert.match(appSource, /promptQueriesFromText\(prompt,\s*clapNegativeQuery,\s*clapUseNegativePrompt\)/);
   assert.match(apiSource, /request<SearchResult\[\]>\("\/api\/search\/text"/);
   assert.match(appSource, /positive_queries/);
   assert.match(appSource, /negative_queries/);

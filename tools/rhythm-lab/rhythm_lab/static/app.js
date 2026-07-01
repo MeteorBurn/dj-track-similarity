@@ -29,7 +29,6 @@ const trainRefreshEl = document.getElementById("trainRefresh");
 const promoteClassifierEl = document.getElementById("promoteClassifier");
 const archiveProfileEl = document.getElementById("archiveProfile");
 const refreshCandidatesStatusEl = document.getElementById("refreshCandidatesStatus");
-const sourceActionLogEl = document.getElementById("sourceActionLog");
 const summaryEl = document.getElementById("summary");
 const pageSizeEl = document.getElementById("pageSize");
 const pageNumberEl = document.getElementById("pageNumber");
@@ -55,7 +54,6 @@ let collections = [];
 const viewOffsets = { library: 0, candidates: 0, liked: 0, collection: 0, training: 0, settings: 0 };
 let loadSequence = 0;
 let libraryRandomSeed = makeLibraryRandomSeed();
-const SOURCE_ACTION_LOG_LIMIT = 8;
 
 document.getElementById("load").addEventListener("click", () => loadActive({ reset: true }));
 document.getElementById("chooseSource").addEventListener("click", () => chooseSource().catch(showError));
@@ -98,9 +96,9 @@ candidateMinPositiveEl.addEventListener("change", () => {
   candidateMinPositiveEl.value = probabilityFilterValue();
   loadActive({ reset: true });
 });
-refreshCandidatesEl.addEventListener("click", () => handleSourceActionClick("refreshCandidates", refreshCandidates));
-trainRefreshEl.addEventListener("click", () => handleSourceActionClick("trainRefresh", trainRefresh));
-promoteClassifierEl.addEventListener("click", () => handleSourceActionClick("promoteClassifier", promoteClassifier));
+refreshCandidatesEl.addEventListener("click", () => refreshCandidates().catch(showError));
+trainRefreshEl.addEventListener("click", () => trainRefresh().catch(showError));
+promoteClassifierEl.addEventListener("click", () => promoteClassifier().catch(showError));
 pageSizeEl.addEventListener("change", () => loadActive({ reset: true }));
 pageNumberEl.addEventListener("change", () => jumpToPage());
 pageNumberEl.addEventListener("keydown", event => { if (event.key === "Enter") jumpToPage(); });
@@ -602,29 +600,13 @@ function bpmFilterValue(value) {
   return String(parsed);
 }
 
-async function handleSourceActionClick(actionName, callback) {
-  appendSourceActionLog(actionName, "clicked");
-  try {
-    await callback();
-  } catch (error) {
-    appendSourceActionLog(actionName, error.message || String(error), "error");
-    showError(error);
-  }
-}
-
 async function refreshCandidates() {
-  appendSourceActionLog("refreshCandidates", "started");
   refreshCandidatesEl.disabled = true;
-  refreshCandidatesStatusEl.textContent = "refreshing...";
+  refreshCandidatesStatusEl.textContent = "refreshing candidates...";
   try {
     const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/predictions/refresh`, { method: "POST" });
     const data = await parseRefreshResponse(response);
     refreshCandidatesStatusEl.textContent = `updated ${data.predicted} · skipped ${data.skipped} · removed old ${data.deleted_old_predictions}`;
-    appendSourceActionLog(
-      "refreshCandidates",
-      `updated ${data.predicted}, skipped ${data.skipped}, removed old ${data.deleted_old_predictions}`,
-      "success"
-    );
     await switchView("candidates");
     await loadCandidates({ reset: true });
   } finally {
@@ -635,23 +617,16 @@ async function refreshCandidates() {
 async function trainRefresh() {
   if (trainRefreshEl.disabled) return;
   if (!window.confirm(`Train a new ${activeProfile.name} model, then refresh candidates?`)) {
-    appendSourceActionLog("trainRefresh", "cancelled");
     return;
   }
-  appendSourceActionLog("trainRefresh", "started");
   trainRefreshEl.disabled = true;
   refreshCandidatesEl.disabled = true;
   promoteClassifierEl.disabled = true;
-  refreshCandidatesStatusEl.textContent = "training...";
+  refreshCandidatesStatusEl.textContent = "training model and refreshing candidates...";
   try {
     const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/training/train-refresh`, { method: "POST" });
     const data = await parseRefreshResponse(response);
     refreshCandidatesStatusEl.textContent = `trained ${formatLabelCounts(data.training_counts)} · updated ${data.predicted} · skipped ${data.skipped}`;
-    appendSourceActionLog(
-      "trainRefresh",
-      `trained ${formatLabelCounts(data.training_counts)}, updated ${data.predicted}, skipped ${data.skipped}`,
-      "success"
-    );
     await switchView("candidates");
     await loadCandidates({ reset: true });
   } finally {
@@ -663,21 +638,14 @@ async function trainRefresh() {
 async function promoteClassifier() {
   if (promoteClassifierEl.disabled) return;
   if (!window.confirm(`Promote the latest ${activeProfile.name} combined model to the main app?`)) {
-    appendSourceActionLog("promoteClassifier", "cancelled");
     return;
   }
-  appendSourceActionLog("promoteClassifier", "started");
   promoteClassifierEl.disabled = true;
-  refreshCandidatesStatusEl.textContent = "promoting...";
+  refreshCandidatesStatusEl.textContent = "promoting latest combined model...";
   try {
     const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/promote`, { method: "POST" });
     const data = await parseRefreshResponse(response);
     refreshCandidatesStatusEl.textContent = `promoted ${fileName(data.model_path)} · metadata ${fileName(data.metadata_path)}`;
-    appendSourceActionLog(
-      "promoteClassifier",
-      `promoted ${fileName(data.model_path)}, metadata ${fileName(data.metadata_path)}`,
-      "success"
-    );
   } finally {
     await loadTrainingReadiness();
   }
@@ -1232,33 +1200,6 @@ function predictionTypeStatus(track) {
 
 function featureStatusBadge(name, value) {
   return `<span class="status-item"><b>${name}</b><span class="analysis-status-badge ${value ? "status-yes" : "status-no"}">${mark(value)}</span></span>`;
-}
-
-function appendSourceActionLog(actionName, message, kind = "info") {
-  if (!sourceActionLogEl) return;
-  const normalizedKind = kind === "success" || kind === "error" ? kind : "info";
-  const row = document.createElement("div");
-  row.className = `source-action-log-entry ${normalizedKind}`;
-
-  const time = document.createElement("span");
-  time.className = "source-action-log-time";
-  time.textContent = new Date().toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  });
-
-  const action = document.createElement("b");
-  action.textContent = actionName;
-
-  const detail = document.createElement("span");
-  detail.textContent = message;
-
-  row.append(time, action, detail);
-  sourceActionLogEl.prepend(row);
-  while (sourceActionLogEl.children.length > SOURCE_ACTION_LOG_LIMIT) {
-    sourceActionLogEl.lastElementChild?.remove();
-  }
 }
 
 function showError(error) {

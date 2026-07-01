@@ -1273,31 +1273,29 @@ def test_static_ui_promote_button_sits_after_train_refresh_and_is_wired() -> Non
     assert training_index < source_actions.index('id="refreshCandidates"')
     assert promote_index > train_index
     assert 'class="icon-button promote-classifier"' in html
-    assert 'promoteClassifierEl.addEventListener("click", () => handleSourceActionClick("promoteClassifier", promoteClassifier));' in script
+    assert 'promoteClassifierEl.addEventListener("click", () => promoteClassifier().catch(showError));' in script
     assert "promoteClassifierEl.disabled = !canPromote;" in script
 
 
-def test_static_ui_source_actions_log_clicks() -> None:
+def test_static_ui_source_actions_use_single_status_line() -> None:
     html = (LAB_ROOT / "rhythm_lab" / "static" / "index.html").read_text(encoding="utf-8")
     script = (LAB_ROOT / "rhythm_lab" / "static" / "app.js").read_text(encoding="utf-8")
     styles = (LAB_ROOT / "rhythm_lab" / "static" / "styles.css").read_text(encoding="utf-8").replace("\r\n", "\n")
 
-    assert 'id="sourceActionLog" class="source-action-log"' in html
-    assert html.index('<div class="source-actions">') < html.index('id="sourceActionLog"')
-    assert 'const sourceActionLogEl = document.getElementById("sourceActionLog");' in script
-    assert 'const SOURCE_ACTION_LOG_LIMIT = 8;' in script
-    assert 'refreshCandidatesEl.addEventListener("click", () => handleSourceActionClick("refreshCandidates", refreshCandidates));' in script
-    assert 'trainRefreshEl.addEventListener("click", () => handleSourceActionClick("trainRefresh", trainRefresh));' in script
-    assert 'promoteClassifierEl.addEventListener("click", () => handleSourceActionClick("promoteClassifier", promoteClassifier));' in script
-    assert 'async function handleSourceActionClick(actionName, callback)' in script
-    assert 'appendSourceActionLog(actionName, "clicked");' in script
-    assert 'function appendSourceActionLog(actionName, message, kind = "info")' in script
-    assert 'appendSourceActionLog("refreshCandidates", "started");' in script
-    assert 'appendSourceActionLog("trainRefresh", "started");' in script
-    assert 'appendSourceActionLog("promoteClassifier", "started");' in script
-    assert ".source-action-log {\n  grid-column: 4;" in styles
-    assert ".source-action-log:empty {\n  display: none;" in styles
-    assert ".source-action-log-entry {\n  display: grid;" in styles
+    assert 'id="sourceActionLog"' not in html
+    assert 'sourceActionLogEl' not in script
+    assert 'SOURCE_ACTION_LOG_LIMIT' not in script
+    assert "handleSourceActionClick" not in script
+    assert "appendSourceActionLog" not in script
+    assert 'refreshCandidatesEl.addEventListener("click", () => refreshCandidates().catch(showError));' in script
+    assert 'trainRefreshEl.addEventListener("click", () => trainRefresh().catch(showError));' in script
+    assert 'promoteClassifierEl.addEventListener("click", () => promoteClassifier().catch(showError));' in script
+    assert 'refreshCandidatesStatusEl.textContent = "refreshing candidates...";' in script
+    assert 'refreshCandidatesStatusEl.textContent = "training model and refreshing candidates...";' in script
+    assert 'refreshCandidatesStatusEl.textContent = "promoting latest combined model...";' in script
+    assert ".source-action-log" not in styles
+    assert ".source-actions .meta {\n  flex: 1 1 100%;" in styles
+    assert "  max-width: 100%;" in styles
 
 
 def test_artifact_cleanup_keeps_recent_files_per_feature_and_protected_artifact(tmp_path: Path) -> None:
@@ -1727,8 +1725,8 @@ def test_web_app_serves_static_profile_ui_without_hardcoded_label_buttons(tmp_pa
     script = client.get("/static/app.js").text
     styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
 
-    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260702-source-action-log" />' in html
-    assert '<script src="/static/app.js?v=rhythm-lab-20260702-source-action-log" defer></script>' in html
+    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260702-source-status-line" />' in html
+    assert '<script src="/static/app.js?v=rhythm-lab-20260702-source-status-line" defer></script>' in html
     assert 'id="profileSelect"' in html
     assert "/api/profiles" in script
     assert "function renderLabelButtons" in script

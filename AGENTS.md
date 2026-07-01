@@ -17,18 +17,19 @@ version first.
 ## Project Documentation
 
 Project documentation lives under `docs/dj-track-similarity/`, with the
-canonical English source at the documentation root and the Russian localization
-under `docs/dj-track-similarity/ru/`. Treat
+canonical English documentation tree at the documentation root and the Russian
+localization under `docs/dj-track-similarity/ru/`. Treat
 `docs/dj-track-similarity/project-guide.md` as the English entrypoint, then
 follow its links to the focused topic pages for installation, overview,
 architecture, database, analysis models, analysis families, search/tag writing,
 CLI, API, Rhythm Lab, development, and stable maintenance scripts.
 
-Read the relevant page in `docs/dj-track-similarity/` before making changes to
-documented behavior, public commands, API contracts, database fields, analysis
-outputs, UI workflows, Rhythm Lab, or stable maintenance scripts. When such
-behavior changes, update the matching page in `docs/dj-track-similarity/` in the
-same change.
+Do not treat project documentation as current or authoritative evidence for
+project behavior. Verify logic, commands, API contracts, database fields,
+analysis outputs, UI workflows, Rhythm Lab behavior, and maintenance scripts from
+the current source code, tests, schemas, and direct runtime evidence. Use docs
+only to find the page that needs updating, then update that page to match the
+verified current behavior.
 
 When any Markdown source under `docs/dj-track-similarity/` changes, run the
 focused documentation checks that match the change. Build the static HTML

@@ -12,10 +12,12 @@ Rhythm Lab behavior, or maintenance scripts.
 
 User-facing docs are English unless the user asks otherwise. The English entrypoint is
 `docs/dj-track-similarity/project-guide.md`; follow linked topic pages instead of duplicating long
-references here. Russian docs live under `docs/dj-track-similarity/ru/` and are opt-in.
-`README.md` and `README.ru.md` are public repository landing pages, not exhaustive references: keep
-them clear, modest, workflow-oriented, and linked to the real docs tree. Russian public-facing README
-copy should address readers as `вы`, not `ты`.
+references here. The tracked documentation surface is `README.md` plus the VitePress tree under
+`docs/dj-track-similarity/`; there is currently no tracked localized README or VitePress localization.
+Treat documentation as maintained project surface: when behavior, commands, API contracts, UI workflows,
+tools, safety rules, setup steps, or verification commands change, update the relevant README/docs pages
+in the same implementation pass. `README.md` is the public repository landing page, not an exhaustive
+reference: keep it clear, modest, workflow-oriented, and linked to the real docs tree.
 
 For local manual checks against the real library, use `C:\db\abstracted.sqlite` unless the user gives
 another path. This workspace may not always be a Git repo, so inspect before relying on branches,
@@ -229,10 +231,12 @@ should use `logs/<name>.log`.
 - If changing Mutagen tags, SONARA features, MAEST jobs, classifier jobs, audio decoding, search, library
   browsing, relocation, analysis controls, SQLite writes, UI controls, custom tags, or standard genre
   writes, update the focused tests, frontend/API surfaces, and `docs/dj-track-similarity/` pages.
-- For new user-facing features, update tracked `docs/dj-track-similarity/` Markdown in the same
-  implementation pass. Do not build the static docs site just to satisfy this docs-update requirement;
-  build the site only when previewing, deploying, or explicitly asked.
-- Documentation command examples in `README*.md` and `docs/dj-track-similarity/` assume the Python
+- For user-facing behavior, CLI/API contracts, setup, verification, helper tools, safety invariants, and
+  supported workflows, keep tracked `README.md` and `docs/dj-track-similarity/` Markdown current in the
+  same implementation pass. If a source change does not require docs, the final response should make
+  that no-docs-needed decision explicit. Do not build the static docs site just to satisfy this docs
+  update requirement; build the site only when previewing, deploying, or explicitly asked.
+- Documentation command examples in `README.md` and `docs/dj-track-similarity/` assume the Python
   environment is already activated. Do not write commands there with `.\.venv\Scripts\python.exe`;
   use `python ...` or the installed console script instead.
 - Use deterministic test data and test-local stub adapters; automated tests should not depend on the real

@@ -7,17 +7,7 @@ const englishNav = [
   { text: "Guide", link: "/project-guide.html" },
   { text: "Getting Started", link: "/getting-started/quickstart.html" },
   { text: "User Guide", link: "/user-guide/" },
-  { text: "Reference", link: "/reference/" },
-  { text: "Русский", link: "/ru/" }
-];
-
-const russianNav = [
-  { text: "Главная", link: "/ru/" },
-  { text: "Guide", link: "/ru/project-guide.html" },
-  { text: "Первые шаги", link: "/ru/getting-started/quickstart.html" },
-  { text: "Руководство", link: "/ru/user-guide/" },
-  { text: "Reference", link: "/ru/reference/" },
-  { text: "English", link: "/" }
+  { text: "Reference", link: "/reference/" }
 ];
 
 const englishSidebar: SidebarSection[] = [
@@ -31,10 +21,6 @@ const englishSidebar: SidebarSection[] = [
   { text: "Developer", items: [{ text: "Overview", link: "/developer/" }, { text: "Architecture", link: "/developer/architecture.html" }, { text: "Development", link: "/developer/development.html" }, { text: "Testing", link: "/developer/testing-and-verification.html" }, { text: "Release checklist", link: "/developer/release-checklist.html" }] },
   { text: "Help", items: [{ text: "Overview", link: "/help/" }, { text: "Troubleshooting", link: "/help/troubleshooting.html" }, { text: "FAQ", link: "/help/faq.html" }, { text: "Known limits", link: "/help/known-limits.html" }] }
 ];
-
-function withRussianPrefix(section: SidebarSection): SidebarSection {
-  return { text: section.text, items: section.items.map((item) => ({ text: item.text, link: item.link === "/" ? "/ru/" : `/ru${item.link}` })) };
-}
 
 const commonTheme = {
   siteTitle: "DJ Track Similarity Docs",
@@ -56,9 +42,5 @@ export default defineConfig({
   cleanUrls: false,
   appearance: true,
   lastUpdated: true,
-  themeConfig: { ...commonTheme, nav: englishNav, sidebar: englishSidebar },
-  locales: {
-    root: { label: "English", lang: "en-US", title: "dj-track-similarity", description: "Human-oriented documentation for local DJ track similarity workflows.", themeConfig: { nav: englishNav, sidebar: englishSidebar } },
-    ru: { label: "Русский", lang: "ru-RU", link: "/ru/", title: "dj-track-similarity", description: "Русская документация dj-track-similarity.", themeConfig: { nav: russianNav, sidebar: englishSidebar.map(withRussianPrefix), outline: { level: [2, 3], label: "На этой странице" }, docFooter: { prev: "Назад", next: "Далее" } } }
-  }
+  themeConfig: { ...commonTheme, nav: englishNav, sidebar: englishSidebar }
 });

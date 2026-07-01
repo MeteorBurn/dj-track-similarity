@@ -1,7 +1,5 @@
 # dj-track-similarity
 
-[Русская версия](README.ru.md)
-
 A local-first DJ library workbench for scanning music files, running audio analysis, finding related tracks, and preparing set ideas without uploading your collection anywhere.
 
 `dj-track-similarity` is built for people who manage real local music libraries. It stores metadata and analysis results in SQLite, exposes a browser UI for day-to-day work, and keeps model outputs separate so you can see where each recommendation comes from.

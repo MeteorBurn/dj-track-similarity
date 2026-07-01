@@ -38,5 +38,3 @@ Most app workflows read audio and write SQLite only. The explicit exceptions are
 - [Reference](./reference/index.md) — concise CLI, API, database, config, analysis, and UI facts.
 - [Developer](./developer/index.md) — architecture, local development, verification, and release checks.
 - [Help](./help/index.md) — troubleshooting, FAQ, and current limits.
-
-Russian first-pass localization is available at [Русская версия](./ru/index.md).

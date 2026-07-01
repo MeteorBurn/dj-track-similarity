@@ -25,6 +25,20 @@ test("topbar opens audio doctor before audio dedup", () => {
   assert.ok(doctorIndex < dedupIndex);
 });
 
+test("topbar exposes a separate server shutdown button", () => {
+  const appSource = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const apiSource = readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
+  const actionsBlock = appSource.match(/<div className="topbar-actions">([\s\S]*?)<\/div>/)?.[1] || "";
+
+  assert.match(apiSource, /shutdownServer:\s*\(\)\s*=>/);
+  assert.match(apiSource, /\/api\/server\/shutdown/);
+  assert.match(apiSource, /X-DJ-Track-Similarity-Action/);
+  assert.match(appSource, /async function handleShutdownServer/);
+  assert.match(actionsBlock, /server-shutdown-button[\s\S]*stop-active-stage-button/);
+  assert.match(actionsBlock, /title="Остановить текущий сервер"/);
+  assert.match(actionsBlock, /aria-label="Остановить текущий сервер"/);
+});
+
 test("audio doctor dialog keeps safe controls and hover hints", () => {
   const source = readFileSync(new URL("../src/AudioDoctorDialog.tsx", import.meta.url), "utf8");
 

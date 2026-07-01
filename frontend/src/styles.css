@@ -1153,8 +1153,8 @@ h2 {
 .scan-action-row {
   align-items: stretch;
   display: grid;
-  gap: 4px;
-  grid-template-columns: minmax(0, 1fr) repeat(3, 42px);
+  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) repeat(3, 34px);
   margin-bottom: 8px;
 }
 
@@ -1195,10 +1195,6 @@ h2 {
   min-width: 0;
   padding-inline: 6px;
   width: 100%;
-}
-
-.scan-action-row .icon-button {
-  width: 42px;
 }
 
 .scan-action-row .refresh-tags-button {
@@ -1392,15 +1388,15 @@ h2 {
 }
 
 .audio-dedup-launch-button {
-  background: var(--warning-soft-bg);
-  border-color: var(--warning-soft-border);
-  color: var(--warning-text);
+  background: var(--blue-bg);
+  border-color: var(--blue-border);
+  color: var(--blue-text);
 }
 
 .audio-dedup-launch-button:hover:not(:disabled) {
-  background: var(--warning-bg);
-  border-color: var(--warning-border-hover);
-  color: var(--warning-text-hover);
+  background: var(--blue-bg-hover);
+  border-color: var(--blue-border-hover);
+  color: var(--blue-text-hover);
 }
 
 .audio-doctor-launch-button {
@@ -1413,6 +1409,17 @@ h2 {
   background: var(--accent-active-bg);
   border-color: var(--accent-active-border);
   color: var(--accent-active-text);
+}
+
+.server-shutdown-button {
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger-text);
+}
+
+.server-shutdown-button:hover:not(:disabled) {
+  border-color: var(--danger-border-hover);
+  color: var(--danger-text-hover);
 }
 
 .genre-save-button {

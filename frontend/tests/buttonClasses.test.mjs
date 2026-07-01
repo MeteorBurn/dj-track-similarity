@@ -93,6 +93,21 @@ test("button tooltip text uses compact viewport-level styling", () => {
   assert.match(rule, /overflow-wrap:\s*anywhere/);
 });
 
+test("topbar utility icon buttons use distinct intent colors", () => {
+  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
+  const dedupRule = styles.match(/\.audio-dedup-launch-button\s*{([\s\S]*?)}/)?.[1] || "";
+  const shutdownRule = styles.match(/\.server-shutdown-button\s*{([\s\S]*?)}/)?.[1] || "";
+
+  assert.match(dedupRule, /background:\s*var\(--blue-bg\)/);
+  assert.match(dedupRule, /border-color:\s*var\(--blue-border\)/);
+  assert.match(dedupRule, /color:\s*var\(--blue-text\)/);
+  assert.doesNotMatch(dedupRule, /warning/);
+
+  assert.match(shutdownRule, /background:\s*var\(--danger-bg\)/);
+  assert.match(shutdownRule, /border-color:\s*var\(--danger-border\)/);
+  assert.match(shutdownRule, /color:\s*var\(--danger-text\)/);
+});
+
 test("genre save button is placed between refresh tags and database clear", () => {
   const source = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
 
@@ -107,7 +122,7 @@ test("genre save button is placed between refresh tags and database clear", () =
   assert.ok(genreSaveIndex < clearIndex);
 });
 
-test("scan action row reserves one line for all scan controls", () => {
+test("scan action row keeps icon controls on the standard button grid", () => {
   const source = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
   const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
   const rowMatch = source.match(/<div className="scan-action-row">([\s\S]*?)<\/div>/);
@@ -117,10 +132,12 @@ test("scan action row reserves one line for all scan controls", () => {
   assert.ok(styleMatch, "scan action row styles exist");
 
   const controlCount = (rowMatch[1].match(/<button\b/g) || []).length;
-  const declaredIconColumns = Number(styleMatch[1].match(/repeat\((\d+),\s*42px\)/)?.[1] || 0);
+  const declaredIconColumns = Number(styleMatch[1].match(/repeat\((\d+),\s*34px\)/)?.[1] || 0);
 
   assert.equal(controlCount, 4);
   assert.equal(declaredIconColumns, controlCount - 1);
+  assert.match(styleMatch[1], /gap:\s*6px/);
+  assert.doesNotMatch(styles, /\.scan-action-row\s+\.icon-button\s*{[\s\S]*?width:\s*42px/);
 });
 
 test("analysis controls use model checkboxes and one selected-run button", () => {

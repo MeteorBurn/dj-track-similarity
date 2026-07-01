@@ -14,6 +14,7 @@ ROUTE_MODULES = {
     "dj_track_similarity.api_routes_library": "register_library_routes",
     "dj_track_similarity.api_routes_rhythm_lab": "register_rhythm_lab_routes",
     "dj_track_similarity.api_routes_search": "register_search_routes",
+    "dj_track_similarity.api_routes_server": "register_server_routes",
     "dj_track_similarity.api_routes_tags_export": "register_tags_export_routes",
 }
 

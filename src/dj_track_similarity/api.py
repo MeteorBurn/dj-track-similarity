@@ -16,6 +16,7 @@ from .api_routes_evaluation import register_evaluation_routes
 from .api_routes_library import register_library_routes
 from .api_routes_rhythm_lab import register_rhythm_lab_routes
 from .api_routes_search import register_search_routes
+from .api_routes_server import register_server_routes
 from .api_routes_set_builder import register_set_builder_routes
 from .api_routes_tags_export import register_tags_export_routes
 from .api_state import AppDatabaseState, DatabaseBusy, DatabaseNotSelected
@@ -119,6 +120,7 @@ def create_app(
     register_audio_doctor_routes(app, state)
     register_evaluation_routes(app, state)
     register_search_routes(app, state, clap_embedding_adapter=ClapEmbeddingAdapter)
+    register_server_routes(app)
     register_set_builder_routes(app, state, promoted_classifiers=promoted_classifiers)
     register_tags_export_routes(app, state, open_folder_dialog=open_folder_dialog)
     register_rhythm_lab_routes(

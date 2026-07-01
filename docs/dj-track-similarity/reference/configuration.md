@@ -16,6 +16,8 @@
 
 Main backend uses `8765`, frontend Vite uses `5173`, and Rhythm Lab uses `8777`. Check for an existing project process before starting another fixed-port server.
 
+The main UI top bar includes a local server stop button for the current backend process. It calls `/api/server/shutdown` with the explicit shutdown action header, then the backend exits after acknowledging the request.
+
 ## Runtime
 
 `ffmpeg` must be on `PATH` or configured through `DJ_TRACK_SIMILARITY_FFMPEG`. Analysis device values are `auto`, `cpu`, and `cuda`.

@@ -1,6 +1,6 @@
 import type { MouseEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { CopyX, FlaskConical, Moon, RefreshCcw, ScrollText, Square, Sun, Wrench } from "lucide-react";
+import { CopyX, FlaskConical, Moon, Power, RefreshCcw, ScrollText, Square, Sun, Wrench } from "lucide-react";
 import { AnalysisJobStatus, AnalysisModel, api, AudioDedupJobPayload, AudioDedupJobStatus, AudioDoctorJobPayload, AudioDoctorJobStatus, GenreTagJobStatus, PromotedClassifier, RhythmLabLaunchResult, ScanStats, SetBuilderGeneratePayload, Track } from "./api";
 import { analysisSelectionOrder, isAudioAnalysisModel, type AnalysisSelection } from "./analysisSelection";
 import { AudioDedupDialog } from "./AudioDedupDialog";
@@ -925,6 +925,21 @@ export function App() {
     }
   }
 
+  async function handleShutdownServer() {
+    setBusy(true);
+    appendActivity("warn", "Остановка сервера запрошена");
+    try {
+      await api.shutdownServer();
+      setNotice({ kind: "idle", text: "Сервер останавливается" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setNotice({ kind: "error", text: message });
+      appendActivity("error", "Ошибка", message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleExport(format: "m3u" | "csv") {
     if (!playlist.length) {
       setNotice({ kind: "error", text: "Сет пуст" });
@@ -1071,6 +1086,16 @@ export function App() {
             type="button"
           >
             <CopyX size={16} />
+          </button>
+          <button
+            className="icon-button server-shutdown-button"
+            title="Остановить текущий сервер"
+            aria-label="Остановить текущий сервер"
+            disabled={busy}
+            onClick={() => void handleShutdownServer()}
+            type="button"
+          >
+            <Power size={16} />
           </button>
           <button
             className="icon-button stop-button stop-active-stage-button"

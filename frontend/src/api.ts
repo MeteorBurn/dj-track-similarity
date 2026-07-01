@@ -463,6 +463,10 @@ export type RhythmLabStatus = {
   stopped?: boolean;
 };
 
+export type ServerShutdownResult = {
+  status: "shutdown_requested";
+};
+
 export type SetBuilderGeneratePayload = {
   seed_mode: SetBuilderSeedMode;
   seed_track_ids: number[];
@@ -651,8 +655,8 @@ export type EvaluationLatestReports = {
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, {
+    ...options,
     headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
-    ...options
   });
   if (!response.ok) {
     const text = await response.text();
@@ -745,6 +749,12 @@ export const api = {
   stopRhythmLab: () =>
     request<RhythmLabStatus>("/api/rhythm-lab/stop", {
       method: "POST",
+      body: JSON.stringify({})
+    }),
+  shutdownServer: () =>
+    request<ServerShutdownResult>("/api/server/shutdown", {
+      method: "POST",
+      headers: { "X-DJ-Track-Similarity-Action": "shutdown-server" },
       body: JSON.stringify({})
     }),
   audioDedupJobStart: (payload: AudioDedupJobPayload) =>

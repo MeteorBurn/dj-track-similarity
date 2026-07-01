@@ -365,6 +365,11 @@ main {
   min-width: min(320px, 100%);
 }
 
+#bpmMin,
+#bpmMax {
+  width: 104px;
+}
+
 #candidateMinPositive {
   width: 88px;
 }

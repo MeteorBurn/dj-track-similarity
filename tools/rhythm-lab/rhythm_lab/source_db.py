@@ -9,7 +9,7 @@ import numpy as np
 
 from dj_track_similarity.database import DEFAULT_EMBEDDING_KEY, LibraryDatabase
 from dj_track_similarity.db_schema import TRACK_SELECT_FIELDS, TRACK_SLIM_SELECT_FIELDS_WITH_VECTOR
-from dj_track_similarity.metadata_payload import genres_from_metadata, metadata_from_json
+from dj_track_similarity.metadata_payload import genres_from_metadata, metadata_from_json, optional_float
 from dj_track_similarity.models import Track
 
 
@@ -140,6 +140,8 @@ class SourceDatabase:
         training_label_keys: tuple[str, ...] = ("broken", "straight"),
         query: str = "",
         syncopated: str = "all",
+        bpm_min: float | None = None,
+        bpm_max: float | None = None,
         liked: str = "all",
         label: str = "all",
         limit: int = 100,
@@ -148,6 +150,8 @@ class SourceDatabase:
         where_parts, params = _track_page_filter_sql(
             query=query,
             syncopated=syncopated,
+            bpm_min=bpm_min,
+            bpm_max=bpm_max,
             liked=liked,
             label=label,
             label_keys=label_keys,
@@ -226,6 +230,8 @@ class SourceDatabase:
         training_label_keys: tuple[str, ...],
         query: str = "",
         syncopated: str = "all",
+        bpm_min: float | None = None,
+        bpm_max: float | None = None,
         label: str = "unlabeled",
         predicted: str = "all",
         probability_focus: str = "positive_highest",
@@ -236,6 +242,8 @@ class SourceDatabase:
         where_sql, filter_params = _prediction_page_filter_sql(
             query=query,
             syncopated=syncopated,
+            bpm_min=bpm_min,
+            bpm_max=bpm_max,
             label=label,
             predicted=predicted,
             label_keys=label_keys,
@@ -426,6 +434,8 @@ def _track_page_filter_sql(
     *,
     query: str,
     syncopated: str,
+    bpm_min: float | None,
+    bpm_max: float | None,
     liked: str,
     label: str,
     label_keys: tuple[str, ...],
@@ -450,6 +460,13 @@ def _track_page_filter_sql(
         where_parts.append("COALESCE(json_extract(t.metadata_json, '$.maest_syncopated_rhythm'), 0) != 1")
     elif syncopated != "all":
         raise ValueError(f"Unknown syncopated filter: {syncopated}")
+    sonara_bpm = _sonara_bpm_sql("t.metadata_json")
+    if bpm_min is not None:
+        where_parts.append(f"{sonara_bpm} >= ?")
+        params.append(float(bpm_min))
+    if bpm_max is not None:
+        where_parts.append(f"{sonara_bpm} <= ?")
+        params.append(float(bpm_max))
     if liked == "yes":
         where_parts.append("EXISTS (SELECT 1 FROM track_likes tl WHERE tl.track_id = t.id)")
     elif liked == "no":
@@ -475,7 +492,7 @@ def _track_page_item(row: sqlite3.Row) -> dict[str, object]:
         "artist": track.artist,
         "title": track.title,
         "album": track.album,
-        "bpm": track.bpm,
+        "bpm": _sonara_bpm_from_metadata(metadata),
         "musical_key": track.musical_key,
         "genres": track.genres,
         "genre_scores": track.genre_scores,
@@ -495,6 +512,8 @@ def _prediction_page_filter_sql(
     *,
     query: str,
     syncopated: str,
+    bpm_min: float | None,
+    bpm_max: float | None,
     label: str,
     predicted: str,
     label_keys: tuple[str, ...],
@@ -524,6 +543,15 @@ def _prediction_page_filter_sql(
         where_parts.append("COALESCE(json_extract(source_metadata_json, '$.maest_syncopated_rhythm'), 0) != 1")
     elif syncopated != "all":
         raise ValueError(f"Unknown syncopated filter: {syncopated}")
+    sonara_bpm = _sonara_bpm_sql("source_metadata_json")
+    if bpm_min is not None:
+        where_parts.append("source_row_id IS NOT NULL")
+        where_parts.append(f"{sonara_bpm} >= ?")
+        params.append(float(bpm_min))
+    if bpm_max is not None:
+        where_parts.append("source_row_id IS NOT NULL")
+        where_parts.append(f"{sonara_bpm} <= ?")
+        params.append(float(bpm_max))
     if label == "unlabeled":
         where_parts.append("classifier_label IS NULL")
     elif label in set(label_keys):
@@ -571,6 +599,7 @@ def _prediction_page_item(
         "path": row["source_path"] or row["prediction_path"],
         "artist": row["source_artist"] if row["source_row_id"] is not None else row["prediction_artist"],
         "title": row["source_title"] if row["source_row_id"] is not None else row["prediction_title"],
+        "bpm": _sonara_bpm_from_metadata(metadata),
         "liked": bool(row["liked"]) if row["source_row_id"] is not None else False,
         "label": row["classifier_label"],
         "label_trained": bool(row["classifier_label_trained"]),
@@ -605,3 +634,24 @@ def _probabilities_from_json(payload: object) -> dict[str, object]:
 
 def _json_probability_path(label: str) -> str:
     return f"$.{label}"
+
+
+def _sonara_bpm_sql(metadata_column: str) -> str:
+    return (
+        "CASE "
+        f"WHEN json_type({metadata_column}, '$.sonara_features.bpm.value') IN ('integer', 'real', 'text') "
+        f"THEN CAST(json_extract({metadata_column}, '$.sonara_features.bpm.value') AS REAL) "
+        f"WHEN json_type({metadata_column}, '$.sonara_features.bpm') IN ('integer', 'real', 'text') "
+        f"THEN CAST(json_extract({metadata_column}, '$.sonara_features.bpm') AS REAL) "
+        "ELSE NULL END"
+    )
+
+
+def _sonara_bpm_from_metadata(metadata: dict[str, object]) -> float | None:
+    features = metadata.get("sonara_features")
+    if not isinstance(features, dict):
+        return None
+    value = features.get("bpm")
+    if isinstance(value, dict):
+        value = value.get("value")
+    return optional_float(value)

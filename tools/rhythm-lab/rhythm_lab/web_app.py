@@ -290,6 +290,8 @@ def create_app(
         profile_key: str,
         q: str = "",
         syncopated: str = Query(default="all", pattern="^(all|yes|no)$"),
+        bpm_min: str = "",
+        bpm_max: str = "",
         liked: str = Query(default="all", pattern="^(all|yes|no)$"),
         label: str = "all",
         limit: int = Query(default=100, ge=1, le=500),
@@ -300,6 +302,8 @@ def create_app(
         if source is None:
             return {"items": [], "total": 0, "limit": limit, "offset": offset}
         try:
+            bpm_min_value = _bpm_bound_value(bpm_min, "BPM from")
+            bpm_max_value = _bpm_bound_value(bpm_max, "BPM to")
             return source.list_tracks_page(
                 labels_db_path=labels_path,
                 classifier_key=profile.classifier_key,
@@ -307,6 +311,8 @@ def create_app(
                 training_label_keys=profile.training_label_keys,
                 query=q,
                 syncopated=syncopated,
+                bpm_min=bpm_min_value,
+                bpm_max=bpm_max_value,
                 liked=liked,
                 label=label,
                 limit=limit,
@@ -340,6 +346,8 @@ def create_app(
         profile_key: str,
         q: str = "",
         syncopated: str = Query(default="all", pattern="^(all|yes|no)$"),
+        bpm_min: str = "",
+        bpm_max: str = "",
         label: str = "unlabeled",
         predicted: str = "all",
         probability_focus: str = Query(default="positive_highest", pattern="^(positive_highest|negative_highest|balanced)$"),
@@ -354,6 +362,8 @@ def create_app(
             raise HTTPException(status_code=400, detail=f"Unknown predicted label filter: {predicted}")
         try:
             min_positive_value = _probability_filter_value(min_positive)
+            bpm_min_value = _bpm_bound_value(bpm_min, "BPM from")
+            bpm_max_value = _bpm_bound_value(bpm_max, "BPM to")
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         source = source_state.source
@@ -370,6 +380,8 @@ def create_app(
                 training_label_keys=profile.training_label_keys,
                 query=q,
                 syncopated=syncopated,
+                bpm_min=bpm_min_value,
+                bpm_max=bpm_max_value,
                 label=label,
                 predicted=predicted,
                 probability_focus=probability_focus,
@@ -766,6 +778,19 @@ def _probability_filter_value(value: object) -> float:
     if probability < 0.0 or probability > 1.0:
         raise ValueError("Minimum probability must be a number between 0 and 1")
     return probability
+
+
+def _bpm_bound_value(value: object, label: str) -> float | None:
+    text = str(value or "").strip().replace(",", ".")
+    if not text:
+        return None
+    try:
+        bpm = float(text)
+    except ValueError as error:
+        raise ValueError(f"{label} must be a positive number") from error
+    if bpm <= 0:
+        raise ValueError(f"{label} must be a positive number")
+    return bpm
 
 
 def _training_label_counts(counts: dict[str, int], *, profile: ClassifierProfile) -> dict[str, int]:

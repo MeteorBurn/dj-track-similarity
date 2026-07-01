@@ -543,6 +543,103 @@ def test_web_app_reads_source_database_and_writes_labels_database_only(tmp_path:
         ).fetchone() is None
 
 
+def test_web_app_bpm_range_filters_use_only_sonara_bpm_when_bounds_are_set(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    source_path = tmp_path / "source.sqlite"
+    source = LibraryDatabase(source_path)
+
+    tagged_path = tmp_path / "tagged.wav"
+    tagged_path.write_bytes(b"RIFF0000WAVE")
+    tagged_id = source.upsert_track(
+        path=tagged_path,
+        size=tagged_path.stat().st_size,
+        mtime=1,
+        metadata={"title": "Tagged", "bpm": 118},
+        bpm=150,
+    )
+    source.save_sonara_features(
+        tagged_id,
+        {"bpm": {"type": "float", "value": 150.0}},
+        model_name="sonara-test",
+    )
+
+    fallback_path = tmp_path / "fallback.wav"
+    fallback_path.write_bytes(b"RIFF0000WAVE")
+    fallback_id = source.upsert_track(
+        path=fallback_path,
+        size=fallback_path.stat().st_size,
+        mtime=1,
+        metadata={"title": "Fallback"},
+        bpm=140,
+    )
+    source.save_sonara_features(
+        fallback_id,
+        {"bpm": {"type": "float", "value": 126.0}},
+        model_name="sonara-test",
+    )
+
+    outside_path = tmp_path / "outside.wav"
+    outside_path.write_bytes(b"RIFF0000WAVE")
+    outside_id = source.upsert_track(
+        path=outside_path,
+        size=outside_path.stat().st_size,
+        mtime=1,
+        metadata={"title": "Outside"},
+        bpm=132,
+    )
+    source.save_sonara_features(
+        outside_id,
+        {"bpm": {"type": "float", "value": 132.0}},
+        model_name="sonara-test",
+    )
+
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    for track_id, probability in ((tagged_id, 0.9), (fallback_id, 0.8), (outside_id, 0.7)):
+        labels.save_prediction(
+            source.get_track(track_id),
+            feature_set="combined",
+            model_artifact="model.joblib",
+            label="broken",
+            confidence=probability,
+            probabilities={"broken": probability, "straight": 1.0 - probability},
+        )
+    client = TestClient(create_app(source_path, labels_db_path=labels.path))
+
+    unfiltered = client.get(
+        "/api/profiles/break_energy/tracks",
+        params={"bpm_min": "", "bpm_max": ""},
+    ).json()
+    minimum_only = client.get(
+        "/api/profiles/break_energy/tracks",
+        params={"bpm_min": "130"},
+    ).json()
+    maximum_only = client.get(
+        "/api/profiles/break_energy/tracks",
+        params={"bpm_max": "127"},
+    ).json()
+    range_tracks = client.get(
+        "/api/profiles/break_energy/tracks",
+        params={"bpm_min": "125", "bpm_max": "127"},
+    ).json()
+    fallback_candidates = client.get(
+        "/api/profiles/break_energy/predictions",
+        params={"label": "all", "bpm_min": "125", "bpm_max": "127"},
+    ).json()
+
+    assert unfiltered["total"] == 3
+    assert minimum_only["total"] == 2
+    assert [item["id"] for item in minimum_only["items"]] == [outside_id, tagged_id]
+    assert maximum_only["total"] == 1
+    assert maximum_only["items"][0]["id"] == fallback_id
+    assert range_tracks["total"] == 1
+    assert range_tracks["items"][0]["id"] == fallback_id
+    assert range_tracks["items"][0]["bpm"] == 126.0
+    assert fallback_candidates["total"] == 1
+    assert fallback_candidates["items"][0]["id"] == fallback_id
+    assert fallback_candidates["items"][0]["bpm"] == 126.0
+
+
 def test_web_app_profile_likes_share_main_library_state(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
@@ -1397,8 +1494,8 @@ def test_web_app_serves_static_profile_ui_without_hardcoded_label_buttons(tmp_pa
     script = client.get("/static/app.js").text
     styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
 
-    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260701" />' in html
-    assert '<script src="/static/app.js?v=rhythm-lab-20260701" defer></script>' in html
+    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260701-bpm" />' in html
+    assert '<script src="/static/app.js?v=rhythm-lab-20260701-bpm" defer></script>' in html
     assert 'id="profileSelect"' in html
     assert "/api/profiles" in script
     assert "function renderLabelButtons" in script
@@ -1577,8 +1674,13 @@ def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path
     assert 'id="commonFilters"' in html
     assert '<section id="candidateFilters" class="filters candidate-filters-placeholder">' in html
     assert 'id="candidateMinPositive" type="number" min="0" max="1" step="0.05" value="0"' in html
+    assert 'id="syncopated"' not in html
+    assert 'id="bpmMin" type="number" min="0" step="0.1" placeholder="BPM from"' in html
+    assert 'id="bpmMax" type="number" min="0" step="0.1" placeholder="BPM to"' in html
     assert html.index('id="candidateFilters"') < html.index('<section class="pager">')
-    assert 'syncopatedEl.addEventListener("change", () => loadActive({ reset: true }));' in script
+    assert "const syncopatedEl" not in script
+    assert 'bpmMinEl.addEventListener("change", () => loadActive({ reset: true }));' in script
+    assert 'bpmMaxEl.addEventListener("change", () => loadActive({ reset: true }));' in script
     assert 'labelEl.addEventListener("change", () => loadActive({ reset: true }));' in script
     assert 'candidatePredictedEl.addEventListener("change", () => loadActive({ reset: true }));' in script
     assert 'candidateMinBrokenEl.addEventListener("change", () => loadActive({ reset: true }));' in script
@@ -1607,12 +1709,14 @@ def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path
     assert "viewOffsets[activeView] = offset;" in script
     assert "offset = viewOffsets[view] || 0;" in script
     assert "q: queryEl.value," in script
-    assert "syncopated: syncopatedEl.value," in script
+    assert "bpm_min: bpmFilterValue(bpmMinEl.value)," in script
+    assert "bpm_max: bpmFilterValue(bpmMaxEl.value)," in script
     assert "label: labelEl.value," in script
     assert "predicted: candidatePredictedEl.value," in script
     assert "probability_focus: candidateMinBrokenEl.value," in script
     assert "min_positive: probabilityFilterValue()," in script
     assert 'replace(",", ".")' in script
+    assert "function bpmFilterValue(value)" in script
 
 
 def test_web_app_training_tab_adds_bottom_training_stats_card(tmp_path: Path) -> None:

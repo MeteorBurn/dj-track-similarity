@@ -12,7 +12,8 @@ const trainingTabEl = document.getElementById("trainingTab");
 const settingsTabEl = document.getElementById("settingsTab");
 const commonFiltersEl = document.getElementById("commonFilters");
 const candidateFiltersEl = document.getElementById("candidateFilters");
-const syncopatedEl = document.getElementById("syncopated");
+const bpmMinEl = document.getElementById("bpmMin");
+const bpmMaxEl = document.getElementById("bpmMax");
 const labelEl = document.getElementById("label");
 const candidatePredictedEl = document.getElementById("candidatePredicted");
 const candidateMinBrokenEl = document.getElementById("candidateMinBroken");
@@ -73,7 +74,8 @@ trainingTabEl.addEventListener("click", () => switchView("training"));
 settingsTabEl.addEventListener("click", () => switchView("settings"));
 sourcePathEl.addEventListener("keydown", event => { if (event.key === "Enter") switchSource(sourcePathEl.value).catch(showError); });
 queryEl.addEventListener("keydown", event => { if (event.key === "Enter") loadActive({ reset: true }); });
-syncopatedEl.addEventListener("change", () => loadActive({ reset: true }));
+bpmMinEl.addEventListener("change", () => loadActive({ reset: true }));
+bpmMaxEl.addEventListener("change", () => loadActive({ reset: true }));
 labelEl.addEventListener("change", () => loadActive({ reset: true }));
 candidatePredictedEl.addEventListener("change", () => loadActive({ reset: true }));
 candidateMinBrokenEl.addEventListener("change", () => loadActive({ reset: true }));
@@ -377,7 +379,8 @@ async function loadTracks(options = {}) {
   const limit = pageLimit();
   const params = new URLSearchParams({
     q: queryEl.value,
-    syncopated: syncopatedEl.value,
+    bpm_min: bpmFilterValue(bpmMinEl.value),
+    bpm_max: bpmFilterValue(bpmMaxEl.value),
     label: labelEl.value,
     limit: String(limit),
     offset: String(offset)
@@ -404,7 +407,8 @@ async function loadLikedTracks(options = {}) {
   const limit = pageLimit();
   const params = new URLSearchParams({
     q: queryEl.value,
-    syncopated: syncopatedEl.value,
+    bpm_min: bpmFilterValue(bpmMinEl.value),
+    bpm_max: bpmFilterValue(bpmMaxEl.value),
     label: labelEl.value,
     limit: String(limit),
     offset: String(offset)
@@ -432,7 +436,8 @@ async function loadCandidates(options = {}) {
   const limit = pageLimit();
   const params = new URLSearchParams({
     q: queryEl.value,
-    syncopated: syncopatedEl.value,
+    bpm_min: bpmFilterValue(bpmMinEl.value),
+    bpm_max: bpmFilterValue(bpmMaxEl.value),
     label: labelEl.value,
     predicted: candidatePredictedEl.value,
     probability_focus: candidateMinBrokenEl.value,
@@ -460,6 +465,14 @@ function probabilityFilterValue() {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return "0";
   return String(Math.max(0, Math.min(1, parsed)));
+}
+
+function bpmFilterValue(value) {
+  const text = String(value || "").trim().replace(",", ".");
+  if (!text) return "";
+  const parsed = Number(text);
+  if (!Number.isFinite(parsed) || parsed <= 0) return "";
+  return String(parsed);
 }
 
 async function refreshCandidates() {

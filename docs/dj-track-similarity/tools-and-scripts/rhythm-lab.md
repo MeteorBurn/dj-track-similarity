@@ -16,6 +16,13 @@ launch shortcut.
 .\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py promote --profile <classifier-key> --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
+## Filtering
+
+The library, liked, and candidate views share the search, label, and BPM filters.
+`BPM from` and `BPM to` use only stored SONARA BPM from the selected source
+database. Leave either bound blank to make it open-ended; leave both blank to
+skip BPM filtering.
+
 ## Calibration
 
 Use `--calibrate` only when you intentionally want calibration and have enough labels. Use `promote --require-calibration` only when calibrated output is required.

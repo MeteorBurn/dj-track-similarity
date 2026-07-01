@@ -12,6 +12,8 @@
 
 Default mode writes JSON/XLSX/log reports and deletes nothing.
 
+Audio Dedup `Min similarity` is an audio-to-audio content gate over stored MERT, MAEST, and CLAP audio embeddings. It is not comparable to the lower CLAP text-search score range, so do not lower duplicate-delete thresholds just because CLAP prompt scores look smaller.
+
 ## UI and API
 
 The main UI opens Audio Dedup from the top toolbar. The UI supports preset selection, report output, cancellation, and XLSX download. The API endpoints live under `/api/audio-dedup/jobs`.

@@ -113,6 +113,7 @@ export function App() {
   } = useSearchPlaylist({ onActivity: appendActivity });
   const [clapPresetKey, setClapPresetKey] = useState(defaultClapPromptPresetKey);
   const [clapAvoidQuery, setClapAvoidQuery] = useState("");
+  const [clapMinSimilarity, setClapMinSimilarity] = useState(0);
   const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
   const [musicRoot, setMusicRoot] = useState("");
   const [analysisJob, setAnalysisJob] = useState<AnalysisJobStatus | null>(null);
@@ -756,7 +757,7 @@ export function App() {
           adaptive_contrast: true,
           preset: clapPresetKey,
           limit: filters.limit,
-          min_similarity: filters.minSimilarity,
+          min_similarity: clapMinSimilarity,
           device: analysisDevice
         }),
       (value) => {
@@ -1213,6 +1214,8 @@ export function App() {
           clapPresetKey={clapPresetKey}
           onClapPresetChange={setClapPresetKey}
           clapPromptPresets={clapPromptPresets}
+          clapMinSimilarity={clapMinSimilarity}
+          onClapMinSimilarityChange={setClapMinSimilarity}
           databasePath={databasePath}
           busy={busy || !databasePath}
           filters={filters}

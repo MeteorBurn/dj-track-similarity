@@ -22,6 +22,34 @@ DEFAULT_DB = Path(r"C:\db\abstracted.sqlite")
 DEFAULT_RHYTHM_LAB_DB = REPO_ROOT / "tools" / "rhythm-lab" / "data" / "rhythm_lab.sqlite"
 DEFAULT_OUT_DIR = TOOL_ROOT / "data" / "reports"
 SUPPORTED_EMBEDDINGS = ("mert", "maest", "clap")
+SCORE_SEMANTICS = {
+    "score": {
+        "kind": "weighted_duplicate_evidence",
+        "range": "0..1",
+        "notes": "Overall duplicate score from audio-to-audio embeddings, SONARA features, and duration evidence.",
+    },
+    "content_similarity": {
+        "kind": "audio_to_audio_embedding_gate",
+        "range": "0..1",
+        "notes": "Embedding-only gate computed from stored MERT, MAEST, and CLAP audio embeddings.",
+    },
+    "mert_similarity": {
+        "kind": "audio_to_audio_cosine",
+        "range": "-1..1",
+        "notes": "Cosine similarity between stored MERT audio embeddings.",
+    },
+    "maest_similarity": {
+        "kind": "audio_to_audio_cosine",
+        "range": "-1..1",
+        "notes": "Cosine similarity between stored MAEST audio embeddings.",
+    },
+    "clap_similarity": {
+        "kind": "audio_to_audio_cosine",
+        "range": "-1..1",
+        "text_search_comparable": False,
+        "notes": "Cosine similarity between stored CLAP audio embeddings; not comparable to CLAP text-to-audio search scores.",
+    },
+}
 ProgressCallback = Callable[[int, int, str], None]
 CancelCheck = Callable[[], bool]
 LOSSLESS_RANKS = {
@@ -581,6 +609,7 @@ def build_report(
         "preset": config.name,
         "min_score": config.min_score,
         "min_similarity": config.min_similarity,
+        "score_semantics": score_semantics_payload(),
         "database_track_count": database_track_count if database_track_count is not None else len(tracks),
         "scoped_track_count": len(tracks),
         "track_count": len(tracks),
@@ -603,6 +632,10 @@ def choose_keeper(tracks: list[TrackRecord]) -> TrackRecord:
             -int(track.track_id),
         ),
     )
+
+
+def score_semantics_payload() -> dict[str, dict[str, object]]:
+    return {key: dict(value) for key, value in SCORE_SEMANTICS.items()}
 
 
 def write_xlsx_report(path: Path, payload: dict[str, object]) -> None:
@@ -651,7 +684,7 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
         ["Mode", payload.get("mode", "report-only"), "Report-only writes evidence and does not delete audio.", "", ""],
         ["Preset", payload["preset"], "safe is conservative; balanced/aggressive widen review scope.", "", ""],
         ["Min score", payload["min_score"], "Overall duplicate score threshold.", "", ""],
-        ["Min content similarity", payload["min_similarity"], "Embedding-only similarity gate.", "", ""],
+        ["Min content similarity", payload["min_similarity"], "Audio-to-audio embedding gate over MERT, MAEST, and CLAP; not CLAP text-search score.", "", ""],
         [],
         ["Decision summary", "Count", "Meaning", "Next action", ""],
         [
@@ -714,6 +747,13 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
     if isinstance(embeddings, dict):
         for label in SUPPORTED_EMBEDDINGS:
             rows.append([label.upper(), embeddings.get(label, 0), "Available vectors used by duplicate scoring.", "", ""])
+    semantics = payload.get("score_semantics", {})
+    if isinstance(semantics, dict):
+        rows.extend([[], ["Score semantics", "Kind", "Range", "Notes", ""]])
+        for key in ("score", "content_similarity", "mert_similarity", "maest_similarity", "clap_similarity"):
+            item = semantics.get(key, {})
+            if isinstance(item, dict):
+                rows.append([key, item.get("kind", ""), item.get("range", ""), item.get("notes", ""), ""])
     return rows
 
 
@@ -1122,6 +1162,7 @@ def write_text_log(path: Path, payload: dict[str, object], *, apply_result: Appl
         f"preset={payload['preset']}",
         f"min_score={payload['min_score']}",
         f"min_similarity={payload['min_similarity']}",
+        "min_similarity_semantics=audio-to-audio content gate over MERT/MAEST/CLAP embeddings; not CLAP text-search score",
         f"database_track_count={payload.get('database_track_count', payload['track_count'])}",
         f"scoped_track_count={payload.get('scoped_track_count', payload['track_count'])}",
         f"group_count={payload['group_count']}",

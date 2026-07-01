@@ -13,6 +13,9 @@ Rhythm Lab behavior, or maintenance scripts.
 User-facing docs are English unless the user asks otherwise. The English entrypoint is
 `docs/dj-track-similarity/project-guide.md`; follow linked topic pages instead of duplicating long
 references here. Russian docs live under `docs/dj-track-similarity/ru/` and are opt-in.
+`README.md` and `README.ru.md` are public repository landing pages, not exhaustive references: keep
+them clear, modest, workflow-oriented, and linked to the real docs tree. Russian public-facing README
+copy should address readers as `вы`, not `ты`.
 
 For local manual checks against the real library, use `C:\db\abstracted.sqlite` unless the user gives
 another path. This workspace may not always be a Git repo, so inspect before relying on branches,
@@ -98,6 +101,9 @@ should use `logs/<name>.log`.
   remapped files.
 - `tools/audio-dedup/audio_dedup_cli.py` is report-only by default. It opens SQLite read-only and writes
   JSON/XLSX/log reports under `tools/audio-dedup/data/reports/`.
+- Audio Dedup `min_similarity` is an audio-to-audio content gate over stored MERT, MAEST, and CLAP
+  audio embeddings. Do not weaken duplicate thresholds or safety decisions because CLAP text-search
+  scores are lower; CLAP prompt scores are a different text-to-audio scoring surface.
 - Audio Dedup `--apply` must prompt for exact `APPLY DELETE`, delete only safe duplicate candidates
   inside selected `--root`, and remove SQLite rows only for tracks whose files were deleted. UI apply
   mode requires the same confirmation. Do not invoke apply mode in tests or routine checks.
@@ -176,6 +182,12 @@ should use `logs/<name>.log`.
   `Curve start`, `Curve end`, and `Reset sliders`.
 - SONARA custom search sends mixer/modifier payloads to `/api/search/sonara`. MERT seed search uses
   `/api/search`; CLAP text search uses `/api/search/text` and requires `clap` embeddings.
+- CLAP text search scores are raw text-to-audio cosine or contrast evidence, usually lower than
+  seed-based audio-to-audio scores. Keep CLAP text-search threshold state separate from MERT/SONARA
+  similarity controls, keep the visible `Similarity` label if requested, and explain the scale in
+  hover help/docs instead of renaming it casually.
+- SET, Hybrid, and Audio Dedup use stored CLAP audio embeddings as audio-to-audio signals. Do not treat
+  those values as interchangeable with CLAP prompt/text-search scores.
 - SONARA search should read analyzed tracks through `LibraryDatabase.load_sonara_feature_rows()` so
   repeated searches reuse parsed feature rows. Keep cache work behavior-preserving: do not change scoring math,
   feature ranges, or ordering. Invalidate the cache whenever track rows, metadata, SONARA features,

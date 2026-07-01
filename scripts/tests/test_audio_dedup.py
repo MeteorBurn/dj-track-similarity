@@ -197,6 +197,28 @@ def test_presets_use_graduated_safe_delete_thresholds() -> None:
     assert aggressive.direct_keeper_score == 0.965
 
 
+def test_report_documents_audio_to_audio_clap_similarity_semantics(tmp_path: Path) -> None:
+    dedup = _load_dedup_module()
+    db_path = tmp_path / "library.sqlite"
+    _create_library_db(db_path)
+    vectors = {
+        "mert": [1.0, 0.0, 0.0],
+        "maest": [1.0, 0.0, 0.0],
+        "clap": [1.0, 0.0, 0.0],
+    }
+    _insert_track(db_path, track_id=1, path="M:/Volumes/Abstracted/one.flac", vectors=vectors)
+    _insert_track(db_path, track_id=2, path="M:/Volumes/Abstracted/two.flac", vectors=vectors)
+
+    tracks = dedup.load_tracks(db_path, root=Path("M:/Volumes/Abstracted"), path_contains=[])
+    groups = dedup.find_duplicate_groups(tracks, dedup.resolve_preset("safe", min_score=None), limit_groups=None)
+    payload = dedup.build_report(groups, tracks, dedup.resolve_preset("safe", min_score=None), root=Path("M:/Volumes/Abstracted"), path_contains=[])
+
+    semantics = payload["score_semantics"]
+    assert semantics["clap_similarity"]["kind"] == "audio_to_audio_cosine"
+    assert semantics["clap_similarity"]["text_search_comparable"] is False
+    assert "text-to-audio" in semantics["clap_similarity"]["notes"]
+
+
 def test_report_only_main_does_not_delete_files_or_mutate_database(tmp_path: Path) -> None:
     dedup = _load_dedup_module()
     db_path = tmp_path / "library.sqlite"

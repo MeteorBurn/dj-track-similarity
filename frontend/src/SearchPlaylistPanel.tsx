@@ -21,6 +21,7 @@ export type SearchFiltersState = {
 type SearchHelpText = {
   textPrompt: string;
   similarity: string;
+  clapSimilarity: string;
   limit: string;
   sonaraMixerTimbre: string;
   sonaraMixerRhythm: string;
@@ -249,6 +250,8 @@ export function SearchPlaylistPanel({
   clapPresetKey,
   onClapPresetChange,
   clapPromptPresets,
+  clapMinSimilarity,
+  onClapMinSimilarityChange,
   databasePath,
   busy,
   filters,
@@ -292,6 +295,8 @@ export function SearchPlaylistPanel({
   clapPresetKey: string;
   onClapPresetChange: (value: string) => void;
   clapPromptPresets: ClapPromptPreset[];
+  clapMinSimilarity: number;
+  onClapMinSimilarityChange: (value: number) => void;
   databasePath: string | null;
   busy: boolean;
   filters: SearchFiltersState;
@@ -1033,7 +1038,7 @@ export function SearchPlaylistPanel({
               </div>
             </div>
             <div className="search-filter-grid">
-              <label title={helpText.similarity}>Similarity<input type="number" value={filters.minSimilarity} min={0} max={1} step={0.01} title={helpText.similarity} onChange={(event) => setFilters({ ...filters, minSimilarity: Number(event.target.value) })} /></label>
+              <label title={helpText.clapSimilarity}>Similarity<input type="number" value={clapMinSimilarity} min={0} max={1} step={0.01} title={helpText.clapSimilarity} onChange={(event) => onClapMinSimilarityChange(Number(event.target.value))} /></label>
               <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => setFilters({ ...filters, limit: Number(event.target.value) })} /></label>
             </div>
             <button className="sonara-search-button" title="Найти похожие треки через SONARA по выбранным seed-трекам" disabled={busy || !seeds.length} onClick={handleSonaraSearch}>

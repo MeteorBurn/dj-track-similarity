@@ -144,7 +144,7 @@ export function AudioDedupDialog({
               </label>
               <label className="audio-dedup-field">
                 <span>Min similarity</span>
-                <input value={minSimilarity} onChange={(event) => setMinSimilarity(event.target.value)} inputMode="decimal" placeholder="preset" disabled={running} title="Optional embedding-only gate override, range 0..1." />
+                <input value={minSimilarity} onChange={(event) => setMinSimilarity(event.target.value)} inputMode="decimal" placeholder="preset" disabled={running} title="Optional audio-to-audio content gate over MERT/MAEST/CLAP embeddings, range 0..1; not the lower CLAP text-search score." />
               </label>
               <label className="audio-dedup-field">
                 <span>Limit groups</span>

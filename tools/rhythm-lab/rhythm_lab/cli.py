@@ -11,6 +11,7 @@ import shutil
 from dj_track_similarity.classifier_production import normalize_label_suggestion_mode, suggest_classifier_labels
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.logging_config import uvicorn_log_config
+from dj_track_similarity.rhythm_lab_collections import RhythmLabCollections
 
 from .lab_db import BREAK_ENERGY_CLASSIFIER_KEY, RhythmLabDatabase
 from .predictions import apply_model_to_lab, export_predictions_csv
@@ -102,6 +103,20 @@ def build_parser() -> argparse.ArgumentParser:
     queue_clear_parser.add_argument("--profile", default=BREAK_ENERGY_CLASSIFIER_KEY)
     queue_clear_parser.add_argument("--state", required=True)
     queue_clear_parser.set_defaults(func=_queue_clear)
+
+    collection_save_parser = subcommands.add_parser("collection-save", help="Create, append, or replace a Rhythm Lab review collection.")
+    collection_save_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
+    collection_save_parser.add_argument("--name", required=True)
+    collection_save_parser.add_argument("--source", default="agent")
+    collection_save_parser.add_argument("--note", default=None)
+    collection_save_parser.add_argument("--track-id", type=int, action="append", default=[])
+    collection_save_parser.add_argument("--track-ids", type=Path, default=None, help="Text file with one track id per line.")
+    collection_save_parser.add_argument("--replace", action="store_true", help="Replace collection contents instead of appending.")
+    collection_save_parser.set_defaults(func=_collection_save)
+
+    collection_list_parser = subcommands.add_parser("collection-list", help="List Rhythm Lab review collections.")
+    collection_list_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
+    collection_list_parser.set_defaults(func=_collection_list)
 
     delete_parser = subcommands.add_parser("delete-profile", help="Permanently delete one classifier profile and its lab data.")
     delete_target = delete_parser.add_mutually_exclusive_group(required=True)
@@ -291,6 +306,25 @@ def _queue_clear(args: argparse.Namespace) -> None:
     print(f"profile={args.profile} state={args.state} deleted={deleted}")
 
 
+def _collection_save(args: argparse.Namespace) -> None:
+    track_ids = _collection_track_ids_from_args(args)
+    mode = "replace" if args.replace else "append"
+    collection = RhythmLabCollections(args.labels).save_collection(
+        args.name,
+        track_ids,
+        source=args.source,
+        note=args.note,
+        mode=mode,
+    )
+    print(f"collection={collection.id} name={collection.name} tracks={collection.track_count} mode={mode}")
+
+
+def _collection_list(args: argparse.Namespace) -> None:
+    collections = RhythmLabCollections(args.labels).list_collections()
+    for collection in collections:
+        print(f"{collection.id}\t{collection.name}\ttracks={collection.track_count}\tsource={collection.source}")
+
+
 def _delete_profile(args: argparse.Namespace) -> None:
     target = args.profile if args.profile is not None else args.name
     if args.confirm != target:
@@ -301,6 +335,20 @@ def _delete_profile(args: argparse.Namespace) -> None:
     except (KeyError, ValueError) as error:
         raise SystemExit(str(error)) from error
     print(f"deleted={profile.classifier_key} name={profile.name}")
+
+
+def _collection_track_ids_from_args(args: argparse.Namespace) -> list[int]:
+    values: list[int] = []
+    if args.track_ids is not None:
+        for line in args.track_ids.read_text(encoding="utf-8").splitlines():
+            text = line.strip()
+            if not text or text.startswith("#"):
+                continue
+            values.append(int(text))
+    values.extend(args.track_id or [])
+    if not values:
+        raise SystemExit("At least one --track-id or --track-ids entry is required")
+    return values
 
 
 def _latest_combined_artifact(artifact_dir: str | Path, artifact_prefix: str) -> Path:

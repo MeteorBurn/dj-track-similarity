@@ -12,9 +12,12 @@
   --green: #55d88a;
   --page-gutter: clamp(10px, 2.4vw, 34px);
   --panel-pad-x: clamp(12px, 1.6vw, 22px);
+  --profile-select-width: 320px;
   --header-action-width: 112px;
   --header-wide-action-width: 144px;
-  --header-grid-columns: minmax(360px, 1fr) var(--header-action-width) var(--header-wide-action-width) minmax(170px, auto);
+  --header-icon-button-width: 38px;
+  --header-actions-width: calc(var(--header-action-width) + (3 * var(--header-icon-button-width)) + (3 * 8px));
+  --header-grid-columns: minmax(360px, 1fr) var(--header-action-width) var(--header-wide-action-width) var(--header-actions-width);
 }
 
 * {
@@ -124,9 +127,9 @@ main {
 
 #profileSelect {
   grid-column: 1;
-  justify-self: end;
   grid-row: 1;
-  width: min(320px, 100%);
+  justify-self: end;
+  width: min(var(--profile-select-width), 100%);
 }
 
 #newProfile,
@@ -146,8 +149,23 @@ main {
   justify-self: start;
 }
 
-#sourceStatus {
+#archiveProfile,
+#trainingTab {
+  width: var(--header-action-width);
+}
+
+#trainingTab {
+  flex: 0 0 var(--header-action-width);
+}
+
+.source-actions {
   grid-column: 4;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: 0;
+  justify-self: stretch;
 }
 
 .top-bar strong {
@@ -289,18 +307,12 @@ main {
   min-width: 0;
 }
 
-.source-status {
-  min-width: 170px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.source-status.error,
 .status-error {
   color: #ff9baa;
 }
 
 .tabs button.active,
+#trainingTab.active,
 #settingsTab.active {
   border-color: var(--amber);
   background: rgba(240, 184, 74, 0.14);
@@ -349,6 +361,41 @@ main {
 .promote-classifier {
   border-color: rgba(88, 214, 141, 0.5);
   background: rgba(88, 214, 141, 0.14);
+}
+
+.delete-collection {
+  border-color: rgba(255, 95, 137, 0.55);
+  background: rgba(255, 95, 137, 0.14);
+  color: #ffd6df;
+}
+
+.delete-collection:hover:not(:disabled) {
+  border-color: var(--rose);
+  background: rgba(255, 95, 137, 0.2);
+}
+
+.source-actions .meta {
+  flex: 1 1 100%;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+#collectionSelect {
+  width: min(320px, 30vw);
+  min-width: 220px;
+}
+
+#collectionStatus {
+  white-space: nowrap;
 }
 
 .candidate-filters-placeholder > * {
@@ -767,6 +814,17 @@ menu {
   #archiveProfile,
   #loadSource {
     width: auto;
+  }
+
+  .source-actions,
+  .collection-controls {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  #collectionSelect {
+    width: min(320px, 100%);
+    min-width: min(220px, 100%);
   }
 
   #profileSelect,

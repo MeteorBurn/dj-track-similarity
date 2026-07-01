@@ -207,7 +207,7 @@ class TrackRepository:
             where_sql = combine_where_condition(condition, where_sql)
             if fts_query:
                 params = [fts_query, *params]
-        order_sql = track_order_sql(classifier_min_scores=thresholds)
+        order_sql = track_order_sql(liked_only=liked_only, classifier_min_scores=thresholds)
         bounded_limit = max(1, min(500, int(limit)))
         bounded_offset = max(0, int(offset))
         with self.connect() as connection:
@@ -239,7 +239,7 @@ class TrackRepository:
                     {fts_join}
                     LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                     {classifier_where}
-                    ORDER BY primary_cs.score DESC, COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
+                    ORDER BY {order_sql}
                     LIMIT ? OFFSET ?
                     """,
                     (embedding_key, *classifier_params, bounded_limit, bounded_offset),
@@ -293,7 +293,7 @@ class TrackRepository:
             where_sql = combine_where_condition(condition, where_sql)
             if fts_query:
                 params = [fts_query, *params]
-        order_sql = track_order_sql(classifier_min_scores=thresholds)
+        order_sql = track_order_sql(liked_only=liked_only, classifier_min_scores=thresholds)
         with self.connect() as connection:
             if primary_classifier:
                 classifier, threshold = primary_classifier
@@ -310,7 +310,7 @@ class TrackRepository:
                     {fts_join}
                     LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                     {classifier_where}
-                    ORDER BY primary_cs.score DESC, COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
+                    ORDER BY {order_sql}
                     """,
                     (embedding_key, classifier, threshold, *params),
                 ).fetchall()

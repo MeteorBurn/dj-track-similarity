@@ -1,5 +1,5 @@
 import { Dispatch, Fragment, SetStateAction, useEffect, useRef, useState } from "react";
-import { Check, Download, FolderOpen, ListFilter, ListMusic, Pause, Play, RotateCcw, Search, Tags, Trash2, X } from "lucide-react";
+import { Check, Download, FolderOpen, ListFilter, ListMusic, ListPlus, Pause, Play, RotateCcw, Search, Tags, Trash2, X } from "lucide-react";
 import { AnalysisJobStatus, api, HybridClassifierSignal, HybridMatchAxis, HybridSearchResult, HybridSearchSource, PromotedClassifier, SearchResult, SetBuilderBpmChange, SetBuilderBpmMode, SetBuilderClassifierFlow, SetBuilderEnergyCurve, SetBuilderGeneratePayload, SetBuilderMode, SetBuilderSeedMode, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
 import type { EvaluationPairFeedbackResult, EvaluationPairFeedbackState, EvaluationPairReasonTag } from "./api";
 import { classifierScoringBlockedReason } from "./classifierCompatibility";
@@ -288,6 +288,7 @@ export function SearchPlaylistPanel({
   setPreview,
   setMetadataTrack,
   removeFromPlaylist,
+  handleSaveToCollection,
   handleExport
 }: {
   seedTracks: Track[];
@@ -336,6 +337,7 @@ export function SearchPlaylistPanel({
   setPreview: (track: Track) => void;
   setMetadataTrack: (track: Track) => void;
   removeFromPlaylist: (trackId: number) => void;
+  handleSaveToCollection: () => void;
   handleExport: (format: "m3u" | "csv") => void;
 }) {
   const [activeSearchTab, setActiveSearchTab] = useState<"set" | "sonara" | "mert" | "clap" | "class">("sonara");
@@ -1268,6 +1270,7 @@ export function SearchPlaylistPanel({
           </button>
         </div>
         <div className="export-action-row">
+          <button className="save-collection-button" title="Сохранить текущий сет в Rhythm Lab Collection" disabled={busy || !playlist.length} onClick={handleSaveToCollection}><ListPlus size={16} />Collection</button>
           <button className="export-m3u-button" title="Экспортировать текущий сет в M3U" disabled={busy || !playlist.length} onClick={() => handleExport("m3u")}><Download size={16} />M3U</button>
           <button className="export-csv-button" title="Экспортировать текущий сет в CSV" disabled={busy || !playlist.length} onClick={() => handleExport("csv")}><Download size={16} />CSV</button>
         </div>

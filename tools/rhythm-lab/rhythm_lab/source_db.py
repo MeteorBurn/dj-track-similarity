@@ -146,12 +146,13 @@ class SourceDatabase:
         bpm_max: float | None = None,
         liked: str = "all",
         label: str = "all",
+        collection_id: int | None = None,
         order: str = "normal",
         seed: int = 0,
         limit: int = 100,
         offset: int = 0,
     ) -> dict[str, object]:
-        order_sql = _track_page_order_sql(order=order)
+        order_sql = _track_page_order_sql(order=order, liked=liked, collection=collection_id is not None)
         where_parts, params = _track_page_filter_sql(
             query=query,
             syncopated=syncopated,
@@ -168,6 +169,14 @@ class SourceDatabase:
         labels_uri = (
             f"file:{Path(labels_db_path).expanduser().resolve(strict=False).as_posix()}?mode=ro"
         )
+        collection_join = ""
+        collection_params: tuple[object, ...] = ()
+        if collection_id is not None:
+            collection_join = (
+                "JOIN labels.review_collection_tracks rct "
+                "ON rct.source_track_id = t.id AND rct.collection_id = ?"
+            )
+            collection_params = (int(collection_id),)
         training_placeholders = ", ".join("?" for _ in training_label_keys) or "NULL"
         label_trained_sql = (
             f"CASE WHEN rl.label IN ({training_placeholders}) "
@@ -181,11 +190,12 @@ class SourceDatabase:
                     f"""
                     SELECT COUNT(*)
                     FROM tracks t
+                    {collection_join}
                     LEFT JOIN labels.classifier_labels rl
                       ON rl.classifier_key = ? AND rl.source_track_id = t.id
                     {where_sql}
                     """,
-                    (classifier_key, *params),
+                    (*collection_params, classifier_key, *params),
                 ).fetchone()[0]
             )
             rows = connection.execute(
@@ -196,6 +206,7 @@ class SourceDatabase:
                        emert.track_id IS NOT NULL AS has_mert_embedding,
                        emaest.track_id IS NOT NULL AS has_maest_embedding
                 FROM tracks t
+                {collection_join}
                 LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                 LEFT JOIN embeddings emert ON emert.track_id = t.id AND emert.embedding_key = 'mert'
                 LEFT JOIN embeddings emaest ON emaest.track_id = t.id AND emaest.embedding_key = 'maest'
@@ -209,11 +220,12 @@ class SourceDatabase:
                 """,
                 (
                     *training_label_keys,
+                    *collection_params,
                     DEFAULT_EMBEDDING_KEY,
                     classifier_key,
                     classifier_key,
                     *params,
-                    *((random_seed,) if order == "random" else ()),
+                    *((random_seed,) if order == "random" and collection_id is None else ()),
                     bounded_limit,
                     bounded_offset,
                 ),
@@ -590,8 +602,12 @@ def _prediction_page_order_sql(*, probability_focus: str, profile_type: str) -> 
     return f"ORDER BY positive_probability DESC, confidence DESC, {path_expr} ASC"
 
 
-def _track_page_order_sql(*, order: str) -> str:
+def _track_page_order_sql(*, order: str, liked: str = "all", collection: bool = False) -> str:
     path_expr = "COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path"
+    if collection:
+        return "ORDER BY rct.position ASC, t.id"
+    if liked == "yes":
+        return f"ORDER BY (SELECT tl.liked_at FROM track_likes tl WHERE tl.track_id = t.id) ASC, {path_expr}"
     if order == "normal":
         return f"ORDER BY {path_expr}"
     if order == "random":

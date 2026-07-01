@@ -18,6 +18,7 @@ LAB_ROOT = ROOT / "tools" / "rhythm-lab"
 sys.path.insert(0, str(LAB_ROOT))
 
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.rhythm_lab_collections import RhythmLabCollections
 
 from rhythm_lab.features import build_labeled_feature_matrix
 from rhythm_lab.cli import PromotionError, promote_profile_model
@@ -78,6 +79,55 @@ def test_labels_database_creates_default_break_energy_profile(tmp_path: Path) ->
         assert connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='classifier_track_likes'"
         ).fetchone() is None
+
+
+def test_review_collections_append_replace_and_delete_do_not_remove_labels(tmp_path: Path) -> None:
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    scoped = RhythmLabDatabase(labels.path, classifier_key="break_energy")
+    scoped.set_label(101, "broken")
+    collections = RhythmLabCollections(labels.path)
+
+    collection = collections.save_collection("AI vocal finds", [101, 102], source="agent", mode="replace")
+    appended = collections.save_collection("AI vocal finds", [102, 103], source="agent", mode="append")
+    replaced = collections.replace_tracks(collection.id, [103, 101])
+    collections.delete_collection(collection.id)
+
+    assert collection.name == "AI vocal finds"
+    assert [track.source_track_id for track in appended.tracks] == [101, 102, 103]
+    assert [track.source_track_id for track in replaced.tracks] == [103, 101]
+    assert collections.list_collections() == []
+    assert scoped.label_for_track(101).label == "broken"
+
+
+def test_cli_collection_save_and_list(tmp_path: Path, capsys) -> None:
+    from rhythm_lab.cli import build_parser
+
+    labels_path = tmp_path / "labels.sqlite"
+    ids_path = tmp_path / "ids.txt"
+    ids_path.write_text("101\n102\n", encoding="utf-8")
+
+    save_args = build_parser().parse_args([
+        "collection-save",
+        "--labels",
+        str(labels_path),
+        "--name",
+        "Agent finds",
+        "--track-ids",
+        str(ids_path),
+        "--track-id",
+        "103",
+        "--replace",
+    ])
+    save_args.func(save_args)
+    list_args = build_parser().parse_args(["collection-list", "--labels", str(labels_path)])
+    list_args.func(list_args)
+
+    output = capsys.readouterr().out
+    stored = RhythmLabCollections(labels_path).collection_by_name("Agent finds")
+    assert stored is not None
+    assert [track.source_track_id for track in stored.tracks] == [101, 102, 103]
+    assert "Agent finds" in output
+    assert "tracks=3" in output
 
 
 def test_profile_creation_archive_and_current_track_label_replacement(tmp_path: Path) -> None:
@@ -692,6 +742,69 @@ def test_web_app_profile_likes_share_main_library_state(tmp_path: Path) -> None:
         ).fetchone() is None
 
 
+def test_web_app_profile_liked_tracks_order_by_like_time(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    source_path = tmp_path / "source.sqlite"
+    source = LibraryDatabase(source_path)
+    older_id = _track(source, tmp_path, "older.wav", title="ZZZ Older Like")
+    newer_id = _track(source, tmp_path, "newer.wav", title="AAA Newer Like")
+    source.set_track_liked(older_id, True)
+    source.set_track_liked(newer_id, True)
+    with source.connect() as connection:
+        connection.execute("UPDATE track_likes SET liked_at = ? WHERE track_id = ?", ("2026-01-01 00:00:00", older_id))
+        connection.execute("UPDATE track_likes SET liked_at = ? WHERE track_id = ?", ("2026-01-01 00:00:01", newer_id))
+    labels_path = tmp_path / "labels.sqlite"
+    RhythmLabDatabase(labels_path)
+    client = TestClient(create_app(source_path, labels_db_path=labels_path))
+
+    liked_tracks = client.get("/api/profiles/break_energy/tracks", params={"liked": "yes"}).json()
+
+    assert [item["id"] for item in liked_tracks["items"]] == [older_id, newer_id]
+
+
+def test_web_app_review_collection_tracks_use_active_profile_labels_and_filters(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    source_path = tmp_path / "source.sqlite"
+    source = LibraryDatabase(source_path)
+    first_id = _track(source, tmp_path, "first.wav", title="First")
+    second_id = _track(source, tmp_path, "second.wav", title="Second")
+    outside_id = _track(source, tmp_path, "outside.wav", title="Outside")
+    labels_path = tmp_path / "labels.sqlite"
+    labels = RhythmLabDatabase(labels_path, classifier_key="break_energy")
+    labels.set_label(source.get_track(second_id), "broken")
+    client = TestClient(create_app(source_path, labels_db_path=labels_path))
+
+    created = client.post(
+        "/api/collections",
+        json={"name": "AI review batch", "track_ids": [first_id, second_id], "source": "agent", "mode": "replace"},
+    )
+    appended = client.post(
+        f"/api/collections/{created.json()['id']}/tracks",
+        json={"track_ids": [second_id, outside_id], "mode": "append"},
+    )
+    collection_tracks = client.get(
+        "/api/profiles/break_energy/tracks",
+        params={"collection_id": created.json()["id"]},
+    ).json()
+    unlabeled_tracks = client.get(
+        "/api/profiles/break_energy/tracks",
+        params={"collection_id": created.json()["id"], "label": "unlabeled"},
+    ).json()
+    deleted = client.delete(f"/api/collections/{created.json()['id']}")
+
+    assert created.status_code == 200
+    assert created.json()["track_count"] == 2
+    assert appended.status_code == 200
+    assert [track["track_id"] for track in appended.json()["tracks"]] == [first_id, second_id, outside_id]
+    assert [item["id"] for item in collection_tracks["items"]] == [first_id, second_id, outside_id]
+    assert next(item for item in collection_tracks["items"] if item["id"] == second_id)["label"] == "broken"
+    assert [item["id"] for item in unlabeled_tracks["items"]] == [first_id, outside_id]
+    assert deleted.status_code == 200
+    assert labels.label_for_track(second_id).label == "broken"
+
+
 def test_web_app_predictions_endpoint_filters_candidates_by_probability_focus(monkeypatch, tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
@@ -1152,9 +1265,12 @@ def test_static_ui_promote_button_sits_after_train_refresh_and_is_wired() -> Non
     html = (LAB_ROOT / "rhythm_lab" / "static" / "index.html").read_text(encoding="utf-8")
     script = (LAB_ROOT / "rhythm_lab" / "static" / "app.js").read_text(encoding="utf-8")
 
+    source_actions = html.split('<div class="source-actions">', 1)[1].split("</div>", 1)[0]
+    training_index = source_actions.index('id="trainingTab"')
     train_index = html.index('id="trainRefresh"')
     promote_index = html.index('id="promoteClassifier"')
 
+    assert training_index < source_actions.index('id="refreshCandidates"')
     assert promote_index > train_index
     assert 'class="icon-button promote-classifier"' in html
     assert 'promoteClassifierEl.addEventListener("click", () => promoteClassifier().catch(showError));' in script
@@ -1588,8 +1704,8 @@ def test_web_app_serves_static_profile_ui_without_hardcoded_label_buttons(tmp_pa
     script = client.get("/static/app.js").text
     styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
 
-    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260701-random-order-init" />' in html
-    assert '<script src="/static/app.js?v=rhythm-lab-20260701-random-order-init" defer></script>' in html
+    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260701-header-alignment" />' in html
+    assert '<script src="/static/app.js?v=rhythm-lab-20260701-header-alignment" defer></script>' in html
     assert 'id="profileSelect"' in html
     assert "/api/profiles" in script
     assert "function renderLabelButtons" in script
@@ -1653,7 +1769,6 @@ def test_static_ui_non_submit_buttons_have_explicit_button_type(tmp_path: Path) 
         "libraryTab",
         "candidatesTab",
         "likedTab",
-        "trainingTab",
         "settingsTab",
         "refreshCandidates",
         "trainRefresh",
@@ -1767,6 +1882,14 @@ def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path
     styles = client.get("/static/styles.css").text
 
     assert 'id="commonFilters"' in html
+    assert 'id="collectionTab"' in html
+    assert 'id="collectionControls"' in html
+    assert 'id="collectionSelect"' in html
+    assert '<button id="deleteCollection" type="button" class="icon-button delete-collection"' in html
+    assert 'aria-label="Delete selected collection"' in html
+    assert 'class="lucide lucide-trash-2"' in html
+    assert 'id="deleteCollection" type="button" class="intent-remove"' not in html
+    assert 'id="sourceStatus"' not in html
     assert '<section id="candidateFilters" class="filters candidate-filters-placeholder">' in html
     assert 'id="libraryOrder"' in html
     assert '<option value="normal" selected>Normal order</option>' in html
@@ -1785,6 +1908,7 @@ def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path
     assert 'bpmMinEl.addEventListener("change", () => loadActive({ reset: true }));' in script
     assert 'bpmMaxEl.addEventListener("change", () => loadActive({ reset: true }));' in script
     assert 'labelEl.addEventListener("change", () => loadActive({ reset: true }));' in script
+    assert 'collectionSelectEl.addEventListener("change", () => loadActive({ reset: true }));' in script
     assert 'libraryOrderEl.addEventListener("change", () => updateLibraryOrder({ reset: true }));' in script
     assert 'shuffleLibraryOrderEl.addEventListener("click", () => shuffleLibraryOrder());' in script
     assert 'candidatePredictedEl.addEventListener("change", () => loadActive({ reset: true }));' in script
@@ -1792,6 +1916,8 @@ def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path
     assert ".candidate-filters-placeholder > *" in styles
     assert ".filters[hidden]," in styles
     assert "function updateFilterPanelControls()" in script
+    assert 'collectionControlsEl.hidden = activeView !== "collection";' in script
+    assert "const sourceStatusEl" not in script
     assert 'candidateFiltersEl.hidden = activeView === "training" || activeView === "settings";' in script
     assert 'candidateFiltersEl.classList.toggle("candidate-filters-placeholder", activeView !== "library" && activeView !== "candidates");' in script
     assert 'libraryOrderEl.disabled = activeView !== "library";' in script
@@ -1809,12 +1935,14 @@ def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path
     assert "async function loadTrainingReadiness()" in script
     assert ".refresh-candidates" in styles
     assert ".train-refresh" in styles
-    assert "const viewOffsets = { library: 0, candidates: 0, liked: 0, training: 0, settings: 0 };" in script
+    assert ".delete-collection {\n  border-color: rgba(255, 95, 137, 0.55);" in styles
+    assert "const viewOffsets = { library: 0, candidates: 0, liked: 0, collection: 0, training: 0, settings: 0 };" in script
     assert "let loadSequence = 0;" in script
     assert "const sequence = ++loadSequence;" in script
     assert 'if (sequence !== loadSequence || activeView !== "library") return;' in script
     assert 'if (sequence !== loadSequence || activeView !== "candidates") return;' in script
     assert 'if (sequence !== loadSequence || activeView !== "liked") return;' in script
+    assert 'if (sequence !== loadSequence || activeView !== "collection") return;' in script
     assert "viewOffsets[activeView] = offset;" in script
     assert "offset = viewOffsets[view] || 0;" in script
     assert "q: queryEl.value," in script
@@ -1889,6 +2017,8 @@ def test_web_app_navigation_tabs_have_icons(tmp_path: Path) -> None:
     assert 'class="lucide lucide-sparkles"' in html
     assert '<button id="likedTab" type="button" class="tab-button">' in html
     assert 'class="lucide lucide-heart"' in html
+    assert '<button id="collectionTab" type="button" class="tab-button">' in html
+    assert 'class="lucide lucide-list-checks"' in html
     assert '<button id="trainingTab" type="button" class="tab-button">' in html
     assert 'class="lucide lucide-dumbbell"' in html
     assert ".tab-button {\n  display: inline-flex;" in styles
@@ -1904,15 +2034,30 @@ def test_web_app_header_profile_controls_align_with_source_controls(tmp_path: Pa
 
     profile_controls = html.split('<div class="profile-controls">', 1)[1].split("</div>", 1)[0]
     tabs = html.split('<nav class="tabs">', 1)[1].split("</nav>", 1)[0]
+    source_row = html.split('<section class="source-row">', 1)[1].split("</section>", 1)[0]
     assert profile_controls.index('id="settingsTab"') < profile_controls.index('id="archiveProfile"')
     assert 'id="settingsTab"' not in tabs
-    assert "--header-grid-columns: minmax(360px, 1fr) var(--header-action-width) var(--header-wide-action-width) minmax(170px, auto);" in styles
+    assert 'id="trainingTab"' not in tabs
+    assert source_row.index('id="loadSource"') < source_row.index('class="source-actions"')
+    assert source_row.index('id="trainingTab"') < source_row.index('id="refreshCandidates"')
+    assert source_row.index('id="refreshCandidates"') < source_row.index('id="trainRefresh"')
+    assert source_row.index('id="trainRefresh"') < source_row.index('id="promoteClassifier"')
+    assert "--profile-select-width: 320px;" in styles
+    assert "--header-icon-button-width: 38px;" in styles
+    assert "--header-actions-width: calc(var(--header-action-width) + (3 * var(--header-icon-button-width)) + (3 * 8px));" in styles
+    assert "--header-grid-columns: minmax(360px, 1fr) var(--header-action-width) var(--header-wide-action-width) var(--header-actions-width);" in styles
     assert ".top-bar,\n.source-row {\n  display: grid;" in styles
     assert ".profile-controls {\n  display: contents;" in styles
-    assert "#profileSelect {\n  grid-column: 1;\n  justify-self: end;" in styles
+    assert "#profileSelect {\n  grid-column: 1;\n  grid-row: 1;\n  justify-self: end;" in styles
+    assert "width: min(var(--profile-select-width), 100%);" in styles
     assert "#newProfile,\n#chooseSource {\n  grid-column: 2;" in styles
     assert "#settingsTab,\n#loadSource {\n  grid-column: 3;" in styles
     assert "#archiveProfile {\n  grid-column: 4;" in styles
+    assert ".source-actions {\n  grid-column: 4;" in styles
+    assert ".source-actions {\n  grid-column: 4;\n  display: inline-flex;\n  align-items: center;\n  justify-content: flex-start;" in styles
+    assert "#archiveProfile,\n#trainingTab {\n  width: var(--header-action-width);" in styles
+    assert "#trainingTab {\n  flex: 0 0 var(--header-action-width);" in styles
+    assert ".source-actions .meta {\n  flex: 1 1 100%;" in styles
 
 
 def test_web_app_header_badge_aligns_with_title_text(tmp_path: Path) -> None:

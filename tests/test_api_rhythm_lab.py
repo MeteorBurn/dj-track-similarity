@@ -3,8 +3,11 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import dj_track_similarity.api as api
+import dj_track_similarity.api_routes_rhythm_lab as rhythm_lab_routes
 import dj_track_similarity.rhythm_lab_launcher as rhythm_lab_launcher
 from dj_track_similarity.api import create_app
+from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.rhythm_lab_collections import RhythmLabCollections
 
 
 def test_rhythm_lab_launch_endpoint_uses_selected_database(monkeypatch, tmp_path: Path) -> None:
@@ -61,6 +64,39 @@ def test_rhythm_lab_status_endpoint_returns_launcher_status(monkeypatch) -> None
     assert response.status_code == 200
     assert response.json()["running"] is True
     assert response.json()["managed"] is True
+
+
+def test_rhythm_lab_collection_save_endpoint_writes_default_lab_database(monkeypatch, tmp_path: Path) -> None:
+    labels_path = tmp_path / "rhythm_lab.sqlite"
+    monkeypatch.setattr(rhythm_lab_routes, "default_rhythm_lab_labels_path", lambda: labels_path)
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    first_id = _add_track(db, tmp_path, "first.wav", "Artist", "First")
+    second_id = _add_track(db, tmp_path, "second.wav", "Artist", "Second")
+    client = TestClient(create_app(db_path))
+
+    response = client.post(
+        "/api/rhythm-lab/collections",
+        json={"name": "Main UI set", "track_ids": [first_id, second_id], "source": "main_ui_playlist", "mode": "replace"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "Main UI set"
+    assert response.json()["track_count"] == 2
+    stored = RhythmLabCollections(labels_path).collection_by_name("Main UI set")
+    assert stored is not None
+    assert [track.source_track_id for track in stored.tracks] == [first_id, second_id]
+
+
+def _add_track(db: LibraryDatabase, tmp_path: Path, filename: str, artist: str, title: str) -> int:
+    path = tmp_path / filename
+    path.write_bytes(b"audio")
+    return db.upsert_track(
+        path=path,
+        size=path.stat().st_size,
+        mtime=1,
+        metadata={"artist": artist, "title": title},
+    )
 
 
 def test_rhythm_lab_launcher_uses_project_python_and_source(monkeypatch, tmp_path: Path) -> None:

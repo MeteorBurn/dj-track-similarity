@@ -10,6 +10,7 @@ Personal classifiers are useful when your taste signal is hard to express as one
 
 - Launch Rhythm Lab from the main UI or CLI.
 - Pick a binary or multiclass profile.
+- Use Library, Candidates, Liked, or Collection to choose the review surface.
 - Add enough labels for the active profile.
 - Train; calibration is optional and data-gated.
 - Promote to `models/classifiers/<artifact-prefix>/`.
@@ -22,6 +23,7 @@ Personal classifiers are useful when your taste signal is hard to express as one
 
 ## What each stage means
 
+- Collections are review-only track lists for AI finds, saved playlist candidates, or other batches. They help focus labeling without changing source audio or mixing those tracks into liked state.
 - Labeling creates training examples in Rhythm Lab state under `tools/rhythm-lab/data/`; it does not edit source audio.
 - Training reads existing SONARA, MERT, and MAEST inputs, then writes classifier artifacts under `tools/rhythm-lab/artifacts/<artifact-prefix>/`. Calibration is optional and only applies when the label set is large enough.
 - Promotion copies the selected trained model into `models/classifiers/<artifact-prefix>/` so the main app can discover it.

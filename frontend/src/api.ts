@@ -653,6 +653,14 @@ export type EvaluationLatestReports = {
   }>;
 };
 
+export type RhythmLabCollectionSaveResult = {
+  id: number;
+  name: string;
+  source: string;
+  track_count: number;
+  updated_at: string;
+};
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...options,
@@ -909,6 +917,11 @@ export const api = {
     request<{ path: string }>("/api/export", {
       method: "POST",
       body: JSON.stringify({ name, track_ids, output_dir, format })
+    }),
+  saveRhythmLabCollection: (name: string, track_ids: number[], mode: "append" | "replace" = "append") =>
+    request<RhythmLabCollectionSaveResult>("/api/rhythm-lab/collections", {
+      method: "POST",
+      body: JSON.stringify({ name, track_ids, source: "main_ui_playlist", mode })
     }),
   genreTagJobStart: () =>
     request<GenreTagJobStatus>("/api/tags/genres/jobs", {

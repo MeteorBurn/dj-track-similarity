@@ -116,6 +116,27 @@ def test_tracks_endpoint_toggles_and_filters_liked_tracks(tmp_path: Path) -> Non
     assert empty_liked_page.json()["items"] == []
 
 
+def test_tracks_endpoint_orders_liked_tracks_by_like_time(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    older_id = _add_track(db, tmp_path, "older.wav", "ZZZ Artist", "Older Like", {})
+    newer_id = _add_track(db, tmp_path, "newer.wav", "AAA Artist", "Newer Like", {})
+    db.set_track_liked(older_id, True)
+    db.set_track_liked(newer_id, True)
+    with db.connect() as connection:
+        connection.execute("UPDATE track_likes SET liked_at = ? WHERE track_id = ?", ("2026-01-01 00:00:00", older_id))
+        connection.execute("UPDATE track_likes SET liked_at = ? WHERE track_id = ?", ("2026-01-01 00:00:01", newer_id))
+    client = TestClient(create_app(db_path))
+
+    liked_page = client.get("/api/tracks", params={"liked": "true"})
+    filtered_page = client.post("/api/tracks/filtered", json={"liked": True})
+
+    assert liked_page.status_code == 200
+    assert [item["id"] for item in liked_page.json()["items"]] == [older_id, newer_id]
+    assert filtered_page.status_code == 200
+    assert [item["id"] for item in filtered_page.json()["items"]] == [older_id, newer_id]
+
+
 def test_tracks_endpoint_filters_by_classifier_scores(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)

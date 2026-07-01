@@ -1,16 +1,20 @@
 const tracksEl = document.getElementById("tracks");
 const queryEl = document.getElementById("query");
 const sourcePathEl = document.getElementById("sourcePath");
-const sourceStatusEl = document.getElementById("sourceStatus");
 const profileSelectEl = document.getElementById("profileSelect");
 const activeProfileNameEl = document.getElementById("activeProfileName");
 const shutdownLabEl = document.getElementById("shutdownLab");
 const libraryTabEl = document.getElementById("libraryTab");
 const candidatesTabEl = document.getElementById("candidatesTab");
 const likedTabEl = document.getElementById("likedTab");
+const collectionTabEl = document.getElementById("collectionTab");
 const trainingTabEl = document.getElementById("trainingTab");
 const settingsTabEl = document.getElementById("settingsTab");
 const commonFiltersEl = document.getElementById("commonFilters");
+const collectionControlsEl = document.getElementById("collectionControls");
+const collectionSelectEl = document.getElementById("collectionSelect");
+const deleteCollectionEl = document.getElementById("deleteCollection");
+const collectionStatusEl = document.getElementById("collectionStatus");
 const candidateFiltersEl = document.getElementById("candidateFilters");
 const bpmMinEl = document.getElementById("bpmMin");
 const bpmMaxEl = document.getElementById("bpmMax");
@@ -46,7 +50,8 @@ let offset = 0;
 let total = 0;
 let activeAudio = null;
 let activeView = "library";
-const viewOffsets = { library: 0, candidates: 0, liked: 0, training: 0, settings: 0 };
+let collections = [];
+const viewOffsets = { library: 0, candidates: 0, liked: 0, collection: 0, training: 0, settings: 0 };
 let loadSequence = 0;
 let libraryRandomSeed = makeLibraryRandomSeed();
 
@@ -73,6 +78,7 @@ profileSelectEl.addEventListener("change", () => {
 libraryTabEl.addEventListener("click", () => switchView("library"));
 candidatesTabEl.addEventListener("click", () => switchView("candidates"));
 likedTabEl.addEventListener("click", () => switchView("liked"));
+collectionTabEl.addEventListener("click", () => switchView("collection"));
 trainingTabEl.addEventListener("click", () => switchView("training"));
 settingsTabEl.addEventListener("click", () => switchView("settings"));
 sourcePathEl.addEventListener("keydown", event => { if (event.key === "Enter") switchSource(sourcePathEl.value).catch(showError); });
@@ -80,6 +86,8 @@ queryEl.addEventListener("keydown", event => { if (event.key === "Enter") loadAc
 bpmMinEl.addEventListener("change", () => loadActive({ reset: true }));
 bpmMaxEl.addEventListener("change", () => loadActive({ reset: true }));
 labelEl.addEventListener("change", () => loadActive({ reset: true }));
+collectionSelectEl.addEventListener("change", () => loadActive({ reset: true }));
+deleteCollectionEl.addEventListener("click", () => deleteSelectedCollection().catch(showError));
 libraryOrderEl.addEventListener("change", () => updateLibraryOrder({ reset: true }));
 shuffleLibraryOrderEl.addEventListener("click", () => shuffleLibraryOrder());
 candidatePredictedEl.addEventListener("change", () => loadActive({ reset: true }));
@@ -107,6 +115,7 @@ nextPageEl.addEventListener("click", () => {
 async function init() {
   updateNewProfileTypeControls();
   await loadProfiles();
+  await loadCollections();
   await loadSourceState();
   updateFilterPanelControls();
   await loadActive({ reset: true });
@@ -144,6 +153,7 @@ async function setActiveProfile(profileKey, options = {}) {
   viewOffsets.library = 0;
   viewOffsets.candidates = 0;
   viewOffsets.liked = 0;
+  viewOffsets.collection = 0;
   if (!options.skipLoad) await loadActive({ reset: true });
 }
 
@@ -222,6 +232,32 @@ function addOption(select, value, text) {
   select.appendChild(option);
 }
 
+async function loadCollections() {
+  const selected = collectionSelectEl.value;
+  const data = await fetch("/api/collections").then(parseJsonResponse);
+  collections = data.items || [];
+  collectionSelectEl.innerHTML = "";
+  if (!collections.length) {
+    addOption(collectionSelectEl, "", "No collections");
+    collectionStatusEl.textContent = "0 collections";
+    deleteCollectionEl.disabled = true;
+    return;
+  }
+  collections.forEach(collection => {
+    addOption(collectionSelectEl, String(collection.id), `${collection.name} (${collection.track_count})`);
+  });
+  if (selected && collections.some(collection => String(collection.id) === selected)) {
+    collectionSelectEl.value = selected;
+  }
+  const active = selectedCollection();
+  collectionStatusEl.textContent = active ? `${active.track_count} tracks · ${active.source}` : `${collections.length} collections`;
+  deleteCollectionEl.disabled = !active;
+}
+
+function selectedCollection() {
+  return collections.find(collection => String(collection.id) === collectionSelectEl.value) || null;
+}
+
 function labelByKey(key) {
   return activeProfile.labels.find(label => label.key === key) || { key, name: key, role: "review" };
 }
@@ -237,17 +273,12 @@ function trainingLabels() {
 }
 
 async function chooseSource() {
-  clearSourceError();
-  sourceStatusEl.textContent = "opening picker...";
   const response = await fetch("/api/source/dialog", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
   const data = await parseJsonResponse(response);
   sourcePathEl.value = data.path || sourcePathEl.value || "";
-  sourceStatusEl.textContent = data.path ? "path selected" : "no source database";
 }
 
 async function switchSource(path) {
-  clearSourceError();
-  sourceStatusEl.textContent = "loading...";
   const response = await fetch("/api/source/switch", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -265,12 +296,6 @@ async function loadSourceState() {
 
 function applySourceState(data) {
   sourcePathEl.value = data.path || sourcePathEl.value || "";
-  sourceStatusEl.textContent = data.selected ? "loaded read-only + shared likes" : "no source database";
-  sourceStatusEl.classList.remove("error");
-}
-
-function clearSourceError() {
-  sourceStatusEl.classList.remove("error");
 }
 
 async function shutdownLab() {
@@ -294,6 +319,7 @@ async function switchView(view) {
   libraryTabEl.classList.toggle("active", view === "library");
   candidatesTabEl.classList.toggle("active", view === "candidates");
   likedTabEl.classList.toggle("active", view === "liked");
+  collectionTabEl.classList.toggle("active", view === "collection");
   trainingTabEl.classList.toggle("active", view === "training");
   settingsTabEl.classList.toggle("active", view === "settings");
   updateFilterPanelControls();
@@ -305,6 +331,7 @@ async function switchView(view) {
 
 function updateFilterPanelControls() {
   commonFiltersEl.hidden = activeView === "training" || activeView === "settings";
+  collectionControlsEl.hidden = activeView !== "collection";
   candidateFiltersEl.hidden = activeView === "training" || activeView === "settings";
   candidateFiltersEl.classList.toggle("candidate-filters-placeholder", activeView !== "library" && activeView !== "candidates");
   updateLibraryOrderControls();
@@ -344,6 +371,7 @@ async function loadActive(options = {}) {
   if (!activeProfile) return;
   if (activeView === "candidates") return loadCandidates(options);
   if (activeView === "liked") return loadLikedTracks(options);
+  if (activeView === "collection") return loadCollectionTracks(options);
   if (activeView === "training") return loadTrainingView();
   if (activeView === "settings") return loadSettingsView();
   return loadTracks(options);
@@ -472,6 +500,58 @@ async function loadLikedTracks(options = {}) {
   updatePager(data);
   await loadSummary(sequence);
   await loadTrainingReadiness();
+}
+
+async function loadCollectionTracks(options = {}) {
+  const sequence = ++loadSequence;
+  if (options.reset) offset = 0;
+  viewOffsets.collection = offset;
+  await loadCollections();
+  const collection = selectedCollection();
+  if (!collection) {
+    total = 0;
+    offset = 0;
+    tracksEl.innerHTML = '<div class="empty-state">No collection selected</div>';
+    updatePager({ items: [], total: 0, limit: pageLimit(), offset: 0 });
+    await loadSummary(sequence);
+    await loadTrainingReadiness();
+    return;
+  }
+  const limit = pageLimit();
+  const params = new URLSearchParams({
+    q: queryEl.value,
+    bpm_min: bpmFilterValue(bpmMinEl.value),
+    bpm_max: bpmFilterValue(bpmMaxEl.value),
+    label: labelEl.value,
+    collection_id: String(collection.id),
+    limit: String(limit),
+    offset: String(offset)
+  });
+  const data = await fetch(`/api/profiles/${activeProfile.classifier_key}/tracks?${params}`).then(parseJsonResponse);
+  if (sequence !== loadSequence || activeView !== "collection") return;
+  total = data.total;
+  offset = data.offset;
+  viewOffsets.collection = offset;
+  tracksEl.innerHTML = "";
+  data.items.forEach((track, index) => {
+    track.rowNumber = data.offset + index + 1;
+    tracksEl.appendChild(renderTrack(track));
+  });
+  updatePager(data);
+  await loadSummary(sequence);
+  await loadTrainingReadiness();
+}
+
+async function deleteSelectedCollection() {
+  const collection = selectedCollection();
+  if (!collection) return;
+  if (!window.confirm(`Delete collection "${collection.name}"? Labels stay in the active profile.`)) return;
+  const response = await fetch(`/api/collections/${collection.id}`, { method: "DELETE" });
+  await parseJsonResponse(response);
+  offset = 0;
+  viewOffsets.collection = 0;
+  await loadCollections();
+  await loadActive({ reset: true });
 }
 
 async function loadCandidates(options = {}) {

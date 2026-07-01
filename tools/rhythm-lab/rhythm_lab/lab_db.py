@@ -9,6 +9,7 @@ from typing import Literal
 
 from dj_track_similarity.metadata_payload import metadata_to_json
 from dj_track_similarity.models import Track
+from dj_track_similarity.rhythm_lab_collections import ensure_review_collection_schema
 
 
 BREAK_ENERGY_CLASSIFIER_KEY = "break_energy"
@@ -107,6 +108,7 @@ class RhythmLabDatabase:
         with self.connect() as connection:
             _ensure_profile_tables(connection)
             _ensure_classifier_tables(connection)
+            ensure_review_collection_schema(connection)
             _ensure_default_break_energy_profile(connection)
             connection.executescript(
                 """

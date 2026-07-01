@@ -959,6 +959,23 @@ export function App() {
     });
   }
 
+  async function handleSavePlaylistToRhythmLabCollection() {
+    if (!playlist.length) {
+      setNotice({ kind: "error", text: "Сет пуст" });
+      return;
+    }
+    const defaultName = playlistName.trim() || `Collection ${new Date().toISOString().slice(0, 10)}`;
+    const name = window.prompt("Rhythm Lab collection name", defaultName)?.trim();
+    if (!name) return;
+    await run(
+      () => api.saveRhythmLabCollection(name, playlist.map((track) => track.id), "append"),
+      (value) => {
+        appendActivity("ok", "Rhythm Lab collection", `${value.name} · ${value.track_count} tracks`);
+        return `Collection saved: ${value.name}`;
+      }
+    );
+  }
+
   function adjustScanWorkers(delta: number) {
     setScanWorkers((current) => Math.min(maxScanWorkers, Math.max(1, current + delta)));
   }
@@ -1255,6 +1272,7 @@ export function App() {
           setPreview={togglePreview}
           setMetadataTrack={(track) => void handleTrackDetails(track)}
           removeFromPlaylist={removeFromPlaylist}
+          handleSaveToCollection={() => void handleSavePlaylistToRhythmLabCollection()}
           handleExport={(format) => void handleExport(format)}
         />
       </section>

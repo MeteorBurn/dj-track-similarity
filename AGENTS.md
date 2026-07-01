@@ -229,6 +229,9 @@ should use `logs/<name>.log`.
 - If changing Mutagen tags, SONARA features, MAEST jobs, classifier jobs, audio decoding, search, library
   browsing, relocation, analysis controls, SQLite writes, UI controls, custom tags, or standard genre
   writes, update the focused tests, frontend/API surfaces, and `docs/dj-track-similarity/` pages.
+- For new user-facing features, update tracked `docs/dj-track-similarity/` Markdown in the same
+  implementation pass. Do not build the static docs site just to satisfy this docs-update requirement;
+  build the site only when previewing, deploying, or explicitly asked.
 - Use deterministic test data and test-local stub adapters; automated tests should not depend on the real
   user music library.
 - After frontend source changes, run `npm run build` from `frontend/`.

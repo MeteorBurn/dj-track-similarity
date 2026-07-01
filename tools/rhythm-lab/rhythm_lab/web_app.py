@@ -18,6 +18,7 @@ from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.dependencies import require_ffmpeg
 from dj_track_similarity.logging_config import install_asyncio_exception_logging
 from dj_track_similarity.media_preview import requires_browser_preview_transcode
+from dj_track_similarity.rhythm_lab_collections import RhythmLabCollections
 
 from .cli import DEFAULT_CLASSIFIER_TARGET_ROOT, PromotionError, promote_profile_model
 from .lab_db import ClassifierProfile, RhythmLabDatabase
@@ -41,6 +42,19 @@ class LabelRequest(BaseModel):
 
 class TrackLikedRequest(BaseModel):
     liked: bool
+
+
+class CollectionSaveRequest(BaseModel):
+    name: str
+    track_ids: list[int] = []
+    source: str = "manual"
+    note: str | None = None
+    mode: str = "append"
+
+
+class CollectionTracksRequest(BaseModel):
+    track_ids: list[int]
+    mode: str = "append"
 
 
 class SourceSwitchRequest(BaseModel):
@@ -165,6 +179,9 @@ def create_app(
     def profile_db(profile_key: str) -> RhythmLabDatabase:
         return RhythmLabDatabase(labels_path, classifier_key=profile_key)
 
+    def collections_db() -> RhythmLabCollections:
+        return RhythmLabCollections(labels_path)
+
     def profile_or_404(profile_key: str) -> ClassifierProfile:
         try:
             return profile_db(profile_key).get_profile(profile_key)
@@ -221,6 +238,62 @@ def create_app(
                 for profile in labels_db.list_profiles(include_archived=include_archived)
             ]
         }
+
+    @app.get("/api/collections")
+    def review_collections():
+        return {"items": [_collection_payload(collection) for collection in collections_db().list_collections()]}
+
+    @app.post("/api/collections")
+    def save_review_collection(request: CollectionSaveRequest):
+        try:
+            collection = collections_db().save_collection(
+                request.name,
+                request.track_ids,
+                source=request.source,
+                note=request.note,
+                mode=request.mode,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return _collection_payload(collection, include_tracks=True)
+
+    @app.get("/api/collections/{collection_id}")
+    def get_review_collection(collection_id: int):
+        try:
+            collection = collections_db().get_collection(collection_id)
+        except (KeyError, ValueError) as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        return _collection_payload(collection, include_tracks=True)
+
+    @app.post("/api/collections/{collection_id}/tracks")
+    def append_review_collection_tracks(collection_id: int, request: CollectionTracksRequest):
+        try:
+            if request.mode == "replace":
+                collection = collections_db().replace_tracks(collection_id, request.track_ids)
+            else:
+                collection = collections_db().append_tracks(collection_id, request.track_ids)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return _collection_payload(collection, include_tracks=True)
+
+    @app.put("/api/collections/{collection_id}/tracks")
+    def replace_review_collection_tracks(collection_id: int, request: CollectionTracksRequest):
+        try:
+            collection = collections_db().replace_tracks(collection_id, request.track_ids)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return _collection_payload(collection, include_tracks=True)
+
+    @app.delete("/api/collections/{collection_id}")
+    def delete_review_collection(collection_id: int):
+        deleted = collections_db().delete_collection(collection_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Review collection not found: {collection_id}")
+        return {"id": collection_id, "deleted": True}
 
     @app.post("/api/profiles")
     def create_profile(request: ProfileRequest):
@@ -312,6 +385,7 @@ def create_app(
         bpm_max: str = "",
         liked: str = Query(default="all", pattern="^(all|yes|no)$"),
         label: str = "all",
+        collection_id: int | None = Query(default=None, ge=1),
         order: str = Query(default="normal", pattern="^(normal|random)$"),
         seed: int = Query(default=0, ge=0),
         limit: int = Query(default=100, ge=1, le=500),
@@ -335,6 +409,7 @@ def create_app(
                 bpm_max=bpm_max_value,
                 liked=liked,
                 label=label,
+                collection_id=collection_id,
                 order=order,
                 seed=seed,
                 limit=limit,
@@ -574,6 +649,30 @@ def _profile_payload(profile: ClassifierProfile) -> dict[str, object]:
             for label in profile.labels
         ],
     }
+
+
+def _collection_payload(collection: object, *, include_tracks: bool = False) -> dict[str, object]:
+    payload = {
+        "id": collection.id,
+        "name": collection.name,
+        "source": collection.source,
+        "note": collection.note,
+        "created_at": collection.created_at,
+        "updated_at": collection.updated_at,
+        "track_count": collection.track_count,
+    }
+    if include_tracks:
+        payload["tracks"] = [
+            {
+                "track_id": track.source_track_id,
+                "position": track.position,
+                "score": track.score,
+                "note": track.note,
+                "added_at": track.added_at,
+            }
+            for track in collection.tracks
+        ]
+    return payload
 
 
 def _latest_combined_artifact(artifact_dir: Path, artifact_prefix: str) -> Path | None:

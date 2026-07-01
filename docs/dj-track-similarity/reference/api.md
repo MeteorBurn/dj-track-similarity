@@ -11,6 +11,7 @@
 - Search/SET: `/api/search`, `/api/search/sonara`, `/api/search/text`, `/api/set-builder/generate`.
 - Exports/tags: `/api/export`, `/api/tags/genres/apply`, and `/api/tags/genres/jobs` routes.
 - Helpers: `/api/audio-doctor/jobs`, `/api/audio-dedup/jobs`, `/api/evaluation/*`, and `/api/rhythm-lab/*`.
+- Rhythm Lab review collections: main app `POST /api/rhythm-lab/collections`; lab-local `/api/collections`, `/api/collections/{id}`, and `/api/collections/{id}/tracks`.
 
 ## Analysis payload
 
@@ -22,4 +23,4 @@
 
 ## Writes
 
-Search and SET routes are previews. Genre tag routes are explicit audio tag write paths. Export writes playlist/report files only.
+Search and SET routes are previews. Genre tag routes are explicit audio tag write paths. Export writes playlist/report files only. Rhythm Lab review collection routes write only the lab labels database; deleting a collection does not remove profile labels or source audio.

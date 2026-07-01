@@ -244,7 +244,7 @@ should use `logs/<name>.log`.
 Use the project-local venv when present: `.\.venv\Scripts\python.exe -m pip install -e ".[dev]"`,
 `.\.venv\Scripts\python.exe -m pytest`, and the focused pytest commands in the verification matrix.
 
-Common local runs: `dj-sim serve --host 127.0.0.1 --port 8765`, `scripts\run_server.cmd`,
+Common local runs: `dj-sim serve --host 127.0.0.1 --port 8765`, `run_server.cmd local`,
 `cd frontend; npm run build; npm run dev`, and `cd docs\dj-track-similarity; npm run build`.
 
 Focused CLI examples: `dj-sim scan <path-to-music> --db .\data\library.sqlite`,

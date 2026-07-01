@@ -102,16 +102,18 @@ The browser shows your scanned tracks. You can browse, inspect metadata, play
 previews, choose seed tracks, and start analysis jobs from the UI.
 ```
 
-There is also a Windows helper:
+There is also one Windows helper in the repository root:
 
 ```powershell
-scripts\run_server.cmd
+run_server.cmd
 ```
 
-For local-network access from another device on the same LAN:
+Without arguments it prompts for local-only or local-network mode. For quick
+non-interactive launches, pass the mode and any `dj-sim serve` options:
 
 ```powershell
-run_server_lan.cmd
+run_server.cmd local --db C:\db\abstracted.sqlite
+run_server.cmd lan --db C:\db\abstracted.sqlite
 ```
 
 ## Add Audio Analysis

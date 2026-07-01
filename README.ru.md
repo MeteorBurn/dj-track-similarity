@@ -105,16 +105,18 @@ http://127.0.0.1:8765/
 analysis jobs из UI.
 ```
 
-Также есть Windows helper:
+Также есть один Windows helper в корне репозитория:
 
 ```powershell
-scripts\run_server.cmd
+run_server.cmd
 ```
 
-Для доступа с другого устройства в той же LAN:
+Без аргументов он спрашивает режим: local-only или local-network. Для быстрого
+запуска без prompt передай режим и любые options для `dj-sim serve`:
 
 ```powershell
-run_server_lan.cmd
+run_server.cmd local --db C:\db\abstracted.sqlite
+run_server.cmd lan --db C:\db\abstracted.sqlite
 ```
 
 ## Добавить аудиоанализ

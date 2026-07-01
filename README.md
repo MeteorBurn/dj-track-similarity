@@ -117,7 +117,7 @@ Rhythm Lab is the companion workflow for labels and local classifiers. It runs s
 Start it with:
 
 ```powershell
-.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py serve --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py serve --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
 Open:
@@ -189,7 +189,7 @@ Start with:
 Run backend tests:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest
+python -m pytest
 ```
 
 Build the frontend bundle served by the backend:

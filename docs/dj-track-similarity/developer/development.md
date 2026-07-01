@@ -8,7 +8,7 @@
 
 ```powershell
 python -m pip install -e ".[sonara,ml,rhythm-lab,dev]"
-.\.venv\Scripts\python.exe -m pytest
+python -m pytest
 ```
 
 ## Ports

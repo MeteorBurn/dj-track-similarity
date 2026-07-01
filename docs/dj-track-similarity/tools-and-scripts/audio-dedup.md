@@ -7,7 +7,7 @@
 ## Report mode
 
 ```powershell
-.\.venv\Scripts\python.exe tools\audio-dedup\audio_dedup_cli.py --db <library-db> --root <music-folder>
+python tools\audio-dedup\audio_dedup_cli.py --db <library-db> --root <music-folder>
 ```
 
 Default mode writes JSON/XLSX/log reports and deletes nothing.

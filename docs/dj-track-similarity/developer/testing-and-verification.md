@@ -7,7 +7,7 @@
 ## Common checks
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest
+python -m pytest
 cd frontend
 npm run build
 cd ..\docs\dj-track-similarity

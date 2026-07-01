@@ -232,6 +232,9 @@ should use `logs/<name>.log`.
 - For new user-facing features, update tracked `docs/dj-track-similarity/` Markdown in the same
   implementation pass. Do not build the static docs site just to satisfy this docs-update requirement;
   build the site only when previewing, deploying, or explicitly asked.
+- Documentation command examples in `README*.md` and `docs/dj-track-similarity/` assume the Python
+  environment is already activated. Do not write commands there with `.\.venv\Scripts\python.exe`;
+  use `python ...` or the installed console script instead.
 - Use deterministic test data and test-local stub adapters; automated tests should not depend on the real
   user music library.
 - After frontend source changes, run `npm run build` from `frontend/`.

@@ -7,7 +7,7 @@
 ## Command
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\optimize_database.py --db <library-db>
+python scripts\optimize_database.py --db <library-db>
 ```
 
 ## Behavior

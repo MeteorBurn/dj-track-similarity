@@ -7,7 +7,7 @@
 ## Dry-run
 
 ```powershell
-.\.venv\Scripts\python.exe tools\audio-doctor\audio_doctor_cli.py --folder <music-folder>
+python tools\audio-doctor\audio_doctor_cli.py --folder <music-folder>
 ```
 
 Dry-run does not write or copy audio. It writes JSON, XLSX, and log reports under `tools\audio-doctor\data\reports` by default and stores repeat-run state under `tools\audio-doctor\data\state`.

@@ -117,7 +117,7 @@ Rhythm Lab - отдельный workflow для разметки и локаль
 Запуск:
 
 ```powershell
-.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py serve --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py serve --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
 Откройте:
@@ -189,7 +189,7 @@ Audio Dedup использует audio-to-audio MERT, MAEST, CLAP, SONARA и dur
 Запустите backend tests:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest
+python -m pytest
 ```
 
 Соберите frontend bundle, который отдает backend:

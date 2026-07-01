@@ -168,6 +168,60 @@ main {
   justify-self: stretch;
 }
 
+.source-action-log {
+  grid-column: 4;
+  grid-row: 2;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  max-height: 88px;
+  overflow: hidden;
+  padding: 6px 8px;
+  border: 1px solid rgba(57, 214, 223, 0.18);
+  border-radius: 8px;
+  background: rgba(15, 19, 25, 0.78);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.source-action-log:empty {
+  display: none;
+}
+
+.source-action-log-entry {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.source-action-log-entry > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-action-log-entry b {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.source-action-log-entry.success b {
+  color: var(--green);
+}
+
+.source-action-log-entry.error b {
+  color: var(--rose);
+}
+
+.source-action-log-time {
+  color: rgba(149, 163, 179, 0.72);
+  font-variant-numeric: tabular-nums;
+}
+
 .top-bar strong {
   font-size: 20px;
   letter-spacing: 0;
@@ -820,6 +874,12 @@ menu {
   .collection-controls {
     flex-wrap: wrap;
     justify-content: flex-start;
+  }
+
+  .source-action-log {
+    grid-column: auto;
+    grid-row: auto;
+    flex: 1 1 100%;
   }
 
   #collectionSelect {

@@ -1029,9 +1029,10 @@ def text_search(
     use_ann_index: bool = typer.Option(False, "--use-ann-index", help="Opt in to the persistent CLAP ANN sidecar. Missing or stale indexes fall back to exact search."),
     index_dir: Optional[Path] = typer.Option(None, "--index-dir", file_okay=False, help="Persistent index sidecar directory for --use-ann-index."),
 ) -> None:
-    adapter = ClapEmbeddingAdapter(device=_parse_analysis_device(device))
-    vector = adapter.embed_text(query.strip())
+    device_name = _parse_analysis_device(device)
     db = _db(db_path)
+    adapter = ClapEmbeddingAdapter(device=device_name)
+    vector = adapter.embed_text(query.strip())
     vector_backend = None
     if use_ann_index:
         vector_backend = PersistentAnnVectorSearchBackend(db, embedding_key=adapter.embedding_key, index_dir=index_dir)

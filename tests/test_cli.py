@@ -1,5 +1,8 @@
+import logging
+import sys
 from pathlib import Path
 
+import numpy as np
 from typer.testing import CliRunner
 import pytest
 
@@ -204,6 +207,30 @@ def test_text_search_cli_rejects_unknown_device_before_loading_adapter(monkeypat
 
     assert result.exit_code != 0
     assert "Unknown torch device: gpu" in result.output
+
+
+def test_text_search_cli_writes_adapter_stderr_to_app_log(monkeypatch, tmp_path):
+    log_path = tmp_path / "app.log"
+    db_path = tmp_path / "library.sqlite"
+    monkeypatch.setenv("DJ_TRACK_SIMILARITY_LOG", str(log_path))
+
+    class FakeClapAdapter:
+        embedding_key = "clap"
+
+        def __init__(self, **_kwargs):
+            print("CLAP CLI adapter stderr", file=sys.stderr)
+
+        def embed_text(self, _query):
+            return np.array([1.0, 0.0], dtype=np.float32)
+
+    monkeypatch.setattr(cli, "ClapEmbeddingAdapter", FakeClapAdapter)
+
+    result = CliRunner().invoke(cli.app, ["text-search", "dark techno", "--db", str(db_path)])
+
+    assert result.exit_code == 0
+    for handler in logging.getLogger("dj_track_similarity").handlers:
+        handler.flush()
+    assert "CLAP CLI adapter stderr" in log_path.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("command", [["analyze", "--adapter", "mert"], ["analyze-genres"], ["analyze-sonara"]])

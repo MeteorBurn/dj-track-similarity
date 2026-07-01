@@ -1,3 +1,4 @@
+import logging
 import sys
 import types
 
@@ -10,6 +11,7 @@ pytestmark = pytest.mark.ml
 import dj_track_similarity.embedding as embedding
 from dj_track_similarity.audio_loader import DecodedAudio
 from dj_track_similarity.embedding import ClapEmbeddingAdapter, MertEmbeddingAdapter, _array_output_to_numpy, _pad_or_trim_audio_window, adapter_factories
+from dj_track_similarity.logging_config import configure_logging
 
 
 def test_clap_adapter_uses_music_checkpoint() -> None:
@@ -80,6 +82,63 @@ def test_clap_text_embedding_loads_laion_music_checkpoint(monkeypatch) -> None:
     assert calls["checkpoint"] == "checkpoint.pt"
     assert calls["texts"] == (["warm minimal house"], False)
     assert vector.tolist() == [0.0, 1.0, 0.0]
+
+
+def test_clap_model_load_stdout_and_stderr_are_written_to_app_log(monkeypatch, tmp_path) -> None:
+    log_path = tmp_path / "app.log"
+    monkeypatch.setenv("DJ_TRACK_SIMILARITY_LOG", str(log_path))
+    configure_logging()
+
+    torch_module = types.ModuleType("torch")
+
+    class FakeCuda:
+        @staticmethod
+        def is_available() -> bool:
+            return False
+
+    class FakeInferenceMode:
+        def __enter__(self):
+            return None
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+    torch_module.cuda = FakeCuda()
+    torch_module.device = lambda name: f"device:{name}"
+    torch_module.inference_mode = FakeInferenceMode
+
+    torchaudio_module = types.ModuleType("torchaudio")
+    hf_module = types.ModuleType("huggingface_hub")
+    hf_module.hf_hub_download = lambda repo_id, filename: "checkpoint.pt"
+
+    laion_module = types.ModuleType("laion_clap")
+
+    class FakeClapModule:
+        def __init__(self, *, enable_fusion, amodel, device):
+            print("[transformers] RobertaModel LOAD REPORT from: roberta-base")
+
+        def load_ckpt(self, checkpoint_path):
+            print(f"Load the specified checkpoint {checkpoint_path} from users.")
+            print("CLAP warning from stderr", file=sys.stderr)
+
+        def get_text_embedding(self, texts, use_tensor=False):
+            return np.array([[0.0, 2.0, 0.0]], dtype=np.float32)
+
+    laion_module.CLAP_Module = FakeClapModule
+
+    monkeypatch.setitem(sys.modules, "torch", torch_module)
+    monkeypatch.setitem(sys.modules, "torchaudio", torchaudio_module)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", hf_module)
+    monkeypatch.setitem(sys.modules, "laion_clap", laion_module)
+
+    ClapEmbeddingAdapter(device="cpu").embed_text("warm minimal house")
+
+    for handler in logging.getLogger("dj_track_similarity").handlers:
+        handler.flush()
+    contents = log_path.read_text(encoding="utf-8")
+    assert "[transformers] RobertaModel LOAD REPORT from: roberta-base" in contents
+    assert "Load the specified checkpoint checkpoint.pt from users." in contents
+    assert "CLAP warning from stderr" in contents
 
 
 def test_array_output_to_numpy_accepts_tensor_like_output() -> None:

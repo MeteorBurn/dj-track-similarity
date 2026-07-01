@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import errno
+import sys
 import logging
 import os
+import threading
 import time
 from collections.abc import Callable
 from logging.handlers import TimedRotatingFileHandler
@@ -22,6 +24,12 @@ CONSOLE_LOG_FORMAT = "[%(asctime)s] [%(levelname)s] %(message)s"
 _LOG_TRACK_EVENTS: bool | None = None
 _ANALYSIS_DIAGNOSTICS: bool | None = None
 _ASYNCIO_HANDLER_MARKER = "_dj_track_similarity_asyncio_exception_logging"
+_STREAM_MIRROR_MARKER = "_dj_track_similarity_stream_mirror"
+_STREAM_LOGGING_STATE = threading.local()
+_STANDARD_STREAM_LOGGERS = {
+    "stdout": ("dj_track_similarity.console.stdout", logging.INFO),
+    "stderr": ("dj_track_similarity.console.stderr", logging.WARNING),
+}
 
 
 def configure_logging(
@@ -42,21 +50,41 @@ def configure_logging(
     logger.setLevel(numeric_level)
     logger.propagate = True
 
+    file_handler: logging.Handler | None = None
+    created_handler = False
     for handler in list(logger.handlers):
         if getattr(handler, "name", "") != FILE_HANDLER_NAME:
             continue
         if Path(getattr(handler, "baseFilename", "")).resolve() == path:
             handler.setLevel(numeric_level)
-            return path
+            file_handler = handler
+            break
+        _detach_standard_stream_file_handler(handler)
         logger.removeHandler(handler)
         handler.close()
 
-    handler = project_file_handler(path)
-    handler.setLevel(numeric_level)
-    handler.setFormatter(logging.Formatter(FILE_LOG_FORMAT, datefmt=LOG_DATE_FORMAT))
-    logger.addHandler(handler)
-    logger.info("File logging configured path=%s", path)
+    if file_handler is None:
+        file_handler = project_file_handler(path)
+        file_handler.setLevel(numeric_level)
+        file_handler.setFormatter(logging.Formatter(FILE_LOG_FORMAT, datefmt=LOG_DATE_FORMAT))
+        logger.addHandler(file_handler)
+        created_handler = True
+    _install_standard_stream_logging(file_handler, numeric_level)
+    if created_handler:
+        logger.info("File logging configured path=%s", path)
     return path
+
+
+def install_standard_stream_logging(level: int | str | None = None) -> None:
+    """Mirror direct stdout/stderr writes into the configured app file log."""
+
+    numeric_level = parse_log_level(level or os.environ.get(LOG_LEVEL_ENV_VAR) or "info")
+    logger = logging.getLogger("dj_track_similarity")
+    handler = next((item for item in logger.handlers if getattr(item, "name", "") == FILE_HANDLER_NAME), None)
+    if handler is None:
+        configure_logging(level=numeric_level)
+        return
+    _install_standard_stream_logging(handler, numeric_level)
 
 
 def project_file_handler(filename: str | Path) -> ProjectTimedRotatingFileHandler:
@@ -65,6 +93,114 @@ def project_file_handler(filename: str | Path) -> ProjectTimedRotatingFileHandle
     handler = ProjectTimedRotatingFileHandler(path, when="midnight", interval=1, backupCount=1, encoding="utf-8")
     handler.name = FILE_HANDLER_NAME
     return handler
+
+
+def _install_standard_stream_logging(file_handler: logging.Handler, level: int) -> None:
+    file_handler.setLevel(level)
+    for _stream_name, (logger_name, stream_level) in _STANDARD_STREAM_LOGGERS.items():
+        stream_logger = logging.getLogger(logger_name)
+        stream_logger.setLevel(min(level, stream_level))
+        stream_logger.propagate = False
+        _detach_standard_stream_file_handlers(stream_logger, keep=file_handler)
+        if file_handler not in stream_logger.handlers:
+            stream_logger.addHandler(file_handler)
+    sys.stdout = _wrap_standard_stream(sys.stdout, "stdout")  # type: ignore[assignment]
+    sys.stderr = _wrap_standard_stream(sys.stderr, "stderr")  # type: ignore[assignment]
+
+
+def _detach_standard_stream_file_handler(handler: logging.Handler) -> None:
+    for logger_name, _level in _STANDARD_STREAM_LOGGERS.values():
+        stream_logger = logging.getLogger(logger_name)
+        if handler in stream_logger.handlers:
+            stream_logger.removeHandler(handler)
+
+
+def _detach_standard_stream_file_handlers(logger: logging.Logger, *, keep: logging.Handler) -> None:
+    for handler in list(logger.handlers):
+        if handler is keep:
+            continue
+        if getattr(handler, "name", "") == FILE_HANDLER_NAME:
+            logger.removeHandler(handler)
+
+
+def _wrap_standard_stream(stream, stream_name: str):
+    if getattr(stream, _STREAM_MIRROR_MARKER, False):
+        return stream
+    logger_name, level = _STANDARD_STREAM_LOGGERS[stream_name]
+    return StandardStreamLogMirror(stream, logger_name=logger_name, level=level)
+
+
+class StandardStreamLogMirror:
+    def __init__(self, stream, *, logger_name: str, level: int) -> None:
+        self._stream = stream
+        self._logger = logging.getLogger(logger_name)
+        self._level = level
+        self._buffer = ""
+        self._lock = threading.RLock()
+        setattr(self, _STREAM_MIRROR_MARKER, True)
+
+    @property
+    def encoding(self):
+        return getattr(self._stream, "encoding", None)
+
+    @property
+    def errors(self):
+        return getattr(self._stream, "errors", None)
+
+    def write(self, text) -> int:
+        if not isinstance(text, str):
+            text = str(text)
+        self._stream.write(text)
+        self._capture(text)
+        return len(text)
+
+    def flush(self) -> None:
+        self._stream.flush()
+        self._flush_pending()
+
+    def isatty(self) -> bool:
+        return bool(getattr(self._stream, "isatty", lambda: False)())
+
+    def fileno(self) -> int:
+        return self._stream.fileno()
+
+    def writable(self) -> bool:
+        return True
+
+    def __getattr__(self, name: str):
+        return getattr(self._stream, name)
+
+    def _capture(self, text: str) -> None:
+        if not text:
+            return
+        with self._lock:
+            self._buffer += text.replace("\r", "\n")
+            while "\n" in self._buffer:
+                line, self._buffer = self._buffer.split("\n", 1)
+                self._emit(line)
+            if len(self._buffer) >= 4096:
+                self._emit(self._buffer)
+                self._buffer = ""
+
+    def _flush_pending(self) -> None:
+        with self._lock:
+            if not self._buffer:
+                return
+            line = self._buffer
+            self._buffer = ""
+            self._emit(line)
+
+    def _emit(self, line: str) -> None:
+        cleaned = line.rstrip()
+        if not cleaned:
+            return
+        if getattr(_STREAM_LOGGING_STATE, "active", False):
+            return
+        try:
+            _STREAM_LOGGING_STATE.active = True
+            self._logger.log(self._level, "%s", cleaned)
+        finally:
+            _STREAM_LOGGING_STATE.active = False
 
 
 def uvicorn_log_config(level: int | str = "info", log_path: str | Path | None = None) -> dict[str, object]:

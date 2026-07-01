@@ -65,6 +65,9 @@ def test_rhythm_lab_status_endpoint_returns_launcher_status(monkeypatch) -> None
 
 def test_rhythm_lab_launcher_uses_project_python_and_source(monkeypatch, tmp_path: Path) -> None:
     commands: list[list[str]] = []
+    popen_kwargs: list[dict[str, object]] = []
+    mirrors: list[tuple[Path, int, object | None]] = []
+    log_path = tmp_path / "logs" / "rhythm-lab.log"
     pid_path = tmp_path / "rhythm_lab.pid"
 
     class FakeProcess:
@@ -75,7 +78,13 @@ def test_rhythm_lab_launcher_uses_project_python_and_source(monkeypatch, tmp_pat
 
     monkeypatch.setattr(rhythm_lab_launcher, "_pid_path", lambda: pid_path)
     monkeypatch.setattr(rhythm_lab_launcher, "_port_is_open", lambda *_: False)
-    monkeypatch.setattr(rhythm_lab_launcher.subprocess, "Popen", lambda command, **_: commands.append(command) or FakeProcess())
+    monkeypatch.setattr(rhythm_lab_launcher, "_log_path", lambda: log_path)
+    monkeypatch.setattr(rhythm_lab_launcher, "_start_log_mirror", lambda path, offset, process: mirrors.append((path, offset, process)))
+    monkeypatch.setattr(
+        rhythm_lab_launcher.subprocess,
+        "Popen",
+        lambda command, **kwargs: commands.append(command) or popen_kwargs.append(kwargs) or FakeProcess(),
+    )
     monkeypatch.setattr(rhythm_lab_launcher.time, "sleep", lambda _: None)
 
     result = rhythm_lab_launcher.launch_rhythm_lab(tmp_path / "library.sqlite")
@@ -94,6 +103,16 @@ def test_rhythm_lab_launcher_uses_project_python_and_source(monkeypatch, tmp_pat
     assert Path(commands[0][0]) == expected_python
     assert "--source" in commands[0]
     assert str(tmp_path / "library.sqlite") in commands[0]
+    assert popen_kwargs[0]["env"]["PYTHONUNBUFFERED"] == "1"
+    assert log_path.parent.exists()
+    assert len(mirrors) == 1
+    assert mirrors[0][0] == log_path
+    assert mirrors[0][1] == 0
+    assert mirrors[0][2].pid == 12345
+    if rhythm_lab_launcher.sys.platform == "win32":
+        creationflags = int(popen_kwargs[0]["creationflags"])
+        assert creationflags & rhythm_lab_launcher.subprocess.CREATE_NEW_PROCESS_GROUP
+        assert creationflags & rhythm_lab_launcher.subprocess.DETACHED_PROCESS
 
 
 def test_rhythm_lab_launcher_writes_pid_and_stops_managed_process(monkeypatch, tmp_path: Path) -> None:
@@ -108,6 +127,7 @@ def test_rhythm_lab_launcher_writes_pid_and_stops_managed_process(monkeypatch, t
 
     monkeypatch.setattr(rhythm_lab_launcher, "_pid_path", lambda: pid_path)
     monkeypatch.setattr(rhythm_lab_launcher, "_port_is_open", lambda *_: False)
+    monkeypatch.setattr(rhythm_lab_launcher, "_start_log_mirror", lambda *_args: None)
     monkeypatch.setattr(rhythm_lab_launcher.subprocess, "Popen", lambda *_args, **_kwargs: FakeProcess())
     monkeypatch.setattr(rhythm_lab_launcher.time, "sleep", lambda _: None)
     monkeypatch.setattr(rhythm_lab_launcher, "_is_rhythm_lab_process", lambda pid: pid == 12345)
@@ -154,6 +174,7 @@ def test_rhythm_lab_launcher_clears_pid_when_launch_process_exits(monkeypatch, t
 
     monkeypatch.setattr(rhythm_lab_launcher, "_pid_path", lambda: pid_path)
     monkeypatch.setattr(rhythm_lab_launcher, "_port_is_open", lambda *_: False)
+    monkeypatch.setattr(rhythm_lab_launcher, "_start_log_mirror", lambda *_args: None)
     monkeypatch.setattr(rhythm_lab_launcher.subprocess, "Popen", lambda *_args, **_kwargs: FakeProcess())
     monkeypatch.setattr(rhythm_lab_launcher.time, "sleep", lambda _: None)
 
@@ -180,6 +201,7 @@ def test_rhythm_lab_launcher_restores_existing_pid_when_launch_process_exits(mon
     monkeypatch.setattr(rhythm_lab_launcher, "_pid_path", lambda: pid_path)
     monkeypatch.setattr(rhythm_lab_launcher, "_port_is_open", lambda *_: False)
     monkeypatch.setattr(rhythm_lab_launcher, "_is_rhythm_lab_process", lambda pid: pid == 11111)
+    monkeypatch.setattr(rhythm_lab_launcher, "_start_log_mirror", lambda *_args: None)
     monkeypatch.setattr(rhythm_lab_launcher.subprocess, "Popen", lambda *_args, **_kwargs: FakeProcess())
     monkeypatch.setattr(rhythm_lab_launcher.time, "sleep", lambda _: None)
 
@@ -194,10 +216,43 @@ def test_rhythm_lab_launcher_restores_existing_pid_when_launch_process_exits(mon
 
 
 def test_rhythm_lab_launcher_reuses_running_server(monkeypatch, tmp_path: Path) -> None:
+    mirrors: list[tuple[Path, int, object | None]] = []
+    log_path = tmp_path / "rhythm_lab.log"
+    log_path.write_text("old log\n", encoding="utf-8")
     monkeypatch.setattr(rhythm_lab_launcher, "_pid_path", lambda: tmp_path / "rhythm_lab.pid")
+    monkeypatch.setattr(rhythm_lab_launcher, "_log_path", lambda: log_path)
+    monkeypatch.setattr(rhythm_lab_launcher, "_start_log_mirror", lambda path, offset, process: mirrors.append((path, offset, process)))
     monkeypatch.setattr(rhythm_lab_launcher, "_port_is_open", lambda *_: True)
+    monkeypatch.setattr(
+        rhythm_lab_launcher.subprocess,
+        "Popen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("Rhythm Lab should not be launched twice")),
+    )
 
     result = rhythm_lab_launcher.launch_rhythm_lab(tmp_path / "library.sqlite")
 
     assert result["already_running"] is True
     assert result["source_db"] == str(tmp_path / "library.sqlite")
+    assert mirrors == [(log_path, log_path.stat().st_size, None)]
+
+
+def test_rhythm_lab_log_mirror_prints_new_lines_with_prefix(tmp_path: Path, capsys) -> None:
+    log_path = tmp_path / "rhythm_lab.log"
+    old_text = b"old line\n"
+    log_path.write_bytes(old_text + b"new line\n")
+
+    class FinishedProcess:
+        def poll(self) -> int:
+            return 0
+
+    rhythm_lab_launcher._mirror_log_to_console(log_path, len(old_text), FinishedProcess())
+
+    captured = capsys.readouterr()
+    assert captured.out == "[Rhythm Lab] new line\n"
+
+
+def test_rhythm_lab_default_log_path_uses_logs_directory() -> None:
+    log_path = rhythm_lab_launcher._log_path()
+
+    assert log_path.name == "rhythm-lab.log"
+    assert log_path.parent.name == "logs"

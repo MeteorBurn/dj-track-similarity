@@ -61,6 +61,24 @@ branches, or history are available.
 For local checks and manual runs against the real library database, use
 `C:\db\abstracted.sqlite` unless the user gives another path.
 
+## Runtime Logs
+
+Runtime logs that are written by the main app or helper processes launched from
+it live under `logs/`. The main app writes `logs/dj-track-similarity.log`; the
+Rhythm Lab process launched from the main UI writes `logs/rhythm-lab.log` and
+mirrors new lines back to the main server console with a `[Rhythm Lab]` prefix.
+
+The main app log owns the project-wide daily rotation rule. When
+`logs/dj-track-similarity.log` rolls over at midnight, every active `*.log` file
+in `logs/` is archived with the same dated suffix, truncated for the next day,
+and old backups are pruned with the same retention rule. Future runtime logs
+started by the main app should use `logs/<name>.log` so they share that policy.
+
+Keep `logs/.gitkeep` tracked so the directory exists, but never commit generated
+`logs/*.log` files. Tool report logs under `tools/audio-doctor/data/reports/`
+and `tools/audio-dedup/data/reports/` are report artifacts, not shared runtime
+logs.
+
 ## Safety Invariants
 
 - Treat real audio files as user data. Scanning, RefreshTags, analysis, search,

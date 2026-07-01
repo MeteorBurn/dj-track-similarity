@@ -51,7 +51,6 @@ set "EXIT_CODE=%ERRORLEVEL%"
 
 echo.
 echo Server stopped with exit code %EXIT_CODE%.
-pause
 exit /b %EXIT_CODE%
 
 :pause_error

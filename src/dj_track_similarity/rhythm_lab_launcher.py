@@ -5,6 +5,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -13,10 +14,14 @@ from typing import Any
 RHYTHM_LAB_HOST = "127.0.0.1"
 RHYTHM_LAB_PORT = 8777
 RHYTHM_LAB_URL = f"http://{RHYTHM_LAB_HOST}:{RHYTHM_LAB_PORT}/"
+_LOG_MIRROR_LOCK = threading.Lock()
+_LOG_MIRROR_THREADS: dict[Path, threading.Thread] = {}
 
 
 def launch_rhythm_lab(source_db: Path | None = None) -> dict[str, Any]:
+    log_path = _log_path()
     if _port_is_open(RHYTHM_LAB_HOST, RHYTHM_LAB_PORT):
+        _start_log_mirror(log_path, _file_size(log_path), None)
         return {
             "url": RHYTHM_LAB_URL,
             "already_running": True,
@@ -27,7 +32,6 @@ def launch_rhythm_lab(source_db: Path | None = None) -> dict[str, Any]:
     repo_root = Path(__file__).resolve().parents[2]
     script = repo_root / "tools" / "rhythm-lab" / "rhythm_lab_cli.py"
     labels = repo_root / "tools" / "rhythm-lab" / "data" / "rhythm_lab.sqlite"
-    log_path = repo_root / "dj-track-similarity-rhythm-lab.log"
     if not script.exists():
         raise RuntimeError(f"Rhythm Lab CLI not found: {script}")
     labels.parent.mkdir(parents=True, exist_ok=True)
@@ -47,13 +51,17 @@ def launch_rhythm_lab(source_db: Path | None = None) -> dict[str, Any]:
         command.extend(["--source", str(source_db)])
 
     previous_pid = _read_pid()
+    log_start_offset = _file_size(log_path)
+    env = os.environ.copy()
+    env["PYTHONUNBUFFERED"] = "1"
     startupinfo = None
     creationflags = 0
     if sys.platform == "win32":
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
 
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("ab") as log_file:
         process = subprocess.Popen(
             command,
@@ -63,7 +71,9 @@ def launch_rhythm_lab(source_db: Path | None = None) -> dict[str, Any]:
             stdin=subprocess.DEVNULL,
             startupinfo=startupinfo,
             creationflags=creationflags,
+            env=env,
         )
+    _start_log_mirror(log_path, log_start_offset, process)
     _write_pid(process.pid)
     for _ in range(20):
         if _port_is_open(RHYTHM_LAB_HOST, RHYTHM_LAB_PORT):
@@ -119,6 +129,56 @@ def _port_is_open(host: str, port: int) -> bool:
 
 def _pid_path() -> Path:
     return Path(__file__).resolve().parents[2] / "tools" / "rhythm-lab" / "data" / "rhythm_lab.pid"
+
+
+def _log_path() -> Path:
+    return Path(__file__).resolve().parents[2] / "logs" / "rhythm-lab.log"
+
+
+def _file_size(path: Path) -> int:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
+
+
+def _start_log_mirror(log_path: Path, start_offset: int, process: Any | None) -> None:
+    log_path = log_path.resolve()
+    with _LOG_MIRROR_LOCK:
+        existing_thread = _LOG_MIRROR_THREADS.get(log_path)
+        if existing_thread is not None and existing_thread.is_alive():
+            return
+        thread = threading.Thread(
+            target=_mirror_log_to_console,
+            args=(log_path, start_offset, process),
+            name="rhythm-lab-log-mirror",
+            daemon=True,
+        )
+        _LOG_MIRROR_THREADS[log_path] = thread
+        thread.start()
+
+
+def _mirror_log_to_console(log_path: Path, start_offset: int, process: Any | None) -> None:
+    try:
+        with log_path.open("rb") as log_file:
+            log_file.seek(start_offset)
+            while True:
+                line = log_file.readline()
+                if line:
+                    text = line.decode("utf-8", errors="replace")
+                    print(f"[Rhythm Lab] {text}", end="", flush=True)
+                    continue
+                if process is not None and process.poll() is not None:
+                    return
+                time.sleep(0.25)
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        print(f"[Rhythm Lab] log mirror stopped: {error}", file=sys.stderr, flush=True)
+    finally:
+        with _LOG_MIRROR_LOCK:
+            if _LOG_MIRROR_THREADS.get(log_path) is threading.current_thread():
+                _LOG_MIRROR_THREADS.pop(log_path, None)
 
 
 def _write_pid(pid: int) -> None:

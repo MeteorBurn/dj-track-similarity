@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
@@ -10,7 +11,7 @@ LOG_ENV_VAR = "DJ_TRACK_SIMILARITY_LOG"
 LOG_LEVEL_ENV_VAR = "DJ_TRACK_SIMILARITY_LOG_LEVEL"
 LOG_TRACK_EVENTS_ENV_VAR = "DJ_TRACK_SIMILARITY_LOG_TRACK_EVENTS"
 ANALYSIS_DIAGNOSTICS_ENV_VAR = "DJ_TRACK_SIMILARITY_ANALYSIS_DIAGNOSTICS"
-DEFAULT_LOG_PATH = Path("dj-track-similarity.log")
+DEFAULT_LOG_PATH = Path("logs") / "dj-track-similarity.log"
 FILE_HANDLER_NAME = "dj_track_similarity_file"
 _LOG_TRACK_EVENTS: bool | None = None
 _ANALYSIS_DIAGNOSTICS: bool | None = None
@@ -43,7 +44,7 @@ def configure_logging(
         logger.removeHandler(handler)
         handler.close()
 
-    handler = TimedRotatingFileHandler(path, when="midnight", interval=1, backupCount=1, encoding="utf-8")
+    handler = ProjectTimedRotatingFileHandler(path, when="midnight", interval=1, backupCount=1, encoding="utf-8")
     handler.name = FILE_HANDLER_NAME
     handler.setLevel(numeric_level)
     handler.setFormatter(
@@ -125,3 +126,59 @@ def exception_summary(error: Exception) -> str:
 def log_failure(logger: logging.Logger, message: str, *args: object, **kwargs: object) -> None:
     logger.error(message, *args, **kwargs)
     logger.debug(message, *args, exc_info=True, **kwargs)
+
+
+class ProjectTimedRotatingFileHandler(TimedRotatingFileHandler):
+    def doRollover(self) -> None:
+        active_path = Path(self.baseFilename).resolve()
+        sibling_logs = [
+            path
+            for path in active_path.parent.glob("*.log")
+            if path.resolve() != active_path
+        ]
+        if self.utc:
+            time_tuple = time.gmtime(self.rolloverAt - self.interval)
+        else:
+            time_tuple = time.localtime(self.rolloverAt - self.interval)
+        suffix = time.strftime(self.suffix, time_tuple)
+
+        super().doRollover()
+        _rollover_project_sibling_logs(sibling_logs, suffix, self.backupCount)
+
+
+def _rollover_project_sibling_logs(log_paths: list[Path], suffix: str, backup_count: int) -> None:
+    for log_path in log_paths:
+        if not log_path.exists() or not log_path.is_file():
+            continue
+        rotated_path = log_path.with_name(f"{log_path.name}.{suffix}")
+        try:
+            content = log_path.read_bytes()
+            if rotated_path.exists():
+                rotated_path.unlink()
+            if content:
+                rotated_path.write_bytes(content)
+            log_path.write_bytes(b"")
+            _delete_old_log_backups(log_path, backup_count)
+        except OSError as error:
+            logging.getLogger("dj_track_similarity").warning(
+                "Could not rotate project log path=%s error=%s",
+                log_path,
+                error,
+            )
+
+
+def _delete_old_log_backups(active_path: Path, backup_count: int) -> None:
+    backups = sorted(active_path.parent.glob(f"{active_path.name}.*"))
+    if backup_count <= 0:
+        old_backups = backups
+    else:
+        old_backups = backups[:-backup_count]
+    for backup_path in old_backups:
+        try:
+            backup_path.unlink()
+        except OSError as error:
+            logging.getLogger("dj_track_similarity").warning(
+                "Could not delete old project log backup path=%s error=%s",
+                backup_path,
+                error,
+            )

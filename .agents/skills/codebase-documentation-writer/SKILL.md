@@ -75,20 +75,20 @@ Avoid marketing filler such as `enterprise-grade`, `seamless`, `state-of-the-art
 
 ## Documentation Surface
 
-Tracked documentation is:
+Use the current checkout as source of truth. The current `main` branch uses this tracked documentation surface:
 
 ```text
 README.md
 docs/dj-track-similarity/
 ```
 
-The English entrypoint is:
+The current `main` English entrypoint is:
 
 ```text
 docs/dj-track-similarity/project-guide.md
 ```
 
-Do **not** create a generic root docs layout like:
+On current `main`, do **not** create a generic root docs layout like:
 
 ```text
 docs/architecture.md
@@ -96,7 +96,7 @@ docs/user-guide.md
 docs/api.md
 ```
 
-That would be wrong for this repository. Use the existing VitePress sections instead:
+That would be wrong for current `main`. Use the existing VitePress sections instead:
 
 ```text
 docs/dj-track-similarity/getting-started/
@@ -109,13 +109,15 @@ docs/dj-track-similarity/developer/
 docs/dj-track-similarity/help/
 ```
 
+Branch-sensitive rule: older or alternate branches such as `dev` / `maim-backup` may have a flatter docs layout, Russian `docs/dj-track-similarity/ru/` pages, generated `docs/dj-track-similarity/site/`, or different route/tool surfaces. When working on any non-main checkout, re-read that checkout's `AGENTS.md`, `README.md`, docs tree, and `.vitepress/config.mts` before editing. Preserve the branch-local docs structure instead of forcing the current-main structure onto it.
+
 If adding a new VitePress page, also update:
 
 ```text
 docs/dj-track-similarity/.vitepress/config.mts
 ```
 
-and the nearest section `index.md`, otherwise the page exists but users will not find it. Tiny orphan docs are how documentation becomes a haunted attic.
+and the nearest section `index.md` when that branch uses section index pages. Otherwise the page exists but users will not find it. Tiny orphan docs are how documentation becomes a haunted attic.
 
 ## Language And Command Style
 
@@ -231,18 +233,31 @@ git status --short --branch
 git diff --stat
 ```
 
+Current `main` uses Vale for public documentation style. Read `.vale.ini`, `.vale/styles/config/vocabularies/DJTrackSimilarity/accept.txt`, and `docs/dj-track-similarity/scripts/run-vale.mjs` before changing lint behavior or vocabulary.
+
 After Markdown-only docs changes, run at least:
 
 ```powershell
 git diff --check -- README.md docs/dj-track-similarity
+cd docs\dj-track-similarity
+npm run check
 ```
 
-When practical for docs-tree changes, run the VitePress build from the docs package and do not commit generated output:
+`npm run check` runs strict Vale style checking for `README.md` plus the VitePress Markdown tree, then builds the static docs. On a fresh checkout or after `.vale.ini` package changes, run once first:
 
 ```powershell
 cd docs\dj-track-similarity
-npm run build
+npm run vale:sync
 ```
+
+Use this while editing when you want style findings without failing the command:
+
+```powershell
+cd docs\dj-track-similarity
+npm run lint:style
+```
+
+Do not commit generated `docs/dj-track-similarity/site/` output unless the branch explicitly tracks it.
 
 If the change affects source behavior, use the project verification matrix from `AGENTS.md`. Common checks:
 
@@ -251,7 +266,7 @@ python -m pytest
 cd frontend
 npm run build
 cd ..\docs\dj-track-similarity
-npm run build
+npm run check
 ```
 
 Use focused tests for touched behavior rather than full slow runs when appropriate. Examples:
@@ -455,4 +470,4 @@ Still unknown / needs human input:
 - Do not claim commands work unless they exist in manifests/scripts or were safely verified.
 - Do not hide uncertainty. Good docs say what is unknown.
 - Do not confuse maintainer docs with user docs. They answer different questions.
-- For `dj-track-similarity`, do not create docs outside the tracked README plus VitePress tree unless the user explicitly asks.
+- For `dj-track-similarity`, do not create docs outside the current checkout's tracked README/docs surface unless the user explicitly asks.

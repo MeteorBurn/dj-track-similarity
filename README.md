@@ -18,6 +18,7 @@ This is a practical personal project for local library work. The goal is simple:
 - Generate Smart Set Builder previews from selected seeds or automatic anchors.
 - Train and promote personal Rhythm Lab classifiers for concepts such as vocals, live instrumentation, or energy shape.
 - Export temporary sets as M3U or CSV.
+- Build optional persistent ANN sidecar indexes for faster repeated vector lookup on large analyzed libraries.
 - Use Audio Doctor and Audio Dedup as report-first maintenance tools.
 
 ## How It Thinks About Music
@@ -108,6 +109,27 @@ The main search surface is split into tabs:
 
 CLAP text scores are usually lower than seed-based audio-to-audio scores. Useful CLAP text results may sit around `0.35-0.55`. Do not compare them directly with MERT seed-search scores or Audio Dedup thresholds. If the CLAP `Avoid` field is filled, the shown score is contrast evidence: positive prompt match minus negative prompt match.
 
+## Optional Persistent Indexes
+
+Large analyzed libraries can use generated sidecar indexes for repeated MERT, MAEST, or CLAP vector lookup. They are optional: normal exact search still works without them.
+
+Build and verify one adapter at a time:
+
+```powershell
+dj-sim index build --adapter clap --db .\data\library.sqlite
+dj-sim index verify --adapter clap --db .\data\library.sqlite
+```
+
+Use the CLAP sidecar explicitly from text search:
+
+```powershell
+dj-sim text-search "warm dub techno pads" --use-ann-index --db .\data\library.sqlite
+```
+
+Generated indexes live beside the selected SQLite database by default under `.dj-track-similarity-indexes/`. They do not copy audio files or write new SQLite rows. Missing, stale, or unsupported sidecars warn and fall back to exact search.
+
+See [Persistent ANN indexes](docs/dj-track-similarity/tools-and-scripts/persistent-ann-indexes.md) for build backends, benchmarks, and cleanup commands.
+
 ## Personal Classifiers
 
 Rhythm Lab is the companion workflow for labels and local classifiers. It runs separately and reads the main library for context. Labels stay under `tools/rhythm-lab/data/`.
@@ -177,6 +199,7 @@ Start with:
 - [First analysis](docs/dj-track-similarity/getting-started/first-analysis.md)
 - [Search by text with CLAP](docs/dj-track-similarity/user-guide/text-search.md)
 - [Similarity scores](docs/dj-track-similarity/concepts/similarity-scores.md)
+- [Persistent ANN indexes](docs/dj-track-similarity/tools-and-scripts/persistent-ann-indexes.md)
 - [Audio Dedup](docs/dj-track-similarity/tools-and-scripts/audio-dedup.md)
 - [CLI reference](docs/dj-track-similarity/reference/cli.md)
 - [API reference](docs/dj-track-similarity/reference/api.md)
@@ -201,9 +224,10 @@ Build the docs site:
 
 ```powershell
 cd docs\dj-track-similarity
-npm run vale:sync
 npm run check
 ```
+
+Run `npm run vale:sync` first after a fresh checkout or when Vale packages change.
 
 The docs build output goes to `docs/dj-track-similarity/site/` and is not tracked in Git.
 

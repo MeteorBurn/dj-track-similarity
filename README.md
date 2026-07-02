@@ -1,14 +1,10 @@
-<p align="center">
-  <img src="img/dj-track-similarity-banner.png" alt="DJ Track Similarity" width="100%">
-</p>
-
-<p align="center">
-  <img src="img/rhythm-lab-banner.png" alt="Rhythm Lab" width="100%">
-</p>
-
 # 🎧 dj-track-similarity
 
 **Build DJ sets as stories from your own local music library.**
+
+<p align="center">
+  <img src="img/dj-track-similarity-banner.png" alt="DJ Track Similarity" width="100%">
+</p>
 
 `dj-track-similarity` is a local-first DJ library workbench for people with large music folders who want more than tag browsing, BPM matching, or a list of similar tracks.
 
@@ -91,6 +87,10 @@ That also defines the attitude of the project:
 - the final decision belongs to the DJ.
 
 This is not a commercial recommendation service and it is not a benchmark. It is a local workbench for exploration, set preparation, and learning.
+
+<p align="center">
+  <img src="img/rhythm-lab-banner.png" alt="Rhythm Lab" width="100%">
+</p>
 
 ## ✅ What the project can do today
 

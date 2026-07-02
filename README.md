@@ -10,7 +10,7 @@ The project is built around a bigger idea:
 
 A good set is not just a sequence of compatible files. It has an opening, tension, release, turns, chapters, and a destination. This project tries to help with that: choose a reference track, find candidates that fit technically and sonically, then gradually move the mood track by track until the set feels like one continuous musical narrative.
 
-![dj-track-similarity web UI]([https://i.ibb.co/FkKt31n3/Q3n-Az-F6u7-T.png](https://i.ibb.co/RpR0tY7s/Chat-GPT-Image-2-2026-11-17-56-topaz-upscale-2-8x.jpg))
+![dj-track-similarity web UI]([https://i.ibb.co/FkKt31n3/Q3n-Az-F6u7-T.png](https://i.ibb.co/RpR0tY7s/Chat-GPT-Image-2-2026-11-17-56-topaz-upscale-2-8x.jpg)
 
 
 

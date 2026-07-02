@@ -14,7 +14,7 @@ UI `Analyze limit = 0` means whole library. Positive values count missing result
 
 ## Advanced controls
 
-Device is `auto`, `cpu`, or `cuda`. Track batch size controls decoded tracks held together; inference batch size controls model forward-pass batching; Top K controls stored MAEST labels.
+Device is `auto`, `cpu`, or `cuda`. Track batch size controls decoded tracks held together. Inference batch size controls model forward-pass batching. Top K controls stored MAEST labels.
 
 ## Write boundary
 

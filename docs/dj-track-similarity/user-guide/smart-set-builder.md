@@ -29,16 +29,16 @@ The strongest SET path expects stored MERT, MAEST, and CLAP audio embeddings plu
 
 ## Size and anchor controls
 
-- `Track limit` controls how many tracks the preview should return. Keep it small while tuning; increase it when the route already sounds coherent.
+- `Track limit` controls how many tracks the preview should return. Keep it small while tuning. Increase it when the route already sounds coherent.
 - `Auto anchors` controls how many waypoint anchors auto mode may use. More anchors can broaden the route, but too many can make the set feel less focused.
 
 ## Energy, diversity, and BPM controls
 
 - `Energy curve` shapes the broad arc. Use a rising curve for warm-up into peak, a falling curve to cool the set down, or a steadier curve when the set should stay locked.
-- `Diversity` pushes the preview away from near-duplicates. Raise it when results feel too samey; lower it when you want a narrow crate.
+- `Diversity` pushes the preview away from near-duplicates. Raise it when results feel too samey. Lower it when you want a narrow crate.
 - `BPM mode = general` keeps normal transition compatibility only, including half/double tempo matching where useful.
 - `BPM mode = low_to_high` or `high_to_low` adds an actual-BPM trajectory. Pair it with `BPM change` to control how quickly the route should climb or descend.
-- `Start BPM` and `Target BPM` are optional. Leave them blank to infer from the first seed/anchor and the library range; set them when you need a specific tempo plan.
+- `Start BPM` and `Target BPM` are optional. Leave them blank to infer from the first seed/anchor and the library range. Set them when you need a specific tempo plan.
 
 ## Classifier sliders
 

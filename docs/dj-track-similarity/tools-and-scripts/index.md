@@ -8,11 +8,11 @@ Start with the page that matches the job in front of you. The docs keep human wo
 
 ## Pages
 
-- [Rhythm Lab](rhythm-lab.md) — label and train personal classifiers.
-- [Audio Dedup](audio-dedup.md) — report likely duplicates before any delete.
-- [Audio Doctor](audio-doctor.md) — dry-run-first metadata/container repair.
-- [Persistent ANN indexes](persistent-ann-indexes.md) — optional generated sidecars for faster MERT, MAEST, or CLAP vector lookup.
-- [Optimize database](optimize-database.md) — backup, VACUUM, ANALYZE, and integrity checks.
+- [Rhythm Lab](rhythm-lab.md): label and train personal classifiers.
+- [Audio Dedup](audio-dedup.md): report likely duplicates before any delete.
+- [Audio Doctor](audio-doctor.md): dry-run-first metadata/container repair.
+- [Persistent ANN indexes](persistent-ann-indexes.md): optional generated sidecars for faster MERT, MAEST, or CLAP vector lookup.
+- [Optimize database](optimize-database.md): backup, VACUUM, ANALYZE, and integrity checks.
 
 ## Generated output
 

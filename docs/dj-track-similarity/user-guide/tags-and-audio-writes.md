@@ -14,7 +14,7 @@ Scan, Refresh Tags, analysis, search, previews, export, reset, clear, and reloca
 
 ## Tag fields
 
-MP3/WAV/AIFF ID3 use `TCON`; FLAC/Vorbis-style tags use `GENRE`; MP4/M4A/ALAC use `©gen`. WAV uses Mutagen WAVE/ID3 and reads back `TCON`.
+MP3/WAV/AIFF ID3 use `TCON`. FLAC/Vorbis-style tags use `GENRE`. MP4/M4A/ALAC use `©gen`. WAV uses Mutagen WAVE/ID3 and reads back `TCON`.
 
 ## Other explicit exceptions
 

@@ -8,10 +8,10 @@ Start with the page that matches the job in front of you. The docs keep human wo
 
 ## Pages
 
-- [Architecture](architecture.md) — backend, database, frontend, and tools.
-- [Development](development.md) — local setup and commands.
-- [Testing and verification](testing-and-verification.md) — risk-based checks.
-- [Release checklist](release-checklist.md) — final audit before publishing.
+- [Architecture](architecture.md): backend, database, frontend, and tools.
+- [Development](development.md): local setup and commands.
+- [Testing and verification](testing-and-verification.md): risk-based checks.
+- [Release checklist](release-checklist.md): final audit before publishing.
 
 ## Privacy habit
 

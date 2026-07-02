@@ -1,10 +1,10 @@
 # dj-track-similarity
 
-A local-first DJ library workbench for scanning music files, running audio analysis, finding related tracks, and preparing set ideas without uploading your collection anywhere.
+A local-first DJ library workbench for DJs who want search, analysis, related-track discovery, and set ideas without uploading their collection anywhere.
 
-`dj-track-similarity` is built for people who manage real local music libraries. It stores metadata and analysis results in SQLite, exposes a browser UI for day-to-day work, and keeps model outputs separate so you can see where each recommendation comes from.
+`dj-track-similarity` is built for people who manage real local music libraries. SQLite stores metadata and analysis results. The browser UI keeps day-to-day work close to the model outputs, so you can see where each recommendation comes from.
 
-It is a practical personal project, not a commercial recommendation service or a formal benchmark. The goal is simple: help you move faster from "I have a large folder of tracks" to "these are candidates worth listening to together."
+This is a practical personal project for local library work. The goal is simple: help you move faster from "I have a large folder of tracks" to "these are candidates worth listening to together."
 
 ![dj-track-similarity web UI](https://i.ibb.co/FkKt31n3/Q3n-Az-F6u7-T.png)
 
@@ -69,7 +69,7 @@ Open:
 http://127.0.0.1:8765/
 ```
 
-The browser should show your scanned tracks. From there you can browse the library, open metadata, preview audio, choose seed tracks, and start analysis jobs.
+The browser should show your scanned tracks. The library view opens metadata and audio preview controls. Use the search panels for seed selection and analysis jobs.
 
 There is also a Windows launcher:
 
@@ -106,11 +106,11 @@ The main search surface is split into tabs:
 - **CLAP** searches with a text prompt against stored CLAP audio embeddings.
 - **CLASS** filters or scores with promoted local classifier profiles.
 
-CLAP text scores are usually lower than seed-based audio-to-audio scores. Useful CLAP text results may sit around `0.35-0.55`; they should not be compared directly with MERT seed-search scores or Audio Dedup thresholds. If the CLAP `Avoid` field is filled, the shown score is contrast evidence: positive prompt match minus negative prompt match.
+CLAP text scores are usually lower than seed-based audio-to-audio scores. Useful CLAP text results may sit around `0.35-0.55`. Do not compare them directly with MERT seed-search scores or Audio Dedup thresholds. If the CLAP `Avoid` field is filled, the shown score is contrast evidence: positive prompt match minus negative prompt match.
 
 ## Personal Classifiers
 
-Rhythm Lab is the companion workflow for labels and local classifiers. It runs separately, reads the main library for context, and stores labels under `tools/rhythm-lab/data/`.
+Rhythm Lab is the companion workflow for labels and local classifiers. It runs separately and reads the main library for context. Labels stay under `tools/rhythm-lab/data/`.
 
 Start it with:
 
@@ -162,7 +162,7 @@ The explicit write paths are narrow:
 - MAEST genre tag apply can write standard genre tags to audio files.
 - Audio Doctor `--apply` can repair files after a dry run.
 - Audio Dedup apply mode can delete confirmed duplicate candidates.
-- Relocation apply updates stored SQLite paths only; it does not move files.
+- Relocation apply updates stored SQLite paths only. It does not move files.
 
 Local databases, logs, reports, and trained models may reveal private library information. Keep them out of Git unless you intentionally decide otherwise.
 
@@ -201,7 +201,8 @@ Build the docs site:
 
 ```powershell
 cd docs\dj-track-similarity
-npm run build
+npm run vale:sync
+npm run check
 ```
 
 The docs build output goes to `docs/dj-track-similarity/site/` and is not tracked in Git.

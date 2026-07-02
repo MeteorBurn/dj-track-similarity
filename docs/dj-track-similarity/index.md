@@ -4,7 +4,7 @@
 > Goal: Understand what dj-track-similarity is, why it is useful, and where to go next.
 > Type: explanation
 
-`dj-track-similarity` is a local-first music-library helper. It scans tags, stores analysis in SQLite, and helps you find candidates for crates, transitions, text prompts, and set previews. It is a public personal utility, not a commercial recommendation engine or research benchmark.
+`dj-track-similarity` is a local-first music-library helper. It scans tags and stores analysis in SQLite. Use it to find candidates for crates, transitions, text prompts, and set previews. This is a public personal utility for self-managed libraries.
 
 ## What it gives you
 
@@ -26,15 +26,15 @@ flowchart LR
 
 ## Safety in one sentence
 
-Most app workflows read audio and write SQLite only. The explicit exceptions are MAEST genre tag apply, Audio Doctor `--apply`, and Audio Dedup apply/delete; relocation apply updates stored SQLite paths only.
+Most app workflows read audio and write SQLite only. The explicit exceptions are MAEST genre tag apply, Audio Doctor `--apply`, and Audio Dedup apply/delete. Relocation apply updates stored SQLite paths only.
 
 ## Start here
 
-- [Getting started](./getting-started/index.md) — install, scan, analyze, and see the first useful results.
-- [User guide](./user-guide/index.md) — daily UI work: browse, search, sets, exports, and safe tag writes.
-- [Workflows](./workflows/index.md) — DJ-shaped recipes for preparing a set or maintaining a collection.
-- [Concepts](./concepts/index.md) — plain explanations of features, embeddings, scores, and routing.
-- [Tools and scripts](./tools-and-scripts/index.md) — Rhythm Lab, duplicate reports, repair helper, and database optimization.
-- [Reference](./reference/index.md) — concise CLI, API, database, config, analysis, and UI facts.
-- [Developer](./developer/index.md) — architecture, local development, verification, and release checks.
-- [Help](./help/index.md) — troubleshooting, FAQ, and current limits.
+- [Getting started](./getting-started/index.md): install, scan, analyze, and see the first useful results.
+- [User guide](./user-guide/index.md): daily UI work: browse, search, sets, exports, and safe tag writes.
+- [Workflows](./workflows/index.md): DJ-shaped recipes for preparing a set or maintaining a collection.
+- [Concepts](./concepts/index.md): plain explanations of features, embeddings, scores, and routing.
+- [Tools and scripts](./tools-and-scripts/index.md): covers Rhythm Lab plus maintenance helpers for duplicates, repairs, and database optimization.
+- [Reference](./reference/index.md): concise CLI, API, database, config, analysis, and UI facts.
+- [Developer](./developer/index.md): architecture, local development, verification, and release checks.
+- [Help](./help/index.md): troubleshooting, FAQ, and current limits.

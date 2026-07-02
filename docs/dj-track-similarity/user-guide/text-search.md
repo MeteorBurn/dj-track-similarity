@@ -20,4 +20,4 @@ The visible `Negative` field is a hard-negative bank, not a diffusion-style nega
 
 A high score means the prompt vector is close to the stored audio embedding. It is not proof that the track fits your exact context.
 
-CLAP text-to-audio scores often sit below seed-based audio searches. In this library, useful text results can be around `0.35-0.55`; do not reuse a high MERT or audio-to-audio threshold without checking the result list. If `Negative` is enabled, the shown score is contrast-style evidence: pooled positive prompt match minus `0.35 * max(hard-negative match)`.
+CLAP text-to-audio scores often sit below seed-based audio searches. In this library, useful text results can be around `0.35-0.55`. Do not reuse a high MERT or audio-to-audio threshold without checking the result list. If `Negative` is enabled, the shown score is contrast-style evidence: pooled positive prompt match minus `0.35 * max(hard-negative match)`.

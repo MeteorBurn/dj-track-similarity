@@ -8,9 +8,9 @@ Start with the page that matches the job in front of you. The docs keep human wo
 
 ## Pages
 
-- [Troubleshooting](troubleshooting.md) — symptom-based fixes.
-- [FAQ](faq.md) — short answers.
-- [Known limits](known-limits.md) — current boundaries.
+- [Troubleshooting](troubleshooting.md): symptom-based fixes.
+- [FAQ](faq.md): short answers.
+- [Known limits](known-limits.md): current boundaries.
 
 ## Privacy habit
 

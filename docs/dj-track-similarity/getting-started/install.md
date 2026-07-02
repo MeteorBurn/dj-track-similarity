@@ -13,7 +13,7 @@
 
 ## Base install
 
-The base package is enough for scanning, browsing the UI, serving the backend, and working with already stored data:
+The base package is enough for scanning and everyday UI browsing. It can serve the backend and work with already stored data:
 
 ```powershell
 python -m venv .venv
@@ -44,4 +44,9 @@ Without this extra, `dj-sim index build --backend auto` can still fall back to a
 
 ## Build assets
 
-Build frontend from `frontend/` only when frontend source changes. Build docs from `docs\dj-track-similarity` with `npm run build` only when you intentionally need local site output or deployment output. The docs build writes `site/`, which is ignored by Git.
+Build frontend from `frontend/` only when frontend source changes. Check docs from
+`docs\dj-track-similarity` with `npm run check` when `README.md`, VitePress Markdown, or docs config
+changes. Run `npm run vale:sync` once first if the Vale styles have not been installed locally. The
+check command runs strict Vale style checking and the site build. Use `npm run build` only when you
+intentionally need local site output or deployment output without the style check. The docs build
+writes `site/`, which is ignored by Git.

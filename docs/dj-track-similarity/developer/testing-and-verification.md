@@ -11,8 +11,12 @@ python -m pytest
 cd frontend
 npm run build
 cd ..\docs\dj-track-similarity
-npm run build
+npm run check
 ```
+
+`npm run check` runs strict Vale style checking for `README.md` plus the VitePress Markdown tree and
+the site build. Run `npm run vale:sync` once after a fresh checkout or when `.vale.ini` packages
+change. Use `npm run lint:style` when you want the same style report without failing the command.
 
 ## Focused examples
 

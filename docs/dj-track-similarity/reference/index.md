@@ -8,12 +8,12 @@ Start with the page that matches the job in front of you. The docs keep human wo
 
 ## Pages
 
-- [CLI](cli.md) — current command names and options.
-- [API](api.md) — active endpoints and payload shapes.
-- [Database](database.md) — schema and write boundaries.
-- [Configuration](configuration.md) — paths, ports, devices, and docs build.
-- [Analysis families](analysis-families.md) — what each model writes.
-- [UI controls](ui-controls.md) — labels, ranges, and meanings.
+- [CLI](cli.md): current command names and options.
+- [API](api.md): active endpoints and payload shapes.
+- [Database](database.md): schema and write boundaries.
+- [Configuration](configuration.md): paths, ports, devices, and docs build.
+- [Analysis families](analysis-families.md): what each model writes.
+- [UI controls](ui-controls.md): labels, ranges, and meanings.
 
 ## Privacy habit
 

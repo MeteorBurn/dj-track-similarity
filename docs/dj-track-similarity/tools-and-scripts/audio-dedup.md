@@ -20,4 +20,4 @@ The main UI opens Audio Dedup from the top toolbar. The UI supports preset selec
 
 ## Apply
 
-`--apply` is destructive. It prompts for exact confirmation `APPLY DELETE`, deletes only safe duplicate candidates inside the selected root, and removes SQLite rows only after files are successfully deleted.
+`--apply` is destructive. It prompts for exact confirmation `APPLY DELETE` before removing safe duplicate candidates inside the selected root. SQLite rows are removed only after files are successfully deleted.

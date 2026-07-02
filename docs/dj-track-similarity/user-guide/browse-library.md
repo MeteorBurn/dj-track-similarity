@@ -6,7 +6,7 @@
 
 ## List behavior
 
-The library is server-side paginated. Search by artist, title, genre, or path; use liked and classifier filters to narrow crates.
+The library is server-side paginated. Search by artist, title, genre, or path. Use liked and classifier filters to narrow crates.
 
 ## Metadata dialog
 

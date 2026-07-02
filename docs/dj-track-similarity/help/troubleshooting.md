@@ -10,7 +10,7 @@ Install or expose an FFmpeg binary on `PATH`, or set `DJ_TRACK_SIMILARITY_FFMPEG
 
 ## Analyze finds zero tracks
 
-Check that the database was scanned and that the selected models need missing results. UI `Analyze limit = 0` means whole library; CLI whole-library analysis omits `--limit`.
+Check that the database was scanned and that the selected models need missing results. UI `Analyze limit = 0` means whole library. CLI whole-library analysis omits `--limit`.
 
 ## CLAP text search is empty
 

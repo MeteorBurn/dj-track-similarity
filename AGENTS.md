@@ -242,9 +242,12 @@ should use `logs/<name>.log`.
 - Use deterministic test data and test-local stub adapters; automated tests should not depend on the real
   user music library.
 - After frontend source changes, run `npm run build` from `frontend/`.
-- When Markdown under `docs/dj-track-similarity/` changes, run focused docs checks. Build static docs with
-  `npm run build` from `docs/dj-track-similarity/` when previewing or deploying. If generated docs are
-  absent, the backend should show a clear "documentation is not built" page.
+- When Markdown under `README.md` or `docs/dj-track-similarity/` changes, use Vale as the public docs
+  style check. Run `npm run vale:sync` once after a fresh checkout or when `.vale.ini` packages change.
+  Then run `npm run check` from `docs/dj-track-similarity/`; it checks `README.md` plus the VitePress
+  Markdown tree with strict Vale failures and builds the static docs. Use `npm run lint:style` only when
+  you want a non-failing style report while editing. If generated docs are absent, the backend should
+  show a clear "documentation is not built" page.
 
 ## Plugin And External Tool Routing
 
@@ -267,7 +270,7 @@ Use the project-local venv when present: `.\.venv\Scripts\python.exe -m pip inst
 `.\.venv\Scripts\python.exe -m pytest`, and the focused pytest commands in the verification matrix.
 
 Common local runs: `dj-sim serve --host 127.0.0.1 --port 8765`, `run_server.cmd local`,
-`cd frontend; npm run build; npm run dev`, and `cd docs\dj-track-similarity; npm run build`.
+`cd frontend; npm run build; npm run dev`, and `cd docs\dj-track-similarity; npm run check`.
 
 Focused CLI examples: `dj-sim scan <path-to-music> --db .\data\library.sqlite`,
 `dj-sim analyze --models sonara,maest,mert,clap --limit 3 --db .\data\library.sqlite`,
@@ -291,7 +294,9 @@ and `.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py promote --pro
 - API contract changes: exercise the affected endpoint through tests or a local server, and align
   `frontend/src/api.ts`.
 - CLI changes: run the specific `dj-sim ...` command with a temp DB when practical.
-- Docs changes: normally run `npm run build` from `docs/dj-track-similarity/`.
+- Docs changes: run `npm run check` from `docs/dj-track-similarity/` when touching public Markdown or
+  docs config. It runs strict Vale style checking and the site build. For style-only
+  exploration, `npm run lint:style` is enough because it reports findings without failing.
 - Rhythm Lab changes: run `.\.venv\Scripts\python.exe -m pytest tools\rhythm-lab\tests\test_rhythm_lab.py --override-ini addopts=`.
   For promoted classifier scoring boundaries, include `tests\test_break_energy.py`.
 - Classifier train/promote hardening: copy source and labels DBs with the SQLite backup API, run

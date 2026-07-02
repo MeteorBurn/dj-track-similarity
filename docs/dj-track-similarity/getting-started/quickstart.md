@@ -4,7 +4,7 @@
 > Goal: Create a local library database and run enough analysis to try the UI.
 > Type: tutorial
 
-This path creates a SQLite library, checks the audio/ML dependencies, analyzes a small first batch, and opens the browser UI. It is intentionally small: a first batch gives you something to test before you spend time analyzing the whole collection.
+This path creates a SQLite library and checks the audio/ML dependencies. It analyzes a small first batch before opening the browser UI, so you can test the workflow before spending time on the full collection.
 
 ## 1. Install and check
 
@@ -23,7 +23,7 @@ Ready when: `dj-sim doctor` reports a usable environment. If it reports missing 
 dj-sim scan <music-folder> --db .\data\library.sqlite
 ```
 
-Scanning reads supported audio files, extracts human-readable tags, and stores paths plus metadata in the SQLite database. It does not analyze audio content yet, and it does not rewrite audio files.
+Scanning reads supported audio files and extracts human-readable tags. It stores paths plus metadata in the SQLite database. It does not analyze audio content yet, and it does not rewrite audio files.
 
 Ready when: the command prints added, updated, unchanged, and skipped counts, and the database file exists at the path you passed with `--db`.
 
@@ -33,9 +33,9 @@ Ready when: the command prints added, updated, unchanged, and skipped counts, an
 dj-sim analyze --models sonara,maest,mert,clap --limit 25 --db .\data\library.sqlite
 ```
 
-This fills enough SONARA features and MAEST, MERT, and CLAP results to make the search tabs useful. Use `--device auto` unless you specifically need `cpu` or verified `cuda`. Keep `--limit 25` for the first run; omit `--limit` only when you are ready to analyze the whole library from the CLI.
+This fills enough SONARA features and MAEST, MERT, and CLAP results to make the search tabs useful. Use `--device auto` unless you need `cpu` or verified `cuda`. Keep `--limit 25` for the first run. Omit `--limit` only when you are ready to analyze the whole library from the CLI.
 
-Ready when: the job finishes without errors and later searches show analyzed candidates. If decoding fails for particular files, run with `--diagnostics` to see decoder fallback details.
+Ready when: the job finishes without errors and later searches show analyzed candidates. If decoding fails for files, run with `--diagnostics` to see decoder fallback details.
 
 ## 4. Open the UI
 
@@ -45,4 +45,4 @@ dj-sim serve --host 127.0.0.1 --port 8765 --db .\data\library.sqlite
 
 Open `http://127.0.0.1:8765/`, browse the library, pick seeds, and try SET, SONARA, MERT, or CLAP search.
 
-Ready when: the page loads, the library counters match the scan, and the analyzed tracks appear in search results. If the server cannot start, check the port and the FFmpeg message first; browser audio preview also depends on FFmpeg being available.
+Ready when: the page loads and the library counters match the scan. The analyzed tracks should also appear in search results. If the server cannot start, check the port and the FFmpeg message first. Browser audio preview also depends on FFmpeg being available.

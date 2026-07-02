@@ -17,4 +17,9 @@ Before starting a fixed port, check whether a matching project process is alread
 
 ## Builds
 
-Build frontend from `frontend/` with `npm run build`. Build docs from `docs\dj-track-similarity` with `npm run build` when you need local preview or deployment output. The docs `site/` directory is generated output and is not tracked in Git.
+Build frontend from `frontend/` with `npm run build`. Check public docs from
+`docs\dj-track-similarity` with `npm run check`; it checks `README.md` plus the VitePress Markdown
+tree with strict Vale failures and builds VitePress. Run `npm run vale:sync` once after a fresh
+checkout or when `.vale.ini` packages change. Use `npm run lint:style` when you want a non-failing
+style report while editing. The docs `site/` directory is
+generated output and is not tracked in Git.

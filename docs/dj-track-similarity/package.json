@@ -5,6 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vitepress dev . --host 127.0.0.1",
+    "vale:sync": "node scripts/run-vale.mjs sync",
+    "vale:report": "node scripts/run-vale.mjs report",
+    "vale:strict": "node scripts/run-vale.mjs strict",
+    "lint:style": "node scripts/run-vale.mjs report",
+    "lint:style:strict": "node scripts/run-vale.mjs strict",
+    "check": "npm run lint:style:strict && npm run build",
     "build": "vitepress build .",
     "preview": "vitepress preview . --host 127.0.0.1"
   },

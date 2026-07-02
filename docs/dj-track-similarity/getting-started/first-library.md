@@ -6,7 +6,7 @@
 
 ## What a library is
 
-A library is a SQLite database with track paths, file facts, readable Mutagen tags, metadata JSON, and analysis flags. Scan reads metadata and writes SQLite rows; it does not retag audio.
+A library is a SQLite database with track paths, file facts, readable Mutagen tags, metadata JSON, and analysis flags. Scan reads metadata and writes SQLite rows. It does not retag audio.
 
 ## Scan
 

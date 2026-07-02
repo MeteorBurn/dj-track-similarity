@@ -18,7 +18,7 @@ The index command writes generated files under an index directory. By default, t
 
 You can override it with `--index-dir <index-folder>`. The generated sidecar contains vectors and track IDs needed for lookup. It does not copy audio files and does not write new SQLite rows.
 
-The default `.gitignore` excludes `.dj-track-similarity-indexes/`; keep custom index directories out of Git as well.
+The default `.gitignore` excludes `.dj-track-similarity-indexes/`. Keep custom index directories out of Git as well.
 
 ## Install the optional backend
 

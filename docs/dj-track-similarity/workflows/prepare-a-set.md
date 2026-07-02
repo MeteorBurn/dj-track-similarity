@@ -17,9 +17,9 @@ Treat the generated set as a shortlist, not a finished performance. The app can 
 ## Checkpoints
 
 1. Before generating: confirm the seeds represent the set idea and have enough analysis coverage for the search mode you want to use.
-2. After generating: listen through the proposed order, especially the first two transitions, the peak section, and any large tempo or energy moves.
-3. While pruning: remove tracks that are technically similar but wrong for the room, vocal density, drum feel, key tension, or personal taste.
-4. Before export: check the final count, order, and file availability. Export M3U when your DJ software should load files directly; export CSV when you want a review sheet.
+2. After generating, listen through the proposed order. Focus first on early transitions, then review the peak section and larger tempo or energy moves.
+3. Prune tracks that are technically similar but wrong for the room. Also check vocal density, drum feel, key tension, and personal taste.
+4. Before export: check the final count, order, and file availability. Export M3U when your DJ software should load files directly. Export CSV when you want a review sheet.
 
 ## Diagram
 

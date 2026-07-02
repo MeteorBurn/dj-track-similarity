@@ -4,7 +4,7 @@
 > Goal: Run the current unified analysis job and understand limit behavior.
 > Type: tutorial
 
-Run analysis after scanning so the app can compare tracks by measured audio features and model embeddings. Start small, confirm the results are useful, then scale up to the whole library.
+Run analysis after scanning so the app can compare tracks by measured audio features and model embeddings. Start with a small batch. Confirm the results are useful before scaling up to the whole library.
 
 ## Unified command
 

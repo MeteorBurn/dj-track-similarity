@@ -12,7 +12,7 @@ python scripts\optimize_database.py --db <library-db>
 
 ## Behavior
 
-The script checks integrity, creates a SQLite backup, runs `VACUUM`, `ANALYZE`, `PRAGMA optimize`, checkpoints WAL, and checks integrity again.
+The script checks integrity and creates a SQLite backup. It runs `VACUUM`, `ANALYZE`, `PRAGMA optimize`, checkpoints WAL, and checks integrity again.
 
 ## Safety
 

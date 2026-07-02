@@ -15,4 +15,4 @@
 
 ## Safety audit
 
-Review any code path that writes audio tags, deletes audio, relocates paths, resets analysis, or clears the database.
+Review any code path that writes audio tags or deletes audio. Also check relocation, analysis reset, and database clear paths.

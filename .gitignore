@@ -54,7 +54,11 @@ docs/dj-track-similarity/site/
 docs-legacy/
 
 # Vale package cache
-.vale/styles/
+.vale/styles/*
+!.vale/styles/config/
+!.vale/styles/config/vocabularies/
+!.vale/styles/config/vocabularies/DJTrackSimilarity/
+!.vale/styles/config/vocabularies/DJTrackSimilarity/**
 
 # Environment
 .env

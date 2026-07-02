@@ -8,10 +8,10 @@ Start with the page that matches the job in front of you. The docs keep human wo
 
 ## Pages
 
-- [Quickstart](quickstart.md) — shortest safe path.
-- [Install](install.md) — environment and dependencies.
-- [First library](first-library.md) — scan your music folder.
-- [First analysis](first-analysis.md) — run the unified analysis job.
+- [Quickstart](quickstart.md): shortest safe path.
+- [Install](install.md): environment and dependencies.
+- [First library](first-library.md): scan your music folder.
+- [First analysis](first-analysis.md): run the unified analysis job.
 
 ## Privacy habit
 

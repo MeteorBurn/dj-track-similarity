@@ -31,4 +31,8 @@ Generated databases, logs, reports, backups, promoted classifier artifacts, and 
 
 ## Docs
 
-From `docs\dj-track-similarity`, run `npm run build` only when you intentionally need local preview or deployment output. VitePress uses `base: "/docs/"` and `outDir: "site"`. The backend serves `/docs/` from that folder when it exists; otherwise it shows a clear not-built page.
+From `docs\dj-track-similarity`, run `npm run check` for normal docs verification. It runs
+strict Vale style checking for `README.md` plus the VitePress Markdown tree, and `npm run build`.
+Run `npm run vale:sync` once after a fresh checkout or when `.vale.ini` packages change. VitePress
+uses `base: "/docs/"` and `outDir: "site"`. The backend serves `/docs/` from that folder when it
+exists; otherwise it shows a clear not-built page.

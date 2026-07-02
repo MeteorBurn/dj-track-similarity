@@ -6,7 +6,7 @@
 
 ## Model
 
-Normal app workflows read audio and write SQLite state. Only named exceptions touch source audio or delete files.
+Normal app workflows read audio and write SQLite state. Only exceptions touch source audio or delete files.
 
 ## Map
 

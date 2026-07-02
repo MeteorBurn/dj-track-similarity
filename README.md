@@ -1,4 +1,4 @@
-# dj-track-similarity
+# 🎧 dj-track-similarity
 
 **Build DJ sets as stories from your own local music library.**
 
@@ -10,7 +10,7 @@ The project is built around a bigger idea:
 
 A good set is not just a sequence of compatible files. It has an opening, tension, release, turns, chapters, and a destination. This project helps turn a reference track into a short list that can shift mood gradually while staying coherent.
 
-## The core idea
+## ✨ The core idea
 
 Most DJ tools start with the basic layer:
 
@@ -44,7 +44,7 @@ The real goal is closer to:
 
 Similarity is only a building block. The larger ambition is **dramaturgy**.
 
-## Library Problem
+## 🧭 Library Problem
 
 Large personal libraries hide a lot of forgotten music. You may own the perfect next track, but it is buried somewhere inside thousands of files.
 
@@ -69,7 +69,7 @@ A typical use case:
 
 The set becomes less like a static playlist and more like a musical path.
 
-## Author note
+## 📝 Author note
 
 This is a personal enthusiast project.
 
@@ -84,7 +84,7 @@ That also defines the attitude of the project:
 
 This is not a commercial recommendation service and it is not a benchmark. It is a local workbench for exploration, set preparation, and learning.
 
-## What the project can do today
+## ✅ What the project can do today
 
 The current application already supports the practical parts of that vision:
 
@@ -101,7 +101,7 @@ The current application already supports the practical parts of that vision:
 - Export the current set as M3U or CSV.
 - Run report-first helper tools for Audio Doctor, Audio Dedup, database optimization, and optional ANN sidecar indexes.
 
-## The long-term direction
+## 🚧 The long-term direction
 
 The north star is a DJ assistant that can help generate a playable musical narrative from:
 
@@ -120,7 +120,7 @@ opening mood -> first turn -> deeper chapter -> tension -> release -> final dest
 
 The current project should be understood as a local-first foundation for that idea. Some parts are already implemented as search, SET, Hybrid, CLAP text search, classifier scoring, and playlist export. Other parts are still a product direction rather than a finished automatic DJ.
 
-## How the pieces fit
+## 🧩 How the pieces fit
 
 ```text
 audio files -> scan tags -> SQLite library -> browse/search/export
@@ -142,35 +142,25 @@ The app keeps evidence sources separate:
 
 A file genre tag, a MAEST genre label, a CLAP text score, and an audio-to-audio duplicate score answer different questions. They can all help, but they should not be treated as one universal truth scale.
 
-## Upstream models and licenses
+## 🔗 Upstream models and licenses
 
-Optional packages download or load upstream tools and checkpoints during analysis, while this repository avoids vendoring or redistributing those weights. The table below gives attribution and practical license notes rather than legal advice. Check upstream terms before redistribution, hosted service use, commercial use, or published research.
+Optional analysis uses upstream projects and downloaded checkpoints, including [SONARA](https://github.com/kkollsga/sonara), [MAEST](https://github.com/openmirlab/maest-infer), [MERT](https://github.com/yizhilll/MERT), [MuQ](https://github.com/tencent-ailab/muq), and [LAION CLAP](https://github.com/LAION-AI/CLAP). The repository does not vendor model weights, and upstream code and weights may use different licenses, so check source terms for anything beyond local personal use. See [model citations and licenses](docs/dj-track-similarity/reference/model-citations.md) for details.
 
-| Signal | Used here | Upstream citation | License note |
-| --- | --- | --- | --- |
-| SONARA | `sonara` package in playlist mode, stored as `sonara-playlist-lab` | [kkollsga/sonara](https://github.com/kkollsga/sonara) | Upstream repository is MIT licensed. |
-| MAEST | `discogs-maest-30s-pw-129e-519l` through `maest-infer` | [openmirlab/maest-infer](https://github.com/openmirlab/maest-infer), original [palonso/MAEST](https://github.com/palonso/MAEST) | `maest-infer` is AGPL-3.0-only and asks research users to cite the original MAEST paper. |
-| MERT | `m-a-p/MERT-v1-95M` through Hugging Face Transformers | [yizhilll/MERT](https://github.com/yizhilll/MERT), [MERT-v1-95M checkpoint](https://huggingface.co/m-a-p/MERT-v1-95M) | GitHub code is Apache-2.0. The checkpoint page is marked CC-BY-NC-4.0. |
-| MuQ | `OpenMuQ/MuQ-large-msd-iter` through the `muq` package | [tencent-ailab/muq](https://github.com/tencent-ailab/muq), [MuQ-large-msd-iter checkpoint](https://huggingface.co/OpenMuQ/MuQ-large-msd-iter) | Upstream code is MIT. Released MuQ weights are CC-BY-NC-4.0. |
-| CLAP | LAION CLAP with `lukewys/laion_clap/music_audioset_epoch_15_esc_90.14.pt` | [LAION-AI/CLAP](https://github.com/LAION-AI/CLAP), [checkpoint file](https://huggingface.co/lukewys/laion_clap/blob/main/music_audioset_epoch_15_esc_90.14.pt) | LAION CLAP code is Apache-2.0. The checkpoint listing is marked CC0-1.0. |
+## 🎚️ Main workflows
 
-See [upstream model citations and licenses](docs/dj-track-similarity/reference/model-citations.md) for the same information in the docs.
-
-## Main workflows
-
-### 1. Rediscover your own library
+### 1. 🔍 Rediscover your own library
 
 Use the browser, filters, likes, metadata, analysis coverage, CLAP text search, and seed search to find tracks that match a sound you have in mind.
 
 This is useful even when you are not building a set. The project can act like a discovery layer for hidden tracks and unusual textures in your own collection, including songs that match a specific atmosphere.
 
-### 2. Start from a reference track
+### 2. 🎯 Start from a reference track
 
 Pick one or more tracks as seeds. The system can rank candidates around the seed using audio-space proximity and SONARA compatibility. Hybrid profiles remain available for diagnostic previews.
 
 This is useful when you have a track that feels special but you do not know what should come after it.
 
-### 3. Build a gradual flow
+### 3. 🌊 Build a gradual flow
 
 Smart Set Builder can create a read-only ordered preview from manual seeds or automatic anchors.
 
@@ -186,7 +176,7 @@ The goal is to create a flow that can respect:
 - artist pressure;
 - user-selected set mode.
 
-### 4. Search by text
+### 4. 💬 Search by text
 
 After CLAP audio embeddings exist, the CLAP tab can search your library from text prompts such as:
 
@@ -196,7 +186,7 @@ dark hypnotic techno, rolling bass, low light, late night tension
 
 CLAP text-search scores are not the same scale as seed-based audio-to-audio scores. Good text results can have lower raw scores. Treat them as prompt evidence, not as a universal similarity value.
 
-### 5. Train personal classifiers
+### 5. 🧪 Train personal classifiers
 
 Rhythm Lab is a separate local app for turning your own listening decisions into optional classifier scores. The main UI can launch or reuse Rhythm Lab at `127.0.0.1:8777`, and it can save the current set as a Rhythm Lab review collection.
 
@@ -221,7 +211,7 @@ dj-sim analyze-classifier live_instrumentation --db ./data/library.sqlite
 
 See [Rhythm Lab](docs/dj-track-similarity/tools-and-scripts/rhythm-lab.md), [Train a personal classifier](docs/dj-track-similarity/workflows/train-personal-classifier.md), and [CLASS tab](docs/dj-track-similarity/user-guide/class-tab.md).
 
-## Quick start
+## 🚀 Quick start
 
 Verified local development is Windows-first, but the Python package and web app are ordinary local tools. The command examples assume the environment is active.
 
@@ -268,7 +258,7 @@ run_server.cmd lan --db C:/db/abstracted.sqlite
 
 `local` binds to `127.0.0.1`. `lan` binds to `0.0.0.0` and prints a LAN URL.
 
-## Add model-backed analysis
+## 🧠 Add model-backed analysis
 
 The base install is enough for scan, browse, UI serving, existing SQLite data, and set export. Install optional analysis dependencies when you want the model jobs:
 
@@ -295,7 +285,7 @@ MuQ uses the optional `ml` dependencies and official `OpenMuQ/MuQ-large-msd-iter
 
 In the CLI, omit `--limit` to analyze the whole library. In the UI, `Analyze limit = 0` means the whole library.
 
-## Main UI surfaces
+## 🖥️ Main UI surfaces
 
 The browser UI is split into three working areas:
 
@@ -311,7 +301,7 @@ The search panel uses these tabs:
 - **CLAP** searches from text prompts against stored CLAP audio embeddings.
 - **CLASS** filters and rescans promoted local classifier profiles.
 
-## Maintenance tools
+## 🛠️ Maintenance tools
 
 - **Audio Doctor** checks audio metadata/container issues. It is dry-run-first. Apply mode requires exact `APPLY REPAIR` and existing dry-run state. See [Audio Doctor](docs/dj-track-similarity/tools-and-scripts/audio-doctor.md).
 - **Audio Dedup** reports duplicate candidates from stored analysis data. Apply mode requires exact `APPLY DELETE` and deletes only safe candidates inside the selected root. See [Audio Dedup](docs/dj-track-similarity/tools-and-scripts/audio-dedup.md).
@@ -327,7 +317,7 @@ python scripts/optimize_database.py --db ./data/library.sqlite
 python scripts/optimize_database.py --db tools/rhythm-lab/data/rhythm_lab.sqlite
 ```
 
-## Safety model
+## 🛡️ Safety model
 
 Default workflows do not modify source audio files:
 
@@ -352,7 +342,7 @@ Explicit write paths are narrow:
 
 SQLite databases, logs, reports, generated indexes, and promoted classifier artifacts can reveal library information. Keep them out of Git unless you intentionally choose otherwise.
 
-## Documentation
+## 📚 Documentation
 
 Start here:
 
@@ -371,7 +361,7 @@ Start here:
 - [CLI reference](docs/dj-track-similarity/reference/cli.md)
 - [Model citations and licenses](docs/dj-track-similarity/reference/model-citations.md)
 
-## Development checks
+## 🧪 Development checks
 
 Run backend tests:
 

@@ -5,10 +5,10 @@ import errno
 import sys
 import logging
 import os
+import re
 import threading
 import time
 from collections.abc import Callable
-from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
 
@@ -18,9 +18,11 @@ LOG_TRACK_EVENTS_ENV_VAR = "DJ_TRACK_SIMILARITY_LOG_TRACK_EVENTS"
 ANALYSIS_DIAGNOSTICS_ENV_VAR = "DJ_TRACK_SIMILARITY_ANALYSIS_DIAGNOSTICS"
 DEFAULT_LOG_PATH = Path("logs") / "dj-track-similarity.log"
 FILE_HANDLER_NAME = "dj_track_similarity_file"
+FILE_BACKUP_COUNT = 1
 LOG_DATE_FORMAT = "%Y-%m-%d] [%H:%M:%S"
 FILE_LOG_FORMAT = "[%(asctime)s] [%(levelname)s] %(name)s %(message)s"
 CONSOLE_LOG_FORMAT = "[%(asctime)s] [%(levelname)s] %(message)s"
+LOG_START_DATE_PATTERN = re.compile(rb"(?m)^\[(\d{4}-\d{2}-\d{2})\]")
 _LOG_TRACK_EVENTS: bool | None = None
 _ANALYSIS_DIAGNOSTICS: bool | None = None
 _ASYNCIO_HANDLER_MARKER = "_dj_track_similarity_asyncio_exception_logging"
@@ -87,10 +89,11 @@ def install_standard_stream_logging(level: int | str | None = None) -> None:
     _install_standard_stream_logging(handler, numeric_level)
 
 
-def project_file_handler(filename: str | Path) -> ProjectTimedRotatingFileHandler:
+def project_file_handler(filename: str | Path) -> ProjectStartupFileHandler:
     path = Path(filename).resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
-    handler = ProjectTimedRotatingFileHandler(path, when="midnight", interval=1, backupCount=1, encoding="utf-8")
+    _rollover_project_logs_at_startup(path, FILE_BACKUP_COUNT)
+    handler = ProjectStartupFileHandler(path, backup_count=FILE_BACKUP_COUNT, encoding="utf-8")
     handler.name = FILE_HANDLER_NAME
     return handler
 
@@ -422,22 +425,67 @@ def log_failure(logger: logging.Logger, message: str, *args: object, **kwargs: o
     logger.debug(message, *args, exc_info=True, **kwargs)
 
 
-class ProjectTimedRotatingFileHandler(TimedRotatingFileHandler):
-    def doRollover(self) -> None:
-        active_path = Path(self.baseFilename).resolve()
-        sibling_logs = [
-            path
-            for path in active_path.parent.glob("*.log")
-            if path.resolve() != active_path
-        ]
-        if self.utc:
-            time_tuple = time.gmtime(self.rolloverAt - self.interval)
-        else:
-            time_tuple = time.localtime(self.rolloverAt - self.interval)
-        suffix = time.strftime(self.suffix, time_tuple)
+class ProjectStartupFileHandler(logging.FileHandler):
+    def __init__(self, filename: str | Path, *, backup_count: int, encoding: str) -> None:
+        self.backupCount = backup_count
+        super().__init__(filename, encoding=encoding)
 
-        super().doRollover()
-        _rollover_project_sibling_logs(sibling_logs, suffix, self.backupCount)
+
+def _rollover_project_logs_at_startup(active_path: Path, backup_count: int) -> None:
+    suffix = _startup_rollover_suffix(active_path)
+    if suffix is None:
+        return
+    sibling_logs = [
+        path
+        for path in active_path.parent.glob("*.log")
+        if path.resolve() != active_path
+    ]
+    if _archive_active_log_path(active_path, suffix, backup_count):
+        _rollover_project_sibling_logs(sibling_logs, suffix, backup_count)
+
+
+def _startup_rollover_suffix(active_path: Path) -> str | None:
+    if not active_path.exists() or not active_path.is_file():
+        return None
+    suffix = _read_log_start_date_suffix(active_path) or _file_mtime_date_suffix(active_path)
+    if suffix is None or suffix == _current_date_suffix():
+        return None
+    return suffix
+
+
+def _read_log_start_date_suffix(log_path: Path) -> str | None:
+    try:
+        with log_path.open("rb") as log_file:
+            chunk = log_file.read(65536)
+    except OSError:
+        return None
+    match = LOG_START_DATE_PATTERN.search(chunk)
+    if match is None:
+        return None
+    return match.group(1).decode("ascii")
+
+
+def _file_mtime_date_suffix(log_path: Path) -> str | None:
+    try:
+        return time.strftime("%Y-%m-%d", time.localtime(log_path.stat().st_mtime))
+    except OSError:
+        return None
+
+
+def _current_date_suffix() -> str:
+    return time.strftime("%Y-%m-%d", time.localtime())
+
+
+def _archive_active_log_path(active_path: Path, suffix: str, backup_count: int) -> bool:
+    rotated_path = active_path.with_name(f"{active_path.name}.{suffix}")
+    try:
+        if rotated_path.exists():
+            rotated_path.unlink()
+        active_path.replace(rotated_path)
+        _delete_old_log_backups(active_path, backup_count)
+        return True
+    except OSError:
+        return False
 
 
 def _rollover_project_sibling_logs(log_paths: list[Path], suffix: str, backup_count: int) -> None:

@@ -74,9 +74,10 @@ artifacts under `tools/rhythm-lab/artifacts/*/`, and promoted local classifier a
 user explicitly changes that policy.
 
 Runtime logs written by the main app or launched helpers live under `logs/`. `logs/dj-track-similarity.log`
-owns daily rotation: when it rolls at midnight, active `logs/*.log` files get the same dated suffix,
-are truncated, and old backups are pruned with the same retention rule. Future app-started logs
-should use `logs/<name>.log`.
+owns startup-only daily rotation: if its first logged date is older than the current date at startup,
+the active project `logs/*.log` files get the same dated suffix, sibling logs are truncated, and old
+backups are pruned with the same retention rule. A server that runs through midnight keeps writing to
+the active log until the next launch. Future app-started logs should use `logs/<name>.log`.
 
 ## Safety Invariants
 

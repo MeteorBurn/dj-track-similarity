@@ -4,7 +4,6 @@ import asyncio
 import logging
 import re
 import time
-from logging.handlers import TimedRotatingFileHandler
 
 import dj_track_similarity.logging_config as logging_config
 from dj_track_similarity.logging_config import (
@@ -163,40 +162,9 @@ def test_configure_logging_defaults_to_info_and_higher(tmp_path):
     assert "important warning" in contents
 
 
-def test_configure_logging_rotates_daily_and_keeps_one_day(tmp_path):
+def test_configure_logging_does_not_roll_over_active_log_during_emit(tmp_path):
     log_path = tmp_path / "app.log"
     configure_logging(log_path)
-
-    handlers = [
-        handler
-        for handler in logging.getLogger("dj_track_similarity").handlers
-        if getattr(handler, "name", "") == "dj_track_similarity_file"
-    ]
-
-    assert len(handlers) == 1
-    assert isinstance(handlers[0], TimedRotatingFileHandler)
-    assert handlers[0].when == "MIDNIGHT"
-    assert handlers[0].interval == 24 * 60 * 60
-    assert handlers[0].backupCount == 1
-
-
-def test_main_log_rollover_cleans_project_runtime_logs(tmp_path):
-    logs_dir = tmp_path / "logs"
-    main_log = logs_dir / "dj-track-similarity.log"
-    rhythm_log = logs_dir / "rhythm-lab.log"
-    future_log = logs_dir / "future-worker.log"
-    old_rhythm_backup = logs_dir / "rhythm-lab.log.2000-01-01"
-    old_future_backup = logs_dir / "future-worker.log.2000-01-01"
-    configured = configure_logging(main_log)
-
-    logger = logging.getLogger("dj_track_similarity.test")
-    logger.info("main before rollover")
-    for handler in logging.getLogger("dj_track_similarity").handlers:
-        handler.flush()
-    rhythm_log.write_text("rhythm before rollover\n", encoding="utf-8")
-    future_log.write_text("future before rollover\n", encoding="utf-8")
-    old_rhythm_backup.write_text("old rhythm backup\n", encoding="utf-8")
-    old_future_backup.write_text("old future backup\n", encoding="utf-8")
 
     handler = next(
         handler
@@ -204,17 +172,53 @@ def test_main_log_rollover_cleans_project_runtime_logs(tmp_path):
         if getattr(handler, "name", "") == "dj_track_similarity_file"
     )
     handler.rolloverAt = int(time.time())
-    handler.doRollover()
+
+    logger = logging.getLogger("dj_track_similarity.test")
+    logger.info("same process after midnight")
+    for active_handler in logging.getLogger("dj_track_similarity").handlers:
+        active_handler.flush()
+
+    assert "same process after midnight" in log_path.read_text(encoding="utf-8")
+    assert list(tmp_path.glob("app.log.*")) == []
+
+
+def test_configure_logging_archives_previous_day_project_logs_on_startup(tmp_path):
+    logs_dir = tmp_path / "logs"
+    main_log = logs_dir / "dj-track-similarity.log"
+    rhythm_log = logs_dir / "rhythm-lab.log"
+    future_log = logs_dir / "future-worker.log"
+    old_main_backup = logs_dir / "dj-track-similarity.log.1999-12-31"
+    old_rhythm_backup = logs_dir / "rhythm-lab.log.2000-01-01"
+    old_future_backup = logs_dir / "future-worker.log.2000-01-01"
+    logs_dir.mkdir()
+    main_log.write_text("[2000-01-02] [12:00:00] [INFO] previous launch\n", encoding="utf-8")
+    rhythm_log.write_text("rhythm before startup rollover\n", encoding="utf-8")
+    future_log.write_text("future before startup rollover\n", encoding="utf-8")
+    old_main_backup.write_text("old main backup\n", encoding="utf-8")
+    old_rhythm_backup.write_text("old rhythm backup\n", encoding="utf-8")
+    old_future_backup.write_text("old future backup\n", encoding="utf-8")
+
+    configured = configure_logging(main_log)
+
+    for handler in logging.getLogger("dj_track_similarity").handlers:
+        handler.flush()
 
     assert configured == main_log.resolve()
+    assert "File logging configured" in main_log.read_text(encoding="utf-8")
+    assert (logs_dir / "dj-track-similarity.log.2000-01-02").read_text(
+        encoding="utf-8"
+    ) == "[2000-01-02] [12:00:00] [INFO] previous launch\n"
     assert rhythm_log.read_text(encoding="utf-8") == ""
     assert future_log.read_text(encoding="utf-8") == ""
+    main_backups = list(logs_dir.glob("dj-track-similarity.log.*"))
     rhythm_backups = list(logs_dir.glob("rhythm-lab.log.*"))
     future_backups = list(logs_dir.glob("future-worker.log.*"))
+    assert len(main_backups) == 1
     assert len(rhythm_backups) == 1
     assert len(future_backups) == 1
-    assert rhythm_backups[0].read_text(encoding="utf-8") == "rhythm before rollover\n"
-    assert future_backups[0].read_text(encoding="utf-8") == "future before rollover\n"
+    assert rhythm_backups[0].read_text(encoding="utf-8") == "rhythm before startup rollover\n"
+    assert future_backups[0].read_text(encoding="utf-8") == "future before startup rollover\n"
+    assert old_main_backup.exists() is False
     assert old_rhythm_backup.exists() is False
     assert old_future_backup.exists() is False
 

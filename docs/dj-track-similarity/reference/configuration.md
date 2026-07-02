@@ -29,6 +29,11 @@ If the variable is set but points to a missing file, server startup fails clearl
 
 Generated local artifacts are ignored by Git unless explicitly tracked by policy.
 
+The active main runtime log is `logs/dj-track-similarity.log`. If that file starts with an older
+logged date when the app launches, the project runtime logs are archived with that date suffix and a
+new active log is opened. A server that stays running through midnight keeps writing to the same
+active log until it is restarted.
+
 ## Ports
 
 | Service | Default |

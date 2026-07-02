@@ -16,7 +16,8 @@ This is a public personal project for self-managed DJ libraries. It is not a com
 - Searches from text prompts with CLAP after CLAP audio embeddings exist.
 - Builds Smart Set Builder previews from selected seeds or automatic anchors.
 - Offers a Hybrid preview for weighted MERT, MAEST, SONARA, and CLAP candidate checks.
-- Reads promoted Rhythm Lab classifier scores for filtering, SET biasing, and Hybrid diagnostics.
+- Launches Rhythm Lab for local classifier labeling, training, benchmark review, and promotion.
+- Reads promoted Rhythm Lab classifier scores for CLASS filtering, SET biasing, and Hybrid diagnostics.
 - Exports the current set as M3U or CSV.
 - Includes report-first helper tools for Audio Doctor, Audio Dedup, database optimization, and optional ANN sidecar indexes.
 
@@ -26,6 +27,8 @@ This is a public personal project for self-managed DJ libraries. It is not a com
 audio files -> scan tags -> SQLite library -> browse/search/export
       |                         ^
       +---- analysis jobs -------+
+      |
+      +---- Rhythm Lab labels -> promoted classifiers -> CLASS/SET/Hybrid scores
 ```
 
 The app keeps evidence sources separate:
@@ -36,6 +39,31 @@ The app keeps evidence sources separate:
 - **MERT** stores an audio embedding for seed similarity.
 - **CLAP** stores an audio embedding for text-to-audio search and audio-to-audio comparison.
 - **Rhythm Lab classifiers** store optional local scores under a classifier key.
+
+## Personal classifiers with Rhythm Lab
+
+Rhythm Lab is the separate local app for turning your own listening decisions into optional classifier scores. The main UI can launch or reuse Rhythm Lab at `127.0.0.1:8777`, and it can save the current set as a Rhythm Lab review collection.
+
+The normal loop is:
+
+1. Label examples in Rhythm Lab.
+2. Train and review benchmark output for the active profile.
+3. Promote one trained artifact into `models/classifiers/<profile>/`.
+4. Run classifier scoring in the main library database.
+5. Use CLASS, SET, or Hybrid preview with the promoted scores.
+
+Classifier scoring is database-only. It reads existing SONARA features plus stored MERT and MAEST embeddings, then writes scores for the selected classifier key. It does not decode or retag source audio.
+
+Manual commands are available when you want the CLI workflow:
+
+```powershell
+python tools\rhythm-lab\rhythm_lab_cli.py serve --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+dj-sim analyze-classifier live_instrumentation --db .\data\library.sqlite
+```
+
+See [Rhythm Lab](docs/dj-track-similarity/tools-and-scripts/rhythm-lab.md), [Train a personal classifier](docs/dj-track-similarity/workflows/train-personal-classifier.md), and [CLASS tab](docs/dj-track-similarity/user-guide/class-tab.md).
 
 ## Quick start
 
@@ -129,10 +157,19 @@ CLAP text-search scores are not the same scale as seed-based audio-to-audio scor
 
 ## Maintenance tools
 
-- **Audio Doctor** checks audio metadata/container issues. It is dry-run-first. Apply mode requires exact `APPLY REPAIR` and existing dry-run state.
-- **Audio Dedup** reports duplicate candidates from stored analysis data. Apply mode requires exact `APPLY DELETE` and deletes only safe candidates inside the selected root.
-- **Persistent ANN indexes** are optional generated sidecars for repeated vector lookup. Missing or stale indexes fall back to exact search where supported.
-- **Database optimization** backs up the SQLite file, runs integrity checks, and then runs SQLite maintenance commands.
+- **Audio Doctor** checks audio metadata/container issues. It is dry-run-first. Apply mode requires exact `APPLY REPAIR` and existing dry-run state. See [Audio Doctor](docs/dj-track-similarity/tools-and-scripts/audio-doctor.md).
+- **Audio Dedup** reports duplicate candidates from stored analysis data. Apply mode requires exact `APPLY DELETE` and deletes only safe candidates inside the selected root. See [Audio Dedup](docs/dj-track-similarity/tools-and-scripts/audio-dedup.md).
+- **Persistent ANN indexes** are optional generated sidecars for repeated vector lookup. Missing or stale indexes fall back to exact search where supported. See [Persistent ANN indexes](docs/dj-track-similarity/tools-and-scripts/persistent-ann-indexes.md).
+- **Database optimization** supports the main library database and the Rhythm Lab labels database. It backs up the SQLite file, checks integrity, and then runs SQLite maintenance commands. See [Optimize database](docs/dj-track-similarity/tools-and-scripts/optimize-database.md).
+
+Common maintenance commands:
+
+```powershell
+python tools\audio-doctor\audio_doctor_cli.py --db .\data\library.sqlite
+python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music --preset safe
+python scripts\optimize_database.py --db .\data\library.sqlite
+python scripts\optimize_database.py --db tools\rhythm-lab\data\rhythm_lab.sqlite
+```
 
 ## Safety model
 

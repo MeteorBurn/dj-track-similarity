@@ -24,6 +24,7 @@ Use this guide as the table of contents for real work. The docs describe the cur
 
 ## If you want to understand the signals
 
+- [Project idea](./concepts/project-idea.md) explains the local-first DJ set dramaturgy goal and the author's modest scope.
 - [Features, embeddings, and tags](./concepts/features-embeddings-tags.md) explains what each stored signal means.
 - [Similarity scores](./concepts/similarity-scores.md) explains why MERT, SONARA, CLAP, SET, Hybrid, and Audio Dedup scores should not be mixed casually.
 - [SET routing](./concepts/smart-set-builder-routing.md) explains why the generated order is a preview, not a guarantee.
@@ -43,6 +44,7 @@ Use this guide as the table of contents for real work. The docs describe the cur
 - [API reference](./reference/api.md) lists endpoint families and important payloads.
 - [Configuration reference](./reference/configuration.md) lists environment variables, ports, local artifacts, and build commands.
 - [UI controls reference](./reference/ui-controls.md) lists ranges and defaults for common controls.
+- [Model citations and licenses](./reference/model-citations.md) lists the current upstream model and SONARA sources.
 
 ## Current docs build command
 

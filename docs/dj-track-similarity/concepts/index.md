@@ -8,6 +8,7 @@ The app combines file metadata, audio features, embeddings, and optional local c
 
 ## Pages
 
+- [Project idea](./project-idea.md): why this is a local-first DJ set dramaturgy workbench, not a generic recommender.
 - [Local-first safety](./local-first-safety.md): what stays local and which actions can write files.
 - [Features, embeddings, and tags](./features-embeddings-tags.md): what SONARA, MAEST, MERT, MuQ, CLAP, tags, and classifiers store.
 - [Similarity scores](./similarity-scores.md): why each score should be read in its own context.

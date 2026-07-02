@@ -25,6 +25,14 @@
 
 It does not upload your collection. It does not decide what is a good mix. It helps you narrow a large folder into candidates worth hearing together.
 
+## The Project Idea
+
+A personal problem drives the project: a large local music folder can hide the next useful track, even when that track is already in your collection. `dj-track-similarity` tries to make that library easier to rediscover by combining tags, audio features, embeddings, text prompts, and optional personal classifiers.
+
+The larger idea is DJ set dramaturgy. A set is not just a list of compatible tracks. It can have an opening, tension, release, chapters, and a destination. The app is meant to suggest candidates worth listening to while the DJ keeps the final musical decision.
+
+This is a personal enthusiast project first. It does not claim expert ML or music-information-retrieval authority, and model output should be read as local ranking evidence, not truth. [Read the project idea](./concepts/project-idea.md).
+
 <div class="dts-signal-board">
   <div class="dts-signal-copy">
     <p class="dts-kicker">Normal path</p>

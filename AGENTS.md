@@ -6,6 +6,24 @@
 similarity search, set preparation, and safe helper tools. Keep public claims practical and modest:
 this is not a polished commercial product or research benchmark.
 
+## Product North Star
+
+The project north star is **local-first DJ set dramaturgy**, not generic recommendation or simple
+nearest-neighbor search. Keep implementation, UI, and documentation oriented around helping a DJ
+rediscover a large local library, choose reference tracks or text themes, and build playable sets that
+move like a story: technically mixable, sonically coherent, and able to move gradually between moods,
+chapters, tension, release, and a final destination.
+
+Similarity search, CLAP text search, SONARA feature matching, Smart Set Builder, Hybrid preview, and
+personal classifiers are means toward that narrative flow. Do not reduce the project to "find similar
+tracks," and do not claim finished automatic DJ/story generation unless current source and UI behavior
+support it. The practical goal is listening-led shortlisting and set preparation: the system proposes
+candidates, explains signals, and leaves the final musical decision to the DJ.
+
+Preserve the author's modest stance. The project is built by an enthusiast who does not claim expert
+knowledge of ML models or music information retrieval. Make explanations inspectable, avoid inflated
+ML claims, and treat model outputs as local ranking signals rather than objective truth.
+
 Verify behavior from current source, tests, schemas, and runtime evidence. Docs are navigation aids,
 not authority for logic, commands, API contracts, database fields, analysis outputs, UI workflows,
 Rhythm Lab behavior, or maintenance scripts.

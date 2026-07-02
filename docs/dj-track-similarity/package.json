@@ -15,6 +15,9 @@
     "preview": "vitepress preview . --host 127.0.0.1"
   },
   "devDependencies": {
+    "@fontsource-variable/ibm-plex-sans": "^5.2.8",
+    "@fontsource-variable/jetbrains-mono": "^5.2.8",
+    "@fontsource-variable/space-grotesk": "^5.2.10",
     "vitepress": "^1.6.4"
   }
 }

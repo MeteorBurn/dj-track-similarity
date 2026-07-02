@@ -916,7 +916,7 @@ def relocate_library(
 def analyze(
     db_path: Optional[Path] = typer.Option(None, "--db"),
     limit: Optional[int] = typer.Option(None, "--limit"),
-    models: str = typer.Option(",".join(ANALYSIS_MODEL_ORDER), "--models", help="Comma-separated analysis models: sonara,maest,mert,clap."),
+    models: str = typer.Option(",".join(ANALYSIS_MODEL_ORDER), "--models", help="Comma-separated analysis models: sonara,maest,mert,muq,clap."),
     device: str = typer.Option(DEFAULT_ANALYSIS_DEVICE, "--device", help="Embedding device: auto, cpu, or cuda."),
     top_k: int = typer.Option(
         DEFAULT_ANALYSIS_TOP_K,

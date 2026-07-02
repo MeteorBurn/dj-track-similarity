@@ -8,7 +8,7 @@ import numpy as np
 from .analysis_job_batch import AnalysisBatchItem
 from .audio_loader import DecodedAudio
 from .database import LibraryDatabase
-from .embedding import ClapEmbeddingAdapter, MertEmbeddingAdapter
+from .embedding import ClapEmbeddingAdapter, MertEmbeddingAdapter, MuqEmbeddingAdapter
 from .genres import MaestGenreAdapter
 from .sonara_features import analyze_and_store_sonara_features_from_audio
 
@@ -71,7 +71,12 @@ class MaestModelRunner:
 class EmbeddingModelRunner:
     def __init__(self, model: str, *, device: str, inference_batch_size: int) -> None:
         self.model = model
-        adapter_class = MertEmbeddingAdapter if model == "mert" else ClapEmbeddingAdapter
+        adapter_classes = {
+            "mert": MertEmbeddingAdapter,
+            "muq": MuqEmbeddingAdapter,
+            "clap": ClapEmbeddingAdapter,
+        }
+        adapter_class = adapter_classes[model]
         self.adapter = adapter_class(device=device, inference_batch_size=inference_batch_size)
 
     @property
@@ -102,7 +107,7 @@ def _default_model_runners(model: str, device: str, inference_batch_size: int, t
         return SonaraModelRunner()
     if model == "maest":
         return MaestModelRunner(device=device, top_k=top_k, inference_batch_size=inference_batch_size)
-    if model in {"mert", "clap"}:
+    if model in {"mert", "muq", "clap"}:
         return EmbeddingModelRunner(model, device=device, inference_batch_size=inference_batch_size)
     raise ValueError(f"No analysis runner configured for: {model}")
 

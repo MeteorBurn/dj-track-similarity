@@ -117,6 +117,28 @@ def test_multi_model_job_selects_tracks_missing_selected_models_and_skips_existi
     assert runners["mert"].calls == [["a-missing-mert.wav"]]
 
 
+def test_multi_model_job_treats_muq_as_independent_audio_model(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    missing_muq = _track(db, tmp_path, "a-missing-muq.wav")
+    present_muq = _track(db, tmp_path, "b-present-muq.wav")
+    _mark_analyzed(db, missing_muq, "mert")
+    _mark_analyzed(db, present_muq, "muq")
+    runners = {"muq": FakeModelRunner("muq")}
+    decoder = DecodeRecorder()
+    manager = AnalysisJobManager(db, model_runners=runners, decode_audio=decoder, track_batch_size=2)
+
+    status = manager.run_sync(models=["muq"], device="cpu", track_batch_size=2)
+
+    assert status.state == "completed"
+    assert status.total == 1
+    assert status.model_progress["muq"].total == 1
+    assert status.model_progress["muq"].analyzed == 1
+    assert decoder.calls == ["a-missing-muq.wav"]
+    assert runners["muq"].calls == [["a-missing-muq.wav"]]
+    assert db.get_track(missing_muq).analyses == ["mert", "muq"]
+    assert db.get_track(present_muq).analyses == ["muq"]
+
+
 def test_multi_model_limit_counts_candidate_tracks_not_per_model_totals(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     existing = _track(db, tmp_path, "a-existing.wav")

@@ -14,6 +14,7 @@ type LibraryHelpText = {
   sonaraAnalyze: string;
   maestAnalyze: string;
   mertAnalyze: string;
+  muqAnalyze: string;
   clapAnalyze: string;
   classifiersAnalyze: string;
   writeMaestGenres: string;
@@ -27,6 +28,7 @@ const analysisModelHelpKey: Record<AnalysisSelection, keyof LibraryHelpText> = {
   sonara: "sonaraAnalyze",
   maest: "maestAnalyze",
   mert: "mertAnalyze",
+  muq: "muqAnalyze",
   clap: "clapAnalyze",
   classifiers: "classifiersAnalyze"
 };

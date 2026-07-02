@@ -12,7 +12,7 @@ The database stores:
 
 - track paths, size, mtime, and selected metadata,
 - working BPM, key, energy, duration, artist, title, and album fields,
-- analysis presence flags for SONARA, MERT, MAEST, and CLAP,
+- analysis presence flags for SONARA, MAEST, MERT, MuQ, and CLAP,
 - embeddings in the `embeddings` table by `embedding_key`,
 - liked tracks,
 - classifier scores by `classifier_key`,

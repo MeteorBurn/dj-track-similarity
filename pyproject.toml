@@ -34,6 +34,7 @@ ml = [
   "huggingface-hub",
   "laion-clap>=1.1.7",
   "maest-infer",
+  "muq==0.1.0",
 ]
 rhythm-lab = [
   "scikit-learn>=1.4",

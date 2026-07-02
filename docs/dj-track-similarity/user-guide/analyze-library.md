@@ -13,6 +13,7 @@ The UI lists these choices:
 - **SONARA**: audio features and working BPM/key/energy/duration data.
 - **MAEST**: genre label output plus syncopated-rhythm metadata and the MAEST embedding.
 - **MERT**: audio embedding for seed similarity.
+- **MuQ**: 24 kHz `float32` audio embedding stored for future workflows.
 - **CLAP**: audio embedding for text search and audio-to-audio comparison.
 - **CLASSIFIERS**: promoted classifier scores, if compatible profiles are available.
 
@@ -30,12 +31,12 @@ The CLI differs: omit `--limit` for the whole library.
 - `CPU` forces CPU.
 - `CUDA` requests CUDA and should fail clearly if CUDA is unavailable.
 
-SONARA runs as a CPU runner. MAEST, MERT, and CLAP use the selected device through their adapters.
+SONARA runs as a CPU runner. MAEST, MERT, MuQ, and CLAP use the selected device through their adapters. MuQ uses official `OpenMuQ/MuQ-large-msd-iter` weights and is fed only 24 kHz `float32` audio. It currently stores embeddings only, with no search or SET integration.
 
 ## Batch controls
 
 - **Track batch size**: `1..64`, decoded tracks held and processed together.
-- **Inference batch size**: `1..128`, MAEST/MERT/CLAP model samples per forward pass.
+- **Inference batch size**: `1..128`, MAEST/MERT/MuQ/CLAP model samples per forward pass.
 
 Lower these if memory is tight. Increase only after a small test batch works.
 
@@ -57,7 +58,7 @@ Reset is SQLite-only:
 
 - SONARA reset removes SONARA metadata and flags.
 - MAEST reset removes MAEST metadata and MAEST embeddings.
-- MERT and CLAP reset delete embeddings for that key.
+- MERT, MuQ, and CLAP reset delete embeddings for that key.
 - CLASSIFIERS reset deletes selected `track_classifier_scores` rows.
 
 Use reset when you intentionally want a fresh run. Do not reset just because search results feel surprising.

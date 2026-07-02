@@ -177,6 +177,7 @@ export function App() {
     sonara: librarySummary.sonara,
     maest: librarySummary.maest,
     mert: librarySummary.mert,
+    muq: librarySummary.muq,
     clap: librarySummary.clap,
     classifiers: librarySummary.classifiers
   };

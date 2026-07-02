@@ -2,7 +2,7 @@ import type { AnalysisModel } from "./api";
 
 export type AnalysisSelection = AnalysisModel | "classifiers";
 
-export const audioAnalysisModelOrder: AnalysisModel[] = ["sonara", "maest", "mert", "clap"];
+export const audioAnalysisModelOrder: AnalysisModel[] = ["sonara", "maest", "mert", "muq", "clap"];
 export const analysisSelectionOrder: AnalysisSelection[] = [...audioAnalysisModelOrder, "classifiers"];
 export const defaultAnalysisSelections: AnalysisSelection[] = [...audioAnalysisModelOrder];
 

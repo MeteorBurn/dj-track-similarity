@@ -122,7 +122,7 @@ class ClassifierResetRequest(BaseModel):
 
 
 class AnalysisResetRequest(BaseModel):
-    adapter: str = Field(pattern="^(sonara|maest|mert|clap)$")
+    adapter: str = Field(pattern="^(sonara|maest|mert|muq|clap)$")
 
 
 class SearchRequest(BaseModel):

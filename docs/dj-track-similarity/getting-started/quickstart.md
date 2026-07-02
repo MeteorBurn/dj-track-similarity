@@ -58,10 +58,10 @@ Use `run_server.cmd lan --db .\data\library.sqlite` only when you want the serve
 Install analysis extras first if you have not done so. Then run a small batch:
 
 ```powershell
-dj-sim analyze --models sonara,maest,mert,clap --limit 25 --db .\data\library.sqlite
+dj-sim analyze --models sonara,maest,mert,muq,clap --limit 25 --db .\data\library.sqlite
 ```
 
-A small limit confirms the model stack before you analyze every track. In the CLI, omit `--limit` for the whole library. In the UI, `Analyze limit = 0` means the whole library.
+A small limit confirms the model stack before you analyze every track. MuQ stores embeddings only in this release, so you can omit `muq` when you only want the current search and SET paths. In the CLI, omit `--limit` for the whole library. In the UI, `Analyze limit = 0` means the whole library.
 
 ## 5. Try the UI flow
 

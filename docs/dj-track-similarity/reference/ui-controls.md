@@ -16,9 +16,9 @@
 
 | Control | Range or values | Notes |
 | --- | --- | --- |
-| Model checkboxes | SONARA, MAEST, MERT, CLAP, CLASSIFIERS | selected families in one job |
+| Model checkboxes | SONARA, MAEST, MERT, MUQ, CLAP, CLASSIFIERS | selected families in one job |
 | Analyze limit | `0..100000` in UI | `0` means whole library |
-| Device | AUTO, CPU, CUDA | for MAEST/MERT/CLAP adapters |
+| Device | AUTO, CPU, CUDA | for MAEST/MERT/MuQ/CLAP adapters |
 | Track batch size | `1..64` | decoded tracks held per job batch |
 | Inference batch size | `1..128` | model samples per forward pass |
 | Reset | one family | SQLite-only reset |

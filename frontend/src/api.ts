@@ -193,12 +193,13 @@ export type LibrarySummary = {
   sonara: number;
   maest: number;
   mert: number;
+  muq: number;
   clap: number;
   liked: number;
   classifiers: number;
 };
 
-export type AnalysisModel = "sonara" | "maest" | "mert" | "clap";
+export type AnalysisModel = "sonara" | "maest" | "mert" | "muq" | "clap";
 
 export type SonaraSearchMode = "balanced" | "vibe" | "sound" | "dj_transition" | "custom";
 
@@ -717,7 +718,7 @@ export const api = {
       body: JSON.stringify({ liked })
     }),
   librarySummary: () => request<LibrarySummary>("/api/library/summary"),
-  resetAnalysis: (adapter: "sonara" | "maest" | "mert" | "clap") =>
+  resetAnalysis: (adapter: AnalysisModel) =>
     request<AnalysisResetResult>("/api/analysis/reset", {
       method: "POST",
       body: JSON.stringify({ adapter })

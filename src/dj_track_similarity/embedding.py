@@ -154,6 +154,133 @@ class MertEmbeddingAdapter:
         return select_torch_device(self._torch, self.requested_device)
 
 
+class MuqEmbeddingAdapter:
+    embedding_key = "muq"
+    model_name = "OpenMuQ/MuQ-large-msd-iter"
+    dim = 1024
+    target_rate = 24_000
+
+    def __init__(
+        self,
+        device: str | None = None,
+        window_seconds: float = 10.0,
+        max_windows: int = 5,
+        inference_batch_size: int = 8,
+    ) -> None:
+        self.requested_device = device or "auto"
+        self.device_name = None if self.requested_device == "auto" else self.requested_device
+        self.window_seconds = window_seconds
+        self.max_windows = max_windows
+        self.inference_batch_size = max(1, int(inference_batch_size))
+        self._model = None
+        self._torch = None
+        self._torchaudio = None
+        self.device: str | None = None
+        self.last_batch_timing: dict[str, float | int] = {}
+
+    def embed(self, path: str | Path) -> np.ndarray:
+        return self.embed_batch([path])[0]
+
+    def embed_batch(self, paths: list[str | Path]) -> list[np.ndarray]:
+        self._load_model()
+        torch = self._torch
+        torchaudio = self._torchaudio
+        assert torch is not None and torchaudio is not None and self._model is not None
+
+        decode_seconds = 0.0
+        decoded_items: list[DecodedAudio] = []
+        for path in paths:
+            decode_started = time.perf_counter()
+            audio, sample_rate, _decode_detail = load_audio_mono(
+                path,
+                torchaudio_module=torchaudio,
+            )
+            decode_seconds += time.perf_counter() - decode_started
+            decoded_items.append(DecodedAudio(path=str(path), audio=audio, sample_rate=sample_rate, detail="adapter decode"))
+        return self._embed_decoded_items(decoded_items, decode_seconds=decode_seconds)
+
+    def embed_decoded_batch(self, decoded_items: list[DecodedAudio]) -> list[np.ndarray]:
+        self._load_model()
+        return self._embed_decoded_items(decoded_items, decode_seconds=0.0)
+
+    def _embed_decoded_items(self, decoded_items: list[DecodedAudio], *, decode_seconds: float) -> list[np.ndarray]:
+        torch = self._torch
+        torchaudio = self._torchaudio
+        assert torch is not None and self._model is not None
+        window_size = max(1, int(self.target_rate * self.window_seconds))
+        track_windows: list[list[int]] = []
+        all_windows: list[np.ndarray] = []
+        prepare_started = time.perf_counter()
+        for decoded in decoded_items:
+            waveform = torch.from_numpy(torch_compatible_audio(decoded.audio)).to(dtype=torch.float32).unsqueeze(0)
+            if decoded.sample_rate != self.target_rate:
+                if torchaudio is None:
+                    raise RuntimeError(f"MuQ shared-audio analysis requires torchaudio resampling: {decoded.path}")
+                waveform = torchaudio.transforms.Resample(decoded.sample_rate, self.target_rate)(waveform).to(dtype=torch.float32)
+            waveform = waveform.squeeze(0).to(dtype=torch.float32)
+            windows = _select_windows_torch(waveform, self.target_rate, self.window_seconds, self.max_windows, torch)
+            if not windows:
+                raise ValueError(f"No audio windows could be extracted: {decoded.path}")
+            window_indices = []
+            for window in windows:
+                window_indices.append(len(all_windows))
+                all_windows.append(_pad_or_trim_audio_window(window.detach().cpu().numpy(), window_size))
+            track_windows.append(window_indices)
+        prepare_seconds = time.perf_counter() - prepare_started
+
+        pooled_windows: list[np.ndarray] = []
+        inference_started = time.perf_counter()
+        for start in range(0, len(all_windows), self.inference_batch_size):
+            batch = np.stack(all_windows[start : start + self.inference_batch_size]).astype(np.float32)
+            wavs = torch.from_numpy(batch).to(device=self._device(), dtype=torch.float32)
+            with torch.inference_mode():
+                outputs = self._model(wavs, output_hidden_states=True)
+            hidden = getattr(outputs, "last_hidden_state", None)
+            if hidden is None:
+                raise ValueError("MuQ model output does not include last_hidden_state")
+            pooled_tensor = hidden.mean(dim=1)
+            pooled_windows.extend(_normalize_rows(pooled_tensor.detach().cpu().numpy().astype(np.float32)))
+        inference_seconds = time.perf_counter() - inference_started
+        self.last_batch_timing = {
+            "prepare_seconds": prepare_seconds,
+            "decode_seconds": decode_seconds,
+            "inference_seconds": inference_seconds,
+            "tracks": len(decoded_items),
+            "windows": len(all_windows),
+        }
+
+        vectors: list[np.ndarray] = []
+        for indices in track_windows:
+            vector = np.mean(np.vstack([pooled_windows[index] for index in indices]), axis=0).astype(np.float32)
+            norm = np.linalg.norm(vector)
+            if not np.isfinite(norm) or norm == 0:
+                raise ValueError("Model produced a zero vector")
+            vectors.append(vector / norm)
+        return vectors
+
+    def _load_model(self) -> None:
+        if self._model is not None:
+            return
+        import torch
+        import torchaudio
+        from muq import MuQ
+
+        self._torch = torch
+        self._torchaudio = torchaudio
+        self.device = self._device()
+        self._model = MuQ.from_pretrained(self.model_name)
+        to_float = getattr(self._model, "float", None)
+        if callable(to_float):
+            self._model = to_float()
+        self._model = self._model.to(self.device).eval()
+
+    def _device(self) -> str:
+        assert self._torch is not None
+        if self.device:
+            return self.device
+        return select_torch_device(self._torch, self.requested_device)
+
+
 class ClapEmbeddingAdapter:
     embedding_key = "clap"
     checkpoint_repo = "lukewys/laion_clap"
@@ -288,6 +415,7 @@ class ClapEmbeddingAdapter:
 def adapter_factories():
     return {
         "mert": MertEmbeddingAdapter,
+        "muq": MuqEmbeddingAdapter,
         "clap": ClapEmbeddingAdapter,
     }
 

@@ -14,7 +14,7 @@ export function trackCountLabel(count: number) {
   return "треков";
 }
 
-export function trackHasAnalysis(track: Track, adapter: "sonara" | "maest" | "mert" | "clap") {
+export function trackHasAnalysis(track: Track, adapter: "sonara" | "maest" | "mert" | "muq" | "clap") {
   const analyses = new Set(track.analyses || []);
   if (track.metadata?.sonara_features) analyses.add("sonara");
   if (track.embedding_model) analyses.add("mert");

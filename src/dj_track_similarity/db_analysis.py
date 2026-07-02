@@ -28,6 +28,7 @@ from .models import AnalysisCandidate, Track
 EMBEDDING_PRESENCE_FLAG_COLUMNS = {
     "maest": "has_maest_embedding",
     "mert": "has_mert_embedding",
+    "muq": "has_muq_embedding",
     "clap": "has_clap_embedding",
 }
 
@@ -195,7 +196,7 @@ class AnalysisRepository:
 
     def reset_analysis(self, adapter: str) -> dict[str, object]:
         adapter = adapter.strip().lower()
-        if adapter in {"mert", "clap"}:
+        if adapter in {"mert", "muq", "clap"}:
             with self._write_lock, self.connect() as connection:
                 cursor = connection.execute("DELETE FROM embeddings WHERE embedding_key = ?", (adapter,))
                 deleted = cursor.rowcount

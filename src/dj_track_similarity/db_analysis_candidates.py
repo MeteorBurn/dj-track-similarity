@@ -7,7 +7,7 @@ from .models import AnalysisCandidate
 
 
 def clean_analysis_models(models: Iterable[str]) -> list[str]:
-    allowed = {"sonara", "maest", "mert", "clap"}
+    allowed = {"sonara", "maest", "mert", "muq", "clap"}
     selected: list[str] = []
     for model in models:
         text = str(model).strip().lower()
@@ -20,7 +20,7 @@ def clean_analysis_models(models: Iterable[str]) -> list[str]:
 def missing_analysis_ids_sql(model: str, limit_sql: str) -> str:
     if model == "sonara":
         where_sql = "t.has_sonara_analysis = 0"
-    elif model in {"maest", "mert", "clap"}:
+    elif model in {"maest", "mert", "muq", "clap"}:
         where_sql = f"t.has_{model}_embedding = 0"
     else:
         raise ValueError(f"Unknown analysis model: {model}")
@@ -50,6 +50,7 @@ def analysis_candidate_select_sql(placeholders: str) -> str:
             t.has_sonara_analysis = 1 AS has_sonara,
             t.has_maest_embedding = 1 AS has_maest,
             t.has_mert_embedding = 1 AS has_mert,
+            t.has_muq_embedding = 1 AS has_muq,
             t.has_clap_embedding = 1 AS has_clap
         FROM tracks t
         WHERE t.id IN ({placeholders})
@@ -59,7 +60,7 @@ def analysis_candidate_select_sql(placeholders: str) -> str:
 def row_to_analysis_candidate(row: sqlite3.Row, selected: Iterable[str]) -> AnalysisCandidate:
     analyses = tuple(
         model
-        for model in ("sonara", "maest", "mert", "clap")
+        for model in ("sonara", "maest", "mert", "muq", "clap")
         if bool(row[f"has_{model}"])
     )
     missing = tuple(model for model in selected if model not in analyses)

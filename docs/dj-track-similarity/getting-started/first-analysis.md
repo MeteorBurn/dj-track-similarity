@@ -13,6 +13,7 @@ Analysis jobs decode audio and write SQLite results. They do not rewrite source 
 | SONARA | metadata fields and `has_sonara_analysis` | feature search, SET ordering, BPM/key/energy fallback, classifier inputs |
 | MAEST | genre labels, syncopated rhythm data, MAEST embedding | genre display, genre tag apply, SET and Hybrid MAEST source |
 | MERT | MERT embedding | seed search, SET, Hybrid, Audio Dedup evidence |
+| MuQ | MuQ embedding | stored coverage for future workflows; no search or SET integration yet |
 | CLAP | CLAP audio embedding | text search, SET, Hybrid, Audio Dedup evidence |
 | CLASSIFIERS | `track_classifier_scores` rows | CLASS filters, SET bias, Hybrid diagnostics |
 
@@ -23,21 +24,23 @@ Classifier scoring needs existing or same-job SONARA, MAEST, and MERT data.
 Install optional analysis dependencies first. Then run:
 
 ```powershell
-dj-sim analyze --models sonara,maest,mert,clap --limit 25 --db .\data\library.sqlite
+dj-sim analyze --models sonara,maest,mert,muq,clap --limit 25 --db .\data\library.sqlite
 ```
 
 Useful options:
 
 ```powershell
-dj-sim analyze --models sonara,maest,mert,clap --device auto --top-k 3 --track-batch-size 4 --inference-batch-size 24 --db .\data\library.sqlite
+dj-sim analyze --models sonara,maest,mert,muq,clap --device auto --top-k 3 --track-batch-size 4 --inference-batch-size 24 --db .\data\library.sqlite
 ```
 
-- `--models` accepts `sonara`, `maest`, `mert`, and `clap` as a comma-separated list.
+- `--models` accepts `sonara`, `maest`, `mert`, `muq`, and `clap` as a comma-separated list.
 - `--device` accepts `auto`, `cpu`, or `cuda`.
 - `--top-k` stores `1..10` MAEST genre labels per track.
 - `--track-batch-size` is `1..64` decoded tracks per job batch.
-- `--inference-batch-size` is `1..128` model samples per forward pass for MAEST, MERT, and CLAP.
+- `--inference-batch-size` is `1..128` model samples per forward pass for MAEST, MERT, MuQ, and CLAP.
 - `--diagnostics` writes decoder fallback and batch timing details to the file log.
+
+MuQ requires the optional `ml` dependencies and downloads the official `OpenMuQ/MuQ-large-msd-iter` weights. The app gives MuQ only 24 kHz `float32` audio. CPU and CUDA are supported, with CUDA recommended for full libraries. MuQ currently stores embeddings only.
 
 In the CLI, omit `--limit` for the whole library.
 
@@ -61,7 +64,7 @@ Analysis jobs target missing results for the selected families. If a track alrea
 
 - Reset SONARA removes SONARA metadata and flags and restores working BPM/key/energy/duration from remaining tags when possible.
 - Reset MAEST removes MAEST metadata and MAEST embeddings.
-- Reset MERT or CLAP deletes embeddings for that key.
+- Reset MERT, MuQ, or CLAP deletes embeddings for that key.
 - Reset CLASSIFIERS deletes selected classifier scores only.
 
 All reset operations are SQLite-only.

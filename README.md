@@ -6,9 +6,9 @@
 
 The project is built around a bigger idea:
 
-> I have a large folder of music. I want to analyze it locally, rediscover tracks I already own, search by vibe, sound, references, or text, and build DJ sets that do not only mix harmonically, but also move like a story.
+> I have a large folder of music. I want to analyze it locally, rediscover tracks I already own, search by vibe, sound, references, or text, and build DJ sets that mix cleanly and move like a story.
 
-A good set is not just a sequence of compatible files. It has an opening, tension, release, turns, chapters, and a destination. This project tries to help with that: choose a reference track, find candidates that fit technically and sonically, then gradually move the mood track by track until the set feels like one continuous musical narrative.
+A good set is not just a sequence of compatible files. It has an opening, tension, release, turns, chapters, and a destination. This project helps turn a reference track into a short list that can shift mood gradually while staying coherent.
 
 ## The core idea
 
@@ -32,7 +32,7 @@ This project aims to work on three layers at once:
    Rhythm, timbre, density, dynamics, texture, atmosphere, mood, and audio similarity.
 
 3. **Set dramaturgy**  
-   A higher-level flow where tracks can start in one emotional place, move through chapters, and end somewhere else while still sounding coherent.
+   A higher-level flow where tracks carry one emotional place through chapters toward a coherent destination.
 
 The most important goal is not simply to answer:
 
@@ -40,11 +40,11 @@ The most important goal is not simply to answer:
 
 The real goal is closer to:
 
-> What track should come next if I want this set to keep flowing, slowly change mood, and still feel like one story?
+> What track should come next if this set needs to keep flowing while the mood changes slowly?
 
 Similarity is only a building block. The larger ambition is **dramaturgy**.
 
-## Why this exists
+## Library Problem
 
 Large personal libraries hide a lot of forgotten music. You may own the perfect next track, but it is buried somewhere inside thousands of files.
 
@@ -91,7 +91,7 @@ The current application already supports the practical parts of that vision:
 - Scan local audio files into a SQLite database with Mutagen metadata.
 - Browse large libraries through a paginated web UI.
 - Show metadata, analysis coverage, likes, audio preview, and search/set state.
-- Run SONARA, MAEST, MERT, and CLAP analysis jobs.
+- Run SONARA, MAEST, MERT, MuQ, and CLAP analysis jobs.
 - Search from seed tracks with MERT and SONARA.
 - Search from text prompts with CLAP after CLAP audio embeddings exist.
 - Build Smart Set Builder previews from selected seeds or automatic anchors.
@@ -110,7 +110,7 @@ The north star is a DJ assistant that can help generate a playable musical narra
 - a text prompt or theme;
 - a desired emotional arc;
 - a personal classifier profile;
-- the previous track in the evolving set.
+- the previous track in the set.
 
 In that direction, a set should be able to feel like chapters in a book:
 
@@ -136,10 +136,11 @@ The app keeps evidence sources separate:
 - **SONARA** stores audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy.
 - **MAEST** stores genre labels and an audio embedding.
 - **MERT** stores an audio embedding for seed similarity.
+- **MuQ** stores a separate audio embedding for future workflows. It is not used by search, SET, Hybrid, or classifiers yet.
 - **CLAP** stores an audio embedding for text-to-audio search and audio-to-audio comparison.
 - **Rhythm Lab classifiers** store optional local scores under a classifier key.
 
-This separation matters. A file genre tag, a MAEST genre label, a CLAP text score, and an audio-to-audio duplicate score do not mean the same thing. They can all help, but they should not be treated as one universal truth scale.
+A file genre tag, a MAEST genre label, a CLAP text score, and an audio-to-audio duplicate score answer different questions. They can all help, but they should not be treated as one universal truth scale.
 
 ## Main workflows
 
@@ -147,11 +148,11 @@ This separation matters. A file genre tag, a MAEST genre label, a CLAP text scor
 
 Use the browser, filters, likes, metadata, analysis coverage, CLAP text search, and seed search to find tracks that match a sound you have in mind.
 
-This is useful even when you are not building a set. The project can act like a discovery layer for your own collection: hidden tracks, unusual textures, forgotten moods, or songs that match a specific atmosphere.
+This is useful even when you are not building a set. The project can act like a discovery layer for hidden tracks and unusual textures in your own collection, including songs that match a specific atmosphere.
 
 ### 2. Start from a reference track
 
-Pick one or more tracks as seeds. The system can suggest candidates that are close in audio space, share compatible SONARA features, or support a chosen Hybrid profile.
+Pick one or more tracks as seeds. The system can rank candidates around the seed using audio-space proximity and SONARA compatibility. Hybrid profiles remain available for diagnostic previews.
 
 This is useful when you have a track that feels special but you do not know what should come after it.
 
@@ -159,7 +160,7 @@ This is useful when you have a track that feels special but you do not know what
 
 Smart Set Builder can create a read-only ordered preview from manual seeds or automatic anchors.
 
-The goal is not only to find close matches, but to create a flow that can respect:
+The goal is to create a flow that can respect:
 
 - similarity;
 - diversity;
@@ -264,17 +265,19 @@ python -m pip install -e ".[sonara,ml,dev]"
 Run a small first pass:
 
 ```powershell
-dj-sim analyze --models sonara,maest,mert,clap --limit 25 --db ./data/library.sqlite
+dj-sim analyze --models sonara,maest,mert,muq,clap --limit 25 --db ./data/library.sqlite
 ```
 
 Useful options from the current CLI and API are:
 
-- `--models sonara,maest,mert,clap`
+- `--models sonara,maest,mert,muq,clap`
 - `--device auto|cpu|cuda`
 - `--top-k 1..10` for MAEST labels
 - `--track-batch-size 1..64`
 - `--inference-batch-size 1..128`
 - `--diagnostics` to write decoder and batch timing details to the file log
+
+MuQ uses the optional `ml` dependencies and official `OpenMuQ/MuQ-large-msd-iter` weights. The app feeds MuQ only 24 kHz `float32` audio and supports CPU or CUDA. CUDA is recommended for full-library runs. In this release, MuQ only stores embeddings and analysis status.
 
 In the CLI, omit `--limit` to analyze the whole library. In the UI, `Analyze limit = 0` means the whole library.
 

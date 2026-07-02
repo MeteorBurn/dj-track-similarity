@@ -56,6 +56,7 @@ def test_database_switch_creates_new_sqlite_file(tmp_path: Path) -> None:
         "sonara": 0,
         "maest": 0,
         "mert": 0,
+        "muq": 0,
         "clap": 0,
         "liked": 0,
         "classifiers": 0,

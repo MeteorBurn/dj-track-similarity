@@ -10,7 +10,7 @@ The app depends on your local Python environment, FFmpeg, optional ML packages, 
 
 ## Model analysis can be heavy
 
-MAEST, MERT, and CLAP require optional ML dependencies. Large libraries can take time and memory. Use a small `--limit` first, then adjust device and batch sizes.
+MAEST, MERT, MuQ, and CLAP require optional ML dependencies. Large libraries can take time and memory. MuQ runs on 24 kHz `float32` audio and is currently stored for future workflows only. Use a small `--limit` first, then adjust device and batch sizes.
 
 ## Scores are not probabilities
 

@@ -12,7 +12,7 @@ These workflows do not edit audio files:
 
 - scan,
 - Refresh Tags,
-- SONARA, MAEST, MERT, and CLAP analysis,
+- SONARA, MAEST, MERT, MuQ, and CLAP analysis,
 - MERT, SONARA, CLAP, SET, and Hybrid search,
 - browser preview,
 - analysis reset,

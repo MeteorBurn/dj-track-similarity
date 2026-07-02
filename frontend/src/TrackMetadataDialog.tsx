@@ -200,7 +200,7 @@ function readableClassifierScores(track: Track) {
 }
 
 function readableAnalysisBadges(track: Track) {
-  const badges: Array<{ key: string; label: string }> = (["sonara", "maest", "mert", "clap"] as const)
+  const badges: Array<{ key: string; label: string }> = (["sonara", "maest", "mert", "muq", "clap"] as const)
     .filter((model) => trackHasAnalysis(track, model))
     .map((model) => ({ key: model, label: model.toUpperCase() }));
   if (track.classifier_scores && Object.keys(track.classifier_scores).length) {

@@ -10,7 +10,14 @@ pytestmark = pytest.mark.ml
 
 import dj_track_similarity.embedding as embedding
 from dj_track_similarity.audio_loader import DecodedAudio
-from dj_track_similarity.embedding import ClapEmbeddingAdapter, MertEmbeddingAdapter, _array_output_to_numpy, _pad_or_trim_audio_window, adapter_factories
+from dj_track_similarity.embedding import (
+    ClapEmbeddingAdapter,
+    MertEmbeddingAdapter,
+    MuqEmbeddingAdapter,
+    _array_output_to_numpy,
+    _pad_or_trim_audio_window,
+    adapter_factories,
+)
 from dj_track_similarity.logging_config import configure_logging
 
 
@@ -21,8 +28,38 @@ def test_clap_adapter_uses_music_checkpoint() -> None:
     assert ClapEmbeddingAdapter.model_name == "lukewys/laion_clap/music_audioset_epoch_15_esc_90.14.pt"
 
 
+def test_muq_adapter_uses_official_large_msd_checkpoint() -> None:
+    assert MuqEmbeddingAdapter.embedding_key == "muq"
+    assert MuqEmbeddingAdapter.model_name == "OpenMuQ/MuQ-large-msd-iter"
+    assert MuqEmbeddingAdapter.target_rate == 24_000
+
+
 def test_product_embedding_adapters_do_not_expose_removed_fake_adapter() -> None:
-    assert set(adapter_factories()) == {"mert", "clap"}
+    assert set(adapter_factories()) == {"mert", "muq", "clap"}
+
+
+@pytest.mark.parametrize(
+    ("requested", "cuda_available", "expected"),
+    [
+        ("cpu", False, "cpu"),
+        ("cuda", True, "cuda"),
+        ("auto", True, "cuda"),
+        ("auto", False, "cpu"),
+    ],
+)
+def test_muq_adapter_uses_shared_torch_device_selection(requested: str, cuda_available: bool, expected: str) -> None:
+    adapter = MuqEmbeddingAdapter(device=requested)
+    adapter._torch = types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: cuda_available))
+
+    assert adapter._device() == expected
+
+
+def test_muq_adapter_rejects_requested_cuda_when_unavailable() -> None:
+    adapter = MuqEmbeddingAdapter(device="cuda")
+    adapter._torch = types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: False))
+
+    with pytest.raises(RuntimeError, match="CUDA was requested"):
+        adapter._device()
 
 
 def test_clap_text_embedding_loads_laion_music_checkpoint(monkeypatch) -> None:
@@ -212,6 +249,78 @@ def test_clap_embed_decoded_batch_uses_shared_audio_without_loading_paths(monkey
 
     assert [vector.tolist() for vector in vectors] == [[1.0, 0.0, 0.0], [1.0, 0.0, 0.0]]
     assert adapter.fake_model.batch_shapes == [(2, 48000)]
+
+
+class FakeMuqAudioModel:
+    def __init__(self) -> None:
+        self.batch_shapes: list[tuple[int, ...]] = []
+        self.batch_dtypes: list[torch.dtype] = []
+
+    def __call__(self, wavs, *, output_hidden_states=True):
+        assert output_hidden_states is True
+        self.batch_shapes.append(tuple(wavs.shape))
+        self.batch_dtypes.append(wavs.dtype)
+        hidden = torch.zeros((wavs.shape[0], 2, 3), dtype=torch.float32, device=wavs.device)
+        for index in range(wavs.shape[0]):
+            hidden[index, :, index % hidden.shape[-1]] = 1.0
+        return types.SimpleNamespace(last_hidden_state=hidden)
+
+
+class SharedAudioMuqAdapter(MuqEmbeddingAdapter):
+    def __init__(self, torchaudio_module=None) -> None:
+        super().__init__(device="cpu", window_seconds=1.0, max_windows=1, inference_batch_size=4)
+        self.fake_model = FakeMuqAudioModel()
+        self.fake_torchaudio = torchaudio_module
+
+    def _load_model(self) -> None:
+        self._torch = torch
+        self._torchaudio = self.fake_torchaudio
+        self.device = "cpu"
+        self._model = self.fake_model
+
+
+def test_muq_embed_decoded_batch_uses_shared_audio_without_loading_paths(monkeypatch) -> None:
+    def fail_load_audio(*_args, **_kwargs):
+        raise AssertionError("shared multi-model analysis must not reload paths for MuQ")
+
+    monkeypatch.setattr(embedding, "load_audio_mono", fail_load_audio)
+    adapter = SharedAudioMuqAdapter()
+    decoded = [
+        DecodedAudio(path="a.wav", audio=np.ones(24_000, dtype=np.float32), sample_rate=24_000, detail="shared"),
+        DecodedAudio(path="b.wav", audio=np.ones(24_000, dtype=np.float32), sample_rate=24_000, detail="shared"),
+    ]
+
+    vectors = adapter.embed_decoded_batch(decoded)
+
+    assert [vector.tolist() for vector in vectors] == [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
+    assert adapter.fake_model.batch_shapes == [(2, 24000)]
+    assert adapter.fake_model.batch_dtypes == [torch.float32]
+
+
+def test_muq_embed_decoded_batch_resamples_to_strict_24khz_float32() -> None:
+    resample_calls: list[tuple[int, int, tuple[int, ...], torch.dtype]] = []
+
+    class FakeResample:
+        def __init__(self, sample_rate: int, target_rate: int) -> None:
+            self.sample_rate = sample_rate
+            self.target_rate = target_rate
+
+        def __call__(self, waveform):
+            resample_calls.append((self.sample_rate, self.target_rate, tuple(waveform.shape), waveform.dtype))
+            return torch.ones((waveform.shape[0], self.target_rate), dtype=torch.float32)
+
+    fake_torchaudio = types.SimpleNamespace(transforms=types.SimpleNamespace(Resample=FakeResample))
+    adapter = SharedAudioMuqAdapter(torchaudio_module=fake_torchaudio)
+    decoded = [
+        DecodedAudio(path="a.wav", audio=np.ones(12_000, dtype=np.float32), sample_rate=12_000, detail="shared"),
+    ]
+
+    vectors = adapter.embed_decoded_batch(decoded)
+
+    assert vectors[0].tolist() == [1.0, 0.0, 0.0]
+    assert resample_calls == [(12_000, 24_000, (1, 12000), torch.float32)]
+    assert adapter.fake_model.batch_shapes == [(1, 24000)]
+    assert adapter.fake_model.batch_dtypes == [torch.float32]
 
 
 class FakeMertProcessor:

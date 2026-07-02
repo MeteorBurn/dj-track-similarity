@@ -24,7 +24,7 @@ class SynchronousAnalysisManager:
             "classifier_keys": classifier_keys,
         }
         return _status(
-            models or ["sonara", "maest", "mert", "clap"],
+            models or ["sonara", "maest", "mert", "muq", "clap"],
             track_batch_size=track_batch_size,
             inference_batch_size=inference_batch_size,
             device=device,
@@ -179,8 +179,8 @@ def test_api_defaults_multi_model_analysis_to_all_models(monkeypatch, tmp_path: 
     response = client.post("/api/analysis/jobs", json={})
 
     assert response.status_code == 200
-    assert response.json()["models"] == ["sonara", "maest", "mert", "clap"]
-    assert SynchronousAnalysisManager.last_request["models"] == ["sonara", "maest", "mert", "clap"]
+    assert response.json()["models"] == ["sonara", "maest", "mert", "muq", "clap"]
+    assert SynchronousAnalysisManager.last_request["models"] == ["sonara", "maest", "mert", "muq", "clap"]
     assert SynchronousAnalysisManager.last_request["track_batch_size"] == 4
     assert SynchronousAnalysisManager.last_request["inference_batch_size"] == 24
     assert SynchronousAnalysisManager.last_request["classifier_keys"] == []

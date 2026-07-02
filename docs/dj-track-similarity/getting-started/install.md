@@ -43,7 +43,7 @@ python -m pip install -e ".[sonara,ml,dev]"
 ```
 
 - `sonara`: SONARA feature extraction.
-- `ml`: PyTorch, Torchaudio, Torchvision, TorchCodec, nnaudio, Transformers, Hugging Face Hub, LAION CLAP, and MAEST inference packages.
+- `ml`: PyTorch, Torchaudio, Torchvision, TorchCodec, nnaudio, Transformers, Hugging Face Hub, LAION CLAP, MAEST, and MuQ inference packages.
 - `ann`: optional HNSW backend for persistent ANN sidecar indexes.
 - `rhythm-lab`: scikit-learn for classifier training.
 

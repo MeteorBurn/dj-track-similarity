@@ -40,6 +40,7 @@ def test_tracks_endpoint_does_not_parse_metadata_for_slim_items(monkeypatch, tmp
     db.save_genres(track_id, [{"label": "Breakbeat", "score": 0.9}], model_name="maest-test")
     db.save_embedding(track_id, np.asarray([0.0, 1.0], dtype=np.float32), model_name="maest-test", embedding_key="maest")
     db.save_embedding(track_id, np.asarray([1.0, 0.0], dtype=np.float32), model_name="mert-test", embedding_key="mert")
+    db.save_embedding(track_id, np.asarray([1.0, 1.0], dtype=np.float32), model_name="muq-test", embedding_key="muq")
 
     def fail_if_metadata_parsed(_metadata_json: object) -> dict[str, object]:
         raise AssertionError("slim track rows must not parse metadata_json")
@@ -51,7 +52,7 @@ def test_tracks_endpoint_does_not_parse_metadata_for_slim_items(monkeypatch, tmp
     assert response.status_code == 200
     item = response.json()["items"][0]
     assert item["metadata"] is None
-    assert item["analyses"] == ["sonara", "maest", "mert"]
+    assert item["analyses"] == ["sonara", "maest", "mert", "muq"]
 
 
 def test_tracks_endpoint_filters_by_query_and_syncopated_preset(tmp_path: Path) -> None:
@@ -443,12 +444,13 @@ def test_library_summary_counts_tracks_and_analysis_families(tmp_path: Path) -> 
     db.save_embedding(maest_id, np.asarray([0.0, 1.0], dtype=np.float32), model_name="maest-test", embedding_key="maest")
     db.save_genres(maest_genres_only_id, [{"label": "House", "score": 0.8}], model_name="maest-test")
     db.save_embedding(mert_id, np.asarray([1.0, 0.0], dtype=np.float32), model_name="mert-test", embedding_key="mert")
+    db.save_embedding(mert_id, np.asarray([1.0, 1.0], dtype=np.float32), model_name="muq-test", embedding_key="muq")
     db.set_track_liked(mert_id, True)
 
     response = TestClient(create_app(db_path)).get("/api/library/summary")
 
     assert response.status_code == 200
-    assert response.json() == {"tracks": 4, "sonara": 1, "maest": 1, "mert": 1, "clap": 0, "liked": 1, "classifiers": 0}
+    assert response.json() == {"tracks": 4, "sonara": 1, "maest": 1, "mert": 1, "muq": 1, "clap": 0, "liked": 1, "classifiers": 0}
 
 
 def test_library_summary_counts_tracks_with_complete_promoted_classifier_scores(monkeypatch, tmp_path: Path) -> None:

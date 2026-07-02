@@ -17,7 +17,7 @@ dj-sim scan D:\Music --db .\data\library.sqlite
 Analyze selected families:
 
 ```powershell
-dj-sim analyze --models sonara,maest,mert,clap --db .\data\library.sqlite
+dj-sim analyze --models sonara,maest,mert,muq,clap --db .\data\library.sqlite
 ```
 
 Serve the UI:
@@ -64,7 +64,7 @@ dj-sim doctor
 
 | Option | Values |
 | --- | --- |
-| `--models` | comma-separated `sonara`, `maest`, `mert`, `clap` |
+| `--models` | comma-separated `sonara`, `maest`, `mert`, `muq`, `clap` |
 | `--limit` | optional integer; omit for whole library |
 | `--device` | `auto`, `cpu`, `cuda` |
 | `--top-k` | `1..10` MAEST labels |

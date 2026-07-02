@@ -34,6 +34,15 @@ class SummaryRepository:
                     """
                 ).fetchone()[0]
             )
+            muq = int(
+                connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM tracks INDEXED BY idx_tracks_present_muq_embedding_flag
+                    WHERE has_muq_embedding = 1
+                    """
+                ).fetchone()[0]
+            )
             clap = int(
                 connection.execute(
                     """
@@ -68,6 +77,7 @@ class SummaryRepository:
             "sonara": sonara,
             "maest": maest,
             "mert": mert,
+            "muq": muq,
             "clap": clap,
             "liked": liked,
             "classifiers": classifiers,

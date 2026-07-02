@@ -102,7 +102,7 @@ def analyses_from_row(row: Any, metadata: dict[str, object]) -> list[str] | None
             text = string_or_none(key)
             if text:
                 analyses_set.add(text)
-    ordered = [name for name in ("sonara", "maest", "mert", "clap") if name in analyses_set]
-    extras = sorted(name for name in analyses_set if name not in {"maest", "sonara", "mert", "clap"})
+    ordered = [name for name in ("sonara", "maest", "mert", "muq", "clap") if name in analyses_set]
+    extras = sorted(name for name in analyses_set if name not in {"maest", "sonara", "mert", "muq", "clap"})
     analyses = ordered + extras
     return analyses or None

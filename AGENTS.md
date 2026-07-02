@@ -98,7 +98,7 @@ should use `logs/<name>.log`.
 ### SQLite And Destructive State
 
 - Route SQLite writes through `LibraryDatabase`, with the shared path-scoped write lock, WAL, and busy
-  timeout so scan, RefreshTags, SONARA, MAEST, MERT, CLAP, reset, relocation, and classifier writes
+  timeout so scan, RefreshTags, SONARA, MAEST, MERT, MUQ, CLAP, reset, relocation, and classifier writes
   queue safely.
 - Treat `dj-track-similarity.sqlite` as local user state. Tests must use temp DBs via `tmp_path` or
   explicit `--db`.
@@ -123,7 +123,8 @@ should use `logs/<name>.log`.
   JSON/XLSX/log reports under `tools/audio-dedup/data/reports/`.
 - Audio Dedup `min_similarity` is an audio-to-audio content gate over stored MERT, MAEST, and CLAP
   audio embeddings. Do not weaken duplicate thresholds or safety decisions because CLAP text-search
-  scores are lower; CLAP prompt scores are a different text-to-audio scoring surface.
+  scores are lower; CLAP prompt scores are a different text-to-audio scoring surface. Do not add MuQ
+  to Audio Dedup scoring unless that is an explicit future feature.
 - Audio Dedup `--apply` must prompt for exact `APPLY DELETE`, delete only safe duplicate candidates
   inside selected `--root`, and remove SQLite rows only for tracks whose files were deleted. UI apply
   mode requires the same confirmation. Do not invoke apply mode in tests or routine checks.
@@ -158,6 +159,9 @@ should use `logs/<name>.log`.
 - Verified Windows CUDA ML stack: PyTorch `2.11.0`, Torchaudio `2.11.0`, Torchvision `0.26.0`,
   TorchCodec `0.13.0`, nnaudio, CUDA wheel index `cu130`, and `numpy>=1.26,<2.0`. Keep PyTorch-family
   packages synchronized unless a dependency upgrade is deliberate.
+- MuQ is an optional ML dependency through `muq==0.1.0`. The official package depends on `librosa`, but
+  project code must not import or call `librosa` for MuQ analysis; use the shared decode path and
+  `torchaudio` resampling.
 
 ## Runtime And UI Contracts
 
@@ -171,24 +175,28 @@ should use `logs/<name>.log`.
   but do not rename stored keys or derive Camelot data. Do not store placeholder `unavailable` rows,
   helper diagnostics, or `chord_sequence` in SONARA playlist storage.
 - Shared audio loading is native-first: SONARA starts with `sonara.analyze_file`; SONARA fallback,
-  MAEST, MERT, and CLAP use the shared loader (`torchaudio` with TorchCodec when provided, Python
+  MAEST, MERT, MUQ, and CLAP use the shared loader (`torchaudio` with TorchCodec when provided, Python
   `wave` for WAV, then `ffmpeg`).
 - MAEST writes only SQLite metadata and uses the three-window 30-second policy with direct
   `model(audio_batch, melspectrogram_input=False)` logits, not `predict_labels()` for batch work.
-- MERT, CLAP, and MAEST use one selected device plus inference batching. `auto` picks CUDA when PyTorch
+- MERT, MUQ, CLAP, and MAEST use one selected device plus inference batching. `auto` picks CUDA when PyTorch
   sees a GPU; explicit `cuda` must error if unavailable.
+- MuQ writes only stored `embedding_key='muq'` embeddings and the `tracks.has_muq_embedding` status flag.
+  MuQ inference must stay `24_000 Hz` and `torch.float32` on CPU or CUDA: no `half()`, `bf16`, autocast,
+  `torch.compile`, or project-level `librosa` decode. It is not a SET, Hybrid, search, classifier, ANN,
+  or complete-analysis requirement unless a future task explicitly adds that behavior.
 - In the UI, `Analyze limit = 0` means whole library. Positive limits count missing results for the
   selected analysis family.
 
 ### Search, SET, SONARA, And CLASS
 
-- Search UI stays split into SET, SONARA, MERT, CLAP, and CLASS tabs.
+- Search UI stays split into SET, SONARA, MERT, CLAP, and CLASS tabs; MuQ currently has no search tab.
 - SET calls `/api/set-builder/generate` and is read-only preview generation. Manual mode uses `1-5`
   selected seeds and rejects manual seeds with the same known artist. Auto mode samples the first anchor
   from the full feature-complete library, then samples remaining waypoint anchors from related candidates.
   Preview enters the current set only through explicit user action.
 - Smart Set Builder requires stored MERT, MAEST, and CLAP audio embeddings plus stored SONARA features.
-  It may use MAEST embeddings, but must not use MAEST genre labels for track selection.
+  It may use MAEST embeddings, but must not use MAEST genre labels or MuQ embeddings for track selection.
 - Smart Set Builder BPM/key are soft transition-ordering signals: prefer file tag BPM, then SONARA
   fallback. Default `bpm_mode=general` keeps normal transition rules only; `low_to_high` and
   `high_to_low` add actual-BPM trajectory with `bpm_change=slow|medium|fast` and optional `bpm_start` /
@@ -207,7 +215,8 @@ should use `logs/<name>.log`.
   similarity controls, keep the visible `Similarity` label if requested, and explain the scale in
   hover help/docs instead of renaming it casually.
 - SET, Hybrid, and Audio Dedup use stored CLAP audio embeddings as audio-to-audio signals. Do not treat
-  those values as interchangeable with CLAP prompt/text-search scores.
+  those values as interchangeable with CLAP prompt/text-search scores. MuQ embeddings are stored for
+  future work and should not enter these ranking paths in the current contract.
 - SONARA search should read analyzed tracks through `LibraryDatabase.load_sonara_feature_rows()` so
   repeated searches reuse parsed feature rows. Keep cache work behavior-preserving: do not change scoring math,
   feature ranges, or ordering. Invalidate the cache whenever track rows, metadata, SONARA features,
@@ -229,8 +238,9 @@ should use `logs/<name>.log`.
 - Rhythm Lab artifacts are classifier-scoped under `tools/rhythm-lab/artifacts/<artifact-prefix>/`;
   promoted runtime models stay under `models/classifiers/<artifact-prefix>/`.
 - Rhythm Lab training benchmarks `sonara`, `mert`, `maest`, and `combined`. `combined` requires existing
-  SONARA features plus MERT and MAEST embeddings. Keep SONARA in this path and expose SONARA, MAEST, and
-  MERT coverage counters.
+  SONARA features plus MERT and MAEST embeddings. Keep SONARA in this path, do not add MuQ to Rhythm Lab
+  features without an explicit feature-contract change, and expose SONARA, MAEST, and MERT coverage
+  counters.
 - Rhythm Lab `train-refresh` is readiness-gated by newly added labels since the last training checkpoint.
   Use CLI `train` for forced retrain on the same label set instead of weakening the UI gate.
 - Classifier calibration is opt-in. `--calibrate` may fit calibrated binary classifiers with enough data

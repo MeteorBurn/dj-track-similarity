@@ -47,16 +47,19 @@ def test_new_database_uses_current_schema_version_and_indexes(tmp_path: Path) ->
         "idx_tracks_missing_sonara_flag_sort",
         "idx_tracks_missing_maest_embedding_flag_sort",
         "idx_tracks_missing_mert_embedding_flag_sort",
+        "idx_tracks_missing_muq_embedding_flag_sort",
         "idx_tracks_missing_clap_embedding_flag_sort",
         "idx_tracks_present_sonara_flag",
         "idx_tracks_present_maest_embedding_flag",
         "idx_tracks_present_mert_embedding_flag",
+        "idx_tracks_present_muq_embedding_flag",
         "idx_tracks_present_clap_embedding_flag",
     }.issubset(track_indexes)
     assert {
         "has_sonara_analysis",
         "has_maest_embedding",
         "has_mert_embedding",
+        "has_muq_embedding",
         "has_clap_embedding",
     }.issubset(track_columns)
     assert not {
@@ -66,6 +69,52 @@ def test_new_database_uses_current_schema_version_and_indexes(tmp_path: Path) ->
         "idx_tracks_maest_missing_sort",
     }.intersection(track_indexes)
     assert "idx_embeddings_key_track" in embedding_indexes
+
+
+def test_existing_v4_database_without_muq_flag_is_rejected(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    with sqlite3.connect(db_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE tracks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                path TEXT NOT NULL UNIQUE,
+                size INTEGER NOT NULL,
+                mtime REAL NOT NULL,
+                artist TEXT,
+                title TEXT,
+                album TEXT,
+                bpm REAL,
+                musical_key TEXT,
+                energy REAL,
+                duration REAL,
+                has_sonara_analysis INTEGER NOT NULL DEFAULT 0,
+                has_maest_embedding INTEGER NOT NULL DEFAULT 0,
+                has_mert_embedding INTEGER NOT NULL DEFAULT 0,
+                has_clap_embedding INTEGER NOT NULL DEFAULT 0,
+                metadata_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata_json)),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE embeddings (
+                track_id INTEGER NOT NULL,
+                embedding_key TEXT NOT NULL DEFAULT 'mert',
+                model_name TEXT NOT NULL,
+                dim INTEGER NOT NULL,
+                vector BLOB NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(track_id, embedding_key)
+            );
+            INSERT INTO tracks (path, size, mtime, title, metadata_json)
+            VALUES ('muq.wav', 10, 1, 'MuQ', '{}'), ('mert.wav', 10, 1, 'MERT', '{}');
+            INSERT INTO embeddings (track_id, embedding_key, model_name, dim, vector)
+            VALUES (1, 'muq', 'muq-test', 2, X'0000'), (2, 'mert', 'mert-test', 2, X'0000');
+            PRAGMA user_version = 4;
+            """
+        )
+
+    with pytest.raises(RuntimeError, match="schema is not current"):
+        LibraryDatabase(db_path)
 
 
 def test_track_search_fts_mode_is_explicit_token_search(tmp_path: Path) -> None:
@@ -304,21 +353,26 @@ def test_database_stores_multiple_embedding_spaces_per_track(tmp_path: Path) -> 
     track_id = db.upsert_track(path=tmp_path / "track.wav", size=10, mtime=1, metadata={"title": "Track"})
 
     db.save_embedding(track_id, np.array([1, 0, 0], dtype=np.float32), "mert-model", 3, embedding_key="mert")
+    db.save_embedding(track_id, np.array([0, 0, 1], dtype=np.float32), "muq-model", 3, embedding_key="muq")
     db.save_embedding(track_id, np.array([0, 1, 0], dtype=np.float32), "clap-model", 3, embedding_key="clap")
 
     mert_tracks, mert_matrix = db.load_embedding_matrix("mert")
+    muq_tracks, muq_matrix = db.load_embedding_matrix("muq")
     clap_tracks, clap_matrix = db.load_embedding_matrix("clap")
 
     assert [track.id for track in mert_tracks] == [track_id]
+    assert [track.id for track in muq_tracks] == [track_id]
     assert [track.id for track in clap_tracks] == [track_id]
     assert mert_tracks[0].embedding_model == "mert-model"
+    assert muq_tracks[0].embedding_model == "muq-model"
     assert clap_tracks[0].embedding_model == "clap-model"
     assert mert_matrix.shape == (1, 3)
+    assert muq_matrix.shape == (1, 3)
     assert clap_matrix.shape == (1, 3)
 
     track = db.get_track(track_id)
 
-    assert track.analyses == ["mert", "clap"]
+    assert track.analyses == ["mert", "muq", "clap"]
 
 
 def test_database_keeps_embedding_matrix_cache_when_unembedded_track_changes(tmp_path: Path) -> None:
@@ -355,14 +409,16 @@ def test_database_resets_embedding_analysis_independently(tmp_path: Path) -> Non
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_id = db.upsert_track(path=tmp_path / "track.wav", size=10, mtime=1, metadata={"title": "Track"})
     db.save_embedding(track_id, np.array([1, 0, 0], dtype=np.float32), "mert-model", 3, embedding_key="mert")
+    db.save_embedding(track_id, np.array([0, 0, 1], dtype=np.float32), "muq-model", 3, embedding_key="muq")
     db.save_embedding(track_id, np.array([0, 1, 0], dtype=np.float32), "clap-model", 3, embedding_key="clap")
 
-    result = db.reset_analysis("mert")
+    result = db.reset_analysis("muq")
 
-    assert result == {"adapter": "mert", "tracks_updated": 0, "embeddings_deleted": 1}
-    assert db.load_embedding_matrix("mert")[0] == []
+    assert result == {"adapter": "muq", "tracks_updated": 0, "embeddings_deleted": 1}
+    assert [track.id for track in db.load_embedding_matrix("mert")[0]] == [track_id]
+    assert db.load_embedding_matrix("muq")[0] == []
     assert [track.id for track in db.load_embedding_matrix("clap")[0]] == [track_id]
-    assert db.get_track(track_id).analyses == ["clap"]
+    assert db.get_track(track_id).analyses == ["mert", "clap"]
 
 
 def test_database_maintains_analysis_presence_flags(tmp_path: Path) -> None:
@@ -373,22 +429,26 @@ def test_database_maintains_analysis_presence_flags(tmp_path: Path) -> None:
         "has_sonara_analysis": 0,
         "has_maest_embedding": 0,
         "has_mert_embedding": 0,
+        "has_muq_embedding": 0,
         "has_clap_embedding": 0,
     }
 
     db.save_sonara_features(track_id, {"bpm": {"value": 128}}, model_name="sonara")
     db.save_embedding(track_id, np.asarray([1.0, 0.0], dtype=np.float32), "maest", embedding_key="maest")
     db.save_embedding(track_id, np.asarray([0.0, 1.0], dtype=np.float32), "mert", embedding_key="mert")
+    db.save_embedding(track_id, np.asarray([1.0, 0.0], dtype=np.float32), "muq", embedding_key="muq")
     db.save_embedding(track_id, np.asarray([1.0, 1.0], dtype=np.float32), "clap", embedding_key="clap")
 
     assert _analysis_flag_row(db, track_id) == {
         "has_sonara_analysis": 1,
         "has_maest_embedding": 1,
         "has_mert_embedding": 1,
+        "has_muq_embedding": 1,
         "has_clap_embedding": 1,
     }
 
     db.reset_analysis("mert")
+    db.reset_analysis("muq")
     db.reset_analysis("sonara")
     db.reset_analysis("maest")
 
@@ -396,6 +456,7 @@ def test_database_maintains_analysis_presence_flags(tmp_path: Path) -> None:
         "has_sonara_analysis": 0,
         "has_maest_embedding": 0,
         "has_mert_embedding": 0,
+        "has_muq_embedding": 0,
         "has_clap_embedding": 1,
     }
 
@@ -421,6 +482,19 @@ def test_database_lists_lean_analysis_candidates_with_missing_models(tmp_path: P
     ]
 
 
+def test_database_lists_muq_analysis_candidates_from_muq_flag(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    missing_muq = db.upsert_track(path=tmp_path / "a-missing-muq.wav", size=10, mtime=1, metadata={"title": "A"})
+    present_muq = db.upsert_track(path=tmp_path / "b-present-muq.wav", size=10, mtime=1, metadata={"title": "B"})
+    db.save_embedding(present_muq, np.asarray([1.0, 0.0], dtype=np.float32), "muq", embedding_key="muq")
+
+    candidates = db.list_analysis_candidates(["muq"], limit=10)
+
+    assert [(candidate.id, candidate.missing_models, candidate.analyses) for candidate in candidates] == [
+        (missing_muq, ("muq",), ()),
+    ]
+
+
 def test_database_lists_analysis_candidates_with_one_read_connection(tmp_path: Path) -> None:
     class CountingDatabase(LibraryDatabase):
         connect_calls = 0
@@ -440,11 +514,23 @@ def test_database_lists_analysis_candidates_with_one_read_connection(tmp_path: P
     assert db.connect_calls == 1
 
 
-def test_database_analysis_candidates_use_presence_flag_indexes(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("model", "index_name"),
+    [
+        ("mert", "idx_tracks_missing_mert_embedding_flag_sort"),
+        ("muq", "idx_tracks_missing_muq_embedding_flag_sort"),
+    ],
+)
+def test_database_analysis_candidates_use_presence_flag_indexes(
+    tmp_path: Path,
+    monkeypatch,
+    model: str,
+    index_name: str,
+) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    db.upsert_track(path=tmp_path / "a-missing-mert.wav", size=10, mtime=1, metadata={"title": "A"})
-    present_id = db.upsert_track(path=tmp_path / "b-present-mert.wav", size=10, mtime=1, metadata={"title": "B"})
-    db.save_embedding(present_id, np.asarray([1.0, 0.0], dtype=np.float32), "mert", embedding_key="mert")
+    db.upsert_track(path=tmp_path / f"a-missing-{model}.wav", size=10, mtime=1, metadata={"title": "A"})
+    present_id = db.upsert_track(path=tmp_path / f"b-present-{model}.wav", size=10, mtime=1, metadata={"title": "B"})
+    db.save_embedding(present_id, np.asarray([1.0, 0.0], dtype=np.float32), model, embedding_key=model)
     statements: list[str] = []
     original_connect = db.connect
 
@@ -455,17 +541,17 @@ def test_database_analysis_candidates_use_presence_flag_indexes(tmp_path: Path, 
 
     monkeypatch.setattr(db, "connect", traced_connect)
 
-    candidates = db.list_analysis_candidates(["mert"], limit=10)
+    candidates = db.list_analysis_candidates([model], limit=10)
 
-    assert [candidate.path for candidate in candidates] == [(tmp_path / "a-missing-mert.wav").as_posix()]
-    candidate_sql = next(statement for statement in statements if "SELECT t.id" in statement and "has_mert_embedding" in statement)
+    assert [candidate.path for candidate in candidates] == [(tmp_path / f"a-missing-{model}.wav").as_posix()]
+    candidate_sql = next(statement for statement in statements if "SELECT t.id" in statement and f"has_{model}_embedding" in statement)
     assert "LEFT JOIN embeddings" not in candidate_sql
     with db.connect() as connection:
         plan = "\n".join(
             str(row["detail"])
             for row in connection.execute(f"EXPLAIN QUERY PLAN {candidate_sql}").fetchall()
         )
-    assert "idx_tracks_missing_mert_embedding_flag_sort" in plan
+    assert index_name in plan
 
 
 def test_database_reset_rejects_removed_fake_adapter(tmp_path: Path) -> None:
@@ -833,7 +919,7 @@ def _analysis_flag_row(db: LibraryDatabase, track_id: int) -> dict[str, int]:
     with db.connect() as connection:
         row = connection.execute(
             """
-            SELECT has_sonara_analysis, has_maest_embedding, has_mert_embedding, has_clap_embedding
+            SELECT has_sonara_analysis, has_maest_embedding, has_mert_embedding, has_muq_embedding, has_clap_embedding
             FROM tracks
             WHERE id = ?
             """,

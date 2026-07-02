@@ -55,7 +55,7 @@ The UI scan job shows progress, events, current path, counts, and cancellation s
 
 ## Refresh Tags
 
-Use **Refresh Tags** when files already exist in the library and you only want to reread file tags. This updates selected metadata fields in SQLite for existing tracks. It does not rerun SONARA, MAEST, MERT, or CLAP.
+Use **Refresh Tags** when files already exist in the library and you only want to reread file tags. This updates selected metadata fields in SQLite for existing tracks. It does not rerun SONARA, MAEST, MERT, MuQ, or CLAP.
 
 ## Browse after scan
 

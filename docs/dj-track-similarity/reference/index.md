@@ -12,7 +12,7 @@ Reference pages are for exact names, ranges, and boundaries. Use the guide and w
 - [API](./api.md): endpoint families and important payload constraints.
 - [Database](./database.md): local SQLite state at a high level.
 - [Configuration](./configuration.md): paths, ports, environment variables, and generated artifacts.
-- [Analysis families](./analysis-families.md): what SONARA, MAEST, MERT, CLAP, and classifiers write.
+- [Analysis families](./analysis-families.md): what SONARA, MAEST, MERT, MuQ, CLAP, and classifiers write.
 - [UI controls](./ui-controls.md): common control ranges and defaults.
 
 ## Source of truth

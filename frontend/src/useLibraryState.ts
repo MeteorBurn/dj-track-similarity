@@ -11,7 +11,7 @@ import {
   type LibrarySortDirection
 } from "./libraryView";
 
-export const emptyLibrarySummary: LibrarySummary = { tracks: 0, sonara: 0, maest: 0, mert: 0, clap: 0, liked: 0, classifiers: 0 };
+export const emptyLibrarySummary: LibrarySummary = { tracks: 0, sonara: 0, maest: 0, mert: 0, muq: 0, clap: 0, liked: 0, classifiers: 0 };
 
 function activeClassifierMinScores(scores: Record<string, number>) {
   return Object.fromEntries(Object.entries(scores).filter(([, value]) => value > 0));

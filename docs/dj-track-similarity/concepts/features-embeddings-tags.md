@@ -28,6 +28,10 @@ Smart Set Builder may use the MAEST embedding, but it does not use MAEST genre l
 
 MERT stores an audio embedding. The MERT tab searches from selected seed tracks in this embedding space. SET, Hybrid preview, and Audio Dedup can also use stored MERT embeddings.
 
+## MuQ embedding
+
+MuQ stores a separate audio embedding from 24 kHz `float32` audio. It is tracked as its own analysis family and can be reset independently. The current app stores MuQ embeddings for future workflows, but it does not use them in search, SET, Hybrid, Audio Dedup, or classifier scoring yet.
+
 ## CLAP audio embedding
 
 CLAP analysis stores audio embeddings. The CLAP tab embeds a text prompt at search time and compares it to stored audio embeddings. SET, Hybrid, and Audio Dedup use stored CLAP audio embeddings as audio-to-audio signals, which are not the same as CLAP prompt scores.

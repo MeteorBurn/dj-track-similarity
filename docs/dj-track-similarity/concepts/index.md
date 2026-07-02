@@ -9,7 +9,7 @@ The app combines file metadata, audio features, embeddings, and optional local c
 ## Pages
 
 - [Local-first safety](./local-first-safety.md): what stays local and which actions can write files.
-- [Features, embeddings, and tags](./features-embeddings-tags.md): what SONARA, MAEST, MERT, CLAP, tags, and classifiers store.
+- [Features, embeddings, and tags](./features-embeddings-tags.md): what SONARA, MAEST, MERT, MuQ, CLAP, tags, and classifiers store.
 - [Similarity scores](./similarity-scores.md): why each score should be read in its own context.
 - [SET routing](./smart-set-builder-routing.md): how Smart Set Builder chooses and orders a preview.
 - [Classifiers and Rhythm Lab](./classifiers-and-rhythm-lab.md): how personal labels become promoted scores.

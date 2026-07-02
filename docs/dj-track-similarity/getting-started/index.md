@@ -18,7 +18,7 @@ The shortest useful path is: install, scan, serve the UI, analyze a small batch,
 - A local folder of audio files.
 - A local SQLite path where the app can create or open the library.
 - FFmpeg available on `PATH` or through `DJ_TRACK_SIMILARITY_FFMPEG`.
-- Optional model dependencies if you want SONARA, MAEST, MERT, or CLAP analysis.
+- Optional model dependencies if you want SONARA, MAEST, MERT, MuQ, or CLAP analysis.
 
 ## Privacy habit
 

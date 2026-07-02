@@ -36,7 +36,7 @@ It does not upload your collection. It does not decide what is a good mix. It he
   </div>
   <ol class="dts-signal-chain">
     <li><span class="dts-step">01</span><strong>Scan</strong><span>Read file tags into SQLite.</span></li>
-    <li><span class="dts-step">02</span><strong>Analyze</strong><span>Store SONARA, MAEST, MERT, and CLAP signals.</span></li>
+    <li><span class="dts-step">02</span><strong>Analyze</strong><span>Store SONARA, MAEST, MERT, MuQ, and CLAP signals.</span></li>
     <li><span class="dts-step">03</span><strong>Search</strong><span>Use seeds, prompts, classifiers, and SET previews.</span></li>
     <li><span class="dts-step">04</span><strong>Export</strong><span>Write M3U or CSV after listening.</span></li>
   </ol>
@@ -71,7 +71,7 @@ Relocation apply is SQLite-only. It updates stored `tracks.path` values and does
 - [Quickstart](./getting-started/quickstart.md): scan, serve the UI, analyze a first batch.
 - [Install](./getting-started/install.md): prerequisites, optional ML dependencies, frontend and docs builds.
 - [First library](./getting-started/first-library.md): build the SQLite library and understand scan behavior.
-- [First analysis](./getting-started/first-analysis.md): choose SONARA, MAEST, MERT, CLAP, and classifier jobs.
+- [First analysis](./getting-started/first-analysis.md): choose SONARA, MAEST, MERT, MuQ, CLAP, and classifier jobs.
 - [User guide](./user-guide/index.md): daily UI work.
 - [Workflows](./workflows/index.md): DJ task recipes.
 - [Concepts](./concepts/index.md): scores, models, safety, and routing.

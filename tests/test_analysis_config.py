@@ -11,7 +11,7 @@ from dj_track_similarity.analysis_config import (
 
 
 def test_normalize_analysis_models_preserves_canonical_order_and_deduplicates() -> None:
-    assert normalize_analysis_models(["CLAP", "mert", "clap", "sonara"]) == ("sonara", "mert", "clap")
+    assert normalize_analysis_models(["CLAP", "muq", "mert", "clap", "sonara"]) == ("sonara", "mert", "muq", "clap")
 
 
 def test_normalize_analysis_models_rejects_empty_and_unknown_values() -> None:

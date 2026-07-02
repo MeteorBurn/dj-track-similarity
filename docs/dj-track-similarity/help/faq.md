@@ -6,7 +6,7 @@
 
 ## Does analysis change audio files?
 
-No. SONARA, MAEST, MERT, CLAP, and classifier scoring write SQLite data. They do not rewrite source audio.
+No. SONARA, MAEST, MERT, MuQ, CLAP, and classifier scoring write SQLite data. They do not rewrite source audio.
 
 ## Which actions can write audio files?
 
@@ -21,7 +21,7 @@ No. Relocation apply updates stored SQLite paths only after preview checks pass.
 From CLI, omit `--limit`:
 
 ```powershell
-dj-sim analyze --models sonara,maest,mert,clap --db .\data\library.sqlite
+dj-sim analyze --models sonara,maest,mert,muq,clap --db .\data\library.sqlite
 ```
 
 In the UI, set `Analyze limit` to `0`.
@@ -32,7 +32,7 @@ CLAP text search is text-to-audio evidence. MERT seed search is audio-to-audio e
 
 ## Can I use the app without model dependencies?
 
-Yes, for scan, browse, serve, export, database selection, and existing SQLite data. Install optional analysis extras when you want new SONARA, MAEST, MERT, or CLAP results.
+Yes, for scan, browse, serve, export, database selection, and existing SQLite data. Install optional analysis extras when you want new SONARA, MAEST, MERT, MuQ, or CLAP results.
 
 ## Can I share reports or databases?
 

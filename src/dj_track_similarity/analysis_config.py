@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 
-ANALYSIS_MODEL_ORDER = ("sonara", "maest", "mert", "clap")
+ANALYSIS_MODEL_ORDER = ("sonara", "maest", "mert", "muq", "clap")
 ANALYSIS_DEVICE_CHOICES = ("auto", "cpu", "cuda")
 ANALYSIS_DEVICE_PATTERN = "^(auto|cpu|cuda)$"
 DEFAULT_ANALYSIS_DEVICE = "auto"

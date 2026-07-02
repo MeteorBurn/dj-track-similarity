@@ -287,7 +287,7 @@ type ProgressRow = { key: string; label: string; item: ProgressItem };
 
 function ModelProgress({ job }: { job: AnalysisJobStatus }) {
   const progress = job.model_progress;
-  const audioModels: AnalysisModel[] = ["sonara", "maest", "mert", "clap"];
+  const audioModels: AnalysisModel[] = ["sonara", "maest", "mert", "muq", "clap"];
   const audioRows: ProgressRow[] = audioModels.flatMap((model) => {
     const item = progress?.[model];
     return item ? [{ key: model, label: model.toUpperCase(), item }] : [];

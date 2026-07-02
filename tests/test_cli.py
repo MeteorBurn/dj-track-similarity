@@ -19,7 +19,7 @@ class _FakeStatus:
     analyzed = 2
     failed = 1
     embedding_key = "multi"
-    models = ["sonara", "maest", "mert", "clap"]
+    models = ["sonara", "maest", "mert", "muq", "clap"]
     current_model = None
     model_progress = {}
     device = "cpu"
@@ -148,12 +148,12 @@ def test_analyze_cli_prints_live_progress_for_default_models(monkeypatch, tmp_pa
     result = CliRunner().invoke(cli.app, ["analyze", "--db", str(db_path)])
 
     assert result.exit_code == 0
-    assert "Starting sonara,maest,mert,clap analysis" in result.output
+    assert "Starting sonara,maest,mert,muq,clap analysis" in result.output
     assert "processed=3/3" in result.output
     assert "tracks/s" in result.output
     assert "eta=" in result.output
     assert "state=completed" in result.output
-    assert "models=sonara,maest,mert,clap" in result.output
+    assert "models=sonara,maest,mert,muq,clap" in result.output
 
 
 def test_analyze_cli_accepts_selected_models_and_diagnostics_flag(monkeypatch, tmp_path):

@@ -1,3 +1,11 @@
+<p align="center">
+  <img src="img/dj-track-similarity-banner.png" alt="DJ Track Similarity" width="100%">
+</p>
+
+<p align="center">
+  <img src="img/rhythm-lab-banner.png" alt="Rhythm Lab" width="100%">
+</p>
+
 # 🎧 dj-track-similarity
 
 **Build DJ sets as stories from your own local music library.**

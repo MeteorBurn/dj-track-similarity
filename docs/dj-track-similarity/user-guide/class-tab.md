@@ -1,21 +1,44 @@
 # Use the CLASS tab
 
-> Audience: Users with promoted Rhythm Lab classifiers.
-> Goal: Score personal classifiers and use their results safely.
-> Type: how-to
+> Audience: Users with promoted Rhythm Lab classifier profiles.
+> Goal: Filter, rescore, and use classifier scores without confusing them with analysis families.
+> Type: guide
 
-## Discovery
+The CLASS tab reads promoted local profiles from `models/classifiers/*/model.json`. A profile is useful in the main UI only when the manifest is valid and compatible with scoring.
 
-The tab discovers promoted classifier profiles from `models/classifiers/*/model.json`.
+## What a promoted classifier is
 
-## Scoring
+A promoted classifier consists of:
 
-Promoted scoring reads existing SONARA features plus MERT and MAEST embeddings, then writes `track_classifier_scores` scoped by classifier key. It does not decode or modify audio.
+```text
+models/classifiers/<artifact-prefix>/model.joblib
+models/classifiers/<artifact-prefix>/model.json
+```
 
-## Retraining
+The manifest describes the classifier key, labels, model id, calibration status, required inputs, and optional Hybrid signal metadata.
 
-After retraining and promoting the same classifier key, reset only that classifier's stored scores before rescoring. Other classifier keys should remain untouched.
+## Filtering
 
-## SET
+Each promoted classifier appears with a slider from `0.00` to `1.00`. The library browser can filter tracks by minimum stored score for that classifier.
 
-Classifier sliders are optional modifiers. Missing scores remain neutral.
+Missing classifier scores do not pass a positive minimum filter. In SET and Hybrid modifiers, missing scores stay neutral.
+
+## Rescoring
+
+The play button on a classifier row resets and rescans that one classifier key. The UI calls the reset path first, then starts `/api/classifiers/{classifier_key}/analyze`.
+
+Classifier scoring is database-only. It reads existing SONARA, MAEST, and MERT inputs and writes `track_classifier_scores`. It does not decode audio unless the same analysis job also needs missing model data.
+
+## CLASSIFIERS in analysis jobs
+
+The left panel has a **CLASSIFIERS** checkbox. When selected, the analysis job can score all promoted classifiers that have missing rows. If required SONARA, MAEST, or MERT inputs are missing, select those models in the same job or analyze them first.
+
+## SET and Hybrid
+
+SET classifier preferences are signed. Negative values avoid the classifier concept, while positive values prefer it. Flow can stay flat or move upward/downward through the set.
+
+Hybrid preview can use classifier preference and risk metadata when a promoted manifest exposes a compatible signal. The Hybrid details panel shows whether classifier support was available, fresh, stale, missing, or neutral.
+
+## When no profiles appear
+
+Promote a profile from Rhythm Lab or place `model.json` plus `model.joblib` under `models/classifiers/<profile>/`. See [Rhythm Lab](../tools-and-scripts/rhythm-lab.md).

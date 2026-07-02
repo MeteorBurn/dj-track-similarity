@@ -1,49 +1,54 @@
 # dj-track-similarity
 
-A local-first DJ library workbench for DJs who want search, analysis, related-track discovery, and set ideas without uploading their collection anywhere.
+A local-first DJ library workbench for a local music folder. It stores tag scans in SQLite. Optional analysis and set-prep tools stay local.
 
-`dj-track-similarity` is built for people who manage real local music libraries. SQLite stores metadata and analysis results. The browser UI keeps day-to-day work close to the model outputs, so you can see where each recommendation comes from.
-
-This is a practical personal project for local library work. The goal is simple: help you move faster from "I have a large folder of tracks" to "these are candidates worth listening to together."
+This is a public personal project for self-managed DJ libraries. It is not a commercial recommendation service and it is not a benchmark. Treat the model outputs as ranking signals: useful for shortlisting tracks, never a substitute for listening.
 
 ![dj-track-similarity web UI](https://i.ibb.co/FkKt31n3/Q3n-Az-F6u7-T.png)
 
-## What You Can Do
+## Main jobs
 
-- Scan a local music folder into a searchable SQLite library.
-- Browse tracks with paginated metadata, tags, analysis coverage, and audio preview.
-- Run SONARA, MAEST, MERT, and CLAP analysis when you need richer search signals.
-- Search by seed tracks with MERT or SONARA.
-- Search by text prompts with CLAP after CLAP audio embeddings are available.
-- Generate Smart Set Builder previews from selected seeds or automatic anchors.
-- Train and promote personal Rhythm Lab classifiers for concepts such as vocals, live instrumentation, or energy shape.
-- Export temporary sets as M3U or CSV.
-- Build optional persistent ANN sidecar indexes for faster repeated vector lookup on large analyzed libraries.
-- Use Audio Doctor and Audio Dedup as report-first maintenance tools.
+- Scans local audio files into a SQLite database with Mutagen metadata.
+- Browses large libraries through a paginated web UI.
+- Shows metadata, analysis coverage, likes, audio preview, and search/set state.
+- Runs SONARA, MAEST, MERT, and CLAP analysis jobs.
+- Searches from seed tracks with MERT and SONARA.
+- Searches from text prompts with CLAP after CLAP audio embeddings exist.
+- Builds Smart Set Builder previews from selected seeds or automatic anchors.
+- Offers a Hybrid preview for weighted MERT, MAEST, SONARA, and CLAP candidate checks.
+- Reads promoted Rhythm Lab classifier scores for filtering, SET biasing, and Hybrid diagnostics.
+- Exports the current set as M3U or CSV.
+- Includes report-first helper tools for Audio Doctor, Audio Dedup, database optimization, and optional ANN sidecar indexes.
 
-## How It Thinks About Music
+## How the pieces fit
 
-The app deliberately keeps different evidence sources separate:
+```text
+audio files -> scan tags -> SQLite library -> browse/search/export
+      |                         ^
+      +---- analysis jobs -------+
+```
 
-- **File tags** come from the audio files through Mutagen.
-- **SONARA features** describe measurable musical properties such as energy, rhythm, loudness, and tonal signals.
-- **MERT, MAEST, and CLAP embeddings** are vector spaces for similarity search.
-- **MAEST labels** help with genre-like browsing and tag workflows.
-- **Classifier scores** come from your own promoted Rhythm Lab models.
+The app keeps evidence sources separate:
 
-Those scores are useful ranking signals, not objective truth. A good workflow is to use the app to shortlist candidates, then preview and decide by ear.
+- **File tags** come from Mutagen during scan and Refresh Tags.
+- **SONARA** stores audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy.
+- **MAEST** stores genre labels and an audio embedding.
+- **MERT** stores an audio embedding for seed similarity.
+- **CLAP** stores an audio embedding for text-to-audio search and audio-to-audio comparison.
+- **Rhythm Lab classifiers** store optional local scores under a classifier key.
 
-## Quick Start
+## Quick start
 
-Verified local development is Windows-first, using PowerShell and Python `>=3.10`.
+Verified local development is Windows-first, but the Python package and web app are ordinary local tools. The command examples assume the environment is active.
 
 You need:
 
 - Python `>=3.10`
-- FFmpeg on `PATH`, or `DJ_TRACK_SIMILARITY_FFMPEG` pointing to `ffmpeg.exe`
-- A folder of local audio files
+- FFmpeg on `PATH`, or `DJ_TRACK_SIMILARITY_FFMPEG` pointing to the ffmpeg executable
+- A local folder of audio files
+- Node.js only when you build the frontend or docs from source
 
-Create an environment and install the base package:
+Install the base package:
 
 ```powershell
 python -m venv .venv
@@ -51,7 +56,7 @@ python -m venv .venv
 python -m pip install -e ".[dev]"
 ```
 
-Create a local database and scan a folder:
+Create a database and scan a music folder:
 
 ```powershell
 mkdir data
@@ -70,142 +75,108 @@ Open:
 http://127.0.0.1:8765/
 ```
 
-The browser should show your scanned tracks. The library view opens metadata and audio preview controls. Use the search panels for seed selection and analysis jobs.
-
-There is also a Windows launcher:
+There is also a Windows launcher that activates `.venv` and forwards remaining arguments to `dj-sim serve`:
 
 ```powershell
 run_server.cmd local --db C:\db\abstracted.sqlite
 run_server.cmd lan --db C:\db\abstracted.sqlite
 ```
 
-## Add Analysis
+`local` binds to `127.0.0.1`. `lan` binds to `0.0.0.0` and prints a LAN URL.
 
-The base install is enough for scanning, browsing, serving the UI, and using existing data. Install optional analysis dependencies when you want model-backed search:
+## Add model-backed analysis
+
+The base install is enough for scan, browse, UI serving, existing SQLite data, and set export. Install optional analysis dependencies when you want the model jobs:
 
 ```powershell
 python -m pip install -e ".[sonara,ml,dev]"
 ```
 
-Run a small first analysis pass:
+Run a small first pass:
 
 ```powershell
-dj-sim analyze --models sonara,mert,clap --limit 25 --db .\data\library.sqlite
+dj-sim analyze --models sonara,maest,mert,clap --limit 25 --db .\data\library.sqlite
 ```
 
-In the UI, `Analyze limit = 0` means the whole library. Positive limits count tracks missing the selected analysis family.
+Useful options from the current CLI and API are:
 
-For the full Windows ML stack, CUDA notes, and FFmpeg details, see [Install](docs/dj-track-similarity/getting-started/install.md).
+- `--models sonara,maest,mert,clap`
+- `--device auto|cpu|cuda`
+- `--top-k 1..10` for MAEST labels
+- `--track-batch-size 1..64`
+- `--inference-batch-size 1..128`
+- `--diagnostics` to write decoder and batch timing details to the file log
 
-## Search Modes
+In the CLI, omit `--limit` to analyze the whole library. In the UI, `Analyze limit = 0` means the whole library.
 
-The main search surface is split into tabs:
+## Main UI surfaces
 
-- **SET** builds a read-only set preview from manual seeds or automatic anchors.
-- **SONARA** searches with explainable audio features and optional mixer/modifier controls.
-- **MERT** searches from selected seed tracks in MERT embedding space.
-- **CLAP** searches with a text prompt against stored CLAP audio embeddings.
-- **CLASS** filters or scores with promoted local classifier profiles.
+The browser UI is split into three working areas:
 
-CLAP text scores are usually lower than seed-based audio-to-audio scores. Useful CLAP text results may sit around `0.35-0.55`. Do not compare them directly with MERT seed-search scores or Audio Dedup thresholds. If the CLAP `Avoid` field is filled, the shown score is contrast evidence: positive prompt match minus negative prompt match.
+1. **Database and analysis**: choose a SQLite database, choose a music folder, scan, refresh tags, run analysis, reset analysis results, write MAEST genres, and clear the database.
+2. **Library browser**: use paginated search and row actions for metadata, preview, likes, seeds, and current-set changes.
+3. **Search and set preparation**: use SET, SONARA, MERT, CLAP, CLASS, Hybrid preview, playlist export, and Rhythm Lab collection save.
 
-## Optional Persistent Indexes
+The search panel uses these tabs:
 
-Large analyzed libraries can use generated sidecar indexes for repeated MERT, MAEST, or CLAP vector lookup. They are optional: normal exact search still works without them.
+- **SET** builds a read-only ordered set preview. Manual mode uses selected seeds. Auto mode chooses anchors from feature-complete tracks.
+- **SONARA** searches from seed tracks with feature mixer and modifier controls.
+- **MERT** searches from selected seeds in the MERT embedding space.
+- **CLAP** searches from text prompts against stored CLAP audio embeddings.
+- **CLASS** filters and rescans promoted local classifier profiles.
 
-Build and verify one adapter at a time:
+CLAP text-search scores are not the same scale as seed-based audio-to-audio scores. Good text results can have lower raw scores. Do not compare them directly with MERT scores or Audio Dedup thresholds.
 
-```powershell
-dj-sim index build --adapter clap --db .\data\library.sqlite
-dj-sim index verify --adapter clap --db .\data\library.sqlite
-```
+## Maintenance tools
 
-Use the CLAP sidecar explicitly from text search:
+- **Audio Doctor** checks audio metadata/container issues. It is dry-run-first. Apply mode requires exact `APPLY REPAIR` and existing dry-run state.
+- **Audio Dedup** reports duplicate candidates from stored analysis data. Apply mode requires exact `APPLY DELETE` and deletes only safe candidates inside the selected root.
+- **Persistent ANN indexes** are optional generated sidecars for repeated vector lookup. Missing or stale indexes fall back to exact search where supported.
+- **Database optimization** backs up the SQLite file, runs integrity checks, and then runs SQLite maintenance commands.
 
-```powershell
-dj-sim text-search "warm dub techno pads" --use-ann-index --db .\data\library.sqlite
-```
+## Safety model
 
-Generated indexes live beside the selected SQLite database by default under `.dj-track-similarity-indexes/`. They do not copy audio files or write new SQLite rows. Missing, stale, or unsupported sidecars warn and fall back to exact search.
-
-See [Persistent ANN indexes](docs/dj-track-similarity/tools-and-scripts/persistent-ann-indexes.md) for build backends, benchmarks, and cleanup commands.
-
-## Personal Classifiers
-
-Rhythm Lab is the companion workflow for labels and local classifiers. It runs separately and reads the main library for context. Labels stay under `tools/rhythm-lab/data/`.
-
-Start it with:
-
-```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py serve --labels tools\rhythm-lab\data\rhythm_lab.sqlite
-```
-
-Open:
-
-```text
-http://127.0.0.1:8777/
-```
-
-Promoted runtime models live under:
-
-```text
-models/classifiers/<artifact-prefix>/model.joblib
-models/classifiers/<artifact-prefix>/model.json
-```
-
-Read [Classifiers and Rhythm Lab](docs/dj-track-similarity/concepts/classifiers-and-rhythm-lab.md) before training or promoting classifiers.
-
-## Maintenance Tools
-
-The repository includes helper tools for local-library maintenance:
-
-- **Audio Doctor** is dry-run-first and can repair only files that were reported as repairable.
-- **Audio Dedup** writes JSON/XLSX/log reports by default and deletes only after explicit `APPLY DELETE` confirmation.
-- **Database optimization** should create a SQLite backup before maintenance work.
-
-Audio Dedup uses audio-to-audio MERT, MAEST, CLAP, SONARA, and duration evidence. Its `Min similarity` gate is not the same scale as CLAP text search.
-
-## Safety Model
-
-Default workflows do not modify audio files:
+Default workflows do not modify source audio files:
 
 - scan
 - Refresh Tags
 - analysis
 - search
-- preview
-- reset
+- audio preview
+- analysis reset
+- database clear
 - relocation preview
+- set generation
 - export
 - classifier scoring
 
-The explicit write paths are narrow:
+Explicit write paths are narrow:
 
-- MAEST genre tag apply can write standard genre tags to audio files.
-- Audio Doctor `--apply` can repair files after a dry run.
-- Audio Dedup apply mode can delete confirmed duplicate candidates.
-- Relocation apply updates stored SQLite paths only. It does not move files.
+- MAEST genre tag apply writes the standard genre field in audio files.
+- Audio Doctor apply can repair previously reported repairable files.
+- Audio Dedup apply can delete confirmed duplicate candidates.
+- Library relocation apply updates stored SQLite paths only. It does not move, copy, delete, or retag audio files.
 
-Local databases, logs, reports, and trained models may reveal private library information. Keep them out of Git unless you intentionally decide otherwise.
+SQLite databases, logs, reports, generated indexes, and promoted classifier artifacts can reveal library information. Keep them out of Git unless you intentionally choose otherwise.
 
 ## Documentation
 
-Start with:
+Start here:
 
 - [Project guide](docs/dj-track-similarity/project-guide.md)
 - [Quickstart](docs/dj-track-similarity/getting-started/quickstart.md)
 - [Install](docs/dj-track-similarity/getting-started/install.md)
 - [First library](docs/dj-track-similarity/getting-started/first-library.md)
 - [First analysis](docs/dj-track-similarity/getting-started/first-analysis.md)
-- [Search by text with CLAP](docs/dj-track-similarity/user-guide/text-search.md)
-- [Similarity scores](docs/dj-track-similarity/concepts/similarity-scores.md)
-- [Persistent ANN indexes](docs/dj-track-similarity/tools-and-scripts/persistent-ann-indexes.md)
-- [Audio Dedup](docs/dj-track-similarity/tools-and-scripts/audio-dedup.md)
+- [Browse library](docs/dj-track-similarity/user-guide/browse-library.md)
+- [Search with seeds](docs/dj-track-similarity/user-guide/search-with-seeds.md)
+- [Smart Set Builder](docs/dj-track-similarity/user-guide/smart-set-builder.md)
+- [Text search](docs/dj-track-similarity/user-guide/text-search.md)
+- [Local-first safety](docs/dj-track-similarity/concepts/local-first-safety.md)
+- [Tools and scripts](docs/dj-track-similarity/tools-and-scripts/index.md)
 - [CLI reference](docs/dj-track-similarity/reference/cli.md)
-- [API reference](docs/dj-track-similarity/reference/api.md)
-- [Development](docs/dj-track-similarity/developer/development.md)
 
-## Development
+## Development checks
 
 Run backend tests:
 
@@ -220,15 +191,11 @@ cd frontend
 npm run build
 ```
 
-Build the docs site:
+Check and build the docs:
 
 ```powershell
 cd docs\dj-track-similarity
 npm run check
 ```
 
-Run `npm run vale:sync` first after a fresh checkout or when Vale packages change.
-
-The docs build output goes to `docs/dj-track-similarity/site/` and is not tracked in Git.
-
-There is currently no separate `CONTRIBUTING.md` or license file in the repository.
+Run `npm run vale:sync` once after a fresh checkout or when `.vale.ini` packages change.

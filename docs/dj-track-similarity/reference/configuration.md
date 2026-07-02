@@ -1,38 +1,82 @@
 # Configuration reference
 
-> Audience: Users wiring local paths, ports, and builds.
-> Goal: Know important runtime and docs settings.
+> Audience: Users setting paths, ports, builds, and generated output locations.
+> Goal: List the practical knobs exposed by the current repo.
 > Type: reference
 
-## Paths
+## Environment variables
 
-- Source package: `src/dj_track_similarity/`.
-- Frontend source: `frontend/`.
-- Docs source: `docs/dj-track-similarity/`.
-- Docs output: `docs/dj-track-similarity/site/` (local build output, ignored by Git).
-- Promoted classifiers: `models/classifiers/<artifact-prefix>/`.
-- Persistent ANN sidecars: `.dj-track-similarity-indexes/` beside the selected SQLite database by default, or `--index-dir <index-folder>` when overridden.
+| Variable | Purpose |
+| --- | --- |
+| `DJ_TRACK_SIMILARITY_FFMPEG` | Full path to ffmpeg executable when `ffmpeg` is not on `PATH` |
+
+If the variable is set but points to a missing file, server startup fails clearly.
+
+## Default paths
+
+| State | Default or common path |
+| --- | --- |
+| Default CLI database | `dj-track-similarity.sqlite` when `--db` is omitted |
+| Example project database | `.\data\library.sqlite` |
+| Local manual Windows database | `C:\db\abstracted.sqlite` |
+| Runtime logs | `logs/` |
+| Audio Doctor reports/state/backups | `tools/audio-doctor/data/` |
+| Audio Dedup reports | `tools/audio-dedup/data/reports/` |
+| Rhythm Lab labels | `tools/rhythm-lab/data/rhythm_lab.sqlite` |
+| Rhythm Lab artifacts | `tools/rhythm-lab/artifacts/` |
+| Promoted classifier models | `models/classifiers/<artifact-prefix>/` |
+| Persistent ANN sidecars | `.dj-track-similarity-indexes/` beside the selected DB by default |
+
+Generated local artifacts are ignored by Git unless explicitly tracked by policy.
 
 ## Ports
 
-Main backend uses `8765`, frontend Vite uses `5173`, and Rhythm Lab uses `8777`. Check for an existing project process before starting another fixed-port server.
+| Service | Default |
+| --- | ---: |
+| Main backend/UI | `8765` |
+| Vite frontend dev server | `5173` |
+| Rhythm Lab | `8777` |
 
-The main UI top bar includes a local server stop button for the current backend process. It calls `/api/server/shutdown` with the explicit shutdown action header, then the backend exits after acknowledging the request.
+Check for existing listeners before starting another fixed-port process.
 
-## Runtime
+## Server commands
 
-`ffmpeg` must be on `PATH` or configured through `DJ_TRACK_SIMILARITY_FFMPEG`. Analysis device values are `auto`, `cpu`, and `cuda`.
+Local-only:
 
-Persistent ANN index backends are selected with `dj-sim index build --backend auto|hnswlib|exact-numpy`. `auto` prefers `hnswlib` when the optional `ann` extra is installed and falls back to `exact-numpy` otherwise.
+```powershell
+dj-sim serve --host 127.0.0.1 --port 8765 --db .\data\library.sqlite
+```
 
-## Generated local state
+LAN:
 
-Generated databases, logs, reports, backups, promoted classifier artifacts, and index sidecars may reveal private library information. Keep them out of Git unless they are intentionally sanitized.
+```powershell
+dj-sim serve --host 0.0.0.0 --port 8765 --db .\data\library.sqlite
+```
 
-## Docs
+Windows helper:
 
-From `docs\dj-track-similarity`, run `npm run check` for normal docs verification. It runs
-strict Vale style checking for `README.md` plus the VitePress Markdown tree, and `npm run build`.
-Run `npm run vale:sync` once after a fresh checkout or when `.vale.ini` packages change. VitePress
-uses `base: "/docs/"` and `outDir: "site"`. The backend serves `/docs/` from that folder when it
-exists; otherwise it shows a clear not-built page.
+```powershell
+run_server.cmd local --db .\data\library.sqlite
+run_server.cmd lan --db .\data\library.sqlite
+```
+
+## Build commands
+
+Frontend bundle:
+
+```powershell
+cd frontend
+npm install
+npm run build
+```
+
+Docs site:
+
+```powershell
+cd docs\dj-track-similarity
+npm install --no-package-lock
+npm run vale:sync
+npm run check
+```
+
+The docs route `/docs/` returns a clear "Documentation is not built" page when `docs/dj-track-similarity/site/` is absent.

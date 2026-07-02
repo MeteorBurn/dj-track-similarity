@@ -1,23 +1,55 @@
 # Audio Dedup
 
 > Audience: Users looking for duplicate audio candidates.
-> Goal: Generate reports first and apply deletion only with explicit confirmation.
-> Type: how-to
+> Goal: Run report mode safely and understand apply mode.
+> Type: guide
 
-## Report mode
+Audio Dedup reads an existing SQLite library and writes JSON/XLSX/log reports by default. It uses stored analysis data and local paths. It does not scan unknown folders outside the selected root.
+
+## Requirements
+
+Audio Dedup needs stored audio-to-audio evidence. The duplicate scoring uses stored MERT, MAEST, and CLAP audio embeddings plus other safe checks in the tool core. Its `min_similarity` is not the CLAP text-search score scale.
+
+## UI flow
+
+Open Audio Dedup from the copy icon in the top bar.
+
+Controls:
+
+- **Root**: only DB tracks inside this stored path root are considered.
+- **Path contains**: optional case-insensitive path filters, split by line, comma, or semicolon.
+- **Preset**: safe, balanced, or aggressive.
+- **Min score**: optional `0..1` override.
+- **Min similarity**: optional `0..1` audio-to-audio content gate.
+- **Limit groups**: optional maximum number of groups.
+- **Output dir**: report directory.
+
+Click **Start** for report mode. The UI shows progress and opens the XLSX report when complete.
+
+## CLI report mode
 
 ```powershell
-python tools\audio-dedup\audio_dedup_cli.py --db <library-db> --root <music-folder>
+python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music --preset safe
 ```
 
-Default mode writes JSON/XLSX/log reports and deletes nothing.
+Optional examples:
 
-Audio Dedup `Min similarity` is an audio-to-audio content gate over stored MERT, MAEST, and CLAP audio embeddings. It is not comparable to the lower CLAP text-search score range, so do not lower duplicate-delete thresholds just because CLAP prompt scores look smaller.
+```powershell
+python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music --path-contains wav --limit-groups 50
+```
 
-## UI and API
+## Apply mode
 
-The main UI opens Audio Dedup from the top toolbar. The UI supports preset selection, report output, cancellation, and XLSX download. The API endpoints live under `/api/audio-dedup/jobs`.
+Apply mode is destructive. It requires exact confirmation:
 
-## Apply
+```text
+APPLY DELETE
+```
 
-`--apply` is destructive. It prompts for exact confirmation `APPLY DELETE` before removing safe duplicate candidates inside the selected root. SQLite rows are removed only after files are successfully deleted.
+The tool deletes only safe duplicate candidates inside the selected root and removes SQLite rows only for tracks whose files were deleted.
+
+Do not run apply mode during routine tests. Review the report first and keep backups when the library matters.
+
+## Output
+
+Reports default under `tools/audio-dedup/data/reports/` and include JSON, XLSX, and log output. They are local private artifacts.

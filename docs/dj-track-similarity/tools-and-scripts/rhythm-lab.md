@@ -1,46 +1,85 @@
 # Rhythm Lab
 
-> Audience: Power users training local classifiers.
-> Goal: Run the separate labeling/training helper safely.
-> Type: how-to
+> Audience: Users creating local classifier profiles.
+> Goal: Label, train, promote, and send collections without losing source boundaries.
+> Type: guide
 
-## Commands
+Rhythm Lab is a separate labeling and training app. The main UI can launch it, and the search panel can save the current set as a Rhythm Lab collection.
 
-The main app top bar launches Rhythm Lab in a separate window. Stop the lab from
-inside that Rhythm Lab window with its power button; the main app keeps only the
-launch shortcut.
+## Start the UI
+
+From the main UI, click the flask icon. The backend starts or reuses Rhythm Lab at port `8777`.
+
+Manual command:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py serve --labels tools\rhythm-lab\data\rhythm_lab.sqlite
-python tools\rhythm-lab\rhythm_lab_cli.py train --profile <classifier-key> --source <library-db> --labels tools\rhythm-lab\data\rhythm_lab.sqlite
-python tools\rhythm-lab\rhythm_lab_cli.py promote --profile <classifier-key> --labels tools\rhythm-lab\data\rhythm_lab.sqlite
-python tools\rhythm-lab\rhythm_lab_cli.py collection-save --labels tools\rhythm-lab\data\rhythm_lab.sqlite --name "Agent finds" --track-id 123 --track-ids .\ids.txt --replace
+python tools\rhythm-lab\rhythm_lab_cli.py serve --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+```
+
+Open:
+
+```text
+http://127.0.0.1:8777/
+```
+
+## Main CLI commands
+
+Train:
+
+```powershell
+python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+```
+
+Predict:
+
+```powershell
+python tools\rhythm-lab\rhythm_lab_cli.py predict tools\rhythm-lab\artifacts\live_instrumentation\combined\model.joblib --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+```
+
+Promote:
+
+```powershell
+python tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+```
+
+Calibration report:
+
+```powershell
+python tools\rhythm-lab\rhythm_lab_cli.py calibration-report --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+```
+
+Suggest labels:
+
+```powershell
+python tools\rhythm-lab\rhythm_lab_cli.py suggest-labels --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --limit 25
+```
+
+## Collections
+
+The main UI can save the current set as a Rhythm Lab collection. The CLI can also create or update a collection:
+
+```powershell
+python tools\rhythm-lab\rhythm_lab_cli.py collection-save --labels tools\rhythm-lab\data\rhythm_lab.sqlite --name "review pile" --track-id 123 --track-id 456
+```
+
+List collections:
+
+```powershell
 python tools\rhythm-lab\rhythm_lab_cli.py collection-list --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
-## Review collections
+## Active-learning queue
 
-Review collections are temporary track batches for manual labeling. Use them for
-AI search results, saved playlist candidates, or other review sets that should
-not mix into normal Library, Candidates, or Liked browsing.
+The CLI can list, export, mark, and clear queue rows with `queue`, `queue-export`, `queue-mark`, and `queue-clear`.
 
-Rhythm Lab shows them in the Collection tab. Choose a collection from the select
-next to the tab, then label tracks with the same profile controls and filters as
-the rest of the lab. Deleting a collection removes only that review list; labels
-already written for the active profile remain in Rhythm Lab state, and source
-audio is not touched.
+## Delete profile
 
-Agents, scripts, or the main UI can add tracks through the collection API. The
-CLI can create, append to, replace, and list collections with `collection-save`
-and `collection-list`.
+Profile deletion is explicit and confirmation-gated:
 
-## Filtering
+```powershell
+python tools\rhythm-lab\rhythm_lab_cli.py delete-profile --profile live_instrumentation --confirm live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+```
 
-The library, liked, collection, and candidate views share the search, label, and
-BPM filters. `BPM from` and `BPM to` use only stored SONARA BPM from the selected
-source database. Leave either bound blank to make it open-ended; leave both
-blank to skip BPM filtering.
+## Safety
 
-## Calibration
-
-Use `--calibrate` only when you intentionally want calibration and have enough labels. Use `promote --require-calibration` only when calibrated output is required.
+Rhythm Lab does not rewrite source audio. Its normal data stays under `tools/rhythm-lab/data/` and `tools/rhythm-lab/artifacts/`. Promoted runtime models live under `models/classifiers/` and should not be committed unless you intentionally change that policy.

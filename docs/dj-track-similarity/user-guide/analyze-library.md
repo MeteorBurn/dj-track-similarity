@@ -1,21 +1,63 @@
 # Analyze the library from the UI
 
-> Audience: UI users running model jobs.
-> Goal: Choose analysis families, safe limits, and device settings.
-> Type: how-to
+> Audience: Users running analysis jobs in the browser.
+> Goal: Explain model selection, job progress, and reset behavior.
+> Type: guide
+
+Use the analysis area after scanning tracks. Analysis reads audio and writes SQLite results. It does not modify source audio files.
 
 ## Pick models
 
-Run SONARA, MAEST, MERT, CLAP, or a subset. CLASSIFIERS can run when promoted classifier models are available.
+The UI lists these choices:
+
+- **SONARA**: audio features and working BPM/key/energy/duration data.
+- **MAEST**: genre label output plus syncopated-rhythm metadata and the MAEST embedding.
+- **MERT**: audio embedding for seed similarity.
+- **CLAP**: audio embedding for text search and audio-to-audio comparison.
+- **CLASSIFIERS**: promoted classifier scores, if compatible profiles are available.
+
+One job can include multiple families. Tracks that already have a selected result are skipped for that family.
 
 ## Limit behavior
 
-UI `Analyze limit = 0` means whole library. Positive values count missing results for the selected model family. CLI whole-library analysis omits `--limit`.
+`Analyze limit = 0` in the UI means the whole library. Positive limits count tracks missing selected results.
 
-## Advanced controls
+The CLI differs: omit `--limit` for the whole library.
 
-Device is `auto`, `cpu`, or `cuda`. Track batch size controls decoded tracks held together. Inference batch size controls model forward-pass batching. Top K controls stored MAEST labels.
+## Device
 
-## Write boundary
+- `AUTO` selects CUDA when PyTorch sees a GPU, otherwise CPU.
+- `CPU` forces CPU.
+- `CUDA` requests CUDA and should fail clearly if CUDA is unavailable.
 
-Analysis writes SQLite metadata, features, and embeddings. It does not write audio tags.
+SONARA runs as a CPU runner. MAEST, MERT, and CLAP use the selected device through their adapters.
+
+## Batch controls
+
+- **Track batch size**: `1..64`, decoded tracks held and processed together.
+- **Inference batch size**: `1..128`, MAEST/MERT/CLAP model samples per forward pass.
+
+Lower these if memory is tight. Increase only after a small test batch works.
+
+## Progress and logs
+
+The UI polls the current job and shows:
+
+- state: queued, running, completed, cancelled, or failed,
+- total, processed, analyzed, failed, and skipped counts,
+- current model and path,
+- per-model progress,
+- event log and errors.
+
+The square stop button requests cancellation. It does not kill Python mid-write. The job checks the cancellation flag between work units.
+
+## Reset buttons
+
+Reset is SQLite-only:
+
+- SONARA reset removes SONARA metadata and flags.
+- MAEST reset removes MAEST metadata and MAEST embeddings.
+- MERT and CLAP reset delete embeddings for that key.
+- CLASSIFIERS reset deletes selected `track_classifier_scores` rows.
+
+Use reset when you intentionally want a fresh run. Do not reset just because search results feel surprising.

@@ -1,24 +1,40 @@
 # Read similarity scores as suggestions
 
-> Audience: Users interpreting search results.
-> Goal: Explain scores without making them sound absolute.
-> Type: explanation
+> Audience: Users comparing result scores across tabs.
+> Goal: Prevent score-scale mistakes.
+> Type: concept
 
-Scores help sort candidates inside one search mode. They are not universal quality ratings, and they do not replace listening.
+Scores are ranking signals. They are useful inside the workflow that produced them. They are not universal music quality or mix probability.
 
-## Meaning
+## MERT seed search
 
-A score says that, under the selected feature or embedding space, a candidate is close to the seed or prompt. It does not prove the track is mix-ready.
+MERT search compares stored audio embeddings from selected seed tracks to candidate tracks. The score is useful for seed-based audio-to-audio neighborhood ranking.
 
-Read scores as ranking hints: the top cluster is usually more important than the exact decimal value. A lower-scored track can still be the better DJ choice if it has the right intro, vocal spacing, groove, or energy.
+## SONARA search
 
-## Why tabs differ
+SONARA search compares feature values and applies mixer weights plus optional modifier bias. It is more explainable than MERT, but it is still a similarity model. Raising a mixer weight changes the ranking question.
 
-- SONARA scores come from measured feature groups.
-- MERT scores come from MERT embeddings.
-- CLAP text scores compare prompt embeddings with CLAP audio embeddings. When `Negative` is enabled, the score is the pooled positive prompt score minus a weighted hard-negative match.
-- Hybrid/SET combines sources and routing logic.
+## CLAP text search
 
-Scores are comparable within the same tab or mode because they came from the same scoring surface. They are not equivalent across tabs: `0.82` in CLAP text search does not mean the same thing as `0.82` in SONARA or a SET preview. Compare candidates within the list you asked for, then decide by ear.
+CLAP text search compares text embeddings to stored CLAP audio embeddings. Raw text-to-audio scores are often lower than seed-based audio-to-audio scores. Useful matches can appear around `0.35..0.55`, depending on prompts and library content.
 
-CLAP also appears as a stored audio embedding in SET, Hybrid, and Audio Dedup. Those audio-to-audio CLAP similarities are not the same scale as CLAP text search scores.
+When the Negative bank is enabled, the visible score is contrast evidence, not a probability.
+
+## SET scores
+
+Smart Set Builder combines MERT, CLAP audio, MAEST embedding, broad SONARA similarity, transition confidence, diversity, energy curve, BPM curve, artist pressure, and optional classifier preferences. The output score is for ordering a preview under the selected controls.
+
+## Hybrid preview scores
+
+Hybrid preview uses weighted reciprocal-rank fusion across enabled sources, optional transition-risk penalty, and optional classifier controls. Its detail panel is designed to explain source support and risk, not to prove a final mix.
+
+## Audio Dedup thresholds
+
+Audio Dedup `min_similarity` is an audio-to-audio content gate over stored MERT, MAEST, and CLAP audio embeddings. It is not comparable to CLAP text-search similarity.
+
+## Practical reading
+
+- Compare scores inside the same tab and same settings.
+- Be careful after changing thresholds, weights, or prompts.
+- Preview audio before adding to a set.
+- Do not use one tab's threshold as another tab's safety rule.

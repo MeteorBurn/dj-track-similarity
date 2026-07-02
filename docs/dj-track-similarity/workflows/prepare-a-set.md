@@ -1,35 +1,66 @@
 # Prepare a set from a few anchors
 
-> Audience: DJs turning a rough idea into an ordered shortlist.
-> Goal: Move from seed tracks to an exportable set preview.
-> Type: how-to
+> Audience: Users building an ordered listening candidate list.
+> Goal: Move from seed tracks to export without treating the preview as final truth.
+> Type: workflow
 
-Treat the generated set as a shortlist, not a finished performance. The app can order candidates, but your ears still decide whether the transitions, tension, and room energy make sense.
+This workflow uses the main UI.
 
-## Flow
+## 1. Start with a scanned and analyzed library
 
-- Scan and analyze enough of the library.
-- Pick one to five seed tracks.
-- Generate a SET preview in balanced or similar-crate mode.
-- Tune energy curve, diversity, and BPM mode.
-- Preview, prune, then export M3U or CSV.
+For SET, run all core analysis families:
 
-## Checkpoints
+```powershell
+dj-sim analyze --models sonara,maest,mert,clap --db .\data\library.sqlite
+```
 
-1. Before generating: confirm the seeds represent the set idea and have enough analysis coverage for the search mode you want to use.
-2. After generating, listen through the proposed order. Focus first on early transitions, then review the peak section and larger tempo or energy moves.
-3. Prune tracks that are technically similar but wrong for the room. Also check vocal density, drum feel, key tension, and personal taste.
-4. Before export: check the final count, order, and file availability. Export M3U when your DJ software should load files directly. Export CSV when you want a review sheet.
+A track needs SONARA, MERT, MAEST, and CLAP data to be SET-eligible.
 
-## Diagram
+## 2. Pick anchors
+
+In the library, search or page to tracks that represent the area you want. Add one to five seeds.
+
+Avoid choosing two tracks from the same known artist for one SET preview. The backend enforces at most one track per known artist.
+
+## 3. Generate a SET preview
+
+Open the SET tab.
+
+- Choose **Manual** if your selected seeds should be fixed anchors.
+- Choose **Auto** if you want the app to choose anchors from the eligible library.
+- Pick a set mode, energy curve, track limit, and diversity value.
+- Use BPM trajectory only when you truly want the set to climb or descend.
+- Use classifier preferences only when you understand the promoted classifier.
+
+Click **Generate**. Review the coverage counts and preview order.
+
+## 4. Check alternatives
+
+Use MERT for close seed neighbors. Use SONARA when you want to steer feature groups. Use CLAP when you can describe a sound in words. Use Hybrid preview when you want weighted source support and diagnostic detail.
+
+## 5. Listen
+
+Preview candidates by ear. Watch for:
+
+- too many similar tracks,
+- artist repetition,
+- energy dips or jumps,
+- vocal conflicts,
+- key or tempo transitions that look fine numerically but feel wrong.
+
+## 6. Add and export
+
+Click **Add preview** only when the preview is useful. Then edit the current set manually and export M3U or CSV.
 
 ```mermaid
 flowchart LR
-    A[Seed ideas] --> B[SET preview]
-    B --> C[Listen and prune]
-    C --> D[Export set file]
+    A[Seeds] --> B[SET preview]
+    B --> C[Preview by ear]
+    C --> D[Add preview]
+    D --> E[Manual set edits]
+    E --> F[Export M3U or CSV]
 ```
 
 ## Safety
 
-A preview is not a write to audio files. Adding it to the current set is an explicit UI action.
+SET generation is read-only. Adding preview changes only the browser's current set state. Export writes a new playlist file, not audio tags.

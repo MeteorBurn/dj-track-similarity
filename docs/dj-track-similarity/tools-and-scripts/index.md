@@ -1,23 +1,28 @@
 # Tools and scripts
 
-> Audience: Power users and maintainers.
-> Goal: Use helper tools deliberately and safely.
-> Type: how-to
+> Audience: Users running helper workflows outside the main search panel.
+> Goal: Explain what each helper writes and when to use it.
+> Type: guide index
 
-Start with the page that matches the job in front of you. The docs keep human workflow pages separate from compact reference so you can read only what you need.
+The repository includes helper tools for classifier labeling, reports, maintenance, and faster repeated lookup. Use them deliberately. Some are report-only by default, and some have real apply modes.
 
 ## Pages
 
-- [Rhythm Lab](rhythm-lab.md): label and train personal classifiers.
-- [Audio Dedup](audio-dedup.md): report likely duplicates before any delete.
-- [Audio Doctor](audio-doctor.md): dry-run-first metadata/container repair.
-- [Persistent ANN indexes](persistent-ann-indexes.md): optional generated sidecars for faster MERT, MAEST, or CLAP vector lookup.
-- [Optimize database](optimize-database.md): backup, VACUUM, ANALYZE, and integrity checks.
+- [Rhythm Lab](./rhythm-lab.md): label, train, promote, and queue classifier review work.
+- [Audio Dedup](./audio-dedup.md): find likely duplicate audio candidates and optionally delete safe candidates after confirmation.
+- [Audio Doctor](./audio-doctor.md): inspect and repair known safe audio container/tag issues after dry-run state exists.
+- [Persistent ANN indexes](./persistent-ann-indexes.md): build optional vector sidecars for faster repeated lookup.
+- [Optimize database](./optimize-database.md): backup, integrity-check, vacuum, analyze, and checkpoint SQLite.
 
 ## Generated output
 
-These tools may create local reports, state files, backups, or sidecar indexes. Treat them as private library artifacts unless you intentionally sanitize them.
+Tool output directories are local state and are ignored by Git by default:
 
-## Privacy habit
+- `tools/audio-doctor/data/`
+- `tools/audio-dedup/data/reports/`
+- `tools/rhythm-lab/data/`
+- `tools/rhythm-lab/artifacts/`
+- `models/classifiers/`
+- `.dj-track-similarity-indexes/`
 
-Use placeholders such as `<library-db>` and `<music-folder>` in notes, issues, and examples. Do not publish private paths, usernames, real track names, or personal library data.
+Review before sharing because reports and model metadata can expose local paths and library contents.

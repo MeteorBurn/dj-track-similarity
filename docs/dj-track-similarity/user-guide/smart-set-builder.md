@@ -1,51 +1,87 @@
 # Build a Smart Set preview
 
-> Audience: DJs preparing an ordered listening route.
-> Goal: Generate a SET preview and understand the controls that shape it.
-> Type: how-to
+> Audience: Users preparing an ordered listening or DJ candidate list.
+> Goal: Explain SET controls, requirements, Hybrid preview, and safety boundaries.
+> Type: guide
 
-Smart Set Builder is a preview generator. Use it to get an ordered listening route, then listen, prune, and add the preview to your current set only when you choose to.
-
-## Route
-
-```mermaid
-flowchart TD
-    A[Seeds or auto anchor] --> B[Feature-complete candidates]
-    B --> C[Similarity and transition scoring]
-    C --> D[BPM and energy routing]
-    D --> E[Artist guard]
-    E --> F[Ordered SET preview]
-```
+The **SET** tab calls `/api/set-builder/generate` and returns an ordered preview. It does not add anything to the current set until you click **Add preview**.
 
 ## Requirements
 
-The strongest SET path expects stored MERT, MAEST, and CLAP audio embeddings plus SONARA features. It may use MAEST embeddings, but not MAEST genre labels for selection.
+SET uses feature-complete tracks. A track is eligible only when it has:
 
-## Seed source and set mode
+- SONARA analysis,
+- MERT embedding,
+- MAEST embedding,
+- CLAP audio embedding.
 
-- Use manual seeds when you already know one to five anchor tracks. This is best for a planned sound, label, time slot, or transition idea. Manual seeds with the same known artist are rejected so the preview starts diverse.
-- Use auto seeds when you want the app to explore the feature-complete library. Auto mode picks the first anchor from analyzed tracks, then samples remaining waypoint anchors from related candidates.
-- Use a similar-crate style mode when you want a tight group around the anchors. Use a more balanced route when you want the preview to move through compatible neighborhoods instead of clustering too hard.
+The response includes total-track and eligible-track counts, plus missing counts for MERT, MAEST, CLAP, and SONARA.
 
-## Size and anchor controls
+## Seed source
 
-- `Track limit` controls how many tracks the preview should return. Keep it small while tuning. Increase it when the route already sounds coherent.
-- `Auto anchors` controls how many waypoint anchors auto mode may use. More anchors can broaden the route, but too many can make the set feel less focused.
+**Manual - selected** uses selected seed tracks as waypoint anchors. The backend validates that selected seeds are feature-complete and enforces the artist guard: at most one track per known artist in one preview.
 
-## Energy, diversity, and BPM controls
+**Auto - random start** chooses the first anchor from the feature-complete library, then chooses related waypoint anchors. **Auto anchors** is clamped to `1..5`.
 
-- `Energy curve` shapes the broad arc. Use a rising curve for warm-up into peak, a falling curve to cool the set down, or a steadier curve when the set should stay locked.
-- `Diversity` pushes the preview away from near-duplicates. Raise it when results feel too samey. Lower it when you want a narrow crate.
-- `BPM mode = general` keeps normal transition compatibility only, including half/double tempo matching where useful.
-- `BPM mode = low_to_high` or `high_to_low` adds an actual-BPM trajectory. Pair it with `BPM change` to control how quickly the route should climb or descend.
-- `Start BPM` and `Target BPM` are optional. Leave them blank to infer from the first seed/anchor and the library range. Set them when you need a specific tempo plan.
+## Set mode
+
+- **Similar crate - close**: stays close to anchors and takes fewer diversity risks.
+- **Weird adjacent - odd**: allows less obvious adjacent material while keeping a link to anchors.
+- **Balanced set - flow**: balances similarity, diversity, transition compatibility, energy curve, and artist limits.
+- **Discovery - wide**: broadens the search for novelty while keeping candidates connected to anchors.
+
+## Size and diversity
+
+- **Track limit** is `1..500`. Seeds and anchors count toward this limit.
+- **Diversity** is `0.00..1.00`. Low values stay closer to anchors. High values spread candidates out while preserving connection.
+
+## Energy curve
+
+- **Balanced** keeps energy near the anchor context.
+- **Warmup** starts lower and builds.
+- **Peak** prefers higher energy and density.
+- **Wave** creates a rise/fall pattern.
+
+## BPM controls
+
+Default **General BPM** uses BPM and key as soft transition compatibility signals only.
+
+The explicit trajectory modes are:
+
+- **Low to high**: build from lower BPM to higher BPM.
+- **High to low**: descend from higher BPM to lower BPM.
+
+When a trajectory mode is active:
+
+- **BPM change** can be slow, medium, or fast.
+- **Start BPM** and **Target BPM** accept `20..300` or can be left blank for auto inference.
+- Half/double tempo matching is used for transition compatibility, not as a replacement for the actual BPM trajectory.
 
 ## Classifier sliders
 
-Promoted classifiers are optional taste modifiers. `Target boost` raises tracks that match the classifier, `Avoid cut` filters or lowers tracks above an avoid threshold, and curve controls shape where the classifier should matter most in the route. Missing classifier scores stay neutral, so incomplete scoring should not silently remove tracks.
+Promoted classifiers can add a SET preference:
 
-Use `Reset sliders` when you want to return to the default route before changing one control at a time.
+- **Preference** ranges from `-1.00` to `1.00`.
+- **Flow** can be flat, rise, or fall.
 
-## BPM and artist guard
+Missing classifier scores stay neutral. Classifier controls read stored scores. They do not train or decode audio.
 
-`general` keeps transition compatibility. `low_to_high` and `high_to_low` add actual-BPM trajectories. The artist guard keeps at most one track per known artist in a preview.
+## Hybrid preview
+
+The SET tab also contains **Hybrid preview**, an explicit weighted preview across stored MERT, MAEST, SONARA, and CLAP data.
+
+Hybrid preview:
+
+- requires one to five selected seeds,
+- lets you enable or disable each source,
+- uses source weights from `0.00` to `1.00`,
+- fetches `1..100` candidates per source,
+- shows up to `1..100` preview rows,
+- can apply an optional transition-risk penalty from `0.00` to `1.00`,
+- can use classifier preference/risk controls when promoted classifiers expose compatible signals.
+
+The UI records evaluation session and event rows for feedback. The preview itself leaves tracks and the current set unchanged.
+
+## Add preview
+
+Click **Add preview** to append the current SET preview tracks to the current set. Existing set tracks are not duplicated. Export is still a separate step.

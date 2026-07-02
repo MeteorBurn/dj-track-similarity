@@ -1,25 +1,62 @@
 # Audio Doctor
 
-> Audience: Power users investigating broken metadata or WAV/AIFF container issues.
-> Goal: Run dry-run-first inspection and apply only verified repairs.
-> Type: how-to
+> Audience: Users diagnosing audio metadata/container problems.
+> Goal: Run dry-run checks and use repair mode only after review.
+> Type: guide
 
-## Dry-run
+Audio Doctor inspects audio files for known metadata/container issues and can repair only known safe repairable states. It is dry-run-first.
+
+## UI source modes
+
+Open Audio Doctor from the wrench icon in the top bar.
+
+**Selected DB** reads `tracks.path` from the selected SQLite database. Optional **DB roots** restrict stored paths, and **File root** remaps matching DB roots before filesystem checks.
+
+**Folder** recursively scans a filesystem folder.
+
+## UI controls
+
+- **keep-id3**: `first`, `last`, or `none` for WAV repair handling.
+- **Workers**: `1..32` for dry-run. Apply always runs sequentially.
+- **Limit**: optional first N pending files.
+- **Reason**: optional reason filters from prior state/report entries.
+- **Output dir**: report bundle directory.
+- **State path**: optional state JSON path for repeat dry-run/apply workflows.
+
+Click **Start** for dry-run mode. Review the XLSX report before any repair.
+
+## CLI dry-run
+
+Folder:
 
 ```powershell
-python tools\audio-doctor\audio_doctor_cli.py --folder <music-folder>
+python tools\audio-doctor\audio_doctor_cli.py --folder D:\Music
 ```
 
-Dry-run does not write or copy audio. It writes JSON, XLSX, and log reports under `tools\audio-doctor\data\reports` by default and stores repeat-run state under `tools\audio-doctor\data\state`.
+Selected database:
 
-## Database input
+```powershell
+python tools\audio-doctor\audio_doctor_cli.py --db .\data\library.sqlite
+```
 
-`--db` opens SQLite read-only and reads `tracks.path`. `--db-root` plus `--file-root` remaps stored roots before filesystem checks. Missing remapped files are skipped.
+With root remapping:
 
-## UI and API
+```powershell
+python tools\audio-doctor\audio_doctor_cli.py --db .\data\library.sqlite --db-root D:\OldMusic --file-root E:\Music
+```
 
-The main UI opens Audio Doctor from the top toolbar. The UI supports selected-database and folder sources, state/reason filters, reports, cancellation, and XLSX download. The API endpoints live under `/api/audio-doctor/jobs`.
+## Apply mode
 
-## Apply
+Apply mode requires exact confirmation in the UI/API:
 
-`--apply` writes only repairable WAV/AIFF cases. Unless `--no-backup` is used, it creates a full-file backup before writing. After verification, the backup is deleted or used for restore on failure. UI/API apply mode requires exact confirmation `APPLY REPAIR` and is intended to run after a dry-run state exists.
+```text
+APPLY REPAIR
+```
+
+The app also requires prior dry-run state. In the standalone CLI, apply creates full-file backups by default unless you explicitly disable backups.
+
+Apply mode repairs only entries reported as repairable. It is not a general tag editor.
+
+## Output
+
+Reports and state live under `tools/audio-doctor/data/` by default. Treat them as private because they include file paths and diagnostics.

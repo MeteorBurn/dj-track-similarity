@@ -1,21 +1,55 @@
 # Know when audio files can be written
 
-> Audience: Users deciding whether to run tag or repair actions.
-> Goal: Separate read-only workflows from explicit audio writes and deletes.
-> Type: how-to
+> Audience: Users who want to avoid accidental edits to source files.
+> Goal: Separate read-only workflows from explicit file-writing workflows.
+> Type: guide
 
-## Read-only by default
+Most app workflows are read-only with respect to source audio. The source file exceptions are intentional and narrow.
 
-Scan, Refresh Tags, analysis, search, previews, export, reset, clear, and relocation preview read files or write SQLite/reports only.
+## Read-only for audio files
 
-## Genre tag apply
+These workflows do not edit audio files:
 
-`/api/tags/genres/apply` and genre tag jobs write stored MAEST genres to the standard genre field while preserving title, artist, album, BPM, key, and other normal tags.
+- scan,
+- Refresh Tags,
+- SONARA, MAEST, MERT, and CLAP analysis,
+- MERT, SONARA, CLAP, SET, and Hybrid search,
+- browser preview,
+- analysis reset,
+- classifier scoring,
+- database clear,
+- relocation preview,
+- relocation apply,
+- export to M3U or CSV.
 
-## Tag fields
+They may still write SQLite rows, logs, reports, temporary preview WAV files, generated sidecars, or export files.
 
-MP3/WAV/AIFF ID3 use `TCON`. FLAC/Vorbis-style tags use `GENRE`. MP4/M4A/ALAC use `©gen`. WAV uses Mutagen WAVE/ID3 and reads back `TCON`.
+## MAEST genre tag apply
 
-## Other explicit exceptions
+The genre save button starts a genre tag job for all tracks with stored MAEST genres. The API rejects per-track genre writes. Current behavior is all available MAEST genre rows.
 
-Audio Doctor `--apply` can rewrite repairable files. UI/API repair mode requires exact `APPLY REPAIR` confirmation. Audio Dedup apply/delete can delete duplicate candidates after exact confirmation.
+The job writes only the standard genre field:
+
+| Format | Tag field |
+| --- | --- |
+| MP3 | ID3 `TCON` |
+| WAV/WAVE | Mutagen WAVE/ID3 genre handling, read back as `TCON` |
+| AIFF | ID3 genre handling |
+| FLAC | `GENRE` |
+| M4A/MP4/ALAC | `©gen` |
+
+It preserves normal tags such as title, artist, album, BPM, key, and other fields. After a successful write, the app refreshes the scanned metadata for that track in SQLite.
+
+Failed writes are recorded per track and the batch continues.
+
+## Audio Doctor apply
+
+Audio Doctor is dry-run-first. Apply mode requires exact `APPLY REPAIR` and prior state, then repairs only files reported as repairable. Apply runs sequentially and creates backups by default in the standalone tool.
+
+## Audio Dedup apply
+
+Audio Dedup reports duplicate candidates by default. Apply mode requires exact `APPLY DELETE`. It then deletes only safe duplicate candidates inside the selected root and removes SQLite rows only for tracks whose files were deleted.
+
+## Relocation apply
+
+Relocation apply updates stored SQLite paths only. It rejects conflicts and missing target files before applying. It does not move, copy, delete, or retag audio files.

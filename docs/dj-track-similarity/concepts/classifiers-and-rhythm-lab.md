@@ -1,13 +1,50 @@
 # Classifiers and Rhythm Lab
 
-> Audience: Users deciding whether to train personal models.
-> Goal: Explain profiles, labels, training, promotion, and main-app scoring.
-> Type: explanation
+> Audience: Users building personal classifier scores.
+> Goal: Explain labels, training, promotion, and how scores appear in the main app.
+> Type: concept
+
+Rhythm Lab is the companion tool for local labels, training, prediction review, and promotion. Promoted classifiers become optional signals in the main UI.
 
 ## Profiles
 
-Binary profiles use exactly one positive and one negative training label plus optional review labels. Multiclass profiles use class labels, one current class per active profile.
+Rhythm Lab supports two profile types:
 
-## Storage
+- **binary**: one positive label and one negative label, plus optional review labels,
+- **multiclass**: class labels where one track has one current class label for the active profile.
 
-Lab labels, predictions, and checkpoints stay under `tools/rhythm-lab/data/`. Promoted runtime models live under `models/classifiers/`. Main-app scoring writes `track_classifier_scores` scoped by classifier key.
+Labels, predictions, queues, and training checkpoints live in the Rhythm Lab labels database under `tools/rhythm-lab/data/` by default.
+
+## Training inputs
+
+Training can benchmark SONARA, MERT, MAEST, and combined feature sets. Combined training requires existing SONARA features plus MERT and MAEST embeddings.
+
+Classifier calibration is optional and data-gated. If there are not enough labels for calibration, training can still produce an uncalibrated artifact with diagnostics.
+
+## Promotion
+
+Promotion copies the selected artifact into the main app model directory:
+
+```text
+models/classifiers/<artifact-prefix>/model.joblib
+models/classifiers/<artifact-prefix>/model.json
+```
+
+The main app discovers promoted profiles from those manifests.
+
+## Scoring
+
+Promoted classifier scoring is database-only. It reads existing SONARA, MERT, and MAEST inputs and writes `track_classifier_scores` for one `classifier_key` at a time.
+
+Adding or promoting one classifier does not delete scores for other classifier keys. After retraining the same classifier key, reset that classifier's old scores before rescoring.
+
+## Main UI use
+
+Promoted scores can appear in:
+
+- the CLASS tab as filter sliders,
+- the library metadata dialog,
+- SET classifier preference and flow controls,
+- Hybrid preview preference/risk diagnostics.
+
+Missing scores stay neutral in SET and Hybrid. Malformed manifests block scoring with a clear status.

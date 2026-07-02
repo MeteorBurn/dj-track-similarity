@@ -1,20 +1,20 @@
 # Reference
 
-> Audience: Power users and integrators.
-> Goal: Look up concise current contracts after learning the workflow.
-> Type: reference
+> Audience: Users who already know which command, endpoint, or control they need.
+> Goal: Provide concise facts that match the current code surface.
+> Type: reference index
 
-Start with the page that matches the job in front of you. The docs keep human workflow pages separate from compact reference so you can read only what you need.
+Reference pages are for exact names, ranges, and boundaries. Use the guide and workflow pages when you want task flow.
 
 ## Pages
 
-- [CLI](cli.md): current command names and options.
-- [API](api.md): active endpoints and payload shapes.
-- [Database](database.md): schema and write boundaries.
-- [Configuration](configuration.md): paths, ports, devices, and docs build.
-- [Analysis families](analysis-families.md): what each model writes.
-- [UI controls](ui-controls.md): labels, ranges, and meanings.
+- [CLI](./cli.md): `dj-sim` commands and standalone helper commands.
+- [API](./api.md): endpoint families and important payload constraints.
+- [Database](./database.md): local SQLite state at a high level.
+- [Configuration](./configuration.md): paths, ports, environment variables, and generated artifacts.
+- [Analysis families](./analysis-families.md): what SONARA, MAEST, MERT, CLAP, and classifiers write.
+- [UI controls](./ui-controls.md): common control ranges and defaults.
 
-## Privacy habit
+## Source of truth
 
-Use placeholders such as `<library-db>` and `<music-folder>` in notes, issues, and examples. Do not publish private paths, usernames, real track names, or personal library data.
+These pages are based on current source files such as `cli.py`, `api_schemas.py`, `api_routes_*.py`, `frontend/src/api.ts`, and the UI components. If source and docs disagree, trust the current source and fix the docs.

@@ -1,18 +1,25 @@
 # Getting started
 
-> Audience: New users.
-> Goal: Get from checkout to first searchable library.
-> Type: tutorial
+> Audience: First-time users setting up a local library.
+> Goal: Move from checkout to a searchable, analyzed SQLite database.
+> Type: tutorial index
 
-Start with the page that matches the job in front of you. The docs keep human workflow pages separate from compact reference so you can read only what you need.
+The shortest useful path is: install, scan, serve the UI, analyze a small batch, search, then decide by ear.
 
 ## Pages
 
-- [Quickstart](quickstart.md): shortest safe path.
-- [Install](install.md): environment and dependencies.
-- [First library](first-library.md): scan your music folder.
-- [First analysis](first-analysis.md): run the unified analysis job.
+- [Quickstart](./quickstart.md): the shortest path through scan, serve, and first analysis.
+- [Install](./install.md): prerequisites, package extras, FFmpeg, frontend, and docs build notes.
+- [First library](./first-library.md): how scanning works and what the database stores.
+- [First analysis](./first-analysis.md): model choices, device options, limits, and UI behavior.
+
+## What you need first
+
+- A local folder of audio files.
+- A local SQLite path where the app can create or open the library.
+- FFmpeg available on `PATH` or through `DJ_TRACK_SIMILARITY_FFMPEG`.
+- Optional model dependencies if you want SONARA, MAEST, MERT, or CLAP analysis.
 
 ## Privacy habit
 
-Use placeholders such as `<library-db>` and `<music-folder>` in notes, issues, and examples. Do not publish private paths, usernames, real track names, or personal library data.
+Treat the SQLite database, logs, reports, generated indexes, and classifier artifacts as private library data. They can include paths, tags, model scores, and listening notes.

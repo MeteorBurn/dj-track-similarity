@@ -1,17 +1,25 @@
 # Build crates for later listening
 
-> Audience: Collectors organizing a large library into useful piles.
-> Goal: Use search and classifier scores to create review crates.
-> Type: how-to
+> Audience: Users collecting candidate pools rather than final ordered sets.
+> Goal: Create useful review lists from filters, seeds, and text prompts.
+> Type: workflow
 
 ## Recipe
 
-- Start with one seed per sound or mood.
-- Run MERT, SONARA, or CLAP text search.
-- Add candidates to the current set as a temporary crate.
-- Export CSV when you want a review sheet.
-- Use CLASS filters only when the classifier has enough trustworthy labels.
+1. Scan and analyze enough of the library for the search surface you need.
+2. Use the library search to narrow by artist, title, album, path, genres, liked state, syncopated rhythm, or classifier filters.
+3. Add visible filtered tracks to the current set when the filter already describes the crate.
+4. Use MERT or SONARA from a few seeds to expand around a sound.
+5. Use CLAP text search when the crate is easier to describe than seed.
+6. Preview results and remove obvious misses.
+7. Export CSV for review or M3U for playback.
+
+## Useful split
+
+- Use CSV when you want metadata and path review.
+- Use M3U when you want to load the list into a player.
+- Use Rhythm Lab collections when the same track list should become classifier review material.
 
 ## Privacy
 
-Keep crate names and exports neutral if they may be shared. Local paths and track names can be private.
+Crate exports contain local paths and possibly style decisions. Do not publish them without review.

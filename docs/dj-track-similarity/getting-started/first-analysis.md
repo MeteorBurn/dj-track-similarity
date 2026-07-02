@@ -1,34 +1,67 @@
 # Run your first analysis
 
-> Audience: Users who have scanned tracks and want useful search results.
-> Goal: Run the current unified analysis job and understand limit behavior.
+> Audience: Users who have scanned tracks and want model-backed search.
+> Goal: Choose analysis families safely and understand what each unlocks.
 > Type: tutorial
 
-Run analysis after scanning so the app can compare tracks by measured audio features and model embeddings. Start with a small batch. Confirm the results are useful before scaling up to the whole library.
+Analysis jobs decode audio and write SQLite results. They do not rewrite source audio files.
 
-## Unified command
+## Analysis families
+
+| Family | Writes | Unlocks |
+| --- | --- | --- |
+| SONARA | metadata fields and `has_sonara_analysis` | feature search, SET ordering, BPM/key/energy fallback, classifier inputs |
+| MAEST | genre labels, syncopated rhythm data, MAEST embedding | genre display, genre tag apply, SET and Hybrid MAEST source |
+| MERT | MERT embedding | seed search, SET, Hybrid, Audio Dedup evidence |
+| CLAP | CLAP audio embedding | text search, SET, Hybrid, Audio Dedup evidence |
+| CLASSIFIERS | `track_classifier_scores` rows | CLASS filters, SET bias, Hybrid diagnostics |
+
+Classifier scoring needs existing or same-job SONARA, MAEST, and MERT data.
+
+## CLI analysis
+
+Install optional analysis dependencies first. Then run:
 
 ```powershell
 dj-sim analyze --models sonara,maest,mert,clap --limit 25 --db .\data\library.sqlite
 ```
 
-`--limit 25` means the command processes a small number of tracks missing the requested analysis results. That keeps the first run fast enough to confirm decoding, model loading, and GPU/CPU behavior.
+Useful options:
 
-## What each model unlocks
+```powershell
+dj-sim analyze --models sonara,maest,mert,clap --device auto --top-k 3 --track-batch-size 4 --inference-batch-size 24 --db .\data\library.sqlite
+```
 
-- `sonara` stores measured audio features used by the SONARA tab, Smart Set transition routing, energy cues, and analyzed BPM/key fallback values.
-- `maest` stores genre labels and MAEST embeddings. Genre tag apply uses the stored labels; Smart Set selection may use MAEST embeddings, not MAEST genre labels.
-- `mert` stores MERT embeddings for seed-based similarity search and hybrid comparison.
-- `clap` stores CLAP audio embeddings for CLAP text search and Smart Set routing signals.
+- `--models` accepts `sonara`, `maest`, `mert`, and `clap` as a comma-separated list.
+- `--device` accepts `auto`, `cpu`, or `cuda`.
+- `--top-k` stores `1..10` MAEST genre labels per track.
+- `--track-batch-size` is `1..64` decoded tracks per job batch.
+- `--inference-batch-size` is `1..128` model samples per forward pass for MAEST, MERT, and CLAP.
+- `--diagnostics` writes decoder fallback and batch timing details to the file log.
 
-## Options
+In the CLI, omit `--limit` for the whole library.
 
-Use `--models`, `--device auto|cpu|cuda`, `--top-k`, `--track-batch-size`, `--inference-batch-size`, and `--diagnostics`. `auto` chooses CUDA when PyTorch sees a GPU, otherwise CPU. Use `--diagnostics` when you need decoder fallback and batch timing details.
+## UI analysis
 
-For the whole library in the CLI, omit `--limit`. Do not pass `--limit 0` to mean all tracks in the CLI.
+In **1. Database and analysis**:
 
-## UI limit
+1. Select the model checkboxes.
+2. Choose `AUTO`, `CPU`, or `CUDA`.
+3. Set **Analyze limit**. `0` means the whole library.
+4. Adjust **Track batch size** and **Inference batch size** only when memory or throughput needs it.
+5. Click **Analyze**.
 
-In the UI, `Analyze limit = 0` means whole library because the UI sends `null` or no limit to `/api/analysis/jobs`. Positive limits count tracks missing the selected analysis family.
+The UI creates a job and polls progress. It also shows the current model/path and keeps a process log. The stop button requests cancellation.
 
-Use a positive UI limit for the same reason as the CLI first batch: it confirms dependencies and expected runtime before committing to a long analysis job.
+## Already analyzed tracks
+
+Analysis jobs target missing results for the selected families. If a track already has a selected family, that family is skipped for that track. Use the per-family reset buttons only when you want to delete stored results and rerun.
+
+## Reset boundaries
+
+- Reset SONARA removes SONARA metadata and flags and restores working BPM/key/energy/duration from remaining tags when possible.
+- Reset MAEST removes MAEST metadata and MAEST embeddings.
+- Reset MERT or CLAP deletes embeddings for that key.
+- Reset CLASSIFIERS deletes selected classifier scores only.
+
+All reset operations are SQLite-only.

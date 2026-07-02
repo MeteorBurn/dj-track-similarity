@@ -1,23 +1,76 @@
 # Search by text with CLAP
 
-> Audience: Users who think in descriptions rather than seed tracks.
-> Goal: Use CLAP text prompts against stored CLAP audio embeddings.
-> Type: how-to
+> Audience: Users who know the sound they want better than the seed track.
+> Goal: Write useful CLAP prompts and read the score scale correctly.
+> Type: guide
+
+The **CLAP** tab calls `/api/search/text`. It embeds text and compares the text vector against stored CLAP audio embeddings. Run CLAP analysis before using it.
 
 ## Before searching
 
-Run CLAP analysis first. The UI shows a requirement message when stored CLAP embeddings are missing.
+You need stored CLAP audio embeddings. In the UI, the CLAP search button is disabled when the library summary reports zero CLAP embeddings.
+
+CLI example:
+
+```powershell
+dj-sim analyze --models clap --db .\data\library.sqlite
+```
 
 ## Prompt style
 
-Use concrete audio words: mood, density, instrumentation, rhythm, vocal presence, or mix role. Profile presets fill the CLAP fields with a small prompt bank: each line is embedded separately, then the positive lines are pooled before scoring.
+Write prompts in English and describe audible traits, not metadata. Good prompts mention rhythm, drums, bass, texture, instruments, space, energy, vocal presence, and style.
 
-Keep prompt lines short and audio-centered. Prefer phrases such as `breakbeat.`, `This audio is a breakbeat track.`, or `An instrumental club track focused on drums, bass, rhythm, and production texture.` Avoid metadata, artist references, release years, and subjective claims.
+Examples:
 
-The visible `Negative` field is a hard-negative bank, not a diffusion-style negative prompt. Write unwanted audible classes as positive statements, such as `This audio contains prominent singing vocals.` or `This audio is a straight four-on-the-floor house track.`
+```text
+dark rolling techno, low rumble, sparse vocal texture, hypnotic percussion
+```
 
-## Meaning
+```text
+broken electro rhythm, syncopated drums, dry bass, metallic synth hits
+```
 
-A high score means the prompt vector is close to the stored audio embedding. It is not proof that the track fits your exact context.
+The UI treats each line as a separate positive prompt. It averages positive text embeddings before searching.
 
-CLAP text-to-audio scores often sit below seed-based audio searches. In this library, useful text results can be around `0.35-0.55`. Do not reuse a high MERT or audio-to-audio threshold without checking the result list. If `Negative` is enabled, the shown score is contrast-style evidence: pooled positive prompt match minus `0.35 * max(hard-negative match)`.
+## Negative prompt
+
+The **Negative** field is a hard-negative bank. Each line is one unwanted audible class. When the toggle is enabled, the search sends negative queries and adaptive contrast.
+
+The current UI sends:
+
+- `positive_queries` from the text field,
+- `negative_queries` from the negative field when enabled,
+- `adaptive_contrast: true`,
+- the selected preset key,
+- `device` from the analysis device control.
+
+With negative prompts, the visible score is contrast evidence: positive prompt match minus part of the strongest negative match. It is not a probability.
+
+## Score scale
+
+CLAP text-to-audio scores are usually lower than seed-based audio-to-audio scores. Useful text matches may sit around `0.35..0.55`, depending on prompts and library content.
+
+Do not compare CLAP text scores directly with:
+
+- MERT seed-search similarity,
+- SET scores,
+- Hybrid audio-to-audio support,
+- Audio Dedup `min_similarity`.
+
+Those are different scoring surfaces.
+
+## CLI text search
+
+```powershell
+dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 20 --db .\data\library.sqlite
+```
+
+Options include:
+
+- `--limit 1..500`
+- `--min-similarity`
+- `--device auto|cpu|cuda`
+- `--use-ann-index` for the persistent CLAP sidecar
+- `--index-dir` for a custom sidecar directory
+
+When `--use-ann-index` is set and the sidecar is missing or stale, the command warns and falls back to exact search.

@@ -1,17 +1,20 @@
 # Help
 
-> Audience: Users who hit a problem or limitation.
-> Goal: Diagnose common failures quickly.
-> Type: how-to
+> Audience: Users diagnosing a local run.
+> Goal: Route symptoms to fixes and explain current limits.
+> Type: help index
 
-Start with the page that matches the job in front of you. The docs keep human workflow pages separate from compact reference so you can read only what you need.
+Start with the symptom page, then check known limits and FAQ.
 
 ## Pages
 
-- [Troubleshooting](troubleshooting.md): symptom-based fixes.
-- [FAQ](faq.md): short answers.
-- [Known limits](known-limits.md): current boundaries.
+- [Troubleshooting](./troubleshooting.md): common local errors and checks.
+- [FAQ](./faq.md): short answers to repeated user questions.
+- [Known limits](./known-limits.md): current boundaries that are not bugs.
 
-## Privacy habit
+## First checks
 
-Use placeholders such as `<library-db>` and `<music-folder>` in notes, issues, and examples. Do not publish private paths, usernames, real track names, or personal library data.
+- Confirm the UI is connected to the SQLite database you expect.
+- Confirm FFmpeg is on `PATH` or `DJ_TRACK_SIMILARITY_FFMPEG` points to it.
+- Confirm the analysis family required by the feature has been run.
+- Check the process log in the top bar for job errors.

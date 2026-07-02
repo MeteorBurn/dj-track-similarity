@@ -1,9 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" fill="none">
-  <rect width="36" height="36" rx="8" fill="#138a73"/>
-  <circle cx="18" cy="18" r="9" stroke="white" stroke-width="2" fill="none"/>
-  <circle cx="18" cy="18" r="3" fill="white"/>
-  <line x1="18" y1="9" x2="18" y2="6" stroke="white" stroke-width="2" stroke-linecap="round"/>
-  <line x1="18" y1="27" x2="18" y2="30" stroke="white" stroke-width="2" stroke-linecap="round"/>
-  <line x1="9" y1="18" x2="6" y2="18" stroke="white" stroke-width="2" stroke-linecap="round"/>
-  <line x1="27" y1="18" x2="30" y2="18" stroke="white" stroke-width="2" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="DJ Track Similarity">
+  <defs>
+    <linearGradient id="g" x1="8" y1="8" x2="58" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0D767E"/>
+      <stop offset="0.55" stop-color="#50C38A"/>
+      <stop offset="1" stop-color="#F06B47"/>
+    </linearGradient>
+    <filter id="s" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="6" flood-color="#251C12" flood-opacity="0.22"/>
+    </filter>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="#FFFAF2"/>
+  <circle cx="32" cy="32" r="22" fill="#17130F" filter="url(#s)"/>
+  <circle cx="32" cy="32" r="15" stroke="rgba(255,255,255,.16)" stroke-width="1.6"/>
+  <circle cx="32" cy="32" r="7" fill="url(#g)"/>
+  <circle cx="32" cy="32" r="2.5" fill="#FFFAF2"/>
+  <path d="M44 18h12M44 26h8M44 38h10M44 46h6" stroke="url(#g)" stroke-width="4" stroke-linecap="round"/>
+  <path d="M12 44c7-8 13-8 20 0" stroke="url(#g)" stroke-width="4" stroke-linecap="round"/>
 </svg>

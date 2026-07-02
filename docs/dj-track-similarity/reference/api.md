@@ -1,26 +1,112 @@
 # API reference
 
-> Audience: Integrators and frontend maintainers.
-> Goal: Know active endpoint families and write boundaries.
+> Audience: Users and maintainers scripting against the local FastAPI app.
+> Goal: Summarize endpoint families and key payload rules.
 > Type: reference
 
-## Endpoint families
+The API is local and unauthenticated by design. Bind the server carefully. Use `127.0.0.1` unless you intentionally expose it on a LAN.
 
-- Database/library: `/api/database/current`, `/api/database/switch`, `/api/library/scan`, `/api/library/tags/refresh`, `/api/library/relocate`, `/api/tracks`, `/api/library/summary`, `/media/{track_id}`.
-- Analysis/classifiers: `/api/analysis/jobs`, job status/cancel routes, `/api/analysis/reset`, `/api/classifiers`, classifier analyze/reset/report/suggestions routes.
-- Search/SET: `/api/search`, `/api/search/sonara`, `/api/search/text`, `/api/set-builder/generate`.
-- Exports/tags: `/api/export`, `/api/tags/genres/apply`, and `/api/tags/genres/jobs` routes.
-- Helpers: `/api/audio-doctor/jobs`, `/api/audio-dedup/jobs`, `/api/evaluation/*`, and `/api/rhythm-lab/*`.
-- Rhythm Lab review collections: main app `POST /api/rhythm-lab/collections`; lab-local `/api/collections`, `/api/collections/{id}`, and `/api/collections/{id}/tracks`.
+## Database
 
-## Analysis payload
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/database/current` | current SQLite selection |
+| `POST` | `/api/database/switch` | switch to a path |
+| `POST` | `/api/database/dialog` | open native database picker |
+| `POST` | `/api/database/clear` | delete SQLite library records |
 
-`/api/analysis/jobs` accepts `models`, `classifier_keys`, `limit`, `device`, `top_k`, `track_batch_size`, and `inference_batch_size`.
+`/api/database/clear` does not delete audio files.
 
-## CLAP text search
+## Library and media
 
-`/api/search/text` accepts `query`, optional multiline-derived `positive_queries`, optional `negative_queries`, `adaptive_contrast`, `limit`, `min_similarity`, and `device`. Multiple positive queries are pooled into one CLAP text vector. Negative queries are treated as hard-negative candidates with a fixed `0.35` margin weight.
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/library/scan` | start scan job |
+| `POST` | `/api/library/tags/refresh` | start tag refresh job |
+| `POST` | `/api/library/relocate` | preview or apply stored path relocation |
+| `GET` | `/api/library/summary` | counts for tracks, analyses, likes, classifiers |
+| `GET` | `/api/tracks` | paginated lightweight track rows |
+| `POST` | `/api/tracks/filtered` | full filtered list for UI set actions |
+| `GET` | `/api/tracks/{track_id}` | full metadata row |
+| `POST` | `/api/tracks/{track_id}/liked` | toggle local liked state |
+| `GET` | `/media/{track_id}` | stream preview audio |
 
-## Writes
+Track list query ranges include `limit=1..500`, `offset>=0`, `search_mode=like|fts`, and `preset=all|syncopated`.
 
-Search and SET routes are previews. Genre tag routes are explicit audio tag write paths. Export writes playlist/report files only. Rhythm Lab review collection routes write only the lab labels database, and deleting a collection does not remove profile labels or source audio.
+## Analysis and classifiers
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/analysis/jobs` | start analysis job |
+| `GET` | `/api/analysis/jobs/latest` | latest analysis job |
+| `GET` | `/api/analysis/jobs/{job_id}` | job status |
+| `POST` | `/api/analysis/jobs/{job_id}/cancel` | request cancellation |
+| `POST` | `/api/analysis/reset` | reset one family |
+| `GET` | `/api/classifiers` | promoted classifier profiles |
+| `POST` | `/api/classifiers/{classifier_key}/analyze` | score one classifier |
+| `POST` | `/api/classifiers/reset` | delete selected classifier scores |
+
+Analysis payload fields include `models`, `classifier_keys`, `limit`, `device`, `top_k`, `track_batch_size`, and `inference_batch_size`.
+
+## Search and SET
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/search` | MERT seed search |
+| `POST` | `/api/search/sonara` | SONARA seed search |
+| `POST` | `/api/search/text` | CLAP text search |
+| `POST` | `/api/search/hybrid` | weighted Hybrid preview |
+| `POST` | `/api/set-builder/generate` | Smart Set Builder preview |
+
+Important ranges:
+
+- seed lists for Hybrid feedback and Hybrid search are `1..5` unique track IDs,
+- search limits are usually `1..500`,
+- Hybrid `per_source` is `1..100`,
+- Hybrid `limit` is `1..100`,
+- SET `limit` is `1..500`,
+- SET `auto_seed_count` is `1..5`,
+- SET `bpm_start` and `bpm_target` are `20..300` when provided.
+
+## Tags and export
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/export` | write M3U or CSV |
+| `POST` | `/api/tags/genres/apply` | synchronous MAEST genre write path |
+| `POST` | `/api/tags/genres/jobs` | start MAEST genre tag job |
+| `GET` | `/api/tags/genres/jobs/latest` | latest genre job |
+| `GET` | `/api/tags/genres/jobs/{job_id}` | genre job status |
+| `POST` | `/api/tags/genres/jobs/{job_id}/cancel` | cancel genre job |
+| `POST` | `/api/dialog/folder` | open native folder picker |
+
+The genre API rejects per-track writes. Current behavior writes all available stored MAEST genres.
+
+## Helper tools
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/audio-doctor/jobs` | start Audio Doctor job |
+| `GET` | `/api/audio-doctor/jobs/latest` | latest Audio Doctor job |
+| `GET` | `/api/audio-doctor/jobs/{job_id}` | job status |
+| `POST` | `/api/audio-doctor/jobs/{job_id}/cancel` | cancel job |
+| `GET` | `/api/audio-doctor/jobs/{job_id}/report/xlsx` | download XLSX |
+| `POST` | `/api/audio-dedup/jobs` | start Audio Dedup job |
+| `GET` | `/api/audio-dedup/jobs/latest` | latest Audio Dedup job |
+| `GET` | `/api/audio-dedup/jobs/{job_id}` | job status |
+| `POST` | `/api/audio-dedup/jobs/{job_id}/cancel` | cancel job |
+| `GET` | `/api/audio-dedup/jobs/{job_id}/report/xlsx` | download XLSX |
+
+Audio Doctor apply requires exact `APPLY REPAIR`. Audio Dedup apply requires exact `APPLY DELETE`.
+
+## Rhythm Lab and server
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/rhythm-lab/status` | status |
+| `POST` | `/api/rhythm-lab/launch` | launch or reuse Rhythm Lab |
+| `POST` | `/api/rhythm-lab/stop` | stop managed Rhythm Lab |
+| `POST` | `/api/rhythm-lab/collections` | save main UI set as collection |
+| `POST` | `/api/server/shutdown` | request server shutdown |
+
+Server shutdown requires the `X-DJ-Track-Similarity-Action: shutdown-server` header.

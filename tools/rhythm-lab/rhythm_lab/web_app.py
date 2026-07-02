@@ -20,6 +20,7 @@ from dj_track_similarity.logging_config import install_asyncio_exception_logging
 from dj_track_similarity.media_preview import requires_browser_preview_transcode
 from dj_track_similarity.rhythm_lab_collections import RhythmLabCollections
 
+from .ablation import ABLATION_FEATURE_SETS, run_ablation_benchmark
 from .cli import DEFAULT_CLASSIFIER_TARGET_ROOT, PromotionError, promote_profile_model
 from .lab_db import ClassifierProfile, RhythmLabDatabase
 from .predictions import apply_model_to_lab
@@ -93,6 +94,14 @@ class LabelRenameRequest(BaseModel):
     new_key: str
     name: str | None = None
     description: str | None = None
+
+
+class PromoteRequest(BaseModel):
+    feature_set: str | None = None
+
+
+class CalibrateRequest(BaseModel):
+    feature_set: str | None = None
 
 
 class SourceDatabaseState:
@@ -575,22 +584,103 @@ def create_app(
             "artifact_cleanup": cleanup,
         }
 
+    @app.post("/api/profiles/{profile_key}/training/benchmark")
+    def profile_training_benchmark(profile_key: str):
+        profile = profile_or_404(profile_key)
+        if source_state.path is None:
+            raise HTTPException(status_code=400, detail="Source database is not selected")
+        try:
+            report = run_ablation_benchmark(
+                source_state.path,
+                labels_path,
+                profile_keys=(profile.classifier_key,),
+                feature_sets=ABLATION_FEATURE_SETS,
+                artifacts_root=None,
+            )
+        except Exception as error:
+            LOGGER.exception("%s benchmark failed", profile.name)
+            raise HTTPException(status_code=500, detail=str(error)) from error
+        profile_report = next(
+            (
+                row
+                for row in report.get("profiles", [])
+                if isinstance(row, dict) and row.get("classifier_key") == profile.classifier_key
+            ),
+            None,
+        )
+        return {
+            "classifier_key": profile.classifier_key,
+            "output_path": report.get("output_path"),
+            "winner": profile_report.get("winner") if isinstance(profile_report, dict) else None,
+            "profile": profile_report,
+        }
+
+    @app.post("/api/profiles/{profile_key}/training/calibrate")
+    def profile_training_calibrate(profile_key: str, request: CalibrateRequest | None = None):
+        profile = profile_or_404(profile_key)
+        if source_state.path is None:
+            raise HTTPException(status_code=400, detail="Source database is not selected")
+        readiness = _training_readiness(profile_db(profile.classifier_key), artifact_dir=Path(profile.artifact_dir), profile=profile)
+        artifact_summary = readiness.get("artifact_summary")
+        selected_feature_set = (request.feature_set if request is not None else None) or _default_promotion_feature_set(artifact_summary)
+        promotion_options = artifact_summary.get("promotion_options") if isinstance(artifact_summary, dict) else []
+        selected_option = next(
+            (
+                option
+                for option in promotion_options
+                if isinstance(option, dict) and option.get("feature_set") == selected_feature_set
+            ),
+            None,
+        )
+        if selected_option is None or not selected_option.get("latest_model"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Train a {selected_feature_set} model before calibrating {profile.name}.",
+            )
+        try:
+            training = benchmark_lab_database(
+                source_state.path,
+                labels_path,
+                Path(profile.artifact_dir),
+                classifier_key=profile.classifier_key,
+                feature_sets=(selected_feature_set,),
+                calibrate=True,
+            )
+        except Exception as error:
+            LOGGER.exception("%s calibration failed", profile.name)
+            raise HTTPException(status_code=500, detail=str(error)) from error
+        return {
+            "classifier_key": profile.classifier_key,
+            "feature_set": selected_feature_set,
+            "training": training,
+        }
+
     @app.post("/api/profiles/{profile_key}/promote")
-    def promote_profile(profile_key: str):
+    def promote_profile(profile_key: str, request: PromoteRequest | None = None):
         profile = profile_or_404(profile_key)
         readiness = _training_readiness(profile_db(profile.classifier_key), artifact_dir=Path(profile.artifact_dir), profile=profile)
         artifact_summary = readiness.get("artifact_summary")
-        latest_combined = artifact_summary.get("latest_combined") if isinstance(artifact_summary, dict) else None
-        if not latest_combined:
+        selected_feature_set = (request.feature_set if request is not None else None) or "combined"
+        promotion_options = artifact_summary.get("promotion_options") if isinstance(artifact_summary, dict) else []
+        selected_option = next(
+            (
+                option
+                for option in promotion_options
+                if isinstance(option, dict) and option.get("feature_set") == selected_feature_set
+            ),
+            None,
+        )
+        if selected_option is None or not selected_option.get("latest_model"):
             raise HTTPException(
                 status_code=400,
-                detail=f"Train a combined model before promoting {profile.name}.",
+                detail=f"Train a {selected_feature_set} model before promoting {profile.name}.",
             )
         try:
             result = promote_profile_model(
                 labels_path,
                 profile.classifier_key,
-                artifact_path=Path(str(latest_combined)),
+                artifact_path=Path(str(selected_option["latest_model"])),
+                feature_set=selected_feature_set,
                 target_root=target_root,
             )
         except PromotionError as error:
@@ -620,6 +710,14 @@ def create_app(
         return FileResponse(path)
 
     return app
+
+
+def _default_promotion_feature_set(artifact_summary: object) -> str:
+    if isinstance(artifact_summary, dict):
+        latest = artifact_summary.get("latest_promotable")
+        if isinstance(latest, dict) and latest.get("feature_set"):
+            return str(latest["feature_set"])
+    return "combined"
 
 
 def install_rhythm_lab_asyncio_exception_logging() -> None:
@@ -676,7 +774,11 @@ def _collection_payload(collection: object, *, include_tracks: bool = False) -> 
 
 
 def _latest_combined_artifact(artifact_dir: Path, artifact_prefix: str) -> Path | None:
-    artifacts = list(artifact_dir.glob(f"{artifact_prefix}-combined-*.joblib"))
+    return _latest_feature_artifact(artifact_dir, artifact_prefix, "combined")
+
+
+def _latest_feature_artifact(artifact_dir: Path, artifact_prefix: str, feature_set: str) -> Path | None:
+    artifacts = list(artifact_dir.glob(f"{artifact_prefix}-{feature_set}-*.joblib"))
     if not artifacts:
         return None
     return max(artifacts, key=lambda path: (path.stat().st_mtime, path.name))
@@ -772,20 +874,26 @@ def _artifact_summary(artifact_dir: Path, artifact_prefix: str) -> dict[str, obj
     model_groups = _artifact_groups(artifact_dir, suffix=".joblib", artifact_prefix=artifact_prefix)
     metrics_groups = _artifact_groups(artifact_dir, suffix=".metrics.json", artifact_prefix=artifact_prefix)
     latest_combined = _latest_combined_artifact(artifact_dir, artifact_prefix)
+    by_feature = [
+        _artifact_feature_summary(
+            feature,
+            latest_model=(model_groups.get(feature) or [None])[0],
+            latest_metrics=(metrics_groups.get(feature) or [None])[0],
+        )
+        for feature in sorted(set(model_groups) | set(metrics_groups))
+    ]
+    promotion_options = _promotion_options(by_feature)
+    benchmark_winner = promotion_options[0] if promotion_options else None
     return {
         "artifact_dir": str(artifact_dir),
         "artifact_prefix": artifact_prefix,
         "latest_combined": str(latest_combined) if latest_combined is not None else None,
         "model_count": sum(len(files) for files in model_groups.values()),
         "metrics_count": sum(len(files) for files in metrics_groups.values()),
-        "by_feature": [
-            _artifact_feature_summary(
-                feature,
-                latest_model=(model_groups.get(feature) or [None])[0],
-                latest_metrics=(metrics_groups.get(feature) or [None])[0],
-            )
-            for feature in sorted(set(model_groups) | set(metrics_groups))
-        ],
+        "benchmark_winner": benchmark_winner,
+        "latest_promotable": promotion_options[0] if promotion_options else None,
+        "promotion_options": promotion_options,
+        "by_feature": by_feature,
     }
 
 
@@ -815,6 +923,39 @@ def _metrics_history(
     return rows[:limit]
 
 
+def _promotion_options(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    candidates = [row for row in rows if row.get("latest_model")]
+    ranked = sorted(candidates, key=_promotion_sort_key, reverse=True)
+    ranked_with_ranks: list[dict[str, object]] = []
+    for index, row in enumerate(ranked, start=1):
+        ranked_with_ranks.append({**row, "rank": index})
+    by_feature = {str(row.get("feature_set")): row for row in ranked_with_ranks}
+    ordered: list[dict[str, object]] = []
+    if ranked_with_ranks:
+        ordered.append(ranked_with_ranks[0])
+    combined = by_feature.get("combined")
+    if combined is not None and combined not in ordered:
+        ordered.append(combined)
+    for row in ranked_with_ranks:
+        if row not in ordered:
+            ordered.append(row)
+    return ordered
+
+
+def _promotion_sort_key(row: dict[str, object]) -> tuple[float, float, float, str]:
+    return (
+        _metric_sort_value(row.get("macro_f1_mean")),
+        _metric_sort_value(row.get("positive_recall_mean")),
+        _metric_sort_value(row.get("positive_precision_mean")),
+        str(row.get("created_at") or ""),
+    )
+
+
+def _metric_sort_value(value: object) -> float:
+    number = _optional_float(value)
+    return number if number is not None else -1.0
+
+
 def _metrics_history_row(path: Path, *, feature_set: str) -> dict[str, object]:
     metrics = _read_metrics(path)
     return {
@@ -839,6 +980,9 @@ def _metric_summary(metrics: dict[str, object]) -> dict[str, object]:
     cross_validation = metrics.get("cross_validation")
     if not isinstance(cross_validation, dict):
         cross_validation = {}
+    production_calibration = metrics.get("production_calibration")
+    if not isinstance(production_calibration, dict):
+        production_calibration = {}
     return {
         "trained_rows": _optional_int(metrics.get("trained_rows")),
         "test_rows": _optional_int(metrics.get("test_rows")),
@@ -850,6 +994,9 @@ def _metric_summary(metrics: dict[str, object]) -> dict[str, object]:
         "macro_f1_mean": _optional_float(cross_validation.get("macro_f1_mean")),
         "positive_precision_mean": _optional_float(cross_validation.get("positive_precision_mean")),
         "positive_recall_mean": _optional_float(cross_validation.get("positive_recall_mean")),
+        "calibration_status": production_calibration.get("status"),
+        "calibration_method": production_calibration.get("method"),
+        "calibration_reason": production_calibration.get("reason"),
     }
 
 

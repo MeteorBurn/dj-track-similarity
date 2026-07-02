@@ -80,6 +80,24 @@ Profile deletion is explicit and confirmation-gated:
 python tools\rhythm-lab\rhythm_lab_cli.py delete-profile --profile live_instrumentation --confirm live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
+## Ablation benchmarks
+
+Run a benchmark when you want local evidence for feature-source variants on one
+classifier profile:
+
+```powershell
+python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --profile live_instrumentation --output tools\rhythm-lab\artifacts\ablation.json
+```
+
+The command reads the source library without writes. Experimental artifacts stay
+under the profile artifact folder, and the benchmark output is a JSON report. It
+does not promote models or write classifier scores.
+
+The Training tab has the same active-profile workflow: collect labels, train,
+review candidates, run a benchmark, choose a promotion variant, and promote.
+`Train` retrains from current labels and refreshes candidates automatically.
+The Training UI does not expose calibration for now.
+
 ## Safety
 
 Rhythm Lab does not rewrite source audio. Its normal data stays under `tools/rhythm-lab/data/` and `tools/rhythm-lab/artifacts/`. Promoted runtime models live under `models/classifiers/` and should not be committed unless you intentionally change that policy.

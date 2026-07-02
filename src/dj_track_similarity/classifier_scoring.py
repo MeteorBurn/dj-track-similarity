@@ -116,8 +116,10 @@ class ClassifierScorer:
         _validate_payload_against_manifest(self.payload, self.manifest, self.classifier_key)
         self.needs_mert = any(name.startswith("mert:") for name in self.feature_names)
         self.needs_maest = any(name.startswith("maest:") for name in self.feature_names)
+        self.needs_clap = any(name.startswith("clap:") for name in self.feature_names)
         self.mert_vectors = _embedding_vectors(db, "mert")
         self.maest_vectors = _embedding_vectors(db, "maest")
+        self.clap_vectors = _embedding_vectors(db, "clap")
 
     @property
     def model_name(self) -> str:
@@ -130,6 +132,7 @@ class ClassifierScorer:
             self.feature_names,
             mert_vectors=self.mert_vectors,
             maest_vectors=self.maest_vectors,
+            clap_vectors=self.clap_vectors,
         )
         if row is None:
             return None
@@ -144,6 +147,10 @@ class ClassifierScorer:
             vector = self.db.embedding_vector(track_id, "maest")
             if vector is not None:
                 self.maest_vectors[track_id] = vector.astype(np.float32, copy=False)
+        if self.needs_clap and track_id not in self.clap_vectors:
+            vector = self.db.embedding_vector(track_id, "clap")
+            if vector is not None:
+                self.clap_vectors[track_id] = vector.astype(np.float32, copy=False)
 
     def save_score(self, track: Track, probabilities: dict[str, float]) -> None:
         score = float(probabilities.get(self.positive_label, 0.0))
@@ -226,6 +233,8 @@ def _promoted_classifier_payload(summary: ClassifierManifestSummary, *, model_pa
         "artifact_prefix": summary.artifact_prefix or summary.model_path.parent.name,
         "positive_label": summary.positive_label,
         "label_order": list(summary.label_order),
+        "feature_set": summary.feature_set,
+        "feature_count": summary.feature_count,
         "model_path": str(summary.model_path),
         "metadata_path": str(summary.metadata_path) if summary.metadata_path is not None and summary.metadata_path.exists() else None,
         **classifier_manifest_api_fields(summary),
@@ -243,6 +252,7 @@ def _track_feature_row(
     *,
     mert_vectors: dict[int, np.ndarray],
     maest_vectors: dict[int, np.ndarray],
+    clap_vectors: dict[int, np.ndarray],
 ) -> np.ndarray | None:
     values: list[float] = []
     metadata = track.metadata or {}
@@ -262,6 +272,12 @@ def _track_feature_row(
             continue
         if source == "maest":
             vector = maest_vectors.get(track.id)
+            if vector is None:
+                return None
+            values.append(_vector_value(vector, key))
+            continue
+        if source == "clap":
+            vector = clap_vectors.get(track.id)
             if vector is None:
                 return None
             values.append(_vector_value(vector, key))

@@ -9,6 +9,7 @@ from typing import Any, Mapping
 
 CLASSIFIER_MANIFEST_VERSION = 1
 CLASSIFIER_REQUIRED_INPUTS = ("sonara", "mert", "maest")
+CLASSIFIER_SUPPORTED_INPUTS = ("sonara", "mert", "maest", "clap")
 CLASSIFIER_SCORE_SEMANTICS = "positive_label_probability"
 COMPATIBLE_MANIFEST_STATUSES = {"valid", "legacy"}
 CLASSIFIER_HYBRID_SIGNAL_ROLES = ("preference_boost", "preference_penalty", "risk_penalty", "context_modifier")
@@ -264,8 +265,8 @@ def _parse_manifest_payload(
     feature_set = _optional_text(payload.get("feature_set"))
     if feature_set is None:
         errors.append("model.json feature_set is required")
-    elif feature_set != "combined":
-        errors.append(f"model.json feature_set must be 'combined', got {feature_set!r}")
+    else:
+        _feature_set_sources(feature_set, errors)
 
     label_order = _string_tuple(payload.get("label_order"), "label_order", errors)
     positive_label = _optional_text(payload.get("positive_label"))
@@ -431,10 +432,26 @@ def _production_required_inputs(value: object, errors: list[str]) -> tuple[str, 
         errors.append("model.json production.required_inputs must be a list")
         return CLASSIFIER_REQUIRED_INPUTS
     cleaned = tuple(text for item in value if (text := _optional_text(item)) is not None)
-    unknown = [item for item in cleaned if item not in CLASSIFIER_REQUIRED_INPUTS]
+    unknown = [item for item in cleaned if item not in CLASSIFIER_SUPPORTED_INPUTS]
     if unknown:
         errors.append(f"model.json production.required_inputs contains unsupported inputs: {', '.join(unknown)}")
     return cleaned or CLASSIFIER_REQUIRED_INPUTS
+
+
+def _feature_set_sources(feature_set: str, errors: list[str]) -> tuple[str, ...]:
+    if feature_set == "combined":
+        return CLASSIFIER_REQUIRED_INPUTS
+    sources = tuple(part.strip() for part in feature_set.split("+") if part.strip())
+    if not sources:
+        errors.append("model.json feature_set must name at least one feature source")
+        return ()
+    unknown = sorted(set(sources) - set(CLASSIFIER_SUPPORTED_INPUTS))
+    if unknown:
+        errors.append(f"model.json feature_set contains unsupported sources: {', '.join(unknown)}")
+    duplicates = sorted(source for source in set(sources) if sources.count(source) > 1)
+    if duplicates:
+        errors.append(f"model.json feature_set contains duplicate sources: {', '.join(duplicates)}")
+    return tuple(source for source in CLASSIFIER_SUPPORTED_INPUTS if source in sources)
 
 
 def _hybrid_signal(value: object, errors: list[str], warnings: list[str]) -> dict[str, Any] | None:

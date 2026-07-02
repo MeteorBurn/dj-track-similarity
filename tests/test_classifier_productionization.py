@@ -48,6 +48,27 @@ def test_promoted_classifiers_report_valid_and_invalid_manifest_status(tmp_path:
     assert payloads["legacy_profile"]["manifest_warnings"]
 
 
+def test_promoted_classifiers_accept_non_combined_required_inputs(tmp_path: Path) -> None:
+    root = tmp_path / "models" / "classifiers"
+    profile_dir = root / "break-energy"
+    profile_dir.mkdir(parents=True)
+    (profile_dir / "model.joblib").write_bytes(b"model")
+    _write_manifest(
+        profile_dir / "model.json",
+        classifier_key="break_energy",
+        feature_set="mert+clap",
+        feature_count=2,
+        required_inputs=["mert", "clap"],
+    )
+
+    payload = promoted_classifiers(root)[0]
+
+    assert payload["manifest_status"] == "valid"
+    assert payload["is_scoring_compatible"] is True
+    assert payload["feature_set"] == "mert+clap"
+    assert payload["required_inputs"] == ["mert", "clap"]
+
+
 def test_promoted_classifiers_expose_hybrid_signal_manifest_metadata(tmp_path: Path) -> None:
     root = tmp_path / "models" / "classifiers"
     profile_dir = root / "deep-groove"
@@ -311,6 +332,9 @@ def _write_manifest(
     positive_label: str = "broken",
     model_id: str | None = None,
     hybrid_signal: dict[str, object] | None = None,
+    feature_set: str = "combined",
+    feature_count: int = 3,
+    required_inputs: list[str] | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -320,8 +344,8 @@ def _write_manifest(
                 "manifest_version": 1,
                 "profile_name": classifier_key.replace("_", " ").title(),
                 "profile_type": "binary",
-                "feature_set": "combined",
-                "feature_count": 3,
+                "feature_set": feature_set,
+                "feature_count": feature_count,
                 "label_order": ["broken", "straight"],
                 "positive_label": positive_label,
                 "negative_label": "straight",
@@ -330,7 +354,7 @@ def _write_manifest(
                 "trained_label_counts": {"broken": 10, "straight": 10},
                 "production": {
                     "score_semantics": "positive_label_probability",
-                    "required_inputs": ["sonara", "mert", "maest"],
+                    "required_inputs": required_inputs or ["sonara", "mert", "maest"],
                     "calibration": {"status": "uncalibrated", "method": None, "report": None},
                 },
             }

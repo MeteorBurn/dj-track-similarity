@@ -24,9 +24,6 @@ const shuffleLibraryOrderEl = document.getElementById("shuffleLibraryOrder");
 const candidatePredictedEl = document.getElementById("candidatePredicted");
 const candidateMinBrokenEl = document.getElementById("candidateMinBroken");
 const candidateMinPositiveEl = document.getElementById("candidateMinPositive");
-const refreshCandidatesEl = document.getElementById("refreshCandidates");
-const trainRefreshEl = document.getElementById("trainRefresh");
-const promoteClassifierEl = document.getElementById("promoteClassifier");
 const archiveProfileEl = document.getElementById("archiveProfile");
 const refreshCandidatesStatusEl = document.getElementById("refreshCandidatesStatus");
 const summaryEl = document.getElementById("summary");
@@ -54,6 +51,9 @@ let collections = [];
 const viewOffsets = { library: 0, candidates: 0, liked: 0, collection: 0, training: 0, settings: 0 };
 let loadSequence = 0;
 let libraryRandomSeed = makeLibraryRandomSeed();
+let latestTrainingReadiness = null;
+let latestProfileSummary = null;
+let promoteFeatureSetEl = null;
 
 document.getElementById("load").addEventListener("click", () => loadActive({ reset: true }));
 document.getElementById("chooseSource").addEventListener("click", () => chooseSource().catch(showError));
@@ -96,9 +96,7 @@ candidateMinPositiveEl.addEventListener("change", () => {
   candidateMinPositiveEl.value = probabilityFilterValue();
   loadActive({ reset: true });
 });
-refreshCandidatesEl.addEventListener("click", () => refreshCandidates().catch(showError));
-trainRefreshEl.addEventListener("click", () => trainRefresh().catch(showError));
-promoteClassifierEl.addEventListener("click", () => promoteClassifier().catch(showError));
+trainingPanelEl.addEventListener("click", event => handleTrainingActionClick(event).catch(showError));
 pageSizeEl.addEventListener("change", () => loadActive({ reset: true }));
 pageNumberEl.addEventListener("change", () => jumpToPage());
 pageNumberEl.addEventListener("keydown", event => { if (event.key === "Enter") jumpToPage(); });
@@ -148,6 +146,9 @@ async function setActiveProfile(profileKey, options = {}) {
   }
   profileSelectEl.value = activeProfile.classifier_key;
   activeProfileNameEl.textContent = activeProfile.name;
+  latestTrainingReadiness = null;
+  latestProfileSummary = null;
+  promoteFeatureSetEl = null;
   renderProfileControls();
   offset = 0;
   viewOffsets.library = 0;
@@ -159,6 +160,9 @@ async function setActiveProfile(profileKey, options = {}) {
 
 function clearActiveProfile() {
   activeProfile = null;
+  latestTrainingReadiness = null;
+  latestProfileSummary = null;
+  promoteFeatureSetEl = null;
   profileSelectEl.value = "";
   activeProfileNameEl.textContent = "No profile selected";
   summaryEl.textContent = "";
@@ -177,17 +181,16 @@ function clearActiveProfile() {
   document.getElementById("profileTrainingMinAddedInput").value = "50";
   document.getElementById("renameLabelSelect").innerHTML = "";
   archiveProfileEl.disabled = true;
-  refreshCandidatesEl.disabled = true;
-  trainRefreshEl.disabled = true;
-  promoteClassifierEl.disabled = true;
+  setWorkflowBusy(true);
   updateLibraryOrderControls();
 }
 
 function renderProfileControls() {
   archiveProfileEl.disabled = false;
-  refreshCandidatesEl.disabled = false;
-  promoteClassifierEl.disabled = true;
-  promoteClassifierEl.title = "Train a combined model before promoting";
+  setTrainingActionDisabled("openLibrary", false);
+  setTrainingActionDisabled("openCandidates", true);
+  setTrainingActionDisabled("runBenchmark", true);
+  setTrainingActionDisabled("promoteClassifier", true, "Train a model before promoting");
   labelEl.innerHTML = "";
   addOption(labelEl, "all", "all labels");
   addOption(labelEl, "unlabeled", "unlabeled");
@@ -223,6 +226,34 @@ function renderProfileControls() {
   renameSelect.innerHTML = "";
   activeProfile.labels.forEach(label => addOption(renameSelect, label.key, `${label.name} (${label.key})`));
   updateLibraryOrderControls();
+}
+
+function trainingActionElement(id) {
+  return document.getElementById(id);
+}
+
+function setTrainingActionDisabled(id, disabled, title = null) {
+  const button = trainingActionElement(id);
+  if (!button) return;
+  button.disabled = Boolean(disabled);
+  if (title !== null) button.title = title;
+}
+
+function setWorkflowBusy(disabled) {
+  ["openLibrary", "trainRefresh", "openCandidates", "runBenchmark", "promoteClassifier"].forEach(id => {
+    setTrainingActionDisabled(id, disabled);
+  });
+}
+
+async function handleTrainingActionClick(event) {
+  const button = event.target.closest("button[data-training-action]");
+  if (!button) return;
+  const action = button.dataset.trainingAction;
+  if (action === "library") return openLibraryForLabels();
+  if (action === "train") return trainRefresh();
+  if (action === "candidates") return openCandidatesForReview();
+  if (action === "benchmark") return runBenchmark();
+  if (action === "promote") return promoteClassifier();
 }
 
 function addOption(select, value, text) {
@@ -380,6 +411,7 @@ async function loadActive(options = {}) {
 async function loadSummary(sequence = loadSequence) {
   const data = await fetch(`/api/profiles/${activeProfile.classifier_key}/summary`).then(parseJsonResponse);
   if (sequence !== loadSequence) return;
+  latestProfileSummary = data;
   summaryEl.innerHTML = renderSummary(data);
   renderGuidance(data);
 }
@@ -418,13 +450,17 @@ function labelCountBadges(labels) {
 
 function renderGuidance(summary) {
   const counts = summary.labels || {};
-  const trainingCountText = trainingLabels().map(label => `${escapeHtml(label.name)} ${counts[label.key] || 0}`).join(" · ");
+  const readiness = latestTrainingReadiness;
+  const trainingCountText = trainingLabels().map(label => `${escapeHtml(label.name)} ${readiness?.current?.[label.key] ?? counts[label.key] ?? 0}`).join(" · ");
+  const winner = readiness?.artifact_summary?.benchmark_winner;
+  const selected = selectedPromotionOption(readiness);
+  const lastRun = readiness?.last_trained_at ? formatHumanDate(readiness.last_trained_at) : "not trained yet";
   guidancePanelEl.innerHTML = `
-    <div class="guidance-card"><b>${escapeHtml(activeProfile.name)}</b><span class="meta">${escapeHtml(activeProfile.description || "Profile ready for labeling.")}</span></div>
-    <div class="guidance-card"><b>Training labels</b><span class="meta">${trainingCountText}</span></div>
-    <div class="guidance-card"><b>Feature coverage</b><span class="meta">SONARA ${summary.sonara || 0} · MAEST ${summary.maest || 0} · MERT ${summary.mert || 0}</span></div>
-    <div class="guidance-card"><b>Liked tracks</b><span class="meta">${summary.liked || 0} shared with DJ Track Similarity</span></div>
-    <div class="guidance-card"><b>Next step</b><span class="meta">${nextStepText(counts)}</span></div>`;
+    <div class="guidance-card"><b>${escapeHtml(activeProfile.name)}</b><span class="meta">${escapeHtml(profileSignalText())}</span></div>
+    <div class="guidance-card"><b>Labels</b><span class="meta">${trainingCountText}</span></div>
+    <div class="guidance-card"><b>Training state</b><span class="meta">${readiness?.ready ? "Ready to train" : "Not ready yet"} · last ${escapeHtml(lastRun)}</span></div>
+    <div class="guidance-card"><b>Benchmark</b><span class="meta">${winner ? `${escapeHtml(winner.feature_set)} · F1 ${formatMetricPercent(winner.macro_f1_mean)} · recall ${formatMetricPercent(winner.positive_recall_mean)}` : "No benchmark winner yet"}</span></div>
+    <div class="guidance-card"><b>Production</b><span class="meta">${selected ? `Selected ${escapeHtml(selected.feature_set)} · F1 ${formatMetricPercent(selected.macro_f1_mean)}` : "No promotion variant yet"}</span></div>`;
 }
 
 function nextStepText(counts) {
@@ -441,6 +477,14 @@ function nextStepText(counts) {
   if (positiveCount < 20 || negativeCount < 20) return "Label balanced positive and negative examples before trusting metrics.";
   if (positiveCount < minAdded || negativeCount < minAdded) return `Keep labeling edge cases; train-refresh unlocks after ${minAdded} new examples per training label.`;
   return "Refresh candidates, review uncertain predictions, then retrain after another balanced batch.";
+}
+
+function profileSignalText() {
+  const type = activeProfile.profile_type === "multiclass" ? "multiclass" : "binary";
+  if (isMulticlassProfile()) {
+    return `${type} · ${activeProfile.description || "Profile ready for labeling."}`;
+  }
+  return `${type} · positive ${labelByKey(activeProfile.positive_label).name} · negative ${labelByKey(activeProfile.negative_label).name}`;
 }
 
 async function loadTracks(options = {}) {
@@ -600,28 +644,23 @@ function bpmFilterValue(value) {
   return String(parsed);
 }
 
-async function refreshCandidates() {
-  refreshCandidatesEl.disabled = true;
-  refreshCandidatesStatusEl.textContent = "refreshing candidates...";
-  try {
-    const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/predictions/refresh`, { method: "POST" });
-    const data = await parseRefreshResponse(response);
-    refreshCandidatesStatusEl.textContent = `updated ${data.predicted} · skipped ${data.skipped} · removed old ${data.deleted_old_predictions}`;
-    await switchView("candidates");
-    await loadCandidates({ reset: true });
-  } finally {
-    refreshCandidatesEl.disabled = false;
-  }
+async function openLibraryForLabels() {
+  await switchView("library");
+  await loadActive({ reset: true });
+}
+
+async function openCandidatesForReview() {
+  if (trainingActionElement("openCandidates")?.disabled) return;
+  await switchView("candidates");
+  await loadCandidates({ reset: true });
 }
 
 async function trainRefresh() {
-  if (trainRefreshEl.disabled) return;
+  if (trainingActionElement("trainRefresh")?.disabled) return;
   if (!window.confirm(`Train a new ${activeProfile.name} model, then refresh candidates?`)) {
     return;
   }
-  trainRefreshEl.disabled = true;
-  refreshCandidatesEl.disabled = true;
-  promoteClassifierEl.disabled = true;
+  setWorkflowBusy(true);
   refreshCandidatesStatusEl.textContent = "training model...";
   try {
     const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/training/train-refresh`, { method: "POST" });
@@ -630,20 +669,46 @@ async function trainRefresh() {
     await switchView("candidates");
     await loadCandidates({ reset: true });
   } finally {
-    refreshCandidatesEl.disabled = false;
+    await loadTrainingReadiness();
+  }
+}
+
+async function runBenchmark() {
+  if (trainingActionElement("runBenchmark")?.disabled) return;
+  if (!window.confirm(`Run a full feature benchmark for ${activeProfile.name}?`)) {
+    return;
+  }
+  setWorkflowBusy(true);
+  refreshCandidatesStatusEl.textContent = "running benchmark...";
+  try {
+    const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/training/benchmark`, { method: "POST" });
+    const data = await parseRefreshResponse(response);
+    const winner = data.winner?.feature_set ? ` · winner ${data.winner.feature_set}` : "";
+    refreshCandidatesStatusEl.textContent = `benchmark complete${winner}`;
+    if (activeView === "training") {
+      await loadTrainingView();
+    } else {
+      await loadTrainingReadiness();
+    }
+  } finally {
     await loadTrainingReadiness();
   }
 }
 
 async function promoteClassifier() {
-  if (promoteClassifierEl.disabled) return;
-  if (!window.confirm(`Promote the latest ${activeProfile.name} combined model to the main app?`)) {
+  if (trainingActionElement("promoteClassifier")?.disabled) return;
+  const selectedFeatureSet = promoteFeatureSetEl?.value || selectedPromotionOption(latestTrainingReadiness)?.feature_set || "combined";
+  if (!window.confirm(`Promote the latest ${activeProfile.name} ${selectedFeatureSet} model to the main app?`)) {
     return;
   }
-  promoteClassifierEl.disabled = true;
+  setTrainingActionDisabled("promoteClassifier", true);
   refreshCandidatesStatusEl.textContent = "promoting model...";
   try {
-    const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/promote`, { method: "POST" });
+    const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/promote`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ feature_set: selectedFeatureSet || undefined })
+    });
     const data = await parseRefreshResponse(response);
     refreshCandidatesStatusEl.textContent = `promoted ${fileName(data.model_path)} · metadata ${fileName(data.metadata_path)}`;
   } finally {
@@ -655,19 +720,35 @@ async function loadTrainingReadiness() {
   const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/training/readiness`);
   const data = await response.json();
   if (!response.ok) {
-    trainRefreshEl.disabled = true;
-    promoteClassifierEl.disabled = true;
+    setWorkflowBusy(true);
     return;
   }
-  trainRefreshEl.disabled = !data.ready;
-  trainRefreshEl.title = data.ready
-    ? "Train a new model, then refresh candidates"
-    : `Need balanced new labels. Added: ${formatLabelCounts(data.added)}.`;
-  const canPromote = Boolean(data.model_artifact || data.artifact_summary?.latest_combined);
-  promoteClassifierEl.disabled = !canPromote;
-  promoteClassifierEl.title = canPromote
-    ? "Promote latest combined model to main app"
-    : "Train a combined model before promoting";
+  latestTrainingReadiness = data;
+  updatePromoteFeatureSetOptions(data);
+  const hasModel = hasTrainedVariant(data);
+  setTrainingActionDisabled("openLibrary", false, "Open Library to label tracks");
+  setTrainingActionDisabled(
+    "trainRefresh",
+    !data.ready,
+    data.ready ? "Retrain from all current labels and refresh candidates" : `Need enough new labels. Added: ${formatLabelCounts(data.added)}.`
+  );
+  setTrainingActionDisabled(
+    "openCandidates",
+    !hasModel,
+    hasModel ? "Open model candidates for review" : "Train a model before reviewing candidates"
+  );
+  setTrainingActionDisabled(
+    "runBenchmark",
+    !hasModel,
+    hasModel ? "Run benchmark" : "Train the first model before benchmarking"
+  );
+  const canPromote = Boolean((data.artifact_summary?.promotion_options || []).length || data.artifact_summary?.latest_combined);
+  setTrainingActionDisabled(
+    "promoteClassifier",
+    !canPromote,
+    canPromote ? `Promote selected ${selectedPromotionOption(data)?.feature_set || "combined"} model to main app` : "Train a model before promoting"
+  );
+  if (latestProfileSummary) renderGuidance(latestProfileSummary);
   return data;
 }
 
@@ -678,16 +759,178 @@ async function loadTrainingView() {
     ? `Guided Logistic Regression across ${trainingLabels().map(label => escapeHtml(label.name)).join(", ")}. Each track contributes at most one class label.`
     : `Guided Logistic Regression on ${escapeHtml(labelByKey(activeProfile.positive_label).name)} vs ${escapeHtml(labelByKey(activeProfile.negative_label).name)}. Review-only labels stay out of fitting.`;
   trainingPanelEl.innerHTML = `
-    <div class="guidance-card"><b>Readiness</b><span class="meta">${data?.ready ? "Ready to train" : "Not ready yet"}</span></div>
-    <div class="guidance-card"><b>Current labels</b><span class="meta">${formatLabelCounts(data?.current || {})}</span></div>
-    <div class="guidance-card"><b>New since last train</b><span class="meta">${formatLabelCounts(data?.added || {})}</span></div>
-    <div class="guidance-card"><b>Required new labels</b><span class="meta">${formatLabelCounts(data?.required_added || {})}</span></div>
-    <div class="guidance-card"><b>Training plan</b><span class="meta">${planText}</span></div>
+    ${renderTrainingWorkflow(data, planText)}
     ${renderTrainingInformationMetrics(data)}`;
+  promoteFeatureSetEl = document.getElementById("promoteFeatureSet");
+  promoteFeatureSetEl?.addEventListener("change", () => loadTrainingReadiness().catch(showError));
+  updatePromoteFeatureSetOptions(data);
+}
+
+function renderTrainingWorkflow(data, planText) {
+  const options = data?.artifact_summary?.promotion_options || [];
+  const selected = selectedPromotionOption(data);
+  const winner = data?.artifact_summary?.benchmark_winner;
+  const optionMarkup = renderPromotionOptions(options);
+  const hasModel = hasTrainedVariant(data);
+  const canPromote = Boolean(options.length || data?.artifact_summary?.latest_combined);
+  return `<div class="classifier-workflow-card">
+    <div class="workflow-header">
+      <div>
+        <b>Classifier workflow</b>
+        <span class="meta">${escapeHtml(activeProfile.name)} · ${escapeHtml(activeProfile.profile_type || "profile")}</span>
+      </div>
+      <span class="workflow-state-chip ${data?.ready ? "ready" : "blocked"}">${data?.ready ? "Ready to train" : "Not ready yet"}</span>
+    </div>
+    <div class="workflow-recommendation">
+      <b>Current recommendation</b>
+      <span>${escapeHtml(workflowRecommendation(data, selected))}</span>
+    </div>
+    <div class="workflow-variant-row">
+      <label class="workflow-variant-select">Selected variant
+        <select id="promoteFeatureSet" ${options.length ? "" : "disabled"}>${optionMarkup}</select>
+      </label>
+      <div class="workflow-variant-facts">
+        ${trainingInfoLine("Benchmark winner", winner ? `${winner.feature_set} · F1 ${formatMetricPercent(winner.macro_f1_mean)} · recall ${formatMetricPercent(winner.positive_recall_mean)}` : "No winner yet")}
+        ${trainingInfoLine("Selected", selected ? `${selected.feature_set} · rank ${selected.rank ?? "-"} · F1 ${formatMetricPercent(selected.macro_f1_mean)}` : "No selected variant yet")}
+      </div>
+    </div>
+    <div class="workflow-steps">
+      ${renderWorkflowStep({
+        number: 1,
+        title: "Collect labels",
+        status: "ready",
+        body: `Label enough tracks for this profile before training. Need: ${formatLabelCounts(data?.required_added || {})}. Current new labels: ${formatLabelCounts(data?.added || {})}.`,
+        action: workflowButton("openLibrary", "library", "Open Library", "open-library", false, "Open Library to label tracks")
+      })}
+      ${renderWorkflowStep({
+        number: 2,
+        title: "Train model",
+        status: data?.ready ? "ready" : "blocked",
+        body: `${planText} Retrain from all current labels, create a new artifact, then refresh candidates automatically.`,
+        action: workflowButton("trainRefresh", "train", "Train", "train-refresh", !data?.ready, data?.ready ? "Retrain model and refresh candidates" : `Need enough new labels. Added: ${formatLabelCounts(data?.added || {})}.`)
+      })}
+      ${renderWorkflowStep({
+        number: 3,
+        title: "Review candidates",
+        status: hasModel ? "ready" : "blocked",
+        body: hasModel ? "Open model-suggested candidates, review uncertain or high-confidence predictions, and add more labels for the next training run." : "Train the first model before candidate review is available.",
+        action: workflowButton("openCandidates", "candidates", "Open Candidates", "open-candidates", !hasModel, hasModel ? "Open model candidates for review" : "Train a model before reviewing candidates")
+      })}
+      ${renderWorkflowStep({
+        number: 4,
+        title: "Benchmark variants",
+        status: winner ? "done" : hasModel ? "ready" : "blocked",
+        body: winner ? `Current winner: ${winner.feature_set} · F1 ${formatMetricPercent(winner.macro_f1_mean)}.` : "Compare SONARA, MERT, MAEST, and CLAP feature-source combinations.",
+        action: workflowButton("runBenchmark", "benchmark", "Run benchmark", "run-benchmark", !hasModel, hasModel ? "Run benchmark" : "Train the first model before benchmarking")
+      })}
+      ${renderWorkflowStep({
+        number: 5,
+        title: "Promote model",
+        status: canPromote ? "ready" : "blocked",
+        body: selected ? `Promote ${selected.feature_set} into models/classifiers, then reset and rescore this classifier in the main database.` : "No trained variant is available for promotion.",
+        action: workflowButton("promoteClassifier", "promote", "Promote", "promote-classifier", !canPromote, canPromote ? "Promote selected variant" : "Train a model before promoting")
+      })}
+    </div>
+  </div>`;
+}
+
+function hasTrainedVariant(data) {
+  return Boolean(
+    data?.model_artifact ||
+    data?.artifact_summary?.latest_combined ||
+    (data?.artifact_summary?.promotion_options || []).length
+  );
+}
+
+function renderWorkflowStep({ number, title, status, body, action }) {
+  return `<section class="workflow-step workflow-step-${status}">
+    <div class="workflow-step-index">${number}</div>
+    <div class="workflow-step-copy">
+      <div class="workflow-step-title"><b>${escapeHtml(title)}</b><span class="workflow-state-chip ${status}">${escapeHtml(status)}</span></div>
+      <span class="meta">${escapeHtml(body)}</span>
+    </div>
+    <div class="workflow-step-action">${action}</div>
+  </section>`;
+}
+
+function workflowButton(id, action, label, className, disabled, title) {
+  return `<button id="${id}" data-training-action="${action}" type="button" class="workflow-action-button ${className}" title="${escapeHtml(title)}" ${disabled ? "disabled" : ""}>${actionIcon(action)}<span>${escapeHtml(label)}</span></button>`;
+}
+
+function actionIcon(action) {
+  if (action === "library") return '<svg class="lucide lucide-library-big" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="18" x="3" y="3" rx="1" /><path d="M7 3v18" /><path d="M20.4 18.9c.2.7-.2 1.4-.9 1.6l-3.7 1c-.7.2-1.4-.2-1.6-.9L9.1 5.1c-.2-.7.2-1.4.9-1.6l3.7-1c.7-.2 1.4.2 1.6.9Z" /></svg>';
+  if (action === "train") return '<svg class="lucide lucide-brain" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" /><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" /></svg>';
+  if (action === "candidates") return '<svg class="lucide lucide-sparkles" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594Z" /><path d="M20 2v4" /><path d="M22 4h-4" /></svg>';
+  if (action === "benchmark") return '<svg class="lucide lucide-chart-no-axes-column-increasing" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" x2="12" y1="20" y2="10" /><line x1="18" x2="18" y1="20" y2="4" /><line x1="6" x2="6" y1="20" y2="16" /></svg>';
+  return '<svg class="lucide lucide-upload" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" x2="12" y1="3" y2="15" /></svg>';
+}
+
+function workflowRecommendation(data, selected) {
+  const missing = missingLabelText(data);
+  if (missing) return `Add ${missing} before the next train run.`;
+  if (!data?.model_artifact && !(data?.artifact_summary?.promotion_options || []).length) return "Train the first model for this profile.";
+  if (!data?.artifact_summary?.benchmark_winner) return "Run benchmark to choose the strongest feature-source variant.";
+  if (selected) return "Review the selected promotion variant, then promote it when the metrics look right.";
+  return "Choose a promotion variant before releasing the classifier.";
+}
+
+function missingLabelText(data) {
+  const added = data?.added || {};
+  const required = data?.required_added || {};
+  const missing = {};
+  const missingRows = [];
+  let hasMissing = false;
+  trainingLabels().forEach(label => {
+    const value = Math.max(0, Number(required[label.key] || 0) - Number(added[label.key] || 0));
+    if (value > 0) {
+      missing[label.key] = value;
+      missingRows.push(value);
+      hasMissing = true;
+    }
+  });
+  if (missingRows.length > 4) {
+    const total = missingRows.reduce((sum, value) => sum + value, 0);
+    const uniqueValues = new Set(missingRows);
+    if (uniqueValues.size === 1) {
+      return `${missingRows[0]} per class across ${missingRows.length} classes`;
+    }
+    return `${total} labels across ${missingRows.length} classes`;
+  }
+  return hasMissing ? formatLabelCounts(missing) : "";
+}
+
+function updatePromoteFeatureSetOptions(data) {
+  if (!promoteFeatureSetEl) return;
+  const options = data?.artifact_summary?.promotion_options || [];
+  const selected = selectedPromotionOption(data);
+  const previous = promoteFeatureSetEl.value;
+  promoteFeatureSetEl.innerHTML = options.length
+    ? renderPromotionOptions(options)
+    : '<option value="">No trained model</option>';
+  const allowedValues = new Set(options.map(row => String(row.feature_set || "")));
+  promoteFeatureSetEl.value = allowedValues.has(previous) ? previous : String(selected?.feature_set || "");
+  promoteFeatureSetEl.disabled = options.length === 0;
+}
+
+function selectedPromotionOption(data) {
+  const options = data?.artifact_summary?.promotion_options || [];
+  const requested = promoteFeatureSetEl?.value;
+  return options.find(row => row.feature_set === requested) || data?.artifact_summary?.latest_promotable || options[0] || null;
+}
+
+function renderPromotionOptions(options) {
+  return options.length
+    ? options.map(row => `<option value="${escapeHtml(String(row.feature_set || ""))}">${escapeHtml(promotionOptionLabel(row))}</option>`).join("")
+    : '<option value="">No trained model</option>';
+}
+
+function promotionOptionLabel(row) {
+  const rank = row.rank ? `#${row.rank}` : "unranked";
+  return `${row.feature_set || "model"} · ${rank} · F1 ${formatMetricPercent(row.macro_f1_mean)} · ${formatHumanDate(row.created_at)}`;
 }
 
 function renderTrainingInformationMetrics(data) {
-  return `<div class="guidance-card training-info-card"><b>Training Stats</b>
+  return `<div class="training-info-card"><b>Training Stats</b>
     <span class="meta training-info-text">
       ${renderTrainingLastRunLine(data)}
       ${renderTrainingArtifactsLine(data?.artifact_summary)}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import combinations
 from pathlib import Path
 
 import numpy as np
@@ -12,7 +13,13 @@ from .lab_db import RhythmLabDatabase
 from .source_db import SourceDatabase
 
 
+BASE_FEATURE_SOURCES = ("sonara", "mert", "maest", "clap")
 FEATURE_SETS = ("sonara", "mert", "maest", "combined")
+ABLATION_FEATURE_SETS = tuple(
+    "combined" if sources == ("sonara", "mert", "maest") else "+".join(sources)
+    for size in range(1, len(BASE_FEATURE_SOURCES) + 1)
+    for sources in combinations(BASE_FEATURE_SOURCES, size)
+)
 SONARA_SCALAR_FIELDS = (
     "bpm",
     "onset_density",
@@ -75,24 +82,33 @@ def build_feature_matrix(
     feature_set: str,
     *,
     labels_by_track: dict[int, str],
+    tracks_by_id: dict[int, Track] | None = None,
+    embedding_vectors: dict[str, dict[int, np.ndarray]] | None = None,
 ) -> FeatureMatrix:
-    if feature_set not in FEATURE_SETS:
-        raise ValueError(f"Unsupported feature set: {feature_set}")
-    tracks_by_id = {track.id: track for track in source.list_tracks()}
-    mert_vectors = _embedding_vectors(source, "mert") if feature_set in {"mert", "combined"} else {}
-    maest_vectors = _embedding_vectors(source, "maest") if feature_set in {"maest", "combined"} else {}
+    sources = feature_sources(feature_set)
+    tracks_by_id = tracks_by_id or {track.id: track for track in source.list_tracks()}
+    embedding_vectors = embedding_vectors if embedding_vectors is not None else {}
+    mert_vectors = _cached_embedding_vectors(source, "mert", embedding_vectors) if "mert" in sources else {}
+    maest_vectors = _cached_embedding_vectors(source, "maest", embedding_vectors) if "maest" in sources else {}
+    clap_vectors = _cached_embedding_vectors(source, "clap", embedding_vectors) if "clap" in sources else {}
 
     rows: list[np.ndarray] = []
     labels: list[str] = []
     track_ids: list[int] = []
     skipped: list[int] = []
-    feature_names = _feature_names(feature_set, mert_vectors, maest_vectors)
+    feature_names = _feature_names(sources, mert_vectors, maest_vectors, clap_vectors)
     for track_id, label in labels_by_track.items():
         track = tracks_by_id.get(track_id)
         if track is None:
             skipped.append(track_id)
             continue
-        row = _track_features(track, feature_set, mert_vectors=mert_vectors, maest_vectors=maest_vectors)
+        row = _track_features(
+            track,
+            sources,
+            mert_vectors=mert_vectors,
+            maest_vectors=maest_vectors,
+            clap_vectors=clap_vectors,
+        )
         if row is None:
             skipped.append(track_id)
             continue
@@ -105,24 +121,30 @@ def build_feature_matrix(
 
 def _track_features(
     track: Track,
-    feature_set: str,
+    sources: tuple[str, ...],
     *,
     mert_vectors: dict[int, np.ndarray],
     maest_vectors: dict[int, np.ndarray],
+    clap_vectors: dict[int, np.ndarray],
 ) -> np.ndarray | None:
     parts: list[np.ndarray] = []
-    if feature_set in {"sonara", "combined"}:
+    if "sonara" in sources:
         sonara = _sonara_features(track)
         if sonara is None:
             return None
         parts.append(sonara)
-    if feature_set in {"mert", "combined"}:
+    if "mert" in sources:
         vector = mert_vectors.get(track.id)
         if vector is None:
             return None
         parts.append(vector)
-    if feature_set in {"maest", "combined"}:
+    if "maest" in sources:
         vector = maest_vectors.get(track.id)
+        if vector is None:
+            return None
+        parts.append(vector)
+    if "clap" in sources:
+        vector = clap_vectors.get(track.id)
         if vector is None:
             return None
         parts.append(vector)
@@ -164,18 +186,52 @@ def _embedding_vectors(source: SourceDatabase, embedding_key: str) -> dict[int, 
     return {track.id: matrix[index].astype(np.float32, copy=True) for index, track in enumerate(tracks)}
 
 
-def _feature_names(feature_set: str, mert_vectors: dict[int, np.ndarray], maest_vectors: dict[int, np.ndarray]) -> list[str]:
+def _cached_embedding_vectors(
+    source: SourceDatabase,
+    embedding_key: str,
+    cache: dict[str, dict[int, np.ndarray]],
+) -> dict[int, np.ndarray]:
+    if embedding_key not in cache:
+        cache[embedding_key] = _embedding_vectors(source, embedding_key)
+    return cache[embedding_key]
+
+
+def feature_sources(feature_set: str) -> tuple[str, ...]:
+    clean = str(feature_set or "").strip().lower()
+    if clean == "combined":
+        return ("sonara", "mert", "maest")
+    raw_sources = tuple(part.strip() for part in clean.split("+") if part.strip())
+    if not raw_sources:
+        raise ValueError("Feature set is required")
+    unsupported = sorted(set(raw_sources) - set(BASE_FEATURE_SOURCES))
+    if unsupported:
+        raise ValueError(f"Unsupported feature source: {', '.join(unsupported)}")
+    duplicates = sorted(source for source in set(raw_sources) if raw_sources.count(source) > 1)
+    if duplicates:
+        raise ValueError(f"Duplicate feature source: {', '.join(duplicates)}")
+    return tuple(source for source in BASE_FEATURE_SOURCES if source in raw_sources)
+
+
+def _feature_names(
+    sources: tuple[str, ...],
+    mert_vectors: dict[int, np.ndarray],
+    maest_vectors: dict[int, np.ndarray],
+    clap_vectors: dict[int, np.ndarray],
+) -> list[str]:
     names: list[str] = []
-    if feature_set in {"sonara", "combined"}:
+    if "sonara" in sources:
         names.extend(f"sonara:{field}" for field in SONARA_SCALAR_FIELDS)
         for field, length in SONARA_VECTOR_FIELDS.items():
             names.extend(f"sonara:{field}:{index}" for index in range(length))
-    if feature_set in {"mert", "combined"}:
+    if "mert" in sources:
         dim = _embedding_dim(mert_vectors)
         names.extend(f"mert:{index}" for index in range(dim))
-    if feature_set in {"maest", "combined"}:
+    if "maest" in sources:
         dim = _embedding_dim(maest_vectors)
         names.extend(f"maest:{index}" for index in range(dim))
+    if "clap" in sources:
+        dim = _embedding_dim(clap_vectors)
+        names.extend(f"clap:{index}" for index in range(dim))
     return names
 
 

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
+
 import argparse
 import json
 import logging
+import os
 import sqlite3
 import subprocess
 import sys
@@ -20,6 +23,7 @@ sys.path.insert(0, str(LAB_ROOT))
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.rhythm_lab_collections import RhythmLabCollections
 
+from rhythm_lab.ablation import benchmark_profile_ablation
 from rhythm_lab.features import build_labeled_feature_matrix
 from rhythm_lab.cli import PromotionError, promote_profile_model
 from rhythm_lab.lab_db import RhythmLabDatabase
@@ -1096,12 +1100,15 @@ def test_profile_training_readiness_reports_artifacts_metrics_and_history(tmp_pa
     old_model = artifacts / "break-energy-combined-20260524T120000Z.joblib"
     latest_model = artifacts / "break-energy-combined-20260524T130000Z.joblib"
     sonara_model = artifacts / "break-energy-sonara-20260524T125000Z.joblib"
+    clap_combo_model = artifacts / "break-energy-mert+clap-20260524T140000Z.joblib"
     old_metrics = artifacts / "break-energy-combined-20260524T120000Z.metrics.json"
     latest_metrics = artifacts / "break-energy-combined-20260524T130000Z.metrics.json"
     sonara_metrics = artifacts / "break-energy-sonara-20260524T125000Z.metrics.json"
+    clap_combo_metrics = artifacts / "break-energy-mert+clap-20260524T140000Z.metrics.json"
     old_model.write_bytes(b"old")
     latest_model.write_bytes(b"latest")
     sonara_model.write_bytes(b"sonara")
+    clap_combo_model.write_bytes(b"mert+clap")
     old_metrics.write_text(
         json.dumps(
             {
@@ -1150,6 +1157,25 @@ def test_profile_training_readiness_reports_artifacts_metrics_and_history(tmp_pa
         ),
         encoding="utf-8",
     )
+    clap_combo_metrics.write_text(
+        json.dumps(
+            {
+                "feature_set": "mert+clap",
+                "created_at": "20260524T140000Z",
+                "trained_rows": 16,
+                "test_rows": 4,
+                "feature_count": 514,
+                "cross_validation": {
+                    "accuracy_mean": 0.81,
+                    "macro_f1_mean": 0.82,
+                    "positive_precision_mean": 0.83,
+                    "positive_recall_mean": 0.84,
+                    "macro_f1_std": 0.02,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     labels.update_profile("break_energy", artifact_dir=artifacts)
     labels.record_training_checkpoint({"broken": 6, "straight": 5}, model_artifact=latest_model)
     client = TestClient(create_app(source_path, labels_db_path=labels_path))
@@ -1159,8 +1185,12 @@ def test_profile_training_readiness_reports_artifacts_metrics_and_history(tmp_pa
     assert payload["last_trained_at"]
     assert payload["artifact_summary"]["artifact_dir"] == str(artifacts)
     assert payload["artifact_summary"]["latest_combined"] == str(latest_model)
-    assert payload["artifact_summary"]["model_count"] == 3
-    assert payload["artifact_summary"]["metrics_count"] == 3
+    assert payload["artifact_summary"]["model_count"] == 4
+    assert payload["artifact_summary"]["metrics_count"] == 4
+    assert payload["artifact_summary"]["benchmark_winner"]["feature_set"] == "mert+clap"
+    assert payload["artifact_summary"]["benchmark_winner"]["rank"] == 1
+    assert payload["artifact_summary"]["latest_promotable"]["feature_set"] == "mert+clap"
+    assert [row["feature_set"] for row in payload["artifact_summary"]["promotion_options"][:2]] == ["mert+clap", "combined"]
     combined = next(row for row in payload["artifact_summary"]["by_feature"] if row["feature_set"] == "combined")
     assert combined["latest_model"] == str(latest_model)
     assert combined["latest_metrics"] == str(latest_metrics)
@@ -1171,6 +1201,181 @@ def test_profile_training_readiness_reports_artifacts_metrics_and_history(tmp_pa
     assert combined["positive_recall_mean"] == 0.74
     assert payload["metrics_history"][0]["created_at"] == "20260524T130000Z"
     assert payload["metrics_history"][1]["created_at"] == "20260524T120000Z"
+
+
+def test_web_app_promote_copies_selected_feature_set_artifact(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    source_path = tmp_path / "source.sqlite"
+    LibraryDatabase(source_path)
+    labels_path = tmp_path / "labels.sqlite"
+    labels = RhythmLabDatabase(labels_path)
+    labels.set_label(101, "broken")
+    labels.set_label(102, "straight")
+    artifacts = tmp_path / "artifacts" / "break-energy"
+    artifacts.mkdir(parents=True)
+    combined = artifacts / "break-energy-combined-20260524T130000Z.joblib"
+    selected = artifacts / "break-energy-mert+clap-20260524T140000Z.joblib"
+    for path, feature_set, feature_names in (
+        (combined, "combined", ["sonara:bpm", "mert:0", "maest:0"]),
+        (selected, "mert+clap", ["mert:0", "clap:0"]),
+    ):
+        joblib.dump(
+            {
+                "classifier_key": "break_energy",
+                "feature_set": feature_set,
+                "feature_names": feature_names,
+                "label_order": ["broken", "straight"],
+                "positive_label": "broken",
+                "model": object(),
+                "production_calibration": {"status": "uncalibrated", "reason": "test"},
+            },
+            path,
+        )
+    old_source_time = 1_700_000_000
+    os.utime(selected, (old_source_time, old_source_time))
+    labels.update_profile("break_energy", artifact_dir=artifacts)
+    target_root = tmp_path / "models" / "classifiers"
+    client = TestClient(create_app(source_path, labels_db_path=labels_path, classifier_target_root=target_root))
+
+    response = client.post("/api/profiles/break_energy/promote", json={"feature_set": "mert+clap"})
+
+    assert response.status_code == 200
+    target = target_root / "break-energy"
+    target_model = target / "model.joblib"
+    assert response.json()["source_artifact"] == str(selected)
+    assert joblib.load(target_model)["feature_set"] == "mert+clap"
+    assert target_model.stat().st_mtime > selected.stat().st_mtime
+    metadata = json.loads((target / "model.json").read_text(encoding="utf-8"))
+    assert metadata["feature_set"] == "mert+clap"
+    assert metadata["production"]["required_inputs"] == ["mert", "clap"]
+
+
+def test_web_app_runs_benchmark_for_active_profile(monkeypatch, tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+    import rhythm_lab.web_app as web_app
+
+    source_path = tmp_path / "source.sqlite"
+    LibraryDatabase(source_path)
+    labels_path = tmp_path / "labels.sqlite"
+    labels = RhythmLabDatabase(labels_path)
+    artifacts = tmp_path / "artifacts" / "break-energy"
+    labels.update_profile("break_energy", artifact_dir=artifacts)
+    calls = []
+
+    def fake_run_ablation_benchmark(source_db_path, labels_db_path, **kwargs):
+        calls.append((source_db_path, labels_db_path, kwargs))
+        return {
+            "output_path": str(tmp_path / "ablation.json"),
+            "profiles": [
+                {
+                    "classifier_key": "break_energy",
+                    "winner": {"feature_set": "mert+clap", "metrics": {"cross_validation": {"macro_f1_mean": 0.82}}},
+                }
+            ],
+        }
+
+    monkeypatch.setattr(web_app, "run_ablation_benchmark", fake_run_ablation_benchmark)
+    client = TestClient(create_app(source_path, labels_db_path=labels_path))
+
+    response = client.post("/api/profiles/break_energy/training/benchmark")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["classifier_key"] == "break_energy"
+    assert payload["output_path"] == str(tmp_path / "ablation.json")
+    assert payload["winner"]["feature_set"] == "mert+clap"
+    assert calls == [
+        (
+            source_path,
+            labels_path,
+            {
+                "profile_keys": ("break_energy",),
+                "feature_sets": web_app.ABLATION_FEATURE_SETS,
+                "artifacts_root": None,
+            },
+        )
+    ]
+
+
+def test_web_app_calibrates_selected_feature_set(monkeypatch, tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+    import rhythm_lab.web_app as web_app
+
+    source_path = tmp_path / "source.sqlite"
+    LibraryDatabase(source_path)
+    labels_path = tmp_path / "labels.sqlite"
+    labels = RhythmLabDatabase(labels_path)
+    artifacts = tmp_path / "artifacts" / "break-energy"
+    artifacts.mkdir(parents=True)
+    selected = artifacts / "break-energy-mert+clap-20260524T140000Z.joblib"
+    joblib.dump(
+        {
+            "classifier_key": "break_energy",
+            "feature_set": "mert+clap",
+            "feature_names": ["mert:0", "clap:0"],
+            "label_order": ["broken", "straight"],
+            "positive_label": "broken",
+            "model": object(),
+            "production_calibration": {"status": "uncalibrated", "reason": "test"},
+        },
+        selected,
+    )
+    (artifacts / "break-energy-mert+clap-20260524T140000Z.metrics.json").write_text(
+        json.dumps(
+            {
+                "classifier_key": "break_energy",
+                "feature_set": "mert+clap",
+                "created_at": "20260524T140000Z",
+                "trained_rows": 200,
+                "feature_count": 514,
+                "cross_validation": {
+                    "macro_f1_mean": 0.82,
+                    "positive_precision_mean": 0.83,
+                    "positive_recall_mean": 0.84,
+                },
+                "production_calibration": {"status": "uncalibrated", "reason": "calibration_not_requested"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    labels.update_profile("break_energy", artifact_dir=artifacts)
+    calls = []
+
+    def fake_benchmark_lab_database(source_db_path, labels_db_path, artifact_dir, **kwargs):
+        calls.append((source_db_path, labels_db_path, artifact_dir, kwargs))
+        return {
+            "mert+clap": {
+                "status": "trained",
+                "artifact_path": str(artifacts / "break-energy-mert+clap-20260524T150000Z.joblib"),
+                "metrics_path": str(artifacts / "break-energy-mert+clap-20260524T150000Z.metrics.json"),
+                "trained_rows": 200,
+                "feature_count": 514,
+            }
+        }
+
+    monkeypatch.setattr(web_app, "benchmark_lab_database", fake_benchmark_lab_database)
+    client = TestClient(create_app(source_path, labels_db_path=labels_path))
+
+    response = client.post("/api/profiles/break_energy/training/calibrate", json={"feature_set": "mert+clap"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["classifier_key"] == "break_energy"
+    assert payload["feature_set"] == "mert+clap"
+    assert payload["training"]["mert+clap"]["status"] == "trained"
+    assert calls == [
+        (
+            source_path,
+            labels_path,
+            artifacts,
+            {
+                "classifier_key": "break_energy",
+                "feature_sets": ("mert+clap",),
+                "calibrate": True,
+            },
+        )
+    ]
 
 
 def test_web_app_training_readiness_initializes_checkpoint_from_existing_combined_artifact(monkeypatch, tmp_path: Path) -> None:
@@ -1261,20 +1466,50 @@ def test_web_app_promote_copies_latest_trained_combined_model(tmp_path: Path) ->
     assert metadata["trained_label_counts"] == {"broken": 1, "straight": 1}
 
 
-def test_static_ui_promote_button_sits_after_train_refresh_and_is_wired() -> None:
+def test_static_ui_training_workflow_moves_profile_actions_into_steps() -> None:
     html = (LAB_ROOT / "rhythm_lab" / "static" / "index.html").read_text(encoding="utf-8")
     script = (LAB_ROOT / "rhythm_lab" / "static" / "app.js").read_text(encoding="utf-8")
+    styles = (LAB_ROOT / "rhythm_lab" / "static" / "styles.css").read_text(encoding="utf-8").replace("\r\n", "\n")
 
     source_actions = html.split('<div class="source-actions">', 1)[1].split("</div>", 1)[0]
-    training_index = source_actions.index('id="trainingTab"')
-    train_index = html.index('id="trainRefresh"')
-    promote_index = html.index('id="promoteClassifier"')
+    assert 'id="trainingTab"' in source_actions
+    assert 'id="refreshCandidates"' not in source_actions
+    assert 'id="trainRefresh"' not in source_actions
+    assert 'id="runBenchmark"' not in source_actions
+    assert 'id="calibrateSelected"' not in source_actions
+    assert 'id="promoteClassifier"' not in source_actions
+    assert "renderTrainingWorkflow(data, planText)" in script
+    assert 'workflowButton("openLibrary", "library", "Open Library", "open-library"' in script
+    assert 'workflowButton("trainRefresh", "train", "Train", "train-refresh"' in script
+    assert 'workflowButton("openCandidates", "candidates", "Open Candidates", "open-candidates"' in script
+    assert 'workflowButton("runBenchmark", "benchmark", "Run benchmark", "run-benchmark"' in script
+    assert 'workflowButton("promoteClassifier", "promote", "Promote", "promote-classifier"' in script
+    assert 'trainingPanelEl.addEventListener("click", event => handleTrainingActionClick(event).catch(showError));' in script
+    assert "calibrateSelected" not in script
+    assert "training/calibrate" not in script
+    assert 'fetch(`/api/profiles/${activeProfile.classifier_key}/training/benchmark`, { method: "POST" })' in script
+    assert 'refreshCandidatesStatusEl.textContent = "running benchmark...";' in script
+    assert 'setTrainingActionDisabled(\n    "promoteClassifier",' in script
+    assert 'id="promoteFeatureSet"' in script
+    assert "renderPromotionOptions" in script
+    assert 'body: JSON.stringify({ feature_set: selectedFeatureSet || undefined })' in script
+    assert ".classifier-workflow-card" in styles
+    assert ".workflow-step" in styles
+    assert ".workflow-action-button" in styles
 
-    assert training_index < source_actions.index('id="refreshCandidates"')
-    assert promote_index > train_index
-    assert 'class="icon-button promote-classifier"' in html
-    assert 'promoteClassifierEl.addEventListener("click", () => promoteClassifier().catch(showError));' in script
-    assert "promoteClassifierEl.disabled = !canPromote;" in script
+
+def test_static_ui_training_workflow_blocks_candidate_refresh_until_model_exists() -> None:
+    script = (LAB_ROOT / "rhythm_lab" / "static" / "app.js").read_text(encoding="utf-8")
+
+    assert "function hasTrainedVariant(data)" in script
+    assert "const hasModel = hasTrainedVariant(data);" in script
+    assert 'title: "Collect labels",' in script
+    assert "Label enough tracks for this profile before training." in script
+    assert 'title: "Review candidates",' in script
+    assert "Train the first model before candidate review is available." in script
+    assert 'workflowButton("openCandidates", "candidates", "Open Candidates", "open-candidates", !hasModel' in script
+    assert 'setTrainingActionDisabled(\n    "openCandidates",\n    !hasModel,' in script
+    assert 'setTrainingActionDisabled(\n    "runBenchmark",\n    !hasModel,' in script
 
 
 def test_static_ui_source_actions_use_single_status_line() -> None:
@@ -1289,10 +1524,11 @@ def test_static_ui_source_actions_use_single_status_line() -> None:
     assert 'SOURCE_ACTION_LOG_LIMIT' not in script
     assert "handleSourceActionClick" not in script
     assert "appendSourceActionLog" not in script
-    assert 'refreshCandidatesEl.addEventListener("click", () => refreshCandidates().catch(showError));' in script
-    assert 'trainRefreshEl.addEventListener("click", () => trainRefresh().catch(showError));' in script
-    assert 'promoteClassifierEl.addEventListener("click", () => promoteClassifier().catch(showError));' in script
-    assert 'refreshCandidatesStatusEl.textContent = "refreshing candidates...";' in script
+    assert 'refreshCandidatesEl.addEventListener("click", () => refreshCandidates().catch(showError));' not in script
+    assert 'trainRefreshEl.addEventListener("click", () => trainRefresh().catch(showError));' not in script
+    assert 'promoteClassifierEl.addEventListener("click", () => promoteClassifier().catch(showError));' not in script
+    assert "handleTrainingActionClick" in script
+    assert 'refreshCandidatesStatusEl.textContent = "running benchmark...";' in script
     assert 'refreshCandidatesStatusEl.textContent = "training model...";' in script
     assert 'refreshCandidatesStatusEl.textContent = "promoting model...";' in script
     assert ".source-action-log" not in styles
@@ -1728,8 +1964,8 @@ def test_web_app_serves_static_profile_ui_without_hardcoded_label_buttons(tmp_pa
     script = client.get("/static/app.js").text
     styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
 
-    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260702-source-status-line-compact" />' in html
-    assert '<script src="/static/app.js?v=rhythm-lab-20260702-source-status-line-compact" defer></script>' in html
+    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260702-training-no-calibration" />' in html
+    assert '<script src="/static/app.js?v=rhythm-lab-20260702-training-no-calibration" defer></script>' in html
     assert 'id="profileSelect"' in html
     assert "/api/profiles" in script
     assert "function renderLabelButtons" in script
@@ -1794,14 +2030,13 @@ def test_static_ui_non_submit_buttons_have_explicit_button_type(tmp_path: Path) 
         "candidatesTab",
         "likedTab",
         "settingsTab",
-        "refreshCandidates",
-        "trainRefresh",
         "shuffleLibraryOrder",
         "load",
         "prevPage",
         "nextPage",
     ):
         assert f'<button id="{button_id}" type="button"' in html
+    assert 'return `<button id="${id}" data-training-action="${action}" type="button" class="workflow-action-button ${className}"' in script
     assert '<button type="button" class="${active}" data-action="label" data-label="${escapeHtml(label.key)}">' in script
     assert 'buttons.push(\'<button type="button" data-action="label" data-label="">Clear</button>\');' in script
 
@@ -1947,17 +2182,20 @@ def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path
     assert 'libraryOrderEl.disabled = activeView !== "library";' in script
     assert 'shuffleLibraryOrderEl.hidden = activeView !== "library";' in script
     assert 'candidatePredictedEl.hidden = activeView !== "candidates";' in script
-    assert 'id="refreshCandidates"' in html
-    assert 'id="trainRefresh"' in html
-    assert '<button id="trainRefresh" type="button" class="icon-button train-refresh"' in html
-    assert 'fetch(`/api/profiles/${activeProfile.classifier_key}/predictions/refresh`, { method: "POST" })' in script
+    assert 'id="refreshCandidates"' not in html
+    assert 'id="trainRefresh"' not in html
+    assert '<button id="trainRefresh" type="button" class="icon-button train-refresh"' not in html
+    assert 'workflowButton("openLibrary", "library", "Open Library", "open-library"' in script
+    assert 'workflowButton("trainRefresh", "train", "Train", "train-refresh"' in script
+    assert 'workflowButton("openCandidates", "candidates", "Open Candidates", "open-candidates"' in script
+    assert 'fetch(`/api/profiles/${activeProfile.classifier_key}/predictions/refresh`, { method: "POST" })' not in script
     assert 'fetch(`/api/profiles/${activeProfile.classifier_key}/training/readiness`)' in script
     assert 'fetch(`/api/profiles/${activeProfile.classifier_key}/training/train-refresh`, { method: "POST" })' in script
-    assert 'refreshCandidatesEl.disabled = true;' in script
-    assert 'trainRefreshEl.disabled = true;' in script
+    assert 'setTrainingActionDisabled(\n    "openCandidates",' in script
+    assert 'setTrainingActionDisabled(\n    "trainRefresh",' in script
     assert "async function parseRefreshResponse(response)" in script
     assert "async function loadTrainingReadiness()" in script
-    assert ".refresh-candidates" in styles
+    assert ".workflow-action-button" in styles
     assert ".train-refresh" in styles
     assert ".delete-collection {\n  border-color: rgba(255, 95, 137, 0.55);" in styles
     assert "const viewOffsets = { library: 0, candidates: 0, liked: 0, collection: 0, training: 0, settings: 0 };" in script
@@ -1982,16 +2220,22 @@ def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path
     assert "function bpmFilterValue(value)" in script
 
 
-def test_web_app_training_tab_adds_bottom_training_stats_card(tmp_path: Path) -> None:
+def test_web_app_training_tab_adds_workflow_and_bottom_training_stats(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
     client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
     script = client.get("/static/app.js").text
     styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
 
-    assert '<div class="guidance-card training-info-card"><b>Training Stats</b>' in script
+    assert '<div class="classifier-workflow-card">' in script
+    assert '<div class="workflow-recommendation">' in script
+    assert '<div class="workflow-steps">' in script
+    assert "function renderWorkflowStep" in script
+    assert "function workflowRecommendation(data, selected)" in script
+    assert "function missingLabelText(data)" in script
+    assert '<div class="training-info-card"><b>Training Stats</b>' in script
     assert "${renderTrainingInformationMetrics(data)}" in script
-    assert script.index('<div class="guidance-card"><b>Training plan</b>') < script.index("${renderTrainingInformationMetrics(data)}")
+    assert script.index("${renderTrainingWorkflow(data, planText)}") < script.index("${renderTrainingInformationMetrics(data)}")
     assert "function renderTrainingInformationMetrics(data)" in script
     assert "function formatHumanDate(value)" in script
     assert "Intl.DateTimeFormat" in script
@@ -2002,6 +2246,9 @@ def test_web_app_training_tab_adds_bottom_training_stats_card(tmp_path: Path) ->
     assert "function renderTrainingDynamicsLine(history)" in script
     assert "previous run" in script
     assert "const latest = (history || [])[0];" in script
+    assert ".classifier-workflow-card" in styles
+    assert ".workflow-step" in styles
+    assert ".workflow-action-button" in styles
     assert ".training-info-card .meta" in styles
     assert ".training-info-card .meta {\n  display: grid;" in styles
     assert ".training-info-card .meta {\n  font-size:" not in styles
@@ -2009,23 +2256,26 @@ def test_web_app_training_tab_adds_bottom_training_stats_card(tmp_path: Path) ->
     assert ".training-panel {\n  display: grid;" not in styles
 
 
-def test_web_app_refresh_and_train_controls_are_icon_buttons(tmp_path: Path) -> None:
+def test_web_app_training_workflow_controls_use_icon_text_buttons(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
     client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
-    html = client.get("/").text
+    script = client.get("/static/app.js").text
     styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
 
-    assert '<button id="refreshCandidates" type="button" class="icon-button refresh-candidates"' in html
-    assert 'aria-label="Refresh candidates"' in html
-    assert 'class="lucide lucide-refresh-cw"' in html
-    assert ">Refresh candidates</button>" not in html
-    assert '<button id="trainRefresh" type="button" class="icon-button train-refresh"' in html
-    assert 'aria-label="Train and refresh candidates"' in html
-    assert 'class="lucide lucide-brain"' in html
-    assert ">Train + refresh</button>" not in html
+    assert 'workflowButton("openLibrary", "library", "Open Library", "open-library"' in script
+    assert 'workflowButton("trainRefresh", "train", "Train", "train-refresh"' in script
+    assert 'workflowButton("openCandidates", "candidates", "Open Candidates", "open-candidates"' in script
+    assert 'workflowButton("runBenchmark", "benchmark", "Run benchmark", "run-benchmark"' in script
+    assert 'workflowButton("promoteClassifier", "promote", "Promote", "promote-classifier"' in script
+    assert 'class="lucide lucide-library-big"' in script
+    assert 'class="lucide lucide-brain"' in script
+    assert 'class="lucide lucide-sparkles"' in script
+    assert 'class="lucide lucide-gauge"' not in script
     assert ".icon-button {\n  width: 38px;\n  height: 38px;" in styles
-    assert ".icon-button svg {\n  width: 18px;\n  height: 18px;" in styles
+    assert ".workflow-action-button {\n  width: 168px;" in styles
+    assert "  min-height: 38px;" in styles
+    assert ".workflow-action-button svg {\n  width: 16px;\n  height: 16px;" in styles
 
 
 def test_web_app_navigation_tabs_have_icons(tmp_path: Path) -> None:
@@ -2063,12 +2313,15 @@ def test_web_app_header_profile_controls_align_with_source_controls(tmp_path: Pa
     assert 'id="settingsTab"' not in tabs
     assert 'id="trainingTab"' not in tabs
     assert source_row.index('id="loadSource"') < source_row.index('class="source-actions"')
-    assert source_row.index('id="trainingTab"') < source_row.index('id="refreshCandidates"')
-    assert source_row.index('id="refreshCandidates"') < source_row.index('id="trainRefresh"')
-    assert source_row.index('id="trainRefresh"') < source_row.index('id="promoteClassifier"')
+    assert 'id="trainingTab"' in source_row
+    assert 'id="refreshCandidates"' not in source_row
+    assert 'id="trainRefresh"' not in source_row
+    assert 'id="runBenchmark"' not in source_row
+    assert 'id="calibrateSelected"' not in source_row
+    assert 'id="promoteClassifier"' not in source_row
     assert "--profile-select-width: 320px;" in styles
     assert "--header-icon-button-width: 38px;" in styles
-    assert "--header-actions-width: calc(var(--header-action-width) + (3 * var(--header-icon-button-width)) + (3 * 8px));" in styles
+    assert "--header-actions-width: var(--header-action-width);" in styles
     assert "--header-grid-columns: minmax(360px, 1fr) var(--header-action-width) var(--header-wide-action-width) var(--header-actions-width);" in styles
     assert ".top-bar,\n.source-row {\n  display: grid;" in styles
     assert ".profile-controls {\n  display: contents;" in styles
@@ -2349,6 +2602,122 @@ def test_apply_model_to_lab_saves_predictions_and_exports_csv(tmp_path: Path) ->
     assert summary["predicted"] == 6
     assert len(labels.predictions()) == 6
     assert csv_path.read_text(encoding="utf-8").splitlines()[0].startswith("source_track_id,")
+
+
+def test_build_labeled_feature_matrix_accepts_feature_source_combinations(tmp_path: Path) -> None:
+    source = LibraryDatabase(tmp_path / "source.sqlite")
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    for index in range(4):
+        track_id = _track(source, tmp_path, f"combo-{index}.wav", title=f"Combo {index}")
+        source.save_sonara_features(
+            track_id,
+            {
+                "onset_density": {"type": "float", "value": float(index)},
+                "mfcc_mean": {"type": "list", "value": [float(index)] * 13},
+                "chroma_mean": {"type": "list", "value": [float(index)] * 12},
+            },
+            model_name="sonara-test",
+        )
+        source.save_embedding(track_id, np.asarray([1.0, float(index + 1)], dtype=np.float32), "mert-test", embedding_key="mert")
+        source.save_embedding(track_id, np.asarray([float(index + 1), 1.0], dtype=np.float32), "clap-test", embedding_key="clap")
+        labels.set_label(source.get_track(track_id), "broken" if index < 2 else "straight")
+
+    features = build_labeled_feature_matrix(source.path, labels.path, "sonara+mert+clap")
+    combined = build_labeled_feature_matrix(source.path, labels.path, "combined")
+
+    assert features.track_ids == [1, 2, 3, 4]
+    assert features.matrix.shape[0] == 4
+    assert any(name.startswith("clap:") for name in features.feature_names)
+    assert any(name.startswith("mert:") for name in features.feature_names)
+    assert not any(name.startswith("clap:") for name in combined.feature_names)
+
+
+def test_benchmark_profile_ablation_ranks_requested_feature_sets(tmp_path: Path) -> None:
+    source = LibraryDatabase(tmp_path / "source.sqlite")
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    for index in range(8):
+        track_id = _track(source, tmp_path, f"ablation-{index}.wav", title=f"Ablation {index}")
+        source.save_sonara_features(
+            track_id,
+            {
+                "onset_density": {"type": "float", "value": float(index)},
+                "mfcc_mean": {"type": "list", "value": [float(index)] * 13},
+                "chroma_mean": {"type": "list", "value": [float(index)] * 12},
+            },
+            model_name="sonara-test",
+        )
+        source.save_embedding(track_id, np.asarray([1.0, float(index + 1)], dtype=np.float32), "mert-test", embedding_key="mert")
+        source.save_embedding(track_id, np.asarray([float(index + 1), 1.0], dtype=np.float32), "maest-test", embedding_key="maest")
+        source.save_embedding(track_id, np.asarray([float(index + 2), 1.0], dtype=np.float32), "clap-test", embedding_key="clap")
+        labels.set_label(source.get_track(track_id), "broken" if index < 4 else "straight")
+
+    report = benchmark_profile_ablation(
+        source.path,
+        labels.path,
+        "break_energy",
+        artifact_dir=tmp_path / "artifacts",
+        feature_sets=("sonara", "mert+clap", "combined"),
+    )
+
+    assert report["classifier_key"] == "break_energy"
+    assert [row["feature_set"] for row in report["results"]] == ["sonara", "mert+clap", "combined"]
+    assert all(row["status"] == "trained" for row in report["results"])
+    assert report["winner"]["feature_set"] in {"sonara", "mert+clap", "combined"}
+    assert report["winner"]["metrics"]["cross_validation"]["macro_f1_mean"] is not None
+
+
+def test_cli_benchmark_ablation_writes_report_for_requested_profile(tmp_path: Path) -> None:
+    source = LibraryDatabase(tmp_path / "source.sqlite")
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    for index in range(4):
+        track_id = _track(source, tmp_path, f"cli-ablation-{index}.wav", title=f"CLI Ablation {index}")
+        source.save_sonara_features(
+            track_id,
+            {
+                "onset_density": {"type": "float", "value": float(index)},
+                "mfcc_mean": {"type": "list", "value": [float(index)] * 13},
+                "chroma_mean": {"type": "list", "value": [float(index)] * 12},
+            },
+            model_name="sonara-test",
+        )
+        source.save_embedding(track_id, np.asarray([1.0, float(index + 1)], dtype=np.float32), "mert-test", embedding_key="mert")
+        source.save_embedding(track_id, np.asarray([float(index + 2), 1.0], dtype=np.float32), "clap-test", embedding_key="clap")
+        labels.set_label(source.get_track(track_id), "broken" if index < 2 else "straight")
+
+    output = tmp_path / "ablation.json"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(LAB_ROOT / "rhythm_lab_cli.py"),
+            "benchmark-ablation",
+            "--source",
+            str(source.path),
+            "--labels",
+            str(labels.path),
+            "--profile",
+            "break_energy",
+            "--artifacts-root",
+            str(tmp_path / "artifacts-root"),
+            "--output",
+            str(output),
+            "--feature-set",
+            "sonara",
+            "--feature-set",
+            "mert+clap",
+        ],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    summary = json.loads(result.stdout)
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert summary["output_path"] == str(output.resolve())
+    assert report["profiles"][0]["classifier_key"] == "break_energy"
+    assert report["profiles"][0]["winner"]["feature_set"] in {"sonara", "mert+clap"}
 
 
 def test_custom_profile_training_and_prediction_use_profile_labels(tmp_path: Path) -> None:

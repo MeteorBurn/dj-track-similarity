@@ -62,6 +62,29 @@ def test_analyze_classifier_scores_feature_complete_tracks_and_skips_missing_fea
     assert db.classifier_score(missing_id, "break_energy") is None
 
 
+def test_analyze_classifier_scores_non_combined_clap_feature_set(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    complete_id = _track(db, tmp_path, "complete-clap.wav")
+    missing_id = _track(db, tmp_path, "missing-clap.wav")
+    db.save_embedding(complete_id, np.asarray([1.0], dtype=np.float32), "mert-test", embedding_key="mert")
+    db.save_embedding(complete_id, np.asarray([1.0], dtype=np.float32), "clap-test", embedding_key="clap")
+    db.save_embedding(missing_id, np.asarray([1.0], dtype=np.float32), "mert-test", embedding_key="mert")
+    model_path = _write_model(
+        tmp_path / "model.joblib",
+        feature_set="mert+clap",
+        feature_names=["mert:0", "clap:0"],
+    )
+
+    result = analyze_classifier(db, classifier="break_energy", model_path=model_path)
+
+    assert result == {"classifier": "break_energy", "scored": 1, "skipped": 1, "model": str(model_path)}
+    score = db.classifier_score(complete_id, "break_energy")
+    assert score is not None
+    assert score["score"] == 0.87
+    assert score["feature_set"] == "mert+clap"
+    assert db.classifier_score(missing_id, "break_energy") is None
+
+
 def test_analyze_classifier_skips_tracks_with_existing_classifier_score(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     existing_id = _complete_track(db, tmp_path, "existing.wav")
@@ -291,11 +314,17 @@ def _complete_track(db: LibraryDatabase, tmp_path: Path, filename: str) -> int:
     return track_id
 
 
-def _write_model(path: Path, *, model: object | None = None) -> Path:
+def _write_model(
+    path: Path,
+    *,
+    model: object | None = None,
+    feature_set: str = "combined",
+    feature_names: list[str] | None = None,
+) -> Path:
     payload = {
         "model": model or FixedProbabilityModel(),
-        "feature_set": "combined",
-        "feature_names": ["sonara:bpm", "mert:0", "maest:0"],
+        "feature_set": feature_set,
+        "feature_names": feature_names or ["sonara:bpm", "mert:0", "maest:0"],
         "label_order": ["broken", "straight"],
         "classifier_key": "break_energy",
         "positive_label": "broken",

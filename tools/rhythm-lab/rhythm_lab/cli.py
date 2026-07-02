@@ -13,6 +13,8 @@ from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.logging_config import uvicorn_log_config
 from dj_track_similarity.rhythm_lab_collections import RhythmLabCollections
 
+from .ablation import ABLATION_FEATURE_SETS, cli_summary, run_ablation_benchmark
+from .features import feature_sources
 from .lab_db import BREAK_ENERGY_CLASSIFIER_KEY, RhythmLabDatabase
 from .predictions import apply_model_to_lab, export_predictions_csv
 from .training import benchmark_lab_database
@@ -40,6 +42,16 @@ def build_parser() -> argparse.ArgumentParser:
     train_parser.add_argument("--calibrate", action="store_true", help="Fit a calibrated classifier when label gates are satisfied.")
     train_parser.set_defaults(func=_train)
 
+    ablation_parser = subcommands.add_parser("benchmark-ablation", help="Run per-profile feature-combination ablation benchmarks.")
+    _add_data_options(ablation_parser)
+    ablation_parser.add_argument("--profile", action="append", default=None, help="Classifier profile key. Repeat to benchmark multiple profiles; omit for all trainable active profiles.")
+    ablation_parser.add_argument("--feature-set", action="append", default=None, help="Feature set to evaluate, such as sonara+mert or sonara+mert+maest+clap. Repeat to override the default full ablation matrix.")
+    ablation_parser.add_argument("--artifacts-root", type=Path, default=None, help="Override profile artifact directories with <root>/<artifact-prefix>.")
+    ablation_parser.add_argument("--output", type=Path, default=None, help="Write the combined JSON report to this path.")
+    ablation_parser.add_argument("--random-state", type=int, default=42)
+    ablation_parser.add_argument("--calibrate-finalists", action="store_true", help="After ranking uncalibrated combinations, retrain each winning profile combination with calibration enabled when gates allow it.")
+    ablation_parser.set_defaults(func=_benchmark_ablation)
+
     predict_parser = subcommands.add_parser("predict", help="Apply a trained model artifact to feature-complete source tracks.")
     predict_parser.add_argument("artifact", type=Path)
     _add_data_options(predict_parser)
@@ -55,6 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
     promote_parser = subcommands.add_parser("promote", help="Copy the latest combined profile model into the main project.")
     promote_parser.add_argument("--profile", default=BREAK_ENERGY_CLASSIFIER_KEY)
     promote_parser.add_argument("--artifacts", type=Path, default=None)
+    promote_parser.add_argument("--feature-set", default=None, help="Promote the latest artifact for this feature set. Defaults to combined.")
     promote_parser.add_argument("--target", type=Path, default=DEFAULT_CLASSIFIER_TARGET_ROOT)
     promote_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
     promote_parser.add_argument("--require-calibration", action="store_true", help="Fail unless the selected artifact has a calibrated production report.")
@@ -154,6 +167,20 @@ def _train(args: argparse.Namespace) -> None:
     print(json.dumps(results, ensure_ascii=False, indent=2, sort_keys=True))
 
 
+def _benchmark_ablation(args: argparse.Namespace) -> None:
+    report = run_ablation_benchmark(
+        args.source,
+        args.labels,
+        profile_keys=args.profile,
+        feature_sets=tuple(args.feature_set or ABLATION_FEATURE_SETS),
+        artifacts_root=args.artifacts_root,
+        output_path=args.output,
+        random_state=args.random_state,
+        calibrate_finalists=args.calibrate_finalists,
+    )
+    print(json.dumps(cli_summary(report), ensure_ascii=False, indent=2, sort_keys=True))
+
+
 def _predict(args: argparse.Namespace) -> None:
     result = apply_model_to_lab(args.source, args.labels, args.artifact, classifier_key=args.profile)
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
@@ -172,6 +199,7 @@ def promote_profile_model(
     *,
     artifacts: str | Path | None = None,
     artifact_path: str | Path | None = None,
+    feature_set: str | None = None,
     target_root: str | Path = DEFAULT_CLASSIFIER_TARGET_ROOT,
     require_calibration: bool = False,
     allow_uncalibrated: bool = False,
@@ -182,15 +210,17 @@ def promote_profile_model(
         artifact = Path(artifact_path)
     else:
         artifact_dir = Path(artifacts) if artifacts is not None else Path(profile.artifact_dir)
-        artifact = _latest_combined_artifact(artifact_dir, profile.artifact_prefix)
+        artifact = _latest_feature_artifact(artifact_dir, profile.artifact_prefix, feature_set or "combined")
     payload = _load_artifact_payload(artifact)
     classifier_key = str(payload.get("classifier_key") or "")
     if classifier_key != profile.classifier_key:
         raise PromotionError(
             f"Expected artifact for profile {profile.classifier_key!r}, got classifier_key={classifier_key!r}"
         )
-    if str(payload.get("feature_set")) != "combined":
-        raise PromotionError(f"Expected a combined artifact, got feature_set={payload.get('feature_set')!r}")
+    artifact_feature_set = str(payload.get("feature_set") or "")
+    if feature_set is not None and artifact_feature_set != feature_set:
+        raise PromotionError(f"Expected a {feature_set!r} artifact, got feature_set={artifact_feature_set!r}")
+    required_inputs = list(feature_sources(artifact_feature_set))
     production_calibration = _artifact_calibration_payload(payload)
     if require_calibration and production_calibration.get("status") != "calibrated":
         reason = production_calibration.get("reason") or production_calibration.get("status") or "unknown"
@@ -200,7 +230,7 @@ def promote_profile_model(
     target.mkdir(parents=True, exist_ok=True)
     model_path = target / "model.joblib"
     metadata_path = target / "model.json"
-    shutil.copy2(artifact, model_path)
+    shutil.copyfile(artifact, model_path)
     artifact_hash = _sha256_file(model_path)
     promoted_at = datetime.now(timezone.utc)
     promoted_stamp = promoted_at.strftime("%Y%m%dT%H%M%SZ")
@@ -212,7 +242,7 @@ def promote_profile_model(
         "artifact_hash": f"sha256:{artifact_hash}",
         "profile_name": profile.name,
         "profile_type": profile.profile_type,
-        "feature_set": payload.get("feature_set"),
+        "feature_set": artifact_feature_set,
         "feature_count": len(payload.get("feature_names", [])),
         "label_order": payload.get("label_order", list(profile.training_label_keys)),
         "positive_label": payload.get("positive_label", profile.positive_label),
@@ -221,7 +251,7 @@ def promote_profile_model(
         "promoted_at": promoted_at.isoformat(),
         "production": {
             "score_semantics": "positive_label_probability",
-            "required_inputs": ["sonara", "mert", "maest"],
+            "required_inputs": required_inputs,
             "calibration": _manifest_calibration_payload(production_calibration),
             "limitations": _manifest_limitations(production_calibration),
         },
@@ -244,6 +274,7 @@ def _promote_profile(args: argparse.Namespace) -> None:
             args.labels,
             args.profile,
             artifacts=args.artifacts,
+            feature_set=args.feature_set,
             target_root=args.target,
             require_calibration=args.require_calibration,
             allow_uncalibrated=args.allow_uncalibrated,
@@ -352,9 +383,16 @@ def _collection_track_ids_from_args(args: argparse.Namespace) -> list[int]:
 
 
 def _latest_combined_artifact(artifact_dir: str | Path, artifact_prefix: str) -> Path:
+    return _latest_feature_artifact(artifact_dir, artifact_prefix, "combined")
+
+
+def _latest_feature_artifact(artifact_dir: str | Path, artifact_prefix: str, feature_set: str) -> Path:
+    feature_sources(feature_set)
     artifacts = sorted(Path(artifact_dir).glob(f"{artifact_prefix}-combined-*.joblib"))
+    if feature_set != "combined":
+        artifacts = sorted(Path(artifact_dir).glob(f"{artifact_prefix}-{feature_set}-*.joblib"))
     if not artifacts:
-        raise PromotionError(f"No combined model artifacts found in {artifact_dir}")
+        raise PromotionError(f"No {feature_set} model artifacts found in {artifact_dir}")
     return artifacts[-1]
 
 

@@ -1,4 +1,4 @@
-# 🎧 dj-track-similarity
+# 🎧 DJ Track Similarity
 
 **Build DJ sets as stories from your own local music library.**
 

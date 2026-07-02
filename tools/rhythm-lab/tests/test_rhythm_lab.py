@@ -1101,14 +1101,17 @@ def test_profile_training_readiness_reports_artifacts_metrics_and_history(tmp_pa
     latest_model = artifacts / "break-energy-combined-20260524T130000Z.joblib"
     sonara_model = artifacts / "break-energy-sonara-20260524T125000Z.joblib"
     clap_combo_model = artifacts / "break-energy-mert+clap-20260524T140000Z.joblib"
+    calibrated_clap_combo_model = artifacts / "break-energy-mert+clap-20260524T150000Z.joblib"
     old_metrics = artifacts / "break-energy-combined-20260524T120000Z.metrics.json"
     latest_metrics = artifacts / "break-energy-combined-20260524T130000Z.metrics.json"
     sonara_metrics = artifacts / "break-energy-sonara-20260524T125000Z.metrics.json"
     clap_combo_metrics = artifacts / "break-energy-mert+clap-20260524T140000Z.metrics.json"
+    calibrated_clap_combo_metrics = artifacts / "break-energy-mert+clap-20260524T150000Z.metrics.json"
     old_model.write_bytes(b"old")
     latest_model.write_bytes(b"latest")
     sonara_model.write_bytes(b"sonara")
     clap_combo_model.write_bytes(b"mert+clap")
+    calibrated_clap_combo_model.write_bytes(b"calibrated")
     old_metrics.write_text(
         json.dumps(
             {
@@ -1176,6 +1179,26 @@ def test_profile_training_readiness_reports_artifacts_metrics_and_history(tmp_pa
         ),
         encoding="utf-8",
     )
+    calibrated_clap_combo_metrics.write_text(
+        json.dumps(
+            {
+                "feature_set": "mert+clap",
+                "created_at": "20260524T150000Z",
+                "trained_rows": 16,
+                "test_rows": 4,
+                "feature_count": 514,
+                "cross_validation": {
+                    "accuracy_mean": 0.91,
+                    "macro_f1_mean": 0.92,
+                    "positive_precision_mean": 0.93,
+                    "positive_recall_mean": 0.94,
+                    "macro_f1_std": 0.01,
+                },
+                "production_calibration": {"status": "calibrated", "method": "sigmoid"},
+            }
+        ),
+        encoding="utf-8",
+    )
     labels.update_profile("break_energy", artifact_dir=artifacts)
     labels.record_training_checkpoint({"broken": 6, "straight": 5}, model_artifact=latest_model)
     client = TestClient(create_app(source_path, labels_db_path=labels_path))
@@ -1185,12 +1208,14 @@ def test_profile_training_readiness_reports_artifacts_metrics_and_history(tmp_pa
     assert payload["last_trained_at"]
     assert payload["artifact_summary"]["artifact_dir"] == str(artifacts)
     assert payload["artifact_summary"]["latest_combined"] == str(latest_model)
-    assert payload["artifact_summary"]["model_count"] == 4
-    assert payload["artifact_summary"]["metrics_count"] == 4
+    assert payload["artifact_summary"]["model_count"] == 5
+    assert payload["artifact_summary"]["metrics_count"] == 5
     assert payload["artifact_summary"]["benchmark_winner"]["feature_set"] == "mert+clap"
     assert payload["artifact_summary"]["benchmark_winner"]["rank"] == 1
     assert payload["artifact_summary"]["latest_promotable"]["feature_set"] == "mert+clap"
     assert [row["feature_set"] for row in payload["artifact_summary"]["promotion_options"][:2]] == ["mert+clap", "combined"]
+    assert payload["artifact_summary"]["benchmark_winner"]["latest_model"] == str(clap_combo_model)
+    assert payload["artifact_summary"]["benchmark_winner"]["latest_metrics"] == str(clap_combo_metrics)
     combined = next(row for row in payload["artifact_summary"]["by_feature"] if row["feature_set"] == "combined")
     assert combined["latest_model"] == str(latest_model)
     assert combined["latest_metrics"] == str(latest_metrics)
@@ -1216,9 +1241,11 @@ def test_web_app_promote_copies_selected_feature_set_artifact(tmp_path: Path) ->
     artifacts.mkdir(parents=True)
     combined = artifacts / "break-energy-combined-20260524T130000Z.joblib"
     selected = artifacts / "break-energy-mert+clap-20260524T140000Z.joblib"
+    calibrated_selected = artifacts / "break-energy-mert+clap-20260524T150000Z.joblib"
     for path, feature_set, feature_names in (
         (combined, "combined", ["sonara:bpm", "mert:0", "maest:0"]),
         (selected, "mert+clap", ["mert:0", "clap:0"]),
+        (calibrated_selected, "mert+clap", ["mert:0", "clap:0"]),
     ):
         joblib.dump(
             {
@@ -1228,10 +1255,31 @@ def test_web_app_promote_copies_selected_feature_set_artifact(tmp_path: Path) ->
                 "label_order": ["broken", "straight"],
                 "positive_label": "broken",
                 "model": object(),
-                "production_calibration": {"status": "uncalibrated", "reason": "test"},
+                "production_calibration": {
+                    "status": "calibrated" if path == calibrated_selected else "uncalibrated",
+                    "reason": None if path == calibrated_selected else "test",
+                },
             },
             path,
         )
+    calibrated_selected.with_suffix(".metrics.json").write_text(
+        json.dumps(
+            {
+                "classifier_key": "break_energy",
+                "feature_set": "mert+clap",
+                "created_at": "20260524T150000Z",
+                "trained_rows": 2,
+                "feature_count": 2,
+                "cross_validation": {
+                    "macro_f1_mean": 0.99,
+                    "positive_precision_mean": 0.99,
+                    "positive_recall_mean": 0.99,
+                },
+                "production_calibration": {"status": "calibrated", "method": "sigmoid"},
+            }
+        ),
+        encoding="utf-8",
+    )
     old_source_time = 1_700_000_000
     os.utime(selected, (old_source_time, old_source_time))
     labels.update_profile("break_energy", artifact_dir=artifacts)
@@ -2871,6 +2919,38 @@ def test_promote_require_calibration_blocks_uncalibrated_artifact(tmp_path: Path
         raise AssertionError("uncalibrated artifact was promoted with require_calibration=True")
 
     assert not (tmp_path / "models" / "classifiers" / "break-energy" / "model.joblib").exists()
+
+
+def test_promote_defaults_to_uncalibrated_artifact_when_calibrated_is_newer(tmp_path: Path) -> None:
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    artifact_dir = tmp_path / "artifacts"
+    artifact_dir.mkdir()
+    uncalibrated = artifact_dir / "break-energy-mert+clap-20260524T140000Z.joblib"
+    calibrated = artifact_dir / "break-energy-mert+clap-20260524T150000Z.joblib"
+    for path, status in ((uncalibrated, "uncalibrated"), (calibrated, "calibrated")):
+        joblib.dump(
+            {
+                "classifier_key": "break_energy",
+                "feature_set": "mert+clap",
+                "feature_names": ["mert:0", "clap:0"],
+                "label_order": ["broken", "straight"],
+                "positive_label": "broken",
+                "model": object(),
+                "production_calibration": {"status": status, "reason": None if status == "calibrated" else "test"},
+            },
+            path,
+        )
+
+    promoted = promote_profile_model(
+        labels.path,
+        "break_energy",
+        artifacts=artifact_dir,
+        feature_set="mert+clap",
+        target_root=tmp_path / "models" / "classifiers",
+    )
+
+    assert promoted["source_artifact"] == uncalibrated
+    assert promoted["metadata"]["production"]["calibration"]["status"] == "uncalibrated"
 
 
 def test_promote_calibrated_artifact_writes_identity_and_calibration_manifest(tmp_path: Path) -> None:

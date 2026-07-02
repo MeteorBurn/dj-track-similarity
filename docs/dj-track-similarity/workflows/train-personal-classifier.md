@@ -48,9 +48,11 @@ python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation -
 ```
 
 In the Training tab, `Train` retrains from all current labels and refreshes
-candidates automatically. Calibration is not exposed in this UI for now. In the
-CLI, add `--calibrate` only when you intentionally want calibration and have
-enough labels for the calibration gate.
+candidates automatically. Calibration is not exposed in this UI for now. Use
+the API or CLI only when you intentionally want calibration and have enough
+labels for the calibration gate. UI promotion ignores calibrated artifacts
+while calibration is hidden, so an older uncalibrated winner is safer than an
+automatically generated calibrated finalist.
 
 ## 5. Benchmark variants
 

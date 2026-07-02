@@ -779,9 +779,11 @@ def _latest_combined_artifact(artifact_dir: Path, artifact_prefix: str) -> Path 
 
 def _latest_feature_artifact(artifact_dir: Path, artifact_prefix: str, feature_set: str) -> Path | None:
     artifacts = list(artifact_dir.glob(f"{artifact_prefix}-{feature_set}-*.joblib"))
-    if not artifacts:
-        return None
-    return max(artifacts, key=lambda path: (path.stat().st_mtime, path.name))
+    artifacts.sort(key=lambda path: (path.stat().st_mtime, path.name), reverse=True)
+    for artifact in artifacts:
+        if not _artifact_has_calibrated_metrics(artifact):
+            return artifact
+    return None
 
 
 def cleanup_training_artifacts(
@@ -877,8 +879,8 @@ def _artifact_summary(artifact_dir: Path, artifact_prefix: str) -> dict[str, obj
     by_feature = [
         _artifact_feature_summary(
             feature,
-            latest_model=(model_groups.get(feature) or [None])[0],
-            latest_metrics=(metrics_groups.get(feature) or [None])[0],
+            latest_model=_latest_uncalibrated_artifact(model_groups.get(feature, [])),
+            latest_metrics=_latest_uncalibrated_metrics(metrics_groups.get(feature, [])),
         )
         for feature in sorted(set(model_groups) | set(metrics_groups))
     ]
@@ -898,6 +900,10 @@ def _artifact_summary(artifact_dir: Path, artifact_prefix: str) -> dict[str, obj
 
 
 def _artifact_feature_summary(feature_set: str, *, latest_model: Path | None, latest_metrics: Path | None) -> dict[str, object]:
+    if latest_model is not None:
+        paired_metrics = _artifact_metrics_path(latest_model)
+        if paired_metrics.exists() and not _metrics_are_calibrated(_read_metrics(paired_metrics)):
+            latest_metrics = paired_metrics
     metrics = _read_metrics(latest_metrics)
     return {
         "feature_set": feature_set,
@@ -974,6 +980,34 @@ def _read_metrics(path: Path | None) -> dict[str, object]:
     except (OSError, json.JSONDecodeError) as error:
         return {"metrics_error": str(error)}
     return payload if isinstance(payload, dict) else {}
+
+
+def _latest_uncalibrated_artifact(paths: list[Path]) -> Path | None:
+    for path in paths:
+        if not _artifact_has_calibrated_metrics(path):
+            return path
+    return None
+
+
+def _latest_uncalibrated_metrics(paths: list[Path]) -> Path | None:
+    for path in paths:
+        if not _metrics_are_calibrated(_read_metrics(path)):
+            return path
+    return None
+
+
+def _artifact_has_calibrated_metrics(path: Path) -> bool:
+    metrics_path = _artifact_metrics_path(path)
+    return metrics_path.exists() and _metrics_are_calibrated(_read_metrics(metrics_path))
+
+
+def _artifact_metrics_path(path: Path) -> Path:
+    return path.with_suffix(".metrics.json")
+
+
+def _metrics_are_calibrated(metrics: dict[str, object]) -> bool:
+    calibration = metrics.get("production_calibration")
+    return isinstance(calibration, dict) and calibration.get("status") == "calibrated"
 
 
 def _metric_summary(metrics: dict[str, object]) -> dict[str, object]:

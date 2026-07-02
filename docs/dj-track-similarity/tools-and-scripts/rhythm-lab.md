@@ -96,7 +96,9 @@ does not promote models or write classifier scores.
 The Training tab has the same active-profile workflow: collect labels, train,
 review candidates, run a benchmark, choose a promotion variant, and promote.
 `Train` retrains from current labels and refreshes candidates automatically.
-The Training UI does not expose calibration for now.
+The Training UI does not expose calibration for now. Promotion from the UI uses
+uncalibrated artifacts and ignores calibrated finalists. Use the API or CLI when
+you intentionally want calibration.
 
 ## Safety
 

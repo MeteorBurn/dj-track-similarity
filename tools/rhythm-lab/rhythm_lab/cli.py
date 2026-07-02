@@ -210,7 +210,13 @@ def promote_profile_model(
         artifact = Path(artifact_path)
     else:
         artifact_dir = Path(artifacts) if artifacts is not None else Path(profile.artifact_dir)
-        artifact = _latest_feature_artifact(artifact_dir, profile.artifact_prefix, feature_set or "combined")
+        calibration_filter = "calibrated" if require_calibration else "uncalibrated"
+        artifact = _latest_feature_artifact(
+            artifact_dir,
+            profile.artifact_prefix,
+            feature_set or "combined",
+            calibration=calibration_filter,
+        )
     payload = _load_artifact_payload(artifact)
     classifier_key = str(payload.get("classifier_key") or "")
     if classifier_key != profile.classifier_key:
@@ -286,7 +292,11 @@ def _promote_profile(args: argparse.Namespace) -> None:
 
 def _calibration_report(args: argparse.Namespace) -> None:
     profile = RhythmLabDatabase(args.labels, classifier_key=args.profile).get_profile()
-    artifact = Path(args.artifact) if args.artifact is not None else _latest_combined_artifact(args.artifacts or profile.artifact_dir, profile.artifact_prefix)
+    artifact = (
+        Path(args.artifact)
+        if args.artifact is not None
+        else _latest_feature_artifact(args.artifacts or profile.artifact_dir, profile.artifact_prefix, "combined", calibration="any")
+    )
     payload = _load_artifact_payload(artifact)
     report = _artifact_calibration_payload(payload)
     print(json.dumps({"profile": profile.classifier_key, "artifact": str(artifact), "calibration": report}, ensure_ascii=False, indent=2, sort_keys=True))
@@ -386,14 +396,24 @@ def _latest_combined_artifact(artifact_dir: str | Path, artifact_prefix: str) ->
     return _latest_feature_artifact(artifact_dir, artifact_prefix, "combined")
 
 
-def _latest_feature_artifact(artifact_dir: str | Path, artifact_prefix: str, feature_set: str) -> Path:
+def _latest_feature_artifact(
+    artifact_dir: str | Path,
+    artifact_prefix: str,
+    feature_set: str,
+    *,
+    calibration: str = "uncalibrated",
+) -> Path:
     feature_sources(feature_set)
     artifacts = sorted(Path(artifact_dir).glob(f"{artifact_prefix}-combined-*.joblib"))
     if feature_set != "combined":
         artifacts = sorted(Path(artifact_dir).glob(f"{artifact_prefix}-{feature_set}-*.joblib"))
-    if not artifacts:
-        raise PromotionError(f"No {feature_set} model artifacts found in {artifact_dir}")
-    return artifacts[-1]
+    artifacts.reverse()
+    for artifact in artifacts:
+        if _artifact_matches_calibration_filter(artifact, calibration):
+            return artifact
+    detail = "" if calibration == "any" else f" {calibration}"
+    suffix = "; calibration is required" if calibration == "calibrated" else ""
+    raise PromotionError(f"No{detail} {feature_set} model artifacts found in {artifact_dir}{suffix}")
 
 
 def _load_artifact_payload(path: Path) -> dict[str, object]:
@@ -406,6 +426,18 @@ def _load_artifact_payload(path: Path) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise PromotionError(f"Unsupported artifact payload: {path}")
     return payload
+
+
+def _artifact_matches_calibration_filter(path: Path, calibration: str) -> bool:
+    if calibration == "any":
+        return True
+    payload = _load_artifact_payload(path)
+    status = str(_artifact_calibration_payload(payload).get("status") or "uncalibrated")
+    if calibration == "calibrated":
+        return status == "calibrated"
+    if calibration == "uncalibrated":
+        return status != "calibrated"
+    raise PromotionError(f"Unsupported calibration filter: {calibration}")
 
 
 def _artifact_calibration_payload(payload: dict[str, object]) -> dict[str, object]:

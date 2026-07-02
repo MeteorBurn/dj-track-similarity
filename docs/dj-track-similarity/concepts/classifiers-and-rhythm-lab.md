@@ -21,6 +21,13 @@ Training can benchmark SONARA, MERT, MAEST, and combined feature sets. Combined 
 
 Classifier calibration is optional and data-gated. If there are not enough labels for calibration, training can still produce an uncalibrated artifact with diagnostics.
 
+Calibration is not part of the normal Training UI flow. It is an explicit API or
+CLI operation for binary profiles where you want calibrated positive-label
+probabilities. The gate currently requires at least 100 training labels, 20
+positive labels, and 20 negative labels. Normal UI promotion uses uncalibrated
+artifacts; promoting a calibrated artifact should use an explicit CLI
+calibration requirement.
+
 ## Promotion
 
 Promotion copies the selected artifact into the main app model directory:

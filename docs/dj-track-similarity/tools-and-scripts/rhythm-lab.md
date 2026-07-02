@@ -48,6 +48,22 @@ Calibration report:
 python tools\rhythm-lab\rhythm_lab_cli.py calibration-report --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
+Calibrated training is explicit. The Training UI does not expose these actions:
+
+```powershell
+python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --calibrate
+```
+
+```powershell
+python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --profile live_instrumentation --calibrate-finalists --output tools\rhythm-lab\artifacts\ablation-calibrated.json
+```
+
+To promote a calibrated artifact intentionally, require calibration:
+
+```powershell
+python tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --feature-set 'mert+maest' --require-calibration --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+```
+
 Suggest labels:
 
 ```powershell
@@ -99,6 +115,15 @@ review candidates, run a benchmark, choose a promotion variant, and promote.
 The Training UI does not expose calibration for now. Promotion from the UI uses
 uncalibrated artifacts and ignores calibrated finalists. Use the API or CLI when
 you intentionally want calibration.
+
+API calibration is available on a running Rhythm Lab server:
+
+```text
+POST /api/profiles/{profile_key}/training/calibrate
+{"feature_set": "mert+maest"}
+```
+
+Omit `feature_set` to use the current default promotion variant.
 
 ## Safety
 

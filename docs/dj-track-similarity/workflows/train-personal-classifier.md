@@ -66,7 +66,50 @@ python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\lib
 The Training tab shows the benchmark winner and lets you choose a different
 trained variant before promotion.
 
-## 6. Promote
+## 6. Optional calibration
+
+Calibration is advanced and opt-in. Use it only when you explicitly want
+calibrated positive-label probabilities instead of the normal uncalibrated
+classifier score. It is available through API and CLI, not through the Training
+UI.
+
+Calibration is data-gated. Binary profiles need at least 100 training labels,
+20 positive labels, and 20 negative labels. If the gate is not satisfied, the
+artifact stays uncalibrated and records the reason in its calibration report.
+
+Calibrate the normal training command:
+
+```powershell
+python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --calibrate
+```
+
+Calibrate benchmark winners after an ablation run:
+
+```powershell
+python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --profile live_instrumentation --calibrate-finalists --output tools\rhythm-lab\artifacts\ablation-calibrated.json
+```
+
+Calibrate one selected feature set through the Rhythm Lab API:
+
+```text
+POST http://127.0.0.1:8777/api/profiles/live_instrumentation/training/calibrate
+{"feature_set": "mert+maest"}
+```
+
+Normal UI promotion ignores calibrated artifacts. To promote a calibrated
+artifact intentionally, use the CLI requirement flag:
+
+```powershell
+python tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --feature-set 'mert+maest' --require-calibration --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+```
+
+Use `calibration-report` to inspect the selected artifact before promotion:
+
+```powershell
+python tools\rhythm-lab\rhythm_lab_cli.py calibration-report --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+```
+
+## 7. Promote
 
 ```powershell
 python tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --feature-set combined --labels tools\rhythm-lab\data\rhythm_lab.sqlite
@@ -75,7 +118,7 @@ python tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation
 Promotion copies the selected runtime artifact into
 `models/classifiers/<artifact-prefix>/`.
 
-## 7. Score in the main app
+## 8. Score in the main app
 
 Use the CLASS tab or CLI:
 

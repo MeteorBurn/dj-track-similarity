@@ -5,35 +5,15 @@ import { formatMaestGenreLabel, hasMaestSyncopatedRhythm, SYNCOPATED_RHYTHM_LABE
 import { basename, displayTrack, trackHasAnalysis } from "./trackDisplay";
 
 const trackTagLabels: Record<string, string> = {
-  artist: "Artist",
-  album: "Album",
   genre: "Genre",
-  year: "Year",
-  country: "Country",
-  label: "Label",
-  catalog_number: "Catalog",
-  track_number: "Track no.",
-  disc_number: "Disc no.",
   bpm: "BPM",
-  key: "Key",
-  comment: "Comment",
-  isrc: "ISRC"
+  key: "Key"
 };
 
 const trackTagOrder = [
-  "artist",
-  "album",
   "genre",
-  "year",
-  "country",
-  "label",
-  "catalog_number",
-  "track_number",
-  "disc_number",
   "bpm",
-  "key",
-  "comment",
-  "isrc"
+  "key"
 ];
 
 function readablePrimaryTrackInfo(track: Track) {

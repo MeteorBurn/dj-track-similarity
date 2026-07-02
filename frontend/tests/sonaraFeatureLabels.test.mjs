@@ -166,6 +166,14 @@ test("mutagen bpm and key labels omit tag suffix", () => {
   assert.doesNotMatch(source, /"Key tag"/);
 });
 
+test("metadata dialog shows only genre bpm and key from stored mutagen tags", () => {
+  const source = readFileSync(dialogPath, "utf8");
+  const orderSource = source.match(/const trackTagOrder = \[([\s\S]*?)\];/)?.[1] || "";
+  const orderedKeys = [...orderSource.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+
+  assert.deepEqual(orderedKeys, ["genre", "bpm", "key"]);
+});
+
 test("metadata dialog keeps SONARA core duration before BPM and formats BPM with two decimals", () => {
   const source = readFileSync(dialogPath, "utf8");
   const coreGroup = source.match(/title:\s*"Core",[\s\S]*?keys:\s*\[([^\]]+)\]/)?.[1] || "";

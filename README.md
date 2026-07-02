@@ -1,25 +1,126 @@
 # dj-track-similarity
 
-A local-first DJ library workbench for a local music folder. It stores tag scans in SQLite. Optional analysis and set-prep tools stay local.
+**Build DJ sets as stories from your own local music library.**
 
-This is a public personal project for self-managed DJ libraries. It is not a commercial recommendation service and it is not a benchmark. Treat the model outputs as ranking signals: useful for shortlisting tracks, never a substitute for listening.
+`dj-track-similarity` is a local-first DJ library workbench for people with large music folders who want more than tag browsing, BPM matching, or a list of similar tracks.
+
+The project is built around a bigger idea:
+
+> I have a large folder of music. I want to analyze it locally, rediscover tracks I already own, search by vibe, sound, references, or text, and build DJ sets that do not only mix harmonically, but also move like a story.
+
+A good set is not just a sequence of compatible files. It has an opening, tension, release, turns, chapters, and a destination. This project tries to help with that: choose a reference track, find candidates that fit technically and sonically, then gradually move the mood track by track until the set feels like one continuous musical narrative.
 
 ![dj-track-similarity web UI](https://i.ibb.co/FkKt31n3/Q3n-Az-F6u7-T.png)
 
-## Main jobs
+## The core idea
 
-- Scans local audio files into a SQLite database with Mutagen metadata.
-- Browses large libraries through a paginated web UI.
-- Shows metadata, analysis coverage, likes, audio preview, and search/set state.
-- Runs SONARA, MAEST, MERT, and CLAP analysis jobs.
-- Searches from seed tracks with MERT and SONARA.
-- Searches from text prompts with CLAP after CLAP audio embeddings exist.
-- Builds Smart Set Builder previews from selected seeds or automatic anchors.
-- Offers a Hybrid preview for weighted MERT, MAEST, SONARA, and CLAP candidate checks.
-- Launches Rhythm Lab for local classifier labeling, training, benchmark review, and promotion.
-- Reads promoted Rhythm Lab classifier scores for CLASS filtering, SET biasing, and Hybrid diagnostics.
-- Exports the current set as M3U or CSV.
-- Includes report-first helper tools for Audio Doctor, Audio Dedup, database optimization, and optional ANN sidecar indexes.
+Most DJ tools start with the basic layer:
+
+- BPM
+- key
+- energy
+- metadata
+- playlists
+- manual crates
+
+That layer matters, but it is not enough when you want a set to feel like a journey.
+
+This project aims to work on three layers at once:
+
+1. **Technical compatibility**  
+   BPM, key, duration, energy, and transition-friendly metadata.
+
+2. **Sonic and emotional compatibility**  
+   Rhythm, timbre, density, dynamics, texture, atmosphere, mood, and audio similarity.
+
+3. **Set dramaturgy**  
+   A higher-level flow where tracks can start in one emotional place, move through chapters, and end somewhere else while still sounding coherent.
+
+The most important goal is not simply to answer:
+
+> What sounds similar to this track?
+
+The real goal is closer to:
+
+> What track should come next if I want this set to keep flowing, slowly change mood, and still feel like one story?
+
+Similarity is only a building block. The larger ambition is **dramaturgy**.
+
+## Why this exists
+
+Large personal libraries hide a lot of forgotten music. You may own the perfect next track, but it is buried somewhere inside thousands of files.
+
+This project should help you:
+
+- discover tracks inside your own collection that you forgot about;
+- find music with a very specific sound or atmosphere;
+- start from an unusual opener and build outward;
+- search by reference tracks, text prompts, or personal taste;
+- prepare DJ sets that feel intentional instead of random;
+- move between moods gradually instead of jumping abruptly;
+- use model output as suggestions, not as truth.
+
+A typical use case:
+
+1. Pick an unusual reference track as the opening of a set.
+2. Ask the system for candidates from your local library.
+3. Review tracks that are close in sound, compatible for mixing, and useful for the next emotional step.
+4. Add one candidate.
+5. Continue from the previously selected track, letting the set evolve step by step.
+6. Shape the flow with controls for energy, mood, similarity, diversity, BPM movement, classifiers, and hybrid scoring.
+
+The set becomes less like a static playlist and more like a musical path.
+
+## Author note
+
+This is a personal enthusiast project.
+
+I am not an ML researcher, not a music information retrieval expert, and not someone who claims to fully understand every model or music-analysis method used here. I am an enthusiast building a tool I personally wanted: something local, practical, curious, and useful for digging through a large music collection.
+
+That also defines the attitude of the project:
+
+- model outputs are ranking signals, not objective truth;
+- the UI should help shortlist tracks, not replace listening;
+- every important signal should stay inspectable and separated;
+- the final decision belongs to the DJ.
+
+This is not a commercial recommendation service and it is not a benchmark. It is a local workbench for exploration, set preparation, and learning.
+
+## What the project can do today
+
+The current application already supports the practical parts of that vision:
+
+- Scan local audio files into a SQLite database with Mutagen metadata.
+- Browse large libraries through a paginated web UI.
+- Show metadata, analysis coverage, likes, audio preview, and search/set state.
+- Run SONARA, MAEST, MERT, and CLAP analysis jobs.
+- Search from seed tracks with MERT and SONARA.
+- Search from text prompts with CLAP after CLAP audio embeddings exist.
+- Build Smart Set Builder previews from selected seeds or automatic anchors.
+- Use Hybrid preview for weighted MERT, MAEST, SONARA, and CLAP candidate checks.
+- Launch Rhythm Lab for local classifier labeling, training, benchmark review, and promotion.
+- Read promoted Rhythm Lab classifier scores for CLASS filtering, SET biasing, and Hybrid diagnostics.
+- Export the current set as M3U or CSV.
+- Run report-first helper tools for Audio Doctor, Audio Dedup, database optimization, and optional ANN sidecar indexes.
+
+## The long-term direction
+
+The north star is a DJ assistant that can help generate a playable musical narrative from:
+
+- one or more reference tracks;
+- a starting mood and target mood;
+- a text prompt or theme;
+- a desired emotional arc;
+- a personal classifier profile;
+- the previous track in the evolving set.
+
+In that direction, a set should be able to feel like chapters in a book:
+
+```text
+opening mood -> first turn -> deeper chapter -> tension -> release -> final destination
+```
+
+The current project should be understood as a local-first foundation for that idea. Some parts are already implemented as search, SET, Hybrid, CLAP text search, classifier scoring, and playlist export. Other parts are still a product direction rather than a finished automatic DJ.
 
 ## How the pieces fit
 
@@ -40,9 +141,51 @@ The app keeps evidence sources separate:
 - **CLAP** stores an audio embedding for text-to-audio search and audio-to-audio comparison.
 - **Rhythm Lab classifiers** store optional local scores under a classifier key.
 
-## Personal classifiers with Rhythm Lab
+This separation matters. A file genre tag, a MAEST genre label, a CLAP text score, and an audio-to-audio duplicate score do not mean the same thing. They can all help, but they should not be treated as one universal truth scale.
 
-Rhythm Lab is the separate local app for turning your own listening decisions into optional classifier scores. The main UI can launch or reuse Rhythm Lab at `127.0.0.1:8777`, and it can save the current set as a Rhythm Lab review collection.
+## Main workflows
+
+### 1. Rediscover your own library
+
+Use the browser, filters, likes, metadata, analysis coverage, CLAP text search, and seed search to find tracks that match a sound you have in mind.
+
+This is useful even when you are not building a set. The project can act like a discovery layer for your own collection: hidden tracks, unusual textures, forgotten moods, or songs that match a specific atmosphere.
+
+### 2. Start from a reference track
+
+Pick one or more tracks as seeds. The system can suggest candidates that are close in audio space, share compatible SONARA features, or support a chosen Hybrid profile.
+
+This is useful when you have a track that feels special but you do not know what should come after it.
+
+### 3. Build a gradual flow
+
+Smart Set Builder can create a read-only ordered preview from manual seeds or automatic anchors.
+
+The goal is not only to find close matches, but to create a flow that can respect:
+
+- similarity;
+- diversity;
+- energy curve;
+- BPM direction;
+- broad sonic coherence;
+- transition confidence;
+- classifier preferences;
+- artist pressure;
+- user-selected set mode.
+
+### 4. Search by text
+
+After CLAP audio embeddings exist, the CLAP tab can search your library from text prompts such as:
+
+```text
+dark hypnotic techno, rolling bass, low light, late night tension
+```
+
+CLAP text-search scores are not the same scale as seed-based audio-to-audio scores. Good text results can have lower raw scores. Treat them as prompt evidence, not as a universal similarity value.
+
+### 5. Train personal classifiers
+
+Rhythm Lab is a separate local app for turning your own listening decisions into optional classifier scores. The main UI can launch or reuse Rhythm Lab at `127.0.0.1:8777`, and it can save the current set as a Rhythm Lab review collection.
 
 The normal loop is:
 
@@ -57,10 +200,10 @@ Classifier scoring is database-only. It reads existing SONARA features plus stor
 Manual commands are available when you want the CLI workflow:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py serve --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
-python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
-python tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
-dj-sim analyze-classifier live_instrumentation --db .\data\library.sqlite
+python tools/rhythm-lab/rhythm_lab_cli.py serve --source ./data/library.sqlite --labels tools/rhythm-lab/data/rhythm_lab.sqlite
+python tools/rhythm-lab/rhythm_lab_cli.py train --profile live_instrumentation --source ./data/library.sqlite --labels tools/rhythm-lab/data/rhythm_lab.sqlite
+python tools/rhythm-lab/rhythm_lab_cli.py promote --profile live_instrumentation --labels tools/rhythm-lab/data/rhythm_lab.sqlite
+dj-sim analyze-classifier live_instrumentation --db ./data/library.sqlite
 ```
 
 See [Rhythm Lab](docs/dj-track-similarity/tools-and-scripts/rhythm-lab.md), [Train a personal classifier](docs/dj-track-similarity/workflows/train-personal-classifier.md), and [CLASS tab](docs/dj-track-similarity/user-guide/class-tab.md).
@@ -88,13 +231,13 @@ Create a database and scan a music folder:
 
 ```powershell
 mkdir data
-dj-sim scan D:\Music --db .\data\library.sqlite
+dj-sim scan D:/Music --db ./data/library.sqlite
 ```
 
 Start the web UI:
 
 ```powershell
-dj-sim serve --host 127.0.0.1 --port 8765 --db .\data\library.sqlite
+dj-sim serve --host 127.0.0.1 --port 8765 --db ./data/library.sqlite
 ```
 
 Open:
@@ -106,8 +249,8 @@ http://127.0.0.1:8765/
 There is also a Windows launcher that activates `.venv` and forwards remaining arguments to `dj-sim serve`:
 
 ```powershell
-run_server.cmd local --db C:\db\abstracted.sqlite
-run_server.cmd lan --db C:\db\abstracted.sqlite
+run_server.cmd local --db C:/db/abstracted.sqlite
+run_server.cmd lan --db C:/db/abstracted.sqlite
 ```
 
 `local` binds to `127.0.0.1`. `lan` binds to `0.0.0.0` and prints a LAN URL.
@@ -123,7 +266,7 @@ python -m pip install -e ".[sonara,ml,dev]"
 Run a small first pass:
 
 ```powershell
-dj-sim analyze --models sonara,maest,mert,clap --limit 25 --db .\data\library.sqlite
+dj-sim analyze --models sonara,maest,mert,clap --limit 25 --db ./data/library.sqlite
 ```
 
 Useful options from the current CLI and API are:
@@ -153,8 +296,6 @@ The search panel uses these tabs:
 - **CLAP** searches from text prompts against stored CLAP audio embeddings.
 - **CLASS** filters and rescans promoted local classifier profiles.
 
-CLAP text-search scores are not the same scale as seed-based audio-to-audio scores. Good text results can have lower raw scores. Do not compare them directly with MERT scores or Audio Dedup thresholds.
-
 ## Maintenance tools
 
 - **Audio Doctor** checks audio metadata/container issues. It is dry-run-first. Apply mode requires exact `APPLY REPAIR` and existing dry-run state. See [Audio Doctor](docs/dj-track-similarity/tools-and-scripts/audio-doctor.md).
@@ -165,10 +306,10 @@ CLAP text-search scores are not the same scale as seed-based audio-to-audio scor
 Common maintenance commands:
 
 ```powershell
-python tools\audio-doctor\audio_doctor_cli.py --db .\data\library.sqlite
-python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music --preset safe
-python scripts\optimize_database.py --db .\data\library.sqlite
-python scripts\optimize_database.py --db tools\rhythm-lab\data\rhythm_lab.sqlite
+python tools/audio-doctor/audio_doctor_cli.py --db ./data/library.sqlite
+python tools/audio-dedup/audio_dedup_cli.py --db ./data/library.sqlite --root D:/Music --preset safe
+python scripts/optimize_database.py --db ./data/library.sqlite
+python scripts/optimize_database.py --db tools/rhythm-lab/data/rhythm_lab.sqlite
 ```
 
 ## Safety model
@@ -231,7 +372,7 @@ npm run build
 Check and build the docs:
 
 ```powershell
-cd docs\dj-track-similarity
+cd docs/dj-track-similarity
 npm run check
 ```
 

@@ -15,6 +15,8 @@ from .models import Track
 
 SONARA_ANALYSIS_MODE = "playlist"
 SONARA_MODEL_NAME = "sonara-playlist-lab"
+SONARA_BPM_MIN = 79.0
+SONARA_BPM_MAX = 192.0
 
 
 PLAYLIST_FEATURE_GROUPS = (
@@ -121,7 +123,15 @@ def analyze_sonara_features_from_audio(
         if not callable(resample):
             raise RuntimeError("sonara shared-audio analysis requires sonara.resample for non-22050 Hz input")
         audio = np.asarray(resample(audio, orig_sr=decoded.sample_rate, target_sr=22050), dtype=np.float32)
-    analysis = dict(sonara.analyze_signal(audio, sr=22050, mode=SONARA_ANALYSIS_MODE))
+    analysis = dict(
+        sonara.analyze_signal(
+            audio,
+            sr=22050,
+            mode=SONARA_ANALYSIS_MODE,
+            bpm_min=SONARA_BPM_MIN,
+            bpm_max=SONARA_BPM_MAX,
+        )
+    )
     elapsed = time.perf_counter() - started
     return analysis, elapsed
 
@@ -153,12 +163,28 @@ def _import_sonara():
 
 def _analyze_file_or_signal(sonara: Any, path: str | Path) -> dict[str, object]:
     try:
-        return dict(sonara.analyze_file(str(path), sr=22050, mode=SONARA_ANALYSIS_MODE))
+        return dict(
+            sonara.analyze_file(
+                str(path),
+                sr=22050,
+                mode=SONARA_ANALYSIS_MODE,
+                bpm_min=SONARA_BPM_MIN,
+                bpm_max=SONARA_BPM_MAX,
+            )
+        )
     except Exception:
         if Path(path).suffix.lower() not in {".wav", ".wave"}:
             raise
         audio, _detail = _load_wav_fallback(path, sonara)
-        return dict(sonara.analyze_signal(audio, sr=22050, mode=SONARA_ANALYSIS_MODE))
+        return dict(
+            sonara.analyze_signal(
+                audio,
+                sr=22050,
+                mode=SONARA_ANALYSIS_MODE,
+                bpm_min=SONARA_BPM_MIN,
+                bpm_max=SONARA_BPM_MAX,
+            )
+        )
 
 
 def _load_wav_fallback(path: str | Path, sonara: Any) -> tuple[np.ndarray, str]:

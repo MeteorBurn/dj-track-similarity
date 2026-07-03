@@ -15,10 +15,33 @@ from dj_track_similarity.sonara_features import (
 
 class FakeSonara:
     __version__ = "0.test"
+    file_calls = []
+    signal_calls = []
+
+    @classmethod
+    def reset(cls):
+        cls.file_calls = []
+        cls.signal_calls = []
 
     @staticmethod
-    def analyze_file(path: str, sr: int = 22050, mode: str = "playlist"):
+    def analyze_file(
+        path: str,
+        sr: int = 22050,
+        mode: str = "playlist",
+        *,
+        bpm_min: float | None = None,
+        bpm_max: float | None = None,
+    ):
         assert mode == "playlist"
+        FakeSonara.file_calls.append(
+            {
+                "path": path,
+                "sr": sr,
+                "mode": mode,
+                "bpm_min": bpm_min,
+                "bpm_max": bpm_max,
+            }
+        )
         return {
             "bpm": 126.4,
             "key": "A minor",
@@ -57,9 +80,24 @@ class FakeSonara:
         return np.ones(22050, dtype=np.float32), sr
 
     @staticmethod
-    def analyze_signal(y, sr: int = 22050, mode: str = "playlist"):
+    def analyze_signal(
+        y,
+        sr: int = 22050,
+        mode: str = "playlist",
+        *,
+        bpm_min: float | None = None,
+        bpm_max: float | None = None,
+    ):
         assert sr == 22050
-        return FakeSonara.analyze_file("from-signal", sr=sr, mode=mode)
+        FakeSonara.signal_calls.append(
+            {
+                "sr": sr,
+                "mode": mode,
+                "bpm_min": bpm_min,
+                "bpm_max": bpm_max,
+            }
+        )
+        return FakeSonara.analyze_file("from-signal", sr=sr, mode=mode, bpm_min=bpm_min, bpm_max=bpm_max)
 
     @staticmethod
     def melspectrogram(y, sr: float):
@@ -71,14 +109,48 @@ class FakeSonara:
 
 
 class FakeFallbackSonara(FakeSonara):
+    file_calls = []
+    signal_calls = []
+
     @staticmethod
-    def analyze_file(path: str, sr: int = 22050, mode: str = "playlist"):
+    def analyze_file(
+        path: str,
+        sr: int = 22050,
+        mode: str = "playlist",
+        *,
+        bpm_min: float | None = None,
+        bpm_max: float | None = None,
+    ):
+        FakeFallbackSonara.file_calls.append(
+            {
+                "path": path,
+                "sr": sr,
+                "mode": mode,
+                "bpm_min": bpm_min,
+                "bpm_max": bpm_max,
+            }
+        )
         raise OSError("Audio decoding error: Failed to read enough bytes.")
 
     @staticmethod
-    def analyze_signal(y, sr: int = 22050, mode: str = "playlist"):
+    def analyze_signal(
+        y,
+        sr: int = 22050,
+        mode: str = "playlist",
+        *,
+        bpm_min: float | None = None,
+        bpm_max: float | None = None,
+    ):
         assert sr == 22050
-        return FakeSonara.analyze_file("from-signal", mode=mode)
+        FakeFallbackSonara.signal_calls.append(
+            {
+                "sr": sr,
+                "mode": mode,
+                "bpm_min": bpm_min,
+                "bpm_max": bpm_max,
+            }
+        )
+        return FakeSonara.analyze_file("from-signal", mode=mode, bpm_min=bpm_min, bpm_max=bpm_max)
 
     @staticmethod
     def resample(y, *, orig_sr: int, target_sr: int):
@@ -92,6 +164,54 @@ def _write_wav(path: Path) -> None:
         audio.setsampwidth(2)
         audio.setframerate(22050)
         audio.writeframes(b"\x00\x00" * 22050)
+
+
+def test_analyze_and_store_sonara_features_passes_project_bpm_range(tmp_path: Path) -> None:
+    FakeSonara.reset()
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    audio_path = tmp_path / "Artist - Track.wav"
+    _write_wav(audio_path)
+    track_id = db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": "Track"})
+
+    analyze_and_store_sonara_features(
+        db,
+        db.get_track(track_id),
+        sonara_module=FakeSonara,
+    )
+
+    assert FakeSonara.file_calls[-1]["bpm_min"] == 79.0
+    assert FakeSonara.file_calls[-1]["bpm_max"] == 192.0
+
+
+def test_analyze_sonara_features_from_audio_passes_project_bpm_range() -> None:
+    FakeSonara.reset()
+    decoded = DecodedAudio(path="shared.wav", audio=np.ones(22050, dtype=np.float32), sample_rate=22050, detail="shared")
+
+    analyze_sonara_features_from_audio(decoded, sonara_module=FakeSonara)
+
+    assert FakeSonara.signal_calls[-1]["bpm_min"] == 79.0
+    assert FakeSonara.signal_calls[-1]["bpm_max"] == 192.0
+
+
+def test_analyze_sonara_wav_fallback_passes_project_bpm_range(tmp_path: Path) -> None:
+    FakeFallbackSonara.reset()
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    audio_path = tmp_path / "truncated.wav"
+    _write_wav(audio_path)
+    original = audio_path.read_bytes()
+    audio_path.write_bytes(original[: len(original) // 2])
+    db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": "Broken"})
+
+    analyze_and_store_sonara_features(
+        db,
+        db.list_tracks()[0],
+        sonara_module=FakeFallbackSonara,
+    )
+
+    assert FakeFallbackSonara.file_calls[-1]["bpm_min"] == 79.0
+    assert FakeFallbackSonara.file_calls[-1]["bpm_max"] == 192.0
+    assert FakeFallbackSonara.signal_calls[-1]["bpm_min"] == 79.0
+    assert FakeFallbackSonara.signal_calls[-1]["bpm_max"] == 192.0
 
 
 def test_analyze_and_store_sonara_features_writes_metadata_and_json_dump(tmp_path: Path) -> None:

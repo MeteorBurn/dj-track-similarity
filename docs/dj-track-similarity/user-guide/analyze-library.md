@@ -19,6 +19,8 @@ The UI lists these choices:
 
 One job can include multiple families. Tracks that already have a selected result are skipped for that family.
 
+SONARA BPM analysis uses the project range `79.0..192.0`. If you analyzed tracks before that range was configured, use SONARA reset before running SONARA again for those tracks.
+
 ## Limit behavior
 
 `Analyze limit = 0` in the UI means the whole library. Positive limits count tracks missing selected results.

@@ -5,8 +5,6 @@ import json
 import logging
 import os
 from pathlib import Path
-import subprocess
-import tempfile
 import threading
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -17,7 +15,7 @@ from starlette.background import BackgroundTask
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.dependencies import require_ffmpeg
 from dj_track_similarity.logging_config import install_asyncio_exception_logging
-from dj_track_similarity.media_preview import requires_browser_preview_transcode
+from dj_track_similarity.media_preview import requires_browser_preview_transcode, transcoded_wav_file_response
 from dj_track_similarity.rhythm_lab_collections import RhythmLabCollections
 
 from .ablation import ABLATION_FEATURE_SETS, run_ablation_benchmark
@@ -704,7 +702,7 @@ def create_app(
             raise HTTPException(status_code=404, detail="Audio file is missing")
         if requires_browser_preview_transcode(path):
             try:
-                return _transcoded_wav_file_response(path, require_ffmpeg())
+                return transcoded_wav_file_response(path, require_ffmpeg())
             except RuntimeError as error:
                 raise HTTPException(status_code=503, detail=str(error)) from error
         return FileResponse(path)
@@ -1116,45 +1114,6 @@ def _training_readiness_error(profile: ClassifierProfile, added: dict[str, int])
         f"Added: {profile.positive_label} {added[profile.positive_label]}, "
         f"{profile.negative_label} {added[profile.negative_label]}."
     )
-
-
-def _transcoded_wav_file_response(path: Path, ffmpeg_path: str) -> FileResponse:
-    with tempfile.NamedTemporaryFile(prefix="rhythm-lab-preview-", suffix=".wav", delete=False) as temp_file:
-        temp_path = Path(temp_file.name)
-    command = [
-        ffmpeg_path,
-        "-v",
-        "error",
-        "-i",
-        str(path),
-        "-vn",
-        "-f",
-        "wav",
-        "-codec:a",
-        "pcm_s16le",
-        "-y",
-        str(temp_path),
-    ]
-    try:
-        subprocess.run(command, stderr=subprocess.PIPE, check=True)
-    except (OSError, subprocess.CalledProcessError) as error:
-        _delete_temp_file(temp_path)
-        LOGGER.warning("ffmpeg preview transcode failed path=%s error=%s", path, error)
-        raise RuntimeError("Audio preview transcode failed") from error
-    return FileResponse(
-        temp_path,
-        media_type="audio/wav",
-        filename=f"{path.stem}.wav",
-        content_disposition_type="inline",
-        background=BackgroundTask(_delete_temp_file, temp_path),
-    )
-
-
-def _delete_temp_file(path: Path) -> None:
-    try:
-        path.unlink(missing_ok=True)
-    except OSError:
-        LOGGER.warning("Failed to delete temporary Rhythm Lab preview file: %s", path)
 
 
 def _index_html() -> str:

@@ -518,14 +518,108 @@ def test_media_endpoint_transcodes_aiff_preview_to_browser_playable_wav(monkeypa
     assert response.content == b"RIFFbrowser-compatible-wav"
     assert calls == [[
         "ffmpeg-test",
-        "-v",
-        "error",
         "-i",
         str(tmp_path / "preview.aiff"),
+        "-map",
+        "0:a:0",
         "-vn",
+        "-sn",
+        "-dn",
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
         "-f",
         "wav",
-        "-codec:a",
+        "-c:a",
+        "pcm_s16le",
+        "-y",
+        calls[0][-1],
+    ]]
+
+
+def test_media_endpoint_transcodes_flac_preview_to_browser_playable_wav(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    track_id = _add_track(db, tmp_path, "preview.flac", "Artist", "Preview", {})
+    calls: list[list[str]] = []
+
+    def fake_run(command: list[str], *, stderr: int, check: bool) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        Path(command[-1]).write_bytes(b"RIFFbrowser-compatible-wav")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(api_module, "require_ffmpeg", lambda: "ffmpeg-test")
+    monkeypatch.setattr(media_preview_module.subprocess, "run", fake_run)
+
+    response = TestClient(create_app(db_path)).get(f"/media/{track_id}")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("audio/wav")
+    assert response.headers["accept-ranges"] == "bytes"
+    assert response.headers["content-disposition"].startswith("inline;")
+    assert response.headers["content-length"] == str(len(b"RIFFbrowser-compatible-wav"))
+    assert response.content == b"RIFFbrowser-compatible-wav"
+    assert calls == [[
+        "ffmpeg-test",
+        "-i",
+        str(tmp_path / "preview.flac"),
+        "-map",
+        "0:a:0",
+        "-vn",
+        "-sn",
+        "-dn",
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        "-f",
+        "wav",
+        "-c:a",
+        "pcm_s16le",
+        "-y",
+        calls[0][-1],
+    ]]
+
+
+def test_media_endpoint_transcodes_dsf_preview_to_browser_playable_wav(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    track_id = _add_track(db, tmp_path, "preview.dsf", "Artist", "Preview", {})
+    calls: list[list[str]] = []
+
+    def fake_run(command: list[str], *, stderr: int, check: bool) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        Path(command[-1]).write_bytes(b"RIFFbrowser-compatible-wav")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(api_module, "require_ffmpeg", lambda: "ffmpeg-test")
+    monkeypatch.setattr(media_preview_module.subprocess, "run", fake_run)
+
+    response = TestClient(create_app(db_path)).get(f"/media/{track_id}")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("audio/wav")
+    assert response.headers["accept-ranges"] == "bytes"
+    assert response.headers["content-disposition"].startswith("inline;")
+    assert response.headers["content-length"] == str(len(b"RIFFbrowser-compatible-wav"))
+    assert response.content == b"RIFFbrowser-compatible-wav"
+    assert calls == [[
+        "ffmpeg-test",
+        "-i",
+        str(tmp_path / "preview.dsf"),
+        "-map",
+        "0:a:0",
+        "-vn",
+        "-sn",
+        "-dn",
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        "-f",
+        "wav",
+        "-c:a",
         "pcm_s16le",
         "-y",
         calls[0][-1],
@@ -558,14 +652,20 @@ def test_media_endpoint_transcodes_24_bit_wav_preview_to_browser_playable_wav(mo
     assert response.content == b"RIFFbrowser-compatible-wav"
     assert calls == [[
         "ffmpeg-test",
-        "-v",
-        "error",
         "-i",
         str(path),
+        "-map",
+        "0:a:0",
         "-vn",
+        "-sn",
+        "-dn",
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
         "-f",
         "wav",
-        "-codec:a",
+        "-c:a",
         "pcm_s16le",
         "-y",
         calls[0][-1],

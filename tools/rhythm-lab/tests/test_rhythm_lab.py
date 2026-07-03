@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[3]
 LAB_ROOT = ROOT / "tools" / "rhythm-lab"
 sys.path.insert(0, str(LAB_ROOT))
 
+from dj_track_similarity import media_preview as media_preview_module
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.rhythm_lab_collections import RhythmLabCollections
 
@@ -2500,8 +2501,8 @@ def test_web_app_serves_aiff_preview_as_seekable_browser_audio(monkeypatch, tmp_
         return subprocess.CompletedProcess(command, 0)
 
     monkeypatch.setattr(web_app, "require_ffmpeg", lambda: "ffmpeg")
-    monkeypatch.setattr(web_app.subprocess, "Popen", fail_streaming_process)
-    monkeypatch.setattr(web_app.subprocess, "run", fake_run)
+    monkeypatch.setattr(media_preview_module.subprocess, "Popen", fail_streaming_process)
+    monkeypatch.setattr(media_preview_module.subprocess, "run", fake_run)
     client = TestClient(create_app(source_path, labels_db_path=labels_path))
 
     response = client.get(f"/media/{track_id}")
@@ -2513,7 +2514,26 @@ def test_web_app_serves_aiff_preview_as_seekable_browser_audio(monkeypatch, tmp_
     assert response.headers["content-length"] == str(len(b"RIFFbrowser-compatible-wav"))
     assert response.content == b"RIFFbrowser-compatible-wav"
     assert calls
-    assert calls[0][-2:] == ["-y", calls[0][-1]]
+    assert calls == [[
+        "ffmpeg",
+        "-i",
+        str(tmp_path / "preview.aiff"),
+        "-map",
+        "0:a:0",
+        "-vn",
+        "-sn",
+        "-dn",
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        "-f",
+        "wav",
+        "-c:a",
+        "pcm_s16le",
+        "-y",
+        calls[0][-1],
+    ]]
 
 
 def test_web_app_serves_24_bit_wav_preview_as_seekable_browser_audio(monkeypatch, tmp_path: Path) -> None:
@@ -2535,7 +2555,7 @@ def test_web_app_serves_24_bit_wav_preview_as_seekable_browser_audio(monkeypatch
         return subprocess.CompletedProcess(command, 0)
 
     monkeypatch.setattr(web_app, "require_ffmpeg", lambda: "ffmpeg")
-    monkeypatch.setattr(web_app.subprocess, "run", fake_run)
+    monkeypatch.setattr(media_preview_module.subprocess, "run", fake_run)
     client = TestClient(create_app(source_path, labels_db_path=labels_path))
 
     response = client.get(f"/media/{track_id}")
@@ -2547,8 +2567,26 @@ def test_web_app_serves_24_bit_wav_preview_as_seekable_browser_audio(monkeypatch
     assert response.headers["content-length"] == str(len(b"RIFFbrowser-compatible-wav"))
     assert response.content == b"RIFFbrowser-compatible-wav"
     assert calls
-    assert calls[0][4] == str(path)
-    assert calls[0][-2:] == ["-y", calls[0][-1]]
+    assert calls == [[
+        "ffmpeg",
+        "-i",
+        str(path),
+        "-map",
+        "0:a:0",
+        "-vn",
+        "-sn",
+        "-dn",
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        "-f",
+        "wav",
+        "-c:a",
+        "pcm_s16le",
+        "-y",
+        calls[0][-1],
+    ]]
 
 
 def test_web_app_audio_preview_is_compact(tmp_path: Path) -> None:

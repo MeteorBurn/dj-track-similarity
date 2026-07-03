@@ -12,6 +12,19 @@ from starlette.background import BackgroundTask
 
 LOGGER = logging.getLogger(__name__)
 AIFF_PREVIEW_SUFFIXES = {".aif", ".aiff"}
+BROWSER_PREVIEW_TRANSCODE_SUFFIXES = AIFF_PREVIEW_SUFFIXES | {
+    ".dff",
+    ".dsd",
+    ".dsf",
+    ".flac",
+    ".ape",
+    ".wv",
+    ".m4b",
+    ".m4r",
+    ".tak",
+    ".tta",
+    ".wma",
+}
 BROWSER_SAFE_WAV_SAMPLE_WIDTH = 2
 
 
@@ -21,7 +34,7 @@ class AudioPreviewError(RuntimeError):
 
 def requires_browser_preview_transcode(path: Path) -> bool:
     suffix = path.suffix.lower()
-    if suffix in AIFF_PREVIEW_SUFFIXES:
+    if suffix in BROWSER_PREVIEW_TRANSCODE_SUFFIXES:
         return True
     if suffix == ".wav":
         return not _is_browser_safe_wav(path)
@@ -33,14 +46,20 @@ def transcoded_wav_file_response(path: Path, ffmpeg_path: str) -> FileResponse:
         temp_path = Path(temp_file.name)
     command = [
         ffmpeg_path,
-        "-v",
-        "error",
         "-i",
         str(path),
+        "-map",
+        "0:a:0",
         "-vn",
+        "-sn",
+        "-dn",
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
         "-f",
         "wav",
-        "-codec:a",
+        "-c:a",
         "pcm_s16le",
         "-y",
         str(temp_path),

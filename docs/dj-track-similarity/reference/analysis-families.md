@@ -25,6 +25,9 @@ SONARA uses its CPU runner. MAEST, MERT, MuQ, and CLAP use model adapters with t
 
 SONARA analysis calls pass `bpm_min=79.0` and `bpm_max=192.0`. SONARA folds estimated tempos by octaves into that range before the project stores the working BPM field.
 
+Tempo-aware search, transition diagnostics, and SET ordering read stored SONARA BPM first. If a track
+has no SONARA BPM, they fall back to the Mutagen BPM tag stored during scan or Refresh Tags.
+
 Existing SONARA rows are skipped by normal analysis jobs. Reset SONARA first when you want already analyzed tracks to be recalculated with the current BPM range.
 
 ## Batch and label ranges

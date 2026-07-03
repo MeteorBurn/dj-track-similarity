@@ -402,15 +402,26 @@ class AnalysisRepository:
             self._invalidate_sonara_feature_cache()
         return {"adapter": "sonara", "tracks_updated": updated, "embeddings_deleted": 0}
 
-    def load_embedding_matrix(self, embedding_key: str = DEFAULT_EMBEDDING_KEY) -> tuple[list[Track], np.ndarray]:
+    def load_embedding_matrix(
+        self,
+        embedding_key: str = DEFAULT_EMBEDDING_KEY,
+        *,
+        include_metadata: bool = False,
+    ) -> tuple[list[Track], np.ndarray]:
+        cache_key = (embedding_key, bool(include_metadata))
         with self._cache_lock:
-            cached = self._embedding_matrix_cache.get(embedding_key)
+            cached = self._embedding_matrix_cache.get(cache_key)
             if cached is not None:
                 return cached
+        fields = (
+            f"{TRACK_SLIM_SELECT_FIELDS_WITH_VECTOR}, t.metadata_json"
+            if include_metadata
+            else TRACK_SLIM_SELECT_FIELDS_WITH_VECTOR
+        )
         with self.connect() as connection:
             rows = connection.execute(
                 f"""
-                SELECT {TRACK_SLIM_SELECT_FIELDS_WITH_VECTOR}
+                SELECT {fields}
                 FROM tracks t
                 JOIN embeddings e ON e.track_id = t.id
                 WHERE e.embedding_key = ?
@@ -421,13 +432,13 @@ class AnalysisRepository:
         if not rows:
             result = ([], np.zeros((0, 0), dtype=np.float32))
             with self._cache_lock:
-                self._embedding_matrix_cache[embedding_key] = result
+                self._embedding_matrix_cache[cache_key] = result
             return result
-        tracks = [self._row_to_track(row, include_metadata=False) for row in rows]
+        tracks = [self._row_to_track(row, include_metadata=include_metadata) for row in rows]
         vectors = [np.frombuffer(row["vector"], dtype=np.float32).copy() for row in rows]
         result = (tracks, np.vstack(vectors).astype(np.float32))
         with self._cache_lock:
-            self._embedding_matrix_cache[embedding_key] = result
+            self._embedding_matrix_cache[cache_key] = result
         return result
 
     def load_sonara_feature_rows(self) -> tuple[list[Track], list[dict[str, object]]]:

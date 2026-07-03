@@ -45,6 +45,8 @@ The response includes total-track and eligible-track counts, plus missing counts
 ## BPM controls
 
 Default **General BPM** uses BPM and key as soft transition compatibility signals only.
+SET uses stored SONARA BPM for those signals and for trajectory modes when it exists. If SONARA BPM
+is missing, SET falls back to the Mutagen BPM tag.
 
 The explicit trajectory modes are:
 

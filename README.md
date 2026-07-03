@@ -148,6 +148,9 @@ The app keeps evidence sources separate:
 - **CLAP** stores an audio embedding for text-to-audio search and audio-to-audio comparison.
 - **Rhythm Lab classifiers** store optional local scores under a classifier key.
 
+Tempo-aware search, transition diagnostics, and SET ordering prefer SONARA BPM once it exists.
+Mutagen BPM remains the fallback when a track has no stored SONARA BPM.
+
 A file genre tag, a MAEST genre label, a CLAP text score, and an audio-to-audio duplicate score answer different questions. They can all help, but they should not be treated as one universal truth scale.
 
 ## 🔗 Upstream models and licenses

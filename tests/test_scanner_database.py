@@ -399,7 +399,8 @@ def test_database_invalidates_only_changed_track_embedding_keys(tmp_path: Path) 
     cached_clap = db.load_embedding_matrix("clap")
     db.save_sonara_features(mert_id, {"energy": {"value": 0.8}}, energy=0.8, model_name="sonara")
 
-    assert "mert" not in db._embedding_matrix_cache
+    assert ("mert", False) not in db._embedding_matrix_cache
+    assert ("mert", True) not in db._embedding_matrix_cache
     assert db.load_embedding_matrix("clap") is cached_clap
 
 

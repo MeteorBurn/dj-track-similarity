@@ -35,14 +35,39 @@ def test_bpm_quarter_quadruple_not_treated_as_low_risk() -> None:
     assert diagnostics.transition_risk == diagnostics.components["bpm_risk"]
 
 
-def test_resolves_tag_bpm_and_key_before_sonara_overwritten_columns() -> None:
+def test_resolves_sonara_bpm_before_tag_bpm_and_keeps_tag_key_priority() -> None:
     diagnostics = compute_transition_diagnostics(
-        {"bpm": 130.0, "musical_key": "2A", "metadata": {"bpm": 100.0, "key": "8A"}},
-        {"bpm": 160.0, "musical_key": "2B", "metadata": {"bpm": 104.0, "key": "9A"}},
+        {
+            "bpm": 130.0,
+            "musical_key": "2A",
+            "metadata": {
+                "bpm": 100.0,
+                "key": "8A",
+                "sonara_features": {"bpm": {"type": "float", "value": 130.0}, "key": {"type": "str", "value": "2A"}},
+            },
+        },
+        {
+            "bpm": 132.0,
+            "musical_key": "2B",
+            "metadata": {
+                "bpm": 116.0,
+                "key": "9A",
+                "sonara_features": {"bpm": {"type": "float", "value": 132.0}, "key": {"type": "str", "value": "2B"}},
+            },
+        },
+    )
+
+    assert diagnostics.components["bpm_risk"] == pytest.approx((2.0 / 130.0) / 0.12)
+    assert diagnostics.components["key_risk"] < 0.1
+
+
+def test_resolves_tag_bpm_when_sonara_bpm_is_missing() -> None:
+    diagnostics = compute_transition_diagnostics(
+        {"metadata": {"bpm": 100.0}},
+        {"metadata": {"bpm": 104.0}},
     )
 
     assert diagnostics.components["bpm_risk"] == pytest.approx((4.0 / 100.0) / 0.12)
-    assert diagnostics.components["key_risk"] < 0.1
 
 
 def test_resolves_sonara_bpm_and_key_when_tags_are_missing() -> None:

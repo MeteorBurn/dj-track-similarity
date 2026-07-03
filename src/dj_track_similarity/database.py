@@ -31,7 +31,7 @@ class LibraryDatabase(TrackRepository, AnalysisRepository, SummaryRepository, Ev
         self.path = resolve_database_path(path)
         self._write_lock = write_lock_for_path(self.path)
         self._cache_lock = threading.Lock()
-        self._embedding_matrix_cache: dict[str, tuple[list[Track], np.ndarray]] = {}
+        self._embedding_matrix_cache: dict[tuple[str, bool], tuple[list[Track], np.ndarray]] = {}
         self._sonara_feature_row_cache: tuple[list[Track], list[dict[str, object]]] | None = None
         self._ensure_schema()
 
@@ -46,7 +46,8 @@ class LibraryDatabase(TrackRepository, AnalysisRepository, SummaryRepository, Ev
             if embedding_key is None:
                 self._embedding_matrix_cache.clear()
             else:
-                self._embedding_matrix_cache.pop(embedding_key, None)
+                self._embedding_matrix_cache.pop((embedding_key, False), None)
+                self._embedding_matrix_cache.pop((embedding_key, True), None)
 
     def _invalidate_embedding_cache_keys(self, embedding_keys: Iterable[str]) -> None:
         keys = tuple(dict.fromkeys(key for key in embedding_keys if key))
@@ -54,7 +55,8 @@ class LibraryDatabase(TrackRepository, AnalysisRepository, SummaryRepository, Ev
             return
         with self._cache_lock:
             for key in keys:
-                self._embedding_matrix_cache.pop(key, None)
+                self._embedding_matrix_cache.pop((key, False), None)
+                self._embedding_matrix_cache.pop((key, True), None)
 
     def _invalidate_sonara_feature_cache(self) -> None:
         with self._cache_lock:

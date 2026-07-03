@@ -19,7 +19,9 @@ The UI lists these choices:
 
 One job can include multiple families. Tracks that already have a selected result are skipped for that family.
 
-SONARA BPM analysis uses the project range `79.0..192.0`. If you analyzed tracks before that range was configured, use SONARA reset before running SONARA again for those tracks.
+SONARA BPM analysis uses the project range `79.0..192.0`. After SONARA BPM is stored, tempo-aware
+search, transition diagnostics, and SET prefer it over the Mutagen BPM tag. If you analyzed tracks
+before that range was configured, use SONARA reset before running SONARA again for those tracks.
 
 ## Limit behavior
 

@@ -15,20 +15,19 @@ def resolve_track_bpm(
     sonara_features: Mapping[str, object] | None = None,
 ) -> float | None:
     metadata = _track_metadata(track)
-    tag_bpm = _metadata_float(metadata, "bpm")
-    if tag_bpm is not None:
-        return tag_bpm
-    track_bpm = optional_float(_track_value(track, "bpm"))
-    if track_bpm is not None:
-        return track_bpm
     if sonara_values is not None:
         sonara_bpm = optional_float(sonara_values.get("bpm"))
         if sonara_bpm is not None:
             return sonara_bpm
     features = sonara_features if sonara_features is not None else _track_sonara_features(track)
-    if features is None:
-        return None
-    return optional_float(unwrap_feature_value(features.get("bpm")))
+    if features is not None:
+        sonara_bpm = optional_float(unwrap_feature_value(features.get("bpm")))
+        if sonara_bpm is not None:
+            return sonara_bpm
+    tag_bpm = _metadata_float(metadata, "bpm")
+    if tag_bpm is not None:
+        return tag_bpm
+    return optional_float(_track_value(track, "bpm"))
 
 
 def resolve_track_key(

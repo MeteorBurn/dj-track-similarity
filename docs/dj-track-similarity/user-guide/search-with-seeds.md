@@ -23,6 +23,9 @@ Common controls:
 - **Similarity**: minimum score threshold from `0.00` to `1.00`.
 - **Limit**: maximum result count, `1..500`.
 
+When BPM filtering is applied, MERT search resolves BPM from stored SONARA analysis first. It falls
+back to the Mutagen BPM tag only when SONARA BPM is missing.
+
 ## SONARA tab
 
 SONARA search calls `/api/search/sonara` and uses stored SONARA feature rows. It is useful when you want more explainable control over rhythm, timbre, level and energy, harmonic color, and tempo compatibility.

@@ -28,6 +28,31 @@ def _add_track_with_embedding_key(db: LibraryDatabase, name: str, embedding: lis
     return track_id
 
 
+def _add_track_with_tag_and_sonara_bpm(
+    db: LibraryDatabase,
+    name: str,
+    embedding: list[float],
+    *,
+    tag_bpm: float,
+    sonara_bpm: float,
+) -> int:
+    path = Path("C:/music") / name
+    track_id = db.upsert_track(
+        path=path,
+        size=100,
+        mtime=1,
+        metadata={
+            "title": name,
+            "artist": "Test",
+            "bpm": tag_bpm,
+            "sonara_features": {"bpm": {"type": "float", "value": sonara_bpm}},
+        },
+        bpm=tag_bpm,
+    )
+    db.save_embedding(track_id, np.array(embedding, dtype=np.float32), "fake-model", 3)
+    return track_id
+
+
 def test_search_uses_multi_seed_centroid_and_excludes_seed_tracks(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     seed_a = _add_track(db, "seed-a.wav", [1.0, 0.0, 0.0])
@@ -63,6 +88,36 @@ def test_search_applies_bpm_half_double_key_energy_and_threshold_filters(tmp_pat
     assert [result.track.id for result in results] == [compatible_half_time]
     assert incompatible_key not in {result.track.id for result in results}
     assert too_low not in {result.track.id for result in results}
+
+
+def test_search_bpm_filter_prefers_sonara_bpm_over_tag_bpm(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed = _add_track_with_tag_and_sonara_bpm(
+        db,
+        "seed.wav",
+        [1.0, 0.0, 0.0],
+        tag_bpm=100,
+        sonara_bpm=128,
+    )
+    sonara_match = _add_track_with_tag_and_sonara_bpm(
+        db,
+        "sonara-match.wav",
+        [0.99, 0.01, 0.0],
+        tag_bpm=116,
+        sonara_bpm=130,
+    )
+    tag_only_match = _add_track_with_tag_and_sonara_bpm(
+        db,
+        "tag-only-match.wav",
+        [0.98, 0.02, 0.0],
+        tag_bpm=102,
+        sonara_bpm=155,
+    )
+
+    results = SimilaritySearch(db).search([seed], filters=SearchFilters(bpm_tolerance=3), limit=10)
+
+    assert [result.track.id for result in results] == [sonara_match]
+    assert tag_only_match not in {result.track.id for result in results}
 
 
 def test_search_epsilon_keeps_only_candidates_near_the_best_score(tmp_path: Path) -> None:

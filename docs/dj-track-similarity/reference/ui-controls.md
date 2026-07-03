@@ -33,6 +33,9 @@
 | SONARA mixer | UI sliders `0..3`, API allows `0..5` | timbre, rhythm, dynamics, harmonic, tempo |
 | SONARA modifiers | `-1..1` | directional bias from seed context |
 
+Tempo-aware search filters resolve BPM from stored SONARA analysis first, then from the Mutagen BPM
+tag when SONARA BPM is missing.
+
 ## SET
 
 | Control | Range or values | Notes |
@@ -49,6 +52,9 @@
 | Target BPM | blank or `20..300` | auto when blank |
 | Classifier Preference | `-1.00..1.00` | missing scores stay neutral |
 | Classifier Flow | flat, rise, fall | preference shape across preview |
+
+SET BPM modes resolve tempo from stored SONARA BPM first, then from the Mutagen BPM tag when SONARA
+BPM is missing.
 
 ## Hybrid preview
 

@@ -45,6 +45,9 @@ Known artists are guarded so one preview uses at most one track per known artist
 
 General BPM mode uses tempo for transition compatibility. Low-to-high and high-to-low modes add an actual BPM trajectory. Half/double tempo matching helps transition compatibility but does not replace the actual trajectory.
 
+SET resolves tempo from stored SONARA BPM first. If SONARA BPM is missing, it falls back to the
+Mutagen BPM tag from scan or Refresh Tags.
+
 ## Add preview is explicit
 
 SET returns preview rows. It does not replace the current set. Click **Add preview** to append preview tracks to the set.

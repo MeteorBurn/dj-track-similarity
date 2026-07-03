@@ -860,7 +860,7 @@ def test_bpm_mode_infers_missing_start_and_target_from_seed_and_library(tmp_path
     assert "bpm_curve" in result["items"][1]["score_breakdown"]
 
 
-def test_set_builder_prefers_tag_bpm_over_sonara_bpm_for_curve_and_response(tmp_path: Path) -> None:
+def test_set_builder_prefers_sonara_bpm_over_tag_bpm_for_curve_and_response(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     seed_id = _complete_track(
         db,
@@ -905,8 +905,8 @@ def test_set_builder_prefers_tag_bpm_over_sonara_bpm_for_curve_and_response(tmp_
     )
 
     assert [item["track"].id for item in result["items"]] == [seed_id, tag_match_id, fallback_id]
-    assert result["items"][0]["track"].bpm == 110
-    assert result["items"][1]["track"].bpm == 117
+    assert result["items"][0]["track"].bpm == 130
+    assert result["items"][1]["track"].bpm == 130
     assert result["items"][2]["track"].bpm == 130
 
 

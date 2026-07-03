@@ -7,7 +7,7 @@ import numpy as np
 
 from .database import LibraryDatabase
 from .models import SearchResult, Track
-from .track_resolution import camelot_compatible
+from .track_resolution import camelot_compatible, resolve_track_bpm
 from .vector_index import ExactVectorSearchBackend, VectorSearchBackend, VectorSearchHit
 
 
@@ -44,7 +44,10 @@ class SimilaritySearch:
         if not seed_track_ids:
             raise ValueError("At least one seed track is required")
         filters = filters or SearchFilters()
-        tracks, matrix = self.db.load_embedding_matrix(self.embedding_key)
+        tracks, matrix = self.db.load_embedding_matrix(
+            self.embedding_key,
+            include_metadata=_needs_bpm_metadata(filters),
+        )
         if matrix.size == 0:
             return []
 
@@ -90,7 +93,10 @@ class SimilaritySearch:
         limit: int = 50,
     ) -> list[SearchResult]:
         filters = filters or SearchFilters()
-        tracks, matrix = self.db.load_embedding_matrix(self.embedding_key)
+        tracks, matrix = self.db.load_embedding_matrix(
+            self.embedding_key,
+            include_metadata=_needs_bpm_metadata(filters),
+        )
         if matrix.size == 0:
             return []
 
@@ -128,7 +134,10 @@ class SimilaritySearch:
         if not positive_vectors:
             raise ValueError("At least one positive query vector is required")
         filters = filters or SearchFilters()
-        tracks, matrix = self.db.load_embedding_matrix(self.embedding_key)
+        tracks, matrix = self.db.load_embedding_matrix(
+            self.embedding_key,
+            include_metadata=_needs_bpm_metadata(filters),
+        )
         if matrix.size == 0:
             return []
 
@@ -213,6 +222,10 @@ def _passes_filters(track: Track, seeds: list[Track], score: float, filters: Sea
     return True
 
 
+def _needs_bpm_metadata(filters: SearchFilters) -> bool:
+    return filters.bpm_tolerance is not None
+
+
 def _ranking_score(track: Track, score: float, noise: float) -> float:
     if noise <= 0:
         return score
@@ -222,12 +235,13 @@ def _ranking_score(track: Track, score: float, noise: float) -> float:
 
 
 def _bpm_compatible(track: Track, seeds: list[Track], tolerance: float) -> bool:
-    if track.bpm is None:
+    track_bpm = resolve_track_bpm(track)
+    if track_bpm is None:
         return False
-    seed_bpms = [seed.bpm for seed in seeds if seed.bpm is not None]
+    seed_bpms = [bpm for seed in seeds if (bpm := resolve_track_bpm(seed)) is not None]
     if not seed_bpms:
         return True
-    return min(_tempo_distance(track.bpm, seed_bpm) for seed_bpm in seed_bpms) <= tolerance
+    return min(_tempo_distance(track_bpm, seed_bpm) for seed_bpm in seed_bpms) <= tolerance
 
 
 def _tempo_distance(candidate_bpm: float, seed_bpm: float) -> float:

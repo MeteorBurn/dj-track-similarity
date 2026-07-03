@@ -198,10 +198,11 @@ the active log until the next launch. Future app-started logs should use `logs/<
   Preview enters the current set only through explicit user action.
 - Smart Set Builder requires stored MERT, MAEST, and CLAP audio embeddings plus stored SONARA features.
   It may use MAEST embeddings, but must not use MAEST genre labels or MuQ embeddings for track selection.
-- Smart Set Builder BPM/key are soft transition-ordering signals: prefer file tag BPM, then SONARA
-  fallback. Default `bpm_mode=general` keeps normal transition rules only; `low_to_high` and
-  `high_to_low` add actual-BPM trajectory with `bpm_change=slow|medium|fast` and optional `bpm_start` /
-  `bpm_target`. Missing values are inferred from the first seed/anchor and library BPM range.
+- Smart Set Builder BPM/key are soft transition-ordering signals. BPM resolution prefers stored SONARA
+  BPM when available, then falls back to file tag BPM. Default `bpm_mode=general` keeps normal
+  transition rules only; `low_to_high` and `high_to_low` add actual-BPM trajectory with
+  `bpm_change=slow|medium|fast` and optional `bpm_start` / `bpm_target`. Missing values are inferred
+  from the first seed/anchor and library BPM range.
   Half/double tempo matching is for transition compatibility, not actual-BPM trajectory.
 - Promoted classifiers are optional stored-score modifiers in SET. Missing scores stay neutral. Keep
   the artist guard strict: at most one track per known artist in one preview.

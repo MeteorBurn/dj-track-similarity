@@ -41,11 +41,15 @@ SONARA_SCALAR_FIELDS = (
     "spectral_bandwidth_mean",
     "spectral_rolloff_mean",
     "spectral_flatness_mean",
-    "spectral_contrast_mean",
 )
+# spectral_contrast_mean is a per-band vector (7 sub-band contrast values), not a scalar. It used to
+# sit in SONARA_SCALAR_FIELDS, where optional_float() on a list returned None and every track got a
+# constant 0.0 for it - one dead feature in every trained model. It belongs here with the other
+# vector features so all 7 bands contribute.
 SONARA_VECTOR_FIELDS = {
     "mfcc_mean": 13,
     "chroma_mean": 12,
+    "spectral_contrast_mean": 7,
 }
 
 

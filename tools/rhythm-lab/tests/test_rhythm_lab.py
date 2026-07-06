@@ -25,7 +25,7 @@ from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.rhythm_lab_collections import RhythmLabCollections
 
 from rhythm_lab.ablation import benchmark_profile_ablation
-from rhythm_lab.features import build_labeled_feature_matrix
+from rhythm_lab.features import SONARA_SCALAR_FIELDS, SONARA_VECTOR_FIELDS, build_labeled_feature_matrix
 from rhythm_lab.cli import PromotionError, promote_profile_model
 from rhythm_lab.lab_db import RhythmLabDatabase
 from rhythm_lab.predictions import _predict_probabilities, apply_model_to_lab, export_predictions_csv
@@ -2965,6 +2965,45 @@ def test_build_labeled_feature_matrix_accepts_feature_source_combinations(tmp_pa
     assert any(name.startswith("clap:") for name in features.feature_names)
     assert any(name.startswith("mert:") for name in features.feature_names)
     assert not any(name.startswith("clap:") for name in combined.feature_names)
+
+
+def test_sonara_spectral_contrast_is_a_seven_dim_vector_feature(tmp_path: Path) -> None:
+    # spectral_contrast_mean is stored by sonara as a 7-band vector, not a scalar. It must expand
+    # into sonara:spectral_contrast_mean:0..6 so the classifier gets 7 live dimensions. The bare
+    # scalar name would silently score 0.0 for every track (float(list) -> None -> 0.0).
+    source = LibraryDatabase(tmp_path / "source.sqlite")
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
+    scoped_labels = RhythmLabDatabase(labels.path, classifier_key="break_energy")
+    for index in range(4):
+        track_id = _track(source, tmp_path, f"contrast-{index}.wav", title=f"Contrast {index}")
+        source.save_sonara_features(
+            track_id,
+            {
+                "onset_density": {"type": "float", "value": float(index)},
+                "mfcc_mean": {"type": "list", "value": [float(index)] * 13},
+                "chroma_mean": {"type": "list", "value": [float(index)] * 12},
+                "spectral_contrast_mean": {"type": "list", "value": [float(index)] * 7},
+            },
+            model_name="sonara-test",
+        )
+        scoped_labels.set_label(source.get_track(track_id), "broken" if index < 2 else "straight")
+
+    features = build_labeled_feature_matrix(source.path, labels.path, "sonara", classifier_key="break_energy")
+
+    expected = [f"sonara:spectral_contrast_mean:{index}" for index in range(7)]
+    assert [name for name in features.feature_names if "spectral_contrast_mean" in name] == expected
+    assert "sonara:spectral_contrast_mean" not in features.feature_names
+
+
+def test_sonara_scalar_fields_are_never_stored_as_vectors() -> None:
+    # Guard against silent field drift: a field declared scalar but stored by sonara as a list
+    # collapses to 0.0 in both rhythm-lab training and classifier scoring. spectral_contrast_mean,
+    # mfcc_mean and chroma_mean are the known vector fields and must stay out of the scalar list.
+    known_vector_fields = {"spectral_contrast_mean", "mfcc_mean", "chroma_mean"}
+    overlap = known_vector_fields & set(SONARA_SCALAR_FIELDS)
+    assert not overlap, f"vector fields wrongly declared scalar (would score 0.0): {sorted(overlap)}"
+    assert set(SONARA_VECTOR_FIELDS) == {"mfcc_mean", "chroma_mean", "spectral_contrast_mean"}
 
 
 def test_benchmark_profile_ablation_ranks_requested_feature_sets(tmp_path: Path) -> None:

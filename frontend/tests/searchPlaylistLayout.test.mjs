@@ -20,15 +20,17 @@ function gridColumnCount(rule) {
     .length;
 }
 
-test("suggested-track results panel has a wider desktop column and larger viewport", () => {
+test("desktop workspace keeps library track and search panels equal width", () => {
   const topbarRule = cssRule(".topbar");
   const workspaceRule = cssRule(".workspace");
   const resultsRule = cssRule(".search-workflow-section .results-list");
+  const workflowRule = cssRule(".search-workflow-section");
 
   assert.match(topbarRule, /max-width:\s*1880px/);
   assert.match(workspaceRule, /max-width:\s*1880px/);
-  assert.match(workspaceRule, /minmax\(360px,\s*1\.24fr\)/);
-  assert.doesNotMatch(workspaceRule, /minmax\(240px,\s*0\.96fr\)/);
+  assert.match(workspaceRule, /grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+  assert.doesNotMatch(workspaceRule, /1\.24fr/);
+  assert.match(workflowRule, /min-width:\s*0/);
   assert.match(resultsRule, /min-height:\s*280px/);
   assert.match(resultsRule, /max-height:\s*min\(520px,\s*52vh\)/);
   assert.doesNotMatch(resultsRule, /max-height:\s*160px/);
@@ -39,6 +41,7 @@ test("candidate result rows reserve stable columns for all icon actions", () => 
   const resultMeterRule = cssRule(".result-row meter");
 
   assert.equal(gridColumnCount(resultRowRule), 8);
-  assert.match(resultRowRule, /minmax\(76px,\s*108px\)/);
+  assert.match(resultRowRule, /minmax\(56px,\s*0\.46fr\)/);
+  assert.match(resultRowRule, /minmax\(42px,\s*max-content\)/);
   assert.match(resultMeterRule, /width:\s*100%/);
 });

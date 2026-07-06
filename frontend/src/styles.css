@@ -935,7 +935,7 @@ h2 {
 .workspace {
   display: grid;
   gap: 12px;
-  grid-template-columns: minmax(240px, 0.82fr) minmax(280px, 1.04fr) minmax(360px, 1.24fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   height: calc(100vh - 86px);
   margin: 0 auto;
   max-width: 1880px;
@@ -1846,6 +1846,7 @@ h2 {
   flex: 0 0 auto;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
 }
 
 .search-workflow-section .search-filter-grid {
@@ -1936,7 +1937,7 @@ h2 {
 }
 
 .result-row {
-  grid-template-columns: 34px minmax(112px, 1fr) minmax(76px, 108px) 48px 34px 34px 34px 34px;
+  grid-template-columns: 34px minmax(0, 1fr) minmax(56px, 0.46fr) minmax(42px, max-content) 34px 34px 34px 34px;
 }
 
 .result-row.selectable {
@@ -2019,6 +2020,7 @@ h2 {
 .search-tab-panel {
   display: grid;
   gap: 10px;
+  min-width: 0;
 }
 
 .sonara-custom-controls {
@@ -2026,6 +2028,7 @@ h2 {
   border-radius: 6px;
   display: grid;
   gap: 8px;
+  min-width: 0;
   padding: 8px;
 }
 
@@ -2034,6 +2037,7 @@ h2 {
   border-radius: 6px;
   display: grid;
   gap: 8px;
+  min-width: 0;
   padding: 8px;
 }
 
@@ -2042,6 +2046,7 @@ h2 {
   border-radius: 6px;
   display: grid;
   gap: 8px;
+  min-width: 0;
   padding: 8px;
 }
 
@@ -2844,6 +2849,7 @@ h2 {
   gap: 8px;
   grid-template-columns: repeat(3, minmax(80px, 1fr));
   margin: 10px 0;
+  min-width: 0;
 }
 
 .search-filter-grid label {
@@ -2852,6 +2858,7 @@ h2 {
   flex-direction: column;
   font-size: 12px;
   gap: 4px;
+  min-width: 0;
 }
 
 .search-filter-grid .toggle {

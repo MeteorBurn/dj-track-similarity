@@ -155,6 +155,9 @@ the active log until the next launch. Future app-started logs should use `logs/<
 - Before starting local UI/server processes, check for existing listeners and matching project
   processes. Keep one instance per fixed port: main backend `8765`, Vite frontend `5173`, Rhythm Lab
   `8777`.
+- When Codex needs to start the main backend/UI for this workspace and no matching process is already
+  running, use the user's normal LAN launcher: `.\run_server.cmd lan --db C:\db\abstracted.sqlite`.
+  If that server is already running, connect to it instead of launching another copy.
 - TorchCodec-backed Torchaudio decoding on Windows requires an FFmpeg shared build with DLLs on `PATH`;
   the verified portable build is GyanD `ffmpeg 8.1.1-full_build-shared` under `C:\Utils\tools\ffmpeg\bin`.
 - Verified Windows CUDA ML stack: PyTorch `2.11.0`, Torchaudio `2.11.0`, Torchvision `0.26.0`,

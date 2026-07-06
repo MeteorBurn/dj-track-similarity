@@ -2036,9 +2036,8 @@ def test_web_app_html_contains_source_database_controls(tmp_path: Path) -> None:
     stop_button_rule = styles.split(".icon-button.rhythm-lab-stop-button {", 1)[1].split("}", 1)[0]
 
     assert "<strong>Rhythm Lab</strong>" in html
-    assert 'id="activeProfileName">No profile selected</span>' in html
     assert 'id="shutdownLab"' in html
-    assert html.index('id="shutdownLab"') < html.index('id="activeProfileName"')
+    assert 'id="activeProfileName"' not in html
     assert 'class="icon-button rhythm-lab-stop-button"' in html
     assert 'aria-label="Stop Rhythm Lab"' in html
     assert 'fetch("/api/shutdown"' in script
@@ -2054,7 +2053,11 @@ def test_web_app_html_contains_source_database_controls(tmp_path: Path) -> None:
     assert 'fetch("/api/source/switch"' in script
     assert 'id="summary" class="summary-strip"' in html
     assert "function renderSummary(data)" in script
-    assert "coverageBadge(\"SONARA\", data.sonara || 0, \"sonara\")" in script
+    assert "coverageBadge(\"Tracks\", data.tracks || 0, \"tracks\")" in script
+    assert "coverageBadge(\"Liked\", data.liked || 0, \"liked\")" in script
+    assert "coverageBadge(\"SONARA\"" not in script
+    assert "coverageBadge(\"MAEST\"" not in script
+    assert "coverageBadge(\"MERT\"" not in script
     assert "labelCountBadges(data.labels || {})" in script
     assert "`${data.tracks} tracks | MAEST ${data.maest} | MERT ${data.mert} | Labels: ${formatLabelCounts(data.labels)}`" not in script
 
@@ -2085,7 +2088,7 @@ def test_web_app_requires_explicit_profile_selection_on_startup(tmp_path: Path) 
 
     assert 'addOption(profileSelectEl, "", "Choose profile");' in script
     assert 'activeProfile = null;' in script
-    assert 'activeProfileNameEl.textContent = "No profile selected";' in script
+    assert "activeProfileNameEl" not in script
     assert "profiles[0].classifier_key" not in script
 
 
@@ -2097,9 +2100,9 @@ def test_web_app_serves_static_profile_ui_without_hardcoded_label_buttons(tmp_pa
     script = client.get("/static/app.js").text
     styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
 
-    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260702-training-no-calibration" />' in html
-    assert '<script src="/static/app.js?v=rhythm-lab-20260702-training-no-calibration" defer></script>' in html
-    assert 'id="profileSelect"' in html
+    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260706-profile-select" />' in html
+    assert '<script src="/static/app.js?v=rhythm-lab-20260706-profile-select" defer></script>' in html
+    assert '<select id="profileSelect" title="Active classifier profile"></select>' in html
     assert "/api/profiles" in script
     assert "function renderLabelButtons" in script
     assert '<button data-label="broken">Broken</button>' not in html
@@ -2235,7 +2238,8 @@ def test_web_app_html_contains_candidates_tab(tmp_path: Path) -> None:
     assert "return positiveScore(track);" in script
     assert "function positiveScore(track)" in script
     assert "return binaryPredictedScore(track.negative_probability, track.positive_probability);" not in script
-    assert '<span class="status-item"><b>TYPE</b><span class="status-detail">${escapeHtml(track.feature_set)}</span></span>' in script
+    assert "function predictionTypeStatus(track)" not in script
+    assert '<span class="status-item"><b>TYPE</b>' not in script
     assert "function predictionBadge(track)" in script
     assert 'number.toFixed(6)' in script
     assert 'if (number < 1 && number.toFixed(6) === "1.000000") return "0.999999";' in script
@@ -2307,6 +2311,10 @@ def test_web_app_filter_controls_combine_without_losing_tab_state(tmp_path: Path
     assert 'candidateMinBrokenEl.addEventListener("change", () => loadActive({ reset: true }));' in script
     assert ".candidate-filters-placeholder > *" in styles
     assert ".filters[hidden]," in styles
+    assert "--tab-button-width: 126px;" in styles
+    assert "--query-tabs-width: calc((var(--tab-button-width) * 3) + 16px);" in styles
+    assert ".tab-button {\n  display: inline-flex;\n  align-items: center;\n  gap: 7px;\n  justify-content: center;\n  width: var(--tab-button-width);" in styles
+    assert "#query {\n  width: min(var(--query-tabs-width), 100%);" in styles
     assert "function updateFilterPanelControls()" in script
     assert 'collectionControlsEl.hidden = activeView !== "collection";' in script
     assert "const sourceStatusEl" not in script
@@ -2427,7 +2435,7 @@ def test_web_app_navigation_tabs_have_icons(tmp_path: Path) -> None:
     assert '<button id="collectionTab" type="button" class="tab-button">' in html
     assert 'class="lucide lucide-list-checks"' in html
     assert '<button id="trainingTab" type="button" class="tab-button">' in html
-    assert 'class="lucide lucide-dumbbell"' in html
+    assert 'class="lucide lucide-dumbbell"' not in html
     assert ".tab-button {\n  display: inline-flex;" in styles
     assert ".tab-button svg {\n  width: 16px;\n  height: 16px;" in styles
 
@@ -2452,7 +2460,7 @@ def test_web_app_header_profile_controls_align_with_source_controls(tmp_path: Pa
     assert 'id="runBenchmark"' not in source_row
     assert 'id="calibrateSelected"' not in source_row
     assert 'id="promoteClassifier"' not in source_row
-    assert "--profile-select-width: 320px;" in styles
+    assert "--profile-select-width: 260px;" in styles
     assert "--header-icon-button-width: 38px;" in styles
     assert "--header-actions-width: var(--header-action-width);" in styles
     assert "--header-grid-columns: minmax(360px, 1fr) var(--header-action-width) var(--header-wide-action-width) var(--header-actions-width);" in styles
@@ -2460,6 +2468,7 @@ def test_web_app_header_profile_controls_align_with_source_controls(tmp_path: Pa
     assert ".profile-controls {\n  display: contents;" in styles
     assert "#profileSelect {\n  grid-column: 1;\n  grid-row: 1;\n  justify-self: end;" in styles
     assert "width: min(var(--profile-select-width), 100%);" in styles
+    assert "height: 38px;" in styles
     assert "#newProfile,\n#chooseSource {\n  grid-column: 2;" in styles
     assert "#settingsTab,\n#loadSource {\n  grid-column: 3;" in styles
     assert "#archiveProfile {\n  grid-column: 4;" in styles
@@ -2470,17 +2479,20 @@ def test_web_app_header_profile_controls_align_with_source_controls(tmp_path: Pa
     assert ".source-status-line {\n  grid-column: 4;" in styles
 
 
-def test_web_app_header_badge_aligns_with_title_text(tmp_path: Path) -> None:
+def test_web_app_profile_select_uses_classifier_badge_style(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
-    styles = (
-        TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
-        .get("/static/styles.css")
-        .text.replace("\r\n", "\n")
-    )
+    client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
+    html = client.get("/").text
+    styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
 
+    assert 'id="activeProfileName"' not in html
+    assert '<select id="profileSelect" title="Active classifier profile"></select>' in html
     assert ".top-bar > div:first-child {\n  grid-column: 1;\n  grid-row: 1;\n  display: flex;\n  align-items: center;" in styles
     assert ".classifier-profile {\n  display: inline-flex;\n  align-items: center;" in styles
+    assert "#profileSelect {\n  grid-column: 1;\n  grid-row: 1;\n  justify-self: end;" in styles
+    assert "margin-left: 0;" in styles
+    assert "#profileSelect option {\n  background: #0f1319;\n  color: var(--text);" in styles
 
 
 def test_web_app_html_colors_manual_labels_by_label_value(tmp_path: Path) -> None:
@@ -2531,7 +2543,11 @@ def test_web_app_summary_uses_compact_badges(tmp_path: Path) -> None:
     assert ".summary-badge {\n  display: inline-flex;" in styles
     assert ".summary-labels {\n  justify-self: end;\n  max-width: 100%;" in styles
     assert "justify-content: flex-end;" in styles
-    assert ".coverage-sonara" in styles
+    assert ".coverage-tracks {\n  border-color: rgba(57, 214, 223, 0.42);" in styles
+    assert ".coverage-tracks span,\n.coverage-tracks b {\n  color: var(--cyan);" in styles
+    assert ".coverage-sonara" not in styles
+    assert ".coverage-maest" not in styles
+    assert ".coverage-mert" not in styles
 
 
 def test_web_app_track_title_does_not_add_separator_without_artist(tmp_path: Path) -> None:

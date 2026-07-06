@@ -2,7 +2,6 @@ const tracksEl = document.getElementById("tracks");
 const queryEl = document.getElementById("query");
 const sourcePathEl = document.getElementById("sourcePath");
 const profileSelectEl = document.getElementById("profileSelect");
-const activeProfileNameEl = document.getElementById("activeProfileName");
 const shutdownLabEl = document.getElementById("shutdownLab");
 const libraryTabEl = document.getElementById("libraryTab");
 const candidatesTabEl = document.getElementById("candidatesTab");
@@ -144,7 +143,6 @@ async function setActiveProfile(profileKey, options = {}) {
     return;
   }
   profileSelectEl.value = activeProfile.classifier_key;
-  activeProfileNameEl.textContent = activeProfile.name;
   latestTrainingReadiness = null;
   latestProfileSummary = null;
   promoteFeatureSetEl = null;
@@ -163,7 +161,6 @@ function clearActiveProfile() {
   latestProfileSummary = null;
   promoteFeatureSetEl = null;
   profileSelectEl.value = "";
-  activeProfileNameEl.textContent = "No profile selected";
   summaryEl.textContent = "";
   pageInfoEl.textContent = "";
   tracksEl.innerHTML = "";
@@ -423,9 +420,6 @@ function formatLabelCounts(labels) {
 function renderSummary(data) {
   const coverage = [
     coverageBadge("Tracks", data.tracks || 0, "tracks"),
-    coverageBadge("SONARA", data.sonara || 0, "sonara"),
-    coverageBadge("MAEST", data.maest || 0, "maest"),
-    coverageBadge("MERT", data.mert || 0, "mert"),
     coverageBadge("Liked", data.liked || 0, "liked")
   ].join("");
   return `
@@ -1404,7 +1398,6 @@ function trackStatusLine(track) {
     trainedStatus(track),
     predictionStatus(track),
     predictionScoreStatus(track),
-    predictionTypeStatus(track),
   ].filter(Boolean).join(" ");
 }
 
@@ -1434,10 +1427,6 @@ function predictionStatus(track) {
 
 function predictionScoreStatus(track) {
   return track.predicted_label ? `<span class="status-item"><b>SCORE</b><span class="status-detail">${formatProbability(predictedScore(track))}</span></span>` : "";
-}
-
-function predictionTypeStatus(track) {
-  return track.predicted_label ? `<span class="status-item"><b>TYPE</b><span class="status-detail">${escapeHtml(track.feature_set)}</span></span>` : "";
 }
 
 function featureStatusBadge(name, value) {

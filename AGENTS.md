@@ -342,3 +342,10 @@ and `.\.venv\Scripts\python.exe tools\rhythm-lab\rhythm_lab_cli.py promote --pro
   conflicts/missing files block apply.
 - SONARA changes: prefer stubbed helpers or small temp WAV fixtures; never rely on a real user music
   library in automated tests.
+
+## Documentation
+
+- When user-facing behavior changes, check whether docs, examples, or changelogs need updates.
+- Public docs must only include public information or behavior visible in this repo.
+- Preserve existing terminology and frontmatter.
+- Run the docs formatting and build checks before final handoff.

@@ -86,6 +86,13 @@ List collections:
 python tools\rhythm-lab\rhythm_lab_cli.py collection-list --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
+## Liked tracks
+
+Track rows include a heart button for the shared liked state. The Liked count in
+the Coverage strip opens the liked-track view for the current source database.
+This updates the main library SQLite `track_likes` table only; it does not write
+audio files or tags.
+
 ## Active-learning queue
 
 The CLI can list, export, mark, and clear queue rows with `queue`, `queue-export`, `queue-mark`, and `queue-clear`. Queue commands are profile-scoped and require `--profile`.
@@ -136,7 +143,8 @@ Omit `feature_set` to use the current default promotion variant.
 ## Safety
 
 Rhythm Lab does not rewrite source audio. Its normal data stays under
-`tools/rhythm-lab/data/` and `tools/rhythm-lab/artifacts/`. Profile deletion
+`tools/rhythm-lab/data/` and `tools/rhythm-lab/artifacts/`. The explicit
+liked-track toggle updates the main library SQLite liked state. Profile deletion
 can remove Rhythm Lab database rows and local training artifacts for one
 profile. Promoted runtime models live under `models/classifiers/`, are not
 removed by profile deletion, and should not be committed unless you

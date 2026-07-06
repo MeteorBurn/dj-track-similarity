@@ -38,6 +38,7 @@ These operations do not modify source audio files:
 | Relocation apply | stored SQLite paths only |
 | Export | new M3U or CSV file |
 | Classifier scoring | SQLite classifier scores |
+| Liked-track toggle | SQLite liked state only |
 
 ## Source-file write paths
 

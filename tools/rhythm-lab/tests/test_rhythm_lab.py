@@ -2043,8 +2043,9 @@ def test_web_app_html_contains_source_database_controls(tmp_path: Path) -> None:
     assert 'fetch("/api/shutdown"' in script
     assert "async function shutdownLab()" in script
     assert ".icon-button.rhythm-lab-stop-button" in styles
-    assert "width: 30px" in stop_button_rule
-    assert "height: 30px" in stop_button_rule
+    assert "width:" not in stop_button_rule
+    assert "height:" not in stop_button_rule
+    assert "flex:" not in stop_button_rule
     assert "margin-left: 14px" in stop_button_rule
     assert 'id="sourcePath"' in html
     assert 'id="chooseSource"' in html
@@ -2461,6 +2462,7 @@ def test_web_app_header_profile_controls_align_with_source_controls(tmp_path: Pa
     assert 'id="calibrateSelected"' not in source_row
     assert 'id="promoteClassifier"' not in source_row
     assert "--profile-select-width: 260px;" in styles
+    assert "--header-title-inset" not in styles
     assert "--header-icon-button-width: 38px;" in styles
     assert "--header-actions-width: var(--header-action-width);" in styles
     assert "--header-grid-columns: minmax(360px, 1fr) var(--header-action-width) var(--header-wide-action-width) var(--header-actions-width);" in styles
@@ -2489,6 +2491,7 @@ def test_web_app_profile_select_uses_classifier_badge_style(tmp_path: Path) -> N
     assert 'id="activeProfileName"' not in html
     assert '<select id="profileSelect" title="Active classifier profile"></select>' in html
     assert ".top-bar > div:first-child {\n  grid-column: 1;\n  grid-row: 1;\n  display: flex;\n  align-items: center;" in styles
+    assert "padding-left: var(--header-title-inset);" not in styles
     assert ".classifier-profile {\n  display: inline-flex;\n  align-items: center;" in styles
     assert "#profileSelect {\n  grid-column: 1;\n  grid-row: 1;\n  justify-self: end;" in styles
     assert "margin-left: 0;" in styles

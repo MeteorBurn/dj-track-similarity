@@ -199,9 +199,6 @@ main {
 }
 
 .icon-button.rhythm-lab-stop-button {
-  width: 30px;
-  height: 30px;
-  flex: 0 0 30px;
   margin-left: 14px;
   border-color: rgba(255, 95, 137, 0.48);
   background: rgba(255, 95, 137, 0.12);
@@ -209,8 +206,8 @@ main {
 }
 
 .icon-button.rhythm-lab-stop-button svg {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
 }
 
 .icon-button.rhythm-lab-stop-button:hover:not(:disabled) {

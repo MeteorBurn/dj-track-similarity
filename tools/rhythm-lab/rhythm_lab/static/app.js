@@ -5,7 +5,6 @@ const profileSelectEl = document.getElementById("profileSelect");
 const shutdownLabEl = document.getElementById("shutdownLab");
 const libraryTabEl = document.getElementById("libraryTab");
 const candidatesTabEl = document.getElementById("candidatesTab");
-const likedTabEl = document.getElementById("likedTab");
 const collectionTabEl = document.getElementById("collectionTab");
 const trainingTabEl = document.getElementById("trainingTab");
 const settingsTabEl = document.getElementById("settingsTab");
@@ -25,7 +24,8 @@ const candidateMinBrokenEl = document.getElementById("candidateMinBroken");
 const candidateMinPositiveEl = document.getElementById("candidateMinPositive");
 const deleteProfileEl = document.getElementById("deleteProfile");
 const refreshCandidatesStatusEl = document.getElementById("refreshCandidatesStatus");
-const summaryEl = document.getElementById("summary");
+const summaryCoverageEl = document.getElementById("summaryCoverage");
+const summaryLabelsEl = document.getElementById("summaryLabels");
 const pageSizeEl = document.getElementById("pageSize");
 const pageNumberEl = document.getElementById("pageNumber");
 const prevPageEl = document.getElementById("prevPage");
@@ -76,7 +76,10 @@ profileSelectEl.addEventListener("change", () => {
 });
 libraryTabEl.addEventListener("click", () => switchView("library"));
 candidatesTabEl.addEventListener("click", () => switchView("candidates"));
-likedTabEl.addEventListener("click", () => switchView("liked"));
+summaryCoverageEl.addEventListener("click", event => {
+  const likedButton = event.target instanceof Element ? event.target.closest("#likedTab") : null;
+  if (likedButton) switchView("liked");
+});
 collectionTabEl.addEventListener("click", () => switchView("collection"));
 trainingTabEl.addEventListener("click", () => switchView("training"));
 settingsTabEl.addEventListener("click", () => switchView("settings"));
@@ -161,7 +164,8 @@ function clearActiveProfile() {
   latestProfileSummary = null;
   promoteFeatureSetEl = null;
   profileSelectEl.value = "";
-  summaryEl.textContent = "";
+  summaryCoverageEl.textContent = "";
+  summaryLabelsEl.textContent = "";
   pageInfoEl.textContent = "";
   tracksEl.innerHTML = "";
   trainingPanelEl.innerHTML = "";
@@ -345,7 +349,7 @@ async function switchView(view) {
   offset = viewOffsets[view] || 0;
   libraryTabEl.classList.toggle("active", view === "library");
   candidatesTabEl.classList.toggle("active", view === "candidates");
-  likedTabEl.classList.toggle("active", view === "liked");
+  document.getElementById("likedTab")?.classList.toggle("active", view === "liked");
   collectionTabEl.classList.toggle("active", view === "collection");
   trainingTabEl.classList.toggle("active", view === "training");
   settingsTabEl.classList.toggle("active", view === "settings");
@@ -408,7 +412,7 @@ async function loadSummary(sequence = loadSequence) {
   const data = await fetch(`/api/profiles/${activeProfile.classifier_key}/summary`).then(parseJsonResponse);
   if (sequence !== loadSequence) return;
   latestProfileSummary = data;
-  summaryEl.innerHTML = renderSummary(data);
+  renderSummary(data);
   renderGuidance(data);
 }
 
@@ -422,16 +426,26 @@ function renderSummary(data) {
     coverageBadge("Tracks", data.tracks || 0, "tracks"),
     coverageBadge("Liked", data.liked || 0, "liked")
   ].join("");
-  return `
+  summaryCoverageEl.innerHTML = `
     <span class="summary-group summary-coverage" aria-label="Feature coverage">
       <span class="summary-group-title">Coverage</span>${coverage}
-    </span>
+    </span>`;
+  summaryLabelsEl.innerHTML = `
     <span class="summary-group summary-labels" aria-label="Label counts">
       <span class="summary-group-title">Labels</span>${labelCountBadges(data.labels || {})}
     </span>`;
 }
 
 function coverageBadge(label, value, key) {
+  if (key === "liked") {
+    return `
+      <button id="likedTab" type="button" class="summary-badge coverage-liked${activeView === "liked" ? " active" : ""}" title="Show liked tracks" aria-label="Show liked tracks">
+        <svg class="lucide lucide-heart" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
+        </svg>
+        <span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b>
+      </button>`;
+  }
   return `<span class="summary-badge coverage-${escapeHtml(key)}"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b></span>`;
 }
 

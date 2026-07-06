@@ -247,9 +247,21 @@ main {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   flex: 1 1 100%;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   min-width: 0;
+}
+
+#summaryCoverage,
+#summaryLabels {
+  display: inline-flex;
+  min-width: 0;
+}
+
+#summaryLabels {
+  justify-self: end;
+  justify-content: flex-end;
+  max-width: 100%;
 }
 
 .summary-group {
@@ -292,8 +304,14 @@ main {
   font-variant-numeric: tabular-nums;
 }
 
+.summary-badge svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  pointer-events: none;
+}
+
 .summary-labels {
-  justify-self: end;
   max-width: 100%;
   justify-content: flex-end;
 }
@@ -312,6 +330,18 @@ main {
 .coverage-liked {
   border-color: rgba(255, 95, 137, 0.42);
   background: rgba(255, 95, 137, 0.1);
+}
+
+.coverage-liked:hover:not(:disabled),
+.coverage-liked.active {
+  border-color: var(--rose);
+  background: rgba(255, 95, 137, 0.18);
+  color: #ffd6df;
+}
+
+.coverage-liked.active span,
+.coverage-liked.active b {
+  color: #ffd6df;
 }
 
 .source-path {
@@ -1012,6 +1042,15 @@ menu {
   #collectionSelect {
     width: min(320px, 100%);
     min-width: min(220px, 100%);
+  }
+
+  .summary-strip {
+    grid-template-columns: 1fr;
+  }
+
+  #summaryLabels {
+    justify-self: start;
+    justify-content: flex-start;
   }
 
   #profileSelect,

@@ -2191,8 +2191,8 @@ def test_web_app_serves_static_profile_ui_without_hardcoded_label_buttons(tmp_pa
     script = client.get("/static/app.js").text
     styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
 
-    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260706-shutdown-button" />' in html
-    assert '<script src="/static/app.js?v=rhythm-lab-20260706-profile-delete" defer></script>' in html
+    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260706-liked-badge" />' in html
+    assert '<script src="/static/app.js?v=rhythm-lab-20260706-liked-badge" defer></script>' in html
     assert '<select id="profileSelect" title="Active classifier profile"></select>' in html
     assert '<button id="deleteProfile" type="button">Delete</button>' in html
     assert 'id="archiveProfile"' not in html
@@ -2260,7 +2260,6 @@ def test_static_ui_non_submit_buttons_have_explicit_button_type(tmp_path: Path) 
         "loadSource",
         "libraryTab",
         "candidatesTab",
-        "likedTab",
         "settingsTab",
         "shuffleLibraryOrder",
         "load",
@@ -2268,6 +2267,7 @@ def test_static_ui_non_submit_buttons_have_explicit_button_type(tmp_path: Path) 
         "nextPage",
     ):
         assert f'<button id="{button_id}" type="button"' in html
+    assert '<button id="likedTab" type="button" class="summary-badge coverage-liked${activeView === "liked" ? " active" : ""}"' in script
     assert 'return `<button id="${id}" data-training-action="${action}" type="button" class="workflow-action-button ${className}"' in script
     assert '<button type="button" class="${active}" data-action="label" data-label="${escapeHtml(label.key)}">' in script
     assert 'buttons.push(\'<button type="button" data-action="label" data-label="">Clear</button>\');' in script
@@ -2323,7 +2323,7 @@ def test_web_app_html_contains_candidates_tab(tmp_path: Path) -> None:
 
     assert 'id="libraryTab"' in html
     assert 'id="candidatesTab"' in html
-    assert 'id="likedTab"' in html
+    assert 'id="likedTab"' in script
     assert 'id="candidateMinBroken"' in html
     assert '<option value="positive_highest" selected>highest positive probability</option>' in html
     assert '<option value="negative_highest">highest negative probability</option>' in html
@@ -2462,6 +2462,7 @@ def test_web_app_training_tab_adds_workflow_and_bottom_training_stats(tmp_path: 
 
     client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
     script = client.get("/static/app.js").text
+    script = client.get("/static/app.js").text
     styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
 
     assert '<div class="classifier-workflow-card">' in script
@@ -2520,20 +2521,26 @@ def test_web_app_navigation_tabs_have_icons(tmp_path: Path) -> None:
 
     client = TestClient(create_app(labels_db_path=tmp_path / "labels.sqlite"))
     html = client.get("/").text
+    script = client.get("/static/app.js").text
     styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
 
     assert '<button id="libraryTab" type="button" class="tab-button active">' in html
     assert 'class="lucide lucide-library-big"' in html
     assert '<button id="candidatesTab" type="button" class="tab-button">' in html
     assert 'class="lucide lucide-sparkles"' in html
-    assert '<button id="likedTab" type="button" class="tab-button">' in html
-    assert 'class="lucide lucide-heart"' in html
+    assert '<button id="likedTab" type="button" class="summary-badge coverage-liked${activeView === "liked" ? " active" : ""}"' in script
+    assert 'class="lucide lucide-heart"' in script
+    assert 'summaryCoverageEl.addEventListener("click", event => {' in script
     assert '<button id="collectionTab" type="button" class="tab-button">' in html
     assert 'class="lucide lucide-list-checks"' in html
+    tabs = html.split('<nav class="tabs">', 1)[1].split("</nav>", 1)[0]
+    assert tabs.index('id="candidatesTab"') < tabs.index('id="collectionTab"')
+    assert 'id="likedTab"' not in tabs
     assert '<button id="trainingTab" type="button" class="tab-button">' in html
     assert 'class="lucide lucide-dumbbell"' not in html
     assert ".tab-button {\n  display: inline-flex;" in styles
     assert ".tab-button svg {\n  width: 16px;\n  height: 16px;" in styles
+    assert ".summary-badge svg {\n  width: 14px;" in styles
 
 
 def test_web_app_header_profile_controls_align_with_source_controls(tmp_path: Path) -> None:
@@ -2637,12 +2644,15 @@ def test_web_app_summary_uses_compact_badges(tmp_path: Path) -> None:
 
     assert ".summary-strip {\n  display: grid;" in styles
     assert "grid-template-columns: auto minmax(0, 1fr);" in styles
+    assert "#summaryCoverage,\n#summaryLabels {\n  display: inline-flex;" in styles
+    assert "#summaryLabels {\n  justify-self: end;" in styles
     assert ".summary-group {\n  display: inline-flex;" in styles
     assert ".summary-badge {\n  display: inline-flex;" in styles
-    assert ".summary-labels {\n  justify-self: end;\n  max-width: 100%;" in styles
+    assert ".summary-labels {\n  max-width: 100%;" in styles
     assert "justify-content: flex-end;" in styles
     assert ".coverage-tracks {\n  border-color: rgba(57, 214, 223, 0.42);" in styles
     assert ".coverage-tracks span,\n.coverage-tracks b {\n  color: var(--cyan);" in styles
+    assert ".coverage-liked:hover:not(:disabled),\n.coverage-liked.active {" in styles
     assert ".coverage-sonara" not in styles
     assert ".coverage-maest" not in styles
     assert ".coverage-mert" not in styles

@@ -184,6 +184,151 @@ def test_custom_modifiers_bias_direction_without_hardcoded_mood(tmp_path: Path) 
     assert "modifier_valence" in brighter_results[0].score_breakdown
 
 
+def test_custom_vector_field_does_not_drown_scalar_mixer_fields(tmp_path: Path) -> None:
+    # mfcc_mean expands into many dimensions. Its weight is split across components so it contributes
+    # its intended field weight once, letting the scalar timbre fields still influence the ranking.
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed = _add_sonara_track(
+        db,
+        "seed.wav",
+        {
+            "mfcc_mean": [0.0] * 13,
+            "spectral_centroid_mean": 1600,
+            "spectral_bandwidth_mean": 1500,
+            "spectral_rolloff_mean": 3200,
+            "spectral_flatness_mean": 0.2,
+            "spectral_contrast_mean": [1.0] * 7,
+        },
+    )
+    # Same mfcc as seed, but far on every scalar timbre field.
+    scalar_far = _add_sonara_track(
+        db,
+        "scalar-far.wav",
+        {
+            "mfcc_mean": [0.0] * 13,
+            "spectral_centroid_mean": 5000,
+            "spectral_bandwidth_mean": 4200,
+            "spectral_rolloff_mean": 9000,
+            "spectral_flatness_mean": 0.02,
+            "spectral_contrast_mean": [8.0] * 7,
+        },
+    )
+    # Different mfcc, but close on every scalar timbre field.
+    scalar_close = _add_sonara_track(
+        db,
+        "scalar-close.wav",
+        {
+            "mfcc_mean": [3.0] * 13,
+            "spectral_centroid_mean": 1620,
+            "spectral_bandwidth_mean": 1520,
+            "spectral_rolloff_mean": 3250,
+            "spectral_flatness_mean": 0.21,
+            "spectral_contrast_mean": [1.1] * 7,
+        },
+    )
+
+    results = SonaraSimilaritySearch(db).search(
+        [seed],
+        mode="custom",
+        mixer_weights={"timbre": 1.0, "rhythm": 0.0, "dynamics": 0.0, "harmonic": 0.0, "tempo": 0.0},
+        limit=5,
+    )
+
+    # If mfcc dominated (weight * 13), scalar_far would win. With the per-dimension split, the track
+    # that matches the scalar timbre fields ranks first.
+    assert [result.track.id for result in results] == [scalar_close, scalar_far]
+
+
+def test_custom_modifier_on_group_shared_field_still_biases_direction(tmp_path: Path) -> None:
+    # energy is both a dynamics-group field and the Energy modifier field. The modifier must win the
+    # direction instead of being canceled by the group pulling toward the seed.
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed = _add_sonara_track(
+        db,
+        "seed.wav",
+        {"energy": 0.5, "rms_mean": 0.2, "rms_max": 0.5, "loudness_lufs": -10.0, "dynamic_range_db": 8.0},
+    )
+    higher = _add_sonara_track(
+        db,
+        "higher.wav",
+        {"energy": 0.9, "rms_mean": 0.2, "rms_max": 0.5, "loudness_lufs": -10.0, "dynamic_range_db": 8.0},
+    )
+    lower = _add_sonara_track(
+        db,
+        "lower.wav",
+        {"energy": 0.1, "rms_mean": 0.2, "rms_max": 0.5, "loudness_lufs": -10.0, "dynamic_range_db": 8.0},
+    )
+
+    higher_results = SonaraSimilaritySearch(db).search(
+        [seed],
+        mode="custom",
+        mixer_weights={"timbre": 0.0, "rhythm": 0.0, "dynamics": 1.0, "harmonic": 0.0, "tempo": 0.0},
+        modifiers={"energy": 1.0},
+        limit=5,
+    )
+    lower_results = SonaraSimilaritySearch(db).search(
+        [seed],
+        mode="custom",
+        mixer_weights={"timbre": 0.0, "rhythm": 0.0, "dynamics": 1.0, "harmonic": 0.0, "tempo": 0.0},
+        modifiers={"energy": -1.0},
+        limit=5,
+    )
+
+    assert higher_results[0].track.id == higher
+    assert lower_results[0].track.id == lower
+
+
+def test_custom_harmonic_knob_is_not_a_hard_exact_key_gate(tmp_path: Path) -> None:
+    # The Harmonic knob should reflect harmonic color, so a track with very close chroma/dissonance
+    # but a different key should still be able to outrank a same-key track that is harmonically far.
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed = _add_sonara_track(
+        db,
+        "seed.wav",
+        {
+            "chroma_mean": [0.5] * 12,
+            "dissonance": 0.1,
+            "chord_change_rate": 0.3,
+            "key_confidence": 0.8,
+            "key": "A minor",
+            "predominant_chord": "Am",
+        },
+    )
+    color_close_diff_key = _add_sonara_track(
+        db,
+        "color-close.wav",
+        {
+            "chroma_mean": [0.5] * 12,
+            "dissonance": 0.11,
+            "chord_change_rate": 0.31,
+            "key_confidence": 0.79,
+            "key": "F# major",
+            "predominant_chord": "F#",
+        },
+    )
+    same_key_color_far = _add_sonara_track(
+        db,
+        "same-key-far.wav",
+        {
+            "chroma_mean": [0.02] * 12,
+            "dissonance": 0.9,
+            "chord_change_rate": 0.95,
+            "key_confidence": 0.1,
+            "key": "A minor",
+            "predominant_chord": "Am",
+        },
+    )
+
+    results = SonaraSimilaritySearch(db).search(
+        [seed],
+        mode="custom",
+        mixer_weights={"timbre": 0.0, "rhythm": 0.0, "dynamics": 0.0, "harmonic": 1.0, "tempo": 0.0},
+        limit=5,
+    )
+
+    assert results[0].track.id == color_close_diff_key
+
+
 def test_custom_mixer_reads_wrapped_sonara_feature_values(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     seed = _add_sonara_track(

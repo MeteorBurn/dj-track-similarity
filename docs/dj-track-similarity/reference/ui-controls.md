@@ -30,7 +30,7 @@
 | Similarity | `0.00..1.00` | MERT and SONARA threshold |
 | CLAP Similarity | raw text score threshold | not comparable to MERT seed scores |
 | Limit | `1..500` | search result count |
-| SONARA mixer | UI sliders `0..3`, API allows `0..5` | timbre, rhythm, dynamics, harmonic, tempo |
+| SONARA mixer | `0..5` | timbre, rhythm, dynamics, harmonic, tempo |
 | SONARA modifiers | `-1..1` | directional bias from seed context |
 
 Tempo-aware search filters resolve BPM from stored SONARA analysis first, then from the Mutagen BPM

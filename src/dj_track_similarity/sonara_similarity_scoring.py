@@ -105,6 +105,18 @@ CUSTOM_MODIFIER_FIELDS = {
     "dynamic_range": "dynamic_range_db",
     "loudness": "loudness_lufs",
 }
+# The custom Harmonic knob should reflect harmonic color (chroma, dissonance, chord movement), not
+# act as an exact-key gate. Standard modes weight exact key/chord text at 4.0/3.0; in the custom
+# harmonic group we keep tonal-text agreement as a lighter nudge so a matching key helps without
+# dominating the group.
+CUSTOM_HARMONIC_TONAL_WEIGHTS = {
+    "key": 0.9,
+    "predominant_chord": 0.6,
+}
+# A modifier is a deliberate directional push. Give it enough weight that a maxed knob is actually
+# felt in the final ranking instead of being averaged away by the mixer-group weights, while still
+# staying bounded so it cannot completely override sonic similarity.
+MODIFIER_GAIN = 2.5
 
 
 def sonara_features(track: Track) -> dict[str, object] | None:
@@ -139,14 +151,32 @@ def numeric_dimensions(
         indexes = sorted(index for name, index in values if name == field)
         if not indexes and (field, None) in values:
             indexes = [None]
-        for index in indexes:
+        valid_indexes = [index for index in indexes if len(values.get((field, index), [])) >= 2]
+        if not valid_indexes:
+            continue
+        # A vector feature (e.g. mfcc_mean has 13 components, chroma_mean 12) expands into one
+        # dimension per component. Split the field weight across its components so the field
+        # contributes its intended weight once, instead of weight * component_count. Without this a
+        # single vector field dominates its whole mixer group.
+        per_dimension_weight = weight / len(valid_indexes)
+        for index in valid_indexes:
             key = (field, index)
-            observed = values.get(key, [])
-            if len(observed) < 2:
-                continue
-            dimensions.append((field, index, weight))
-            ranges[key] = (min(observed), max(observed))
+            dimensions.append((field, index, per_dimension_weight))
+            ranges[key] = _robust_range(values[key])
     return dimensions, ranges
+
+
+def _robust_range(observed: list[float]) -> tuple[float, float]:
+    # Library-wide min/max is dominated by rare outliers (e.g. loudness_lufs reaches -70 dB, so its
+    # useful inter-quartile band collapses to ~4% of the 0-1 scale and every knob barely moves the
+    # ranking). Use the 2nd-98th percentile as the normalization band so typical values spread across
+    # the full range; fall back to raw min/max when the percentile band is degenerate.
+    array = np.asarray(observed, dtype=np.float64)
+    lower = float(np.percentile(array, 2.0))
+    upper = float(np.percentile(array, 98.0))
+    if upper <= lower:
+        return float(array.min()), float(array.max())
+    return lower, upper
 
 
 def feature_values(features: dict[str, object], field: str) -> list[tuple[tuple[str, int | None], float]]:
@@ -237,10 +267,19 @@ def score_custom_candidate(
     total_weight = 0.0
     breakdown: dict[str, float] = {}
 
+    # A field driven by an active modifier is scored directionally by that modifier. Exclude it from
+    # group similarity so the two do not fight (e.g. the Energy modifier pushing away from the seed
+    # while the Dynamics group pulls toward it), which otherwise cancels the knob out.
+    modifier_fields = {
+        CUSTOM_MODIFIER_FIELDS[name] for name, direction in modifiers.items() if direction != 0
+    }
+
     for group_name, group_weight in mixer_weights.items():
         if group_weight <= 0:
             continue
-        group_score = score_custom_group(item, group_name, dimensions, ranges, feature_centroid, tonal_context)
+        group_score = score_custom_group(
+            item, group_name, dimensions, ranges, feature_centroid, tonal_context, exclude_fields=modifier_fields
+        )
         if group_score is None:
             continue
         weighted_score += group_score * group_weight
@@ -253,7 +292,7 @@ def score_custom_candidate(
         modifier_score = score_modifier(item, modifier_name, direction, ranges, feature_centroid)
         if modifier_score is None:
             continue
-        modifier_weight = abs(direction)
+        modifier_weight = abs(direction) * MODIFIER_GAIN
         weighted_score += modifier_score * modifier_weight
         total_weight += modifier_weight
         breakdown[f"modifier_{modifier_name}"] = round(modifier_score, 6)
@@ -271,12 +310,25 @@ def score_custom_group(
     ranges: dict[tuple[str, int | None], tuple[float, float]],
     feature_centroid: dict[tuple[str, int | None], float],
     tonal_context: dict[str, set[str]],
+    *,
+    exclude_fields: set[str] | None = None,
 ) -> float | None:
     field_weights = CUSTOM_GROUP_WEIGHTS[group_name]
+    excluded = exclude_fields or set()
+    # A vector feature (mfcc_mean=13, chroma_mean=12 components) expands into one dimension per
+    # component. Split its group weight across those components so the field contributes its intended
+    # weight once, instead of weight * component_count, which otherwise lets a single vector field
+    # dominate the whole group and drown the scalar knobs.
+    dimension_counts: dict[str, int] = {}
+    for field, _index, _weight in dimensions:
+        if field in field_weights:
+            dimension_counts[field] = dimension_counts.get(field, 0) + 1
     weighted_score = 0.0
     total_weight = 0.0
     for field, index, _ in dimensions:
         if field not in field_weights:
+            continue
+        if field in excluded:
             continue
         key = (field, index)
         if key not in feature_centroid:
@@ -291,12 +343,12 @@ def score_custom_group(
             if value is None:
                 continue
             score = max(0.0, 1.0 - abs(value - feature_centroid[key]))
-        weight = field_weights[field]
+        weight = field_weights[field] / dimension_counts[field]
         weighted_score += score * weight
         total_weight += weight
 
     if group_name == "harmonic":
-        for field, weight in TONAL_TEXT_WEIGHTS.items():
+        for field, weight in CUSTOM_HARMONIC_TONAL_WEIGHTS.items():
             context_values = tonal_context.get(field, set())
             candidate = normalize_text(item.features.get(field))
             if not context_values or candidate is None:
@@ -396,7 +448,10 @@ def normalize_feature(value: float, value_range: tuple[float, float]) -> float |
     lower, upper = value_range
     if upper == lower:
         return 0.5
-    return (value - lower) / (upper - lower)
+    # The range is a robust 2-98 percentile band, so values below/above the band land outside
+    # [0, 1]. Clamp them so the extreme tails collapse onto the band edges instead of distorting
+    # centroid means and similarity distances.
+    return max(0.0, min(1.0, (value - lower) / (upper - lower)))
 
 
 def denormalize_feature(value: float, value_range: tuple[float, float]) -> float:

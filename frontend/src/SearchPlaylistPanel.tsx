@@ -1014,7 +1014,7 @@ export function SearchPlaylistPanel({
                     <input
                       type="range"
                       min={0}
-                      max={3}
+                      max={5}
                       step={0.05}
                       value={filters.sonaraMixer[control.key]}
                       title={control.title}

@@ -526,6 +526,95 @@ def test_web_app_profile_scoped_track_labels_are_isolated(tmp_path: Path) -> Non
     assert RhythmLabDatabase(labels_path, classifier_key="break_energy").label_for_track(track_id) is None
 
 
+def test_web_app_delete_profile_requires_confirmation_and_removes_lab_data_and_artifacts(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    source_path = tmp_path / "source.sqlite"
+    source = LibraryDatabase(source_path)
+    track_id = _track(source, tmp_path, "voice.wav", title="Voice")
+    labels_path = tmp_path / "labels.sqlite"
+    artifact_dir = tmp_path / "artifacts" / "vocal-presence"
+    promoted_dir = tmp_path / "models" / "classifiers" / "vocal-presence"
+    artifact_dir.mkdir(parents=True)
+    promoted_dir.mkdir(parents=True)
+    model_artifact = artifact_dir / "vocal-presence-combined-20260524T110000Z.joblib"
+    metrics_artifact = artifact_dir / "vocal-presence-combined-20260524T110000Z.metrics.json"
+    unrelated_artifact = artifact_dir / "texture-combined-20260524T110000Z.joblib"
+    promoted_model = promoted_dir / "model.joblib"
+    promoted_manifest = promoted_dir / "model.json"
+    model_artifact.write_bytes(b"model")
+    metrics_artifact.write_text("{}", encoding="utf-8")
+    unrelated_artifact.write_bytes(b"other")
+    promoted_model.write_bytes(b"promoted")
+    promoted_manifest.write_text("{}", encoding="utf-8")
+    labels = RhythmLabDatabase(labels_path)
+    labels.create_profile(
+        classifier_key="vocal_presence",
+        name="Vocal Presence",
+        description="Detect obvious vocal parts.",
+        artifact_dir=artifact_dir,
+        artifact_prefix="vocal-presence",
+        labels=[
+            {"key": "vocal", "name": "Vocal", "role": "positive"},
+            {"key": "instrumental", "name": "Instrumental", "role": "negative"},
+            {"key": "uncertain", "name": "Uncertain", "role": "review"},
+        ],
+    )
+    scoped = RhythmLabDatabase(labels_path, classifier_key="vocal_presence")
+    scoped.set_label(source.get_track(track_id), "vocal")
+    scoped.save_prediction(
+        source.get_track(track_id),
+        feature_set="combined",
+        model_artifact=model_artifact,
+        label="vocal",
+        confidence=0.9,
+        probabilities={"vocal": 0.9, "instrumental": 0.1},
+    )
+    scoped.upsert_label_queue_items(
+        mode="uncertainty",
+        items=[{"source_track_id": track_id, "score": 0.48, "priority": 10.0, "reason": {"reason": "near decision boundary"}}],
+    )
+    scoped.record_training_checkpoint({"vocal": 1, "instrumental": 0}, model_artifact=model_artifact)
+    client = TestClient(
+        create_app(source_path, labels_db_path=labels_path, classifier_target_root=tmp_path / "models" / "classifiers")
+    )
+
+    rejected = client.request("DELETE", "/api/profiles/vocal_presence", json={"confirm": "wrong"})
+    deleted = client.request("DELETE", "/api/profiles/vocal_presence", json={"confirm": "Vocal Presence"})
+
+    assert rejected.status_code == 400
+    assert "confirmation" in rejected.json()["detail"].lower()
+    assert deleted.status_code == 200
+    payload = deleted.json()
+    assert payload["deleted"] is True
+    assert payload["classifier_key"] == "vocal_presence"
+    assert payload["artifact_cleanup"]["deleted_files"] == 2
+    assert payload["artifact_cleanup"]["removed_dirs"] == 0
+    assert not model_artifact.exists()
+    assert not metrics_artifact.exists()
+    assert unrelated_artifact.exists()
+    assert promoted_model.exists()
+    assert promoted_manifest.exists()
+    with labels.connect() as connection:
+        for table in (
+            "classifier_profile_labels",
+            "classifier_labels",
+            "classifier_label_queue",
+            "classifier_predictions",
+            "classifier_training_checkpoints",
+        ):
+            count = connection.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE classifier_key = 'vocal_presence'"
+            ).fetchone()[0]
+            assert count == 0, table
+    try:
+        labels.get_profile("vocal_presence")
+    except KeyError:
+        pass
+    else:  # pragma: no cover - defensive guard.
+        raise AssertionError("deleted profile still exists")
+
+
 def test_web_app_creates_multiclass_profile_from_request(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
@@ -2043,10 +2132,11 @@ def test_web_app_html_contains_source_database_controls(tmp_path: Path) -> None:
     assert 'fetch("/api/shutdown"' in script
     assert "async function shutdownLab()" in script
     assert ".icon-button.rhythm-lab-stop-button" in styles
-    assert "width:" not in stop_button_rule
-    assert "height:" not in stop_button_rule
-    assert "flex:" not in stop_button_rule
+    assert "width: 30px" in stop_button_rule
+    assert "height: 30px" in stop_button_rule
+    assert "flex: 0 0 30px" in stop_button_rule
     assert "margin-left: 14px" in stop_button_rule
+    assert "border-radius: 6px" in stop_button_rule
     assert 'id="sourcePath"' in html
     assert 'id="chooseSource"' in html
     assert 'id="loadSource"' in html
@@ -2101,10 +2191,15 @@ def test_web_app_serves_static_profile_ui_without_hardcoded_label_buttons(tmp_pa
     script = client.get("/static/app.js").text
     styles = client.get("/static/styles.css").text.replace("\r\n", "\n")
 
-    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260706-profile-select" />' in html
-    assert '<script src="/static/app.js?v=rhythm-lab-20260706-profile-select" defer></script>' in html
+    assert '<link rel="stylesheet" href="/static/styles.css?v=rhythm-lab-20260706-shutdown-button" />' in html
+    assert '<script src="/static/app.js?v=rhythm-lab-20260706-profile-delete" defer></script>' in html
     assert '<select id="profileSelect" title="Active classifier profile"></select>' in html
+    assert '<button id="deleteProfile" type="button">Delete</button>' in html
+    assert 'id="archiveProfile"' not in html
     assert "/api/profiles" in script
+    assert "function deleteActiveProfile()" in script
+    assert 'const confirmation = window.prompt(' in script
+    assert 'method: "DELETE"' in script
     assert "function renderLabelButtons" in script
     assert '<button data-label="broken">Broken</button>' not in html
     assert "classifier-gradient" in styles
@@ -2160,7 +2255,7 @@ def test_static_ui_non_submit_buttons_have_explicit_button_type(tmp_path: Path) 
 
     for button_id in (
         "newProfile",
-        "archiveProfile",
+        "deleteProfile",
         "chooseSource",
         "loadSource",
         "libraryTab",
@@ -2451,7 +2546,7 @@ def test_web_app_header_profile_controls_align_with_source_controls(tmp_path: Pa
     profile_controls = html.split('<div class="profile-controls">', 1)[1].split("</div>", 1)[0]
     tabs = html.split('<nav class="tabs">', 1)[1].split("</nav>", 1)[0]
     source_row = html.split('<section class="source-row">', 1)[1].split("</section>", 1)[0]
-    assert profile_controls.index('id="settingsTab"') < profile_controls.index('id="archiveProfile"')
+    assert profile_controls.index('id="settingsTab"') < profile_controls.index('id="deleteProfile"')
     assert 'id="settingsTab"' not in tabs
     assert 'id="trainingTab"' not in tabs
     assert source_row.index('id="loadSource"') < source_row.index('class="source-actions"')
@@ -2473,10 +2568,10 @@ def test_web_app_header_profile_controls_align_with_source_controls(tmp_path: Pa
     assert "height: 38px;" in styles
     assert "#newProfile,\n#chooseSource {\n  grid-column: 2;" in styles
     assert "#settingsTab,\n#loadSource {\n  grid-column: 3;" in styles
-    assert "#archiveProfile {\n  grid-column: 4;" in styles
+    assert "#deleteProfile {\n  grid-column: 4;" in styles
     assert ".source-actions {\n  grid-column: 4;" in styles
     assert ".source-actions {\n  grid-column: 4;\n  display: inline-flex;\n  align-items: center;\n  justify-content: flex-start;" in styles
-    assert "#archiveProfile,\n#trainingTab {\n  width: var(--header-action-width);" in styles
+    assert "#deleteProfile,\n#trainingTab {\n  width: var(--header-action-width);" in styles
     assert "#trainingTab {\n  flex: 0 0 var(--header-action-width);" in styles
     assert ".source-status-line {\n  grid-column: 4;" in styles
 

@@ -153,14 +153,25 @@ main {
   width: 100%;
 }
 
-#archiveProfile {
+#deleteProfile {
   grid-column: 4;
   justify-self: start;
 }
 
-#archiveProfile,
+#deleteProfile,
 #trainingTab {
   width: var(--header-action-width);
+}
+
+#deleteProfile {
+  border-color: rgba(255, 95, 137, 0.45);
+  background: rgba(255, 95, 137, 0.1);
+  color: #ffd6df;
+}
+
+#deleteProfile:hover:not(:disabled) {
+  border-color: var(--rose);
+  background: rgba(255, 95, 137, 0.16);
 }
 
 #trainingTab {
@@ -199,15 +210,19 @@ main {
 }
 
 .icon-button.rhythm-lab-stop-button {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
   margin-left: 14px;
+  border-radius: 6px;
   border-color: rgba(255, 95, 137, 0.48);
   background: rgba(255, 95, 137, 0.12);
   color: #ffd6df;
 }
 
 .icon-button.rhythm-lab-stop-button svg {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
 }
 
 .icon-button.rhythm-lab-stop-button:hover:not(:disabled) {
@@ -977,7 +992,7 @@ menu {
   #newProfile,
   #chooseSource,
   #settingsTab,
-  #archiveProfile,
+  #deleteProfile,
   #loadSource {
     width: auto;
   }

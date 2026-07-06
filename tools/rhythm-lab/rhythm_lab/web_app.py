@@ -88,6 +88,10 @@ class ProfilePatchRequest(BaseModel):
     labels: list[ProfileLabelRequest] | None = None
 
 
+class ProfileDeleteRequest(BaseModel):
+    confirm: str
+
+
 class LabelRenameRequest(BaseModel):
     new_key: str
     name: str | None = None
@@ -342,6 +346,32 @@ def create_app(
             return _profile_payload(labels_db.archive_profile(profile_key))
         except (KeyError, ValueError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.delete("/api/profiles/{profile_key}")
+    def delete_profile(profile_key: str, request: ProfileDeleteRequest):
+        try:
+            profile = profile_or_404(profile_key)
+            confirmation = request.confirm.strip()
+            if confirmation not in {profile.classifier_key, profile.name}:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Delete confirmation must exactly match the profile key or profile name.",
+                )
+            deleted = labels_db.delete_profile(classifier_key=profile.classifier_key)
+            artifact_cleanup = delete_profile_artifacts(
+                Path(deleted.artifact_dir),
+                artifact_prefix=deleted.artifact_prefix,
+            )
+        except HTTPException:
+            raise
+        except (KeyError, ValueError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return {
+            "deleted": True,
+            "classifier_key": deleted.classifier_key,
+            "name": deleted.name,
+            "artifact_cleanup": artifact_cleanup,
+        }
 
     @app.post("/api/profiles/{profile_key}/labels/{old_key}/rename")
     def rename_profile_label(profile_key: str, old_key: str, request: LabelRenameRequest):
@@ -805,6 +835,54 @@ def cleanup_training_artifacts(
                 path.unlink()
                 deleted[key] += 1
     return deleted
+
+
+def delete_profile_artifacts(
+    artifact_dir: Path,
+    *,
+    artifact_prefix: str,
+) -> dict[str, object]:
+    root = artifact_dir.expanduser().resolve(strict=False)
+    deleted_files = 0
+    removed_dirs = 0
+    deleted_names: list[str] = []
+    if not root.exists() or not root.is_dir():
+        return {
+            "artifact_dir": str(root),
+            "artifact_prefix": artifact_prefix,
+            "deleted_files": 0,
+            "removed_dirs": 0,
+            "deleted_names": [],
+        }
+
+    targets: list[Path] = []
+    seen: set[Path] = set()
+    for pattern in (f"{artifact_prefix}-*.joblib", f"{artifact_prefix}-*.metrics.json"):
+        for path in root.glob(pattern):
+            resolved = path.resolve(strict=False)
+            if resolved in seen or not resolved.is_file() or resolved.parent != root:
+                continue
+            seen.add(resolved)
+            targets.append(path)
+
+    for path in sorted(targets, key=lambda item: item.name):
+        path.unlink()
+        deleted_files += 1
+        deleted_names.append(path.name)
+
+    try:
+        root.rmdir()
+        removed_dirs = 1
+    except OSError:
+        removed_dirs = 0
+
+    return {
+        "artifact_dir": str(root),
+        "artifact_prefix": artifact_prefix,
+        "deleted_files": deleted_files,
+        "removed_dirs": removed_dirs,
+        "deleted_names": deleted_names,
+    }
 
 
 def _artifact_groups(

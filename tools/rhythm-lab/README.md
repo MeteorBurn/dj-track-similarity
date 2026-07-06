@@ -28,6 +28,11 @@ labels database also starts without a built-in classifier profile. The UI has a
 source database path field, file picker, Load database button, and profile
 creation dialog. Choose or create a classifier profile before loading tracks.
 
+The profile `Delete` action is permanent and asks you to type the profile name
+or key. It removes Rhythm Lab labels, predictions, training queue rows,
+checkpoints, metrics, and local training artifacts for that profile. Promoted
+runtime models under `models/classifiers/` are left in place.
+
 ## Local Files
 
 Lab state is stored at:

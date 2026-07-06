@@ -23,7 +23,7 @@ const shuffleLibraryOrderEl = document.getElementById("shuffleLibraryOrder");
 const candidatePredictedEl = document.getElementById("candidatePredicted");
 const candidateMinBrokenEl = document.getElementById("candidateMinBroken");
 const candidateMinPositiveEl = document.getElementById("candidateMinPositive");
-const archiveProfileEl = document.getElementById("archiveProfile");
+const deleteProfileEl = document.getElementById("deleteProfile");
 const refreshCandidatesStatusEl = document.getElementById("refreshCandidatesStatus");
 const summaryEl = document.getElementById("summary");
 const pageSizeEl = document.getElementById("pageSize");
@@ -59,7 +59,7 @@ document.getElementById("chooseSource").addEventListener("click", () => chooseSo
 document.getElementById("loadSource").addEventListener("click", () => switchSource(sourcePathEl.value).catch(showError));
 document.getElementById("newProfile").addEventListener("click", () => profileDialogEl.showModal());
 shutdownLabEl.addEventListener("click", () => shutdownLab().catch(showError));
-archiveProfileEl.addEventListener("click", () => archiveActiveProfile().catch(showError));
+deleteProfileEl.addEventListener("click", () => deleteActiveProfile().catch(showError));
 document.getElementById("cancelProfileButton").addEventListener("click", () => profileDialogEl.close());
 document.getElementById("newProfileForm").addEventListener("submit", event => createProfile(event).catch(showError));
 document.getElementById("newProfileType").addEventListener("change", updateNewProfileTypeControls);
@@ -176,13 +176,13 @@ function clearActiveProfile() {
   document.getElementById("profileArtifactPrefixInput").value = "";
   document.getElementById("profileTrainingMinAddedInput").value = "50";
   document.getElementById("renameLabelSelect").innerHTML = "";
-  archiveProfileEl.disabled = true;
+  deleteProfileEl.disabled = true;
   setWorkflowBusy(true);
   updateLibraryOrderControls();
 }
 
 function renderProfileControls() {
-  archiveProfileEl.disabled = false;
+  deleteProfileEl.disabled = false;
   setTrainingActionDisabled("openLibrary", false);
   setTrainingActionDisabled("openCandidates", true);
   setTrainingActionDisabled("runBenchmark", true);
@@ -1237,11 +1237,19 @@ async function renameLabel(event) {
   await loadActive({ reset: true });
 }
 
-async function archiveActiveProfile() {
+async function deleteActiveProfile() {
   if (!activeProfile) return;
-  if (!window.confirm(`Archive ${activeProfile.name}? Labels and predictions stay in the lab database.`)) return;
-  const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/archive`, { method: "POST" });
-  await parseJsonResponse(response);
+  const confirmation = window.prompt(
+    `Delete ${activeProfile.name}? This permanently removes Rhythm Lab labels, predictions, training queue, checkpoints, metrics, and local training artifacts for this profile. Promoted runtime models stay in models/classifiers.\n\nType "${activeProfile.name}" or "${activeProfile.classifier_key}" to delete.`
+  );
+  if (confirmation === null) return;
+  const response = await fetch(`/api/profiles/${activeProfile.classifier_key}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirm: confirmation })
+  });
+  const data = await parseJsonResponse(response);
+  refreshCandidatesStatusEl.textContent = `deleted ${data.name} · artifacts ${data.artifact_cleanup?.deleted_files || 0}`;
   activeProfile = null;
   await loadProfiles();
   await loadActive({ reset: true });

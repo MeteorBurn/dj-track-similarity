@@ -92,7 +92,13 @@ The CLI can list, export, mark, and clear queue rows with `queue`, `queue-export
 
 ## Delete profile
 
-Profile deletion is explicit and confirmation-gated:
+Profile deletion is explicit and confirmation-gated. In the UI, the `Delete`
+button asks you to type the profile name or key before it removes Rhythm Lab
+labels, predictions, queue rows, training checkpoints, metrics, and local
+training artifacts for that profile. Promoted runtime models under
+`models/classifiers/` are not removed.
+
+The CLI uses the same exact-confirmation rule:
 
 ```powershell
 python tools\rhythm-lab\rhythm_lab_cli.py delete-profile --profile live_instrumentation --confirm live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
@@ -129,4 +135,9 @@ Omit `feature_set` to use the current default promotion variant.
 
 ## Safety
 
-Rhythm Lab does not rewrite source audio. Its normal data stays under `tools/rhythm-lab/data/` and `tools/rhythm-lab/artifacts/`. Promoted runtime models live under `models/classifiers/` and should not be committed unless you intentionally change that policy.
+Rhythm Lab does not rewrite source audio. Its normal data stays under
+`tools/rhythm-lab/data/` and `tools/rhythm-lab/artifacts/`. Profile deletion
+can remove Rhythm Lab database rows and local training artifacts for one
+profile. Promoted runtime models live under `models/classifiers/`, are not
+removed by profile deletion, and should not be committed unless you
+intentionally change that policy.

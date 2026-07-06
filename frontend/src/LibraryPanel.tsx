@@ -4,6 +4,14 @@ import { analysisSelectionOrder, type AnalysisSelection } from "./analysisSelect
 
 type DeviceMode = "auto" | "cpu" | "cuda";
 const analysisModelOrder = analysisSelectionOrder;
+const analysisModelDescriptions: Record<AnalysisSelection, string> = {
+  sonara: "Считает темп, тональность и базовые признаки трека.",
+  maest: "Помогает понять жанровый характер трека.",
+  mert: "Ищет похожее звучание от выбранного seed-трека.",
+  muq: "Сохраняет дополнительный слой аудио-признаков.",
+  clap: "Связывает текстовое описание с аудио-звучанием.",
+  classifiers: "Применяет локальные профили к трекам."
+};
 
 type LibraryHelpText = {
   databasePath: string;
@@ -169,25 +177,30 @@ export function LibraryPanel({
           const isClassifiers = model === "classifiers";
           const label = isClassifiers ? "CLASSIFIERS" : model.toUpperCase();
           const title = helpText[analysisModelHelpKey[model]];
+          const description = analysisModelDescriptions[model];
           const count = analysisCounts[model] || 0;
           return (
             <div className="analysis-model-row" key={model}>
-              <span className="analysis-model-name" title={title}>{label}</span>
-              <span className="analysis-model-count" title={`${label}: ${count} треков`}>{count}</span>
-              <label className="analysis-model-check" title={title} aria-label={`${label} selected`}>
+              <span className="analysis-model-check" title={title}>
                 <input
                   className="analysis-model-checkbox"
                   type="checkbox"
+                  aria-label={`${label} selected`}
                   checked={selectedAnalysisModels.includes(model)}
                   disabled={busy || stageRunning}
                   onChange={() => onToggleAnalysisModel(model)}
                 />
-              </label>
+              </span>
+              <span className="analysis-model-name" title={title}>
+                <span className="analysis-model-title">{label}</span>
+                <span className="analysis-model-description">{description}</span>
+              </span>
+              <span className="analysis-model-count" title={`${label}: ${count} треков`}>{count}</span>
               <button
-                className={`analysis-reset-button ${model}-reset-button`}
+                className={`icon-button stop-button analysis-reset-button ${model}-reset-button`}
                 disabled={analysisDisabled}
-                title={`Reset ${label}`}
-                aria-label={`Reset ${label}`}
+                title={`Сбросить ${label}`}
+                aria-label={`Сбросить ${label}`}
                 onClick={() => {
                   if (model === "classifiers") {
                     onResetClassifiers();
@@ -197,8 +210,7 @@ export function LibraryPanel({
                 }}
                 type="button"
               >
-                Reset
-                <Trash2 size={14} />
+                <Trash2 size={16} />
               </button>
             </div>
           );

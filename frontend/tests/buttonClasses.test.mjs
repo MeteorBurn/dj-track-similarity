@@ -145,6 +145,8 @@ test("analysis controls use model checkboxes and one selected-run button", () =>
 
   assert.match(source, /analysis-model-checkbox/);
   assert.match(source, /analysis-model-name/);
+  assert.match(source, /analysis-model-title/);
+  assert.match(source, /analysis-model-description/);
   assert.match(source, /analysis-model-count/);
   assert.match(source, /analysis-model-check/);
   assert.match(source, /analyze-selected-button/);
@@ -152,22 +154,42 @@ test("analysis controls use model checkboxes and one selected-run button", () =>
   assert.match(source, /classifiers/);
   assert.match(source, /CLASSIFIERS/);
   assert.match(source, /classifiersAnalyze/);
+  assert.match(source, /Считает темп, тональность и базовые признаки трека\./);
+  assert.match(source, /Помогает понять жанровый характер трека\./);
+  assert.match(source, /Ищет похожее звучание от выбранного seed-трека\./);
+  assert.match(source, /Сохраняет дополнительный слой аудио-признаков\./);
+  assert.match(source, /Связывает текстовое описание с аудио-звучанием\./);
+  assert.match(source, /Применяет локальные профили к трекам\./);
   assert.doesNotMatch(source, /Analyze selected/);
   assert.match(source, /selectedAnalysisModels/);
   assert.doesNotMatch(source, /onSonaraAnalyze/);
   assert.doesNotMatch(source, /onGenreAnalyze/);
   assert.doesNotMatch(source, /onAnalyze: \(adapter/);
 
-  const modelNameIndex = source.indexOf("analysis-model-name");
-  const modelCheckboxIndex = source.indexOf("analysis-model-checkbox");
-  const resetButtonIndex = source.indexOf("analysis-reset-button");
+  const modelRowBlock = source.match(/<div className="analysis-model-row"[\s\S]*?<\/div>/)?.[0] || "";
+  const modelCheckIndex = modelRowBlock.indexOf("analysis-model-check");
+  const modelNameIndex = modelRowBlock.indexOf("analysis-model-name");
+  const modelTitleIndex = modelRowBlock.indexOf("analysis-model-title");
+  const modelDescriptionIndex = modelRowBlock.indexOf("analysis-model-description");
+  const modelCountIndex = modelRowBlock.indexOf("analysis-model-count");
+  const resetButtonIndex = modelRowBlock.indexOf("analysis-reset-button");
   const batchSizeIndex = source.indexOf("Embedding batch size");
   const analyzeSelectedIndex = source.indexOf("analyze-selected-button");
   const clapIndex = source.indexOf('"clap"');
   const classifiersIndex = source.indexOf('"classifiers"');
 
-  assert.ok(modelNameIndex < modelCheckboxIndex);
-  assert.ok(modelCheckboxIndex < resetButtonIndex);
+  assert.notEqual(modelCheckIndex, -1);
+  assert.notEqual(modelNameIndex, -1);
+  assert.notEqual(modelTitleIndex, -1);
+  assert.notEqual(modelDescriptionIndex, -1);
+  assert.notEqual(modelCountIndex, -1);
+  assert.notEqual(resetButtonIndex, -1);
+  assert.ok(modelCheckIndex < modelNameIndex);
+  assert.ok(modelNameIndex < modelTitleIndex);
+  assert.ok(modelTitleIndex < modelDescriptionIndex);
+  assert.ok(modelNameIndex < modelCountIndex);
+  assert.ok(modelCountIndex < resetButtonIndex);
+  assert.doesNotMatch(modelRowBlock, /<label\b[\s\S]*analysis-model-check/);
   assert.ok(batchSizeIndex < analyzeSelectedIndex);
   assert.ok(clapIndex < classifiersIndex);
 });
@@ -277,16 +299,21 @@ test("analysis model reset buttons fit inside a full-width row", () => {
   const actionsRule = styles.match(/\.analysis-actions\s*{([\s\S]*?)}/)?.[1] || "";
   const rowRule = styles.match(/\.analysis-model-row\s*{([\s\S]*?)}/)?.[1] || "";
   const resetRule = styles.match(/\.analysis-reset-button\s*{([\s\S]*?)}/)?.[1] || "";
+  const resetIntentRule = styles.match(/\.analysis-reset-button\.stop-button\s*{([\s\S]*?)}/)?.[1] || "";
+  const resetButtonBlock = source.match(/className=\{`icon-button stop-button analysis-reset-button[\s\S]*?<\/button>/)?.[0] || "";
 
-  assert.doesNotMatch(source, /icon-button\s+analysis-reset-button/);
+  assert.match(source, /icon-button stop-button analysis-reset-button \$\{model\}-reset-button/);
+  assert.doesNotMatch(resetButtonBlock, />\s*Reset\s*</);
   assert.match(actionsRule, /align-self:\s*stretch/);
   assert.match(actionsRule, /width:\s*100%/);
-  assert.match(rowRule, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+max-content\s+36px\s+minmax\(96px,\s*max-content\)/);
+  assert.match(rowRule, /grid-template-columns:\s*34px\s+minmax\(0,\s*1fr\)\s+minmax\(42px,\s*max-content\)\s+34px/);
   assert.match(rowRule, /width:\s*100%/);
   assert.doesNotMatch(rowRule, /82px/);
-  assert.match(resetRule, /display:\s*inline-flex/);
-  assert.match(resetRule, /min-width:\s*96px/);
-  assert.match(resetRule, /white-space:\s*nowrap/);
+  assert.doesNotMatch(resetRule, /min-width:\s*96px/);
+  assert.doesNotMatch(resetRule, /white-space:\s*nowrap/);
+  assert.match(resetIntentRule, /background:\s*var\(--danger-bg\)/);
+  assert.match(resetIntentRule, /border-color:\s*var\(--danger-border-hover\)/);
+  assert.match(resetIntentRule, /color:\s*var\(--danger-deep-text\)/);
 });
 
 test("frontend analysis api uses unified job endpoints only", () => {

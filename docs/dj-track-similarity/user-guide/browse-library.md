@@ -29,6 +29,10 @@ Open track details when you need the full metadata payload. The dialog separates
 - MAEST genres,
 - classifier scores.
 
+The Mutagen section shows primary file facts such as title, length, format, size, and path. It also
+shows stored genre, BPM, key, and comment tags when those fields are present. Use the copy button next
+to the path when you need the local file location.
+
 Keep those sources separate when judging a track. A MAEST label and a file tag are not the same evidence.
 
 ## Preview

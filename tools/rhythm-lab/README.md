@@ -7,7 +7,7 @@ only its own lab database and training artifacts. The exception is the explicit
 liked-track toggle, which updates the main app's shared `track_likes` table.
 
 Full documentation is in
-[docs/dj-track-similarity/rhythm-lab.md](../../docs/dj-track-similarity/rhythm-lab.md).
+[docs/dj-track-similarity/tools-and-scripts/rhythm-lab.md](../../docs/dj-track-similarity/tools-and-scripts/rhythm-lab.md).
 
 ## Quick Start
 
@@ -23,9 +23,10 @@ Open:
 http://127.0.0.1:8777/
 ```
 
-No source database is loaded at startup unless `--source` is provided. The UI
-has a source database path field, file picker, and Load database button. Choose
-or create a classifier profile before loading tracks.
+No source database is loaded at startup unless `--source` is provided. A new
+labels database also starts without a built-in classifier profile. The UI has a
+source database path field, file picker, Load database button, and profile
+creation dialog. Choose or create a classifier profile before loading tracks.
 
 ## Local Files
 

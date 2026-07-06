@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from .features import build_unlabeled_feature_matrix
-from .lab_db import BREAK_ENERGY_CLASSIFIER_KEY, RhythmLabDatabase
+from .lab_db import RhythmLabDatabase
 from .source_db import SourceDatabase
 
 
@@ -21,7 +21,9 @@ def apply_model_to_lab(
 
     artifact = Path(artifact_path)
     payload = joblib.load(artifact)
-    resolved_classifier_key = str(classifier_key or payload.get("classifier_key") or BREAK_ENERGY_CLASSIFIER_KEY)
+    resolved_classifier_key = str(classifier_key or payload.get("classifier_key") or "").strip()
+    if not resolved_classifier_key:
+        raise ValueError("classifier_key is required for prediction artifacts that do not declare one")
     model = payload["model"]
     feature_set = str(payload["feature_set"])
     label_order = [str(label) for label in payload.get("label_order", getattr(model, "classes_", []))]
@@ -57,7 +59,7 @@ def export_predictions_csv(
     db_path: str | Path,
     output_path: str | Path,
     *,
-    classifier_key: str = BREAK_ENERGY_CLASSIFIER_KEY,
+    classifier_key: str,
 ) -> Path:
     lab = RhythmLabDatabase(db_path, classifier_key=classifier_key)
     profile = lab.get_profile()

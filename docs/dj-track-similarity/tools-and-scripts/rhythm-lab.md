@@ -6,6 +6,8 @@
 
 Rhythm Lab is a separate labeling and training app. The main UI can launch it, and the search panel can save the current set as a Rhythm Lab collection.
 
+New labels databases do not create a built-in classifier profile. Create a profile in the UI, or pass the intended `--profile` to profile-specific CLI commands.
+
 ## Start the UI
 
 From the main UI, click the flask icon. The backend starts or reuses Rhythm Lab at port `8777`.
@@ -33,7 +35,7 @@ python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation -
 Predict:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py predict tools\rhythm-lab\artifacts\live_instrumentation\combined\model.joblib --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py predict tools\rhythm-lab\artifacts\live_instrumentation\combined\model.joblib --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
 Promote:
@@ -86,7 +88,7 @@ python tools\rhythm-lab\rhythm_lab_cli.py collection-list --labels tools\rhythm-
 
 ## Active-learning queue
 
-The CLI can list, export, mark, and clear queue rows with `queue`, `queue-export`, `queue-mark`, and `queue-clear`.
+The CLI can list, export, mark, and clear queue rows with `queue`, `queue-export`, `queue-mark`, and `queue-clear`. Queue commands are profile-scoped and require `--profile`.
 
 ## Delete profile
 

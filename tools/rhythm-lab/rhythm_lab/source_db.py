@@ -137,7 +137,7 @@ class SourceDatabase:
         self,
         *,
         labels_db_path: str | Path,
-        classifier_key: str = "break_energy",
+        classifier_key: str,
         label_keys: tuple[str, ...] = ("broken", "straight", "ambiguous"),
         training_label_keys: tuple[str, ...] = ("broken", "straight"),
         query: str = "",

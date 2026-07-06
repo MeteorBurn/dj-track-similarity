@@ -15,6 +15,8 @@ Rhythm Lab supports two profile types:
 
 Labels, predictions, queues, and training checkpoints live in the Rhythm Lab labels database under `tools/rhythm-lab/data/` by default.
 
+Rhythm Lab does not create a built-in starter profile. Existing profiles, including older Break Energy profiles, remain normal profile rows in the labels database, but new labels databases start empty until you create a profile.
+
 ## Training inputs
 
 Training can benchmark SONARA, MERT, MAEST, and combined feature sets. Combined training requires existing SONARA features plus MERT and MAEST embeddings.

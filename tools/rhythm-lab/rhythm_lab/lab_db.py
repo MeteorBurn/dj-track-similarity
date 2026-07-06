@@ -12,11 +12,7 @@ from dj_track_similarity.models import Track
 from dj_track_similarity.rhythm_lab_collections import ensure_review_collection_schema
 
 
-BREAK_ENERGY_CLASSIFIER_KEY = "break_energy"
-STRAIGHT_LABEL = "straight"
 ClassifierLabelName = Literal["broken", "straight", "ambiguous"]
-CLASSIFIER_LABELS: tuple[str, ...] = ("broken", STRAIGHT_LABEL, "ambiguous")
-TRAINING_LABELS: tuple[str, ...] = ("broken", STRAIGHT_LABEL)
 ProfileType = Literal["binary", "multiclass"]
 PROFILE_TYPES: tuple[str, ...] = ("binary", "multiclass")
 ProfileLabelRole = Literal["positive", "negative", "review", "class"]
@@ -36,12 +32,7 @@ LABEL_QUEUE_STATES: tuple[str, ...] = (
     "used_for_training",
     "archived",
 )
-DEFAULT_ARTIFACT_DIR = Path(__file__).resolve().parents[1] / "artifacts" / "break-energy"
-DEFAULT_ARTIFACT_PREFIX = "break-energy"
 DEFAULT_TRAINING_MIN_ADDED = 50
-DEFAULT_BREAK_ENERGY_DESCRIPTION = (
-    "Positive class for syncopated, broken, break-heavy, or drum-break rhythm texture."
-)
 PROFILE_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 LABEL_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -91,9 +82,9 @@ class ClassifierProfile:
 class RhythmLabDatabase:
     """Writable classifier-lab state, separate from the read-only source library."""
 
-    def __init__(self, path: str | Path, *, classifier_key: str = BREAK_ENERGY_CLASSIFIER_KEY) -> None:
+    def __init__(self, path: str | Path, *, classifier_key: str | None = None) -> None:
         self.path = Path(path).expanduser().resolve(strict=False)
-        self.classifier_key = classifier_key
+        self.classifier_key = _validate_profile_key(classifier_key) if classifier_key is not None else None
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._ensure_lab_schema()
 
@@ -109,7 +100,6 @@ class RhythmLabDatabase:
             _ensure_profile_tables(connection)
             _ensure_classifier_tables(connection)
             ensure_review_collection_schema(connection)
-            _ensure_default_break_energy_profile(connection)
             connection.executescript(
                 """
                 CREATE INDEX IF NOT EXISTS idx_classifier_labels_lookup
@@ -140,9 +130,12 @@ class RhythmLabDatabase:
         return [self.get_profile(str(row["classifier_key"])) for row in rows]
 
     def get_profile(self, classifier_key: str | None = None) -> ClassifierProfile:
-        key = _validate_profile_key(classifier_key or self.classifier_key)
+        key = _required_profile_key(classifier_key or self.classifier_key)
         with self.connect() as connection:
             return _get_profile(connection, key)
+
+    def _active_profile_key(self) -> str:
+        return _required_profile_key(self.classifier_key)
 
     def create_profile(
         self,
@@ -396,12 +389,13 @@ class RhythmLabDatabase:
         return self.get_profile(profile_key)
 
     def set_label(self, track: Track | int, label: str | None, *, note: str | None = None) -> ClassifierLabel | None:
+        profile_key = self._active_profile_key()
         source_track_id, path, size, mtime = _track_snapshot(track)
         if label is None or not label.strip():
             with self.connect() as connection:
                 connection.execute(
                     "DELETE FROM classifier_labels WHERE classifier_key = ? AND source_track_id = ?",
-                    (self.classifier_key, source_track_id),
+                    (profile_key, source_track_id),
                 )
             return None
         label = label.strip()
@@ -421,11 +415,12 @@ class RhythmLabDatabase:
                     note = excluded.note,
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (self.classifier_key, source_track_id, path, size, mtime, label, note),
+                (profile_key, source_track_id, path, size, mtime, label, note),
             )
         return self.label_for_track(source_track_id)
 
     def label_for_track(self, source_track_id: int) -> ClassifierLabel | None:
+        profile_key = self._active_profile_key()
         with self.connect() as connection:
             row = connection.execute(
                 """
@@ -433,13 +428,14 @@ class RhythmLabDatabase:
                 FROM classifier_labels
                 WHERE classifier_key = ? AND source_track_id = ?
                 """,
-                (self.classifier_key, source_track_id),
+                (profile_key, source_track_id),
             ).fetchone()
         if row is None:
             return None
         return ClassifierLabel(int(row["source_track_id"]), str(row["label"]), row["note"], row["updated_at"])
 
     def labels_by_track(self) -> dict[int, ClassifierLabel]:
+        profile_key = self._active_profile_key()
         with self.connect() as connection:
             rows = connection.execute(
                 """
@@ -447,7 +443,7 @@ class RhythmLabDatabase:
                 FROM classifier_labels
                 WHERE classifier_key = ?
                 """,
-                (self.classifier_key,),
+                (profile_key,),
             ).fetchall()
         return {
             int(row["source_track_id"]): ClassifierLabel(
@@ -457,6 +453,7 @@ class RhythmLabDatabase:
         }
 
     def label_counts(self) -> dict[str, int]:
+        profile_key = self._active_profile_key()
         with self.connect() as connection:
             rows = connection.execute(
                 """
@@ -465,11 +462,12 @@ class RhythmLabDatabase:
                 WHERE classifier_key = ?
                 GROUP BY label
                 """,
-                (self.classifier_key,),
+                (profile_key,),
             ).fetchall()
         return {str(row["label"]): int(row["count"]) for row in rows}
 
     def upsert_label_queue_items(self, *, mode: str, items: list[dict[str, object]]) -> int:
+        profile_key = self._active_profile_key()
         clean_mode = _validate_queue_mode(mode)
         rows: list[tuple[object, ...]] = []
         for item in items:
@@ -480,7 +478,7 @@ class RhythmLabDatabase:
             reason_payload = reason if isinstance(reason, dict) else {"reason": str(reason)}
             rows.append(
                 (
-                    self.classifier_key,
+                    profile_key,
                     source_track_id,
                     clean_mode,
                     score,
@@ -508,7 +506,8 @@ class RhythmLabDatabase:
         return len(rows)
 
     def label_queue_items(self, *, state: str | None = None) -> list[dict[str, object]]:
-        params: list[object] = [self.classifier_key]
+        profile_key = self._active_profile_key()
+        params: list[object] = [profile_key]
         state_clause = ""
         if state is not None:
             state_clause = "AND state = ?"
@@ -528,6 +527,7 @@ class RhythmLabDatabase:
         return [_queue_row_payload(row) for row in rows]
 
     def mark_queue_item(self, source_track_id: int, *, mode: str, state: str) -> dict[str, object]:
+        profile_key = self._active_profile_key()
         clean_track_id = _validate_source_track_id(source_track_id)
         clean_mode = _validate_queue_mode(mode)
         clean_state = _validate_queue_state(state)
@@ -538,10 +538,10 @@ class RhythmLabDatabase:
                 SET state = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE classifier_key = ? AND source_track_id = ? AND mode = ?
                 """,
-                (clean_state, self.classifier_key, clean_track_id, clean_mode),
+                (clean_state, profile_key, clean_track_id, clean_mode),
             )
             if cursor.rowcount == 0:
-                raise KeyError(f"Queue item not found for {self.classifier_key}:{clean_track_id}:{clean_mode}")
+                raise KeyError(f"Queue item not found for {profile_key}:{clean_track_id}:{clean_mode}")
             row = connection.execute(
                 """
                 SELECT id, classifier_key, source_track_id, mode, score, priority, reason_json,
@@ -549,20 +549,22 @@ class RhythmLabDatabase:
                 FROM classifier_label_queue
                 WHERE classifier_key = ? AND source_track_id = ? AND mode = ?
                 """,
-                (self.classifier_key, clean_track_id, clean_mode),
+                (profile_key, clean_track_id, clean_mode),
             ).fetchone()
         return _queue_row_payload(row)
 
     def clear_label_queue(self, *, state: str) -> int:
+        profile_key = self._active_profile_key()
         clean_state = _validate_queue_state(state)
         with self.connect() as connection:
             cursor = connection.execute(
                 "DELETE FROM classifier_label_queue WHERE classifier_key = ? AND state = ?",
-                (self.classifier_key, clean_state),
+                (profile_key, clean_state),
             )
             return int(cursor.rowcount)
 
     def training_labels(self) -> dict[int, str]:
+        profile_key = self._active_profile_key()
         training_keys = self.get_profile().training_label_keys
         if not training_keys:
             return {}
@@ -575,7 +577,7 @@ class RhythmLabDatabase:
                 WHERE classifier_key = ? AND label IN ({placeholders})
                 ORDER BY source_track_id
                 """,
-                (self.classifier_key, *training_keys),
+                (profile_key, *training_keys),
             ).fetchall()
         return {int(row["source_track_id"]): str(row["label"]) for row in rows}
 
@@ -589,6 +591,7 @@ class RhythmLabDatabase:
         confidence: float,
         probabilities: dict[str, float],
     ) -> None:
+        profile_key = self._active_profile_key()
         if label not in self.get_profile().training_label_keys:
             raise ValueError(f"Unsupported predicted classifier label: {label}")
         payload = metadata_to_json(probabilities)
@@ -610,7 +613,7 @@ class RhythmLabDatabase:
                     updated_at = CURRENT_TIMESTAMP
                 """,
                 (
-                    self.classifier_key,
+                    profile_key,
                     track.id,
                     track.path,
                     track.artist,
@@ -624,6 +627,7 @@ class RhythmLabDatabase:
             )
 
     def predictions(self) -> list[dict[str, object]]:
+        profile_key = self._active_profile_key()
         with self.connect() as connection:
             rows = connection.execute(
                 """
@@ -633,7 +637,7 @@ class RhythmLabDatabase:
                 WHERE classifier_key = ?
                 ORDER BY confidence ASC, path
                 """,
-                (self.classifier_key,),
+                (profile_key,),
             ).fetchall()
         result: list[dict[str, object]] = []
         for row in rows:
@@ -660,6 +664,7 @@ class RhythmLabDatabase:
         return result
 
     def prune_predictions(self, *, feature_set: str, keep_model_artifact: str | Path) -> int:
+        profile_key = self._active_profile_key()
         with self.connect() as connection:
             cursor = connection.execute(
                 """
@@ -668,11 +673,12 @@ class RhythmLabDatabase:
                   AND feature_set = ?
                   AND model_artifact != ?
                 """,
-                (self.classifier_key, feature_set, str(keep_model_artifact)),
+                (profile_key, feature_set, str(keep_model_artifact)),
             )
             return int(cursor.rowcount)
 
     def training_checkpoint(self) -> dict[str, object]:
+        profile_key = self._active_profile_key()
         training_keys = self.get_profile().training_label_keys
         with self.connect() as connection:
             row = connection.execute(
@@ -681,7 +687,7 @@ class RhythmLabDatabase:
                 FROM classifier_training_checkpoints
                 WHERE classifier_key = ?
                 """,
-                (self.classifier_key,),
+                (profile_key,),
             ).fetchone()
         if row is None:
             return {
@@ -700,6 +706,7 @@ class RhythmLabDatabase:
         }
 
     def record_training_checkpoint(self, counts: dict[str, int], *, model_artifact: str | Path) -> None:
+        profile_key = self._active_profile_key()
         payload = metadata_to_json(_training_counts_payload(counts, self.get_profile().training_label_keys))
         with self.connect() as connection:
             connection.execute(
@@ -711,7 +718,7 @@ class RhythmLabDatabase:
                     model_artifact = excluded.model_artifact,
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (self.classifier_key, payload, str(model_artifact)),
+                (profile_key, payload, str(model_artifact)),
             )
 
 
@@ -792,64 +799,6 @@ def _ensure_classifier_tables(connection: sqlite3.Connection) -> None:
     connection.execute(_classifier_label_queue_table_sql("classifier_label_queue"))
     connection.execute(_classifier_predictions_table_sql("classifier_predictions"))
     connection.execute(_classifier_training_checkpoints_table_sql("classifier_training_checkpoints"))
-
-
-def _ensure_default_break_energy_profile(connection: sqlite3.Connection) -> None:
-    row = connection.execute(
-        "SELECT 1 FROM classifier_profiles WHERE classifier_key = ?",
-        (BREAK_ENERGY_CLASSIFIER_KEY,),
-    ).fetchone()
-    if row is None:
-        connection.execute(
-            """
-            INSERT INTO classifier_profiles(
-                classifier_key, name, description, artifact_dir, artifact_prefix,
-                training_min_added, positive_label, negative_label
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                BREAK_ENERGY_CLASSIFIER_KEY,
-                "Break Energy",
-                DEFAULT_BREAK_ENERGY_DESCRIPTION,
-                _normalize_artifact_dir(DEFAULT_ARTIFACT_DIR),
-                DEFAULT_ARTIFACT_PREFIX,
-                DEFAULT_TRAINING_MIN_ADDED,
-                "broken",
-                STRAIGHT_LABEL,
-            ),
-        )
-    existing_labels = {
-        str(row["label_key"])
-        for row in connection.execute(
-            "SELECT label_key FROM classifier_profile_labels WHERE classifier_key = ?",
-            (BREAK_ENERGY_CLASSIFIER_KEY,),
-        ).fetchall()
-    }
-    defaults = (
-        ClassifierProfileLabel("broken", "Broken", "positive", "Break-heavy or syncopated energy", 0),
-        ClassifierProfileLabel(STRAIGHT_LABEL, "Straight", "negative", "Straight four-on-the-floor reference", 1),
-        ClassifierProfileLabel("ambiguous", "Ambiguous", "review", "Review-only label excluded from training", 2),
-    )
-    for label in defaults:
-        if label.key in existing_labels:
-            continue
-        connection.execute(
-            """
-            INSERT INTO classifier_profile_labels(
-                classifier_key, label_key, display_name, description, role, position
-            )
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                BREAK_ENERGY_CLASSIFIER_KEY,
-                label.key,
-                label.name,
-                label.description,
-                label.role,
-                label.position,
-            ),
-        )
 
 
 def _get_profile(connection: sqlite3.Connection, classifier_key: str) -> ClassifierProfile:
@@ -1096,6 +1045,12 @@ def _validate_profile_key(key: str) -> str:
     if not PROFILE_KEY_PATTERN.match(value):
         raise ValueError("Classifier profile key must use lowercase letters, numbers, and underscores")
     return value
+
+
+def _required_profile_key(key: str | None) -> str:
+    if key is None or not str(key).strip():
+        raise ValueError("Classifier profile key is required")
+    return _validate_profile_key(key)
 
 
 def _validate_label_key(key: str) -> str:

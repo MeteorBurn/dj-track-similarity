@@ -63,7 +63,7 @@ def build_labeled_feature_matrix(
     labels_db_path: str | Path,
     feature_set: str,
     *,
-    classifier_key: str = "break_energy",
+    classifier_key: str,
 ) -> FeatureMatrix:
     source = SourceDatabase(source_db_path)
     labels = RhythmLabDatabase(labels_db_path, classifier_key=classifier_key)

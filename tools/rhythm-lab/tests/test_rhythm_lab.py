@@ -34,6 +34,50 @@ from rhythm_lab.training import train_feature_set
 from rhythm_lab.web_app import create_app, install_rhythm_lab_asyncio_exception_logging
 
 
+def _create_break_energy_profile(labels: RhythmLabDatabase):
+    try:
+        profile = labels.get_profile("break_energy")
+    except KeyError:
+        profile = labels.create_profile(
+            classifier_key="break_energy",
+            name="Break Energy",
+            description="Positive class for syncopated, broken, break-heavy, or drum-break rhythm texture.",
+            artifact_dir=Path("tools/rhythm-lab/artifacts/break-energy"),
+            artifact_prefix="break-energy",
+            labels=[
+                {"key": "broken", "name": "Broken", "role": "positive", "description": "Break-heavy or syncopated energy"},
+                {"key": "straight", "name": "Straight", "role": "negative", "description": "Straight four-on-the-floor reference"},
+                {"key": "ambiguous", "name": "Ambiguous", "role": "review", "description": "Review-only label excluded from training"},
+            ],
+        )
+    labels.classifier_key = "break_energy"
+    return profile
+
+
+def _break_energy_train_kwargs() -> dict[str, object]:
+    return {
+        "label_order": ["broken", "straight"],
+        "positive_label": "broken",
+        "artifact_prefix": "break-energy",
+        "classifier_key": "break_energy",
+    }
+
+
+class _ConstantClassifier:
+    def __init__(self, label: str, *, classes_: list[str]) -> None:
+        self.label = label
+        self.classes_ = np.asarray(classes_)
+
+    def predict(self, matrix):
+        return np.asarray([self.label] * matrix.shape[0])
+
+    def predict_proba(self, matrix):
+        rows = []
+        for _ in range(matrix.shape[0]):
+            rows.append([1.0 if label == self.label else 0.0 for label in self.classes_])
+        return np.asarray(rows, dtype=np.float32)
+
+
 def test_source_database_opens_existing_project_database_read_only(tmp_path: Path) -> None:
     source_path = tmp_path / "source.sqlite"
     source = LibraryDatabase(source_path)
@@ -67,27 +111,35 @@ def test_source_database_rejects_missing_file_without_creating_it(tmp_path: Path
     assert not missing.exists()
 
 
-def test_labels_database_creates_default_break_energy_profile(tmp_path: Path) -> None:
+def test_labels_database_starts_without_implicit_profiles(tmp_path: Path) -> None:
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
 
-    profile = labels.get_profile("break_energy")
-
-    assert profile.classifier_key == "break_energy"
-    assert profile.name == "Break Energy"
-    assert profile.positive_label == "broken"
-    assert profile.negative_label == "straight"
-    assert [label.key for label in profile.labels] == ["broken", "straight", "ambiguous"]
-    assert [label.role for label in profile.labels] == ["positive", "negative", "review"]
-    assert profile.artifact_prefix == "break-energy"
-    assert profile.training_min_added == 50
+    assert labels.list_profiles() == []
+    try:
+        labels.get_profile()
+    except ValueError as error:
+        assert "profile key" in str(error).lower()
+    else:  # pragma: no cover - defensive guard.
+        raise AssertionError("RhythmLabDatabase selected an implicit classifier profile")
     with labels.connect() as connection:
         assert connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='classifier_track_likes'"
         ).fetchone() is None
 
 
+def test_existing_break_energy_profile_remains_normal_profile(tmp_path: Path) -> None:
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    profile = _create_break_energy_profile(labels)
+
+    reopened = RhythmLabDatabase(labels.path, classifier_key="break_energy").get_profile()
+
+    assert reopened == profile
+    assert [profile.classifier_key for profile in RhythmLabDatabase(labels.path).list_profiles()] == ["break_energy"]
+
+
 def test_review_collections_append_replace_and_delete_do_not_remove_labels(tmp_path: Path) -> None:
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
     scoped = RhythmLabDatabase(labels.path, classifier_key="break_energy")
     scoped.set_label(101, "broken")
     collections = RhythmLabCollections(labels.path)
@@ -160,12 +212,13 @@ def test_profile_creation_archive_and_current_track_label_replacement(tmp_path: 
     assert scoped.label_for_track(101).label == "instrumental"
     assert scoped.label_for_track(103) is None
     assert scoped.training_labels() == {101: "instrumental"}
-    assert [profile.classifier_key for profile in labels.list_profiles()] == ["break_energy"]
+    assert labels.list_profiles() == []
     assert "vocal_presence" in [profile.classifier_key for profile in labels.list_profiles(include_archived=True)]
 
 
 def test_profile_names_are_unique_case_insensitive_for_create_and_update(tmp_path: Path) -> None:
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
     labels.create_profile(
         classifier_key="vocal_presence",
         name="Vocal Presence",
@@ -277,6 +330,7 @@ def test_delete_profile_by_name_or_key_removes_profile_scoped_data(tmp_path: Pat
 
 def test_label_queue_upserts_state_transitions_and_profile_isolation(tmp_path: Path) -> None:
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
     labels.create_profile(
         classifier_key="vocal_presence",
         name="Vocal Presence",
@@ -330,6 +384,7 @@ def test_label_queue_upserts_state_transitions_and_profile_isolation(tmp_path: P
 
 def test_archive_profile_marks_only_that_profile_queue_archived(tmp_path: Path) -> None:
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
     labels.create_profile(
         classifier_key="vocal_presence",
         name="Vocal Presence",
@@ -445,6 +500,7 @@ def test_web_app_profile_scoped_track_labels_are_isolated(tmp_path: Path) -> Non
     track_id = _track(source, tmp_path, "voice.wav", title="Voice")
     labels_path = tmp_path / "labels.sqlite"
     labels = RhythmLabDatabase(labels_path)
+    _create_break_energy_profile(labels)
     labels.create_profile(
         classifier_key="vocal_presence",
         name="Vocal Presence",
@@ -573,6 +629,7 @@ def test_web_app_reads_source_database_and_writes_labels_database_only(tmp_path:
     source.save_sonara_features(broken_id, {"onset_density": {"type": "float", "value": 4.2}}, model_name="sonara-test")
     source.save_embedding(broken_id, np.asarray([1, 0, 0], dtype=np.float32), "maest-test", embedding_key="maest")
     labels_path = tmp_path / "labels.sqlite"
+    _create_break_energy_profile(RhythmLabDatabase(labels_path))
     client = TestClient(create_app(source_path, labels_db_path=labels_path))
 
     summary = client.get("/api/profiles/break_energy/summary").json()
@@ -594,7 +651,7 @@ def test_web_app_reads_source_database_and_writes_labels_database_only(tmp_path:
 
     assert response.status_code == 200
     assert response.json()["label"] == "broken"
-    assert RhythmLabDatabase(labels_path).label_for_track(broken_id).label == "broken"
+    assert RhythmLabDatabase(labels_path, classifier_key="break_energy").label_for_track(broken_id).label == "broken"
     with source.connect() as connection:
         assert connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='classifier_labels'"
@@ -653,6 +710,7 @@ def test_web_app_bpm_range_filters_use_only_sonara_bpm_when_bounds_are_set(tmp_p
     )
 
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
     for track_id, probability in ((tagged_id, 0.9), (fallback_id, 0.8), (outside_id, 0.7)):
         labels.save_prediction(
             source.get_track(track_id),
@@ -708,6 +766,7 @@ def test_web_app_profile_likes_share_main_library_state(tmp_path: Path) -> None:
     source.set_track_liked(other_id, True)
     labels_path = tmp_path / "labels.sqlite"
     labels = RhythmLabDatabase(labels_path)
+    _create_break_energy_profile(labels)
     labels.create_profile(
         classifier_key="vocal_presence",
         name="Vocal Presence",
@@ -760,7 +819,7 @@ def test_web_app_profile_liked_tracks_order_by_like_time(tmp_path: Path) -> None
         connection.execute("UPDATE track_likes SET liked_at = ? WHERE track_id = ?", ("2026-01-01 00:00:00", older_id))
         connection.execute("UPDATE track_likes SET liked_at = ? WHERE track_id = ?", ("2026-01-01 00:00:01", newer_id))
     labels_path = tmp_path / "labels.sqlite"
-    RhythmLabDatabase(labels_path)
+    _create_break_energy_profile(RhythmLabDatabase(labels_path))
     client = TestClient(create_app(source_path, labels_db_path=labels_path))
 
     liked_tracks = client.get("/api/profiles/break_energy/tracks", params={"liked": "yes"}).json()
@@ -778,6 +837,7 @@ def test_web_app_review_collection_tracks_use_active_profile_labels_and_filters(
     outside_id = _track(source, tmp_path, "outside.wav", title="Outside")
     labels_path = tmp_path / "labels.sqlite"
     labels = RhythmLabDatabase(labels_path, classifier_key="break_energy")
+    _create_break_energy_profile(labels)
     labels.set_label(source.get_track(second_id), "broken")
     client = TestClient(create_app(source_path, labels_db_path=labels_path))
 
@@ -824,6 +884,7 @@ def test_web_app_predictions_endpoint_filters_candidates_by_probability_focus(mo
     source.save_embedding(high_id, np.asarray([1, 0, 0], dtype=np.float32), "maest-test", embedding_key="maest")
     source.save_embedding(high_id, np.asarray([0, 1, 0], dtype=np.float32), "mert-test", embedding_key="mert")
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
     labels.save_prediction(
         source.get_track(low_id),
         feature_set="combined",
@@ -946,7 +1007,9 @@ def test_web_app_refresh_candidates_uses_latest_combined_artifact_and_prunes_old
     older.write_bytes(b"old")
     newer.write_bytes(b"new")
     maest.write_bytes(b"maest")
-    RhythmLabDatabase(labels_path).update_profile("break_energy", artifact_dir=artifacts)
+    labels = RhythmLabDatabase(labels_path)
+    _create_break_energy_profile(labels)
+    labels.update_profile("break_energy", artifact_dir=artifacts)
     import rhythm_lab.web_app as web_app
 
     calls = []
@@ -984,7 +1047,7 @@ def test_web_app_refresh_candidates_uses_latest_combined_artifact_and_prunes_old
     assert response.json()["predicted"] == 1
     assert response.json()["skipped"] == 2
     assert calls == [(source_path.resolve(), labels_path.resolve(), newer, "break_energy")]
-    predictions = RhythmLabDatabase(labels_path).predictions()
+    predictions = RhythmLabDatabase(labels_path, classifier_key="break_energy").predictions()
     assert len(predictions) == 1
     assert predictions[0]["model_artifact"] == str(newer)
 
@@ -1008,6 +1071,7 @@ def test_web_app_train_refresh_requires_50_new_broken_and_straight_labels(monkey
     LibraryDatabase(source_path)
     labels_path = tmp_path / "labels.sqlite"
     labels = RhythmLabDatabase(labels_path)
+    _create_break_energy_profile(labels)
     for index in range(50):
         labels.set_label(10_000 + index, "broken")
         labels.set_label(20_000 + index, "straight")
@@ -1046,7 +1110,7 @@ def test_web_app_train_refresh_requires_50_new_broken_and_straight_labels(monkey
         ("train", source_path.resolve(), labels_path.resolve(), artifacts, "break_energy"),
         ("predict", source_path.resolve(), labels_path.resolve(), artifact, "break_energy"),
     ]
-    assert RhythmLabDatabase(labels_path).training_checkpoint()["counts"] == {"broken": 50, "straight": 50}
+    assert RhythmLabDatabase(labels_path, classifier_key="break_energy").training_checkpoint()["counts"] == {"broken": 50, "straight": 50}
     assert blocked.status_code == 400
     assert "Need 50 new broken and 50 new straight labels" in blocked.json()["detail"]
 
@@ -1093,6 +1157,7 @@ def test_profile_training_readiness_reports_artifacts_metrics_and_history(tmp_pa
     LibraryDatabase(source_path)
     labels_path = tmp_path / "labels.sqlite"
     labels = RhythmLabDatabase(labels_path)
+    _create_break_energy_profile(labels)
     for index in range(8):
         labels.set_label(10_000 + index, "broken")
         labels.set_label(20_000 + index, "straight")
@@ -1236,6 +1301,7 @@ def test_web_app_promote_copies_selected_feature_set_artifact(tmp_path: Path) ->
     LibraryDatabase(source_path)
     labels_path = tmp_path / "labels.sqlite"
     labels = RhythmLabDatabase(labels_path)
+    _create_break_energy_profile(labels)
     labels.set_label(101, "broken")
     labels.set_label(102, "straight")
     artifacts = tmp_path / "artifacts" / "break-energy"
@@ -1309,6 +1375,7 @@ def test_web_app_runs_benchmark_for_active_profile(monkeypatch, tmp_path: Path) 
     labels_path = tmp_path / "labels.sqlite"
     labels = RhythmLabDatabase(labels_path)
     artifacts = tmp_path / "artifacts" / "break-energy"
+    _create_break_energy_profile(labels)
     labels.update_profile("break_energy", artifact_dir=artifacts)
     calls = []
 
@@ -1355,6 +1422,7 @@ def test_web_app_calibrates_selected_feature_set(monkeypatch, tmp_path: Path) ->
     LibraryDatabase(source_path)
     labels_path = tmp_path / "labels.sqlite"
     labels = RhythmLabDatabase(labels_path)
+    _create_break_energy_profile(labels)
     artifacts = tmp_path / "artifacts" / "break-energy"
     artifacts.mkdir(parents=True)
     selected = artifacts / "break-energy-mert+clap-20260524T140000Z.joblib"
@@ -1434,6 +1502,7 @@ def test_web_app_training_readiness_initializes_checkpoint_from_existing_combine
     LibraryDatabase(source_path)
     labels_path = tmp_path / "labels.sqlite"
     labels = RhythmLabDatabase(labels_path)
+    _create_break_energy_profile(labels)
     for index in range(500):
         labels.set_label(10_000 + index, "broken")
         labels.set_label(20_000 + index, "straight")
@@ -1451,7 +1520,7 @@ def test_web_app_training_readiness_initializes_checkpoint_from_existing_combine
     assert ready["current"] == {"broken": 500, "straight": 500}
     assert ready["last_trained"] == {"broken": 500, "straight": 500}
     assert ready["added"] == {"broken": 0, "straight": 0}
-    assert RhythmLabDatabase(labels_path).training_checkpoint()["counts"] == {"broken": 500, "straight": 500}
+    assert RhythmLabDatabase(labels_path, classifier_key="break_energy").training_checkpoint()["counts"] == {"broken": 500, "straight": 500}
     assert blocked.status_code == 400
 
 
@@ -1461,7 +1530,9 @@ def test_web_app_promote_requires_trained_combined_artifact(tmp_path: Path) -> N
     source_path = tmp_path / "source.sqlite"
     LibraryDatabase(source_path)
     labels_path = tmp_path / "labels.sqlite"
-    RhythmLabDatabase(labels_path).update_profile("break_energy", artifact_dir=tmp_path / "artifacts" / "break-energy")
+    labels = RhythmLabDatabase(labels_path)
+    _create_break_energy_profile(labels)
+    labels.update_profile("break_energy", artifact_dir=tmp_path / "artifacts" / "break-energy")
     target_root = tmp_path / "models" / "classifiers"
     client = TestClient(create_app(source_path, labels_db_path=labels_path, classifier_target_root=target_root))
 
@@ -1479,6 +1550,7 @@ def test_web_app_promote_copies_latest_trained_combined_model(tmp_path: Path) ->
     LibraryDatabase(source_path)
     labels_path = tmp_path / "labels.sqlite"
     labels = RhythmLabDatabase(labels_path)
+    _create_break_energy_profile(labels)
     labels.set_label(101, "broken")
     labels.set_label(102, "straight")
     artifacts = tmp_path / "artifacts" / "break-energy"
@@ -1559,6 +1631,13 @@ def test_static_ui_training_workflow_blocks_candidate_refresh_until_model_exists
     assert 'workflowButton("openCandidates", "candidates", "Open Candidates", "open-candidates", !hasModel' in script
     assert 'setTrainingActionDisabled(\n    "openCandidates",\n    !hasModel,' in script
     assert 'setTrainingActionDisabled(\n    "runBenchmark",\n    !hasModel,' in script
+
+
+def test_static_ui_allows_empty_profile_list() -> None:
+    script = (LAB_ROOT / "rhythm_lab" / "static" / "app.js").read_text(encoding="utf-8")
+
+    assert "No classifier profiles are available" not in script
+    assert "clearActiveProfile();" in script
 
 
 def test_static_ui_source_actions_use_single_status_line() -> None:
@@ -1706,6 +1785,7 @@ def test_web_app_tracks_endpoint_uses_source_sql_pagination(monkeypatch, tmp_pat
     first_id = _track(source, tmp_path, "a.wav", title="A")
     second_id = _track(source, tmp_path, "b.wav", title="B")
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
     labels.set_label(source.get_track(second_id), "straight")
     import rhythm_lab.source_db as source_db
 
@@ -1735,6 +1815,7 @@ def test_web_app_tracks_endpoint_supports_stable_random_library_order(tmp_path: 
     for title in ("Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf", "Hotel"):
         _track(source, tmp_path, f"{title.lower()}.wav", title=title)
     labels_path = tmp_path / "labels.sqlite"
+    _create_break_energy_profile(RhythmLabDatabase(labels_path))
     client = TestClient(create_app(source_path, labels_db_path=labels_path))
 
     normal = client.get(
@@ -1779,6 +1860,7 @@ def test_web_app_marks_labels_used_in_previous_training_checkpoint(tmp_path: Pat
     new_id = _track(source, tmp_path, "new.wav", title="New")
     review_id = _track(source, tmp_path, "review.wav", title="Review")
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
     labels.set_label(source.get_track(trained_id), "broken")
     labels.set_label(source.get_track(new_id), "straight")
     labels.set_label(source.get_track(review_id), "ambiguous")
@@ -1827,7 +1909,9 @@ def test_web_app_summary_uses_embedding_counts_without_loading_id_sets(monkeypat
         raise AssertionError("summary must count embeddings in SQL instead of loading id sets")
 
     monkeypatch.setattr(source_db.SourceDatabase, "embedding_track_ids", fail_id_set)
-    client = TestClient(create_app(source_path, labels_db_path=tmp_path / "labels.sqlite"))
+    labels_path = tmp_path / "labels.sqlite"
+    _create_break_energy_profile(RhythmLabDatabase(labels_path))
+    client = TestClient(create_app(source_path, labels_db_path=labels_path))
 
     summary = client.get("/api/profiles/break_energy/summary").json()
 
@@ -2646,10 +2730,12 @@ def test_feature_matrix_uses_source_database_features_and_external_labels(tmp_pa
             model_name="sonara-test",
         )
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
-    labels.set_label(source.get_track(broken), "broken")
-    labels.set_label(source.get_track(straight), "straight")
+    _create_break_energy_profile(labels)
+    scoped_labels = RhythmLabDatabase(labels.path, classifier_key="break_energy")
+    scoped_labels.set_label(source.get_track(broken), "broken")
+    scoped_labels.set_label(source.get_track(straight), "straight")
 
-    features = build_labeled_feature_matrix(source_path, labels.path, "sonara")
+    features = build_labeled_feature_matrix(source_path, labels.path, "sonara", classifier_key="break_energy")
 
     assert features.track_ids == [broken, straight]
     assert features.labels == ["broken", "straight"]
@@ -2661,6 +2747,8 @@ def test_apply_model_to_lab_saves_predictions_and_exports_csv(tmp_path: Path) ->
     source = LibraryDatabase(source_path)
     tracks = [_track(source, tmp_path, f"track-{index}.wav", title=f"Track {index}") for index in range(6)]
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
+    scoped_labels = RhythmLabDatabase(labels.path, classifier_key="break_energy")
     for index, track_id in enumerate(tracks):
         source.save_sonara_features(
             track_id,
@@ -2671,28 +2759,65 @@ def test_apply_model_to_lab_saves_predictions_and_exports_csv(tmp_path: Path) ->
             },
             model_name="sonara-test",
         )
-        labels.set_label(source.get_track(track_id), "broken" if index < 3 else "straight")
+        scoped_labels.set_label(source.get_track(track_id), "broken" if index < 3 else "straight")
 
-    features = build_labeled_feature_matrix(source.path, labels.path, "sonara")
+    features = build_labeled_feature_matrix(source.path, labels.path, "sonara", classifier_key="break_energy")
     trained = train_feature_set(
         features.matrix,
         features.labels,
         feature_names=features.feature_names,
         feature_set="sonara",
         artifact_dir=tmp_path / "artifacts",
+        label_order=["broken", "straight"],
+        positive_label="broken",
+        artifact_prefix="break-energy",
+        classifier_key="break_energy",
     )
 
     summary = apply_model_to_lab(source.path, labels.path, trained.artifact_path)
-    csv_path = export_predictions_csv(labels.path, tmp_path / "predictions.csv")
+    csv_path = export_predictions_csv(labels.path, tmp_path / "predictions.csv", classifier_key="break_energy")
 
     assert summary["predicted"] == 6
-    assert len(labels.predictions()) == 6
+    assert len(scoped_labels.predictions()) == 6
     assert csv_path.read_text(encoding="utf-8").splitlines()[0].startswith("source_track_id,")
+
+
+def test_apply_model_to_lab_rejects_artifact_without_profile_key(tmp_path: Path) -> None:
+    source = LibraryDatabase(tmp_path / "source.sqlite")
+    track_id = _track(source, tmp_path, "track.wav", title="Track")
+    source.save_sonara_features(
+        track_id,
+        {
+            "onset_density": {"type": "float", "value": 1.0},
+            "mfcc_mean": {"type": "list", "value": [1.0] * 13},
+            "chroma_mean": {"type": "list", "value": [1.0] * 12},
+        },
+        model_name="sonara-test",
+    )
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    artifact_path = tmp_path / "legacy.joblib"
+    joblib.dump(
+        {
+            "model": _ConstantClassifier("broken", classes_=["broken", "straight"]),
+            "feature_set": "sonara",
+            "label_order": ["broken", "straight"],
+        },
+        artifact_path,
+    )
+
+    try:
+        apply_model_to_lab(source.path, labels.path, artifact_path)
+    except ValueError as error:
+        assert "classifier_key" in str(error)
+    else:  # pragma: no cover - defensive guard.
+        raise AssertionError("legacy artifact without classifier_key was applied to an implicit profile")
 
 
 def test_build_labeled_feature_matrix_accepts_feature_source_combinations(tmp_path: Path) -> None:
     source = LibraryDatabase(tmp_path / "source.sqlite")
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
+    scoped_labels = RhythmLabDatabase(labels.path, classifier_key="break_energy")
     for index in range(4):
         track_id = _track(source, tmp_path, f"combo-{index}.wav", title=f"Combo {index}")
         source.save_sonara_features(
@@ -2706,10 +2831,10 @@ def test_build_labeled_feature_matrix_accepts_feature_source_combinations(tmp_pa
         )
         source.save_embedding(track_id, np.asarray([1.0, float(index + 1)], dtype=np.float32), "mert-test", embedding_key="mert")
         source.save_embedding(track_id, np.asarray([float(index + 1), 1.0], dtype=np.float32), "clap-test", embedding_key="clap")
-        labels.set_label(source.get_track(track_id), "broken" if index < 2 else "straight")
+        scoped_labels.set_label(source.get_track(track_id), "broken" if index < 2 else "straight")
 
-    features = build_labeled_feature_matrix(source.path, labels.path, "sonara+mert+clap")
-    combined = build_labeled_feature_matrix(source.path, labels.path, "combined")
+    features = build_labeled_feature_matrix(source.path, labels.path, "sonara+mert+clap", classifier_key="break_energy")
+    combined = build_labeled_feature_matrix(source.path, labels.path, "combined", classifier_key="break_energy")
 
     assert features.track_ids == [1, 2, 3, 4]
     assert features.matrix.shape[0] == 4
@@ -2721,6 +2846,7 @@ def test_build_labeled_feature_matrix_accepts_feature_source_combinations(tmp_pa
 def test_benchmark_profile_ablation_ranks_requested_feature_sets(tmp_path: Path) -> None:
     source = LibraryDatabase(tmp_path / "source.sqlite")
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
     for index in range(8):
         track_id = _track(source, tmp_path, f"ablation-{index}.wav", title=f"Ablation {index}")
         source.save_sonara_features(
@@ -2755,6 +2881,7 @@ def test_benchmark_profile_ablation_ranks_requested_feature_sets(tmp_path: Path)
 def test_cli_benchmark_ablation_writes_report_for_requested_profile(tmp_path: Path) -> None:
     source = LibraryDatabase(tmp_path / "source.sqlite")
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
     for index in range(4):
         track_id = _track(source, tmp_path, f"cli-ablation-{index}.wav", title=f"CLI Ablation {index}")
         source.save_sonara_features(
@@ -2874,6 +3001,7 @@ def test_train_feature_set_writes_generic_positive_discovery_metrics(tmp_path: P
         feature_names=["axis", "marker"],
         feature_set="test",
         artifact_dir=tmp_path / "artifacts",
+        **_break_energy_train_kwargs(),
     )
 
     metrics = json.loads(result.metrics_path.read_text(encoding="utf-8"))
@@ -2909,6 +3037,7 @@ def test_train_feature_set_can_write_calibrated_validation_report(tmp_path: Path
         feature_names=["axis", "marker"],
         feature_set="combined",
         artifact_dir=tmp_path / "artifacts",
+        **_break_energy_train_kwargs(),
         calibrate=True,
     )
 
@@ -2929,6 +3058,7 @@ def test_train_feature_set_can_write_calibrated_validation_report(tmp_path: Path
 
 def test_promote_require_calibration_blocks_uncalibrated_artifact(tmp_path: Path) -> None:
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
     artifact_dir = tmp_path / "artifacts"
     matrix = np.asarray(
         [[float(index), 0.0] for index in range(6)]
@@ -2941,6 +3071,7 @@ def test_promote_require_calibration_blocks_uncalibrated_artifact(tmp_path: Path
         feature_names=["axis", "marker"],
         feature_set="combined",
         artifact_dir=artifact_dir,
+        **_break_energy_train_kwargs(),
     )
 
     try:
@@ -2961,6 +3092,7 @@ def test_promote_require_calibration_blocks_uncalibrated_artifact(tmp_path: Path
 
 def test_promote_defaults_to_uncalibrated_artifact_when_calibrated_is_newer(tmp_path: Path) -> None:
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
     artifact_dir = tmp_path / "artifacts"
     artifact_dir.mkdir()
     uncalibrated = artifact_dir / "break-energy-mert+clap-20260524T140000Z.joblib"
@@ -2993,6 +3125,7 @@ def test_promote_defaults_to_uncalibrated_artifact_when_calibrated_is_newer(tmp_
 
 def test_promote_calibrated_artifact_writes_identity_and_calibration_manifest(tmp_path: Path) -> None:
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
     artifact_dir = tmp_path / "artifacts"
     matrix = np.asarray(
         [[float(index), 0.0] for index in range(60)]
@@ -3005,6 +3138,7 @@ def test_promote_calibrated_artifact_writes_identity_and_calibration_manifest(tm
         feature_names=["axis", "marker"],
         feature_set="combined",
         artifact_dir=artifact_dir,
+        **_break_energy_train_kwargs(),
         calibrate=True,
     )
 
@@ -3031,7 +3165,9 @@ def test_export_predictions_csv_orders_by_profile_positive_probability(tmp_path:
     lower_id = _track(source, tmp_path, "lower.wav", title="Lower")
     higher_id = _track(source, tmp_path, "higher.wav", title="Higher")
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
-    labels.save_prediction(
+    _create_break_energy_profile(labels)
+    scoped_labels = RhythmLabDatabase(labels.path, classifier_key="break_energy")
+    scoped_labels.save_prediction(
         source.get_track(lower_id),
         feature_set="combined",
         model_artifact="model.joblib",
@@ -3039,7 +3175,7 @@ def test_export_predictions_csv_orders_by_profile_positive_probability(tmp_path:
         confidence=0.8,
         probabilities={"broken": 0.2, "straight": 0.8},
     )
-    labels.save_prediction(
+    scoped_labels.save_prediction(
         source.get_track(higher_id),
         feature_set="combined",
         model_artifact="model.joblib",
@@ -3048,7 +3184,7 @@ def test_export_predictions_csv_orders_by_profile_positive_probability(tmp_path:
         probabilities={"broken": 0.7, "straight": 0.3},
     )
 
-    csv_path = export_predictions_csv(labels.path, tmp_path / "predictions.csv")
+    csv_path = export_predictions_csv(labels.path, tmp_path / "predictions.csv", classifier_key="break_energy")
 
     with csv_path.open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
@@ -3063,8 +3199,10 @@ def test_export_predictions_csv_uses_latest_prediction_per_track(tmp_path: Path)
     source = LibraryDatabase(tmp_path / "source.sqlite")
     track_id = _track(source, tmp_path, "track.wav", title="Track")
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
+    scoped_labels = RhythmLabDatabase(labels.path, classifier_key="break_energy")
     track = source.get_track(track_id)
-    labels.save_prediction(
+    scoped_labels.save_prediction(
         track,
         feature_set="combined",
         model_artifact="old.joblib",
@@ -3072,7 +3210,7 @@ def test_export_predictions_csv_uses_latest_prediction_per_track(tmp_path: Path)
         confidence=0.9,
         probabilities={"broken": 0.9, "straight": 0.1},
     )
-    labels.save_prediction(
+    scoped_labels.save_prediction(
         track,
         feature_set="combined",
         model_artifact="new.joblib",
@@ -3081,7 +3219,7 @@ def test_export_predictions_csv_uses_latest_prediction_per_track(tmp_path: Path)
         probabilities={"broken": 0.2, "straight": 0.8},
     )
 
-    csv_path = export_predictions_csv(labels.path, tmp_path / "predictions.csv")
+    csv_path = export_predictions_csv(labels.path, tmp_path / "predictions.csv", classifier_key="break_energy")
 
     with csv_path.open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
@@ -3125,6 +3263,7 @@ def test_lab_database_prunes_old_predictions_for_feature_set_only(tmp_path: Path
     source = LibraryDatabase(tmp_path / "source.sqlite")
     track_id = _track(source, tmp_path, "track.wav", title="Track")
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
     track = source.get_track(track_id)
     labels.save_prediction(
         track,
@@ -3163,6 +3302,7 @@ def test_lab_database_prunes_old_predictions_for_feature_set_only(tmp_path: Path
 
 def test_lab_database_records_training_checkpoint_counts(tmp_path: Path) -> None:
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
 
     assert labels.training_checkpoint()["counts"] == {"broken": 0, "straight": 0}
 
@@ -3177,6 +3317,7 @@ def test_cli_train_accepts_separate_source_and_labels_databases(tmp_path: Path) 
     source_path = tmp_path / "source.sqlite"
     source = LibraryDatabase(source_path)
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
     for index in range(6):
         track_id = _track(source, tmp_path, f"track-{index}.wav", title=f"Track {index}")
         source.save_sonara_features(
@@ -3199,6 +3340,8 @@ def test_cli_train_accepts_separate_source_and_labels_databases(tmp_path: Path) 
             str(source_path),
             "--labels",
             str(labels.path),
+            "--profile",
+            "break_energy",
             "--artifacts",
             str(tmp_path / "artifacts"),
         ],
@@ -3232,6 +3375,7 @@ def test_cli_suggest_labels_can_write_queue(tmp_path: Path) -> None:
             model_id="test-model",
         )
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
 
     result = subprocess.run(
         [

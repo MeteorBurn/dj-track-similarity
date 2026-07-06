@@ -9,12 +9,9 @@ from pathlib import Path
 import numpy as np
 
 from .features import FEATURE_SETS, build_labeled_feature_matrix
-from .lab_db import BREAK_ENERGY_CLASSIFIER_KEY, RhythmLabDatabase
+from .lab_db import RhythmLabDatabase
 
 
-LABEL_ORDER = ["broken", "straight"]
-DEFAULT_POSITIVE_LABEL = "broken"
-ARTIFACT_PREFIX = "break-energy"
 POSITIVE_DISCOVERY_THRESHOLDS = (0.1, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
 TOP_N_VALUES = (1, 5, 10, 25, 50, 100, 250, 500, 1000)
 MIN_CALIBRATION_LABELS = 100
@@ -39,10 +36,10 @@ def train_feature_set(
     feature_names: list[str],
     feature_set: str,
     artifact_dir: str | Path,
-    label_order: list[str] | None = None,
-    positive_label: str = DEFAULT_POSITIVE_LABEL,
-    artifact_prefix: str = ARTIFACT_PREFIX,
-    classifier_key: str = BREAK_ENERGY_CLASSIFIER_KEY,
+    label_order: list[str],
+    positive_label: str,
+    artifact_prefix: str,
+    classifier_key: str,
     random_state: int = 42,
     calibrate: bool = False,
 ) -> TrainResult:
@@ -53,7 +50,7 @@ def train_feature_set(
 
     matrix = np.asarray(matrix, dtype=np.float32)
     labels = [str(label) for label in labels]
-    ordered_labels = [str(label) for label in (label_order or LABEL_ORDER)]
+    ordered_labels = [str(label) for label in label_order]
     positive_label = str(positive_label)
     _validate_training_data(matrix, labels, label_order=ordered_labels)
 
@@ -146,7 +143,7 @@ def benchmark_lab_database(
     labels_db_path: str | Path,
     artifact_dir: str | Path,
     *,
-    classifier_key: str = BREAK_ENERGY_CLASSIFIER_KEY,
+    classifier_key: str,
     feature_sets: tuple[str, ...] = FEATURE_SETS,
     random_state: int = 42,
     calibrate: bool = False,

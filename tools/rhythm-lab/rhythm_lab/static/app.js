@@ -130,7 +130,6 @@ async function loadProfiles() {
     option.textContent = profile.name;
     profileSelectEl.appendChild(option);
   });
-  if (!profiles.length) throw new Error("No classifier profiles are available");
   if (activeProfile && profiles.some(profile => profile.classifier_key === activeProfile.classifier_key)) {
     await setActiveProfile(activeProfile.classifier_key, { skipLoad: true });
   } else {

@@ -201,6 +201,8 @@ CLAP text-search scores are not the same scale as seed-based audio-to-audio scor
 
 Rhythm Lab is a separate local app for turning your own listening decisions into optional classifier scores. The main UI can launch or reuse Rhythm Lab at `127.0.0.1:8777`, and it can save the current set as a Rhythm Lab review collection.
 
+A new Rhythm Lab labels database starts without a built-in classifier profile. Create or select the profile you want to train. Profile-specific CLI commands use an explicit `--profile`.
+
 The normal loop is:
 
 1. Label examples in Rhythm Lab.

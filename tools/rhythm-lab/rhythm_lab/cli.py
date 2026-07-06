@@ -15,7 +15,7 @@ from dj_track_similarity.rhythm_lab_collections import RhythmLabCollections
 
 from .ablation import ABLATION_FEATURE_SETS, cli_summary, run_ablation_benchmark
 from .features import feature_sources
-from .lab_db import BREAK_ENERGY_CLASSIFIER_KEY, RhythmLabDatabase
+from .lab_db import RhythmLabDatabase
 from .predictions import apply_model_to_lab, export_predictions_csv
 from .training import benchmark_lab_database
 
@@ -37,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     train_parser = subcommands.add_parser("train", help="Benchmark a classifier profile for available feature sets.")
     _add_data_options(train_parser)
-    train_parser.add_argument("--profile", default=BREAK_ENERGY_CLASSIFIER_KEY)
+    train_parser.add_argument("--profile", required=True)
     train_parser.add_argument("--artifacts", type=Path, default=None)
     train_parser.add_argument("--calibrate", action="store_true", help="Fit a calibrated classifier when label gates are satisfied.")
     train_parser.set_defaults(func=_train)
@@ -61,11 +61,11 @@ def build_parser() -> argparse.ArgumentParser:
     export_parser = subcommands.add_parser("export-predictions", help="Export saved classifier profile predictions to CSV.")
     export_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
     export_parser.add_argument("--output", type=Path, default=None)
-    export_parser.add_argument("--profile", default=BREAK_ENERGY_CLASSIFIER_KEY)
+    export_parser.add_argument("--profile", required=True)
     export_parser.set_defaults(func=_export_predictions)
 
     promote_parser = subcommands.add_parser("promote", help="Copy the latest combined profile model into the main project.")
-    promote_parser.add_argument("--profile", default=BREAK_ENERGY_CLASSIFIER_KEY)
+    promote_parser.add_argument("--profile", required=True)
     promote_parser.add_argument("--artifacts", type=Path, default=None)
     promote_parser.add_argument("--feature-set", default=None, help="Promote the latest artifact for this feature set. Defaults to combined.")
     promote_parser.add_argument("--target", type=Path, default=DEFAULT_CLASSIFIER_TARGET_ROOT)
@@ -75,7 +75,7 @@ def build_parser() -> argparse.ArgumentParser:
     promote_parser.set_defaults(func=_promote_profile)
 
     calibration_parser = subcommands.add_parser("calibration-report", help="Print the latest combined artifact calibration report.")
-    calibration_parser.add_argument("--profile", default=BREAK_ENERGY_CLASSIFIER_KEY)
+    calibration_parser.add_argument("--profile", required=True)
     calibration_parser.add_argument("--artifacts", type=Path, default=None)
     calibration_parser.add_argument("--artifact", type=Path, default=None)
     calibration_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
@@ -83,7 +83,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     suggest_parser = subcommands.add_parser("suggest-labels", help="Rank classifier label suggestions and optionally persist them to the lab queue.")
     _add_data_options(suggest_parser)
-    suggest_parser.add_argument("--profile", default=BREAK_ENERGY_CLASSIFIER_KEY)
+    suggest_parser.add_argument("--profile", required=True)
     suggest_parser.add_argument("--mode", default="uncertainty")
     suggest_parser.add_argument("--limit", type=int, default=25)
     suggest_parser.add_argument("--random-seed", type=int, default=123)
@@ -92,20 +92,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     queue_parser = subcommands.add_parser("queue", help="List persistent active-learning queue rows.")
     queue_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
-    queue_parser.add_argument("--profile", default=BREAK_ENERGY_CLASSIFIER_KEY)
+    queue_parser.add_argument("--profile", required=True)
     queue_parser.add_argument("--state", default=None)
     queue_parser.set_defaults(func=_queue_list)
 
     queue_export_parser = subcommands.add_parser("queue-export", help="Export persistent active-learning queue rows to CSV.")
     queue_export_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
-    queue_export_parser.add_argument("--profile", default=BREAK_ENERGY_CLASSIFIER_KEY)
+    queue_export_parser.add_argument("--profile", required=True)
     queue_export_parser.add_argument("--state", default=None)
     queue_export_parser.add_argument("--output", type=Path, required=True)
     queue_export_parser.set_defaults(func=_queue_export)
 
     queue_mark_parser = subcommands.add_parser("queue-mark", help="Set one queue row state explicitly.")
     queue_mark_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
-    queue_mark_parser.add_argument("--profile", default=BREAK_ENERGY_CLASSIFIER_KEY)
+    queue_mark_parser.add_argument("--profile", required=True)
     queue_mark_parser.add_argument("--track-id", type=int, required=True)
     queue_mark_parser.add_argument("--mode", default="uncertainty")
     queue_mark_parser.add_argument("--state", required=True)
@@ -113,7 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     queue_clear_parser = subcommands.add_parser("queue-clear", help="Delete queue rows in one state for one profile.")
     queue_clear_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
-    queue_clear_parser.add_argument("--profile", default=BREAK_ENERGY_CLASSIFIER_KEY)
+    queue_clear_parser.add_argument("--profile", required=True)
     queue_clear_parser.add_argument("--state", required=True)
     queue_clear_parser.set_defaults(func=_queue_clear)
 

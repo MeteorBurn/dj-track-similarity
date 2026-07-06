@@ -21,6 +21,7 @@ logs/
 *.state.json
 state.*.json
 .dj-track-similarity-indexes/
+.codex/
 models/classifiers/*/model.joblib
 models/classifiers/*/model.json
 /.ideas/

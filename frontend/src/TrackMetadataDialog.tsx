@@ -7,13 +7,15 @@ import { basename, displayTrack, trackHasAnalysis } from "./trackDisplay";
 const trackTagLabels: Record<string, string> = {
   genre: "Genre",
   bpm: "BPM",
-  key: "Key"
+  key: "Key",
+  comment: "Comment"
 };
 
 const trackTagOrder = [
   "genre",
   "bpm",
-  "key"
+  "key",
+  "comment"
 ];
 
 function readablePrimaryTrackInfo(track: Track) {

@@ -194,6 +194,33 @@ class AnalysisRepository:
         self._invalidate_embedding_cache_keys(embedding_keys)
         self._invalidate_sonara_feature_cache()
 
+    def save_sonara_curves(self, track_id: int, curves: dict[str, object]) -> None:
+        """Store heavy SONARA curve data (energy_curve, loudness_curve, downbeats) out of the hot
+        search path. This is UI-only lazy data and must never be read by load_sonara_feature_rows."""
+        curves_json = metadata_to_json(curves, sort_keys=False)
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO sonara_curves (track_id, curves_json, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(track_id) DO UPDATE SET
+                    curves_json = excluded.curves_json,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (int(track_id), curves_json),
+            )
+
+    def load_sonara_curves(self, track_id: int) -> dict[str, object] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT curves_json FROM sonara_curves WHERE track_id = ?",
+                (int(track_id),),
+            ).fetchone()
+        if row is None:
+            return None
+        curves = metadata_from_json(row["curves_json"])
+        return curves if isinstance(curves, dict) else None
+
     def reset_analysis(self, adapter: str) -> dict[str, object]:
         adapter = adapter.strip().lower()
         if adapter in {"mert", "muq", "clap"}:
@@ -222,6 +249,7 @@ class AnalysisRepository:
                 "embeddings_deleted": int(connection.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]),
             }
             connection.execute("DELETE FROM embeddings")
+            connection.execute("DELETE FROM sonara_curves")
             connection.execute("DELETE FROM tracks")
             rebuild_track_search_fts(connection)
         self._invalidate_embedding_cache()
@@ -397,6 +425,7 @@ class AnalysisRepository:
                 embedding_keys_to_invalidate.update(_embedding_keys_for_track(connection, int(row["id"])))
                 updated += 1
             connection.execute("UPDATE tracks SET has_sonara_analysis = 0 WHERE has_sonara_analysis != 0")
+            connection.execute("DELETE FROM sonara_curves")
         if updated:
             self._invalidate_embedding_cache_keys(embedding_keys_to_invalidate)
             self._invalidate_sonara_feature_cache()

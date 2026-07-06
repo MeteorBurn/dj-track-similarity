@@ -71,6 +71,16 @@ dj-sim doctor
 | `--track-batch-size` | `1..64` decoded tracks per job batch |
 | `--inference-batch-size` | `1..128` model samples per forward pass |
 | `--diagnostics` | file-log decoder and batch timing diagnostics |
+| `--sonara-structure` | SONARA opt-in: energy curve, segments, intro/outro, energy level |
+| `--sonara-loudness` | SONARA opt-in: true peak, ReplayGain, loudness curve, momentary max, LRA |
+| `--sonara-beatgrid` | SONARA opt-in: downbeats, grid offset, grid stability |
+| `--sonara-key-candidates` | SONARA opt-in: top-3 key candidates with Camelot codes |
+| `--sonara-vocalness` | SONARA opt-in: vocal-presence heuristic (0-1) |
+| `--sonara-silence` | SONARA opt-in: leading/trailing silence offsets |
+
+Each `--sonara-*` flag is off by default, so a plain `analyze` run reproduces the pre-2.0 SONARA
+playlist output. Light fields are stored in SONARA metadata. Heavy curves (`energy_curve`,
+`loudness_curve`, `downbeats`) are stored separately and loaded only for the metadata dialog.
 
 ## Text search options
 

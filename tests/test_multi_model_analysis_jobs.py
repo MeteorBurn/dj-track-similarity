@@ -465,7 +465,7 @@ def test_multi_model_runner_factory_loads_only_models_with_work(tmp_path: Path) 
     created: list[str] = []
     decoder = DecodeRecorder()
 
-    def runner_factory(model: str, device: str, inference_batch_size: int, top_k: int):
+    def runner_factory(model: str, device: str, inference_batch_size: int, top_k: int, sonara_features: tuple[str, ...] = ()):
         created.append(model)
         if model == "mert":
             raise AssertionError("runner with no missing model work should not be initialized")
@@ -486,7 +486,7 @@ def test_multi_model_runner_init_failure_marks_only_that_model_failed(tmp_path: 
     track_id = _track(db, tmp_path, "a-track.wav")
     decoder = DecodeRecorder()
 
-    def runner_factory(model: str, device: str, inference_batch_size: int, top_k: int):
+    def runner_factory(model: str, device: str, inference_batch_size: int, top_k: int, sonara_features: tuple[str, ...] = ()):
         if model == "maest":
             raise RuntimeError("maest init failed")
         return FakeModelRunner(model)
@@ -516,7 +516,7 @@ def test_multi_model_track_batch_and_inference_batch_are_independent(tmp_path: P
     created: list[tuple[str, str, int, int]] = []
     runners: dict[str, FakeModelRunner] = {}
 
-    def runner_factory(model: str, device: str, inference_batch_size: int, top_k: int):
+    def runner_factory(model: str, device: str, inference_batch_size: int, top_k: int, sonara_features: tuple[str, ...] = ()):
         created.append((model, device, inference_batch_size, top_k))
         runner = FakeModelRunner(model)
         runners[model] = runner

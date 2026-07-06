@@ -148,6 +148,13 @@ def _create_current_schema(connection: sqlite3.Connection) -> None:
             FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE sonara_curves (
+            track_id INTEGER PRIMARY KEY,
+            curves_json TEXT NOT NULL CHECK(json_valid(curves_json)),
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
+        );
+
         PRAGMA user_version = {CURRENT_SCHEMA_VERSION};
         """
     )
@@ -228,6 +235,13 @@ def _create_current_indexes_and_triggers(connection: sqlite3.Connection) -> None
         CREATE TABLE IF NOT EXISTS track_likes (
             track_id INTEGER PRIMARY KEY,
             liked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS sonara_curves (
+            track_id INTEGER PRIMARY KEY,
+            curves_json TEXT NOT NULL CHECK(json_valid(curves_json)),
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
         );
 

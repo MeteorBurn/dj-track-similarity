@@ -34,6 +34,7 @@ def register_analysis_routes(
                 top_k=request.top_k,
                 track_batch_size=request.track_batch_size,
                 inference_batch_size=request.inference_batch_size,
+                sonara_features=request.sonara_features,
                 allow_empty_models=bool(classifier_keys),
             )
         except ValueError as error:
@@ -47,6 +48,7 @@ def register_analysis_routes(
                 device=config.device,
                 top_k=config.top_k,
                 classifier_keys=classifier_keys,
+                sonara_features=list(config.sonara_features),
             )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error

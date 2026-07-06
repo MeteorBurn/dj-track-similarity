@@ -14,6 +14,7 @@ The database stores:
 - working BPM, key, energy, duration, artist, title, and album fields,
 - analysis presence flags for SONARA, MAEST, MERT, MuQ, and CLAP,
 - embeddings in the `embeddings` table by `embedding_key`,
+- heavy SONARA opt-in curves (`energy_curve`, `loudness_curve`, `downbeats`) in the `sonara_curves` table, loaded only for UI display and never read by search,
 - liked tracks,
 - classifier scores by `classifier_key`,
 - FTS rows for library search,
@@ -31,7 +32,8 @@ Rhythm Lab uses its own labels database by default under `tools/rhythm-lab/data/
 
 - Scan, Refresh Tags, analysis, reset, clear, liked toggle, classifier scoring, feedback, and relocation apply write SQLite.
 - Relocation apply changes only stored paths.
-- Database clear deletes SQLite tracks and embeddings, then rebuilds track FTS state. It does not delete audio files.
+- Database clear deletes SQLite tracks, embeddings, and SONARA curves, then rebuilds track FTS state. It does not delete audio files.
+- Reset SONARA also deletes that family's `sonara_curves` rows.
 - Audio Dedup apply removes SQLite rows only for tracks whose files were successfully deleted.
 
 ## Backup habit

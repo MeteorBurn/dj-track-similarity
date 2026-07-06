@@ -70,6 +70,7 @@ class AnalysisJobStatus:
     track_batch_size: int = DEFAULT_ANALYSIS_TRACK_BATCH_SIZE
     inference_batch_size: int = DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE
     top_k: int = 3
+    sonara_features: list[str] = field(default_factory=list)
 
 
 def initial_model_progress(

@@ -22,7 +22,7 @@ class AnalysisModelRunner(Protocol):
         ...
 
 
-RunnerFactory = Callable[[str, str, int, int], AnalysisModelRunner]
+RunnerFactory = Callable[[str, str, int, int, tuple[str, ...]], AnalysisModelRunner]
 
 
 class SonaraModelRunner:
@@ -30,9 +30,17 @@ class SonaraModelRunner:
     model_name = "sonara-playlist-lab"
     device = "cpu"
 
+    def __init__(self, *, feature_families: tuple[str, ...] = ()) -> None:
+        self.feature_families = tuple(feature_families)
+
     def analyze_batch(self, db: LibraryDatabase, items: Sequence[AnalysisBatchItem]) -> None:
         for item in items:
-            analyze_and_store_sonara_features_from_audio(db, item.track, cast(DecodedAudio, item.decoded))
+            analyze_and_store_sonara_features_from_audio(
+                db,
+                item.track,
+                cast(DecodedAudio, item.decoded),
+                feature_families=self.feature_families,
+            )
 
 
 class MaestModelRunner:
@@ -102,9 +110,15 @@ class EmbeddingModelRunner:
             )
 
 
-def _default_model_runners(model: str, device: str, inference_batch_size: int, top_k: int) -> AnalysisModelRunner:
+def _default_model_runners(
+    model: str,
+    device: str,
+    inference_batch_size: int,
+    top_k: int,
+    sonara_features: tuple[str, ...] = (),
+) -> AnalysisModelRunner:
     if model == "sonara":
-        return SonaraModelRunner()
+        return SonaraModelRunner(feature_families=sonara_features)
     if model == "maest":
         return MaestModelRunner(device=device, top_k=top_k, inference_batch_size=inference_batch_size)
     if model in {"mert", "muq", "clap"}:

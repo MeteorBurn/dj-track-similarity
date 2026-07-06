@@ -176,8 +176,28 @@ the active log until the next launch. Future app-started logs should use `logs/<
 - SONARA writes only SQLite metadata (`sonara_features`, `sonara_model`) plus derived working
   BPM/key/duration/energy fields. SONARA BPM/key are analyzed values, not copied file tags.
 - Keep SONARA database keys canonical (`*_mean` stays in SQLite). Friendly UI labels may omit `mean`,
-  but do not rename stored keys or derive Camelot data. Do not store placeholder `unavailable` rows,
-  helper diagnostics, or `chord_sequence` in SONARA playlist storage.
+  but do not rename stored keys. Do not store placeholder `unavailable` rows, helper diagnostics, or
+  `chord_sequence` in SONARA playlist storage. The project must not derive its own Camelot codes from a
+  detected key, but sonara's own `key_camelot` analysis output (and `bpm_raw`/`bpm_candidates`) may be
+  stored: these arrive in the default `playlist` output and are kept in `sonara_features`.
+- SONARA runs on the pinned `sonara>=0.2.0` package. No Windows wheel is published on PyPI, so the wheel
+  is built locally from the sdist with cargo + MSVC. The three forked BPM fixes (half-BPM candidate lift,
+  `bpm_min`/`bpm_max` range, parabolic ACF refinement) are all in upstream 0.2.0.
+- SONARA 2.0 opt-in feature families are operator-selected per analysis run: `structure`, `loudness`,
+  `beatgrid`, `key_candidates`, `vocalness`, `silence`. Each is an independent CLI flag
+  (`--sonara-structure` etc.) and an `AnalysisJobRequest.sonara_features` list entry, default OFF so a
+  plain analyze run reproduces the pre-2.0 playlist output. sonara's `features=[...]` REPLACES the mode
+  preset, so when any family is requested the project sends the full playlist feature set plus the
+  requested families to avoid dropping base fields.
+- Light opt-in fields (scalars, `segments`, `key_candidates`) stay in `sonara_features` JSON. Heavy
+  curve/array fields (`energy_curve`, `loudness_curve`, `downbeats`) are stored WHOLE in the separate
+  `sonara_curves` table (`track_id` PK, `curves_json`), written under the same path-scoped write lock,
+  loaded lazily only for UI via `load_sonara_curves`, and NEVER read by the hot `load_sonara_feature_rows`
+  search path. `sonara_curves` is additive (`CREATE TABLE IF NOT EXISTS`, no schema-version bump, backfilled
+  into existing databases); SONARA reset and library clear delete its rows.
+- SONARA's opt-in `embedding` (48-dim similarity vector) and `fingerprint` (duplicate detection) are
+  intentionally NOT implemented. They overlap existing MERT/CLAP and Audio Dedup subsystems and must not
+  be wired into storage or ranking without an explicit future task and its own plan.
 - Shared audio loading is native-first: SONARA starts with `sonara.analyze_file`; SONARA fallback,
   MAEST, MERT, MUQ, and CLAP use the shared loader (`torchaudio` with TorchCodec when provided, Python
   `wave` for WAV, then `ffmpeg`).

@@ -30,6 +30,25 @@ has no SONARA BPM, they fall back to the Mutagen BPM tag stored during scan or R
 
 Existing SONARA rows are skipped by normal analysis jobs. Reset SONARA first when you want already analyzed tracks to be recalculated with the current BPM range.
 
+## SONARA opt-in feature families
+
+A plain SONARA run stores the base playlist output plus three fields new in SONARA 2.0 that arrive by default: `bpm_raw`, `bpm_candidates`, and `key_camelot` (sonara's own Camelot code, not a project-side derivation).
+
+Six extra feature families are opt-in and OFF by default, so a normal run keeps the pre-2.0 output. Each has its own CLI flag and API field:
+
+| Family | CLI flag | API `sonara_features` entry | Adds |
+| --- | --- | --- | --- |
+| structure | `--sonara-structure` | `structure` | energy curve, segments, intro/outro, energy level |
+| loudness | `--sonara-loudness` | `loudness` | true peak, ReplayGain, loudness curve, momentary max, LRA |
+| beatgrid | `--sonara-beatgrid` | `beatgrid` | downbeats, grid offset, grid stability |
+| key_candidates | `--sonara-key-candidates` | `key_candidates` | top-3 key candidates with Camelot codes |
+| vocalness | `--sonara-vocalness` | `vocalness` | vocal-presence heuristic (0-1) |
+| silence | `--sonara-silence` | `silence` | leading/trailing silence offsets |
+
+Light fields (scalars, `segments`, `key_candidates`) stay in the SONARA metadata used by search. Heavy curves (`energy_curve`, `loudness_curve`, `downbeats`) are stored whole in the separate `sonara_curves` table, loaded only for UI display and never read by the search path. SONARA reset and library clear remove both.
+
+SONARA's `embedding` and `fingerprint` features are intentionally not implemented. They overlap the existing MERT/CLAP embeddings and Audio Dedup.
+
 ## Batch and label ranges
 
 | Setting | Range | Default |

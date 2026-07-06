@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,54 @@ SONARA_ANALYSIS_MODE = "playlist"
 SONARA_MODEL_NAME = "sonara-playlist-lab"
 SONARA_BPM_MIN = 79.0
 SONARA_BPM_MAX = 192.0
+
+# sonara 2.0 `features=[...]` REPLACES the mode preset instead of extending it: passing only an
+# opt-in family drops the base playlist output (key, energy, chords, etc.). So when any opt-in family
+# is requested we must pass the full playlist-equivalent feature list PLUS the family names. This
+# list reproduces the plain playlist output exactly (verified against the real library: 0 lost,
+# 0 extra keys). When no family is requested we pass no `features` at all (pure playlist = pre-2.0).
+SONARA_PLAYLIST_FEATURE_REQUESTS = (
+    "bpm", "beats", "onsets", "rms", "dynamic_range", "centroid", "zcr",
+    "onset_density", "bandwidth", "rolloff", "flatness", "contrast", "mfcc",
+    "chroma", "chords", "dissonance", "energy", "danceability", "key",
+    "valence", "acousticness",
+)
+
+# SONARA 2.0 opt-in feature families -> the `features=[...]` names sonara.analyze_* expects.
+# Requesting a family adds its playlist output; the plain playlist mode (empty families) is the
+# pre-2.0 behavior. Family names match analysis_config.SONARA_FEATURE_FAMILIES.
+SONARA_FEATURE_REQUESTS = {
+    "structure": ("structure",),
+    "loudness": ("loudness",),
+    "beatgrid": ("beatgrid",),
+    "key_candidates": ("key_candidates",),
+    "vocalness": ("vocalness",),
+    "silence": ("silence",),
+}
+
+# Light opt-in fields stored inside sonara_features JSON (hot search path). Grouped per family so a
+# family that was not requested contributes nothing.
+SONARA_OPTIN_LIGHT_KEYS = {
+    "structure": ("energy_level", "intro_end_sec", "outro_start_sec", "segments", "energy_curve_hop_sec"),
+    "loudness": ("true_peak_db", "replaygain_db", "loudness_momentary_max_db", "loudness_range_lu"),
+    "beatgrid": ("grid_offset_sec", "grid_stability"),
+    "key_candidates": ("key_candidates",),
+    "vocalness": ("vocalness",),
+    "silence": ("leading_silence_sec", "trailing_silence_sec"),
+}
+
+# Heavy per-family curve/array fields stored out-of-band in the sonara_curves table (UI-only, never
+# read by the hot search path). Not part of sonara_features JSON.
+SONARA_OPTIN_CURVE_KEYS = {
+    "structure": ("energy_curve",),
+    "loudness": ("loudness_curve",),
+    "beatgrid": ("downbeats",),
+}
+
+# Default playlist fields new in sonara 2.0 that arrive without any opt-in request and are cheap to
+# keep in the hot path. key_camelot is sonara's own analysis output (not a project-side Camelot
+# derivation), so storing it is allowed.
+SONARA_DEFAULT_EXTRA_KEYS = ("bpm_raw", "bpm_candidates", "key_camelot")
 
 
 PLAYLIST_FEATURE_GROUPS = (
@@ -77,6 +126,41 @@ PLAYLIST_FEATURE_GROUPS = (
 PLAYLIST_FEATURE_KEYS = tuple(key for _group, keys in PLAYLIST_FEATURE_GROUPS for key in keys)
 
 
+def _feature_names_for_families(families: Sequence[str] | None) -> list[str]:
+    """Map requested opt-in families to the sonara `features=[...]` request list. Returns [] when no
+    family is requested so sonara runs the plain playlist mode (pre-2.0 behavior). When any family is
+    requested we must include the full playlist feature set, because sonara's `features=[...]`
+    REPLACES the mode preset rather than extending it."""
+    if not families:
+        return []
+    requested: list[str] = list(SONARA_PLAYLIST_FEATURE_REQUESTS)
+    for family in families:
+        for name in SONARA_FEATURE_REQUESTS.get(family, ()):
+            if name not in requested:
+                requested.append(name)
+    return requested
+
+
+def _split_optin_analysis(
+    analysis: dict[str, object],
+    families: Sequence[str] | None,
+) -> tuple[dict[str, object], dict[str, object]]:
+    """Split requested opt-in output into light fields (stored in sonara_features JSON) and heavy
+    curve/array fields (stored in the sonara_curves table)."""
+    light: dict[str, object] = {}
+    curves: dict[str, object] = {}
+    if not families:
+        return light, curves
+    for family in families:
+        for key in SONARA_OPTIN_LIGHT_KEYS.get(family, ()):
+            if key in analysis:
+                light[key] = _feature_payload(analysis[key])
+        for key in SONARA_OPTIN_CURVE_KEYS.get(family, ()):
+            if key in analysis:
+                curves[key] = _curve_payload(analysis[key])
+    return light, curves
+
+
 @dataclass(frozen=True)
 class SonaraFeatureResult:
     track_id: int
@@ -89,12 +173,13 @@ def analyze_and_store_sonara_features(
     track: Track,
     *,
     sonara_module: Any | None = None,
+    feature_families: Sequence[str] | None = None,
 ) -> SonaraFeatureResult:
     sonara = sonara_module or _import_sonara()
     started = time.perf_counter()
-    analysis = _analyze_file_or_signal(sonara, track.path)
+    analysis = _analyze_file_or_signal(sonara, track.path, feature_families=feature_families)
     elapsed = time.perf_counter() - started
-    _store_sonara_analysis(db, track, analysis)
+    _store_sonara_analysis(db, track, analysis, feature_families=feature_families)
     return SonaraFeatureResult(track.id, track.path, elapsed)
 
 
@@ -104,9 +189,12 @@ def analyze_and_store_sonara_features_from_audio(
     decoded: DecodedAudio,
     *,
     sonara_module: Any | None = None,
+    feature_families: Sequence[str] | None = None,
 ) -> SonaraFeatureResult:
-    analysis, elapsed = analyze_sonara_features_from_audio(decoded, sonara_module=sonara_module)
-    _store_sonara_analysis(db, track, analysis)
+    analysis, elapsed = analyze_sonara_features_from_audio(
+        decoded, sonara_module=sonara_module, feature_families=feature_families
+    )
+    _store_sonara_analysis(db, track, analysis, feature_families=feature_families)
     return SonaraFeatureResult(track.id, track.path, elapsed)
 
 
@@ -114,6 +202,7 @@ def analyze_sonara_features_from_audio(
     decoded: DecodedAudio,
     *,
     sonara_module: Any | None = None,
+    feature_families: Sequence[str] | None = None,
 ) -> tuple[dict[str, object], float]:
     sonara = sonara_module or _import_sonara()
     started = time.perf_counter()
@@ -130,17 +219,39 @@ def analyze_sonara_features_from_audio(
             mode=SONARA_ANALYSIS_MODE,
             bpm_min=SONARA_BPM_MIN,
             bpm_max=SONARA_BPM_MAX,
+            **_feature_kwargs(feature_families),
         )
     )
     elapsed = time.perf_counter() - started
     return analysis, elapsed
 
 
-def _store_sonara_analysis(db: LibraryDatabase, track: Track, analysis: dict[str, object]) -> None:
+def _feature_kwargs(feature_families: Sequence[str] | None) -> dict[str, object]:
+    """Build the sonara `features=[...]` kwarg. Empty families -> no kwarg (plain playlist mode)."""
+    names = _feature_names_for_families(feature_families)
+    return {"features": names} if names else {}
+
+
+def _store_sonara_analysis(
+    db: LibraryDatabase,
+    track: Track,
+    analysis: dict[str, object],
+    *,
+    feature_families: Sequence[str] | None = None,
+) -> None:
     features: dict[str, object] = {}
     for key in PLAYLIST_FEATURE_KEYS:
         if key in analysis:
             features[key] = _feature_payload(analysis[key])
+
+    # sonara 2.0 default playlist extras (bpm_raw, bpm_candidates, key_camelot) arrive without any
+    # opt-in request and are cheap enough to keep in the hot path.
+    for key in SONARA_DEFAULT_EXTRA_KEYS:
+        if key in analysis:
+            features[key] = _feature_payload(analysis[key])
+
+    light, curves = _split_optin_analysis(analysis, feature_families)
+    features.update(light)
 
     db.save_sonara_features(
         track.id,
@@ -151,6 +262,8 @@ def _store_sonara_analysis(db: LibraryDatabase, track: Track, analysis: dict[str
         duration=_optional_float(analysis.get("duration_sec")),
         model_name=SONARA_MODEL_NAME,
     )
+    if curves:
+        db.save_sonara_curves(track.id, curves)
 
 
 def _import_sonara():
@@ -161,7 +274,13 @@ def _import_sonara():
     return sonara
 
 
-def _analyze_file_or_signal(sonara: Any, path: str | Path) -> dict[str, object]:
+def _analyze_file_or_signal(
+    sonara: Any,
+    path: str | Path,
+    *,
+    feature_families: Sequence[str] | None = None,
+) -> dict[str, object]:
+    feature_kwargs = _feature_kwargs(feature_families)
     try:
         return dict(
             sonara.analyze_file(
@@ -170,6 +289,7 @@ def _analyze_file_or_signal(sonara: Any, path: str | Path) -> dict[str, object]:
                 mode=SONARA_ANALYSIS_MODE,
                 bpm_min=SONARA_BPM_MIN,
                 bpm_max=SONARA_BPM_MAX,
+                **feature_kwargs,
             )
         )
     except Exception:
@@ -183,6 +303,7 @@ def _analyze_file_or_signal(sonara: Any, path: str | Path) -> dict[str, object]:
                 mode=SONARA_ANALYSIS_MODE,
                 bpm_min=SONARA_BPM_MIN,
                 bpm_max=SONARA_BPM_MAX,
+                **feature_kwargs,
             )
         )
 
@@ -204,6 +325,42 @@ def _feature_payload(value: object) -> dict[str, object]:
         if key in serialized:
             payload[key] = serialized[key]
     return payload
+
+
+def _curve_payload(value: object) -> dict[str, object]:
+    """Serialize a heavy curve/array field WITH every value, for the sonara_curves table. Unlike
+    _feature_payload (which strips long sequences to a summary for the hot path) and _serialize_value
+    (which truncates numeric sequences over 64 elements even when include_full_value is set), this
+    keeps the FULL sequence, because curves are stored out-of-band and loaded only for UI display."""
+    if isinstance(value, np.ndarray):
+        array = np.asarray(value)
+        return {
+            "value": array.tolist(),
+            "type": "ndarray",
+            "shape": list(array.shape),
+            "size": int(array.size),
+            "dtype": str(array.dtype),
+            "summary": _array_summary(array),
+        }
+    if isinstance(value, (list, tuple)):
+        return {
+            "value": [_curve_payload(item)["value"] if isinstance(item, (list, tuple, dict, np.ndarray)) else _scalar_value(item) for item in value],
+            "type": type(value).__name__,
+            "length": len(value),
+        }
+    return {"value": _scalar_value(value), "type": type(value).__name__}
+
+
+def _scalar_value(value: object) -> object:
+    if isinstance(value, np.generic):
+        value = value.item()
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    if value is None:
+        return None
+    return str(value)
 
 
 def _serialize_value(value: object, *, include_full_value: bool = True) -> dict[str, object]:

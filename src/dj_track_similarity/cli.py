@@ -940,8 +940,26 @@ def analyze(
         help="MERT/CLAP/MAEST model inference batch size.",
     ),
     diagnostics: bool = typer.Option(False, "--diagnostics", help="Write decoder fallback and batch timing diagnostics to the file log."),
+    sonara_structure: bool = typer.Option(False, "--sonara-structure", help="SONARA opt-in: energy curve, segments, intro/outro, energy level."),
+    sonara_loudness: bool = typer.Option(False, "--sonara-loudness", help="SONARA opt-in: true peak, ReplayGain, loudness curve, momentary max, LRA."),
+    sonara_beatgrid: bool = typer.Option(False, "--sonara-beatgrid", help="SONARA opt-in: downbeats, grid offset, grid stability."),
+    sonara_key_candidates: bool = typer.Option(False, "--sonara-key-candidates", help="SONARA opt-in: top-3 key candidates with Camelot codes."),
+    sonara_vocalness: bool = typer.Option(False, "--sonara-vocalness", help="SONARA opt-in: vocal-presence heuristic (0-1)."),
+    sonara_silence: bool = typer.Option(False, "--sonara-silence", help="SONARA opt-in: leading/trailing silence offsets."),
 ) -> None:
     set_analysis_diagnostics_enabled(diagnostics)
+    sonara_features = [
+        family
+        for family, enabled in (
+            ("structure", sonara_structure),
+            ("loudness", sonara_loudness),
+            ("beatgrid", sonara_beatgrid),
+            ("key_candidates", sonara_key_candidates),
+            ("vocalness", sonara_vocalness),
+            ("silence", sonara_silence),
+        )
+        if enabled
+    ]
     try:
         config = build_analysis_job_config(
             models=_parse_analysis_models(models),
@@ -950,6 +968,7 @@ def analyze(
             top_k=top_k,
             track_batch_size=track_batch_size,
             inference_batch_size=inference_batch_size,
+            sonara_features=sonara_features,
         )
     except ValueError as error:
         raise typer.BadParameter(str(error)) from error
@@ -961,6 +980,7 @@ def analyze(
         top_k=config.top_k,
         track_batch_size=config.track_batch_size,
         inference_batch_size=config.inference_batch_size,
+        sonara_features=list(config.sonara_features),
     )
     status = _run_cli_job_with_progress(manager, job_id, label=",".join(config.models))
     typer.echo(

@@ -5,6 +5,9 @@ from dataclasses import dataclass
 
 
 ANALYSIS_MODEL_ORDER = ("sonara", "maest", "mert", "muq", "clap")
+# Opt-in SONARA 2.0 feature families. Each maps to sonara `features=[...]` requests in
+# sonara_features.py. Empty by default so a plain analyze run keeps the pre-2.0 playlist output.
+SONARA_FEATURE_FAMILIES = ("structure", "loudness", "beatgrid", "key_candidates", "vocalness", "silence")
 ANALYSIS_DEVICE_CHOICES = ("auto", "cpu", "cuda")
 ANALYSIS_DEVICE_PATTERN = "^(auto|cpu|cuda)$"
 DEFAULT_ANALYSIS_DEVICE = "auto"
@@ -27,6 +30,7 @@ class AnalysisJobConfig:
     top_k: int
     track_batch_size: int
     inference_batch_size: int
+    sonara_features: tuple[str, ...] = ()
 
 
 def normalize_analysis_models(models: Sequence[str] | None) -> tuple[str, ...]:
@@ -54,6 +58,19 @@ def normalize_analysis_device(device: str | None) -> str:
     return text
 
 
+def normalize_sonara_features(features: Sequence[str] | None) -> tuple[str, ...]:
+    if not features:
+        return ()
+    selected: list[str] = []
+    for feature in features:
+        text = str(feature).strip().lower()
+        if text not in SONARA_FEATURE_FAMILIES:
+            raise ValueError(f"Unknown SONARA feature family: {feature}")
+        if text not in selected:
+            selected.append(text)
+    return tuple(feature for feature in SONARA_FEATURE_FAMILIES if feature in selected)
+
+
 def build_analysis_job_config(
     *,
     models: Sequence[str] | None = None,
@@ -62,6 +79,7 @@ def build_analysis_job_config(
     top_k: int = DEFAULT_ANALYSIS_TOP_K,
     track_batch_size: int = DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
     inference_batch_size: int = DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
+    sonara_features: Sequence[str] | None = None,
     allow_empty_models: bool = False,
 ) -> AnalysisJobConfig:
     normalized_models = () if allow_empty_models and models is not None and not models else normalize_analysis_models(models)
@@ -82,6 +100,7 @@ def build_analysis_job_config(
             minimum=MIN_ANALYSIS_INFERENCE_BATCH_SIZE,
             maximum=MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
         ),
+        sonara_features=normalize_sonara_features(sonara_features),
     )
 
 

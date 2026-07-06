@@ -80,6 +80,7 @@ class AnalysisJobRequest(BaseModel):
         ge=MIN_ANALYSIS_INFERENCE_BATCH_SIZE,
         le=MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
     )
+    sonara_features: list[str] = Field(default_factory=list)
 
 
 class AudioDedupJobRequest(BaseModel):

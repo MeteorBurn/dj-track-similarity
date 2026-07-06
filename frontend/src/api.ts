@@ -798,6 +798,7 @@ export const api = {
     top_k?: number;
     track_batch_size?: number;
     inference_batch_size?: number;
+    sonara_features?: string[];
   } = {}) =>
     request<AnalysisJobStatus>("/api/analysis/jobs", {
       method: "POST",
@@ -808,7 +809,8 @@ export const api = {
         device: payload.device ?? "auto",
         top_k: payload.top_k ?? 3,
         track_batch_size: payload.track_batch_size ?? 4,
-        inference_batch_size: payload.inference_batch_size ?? 24
+        inference_batch_size: payload.inference_batch_size ?? 24,
+        sonara_features: payload.sonara_features ?? []
       })
     }),
   analysisJob: (jobId: string) => request<AnalysisJobStatus>(`/api/analysis/jobs/${jobId}`),

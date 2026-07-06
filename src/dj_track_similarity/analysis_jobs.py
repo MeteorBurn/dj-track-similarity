@@ -106,6 +106,7 @@ class AnalysisJobManager:
         device: str = "auto",
         top_k: int = 3,
         classifier_keys: Sequence[str] | None = None,
+        sonara_features: Sequence[str] | None = None,
     ) -> str:
         selected_classifier_keys = self._clean_classifier_keys(classifier_keys)
         selected = _normalize_job_models(models, allow_empty=bool(selected_classifier_keys))
@@ -128,6 +129,7 @@ class AnalysisJobManager:
             track_batch_size=effective_track_batch_size,
             inference_batch_size=effective_inference_batch_size,
             top_k=max(1, int(top_k)),
+            sonara_features=tuple(sonara_features or ()),
         )
         self._store.add(
             job_id,
@@ -211,6 +213,7 @@ class AnalysisJobManager:
         device: str = "auto",
         top_k: int = 3,
         classifier_keys: Sequence[str] | None = None,
+        sonara_features: Sequence[str] | None = None,
     ) -> AnalysisJobStatus:
         job_id = self.create_job(
             models=models,
@@ -220,6 +223,7 @@ class AnalysisJobManager:
             device=device,
             top_k=top_k,
             classifier_keys=classifier_keys,
+            sonara_features=sonara_features,
         )
         thread = threading.Thread(target=self.run_job, args=(job_id,), daemon=True)
         thread.start()
@@ -235,6 +239,7 @@ class AnalysisJobManager:
         device: str = "auto",
         top_k: int = 3,
         classifier_keys: Sequence[str] | None = None,
+        sonara_features: Sequence[str] | None = None,
     ) -> AnalysisJobStatus:
         job_id = self.create_job(
             models=models,
@@ -244,6 +249,7 @@ class AnalysisJobManager:
             device=device,
             top_k=top_k,
             classifier_keys=classifier_keys,
+            sonara_features=sonara_features,
         )
         return self.run_job(job_id)
 
@@ -468,7 +474,9 @@ class AnalysisJobManager:
                 return self._model_runners[model]
             except KeyError as error:
                 raise ValueError(f"No analysis runner configured for: {model}") from error
-        return self._runner_factory(model, status.device_requested, status.inference_batch_size, status.top_k)
+        return self._runner_factory(
+            model, status.device_requested, status.inference_batch_size, status.top_k, tuple(status.sonara_features)
+        )
 
     def _run_model_batch(
         self,

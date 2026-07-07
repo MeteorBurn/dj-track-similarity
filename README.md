@@ -1,3 +1,14 @@
+> [!WARNING]
+> ## 🚧 UNDER ACTIVE DEVELOPMENT
+>
+> This project is in a very early stage of development.
+>
+> **It is not production-ready.**
+>
+> Many features are incomplete, experimental, or may change without notice.
+>
+> The repository currently serves as a public development log rather than a finished application.
+
 # 🎧 DJ Track Similarity
 
 **Build DJ sets as stories from your own local music library.**

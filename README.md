@@ -1,13 +1,11 @@
 > [!WARNING]
-> ## 🚧 UNDER ACTIVE DEVELOPMENT
+> ## 🚧 Early Development
 >
-> This project is in a very early stage of development.
+> DJ Track Similarity is a personal AI-powered music analysis project currently under active development.
 >
-> **It is not production-ready.**
+> The goal is to build practical tools for music similarity, custom music classifiers, and DJ-oriented music analysis.
 >
-> Many features are incomplete, experimental, or may change without notice.
->
-> The repository currently serves as a public development log rather than a finished application.
+> Most components are experimental and the architecture is still evolving. Expect incomplete features, breaking changes, and frequent refactoring.
 
 # 🎧 DJ Track Similarity
 

@@ -22,8 +22,11 @@ logs/
 state.*.json
 .dj-track-similarity-indexes/
 .codex/
+.omo/
 models/classifiers/*/model.joblib
 models/classifiers/*/model.json
+models/classifiers-backup-*/
+models/classifiers-calibrated-test/
 /.ideas/
 tools/audio-dedup/data/reports/*
 !tools/audio-dedup/data/reports/.gitkeep
@@ -33,6 +36,7 @@ tools/audio-doctor/data/state/*
 !tools/audio-doctor/data/backups/.gitkeep
 !tools/audio-doctor/data/reports/.gitkeep
 !tools/audio-doctor/data/state/.gitkeep
+tools/rhythm-lab/artifacts-calibrated-test/
 
 # Local audio libraries and temp data
 tmp_*/

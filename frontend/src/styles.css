@@ -3010,7 +3010,7 @@ meter {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: min(680px, calc(100vh - 36px));
+  max-height: min(860px, calc(100vh - 24px));
   max-width: 860px;
   overflow-x: hidden;
   overflow-y: auto;
@@ -3125,10 +3125,10 @@ button.metadata-copy-path-button:hover:not(:disabled) {
 .sonara-block {
   border-top: 1px solid var(--border-muted);
   display: flex;
-  flex: 1 1 260px;
+  flex: 1 1 420px;
   flex-direction: column;
   gap: 8px;
-  min-height: 140px;
+  min-height: 240px;
   overflow: hidden;
   padding-top: 12px;
 }

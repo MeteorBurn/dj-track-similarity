@@ -233,7 +233,9 @@ const sonaraFeatureLabels: Record<string, string> = {
   bpm: "BPM",
   duration_sec: "Duration",
   key: "Key",
+  key_camelot: "Camelot",
   key_confidence: "Key confidence",
+  key_candidates: "Key candidates",
   energy: "Energy",
   danceability: "Danceability",
   valence: "Valence",
@@ -257,6 +259,21 @@ const sonaraFeatureLabels: Record<string, string> = {
   zero_crossing_rate: "ZCR",
   mfcc_mean: "MFCC",
   chroma_mean: "Chroma",
+  // SONARA 2.0 opt-in: structure
+  energy_level: "Energy level",
+  // SONARA 2.0 opt-in: loudness
+  true_peak_db: "True peak",
+  replaygain_db: "ReplayGain",
+  loudness_momentary_max_db: "Momentary max",
+  loudness_range_lu: "Loudness range",
+  // SONARA 2.0 opt-in: beatgrid
+  grid_offset_sec: "Grid offset",
+  grid_stability: "Grid stability",
+  // SONARA 2.0 opt-in: vocalness
+  vocalness: "Vocalness",
+  // SONARA 2.0 opt-in: silence
+  leading_silence_sec: "Leading silence",
+  trailing_silence_sec: "Trailing silence",
 };
 
 const sonaraFeatureDescriptions: Record<string, string> = {
@@ -287,6 +304,18 @@ const sonaraFeatureDescriptions: Record<string, string> = {
   spectral_contrast_mean: "Peak-valley ratio per band (7 values)",
   mfcc_mean: "Timbre fingerprint (13 coefficients)",
   chroma_mean: "Pitch class distribution (12 values)",
+  key_camelot: "Camelot wheel code for harmonic mixing (SONARA analysis output)",
+  key_candidates: "Top key candidates with Camelot code and score",
+  energy_level: "Overall energy tier (1 = calm, 10 = intense)",
+  true_peak_db: "True peak level (dBTP, ITU-R BS.1770-4)",
+  replaygain_db: "Suggested ReplayGain adjustment (dB)",
+  loudness_momentary_max_db: "Maximum momentary loudness (LUFS)",
+  loudness_range_lu: "Loudness range (LU)",
+  grid_offset_sec: "Beat-grid offset from the first sample",
+  grid_stability: "Beat-grid stability (0 = drifting, 1 = steady)",
+  vocalness: "Vocal presence estimate (0 = instrumental, 1 = vocal)",
+  leading_silence_sec: "Silence before the first sound",
+  trailing_silence_sec: "Silence after the last sound",
 };
 
 const sonaraPlaylistFeatureGroups = [
@@ -296,15 +325,31 @@ const sonaraPlaylistFeatureGroups = [
   },
   {
     title: "Perceptual",
-    keys: ["energy", "danceability", "valence", "acousticness"]
+    keys: ["energy", "energy_level", "danceability", "valence", "acousticness"]
   },
   {
     title: "Tonal",
-    keys: ["key", "key_confidence", "predominant_chord", "chord_change_rate", "dissonance"]
+    keys: ["key", "key_camelot", "key_confidence", "key_candidates", "predominant_chord", "chord_change_rate", "dissonance"]
   },
   {
     title: "Spectral",
     keys: ["spectral_bandwidth_mean", "spectral_rolloff_mean", "spectral_flatness_mean", "spectral_contrast_mean", "mfcc_mean", "chroma_mean"]
+  },
+  {
+    title: "Loudness",
+    keys: ["true_peak_db", "replaygain_db", "loudness_momentary_max_db", "loudness_range_lu"]
+  },
+  {
+    title: "Beatgrid",
+    keys: ["grid_offset_sec", "grid_stability"]
+  },
+  {
+    title: "Vocal",
+    keys: ["vocalness"]
+  },
+  {
+    title: "Silence",
+    keys: ["leading_silence_sec", "trailing_silence_sec"]
   }
 ] as const;
 
@@ -341,10 +386,14 @@ function formatFeatureLabel(key: string) {
     .replace(/^./, (letter) => letter.toUpperCase());
 }
 
+const sonaraSecondKeys = new Set(["grid_offset_sec", "leading_silence_sec", "trailing_silence_sec"]);
+const sonaraDbKeys = new Set(["true_peak_db", "replaygain_db", "loudness_momentary_max_db"]);
+
 function formatSonaraValue(record: Record<string, unknown>, key?: string) {
   const value = record.value;
   if (record.type === "unavailable") return "-";
   if (key === "bpm" && typeof value === "number") return value.toFixed(2);
+  if (key === "key_candidates" && Array.isArray(value)) return formatKeyCandidates(value);
   if (record.type === "duration" && typeof value === "number") return formatPlayerDuration(value);
   if (record.type === "ndarray" || record.storage) {
     const shape = Array.isArray(record.shape) ? record.shape.join("x") : "";
@@ -357,11 +406,22 @@ function formatSonaraValue(record: Record<string, unknown>, key?: string) {
     if (key === "chord_change_rate") return `${formatNumber(value)}/sec`;
     if (key === "loudness_lufs") return `${value.toFixed(2)} LUFS`;
     if (key === "dynamic_range_db") return `${value.toFixed(2)} dB`;
+    if (key === "loudness_range_lu") return `${value.toFixed(2)} LU`;
+    if (key && sonaraDbKeys.has(key)) return `${value.toFixed(2)} dB`;
+    if (key && sonaraSecondKeys.has(key)) return `${formatNumber(value)} s`;
     return formatNumber(value);
   }
   if (Array.isArray(value)) return `${value.length} values`;
   if (value == null) return "-";
   return String(value);
+}
+
+function formatKeyCandidates(value: unknown[]) {
+  const codes = value
+    .map((item) => (Array.isArray(item) ? item[1] ?? item[0] : item))
+    .filter((code): code is string | number => code != null)
+    .map((code) => String(code));
+  return codes.length ? codes.join(", ") : `${value.length} values`;
 }
 
 function formatNumber(value: number) {

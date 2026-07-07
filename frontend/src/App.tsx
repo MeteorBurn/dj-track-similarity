@@ -7,7 +7,6 @@ import { AudioDedupDialog } from "./AudioDedupDialog";
 import { AudioDoctorDialog } from "./AudioDoctorDialog";
 import { clapPromptPresets, defaultClapPromptPresetKey, promptQueriesFromText } from "./clapPrompt";
 import { classifierScoringBlockedReason } from "./classifierCompatibility";
-import type { ConfirmationRequest } from "./confirmation";
 import { ConfirmationDialog, LogFrameDialog } from "./dialogs";
 import { exportDirectoryError } from "./exportView";
 import { helpText } from "./helpText";
@@ -21,6 +20,7 @@ import { displayTrack } from "./trackDisplay";
 import { applyTheme, resolveInitialTheme, themeStorageKey, type ThemeMode } from "./theme";
 import { TooltipLayer, useGlobalTooltip } from "./tooltipLayer";
 import { useActivityLog } from "./useActivityLog";
+import { useConfirmation } from "./useConfirmation";
 import { useLibraryState } from "./useLibraryState";
 import { useSearchPlaylist } from "./useSearchPlaylist";
 
@@ -134,7 +134,7 @@ export function App() {
   const [audioDedupOpen, setAudioDedupOpen] = useState(false);
   const [audioDoctorOpen, setAudioDoctorOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme());
-  const [confirmation, setConfirmation] = useState<ConfirmationRequest | null>(null);
+  const { confirmation, requestConfirmation, confirmPendingAction, cancelConfirmation } = useConfirmation();
   const [busy, setBusy] = useState(false);
   const [filters, setFilters] = useState({
     minSimilarity: 0,
@@ -402,17 +402,6 @@ export function App() {
     } finally {
       setBusy(false);
     }
-  }
-
-  function requestConfirmation(request: ConfirmationRequest) {
-    setConfirmation(request);
-  }
-
-  function confirmPendingAction() {
-    const pending = confirmation;
-    if (!pending) return;
-    setConfirmation(null);
-    void pending.onConfirm();
   }
 
   async function handleTrackDetails(track: Track) {
@@ -683,7 +672,11 @@ export function App() {
         device: analysisDevice,
         top_k: 3,
         track_batch_size: analysisTrackBatchSize,
-        inference_batch_size: analysisInferenceBatchSize
+        inference_batch_size: analysisInferenceBatchSize,
+        // All SONARA 2.0 opt-in families are always computed from the UI, so a single
+        // reanalysis captures every field (structure, loudness, beatgrid, key candidates,
+        // vocalness, silence). The backend ignores these for non-SONARA model selections.
+        sonara_features: ["structure", "loudness", "beatgrid", "key_candidates", "vocalness", "silence"]
       }),
       (job) => {
         setAnalysisJob(job);
@@ -1279,11 +1272,11 @@ export function App() {
       </section>
       {metadataTrack && <TrackMetadataDialog track={metadataTrack} onClose={() => setMetadataTrack(null)} />}
       {confirmation && (
-        <ConfirmationDialog
-          request={confirmation}
-          onConfirm={confirmPendingAction}
-          onCancel={() => setConfirmation(null)}
-        />
+          <ConfirmationDialog
+            request={confirmation}
+            onConfirm={confirmPendingAction}
+            onCancel={cancelConfirmation}
+          />
       )}
       {logFrameOpen && (
         <LogFrameDialog

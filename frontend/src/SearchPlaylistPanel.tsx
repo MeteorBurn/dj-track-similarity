@@ -1,7 +1,8 @@
 import { Dispatch, Fragment, SetStateAction, useEffect, useRef, useState } from "react";
-import { Check, Download, FolderOpen, ListFilter, ListMusic, ListPlus, Pause, Play, RotateCcw, Search, Tags, Trash2, X } from "lucide-react";
+import { Download, FolderOpen, ListFilter, ListMusic, ListPlus, Pause, Play, RotateCcw, Search, Tags, Trash2, X } from "lucide-react";
 import { AnalysisJobStatus, api, HybridClassifierSignal, HybridMatchAxis, HybridSearchResult, HybridSearchSource, PromotedClassifier, SearchResult, SetBuilderBpmChange, SetBuilderBpmMode, SetBuilderClassifierFlow, SetBuilderEnergyCurve, SetBuilderGeneratePayload, SetBuilderMode, SetBuilderSeedMode, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
 import type { EvaluationPairFeedbackResult, EvaluationPairFeedbackState, EvaluationPairReasonTag } from "./api";
+import { ClapSearchTab } from "./ClapSearchTab";
 import { classifierScoringBlockedReason } from "./classifierCompatibility";
 import type { ClapPromptPreset } from "./clapPrompt";
 import { playlistPage } from "./playlistView";
@@ -342,8 +343,6 @@ export function SearchPlaylistPanel({
 }) {
   const [activeSearchTab, setActiveSearchTab] = useState<"set" | "sonara" | "mert" | "clap" | "class">("sonara");
   const [setAdvancedControlsOpen, setSetAdvancedControlsOpen] = useState(false);
-  const [clapPresetMenuOpen, setClapPresetMenuOpen] = useState(false);
-  const clapPresetMenuRef = useRef<HTMLDivElement>(null);
   const [playlistOffset, setPlaylistOffset] = useState(0);
   const [setSeedMode, setSetSeedMode] = useState<SetBuilderSeedMode>("manual");
   const [setBuilderMode, setSetBuilderMode] = useState<SetBuilderMode>("balanced_set");
@@ -383,17 +382,6 @@ export function SearchPlaylistPanel({
       setPlaylistOffset(playlistPageState.offset);
     }
   }, [playlistOffset, playlistPageState.offset]);
-  useEffect(() => {
-    if (!clapPresetMenuOpen) return;
-    function closePresetMenuOnOutsideClick(event: PointerEvent) {
-      const target = event.target;
-      if (target instanceof Node && !clapPresetMenuRef.current?.contains(target)) {
-        setClapPresetMenuOpen(false);
-      }
-    }
-    document.addEventListener("pointerdown", closePresetMenuOnOutsideClick);
-    return () => document.removeEventListener("pointerdown", closePresetMenuOnOutsideClick);
-  }, [clapPresetMenuOpen]);
   const mixerControls: Array<{ key: keyof SonaraMixerWeights; label: string; title: string }> = [
     { key: "timbre", label: "Timbre", title: helpText.sonaraMixerTimbre },
     { key: "rhythm", label: "Rhythm", title: helpText.sonaraMixerRhythm },
@@ -677,13 +665,6 @@ export function SearchPlaylistPanel({
       if (bpmTarget !== undefined) payload.bpm_target = bpmTarget;
     }
     handleSetBuilderGenerate(payload);
-  }
-
-  function applyClapPromptPreset(preset: ClapPromptPreset) {
-    onClapPresetChange(preset.key);
-    onTextQueryChange(preset.query);
-    onClapNegativeQueryChange(preset.negativeQuery);
-    setClapPresetMenuOpen(false);
   }
 
   return (
@@ -1069,83 +1050,28 @@ export function SearchPlaylistPanel({
           </div>
         )}
         {activeSearchTab === "clap" && (
-          <div className="search-tab-panel" role="tabpanel">
-            <div className="text-search-box clap-text-search-box">
-              <div className="clap-prompt-row">
-                <label className="clap-query-field" title={helpText.textPrompt}>
-                  Text query
-                  <textarea
-                    value={textQuery}
-                    onChange={(event) => onTextQueryChange(event.target.value)}
-                    placeholder={"breakbeat.\nThis audio is a breakbeat track.\nA breakbeat track with broken drums and syncopated percussion."}
-                    title={helpText.textPrompt}
-                    rows={5}
-                  />
-                </label>
-                <div className="clap-prompt-actions" ref={clapPresetMenuRef}>
-                  <button
-                    className={`icon-button folder-picker clap-presets-button ${clapPresetMenuOpen ? "active" : ""}`}
-                    title="Выбрать prompt preset для CLAP"
-                    aria-label="Выбрать prompt preset для CLAP"
-                    aria-expanded={clapPresetMenuOpen}
-                    onClick={() => setClapPresetMenuOpen((current) => !current)}
-                    type="button"
-                  >
-                    <ListFilter size={17} />
-                  </button>
-                  {clapPresetMenuOpen ? (
-                    <div className="clap-preset-menu" role="menu">
-                      {clapPromptPresets.map((preset) => (
-                        <button
-                          className={`clap-preset-option-button ${clapPresetKey === preset.key ? "active" : ""}`}
-                          key={preset.key}
-                          title={`Применить preset: ${preset.label}`}
-                          onClick={() => applyClapPromptPreset(preset)}
-                          type="button"
-                        >
-                          {preset.label}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-              <div className="clap-negative-row">
-                <label className="clap-negative-field" title="Hard-negative CLAP bank. Type: multiline text. One line is one unwanted audible class; presets fill this field directly.">
-                  Negative
-                  <textarea
-                    className="clap-negative-input"
-                    value={clapNegativeQuery}
-                    onChange={(event) => onClapNegativeQueryChange(event.target.value)}
-                    placeholder={"This audio is a vocal pop song.\nThis audio is a straight four-on-the-floor house track."}
-                    title="Hard-negative CLAP bank. Type: multiline text. One line is one unwanted audible class; presets fill this field directly."
-                    disabled={!clapUseNegativePrompt}
-                    rows={4}
-                  />
-                </label>
-                <label className={`icon-button add-visible-tracks-button clap-negative-toggle ${clapUseNegativePrompt ? "intent-add active" : ""}`} title="Apply Negative as hard-negative CLAP queries. Type: checkbox on/off. When disabled, the text stays in the field but is not included in search.">
-                  <input
-                    type="checkbox"
-                    aria-label="Use negative prompt"
-                    checked={clapUseNegativePrompt}
-                    onChange={(event) => onClapUseNegativePromptChange(event.target.checked)}
-                  />
-                  <span className="clap-negative-checkbox" aria-hidden="true">
-                    {clapUseNegativePrompt ? <Check size={14} strokeWidth={2.4} /> : null}
-                  </span>
-                </label>
-              </div>
-            </div>
-            <div className="search-filter-grid">
-              <label title={helpText.clapSimilarity}>Similarity<input type="number" value={clapMinSimilarity} min={0} max={1} step={0.01} title={helpText.clapSimilarity} onChange={(event) => onClapMinSimilarityChange(Number(event.target.value))} /></label>
-              <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => setFilters({ ...filters, limit: Number(event.target.value) })} /></label>
-            </div>
-            <button className="clap-text-search-button" title={clapSearchTitle} disabled={busy || !textQuery.trim() || !hasStoredClapEmbeddings} onClick={handleTextSearch} type="button">
-              <Search size={17} />
-              CLAP search
-            </button>
-            {!hasStoredClapEmbeddings ? <span className="clap-search-requirement">Requires stored CLAP embeddings. Run CLAP analysis first.</span> : null}
-          </div>
+          <ClapSearchTab
+            textQuery={textQuery}
+            onTextQueryChange={onTextQueryChange}
+            clapNegativeQuery={clapNegativeQuery}
+            onClapNegativeQueryChange={onClapNegativeQueryChange}
+            clapUseNegativePrompt={clapUseNegativePrompt}
+            onClapUseNegativePromptChange={onClapUseNegativePromptChange}
+            clapPresetKey={clapPresetKey}
+            onClapPresetChange={onClapPresetChange}
+            clapPromptPresets={clapPromptPresets}
+            clapMinSimilarity={clapMinSimilarity}
+            onClapMinSimilarityChange={onClapMinSimilarityChange}
+            limit={filters.limit}
+            onLimitChange={(value) => setFilters({ ...filters, limit: value })}
+            textPromptHelp={helpText.textPrompt}
+            clapSimilarityHelp={helpText.clapSimilarity}
+            limitHelp={helpText.limit}
+            hasStoredClapEmbeddings={hasStoredClapEmbeddings}
+            busy={busy}
+            clapSearchTitle={clapSearchTitle}
+            handleTextSearch={handleTextSearch}
+          />
         )}
         {activeSearchTab === "class" && (
           <div className="search-tab-panel" role="tabpanel">

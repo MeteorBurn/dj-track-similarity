@@ -31,3 +31,16 @@ test("analysis runtime label hides active classifier key behind CLASSIFIERS", ()
   assert.match(runtimeBlock, /classifierKeySet\.has\(job\.current_model\)/);
   assert.match(runtimeBlock, /now CLASSIFIERS/);
 });
+
+test("stage indicator prioritizes running destructive helper jobs and cancelled states", () => {
+  const source = readFileSync(jobUiPath, "utf8");
+  const indicatorBlock = source.match(/export function stageIndicatorLabel[\s\S]*?\n}/)?.[0] || "";
+
+  assert.match(indicatorBlock, /audioDedupJob && \["queued", "running"\]\.includes\(audioDedupJob\.state\)/);
+  assert.match(indicatorBlock, /return "Идет поиск дублей"/);
+  assert.match(indicatorBlock, /audioDoctorJob && \["queued", "running"\]\.includes\(audioDoctorJob\.state\)/);
+  assert.match(indicatorBlock, /return "Идет Audio Doctor"/);
+  assert.match(indicatorBlock, /audioDedupJob\?\.state === "cancelled"/);
+  assert.match(indicatorBlock, /audioDoctorJob\?\.state === "cancelled"/);
+  assert.match(indicatorBlock, /return "Этап остановлен"/);
+});

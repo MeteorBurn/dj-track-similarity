@@ -285,7 +285,7 @@ test("per-classifier analyze button validates that classifier before reset and s
 
 test("analysis controls default to four decoded tracks per batch", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
-  const apiSource = readFileSync(join(srcDir, "api.ts"), "utf8");
+  const apiSource = readFileSync(join(srcDir, "apiClient.ts"), "utf8");
   const schemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "analysis_config.py"), "utf8");
 
   assert.match(appSource, /analysisTrackBatchSize,\s*setAnalysisTrackBatchSize\]\s*=\s*useState\(4\)/);
@@ -317,7 +317,7 @@ test("analysis model reset buttons fit inside a full-width row", () => {
 });
 
 test("frontend analysis api uses unified job endpoints only", () => {
-  const source = readFileSync(join(srcDir, "api.ts"), "utf8");
+  const source = readFileSync(join(srcDir, "apiClient.ts"), "utf8");
 
   assert.match(source, /\/api\/analysis\/jobs/);
   assert.doesNotMatch(source, /\/api\/sonara\/analyze/);
@@ -391,42 +391,46 @@ test("class search tab shows classifier threshold and scoped analysis controls",
 
 test("clap search exposes prompt presets and optional negative contrast fields without prompt generation", () => {
   const searchSource = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
+  const clapSource = readFileSync(join(srcDir, "ClapSearchTab.tsx"), "utf8");
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
   const apiSource = readFileSync(join(srcDir, "api.ts"), "utf8");
+  const apiClientSource = readFileSync(join(srcDir, "apiClient.ts"), "utf8");
   const schemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "api_schemas.py"), "utf8");
 
-  assert.match(searchSource, /clap-presets-button/);
-  assert.match(searchSource, /applyClapPromptPreset/);
-  assert.match(searchSource, /document\.addEventListener\("pointerdown"/);
-  assert.match(searchSource, /clapPresetMenuRef/);
-  assert.doesNotMatch(searchSource, /clap-generate-button/);
-  assert.match(searchSource, />\s*Negative\s*</);
-  assert.doesNotMatch(searchSource, />\s*Avoid\s*</);
-  assert.match(searchSource, /clap-negative-input/);
-  assert.match(searchSource, /icon-button add-visible-tracks-button clap-negative-toggle/);
-  assert.match(searchSource, /clapUseNegativePrompt \? "intent-add active" : ""/);
-  assert.match(searchSource, /aria-label="Use negative prompt"/);
-  assert.match(searchSource, /clap-negative-checkbox/);
-  assert.doesNotMatch(searchSource, /clap-negative-toggle-text/);
-  assert.doesNotMatch(searchSource, />\s*Use\s*</);
+  assert.match(searchSource, /<ClapSearchTab/);
+  assert.match(clapSource, /clap-presets-button/);
+  assert.match(clapSource, /applyClapPromptPreset/);
+  assert.match(clapSource, /document\.addEventListener\("pointerdown"/);
+  assert.match(clapSource, /clapPresetMenuRef/);
+  assert.doesNotMatch(clapSource, /clap-generate-button/);
+  assert.match(clapSource, />\s*Negative\s*</);
+  assert.doesNotMatch(clapSource, />\s*Avoid\s*</);
+  assert.match(clapSource, /clap-negative-input/);
+  assert.match(clapSource, /icon-button add-visible-tracks-button clap-negative-toggle/);
+  assert.match(clapSource, /clapUseNegativePrompt \? "intent-add active" : ""/);
+  assert.match(clapSource, /aria-label="Use negative prompt"/);
+  assert.match(clapSource, /clap-negative-checkbox/);
+  assert.doesNotMatch(clapSource, /clap-negative-toggle-text/);
+  assert.doesNotMatch(clapSource, />\s*Use\s*</);
   assert.match(searchSource, /onClapUseNegativePromptChange/);
   assert.match(searchSource, /hasStoredClapEmbeddings/);
-  assert.match(searchSource, /clap-search-requirement/);
-  assert.match(searchSource, /disabled=\{busy \|\| !textQuery\.trim\(\) \|\| !hasStoredClapEmbeddings\}/);
-  assert.doesNotMatch(searchSource, /WandSparkles/);
-  assert.match(searchSource, /ListFilter/);
+  assert.match(clapSource, /clap-search-requirement/);
+  assert.match(clapSource, /disabled=\{busy \|\| !textQuery\.trim\(\) \|\| !hasStoredClapEmbeddings\}/);
+  assert.doesNotMatch(clapSource, /WandSparkles/);
+  assert.match(clapSource, /ListFilter/);
   assert.match(appSource, /clapEmbeddingCount=\{librarySummary\.clap\}/);
   assert.doesNotMatch(appSource, /generateClapPrompt/);
   assert.match(appSource, /api\.textSearch/);
   assert.doesNotMatch(appSource, /api\.hybridSearch\(\{[\s\S]*query: prompt/);
   assert.match(appSource, /const\s+\[clapUseNegativePrompt,\s*setClapUseNegativePrompt\]\s*=\s*useState\(true\)/);
   assert.match(appSource, /promptQueriesFromText\(prompt,\s*clapNegativeQuery,\s*clapUseNegativePrompt\)/);
-  assert.match(apiSource, /request<SearchResult\[\]>\("\/api\/search\/text"/);
+  assert.match(apiClientSource, /request<SearchResult\[\]>\("\/api\/search\/text"/);
   assert.match(appSource, /positive_queries/);
   assert.match(appSource, /negative_queries/);
   assert.match(appSource, /adaptive_contrast:\s*true/);
-  assert.match(apiSource, /positive_queries\?:\s*string\[\]/);
-  assert.match(apiSource, /negative_queries\?:\s*string\[\]/);
+  assert.match(apiClientSource, /positive_queries\?:\s*string\[\]/);
+  assert.match(apiClientSource, /negative_queries\?:\s*string\[\]/);
+  assert.match(apiSource, /export \{ api \} from "\.\/apiClient";/);
   assert.match(schemaSource, /positive_queries:\s*list\[str\]/);
   assert.match(schemaSource, /negative_queries:\s*list\[str\]/);
   assert.match(schemaSource, /adaptive_contrast:\s*bool\s*=\s*True/);
@@ -453,7 +457,7 @@ test("documentation title click opens the docs in a separate window", () => {
 
 test("topbar rhythm lab launch button opens the lab in a separate window", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
-  const apiSource = readFileSync(join(srcDir, "api.ts"), "utf8");
+  const apiSource = readFileSync(join(srcDir, "apiClient.ts"), "utf8");
   const actionsBlock = appSource.match(/<div className="topbar-actions">([\s\S]*?)<\/div>/)?.[1] || "";
 
   assert.match(apiSource, /launchRhythmLab:\s*\(\)\s*=>/);

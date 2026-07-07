@@ -120,8 +120,8 @@ test("metadata dialog keeps SONARA as the scrollable feature block", () => {
   const sonaraFeatureGroupsRule = cssRule(styles, ".sonara-feature-groups");
   const tagGridRule = cssRule(styles, ".tag-grid");
 
-  assert.match(sonaraBlockRule, /flex:\s*1 1 260px;/);
-  assert.match(sonaraBlockRule, /min-height:\s*140px;/);
+  assert.match(sonaraBlockRule, /flex:\s*1 1 420px;/);
+  assert.match(sonaraBlockRule, /min-height:\s*240px;/);
   assert.match(sonaraBlockRule, /overflow:\s*hidden;/);
   assert.match(sonaraFeatureGroupsRule, /flex:\s*1 1 auto;/);
   assert.match(sonaraFeatureGroupsRule, /overflow:\s*auto;/);

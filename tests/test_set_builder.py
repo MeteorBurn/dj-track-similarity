@@ -387,6 +387,47 @@ def test_set_builder_ordering_uses_random_seed_for_candidate_sequence(tmp_path: 
     assert first_ids != second_ids
 
 
+def test_set_builder_uses_metadata_tie_breaker_when_candidate_scores_match(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed_id = _complete_track(
+        db,
+        tmp_path,
+        "seed.wav",
+        metadata={"artist": "Seed Artist", "title": "Seed"},
+        features=_features(energy=0.5, onset_density=0.4, spectral_centroid=1500.0),
+        vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
+    )
+    alpha_id = _complete_track(
+        db,
+        tmp_path,
+        "alpha.wav",
+        metadata={"artist": "Alpha Artist", "title": "Alpha"},
+        features=_features(energy=0.5, onset_density=0.4, spectral_centroid=1500.0),
+        vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
+    )
+    beta_id = _complete_track(
+        db,
+        tmp_path,
+        "beta.wav",
+        metadata={"artist": "Beta Artist", "title": "Beta"},
+        features=_features(energy=0.5, onset_density=0.4, spectral_centroid=1500.0),
+        vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
+    )
+    monkeypatch.setattr(set_builder_module, "_sample_ranked_index", _select_highest_score)
+
+    result = SmartSetBuilder(db).generate(
+        SetBuilderConfig(seed_mode="manual", seed_track_ids=[seed_id], limit=3, random_seed=99)
+    )
+    items = result["items"]
+    assert isinstance(items, list)
+    assert all(isinstance(item, dict) for item in items)
+
+    assert [getattr(item["track"], "id") for item in items] == [seed_id, alpha_id, beta_id]
+    assert items[1]["score"] == pytest.approx(items[2]["score"])
+
+
 def test_set_builder_uses_each_known_artist_once_in_sequence(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     seed_id = _complete_track(

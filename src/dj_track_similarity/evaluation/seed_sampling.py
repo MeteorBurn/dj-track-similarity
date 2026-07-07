@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-import csv
 from dataclasses import dataclass
 import math
 from pathlib import Path
 import random
 from typing import TYPE_CHECKING
+
+from .csv_io import CsvRow, write_csv_rows
 
 if TYPE_CHECKING:
     from ..database import LibraryDatabase
@@ -54,7 +55,7 @@ class SeedSampleTrack:
     def has_bucketable_bpm_and_energy(self) -> bool:
         return _finite_positive_number(self.bpm) and _finite_number(self.energy)
 
-    def csv_row(self) -> dict[str, object]:
+    def csv_row(self) -> CsvRow:
         return {
             "track_id": self.track_id,
             "artist": _optional_text(self.artist),
@@ -143,13 +144,7 @@ def sample_seed_tracks(
 
 
 def write_seed_sample_csv(path: str | Path, rows: Sequence[SeedSampleTrack]) -> None:
-    output_path = Path(path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", encoding="utf-8", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=SEED_SAMPLE_COLUMNS)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow(row.csv_row())
+    write_csv_rows(path, SEED_SAMPLE_COLUMNS, rows)
 
 
 def _complete_analysis_where_sql() -> str:

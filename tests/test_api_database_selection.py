@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import pytest
 
 import dj_track_similarity.api as api
 import dj_track_similarity.api_state as api_state
@@ -20,6 +21,30 @@ def test_app_without_db_starts_unselected_and_blocks_database_endpoints() -> Non
     assert current.json() == {"path": None, "selected": False, "music_root": None}
     assert summary.status_code == 400
     assert summary.json()["detail"] == "Database is not selected"
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "json_payload"),
+    [
+        ("post", "/api/database/clear", {}),
+        ("get", "/api/library/summary", None),
+        ("get", "/api/tracks", None),
+        ("post", "/api/tracks/filtered", {"query": "", "liked": False}),
+        ("get", "/media/1", None),
+    ],
+)
+def test_selected_database_required_endpoints_return_api_error_without_traceback(
+    method: str,
+    path: str,
+    json_payload: dict[str, object] | None,
+) -> None:
+    client = TestClient(create_app(), raise_server_exceptions=False)
+
+    response = client.request(method.upper(), path, json=json_payload)
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Database is not selected"}
+    assert "Traceback" not in response.text
 
 
 def test_app_registers_asyncio_exception_logging_startup() -> None:

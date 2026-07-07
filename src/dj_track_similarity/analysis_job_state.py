@@ -177,4 +177,5 @@ def copy_analysis_status(status: AnalysisJobStatus) -> AnalysisJobStatus:
         track_batch_size=status.track_batch_size,
         inference_batch_size=status.inference_batch_size,
         top_k=status.top_k,
+        sonara_features=list(status.sonara_features),
     )

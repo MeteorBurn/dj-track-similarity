@@ -108,6 +108,32 @@ def test_analyze_classifier_skips_tracks_with_existing_classifier_score(tmp_path
     assert db.classifier_score(missing_id, "break_energy")["score"] == 0.87
 
 
+def test_analyze_classifier_treats_other_classifier_scores_as_missing_for_requested_key(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = _complete_track(db, tmp_path, "other-classifier.wav")
+    db.save_classifier_score(
+        track_id,
+        classifier="live_instrumentation",
+        score=0.91,
+        label="high",
+        confidence=0.91,
+        probabilities={"live": 0.91, "synthetic": 0.09},
+        feature_set="combined",
+        model_id="live-model.joblib",
+    )
+    model_path = _write_model(tmp_path / "model.joblib")
+
+    result = analyze_classifier(db, classifier="break_energy", model_path=model_path)
+    break_score = db.classifier_score(track_id, "break_energy")
+    live_score = db.classifier_score(track_id, "live_instrumentation")
+
+    assert result["scored"] == 1
+    assert break_score is not None
+    assert break_score["score"] == 0.87
+    assert live_score is not None
+    assert live_score["score"] == 0.91
+
+
 def test_analyze_classifier_preserves_high_confidence_probability_precision(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_id = _track(db, tmp_path, "complete.wav")
@@ -192,6 +218,43 @@ def test_generic_classifier_filter_orders_tracks_by_score(tmp_path: Path) -> Non
     assert [track.id for track in page["items"]] == [high_id]
     assert page["items"][0].classifier_scores["live_instrumentation"]["score"] == 0.91
     assert [track.id for track in filtered["items"]] == [high_id]
+
+
+def test_reset_classifier_scores_is_db_only_and_scoped_by_classifier_key(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = _track(db, tmp_path, "classifier-reset.wav")
+    audio_path = tmp_path / "classifier-reset.wav"
+    original_audio = audio_path.read_bytes()
+    db.save_classifier_score(
+        track_id,
+        classifier="break_energy",
+        score=0.94,
+        label="high",
+        confidence=0.94,
+        probabilities={"break_energy": 0.94, "straight_energy": 0.06},
+        feature_set="combined",
+        model_id="model.joblib",
+    )
+    db.save_classifier_score(
+        track_id,
+        classifier="live_instrumentation",
+        score=0.81,
+        label="high",
+        confidence=0.81,
+        probabilities={"live_instrument": 0.81, "no_instrument": 0.19},
+        feature_set="combined",
+        model_id="model.joblib",
+    )
+
+    result = db.reset_classifier_scores(["break_energy"])
+
+    assert result == {"classifiers": ["break_energy"], "scores_deleted": 1}
+    assert db.classifier_score(track_id, "break_energy") is None
+    remaining_score = db.classifier_score(track_id, "live_instrumentation")
+    assert remaining_score is not None
+    assert remaining_score["score"] == 0.81
+    assert db.get_track(track_id).path == audio_path.as_posix()
+    assert audio_path.read_bytes() == original_audio
 
 
 def test_classifier_filter_page_uses_score_lookup_index(tmp_path: Path, monkeypatch) -> None:

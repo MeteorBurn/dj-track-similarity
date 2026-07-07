@@ -118,6 +118,21 @@ def test_transition_feedback_endpoint_appends_manual_audit_row(monkeypatch, tmp_
     assert LibraryDatabase(db_path).count_evaluation_rows()["transition_feedback"] == 1
 
 
+def test_pair_feedback_endpoint_rejects_duplicate_seed_ids(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    seed_id = _track(db, tmp_path, "seed")
+    candidate_id = _track(db, tmp_path, "candidate")
+
+    response = _client(monkeypatch, db_path).post(
+        "/api/evaluation/feedback/pair",
+        json={"seed_track_ids": [seed_id, seed_id], "candidate_track_id": candidate_id, "rating": 2},
+    )
+
+    assert response.status_code == 422
+    assert "seed_track_ids must be unique" in response.text
+
+
 def test_source_profile_endpoint_returns_internal_weights_without_labels(monkeypatch, tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     _, track_ids = _profile_library(db_path, tmp_path)
@@ -309,6 +324,33 @@ def test_weighted_candidates_endpoint_missing_clap_is_neutral_for_risk(monkeypat
     assert row["source_count"] == 1
     assert row["transition_risk"] == 0.0
     assert row["transition_risk_penalty"] == 0.0
+
+
+def test_latest_evaluation_reports_endpoint_returns_empty_report_contract(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    LibraryDatabase(db_path)
+
+    response = _client(monkeypatch, db_path).get("/api/evaluation/reports/latest")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "no_persisted_reports",
+        "summary": "No persisted evaluation reports were found. CLI JSON report directories are not scanned by the API.",
+        "calibration_runs": [],
+    }
+
+
+def test_weighted_candidates_endpoint_rejects_ambiguous_profile_inputs(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    LibraryDatabase(db_path)
+
+    response = _client(monkeypatch, db_path).post(
+        "/api/evaluation/run/weighted-candidates",
+        json={"profile": {"name": "inline"}, "weights": {"mert": 1.0}},
+    )
+
+    assert response.status_code == 422
+    assert "Provide exactly one of profile or weights" in response.text
 
 
 def test_evaluation_endpoints_report_unselected_or_old_schema_clearly(monkeypatch, tmp_path: Path) -> None:

@@ -150,17 +150,8 @@ class RhythmLabCollections:
                     (clean_id,),
                 ).fetchall()
             }
-            for track_id in ids:
-                if track_id in existing:
-                    continue
-                connection.execute(
-                    """
-                    INSERT INTO review_collection_tracks(collection_id, source_track_id, position)
-                    VALUES (?, ?, ?)
-                    """,
-                    (clean_id, track_id, next_position),
-                )
-                next_position += 1
+            new_ids = [track_id for track_id in ids if track_id not in existing]
+            _insert_collection_tracks(connection, clean_id, new_ids, start_position=next_position)
             connection.execute(
                 "UPDATE review_collections SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (clean_id,),
@@ -173,14 +164,7 @@ class RhythmLabCollections:
         with self.connect() as connection:
             _require_collection(connection, clean_id)
             connection.execute("DELETE FROM review_collection_tracks WHERE collection_id = ?", (clean_id,))
-            for position, track_id in enumerate(ids, start=1):
-                connection.execute(
-                    """
-                    INSERT INTO review_collection_tracks(collection_id, source_track_id, position)
-                    VALUES (?, ?, ?)
-                    """,
-                    (clean_id, track_id, position),
-                )
+            _insert_collection_tracks(connection, clean_id, ids, start_position=1)
             connection.execute(
                 "UPDATE review_collections SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (clean_id,),
@@ -234,6 +218,14 @@ def _collection_tracks(connection: sqlite3.Connection, collection_id: int) -> tu
             added_at=str(row["added_at"]),
         )
         for row in rows
+    )
+
+
+def _insert_collection_tracks(connection: sqlite3.Connection, collection_id: int, track_ids: list[int], *, start_position: int) -> None:
+    rows = ((collection_id, track_id, position) for position, track_id in enumerate(track_ids, start=start_position))
+    _ = connection.executemany(
+        "INSERT INTO review_collection_tracks(collection_id, source_track_id, position) VALUES (?, ?, ?)",
+        rows,
     )
 
 

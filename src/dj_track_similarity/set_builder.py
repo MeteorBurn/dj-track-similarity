@@ -4,7 +4,6 @@ import json
 from collections import Counter
 from dataclasses import dataclass, field, replace
 from math import inf
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -13,6 +12,16 @@ from .database import LibraryDatabase
 from .db_schema import TRACK_CLASSIFIER_SCORES_FIELD
 from .metadata_payload import optional_float, string_or_none
 from .models import Track
+from .set_sequence import (
+    ARTIST_SET_MAX_TRACKS,
+    artist_allowed as _artist_allowed,
+    artist_key as _artist_key,
+    artist_pressure_score as _artist_pressure_score,
+    duplicate_key as _duplicate_key,
+    pending_seed_artists as _pending_seed_artists,
+    record_artist as _record_artist,
+    uses_pending_seed_artist as _uses_pending_seed_artist,
+)
 from .sonara_similarity_scoring import unwrap_feature_value
 from .track_resolution import camelot_compatibility, resolve_track_bpm, resolve_track_key
 
@@ -37,7 +46,6 @@ PREFILTER_POOL_FACTOR = 50
 PREFILTER_POOL_MIN = 1000
 PREFILTER_POOL_MAX = 3000
 SQLITE_IN_CHUNK_SIZE = 500
-ARTIST_SET_MAX_TRACKS = 1
 PREFILTER_ARTIST_POOL_MULTIPLIER = 8
 SEQUENCE_ARTIST_POOL_MULTIPLIER = 4
 BPM_MIN = 20.0
@@ -1686,58 +1694,6 @@ def _item(
         "classifier_scores": _classifier_scores(candidate.track),
         "transition": transition,
     }
-
-
-def _duplicate_key(track: Track) -> str:
-    artist = (track.artist or "").strip().casefold()
-    title = (track.title or "").strip().casefold()
-    if artist or title:
-        return f"{artist}|{title}"
-    return Path(track.path).stem.casefold()
-
-
-def _artist_key(track: Track) -> str | None:
-    artist = (track.artist or "").strip().casefold()
-    return artist or None
-
-
-def _artist_allowed(candidate: _Candidate, previous: _Candidate | None, artist_counts: Counter[str]) -> bool:
-    artist = _artist_key(candidate.track)
-    if artist is None:
-        return True
-    if previous is not None and _artist_key(previous.track) == artist:
-        return False
-    return artist_counts[artist] < ARTIST_SET_MAX_TRACKS
-
-
-def _pending_seed_artists(pending_seeds: list[_Candidate]) -> set[str]:
-    return {artist for seed in pending_seeds if (artist := _artist_key(seed.track)) is not None}
-
-
-def _uses_pending_seed_artist(candidate: _Candidate, pending_seed_artists: set[str]) -> bool:
-    artist = _artist_key(candidate.track)
-    return artist is not None and artist in pending_seed_artists
-
-
-def _record_artist(candidate: _Candidate, artist_counts: Counter[str]) -> None:
-    artist = _artist_key(candidate.track)
-    if artist is not None:
-        artist_counts[artist] += 1
-
-
-def _artist_pressure_score(candidate: _Candidate, remaining: list[_ScoredCandidate]) -> float:
-    artist = _artist_key(candidate.track)
-    if artist is None:
-        return 0.0
-    counts: Counter[str] = Counter()
-    for item in remaining:
-        item_artist = _artist_key(item.candidate.track)
-        if item_artist is not None:
-            counts[item_artist] += 1
-    max_count = max(counts.values(), default=0)
-    if max_count <= 1:
-        return 0.0
-    return _bounded((counts[artist] - 1) / max_count)
 
 
 def _bounded(value: float) -> float:

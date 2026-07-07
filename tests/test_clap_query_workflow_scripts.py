@@ -7,6 +7,8 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+README = ROOT / "README.md"
+CLAP_SKILL = ROOT / ".agents" / "skills" / "clap-query-workflow" / "SKILL.md"
 SCORE_PROMPT_BANK = ROOT / ".agents" / "skills" / "clap-query-workflow" / "scripts" / "score_prompt_bank.py"
 
 
@@ -68,3 +70,14 @@ def test_checkpoint_loading_fails_closed_when_torch_lacks_weights_only(tmp_path:
         module.load_checkpoint_weights_only(FakeModel(), fake_torch, tmp_path / "model.pt")
 
     assert fake_torch.load is original_load
+
+
+def test_clap_text_score_language_remains_ranking_signal_not_probability() -> None:
+    skill_text = CLAP_SKILL.read_text(encoding="utf-8")
+    readme_text = README.read_text(encoding="utf-8")
+
+    assert "CLAP text-search scores are text-to-audio cosine or contrast scores, not probabilities" in skill_text
+    assert "Current scoring: normalized positive text embeddings are mean-pooled" in skill_text
+    assert "hard negatives are subtracted with `alpha = 0.35`" in skill_text
+    assert "CLAP text-search scores are not the same scale as seed-based audio-to-audio scores" in readme_text
+    assert "Treat them as prompt evidence, not as a universal similarity value" in readme_text

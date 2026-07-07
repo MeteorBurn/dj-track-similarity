@@ -612,6 +612,50 @@ def test_hybrid_search_returns_empty_results_with_warnings_when_sources_lack_cov
     assert any("produced no candidate rows" in warning for warning in result.warnings)
 
 
+def test_hybrid_search_records_session_only_when_requested(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_ids = {
+        "seed": _track(db, tmp_path, "seed", bpm=120.0, musical_key="8A", energy=0.4),
+        "candidate": _track(db, tmp_path, "candidate", bpm=124.0, musical_key="9A", energy=0.6),
+    }
+    rows = (_candidate_row(db, track_ids["seed"], track_ids["candidate"], {"mert": (1, 0.9)}),)
+    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
+
+    dry_run = build_hybrid_search_preview(
+        db,
+        seed_track_ids=[track_ids["seed"]],
+        sources=["mert"],
+        per_source=1,
+        limit=1,
+        record_session=False,
+    )
+    recorded = build_hybrid_search_preview(
+        db,
+        seed_track_ids=[track_ids["seed"]],
+        sources=["mert"],
+        per_source=1,
+        limit=1,
+        rrf_k=7,
+        transition_risk_weight=0.25,
+        record_session=True,
+    )
+
+    sessions = db.list_search_sessions_with_events()
+    assert dry_run.session_id is None
+    assert recorded.session_id is not None
+    assert len(sessions) == 1
+    assert sessions[0]["mode"] == hybrid_search.HYBRID_SEARCH_SESSION_MODE
+    assert sessions[0]["seed_track_ids"] == [track_ids["seed"]]
+    assert sessions[0]["request"]["record_session"] is True
+    assert sessions[0]["request"]["transition_risk_weight"] == 0.25
+    assert sessions[0]["events"][0]["track_id"] == track_ids["candidate"]
+    event_breakdown = sessions[0]["events"][0]["score_breakdown"]
+    assert event_breakdown["score_kind"] == "weighted_rrf_adjusted"
+    assert event_breakdown["sources"]["mert"]["rank"] == 1
+    assert event_breakdown["transition_risk_weight"] == 0.25
+    assert "source_support" in event_breakdown
+
+
 def _hybrid_library(tmp_path: Path) -> tuple[LibraryDatabase, dict[str, int]]:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_ids = {

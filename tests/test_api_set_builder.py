@@ -95,6 +95,26 @@ def test_set_builder_endpoint_rejects_unknown_classifier(monkeypatch, tmp_path: 
     assert "Unknown classifier" in response.json()["detail"]
 
 
+def test_set_builder_endpoint_rejects_incompatible_classifier_manifest(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
+    monkeypatch.setattr(
+        api,
+        "promoted_classifiers",
+        lambda: [{"classifier_key": "draft_profile", "name": "Draft", "is_scoring_compatible": False}],
+    )
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    seed_id = _complete_track(db, tmp_path, "seed.wav", [1, 0])
+
+    response = TestClient(create_app(db_path)).post(
+        "/api/set-builder/generate",
+        json={"seed_mode": "manual", "seed_track_ids": [seed_id], "classifier_flows": {"draft_profile": "rise"}},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Classifier manifest is invalid: draft_profile"}
+
+
 def test_set_builder_endpoint_rejects_extra_fields(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
     client = TestClient(create_app(tmp_path / "library.sqlite"))

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-import csv
 from dataclasses import dataclass
 import json
 import math
@@ -12,6 +11,7 @@ from typing import TYPE_CHECKING
 from ..models import SearchResult, Track
 from ..search import SimilaritySearch
 from ..sonara_similarity import SonaraSimilaritySearch
+from .csv_io import CsvRow, write_csv_rows
 
 if TYPE_CHECKING:
     from ..database import LibraryDatabase
@@ -71,7 +71,7 @@ class CandidatePoolRow:
             raise ValueError("Candidate pool row must have at least one source contribution")
         return max(scores)
 
-    def csv_row(self) -> dict[str, object]:
+    def csv_row(self) -> CsvRow:
         return {
             "seed_track_id": self.seed_track_id,
             "candidate_track_id": self.candidate_track_id,
@@ -193,13 +193,7 @@ def record_candidate_pool_sessions(
 
 
 def write_candidate_pool_csv(path: str | Path, rows: Sequence[CandidatePoolRow]) -> None:
-    output_path = Path(path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", encoding="utf-8", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=EXPORT_CANDIDATE_COLUMNS)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow(row.csv_row())
+    write_csv_rows(path, EXPORT_CANDIDATE_COLUMNS, rows)
 
 
 def _parse_export_request(

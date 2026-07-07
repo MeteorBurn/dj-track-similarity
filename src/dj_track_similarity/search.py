@@ -2,13 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import inf
+from typing import Final
 
 import numpy as np
+from numpy.typing import NDArray
 
 from .database import LibraryDatabase
 from .models import SearchResult, Track
 from .track_resolution import camelot_compatible, resolve_track_bpm
 from .vector_index import ExactVectorSearchBackend, VectorSearchBackend, VectorSearchHit
+
+FloatArray = NDArray[np.float32]
+CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT: Final = 0.35
 
 
 @dataclass(frozen=True)
@@ -87,7 +92,7 @@ class SimilaritySearch:
 
     def search_vector(
         self,
-        vector: np.ndarray,
+        vector: FloatArray,
         *,
         filters: SearchFilters | None = None,
         limit: int = 50,
@@ -125,11 +130,11 @@ class SimilaritySearch:
     def search_contrast_vectors(
         self,
         *,
-        positive_vectors: list[np.ndarray],
-        negative_vectors: list[np.ndarray] | None = None,
+        positive_vectors: list[FloatArray],
+        negative_vectors: list[FloatArray] | None = None,
         filters: SearchFilters | None = None,
         limit: int = 50,
-        negative_weight: float = 0.35,
+        negative_weight: float = CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT,
     ) -> list[SearchResult]:
         if not positive_vectors:
             raise ValueError("At least one positive query vector is required")
@@ -141,27 +146,26 @@ class SimilaritySearch:
         if matrix.size == 0:
             return []
 
-        positive_bank = _normalize(np.mean(_normalize_matrix(positive_vectors), axis=0))
-        positive_scores = matrix @ positive_bank
-        if negative_vectors:
-            negatives = _normalize_matrix(negative_vectors)
-            negative_scores = np.max(matrix @ negatives.T, axis=1)
-        else:
-            negative_scores = np.zeros_like(positive_scores)
-        scores = positive_scores - max(0.0, negative_weight) * negative_scores
+        positive_scores, negative_scores, contrast_scores, bounded_weight = _contrast_vector_scores(
+            matrix,
+            positive_vectors=positive_vectors,
+            negative_vectors=negative_vectors or [],
+            negative_weight=negative_weight,
+        )
 
         candidates: list[tuple[Track, float, float, dict[str, float]]] = []
-        for index in np.argsort(-scores):
+        for index in np.argsort(-contrast_scores):
             track = tracks[int(index)]
-            score = float(scores[int(index)])
+            score = float(contrast_scores[int(index)])
             if not _passes_filters(track, [], score, filters):
                 continue
-            breakdown = {
-                "positive": float(positive_scores[int(index)]),
-                "negative": float(negative_scores[int(index)]),
-                "contrast": score,
-                "negative_weight": max(0.0, negative_weight),
-            }
+            breakdown = _contrast_score_breakdown(
+                positive_scores,
+                negative_scores,
+                contrast_scores,
+                bounded_weight,
+                int(index),
+            )
             candidates.append((track, score, _ranking_score(track, score, filters.noise), breakdown))
 
         if filters.epsilon is not None and candidates:
@@ -176,16 +180,45 @@ class SimilaritySearch:
         return results
 
 
-def _normalize(vector: np.ndarray) -> np.ndarray:
+def _normalize(vector: FloatArray) -> FloatArray:
     norm = float(np.linalg.norm(vector))
     if norm == 0:
         raise ValueError("Cannot normalize zero vector")
     return (vector / norm).astype(np.float32)
 
 
-def _normalize_matrix(vectors: list[np.ndarray]) -> np.ndarray:
+def _normalize_matrix(vectors: list[FloatArray]) -> FloatArray:
     normalized = [_normalize(np.asarray(vector, dtype=np.float32).reshape(-1)) for vector in vectors]
     return np.vstack(normalized).astype(np.float32)
+
+
+def _contrast_vector_scores(
+    matrix: FloatArray,
+    *,
+    positive_vectors: list[FloatArray],
+    negative_vectors: list[FloatArray],
+    negative_weight: float,
+) -> tuple[FloatArray, FloatArray, FloatArray, float]:
+    positive_bank = _normalize(np.mean(_normalize_matrix(positive_vectors), axis=0))
+    positive_scores = matrix @ positive_bank
+    negative_scores = np.max(matrix @ _normalize_matrix(negative_vectors).T, axis=1) if negative_vectors else np.zeros_like(positive_scores)
+    bounded_weight = max(0.0, negative_weight)
+    return positive_scores, negative_scores, positive_scores - bounded_weight * negative_scores, bounded_weight
+
+
+def _contrast_score_breakdown(
+    positive_scores: FloatArray,
+    negative_scores: FloatArray,
+    contrast_scores: FloatArray,
+    negative_weight: float,
+    index: int,
+) -> dict[str, float]:
+    return {
+        "positive": float(positive_scores[index]),
+        "negative": float(negative_scores[index]),
+        "contrast": float(contrast_scores[index]),
+        "negative_weight": negative_weight,
+    }
 
 
 def _track_ids(tracks: list[Track]) -> list[int]:
@@ -260,8 +293,4 @@ def _key_compatible(track: Track, seeds: list[Track]) -> bool:
     seed_keys = [seed.musical_key for seed in seeds if seed.musical_key]
     if not seed_keys:
         return True
-    return any(_camelot_compatible(track.musical_key or "", seed_key or "") for seed_key in seed_keys)
-
-
-def _camelot_compatible(candidate: str, seed: str) -> bool:
-    return camelot_compatible(candidate, seed)
+    return any(camelot_compatible(track.musical_key or "", seed_key or "") for seed_key in seed_keys)

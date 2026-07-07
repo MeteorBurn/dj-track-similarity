@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from contextlib import nullcontext as _nullcontext
 import sqlite3
+import threading
 from pathlib import Path
-from typing import Iterable
+from typing import TypedDict
 
-from .db_library_queries import build_track_filter_sql, combine_where_condition, split_primary_classifier_filter, track_order_sql
+from . import db_library_queries
 from .db_repository_utils import (
     DEFAULT_EMBEDDING_KEY,
     LIBRARY_ROOT_SETTING_KEY,
@@ -16,7 +18,7 @@ from .db_repository_utils import (
     normalize_path,
 )
 from .db_schema import TRACK_SELECT_FIELDS, TRACK_SLIM_SELECT_FIELDS
-from .db_search_fts import fts_match_query, normalize_search_mode, rebuild_track_search_fts, upsert_track_search_fts
+from .db_search_fts import rebuild_track_search_fts, upsert_track_search_fts
 from .metadata_payload import (
     analyses_from_row,
     genres_from_metadata,
@@ -28,7 +30,39 @@ from .metadata_payload import (
 from .models import Track
 
 
+class RelocationChange(TypedDict):
+    track_id: int
+    old_path: str
+    new_path: str
+
+
+class RelocationConflict(RelocationChange):
+    existing_track_id: int | None
+
+
+class MissingRelocationFile(TypedDict):
+    track_id: int
+    path: str
+
+
 class TrackRepository:
+    _write_lock: threading.RLock
+
+    def __init__(self) -> None:
+        self._write_lock = threading.RLock()
+
+    def connect(self) -> sqlite3.Connection:
+        raise NotImplementedError
+
+    def _invalidate_embedding_cache(self, _embedding_key: str | None = None) -> None:
+        raise NotImplementedError
+
+    def _invalidate_embedding_cache_keys(self, _embedding_keys: Iterable[str]) -> None:
+        raise NotImplementedError
+
+    def _invalidate_sonara_feature_cache(self) -> None:
+        raise NotImplementedError
+
     def get_track_by_path(self, path: str | Path) -> Track | None:
         with self.connect() as connection:
             row = connection.execute(
@@ -190,31 +224,25 @@ class TrackRepository:
         embedding_key: str = DEFAULT_EMBEDDING_KEY,
         search_mode: str = "like",
     ) -> dict[str, object]:
-        mode = normalize_search_mode(search_mode)
-        use_fts = mode == "fts" and bool(query.strip())
-        fts_query = fts_match_query(query) if use_fts else ""
         fields = TRACK_SELECT_FIELDS if include_metadata else TRACK_SLIM_SELECT_FIELDS
-        thresholds = dict(classifier_min_scores or {})
-        primary_classifier, remaining_thresholds = split_primary_classifier_filter(thresholds)
-        where_sql, params = build_track_filter_sql(
-            query="" if use_fts else query,
-            preset=preset,
-            liked_only=liked_only,
-            classifier_min_scores=remaining_thresholds if primary_classifier else thresholds,
+        listing_query = db_library_queries.build_track_listing_query(
+            db_library_queries.TrackListingRequest(
+                query=query,
+                preset=preset,
+                liked_only=liked_only,
+                classifier_min_scores=classifier_min_scores,
+                search_mode=search_mode,
+            )
         )
-        if use_fts:
-            condition = "track_search_fts MATCH ?" if fts_query else "0 = 1"
-            where_sql = combine_where_condition(condition, where_sql)
-            if fts_query:
-                params = [fts_query, *params]
-        order_sql = track_order_sql(liked_only=liked_only, classifier_min_scores=thresholds)
+        where_sql = listing_query.where_sql
+        params = listing_query.params
+        order_sql = listing_query.order_sql
         bounded_limit = max(1, min(500, int(limit)))
         bounded_offset = max(0, int(offset))
         with self.connect() as connection:
-            if primary_classifier:
-                classifier, threshold = primary_classifier
-                fts_join = "JOIN track_search_fts fts ON fts.track_id = t.id" if use_fts and fts_query else ""
-                classifier_where = combine_where_condition(
+            if listing_query.primary_classifier:
+                classifier, threshold = listing_query.primary_classifier
+                classifier_where = db_library_queries.combine_where_condition(
                     "primary_cs.classifier = ? AND primary_cs.score >= ?",
                     where_sql,
                 )
@@ -225,7 +253,7 @@ class TrackRepository:
                         SELECT COUNT(*)
                         FROM track_classifier_scores primary_cs
                         JOIN tracks t ON t.id = primary_cs.track_id
-                        {fts_join}
+                        {listing_query.fts_join_sql}
                         {classifier_where}
                         """,
                         classifier_params,
@@ -236,7 +264,7 @@ class TrackRepository:
                     SELECT {fields}
                     FROM track_classifier_scores primary_cs
                     JOIN tracks t ON t.id = primary_cs.track_id
-                    {fts_join}
+                    {listing_query.fts_join_sql}
                     LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                     {classifier_where}
                     ORDER BY {order_sql}
@@ -245,12 +273,16 @@ class TrackRepository:
                     (embedding_key, *classifier_params, bounded_limit, bounded_offset),
                 ).fetchall()
             else:
-                from_sql = "track_search_fts fts JOIN tracks t ON t.id = fts.track_id" if use_fts and fts_query else "tracks t"
-                total = int(connection.execute(f"SELECT COUNT(*) FROM {from_sql} {where_sql}", params).fetchone()[0])
+                total = int(
+                    connection.execute(
+                        f"SELECT COUNT(*) FROM {listing_query.from_sql} {where_sql}",
+                        params,
+                    ).fetchone()[0]
+                )
                 rows = connection.execute(
                     f"""
                     SELECT {fields}
-                    FROM {from_sql}
+                    FROM {listing_query.from_sql}
                     LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                     {where_sql}
                     ORDER BY {order_sql}
@@ -276,29 +308,23 @@ class TrackRepository:
         embedding_key: str = DEFAULT_EMBEDDING_KEY,
         search_mode: str = "like",
     ) -> dict[str, object]:
-        mode = normalize_search_mode(search_mode)
-        use_fts = mode == "fts" and bool(query.strip())
-        fts_query = fts_match_query(query) if use_fts else ""
         fields = TRACK_SELECT_FIELDS if include_metadata else TRACK_SLIM_SELECT_FIELDS
-        thresholds = dict(classifier_min_scores or {})
-        primary_classifier, remaining_thresholds = split_primary_classifier_filter(thresholds)
-        where_sql, params = build_track_filter_sql(
-            query="" if use_fts else query,
-            preset=preset,
-            liked_only=liked_only,
-            classifier_min_scores=remaining_thresholds if primary_classifier else thresholds,
+        listing_query = db_library_queries.build_track_listing_query(
+            db_library_queries.TrackListingRequest(
+                query=query,
+                preset=preset,
+                liked_only=liked_only,
+                classifier_min_scores=classifier_min_scores,
+                search_mode=search_mode,
+            )
         )
-        if use_fts:
-            condition = "track_search_fts MATCH ?" if fts_query else "0 = 1"
-            where_sql = combine_where_condition(condition, where_sql)
-            if fts_query:
-                params = [fts_query, *params]
-        order_sql = track_order_sql(liked_only=liked_only, classifier_min_scores=thresholds)
+        where_sql = listing_query.where_sql
+        params = listing_query.params
+        order_sql = listing_query.order_sql
         with self.connect() as connection:
-            if primary_classifier:
-                classifier, threshold = primary_classifier
-                fts_join = "JOIN track_search_fts fts ON fts.track_id = t.id" if use_fts and fts_query else ""
-                classifier_where = combine_where_condition(
+            if listing_query.primary_classifier:
+                classifier, threshold = listing_query.primary_classifier
+                classifier_where = db_library_queries.combine_where_condition(
                     "primary_cs.classifier = ? AND primary_cs.score >= ?",
                     where_sql,
                 )
@@ -307,7 +333,7 @@ class TrackRepository:
                     SELECT {fields}
                     FROM track_classifier_scores primary_cs
                     JOIN tracks t ON t.id = primary_cs.track_id
-                    {fts_join}
+                    {listing_query.fts_join_sql}
                     LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                     {classifier_where}
                     ORDER BY {order_sql}
@@ -315,11 +341,10 @@ class TrackRepository:
                     (embedding_key, classifier, threshold, *params),
                 ).fetchall()
             else:
-                from_sql = "track_search_fts fts JOIN tracks t ON t.id = fts.track_id" if use_fts and fts_query else "tracks t"
                 rows = connection.execute(
                     f"""
                     SELECT {fields}
-                    FROM {from_sql}
+                    FROM {listing_query.from_sql}
                     LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
                     {where_sql}
                     ORDER BY {order_sql}
@@ -441,9 +466,9 @@ class TrackRepository:
         with self._write_lock if apply else _nullcontext(), self.connect() as connection:
             rows = connection.execute("SELECT id, path FROM tracks ORDER BY id").fetchall()
             existing_by_path = {str(row["path"]).casefold(): int(row["id"]) for row in rows}
-            changes: list[dict[str, object]] = []
-            conflicts: list[dict[str, object]] = []
-            missing_files: list[dict[str, object]] = []
+            changes: list[RelocationChange] = []
+            conflicts: list[RelocationConflict] = []
+            missing_files: list[MissingRelocationFile] = []
             planned_paths: set[str] = set()
 
             for row in rows:

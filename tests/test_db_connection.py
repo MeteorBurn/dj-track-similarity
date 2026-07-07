@@ -33,6 +33,13 @@ def test_write_lock_for_path_reuses_resolved_database_path(tmp_path) -> None:
     assert first is second
 
 
+def test_write_lock_for_path_is_scoped_to_resolved_database_path(tmp_path) -> None:
+    first = write_lock_for_path(tmp_path / "first.sqlite")
+    second = write_lock_for_path(tmp_path / "second.sqlite")
+
+    assert first is not second
+
+
 def test_ensure_database_schema_creates_parent_and_current_schema(tmp_path) -> None:
     db_path = tmp_path / "nested" / "library.sqlite"
     lock = write_lock_for_path(db_path)

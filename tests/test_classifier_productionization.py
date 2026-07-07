@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 
@@ -196,9 +197,9 @@ def test_classifier_cli_calibration_report_outputs_json(tmp_path: Path) -> None:
     )
 
     assert result.exit_code == 0
-    payload = json.loads(result.output)
+    payload = json.loads(_cli_output_text(result.output))
     assert payload["classifier_key"] == "break_energy"
-    assert payload["status"] == "insufficient_data"
+    assert payload["status"] == "stale"
 
 
 def test_classifier_cli_suggest_labels_outputs_ordered_json(tmp_path: Path) -> None:
@@ -215,7 +216,7 @@ def test_classifier_cli_suggest_labels_outputs_ordered_json(tmp_path: Path) -> N
     )
 
     assert result.exit_code == 0
-    payload = json.loads(result.output)
+    payload = json.loads(_cli_output_text(result.output))
     assert [item["track"]["id"] for item in payload["suggestions"]] == [near_id, far_id]
 
 
@@ -239,6 +240,18 @@ def test_classifier_api_rejects_invalid_manifest_for_scoring(monkeypatch, tmp_pa
 
     assert response.status_code == 400
     assert "positive_label" in response.json()["detail"]
+
+
+def test_classifier_api_rejects_unknown_classifier_for_scoring(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    LibraryDatabase(db_path)
+    monkeypatch.setattr(api, "promoted_classifiers", lambda: [])
+    client = TestClient(api.create_app(db_path))
+
+    response = client.post("/api/classifiers/missing_profile/analyze", json={})
+
+    assert response.status_code == 400
+    assert "missing_profile" in response.json()["detail"]
 
 
 def test_classifier_api_returns_label_suggestions(monkeypatch, tmp_path: Path) -> None:
@@ -293,6 +306,16 @@ def _save_score(db: LibraryDatabase, track_id: int, classifier: str, score: floa
         feature_set="combined",
         model_id="model.joblib",
     )
+
+
+def _cli_output_text(output: str) -> str:
+    text = output[3:] if output.startswith("b''") else output
+    if not text.startswith("b'"):
+        return text
+    raw = ast.literal_eval(text)
+    if isinstance(raw, bytes):
+        return raw.decode("utf-8")
+    raise AssertionError("Expected CLI output bytes literal")
 
 
 def _classifier_info(tmp_path: Path, classifier_key: str, *, model_id: str | None = None) -> dict[str, object]:

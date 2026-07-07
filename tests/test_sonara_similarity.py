@@ -141,8 +141,11 @@ def test_custom_mixer_can_prioritize_rhythm_texture_over_dynamics(tmp_path: Path
     )
 
     assert [result.track.id for result in results] == [rhythm_close, dynamics_close]
-    assert results[0].score_breakdown
-    assert results[0].score_breakdown["rhythm"] > results[1].score_breakdown["rhythm"]
+    first_breakdown = results[0].score_breakdown
+    second_breakdown = results[1].score_breakdown
+    assert first_breakdown is not None
+    assert second_breakdown is not None
+    assert first_breakdown["rhythm"] > second_breakdown["rhythm"]
 
 
 def test_custom_modifiers_bias_direction_without_hardcoded_mood(tmp_path: Path) -> None:
@@ -276,6 +279,16 @@ def test_custom_modifier_on_group_shared_field_still_biases_direction(tmp_path: 
 
     assert higher_results[0].track.id == higher
     assert lower_results[0].track.id == lower
+    assert higher_results[0].score == pytest.approx(0.82142857)
+    assert lower_results[0].score == pytest.approx(0.82142857)
+    assert higher_results[0].score_breakdown == {
+        "dynamics": 1.0,
+        "modifier_energy": 0.75,
+    }
+    assert lower_results[0].score_breakdown == {
+        "dynamics": 1.0,
+        "modifier_energy": 0.75,
+    }
 
 
 def test_custom_harmonic_knob_is_not_a_hard_exact_key_gate(tmp_path: Path) -> None:
@@ -427,7 +440,9 @@ def test_sonara_search_reports_context_tracks_without_features(tmp_path: Path) -
 
 
 def _float_or_none(value: object) -> float | None:
+    if not isinstance(value, (str, bytes, int, float)):
+        return None
     try:
-        return float(value) if value is not None else None
+        return float(value)
     except (TypeError, ValueError):
         return None

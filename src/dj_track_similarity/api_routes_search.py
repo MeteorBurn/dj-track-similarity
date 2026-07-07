@@ -1,23 +1,50 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Protocol
 
+import numpy as np
 from fastapi import FastAPI, HTTPException
+from numpy.typing import NDArray
 
 from .api_schemas import HybridSearchRequest, HybridSearchResponse, SearchRequest, SonaraSearchRequest, TextSearchRequest
 from .api_state import AppDatabaseState
 from .hybrid_search import build_hybrid_search_preview
-from .search import SearchFilters, SimilaritySearch
-from .sonara_similarity import SonaraSimilaritySearch
+from .models import SearchResult
+from .search import CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT, SearchFilters, SimilaritySearch
+from .sonara_similarity import SonaraSearchMode, SonaraSimilaritySearch
 
-CLAP_NEGATIVE_WEIGHT = 0.35
+FloatArray = NDArray[np.float32]
+
+
+class _TextEmbeddingAdapter(Protocol):
+    embedding_key: str
+
+    def embed_text(self, text: str) -> FloatArray:
+        ...
+
+
+@dataclass(frozen=True)
+class _TextPromptBank:
+    primary_query: str
+    positive_queries: tuple[str, ...]
+    negative_queries: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class _ClapTextSearchPlan:
+    prompt_bank: _TextPromptBank
+    filters: SearchFilters
+    limit: int
+    adaptive_contrast: bool
 
 
 def register_search_routes(
     app: FastAPI,
     state: AppDatabaseState,
     *,
-    clap_embedding_adapter: Callable[..., object],
+    clap_embedding_adapter: Callable[..., _TextEmbeddingAdapter],
 ) -> None:
     @app.post("/api/search")
     def search(request: SearchRequest):
@@ -44,7 +71,7 @@ def register_search_routes(
         try:
             return SonaraSimilaritySearch(state.require_db()).search(
                 request.seed_track_ids,
-                mode=request.mode,  # type: ignore[arg-type]
+                mode=_sonara_search_mode(request.mode),
                 mixer_weights=request.mixer_weights.model_dump() if request.mixer_weights else None,
                 modifiers=request.modifiers.model_dump() if request.modifiers else None,
                 min_similarity=request.min_similarity,
@@ -55,27 +82,11 @@ def register_search_routes(
 
     @app.post("/api/search/text")
     def text_search(request: TextSearchRequest):
-        query = request.query.strip()
-        if not query:
-            raise HTTPException(status_code=400, detail="Text query is required")
-        positive_queries = _clean_text_queries(request.positive_queries) or [query]
-        negative_queries = _clean_text_queries(request.negative_queries)
-        adapter = clap_embedding_adapter(device=request.device)
-        filters = SearchFilters(min_similarity=request.min_similarity)
         try:
+            plan = _clap_text_search_plan(request)
+            adapter = clap_embedding_adapter(device=request.device)
             searcher = SimilaritySearch(state.require_db(), embedding_key=adapter.embedding_key)
-            if request.adaptive_contrast and (negative_queries or len(positive_queries) > 1):
-                positive_vectors = [adapter.embed_text(text) for text in positive_queries]
-                negative_vectors = [adapter.embed_text(text) for text in negative_queries]
-                return searcher.search_contrast_vectors(
-                    positive_vectors=positive_vectors,
-                    negative_vectors=negative_vectors,
-                    filters=filters,
-                    limit=request.limit,
-                    negative_weight=CLAP_NEGATIVE_WEIGHT,
-                )
-            vector = adapter.embed_text(positive_queries[0])
-            return searcher.search_vector(vector, filters=filters, limit=request.limit)
+            return _search_clap_text_prompts(searcher, adapter, plan)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -103,5 +114,49 @@ def register_search_routes(
         return result.api_response(include_diagnostics=request.include_diagnostics)
 
 
-def _clean_text_queries(queries: list[str]) -> list[str]:
-    return [query.strip() for query in queries if query.strip()]
+def _clap_text_search_plan(request: TextSearchRequest) -> _ClapTextSearchPlan:
+    query = request.query.strip()
+    if not query:
+        raise ValueError("Text query is required")
+    positive_queries = _clean_text_queries(request.positive_queries) or (query,)
+    return _ClapTextSearchPlan(
+        prompt_bank=_TextPromptBank(
+            primary_query=positive_queries[0],
+            positive_queries=positive_queries,
+            negative_queries=_clean_text_queries(request.negative_queries),
+        ),
+        filters=SearchFilters(min_similarity=request.min_similarity),
+        limit=request.limit,
+        adaptive_contrast=request.adaptive_contrast,
+    )
+
+
+def _search_clap_text_prompts(
+    searcher: SimilaritySearch,
+    adapter: _TextEmbeddingAdapter,
+    plan: _ClapTextSearchPlan,
+) -> list[SearchResult]:
+    positive_queries = plan.prompt_bank.positive_queries
+    negative_queries = plan.prompt_bank.negative_queries
+    if plan.adaptive_contrast and (negative_queries or len(positive_queries) > 1):
+        return searcher.search_contrast_vectors(
+            positive_vectors=[adapter.embed_text(text) for text in positive_queries],
+            negative_vectors=[adapter.embed_text(text) for text in negative_queries],
+            filters=plan.filters,
+            limit=plan.limit,
+            negative_weight=CLAP_TEXT_NEGATIVE_WEIGHT_DEFAULT,
+        )
+    vector = adapter.embed_text(plan.prompt_bank.primary_query)
+    return searcher.search_vector(vector, filters=plan.filters, limit=plan.limit)
+
+
+def _sonara_search_mode(mode: str) -> SonaraSearchMode:
+    match mode:
+        case "balanced" | "vibe" | "sound" | "dj_transition" | "custom":
+            return mode
+        case _:
+            raise ValueError(f"Unsupported SONARA search mode: {mode}")
+
+
+def _clean_text_queries(queries: list[str]) -> tuple[str, ...]:
+    return tuple(query.strip() for query in queries if query.strip())

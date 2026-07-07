@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
@@ -25,6 +26,26 @@ def test_sonara_search_endpoint_uses_stored_sonara_features(monkeypatch, tmp_pat
     payload = response.json()
     assert [item["track"]["id"] for item in payload] == [close, far]
     assert payload[0]["score"] > payload[1]["score"]
+
+
+def test_generic_search_endpoint_returns_mert_result_shape(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    seed_id = _add_embedding_track(db, "seed.wav", [1.0, 0.0])
+    candidate_id = _add_embedding_track(db, "candidate.wav", [0.9, 0.1])
+
+    response = TestClient(create_app(db_path)).post(
+        "/api/search",
+        json={"seed_track_ids": [seed_id], "limit": 1, "min_similarity": 0.0, "Epsilon": 0.0, "noise": 0.0},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["track"]["id"] == candidate_id
+    assert payload[0]["score"] > 0.0
+    assert payload[0]["score_breakdown"] is None
 
 
 def test_sonara_search_endpoint_accepts_custom_mixer_and_modifiers(monkeypatch, tmp_path: Path) -> None:
@@ -104,15 +125,27 @@ def test_generic_search_endpoint_rejects_invalid_numeric_fields(monkeypatch, tmp
     assert response.status_code == 422
 
 
-def _add_sonara_track(db: LibraryDatabase, name: str, features: dict[str, object]) -> int:
+def _add_sonara_track(db: LibraryDatabase, name: str, features: dict[str, float | str | list[float]]) -> int:
     path = Path("C:/music") / name
     track_id = db.upsert_track(path=path, size=100, mtime=1, metadata={"title": name})
+    bpm = features.get("bpm")
+    musical_key = features.get("key")
+    energy = features.get("energy")
+    duration = features.get("duration_sec")
+    feature_payload: dict[str, object] = dict(features)
     db.save_sonara_features(
         track_id,
-        features,
-        bpm=float(features["bpm"]) if "bpm" in features else None,
-        musical_key=str(features["key"]) if features.get("key") else None,
-        energy=float(features["energy"]) if "energy" in features else None,
-        duration=float(features["duration_sec"]) if "duration_sec" in features else None,
+        feature_payload,
+        bpm=float(bpm) if isinstance(bpm, (float, int, str)) else None,
+        musical_key=str(musical_key) if musical_key else None,
+        energy=float(energy) if isinstance(energy, (float, int, str)) else None,
+        duration=float(duration) if isinstance(duration, (float, int, str)) else None,
     )
+    return track_id
+
+
+def _add_embedding_track(db: LibraryDatabase, name: str, embedding: list[float]) -> int:
+    path = Path("C:/music") / name
+    track_id = db.upsert_track(path=path, size=100, mtime=1, metadata={"title": name})
+    db.save_embedding(track_id, np.asarray(embedding, dtype=np.float32), "mert-test", embedding_key="mert")
     return track_id

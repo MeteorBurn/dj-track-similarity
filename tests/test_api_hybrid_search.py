@@ -147,6 +147,31 @@ def test_hybrid_search_endpoint_rejects_invalid_transition_risk_weight(monkeypat
     assert response.status_code == 422
 
 
+def test_hybrid_search_endpoint_rejects_duplicate_seed_ids(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    _, track_ids = _hybrid_library(db_path, tmp_path)
+
+    response = _client(monkeypatch, db_path).post(
+        "/api/search/hybrid",
+        json={"seed_track_ids": [track_ids["seed"], track_ids["seed"]], "sources": ["mert"]},
+    )
+
+    assert response.status_code == 422
+    assert "seed_track_ids must be unique" in response.text
+
+
+def test_hybrid_search_endpoint_rejects_unknown_contract_fields(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    _, track_ids = _hybrid_library(db_path, tmp_path)
+
+    response = _client(monkeypatch, db_path).post(
+        "/api/search/hybrid",
+        json={"seed_track_ids": [track_ids["seed"]], "calibrated_probability": True},
+    )
+
+    assert response.status_code == 422
+
+
 def test_hybrid_search_endpoint_accepts_clap_as_neutral_missing_source(monkeypatch, tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     _, track_ids = _hybrid_library(db_path, tmp_path)

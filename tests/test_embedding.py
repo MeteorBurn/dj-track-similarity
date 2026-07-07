@@ -200,6 +200,21 @@ def test_normalize_rows_rejects_non_finite_vectors() -> None:
             embedding._normalize_rows(np.asarray([[1.0, value, 0.0]], dtype=np.float32))
 
 
+def test_normalize_rows_returns_flat_float32_unit_vectors() -> None:
+    vectors = embedding._normalize_rows(np.asarray([[3.0, 4.0, 0.0]], dtype=np.float64))
+
+    assert len(vectors) == 1
+    assert vectors[0].shape == (3,)
+    assert vectors[0].dtype == np.float32
+    assert float(np.linalg.norm(vectors[0])) == pytest.approx(1.0)
+    np.testing.assert_allclose(vectors[0], np.asarray([0.6, 0.8, 0.0], dtype=np.float32))
+
+
+def test_normalize_rows_rejects_zero_vectors() -> None:
+    with pytest.raises(ValueError, match="zero vector"):
+        embedding._normalize_rows(np.asarray([[0.0, 0.0, 0.0]], dtype=np.float32))
+
+
 def test_pad_or_trim_audio_window_returns_fixed_length_float32() -> None:
     assert _pad_or_trim_audio_window(np.array([1.0, 2.0]), 4).tolist() == [1.0, 2.0, 0.0, 0.0]
     assert _pad_or_trim_audio_window(np.array([1.0, 2.0, 3.0, 4.0]), 2).tolist() == [1.0, 2.0]

@@ -4,8 +4,9 @@ import logging
 import threading
 import time
 import uuid
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping, Sequence, cast
+from typing import Protocol, cast
 
 from .analysis_job_batch import AnalysisBatchItem, DecodeAudio, decode_analysis_batch
 from .analysis_job_state import (
@@ -22,13 +23,13 @@ from .analysis_job_state import (
     record_model_success as apply_model_success,
     record_track_model_result as apply_track_model_result,
 )
+from . import analysis_model_runners as model_runner_module
 from .analysis_model_runners import (
     AnalysisModelRunner,
     EmbeddingModelRunner,
     MaestModelRunner,
     RunnerFactory,
     SonaraModelRunner,
-    _default_model_runners,
 )
 from .audio_loader import load_decoded_audio
 from .classifier_scoring import ClassifierScorer
@@ -75,6 +76,33 @@ class _AnalysisWork:
     models: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class _AnalysisPayload:
+    tracks: list[Track]
+    audio_targets_by_track: dict[int, tuple[str, ...]]
+    classifier_targets_by_track: dict[int, tuple[str, ...]]
+    track_outcomes: dict[int, AnalysisTrackOutcome]
+
+
+class _ClassifierScorer(Protocol):
+    def score_track(self, track: Track) -> dict[str, float] | None:
+        ...
+
+    def save_score(self, track: Track, probabilities: dict[str, float]) -> None:
+        ...
+
+
+@dataclass
+class _RunnerLifecycle:
+    runners: dict[str, AnalysisModelRunner]
+    failed_inits: dict[str, str]
+
+
+@dataclass
+class _ClassifierLifecycle:
+    scorers: dict[str, _ClassifierScorer]
+
+
 class AnalysisJobManager:
     def __init__(
         self,
@@ -83,18 +111,20 @@ class AnalysisJobManager:
         *,
         decode_audio: DecodeAudio = load_decoded_audio,
         runner_factory: RunnerFactory | None = None,
-        classifier_scorer_factory: Callable[[str], Any] | None = None,
+        classifier_scorer_factory: Callable[[str], _ClassifierScorer] | None = None,
         track_batch_size: int = DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
         inference_batch_size: int = DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
     ) -> None:
-        self.db = db
-        self._model_runners = dict(model_runners) if model_runners is not None else None
-        self._runner_factory = runner_factory or _default_model_runners
-        self._classifier_scorer_factory = classifier_scorer_factory
-        self._decode_audio = decode_audio
-        self.track_batch_size = max(1, int(track_batch_size))
-        self.inference_batch_size = max(1, int(inference_batch_size))
-        self._store = JobStore(self._copy_status, unknown_label="analysis job")
+        self.db: LibraryDatabase = db
+        self._model_runners: dict[str, AnalysisModelRunner] | None = (
+            dict(model_runners) if model_runners is not None else None
+        )
+        self._runner_factory: RunnerFactory = runner_factory or model_runner_module.default_model_runners
+        self._classifier_scorer_factory: Callable[[str], _ClassifierScorer] | None = classifier_scorer_factory
+        self._decode_audio: DecodeAudio = decode_audio
+        self.track_batch_size: int = max(1, int(track_batch_size))
+        self.inference_batch_size: int = max(1, int(inference_batch_size))
+        self._store: JobStore[AnalysisJobStatus] = JobStore(self._copy_status, unknown_label="analysis job")
 
     def create_job(
         self,
@@ -129,17 +159,17 @@ class AnalysisJobManager:
             track_batch_size=effective_track_batch_size,
             inference_batch_size=effective_inference_batch_size,
             top_k=max(1, int(top_k)),
-            sonara_features=tuple(sonara_features or ()),
+            sonara_features=list(sonara_features or ()),
         )
         self._store.add(
             job_id,
             status,
-            payload={
-                "tracks": work.tracks,
-                "targets_by_track": work.audio_targets_by_track,
-                "classifier_targets_by_track": work.classifier_targets_by_track,
-                "track_outcomes": work.track_outcomes,
-            },
+            payload=_AnalysisPayload(
+                tracks=work.tracks,
+                audio_targets_by_track=work.audio_targets_by_track,
+                classifier_targets_by_track=work.classifier_targets_by_track,
+                track_outcomes=work.track_outcomes,
+            ),
         )
         self._append_event(job_id, "info", "Analysis queued")
         return job_id
@@ -159,7 +189,7 @@ class AnalysisJobManager:
         for classifier in classifier_keys:
             for track in self.db.list_tracks_missing_classifier(classifier, limit=limit):
                 classifier_targets.setdefault(track.id, []).append(classifier)
-                candidates_by_id.setdefault(track.id, _candidate_from_track(track))
+                _ = candidates_by_id.setdefault(track.id, _candidate_from_track(track))
 
         effective_models = tuple(model for model in ANALYSIS_MODEL_ORDER if model in selected)
         candidates: list[AnalysisCandidate] = []
@@ -255,10 +285,7 @@ class AnalysisJobManager:
 
     def run_job(self, job_id: str) -> AnalysisJobStatus:
         status = self.get(job_id)
-        payload = cast(dict[str, object], self._store.payload(job_id) or {})
-        tracks = cast(list[Track], payload.get("tracks") or [])
-        targets_by_track = cast(dict[int, tuple[str, ...]], payload.get("targets_by_track") or {})
-        classifier_targets_by_track = cast(dict[int, tuple[str, ...]], payload.get("classifier_targets_by_track") or {})
+        payload = self._analysis_payload(job_id)
         if status.cancel_requested:
             self._update(job_id, state="cancelled", finished_at=time.time())
             self._append_event(job_id, "warn", "Analysis cancelled")
@@ -267,26 +294,21 @@ class AnalysisJobManager:
         started = time.time()
         self._update(job_id, state="running", started_at=started)
         self._append_event(job_id, "info", "Analysis started")
-        runners: dict[str, AnalysisModelRunner] = {}
-        failed_model_inits: dict[str, str] = {}
-        scorers: dict[str, Any] = {}
+        runners = _RunnerLifecycle(runners={}, failed_inits={})
+        classifiers = _ClassifierLifecycle(scorers={})
 
-        for batch in chunks(tracks, max(1, status.track_batch_size)):
+        for batch in chunks(payload.tracks, max(1, status.track_batch_size)):
             if self.get(job_id).cancel_requested:
                 self._update(job_id, state="cancelled", finished_at=time.time(), current_path=None, current_model=None)
                 self._append_event(job_id, "warn", "Analysis cancelled")
                 return self.get(job_id)
-            self._process_batch(job_id, runners, failed_model_inits, batch, targets_by_track, classifier_targets_by_track)
+            self._process_batch(job_id, runners, batch, payload.audio_targets_by_track, payload.classifier_targets_by_track)
             if self.get(job_id).cancel_requested:
                 self._update(job_id, state="cancelled", finished_at=time.time(), current_path=None, current_model=None)
                 self._append_event(job_id, "warn", "Analysis cancelled")
                 return self.get(job_id)
-            batch_classifier_targets = {
-                track.id: classifier_targets_by_track[track.id]
-                for track in batch
-                if track.id in classifier_targets_by_track
-            }
-            if batch_classifier_targets and not self._run_classifier_stage(job_id, batch_classifier_targets, scorers):
+            batch_classifier_targets = _classifier_targets_for_batch(batch, payload.classifier_targets_by_track)
+            if batch_classifier_targets and not self._run_classifier_stage(job_id, batch_classifier_targets, classifiers):
                 return self.get(job_id)
 
         finished = time.time()
@@ -307,7 +329,7 @@ class AnalysisJobManager:
         self,
         job_id: str,
         classifier_targets_by_track: Mapping[int, tuple[str, ...]],
-        scorers: dict[str, Any],
+        lifecycle: _ClassifierLifecycle,
     ) -> bool:
         for track_id, classifier_keys in classifier_targets_by_track.items():
             if self.get(job_id).cancel_requested:
@@ -330,11 +352,11 @@ class AnalysisJobManager:
                 self._update(job_id, current_model=classifier, model_name=classifier, device="cpu", current_path=track.path)
                 self._append_event(job_id, "info", f"{classifier} classification started", path=track.path, track_id=track.id, model=classifier)
                 try:
-                    scorer = scorers.get(classifier)
+                    scorer = lifecycle.scorers.get(classifier)
                     if scorer is None:
                         scorer = self._classifier_scorer(classifier)
-                        scorers[classifier] = scorer
-                        for warning in getattr(scorer, "manifest_warnings", ()):
+                        lifecycle.scorers[classifier] = scorer
+                        for warning in _classifier_scorer_warnings(scorer):
                             self._append_event(job_id, "warn", str(warning), model=classifier)
                     self._update(job_id, model_name=str(getattr(scorer, "model_name", classifier)))
                 except Exception as error:
@@ -347,12 +369,12 @@ class AnalysisJobManager:
             self._mark_track_processed(job_id, track)
         return True
 
-    def _classifier_scorer(self, classifier: str) -> Any:
+    def _classifier_scorer(self, classifier: str) -> _ClassifierScorer:
         if self._classifier_scorer_factory is not None:
             return self._classifier_scorer_factory(classifier)
         return ClassifierScorer(self.db, classifier=classifier)
 
-    def _score_classifier_track(self, job_id: str, classifier: str, scorer: Any, track: Track) -> None:
+    def _score_classifier_track(self, job_id: str, classifier: str, scorer: _ClassifierScorer, track: Track) -> None:
         self._update(job_id, current_path=track.path)
         try:
             result = scorer.score_track(track)
@@ -412,8 +434,7 @@ class AnalysisJobManager:
     def _process_batch(
         self,
         job_id: str,
-        runners: dict[str, AnalysisModelRunner],
-        failed_model_inits: dict[str, str],
+        lifecycle: _RunnerLifecycle,
         batch: list[Track],
         targets_by_track: Mapping[int, tuple[str, ...]],
         classifier_targets_by_track: Mapping[int, tuple[str, ...]],
@@ -434,18 +455,18 @@ class AnalysisJobManager:
                 continue
             if self.get(job_id).cancel_requested:
                 return
-            if model in failed_model_inits:
+            if model in lifecycle.failed_inits:
                 for item in model_items:
-                    self._record_model_failure(job_id, model, item.track, RuntimeError(failed_model_inits[model]))
+                    self._record_model_failure(job_id, model, item.track, RuntimeError(lifecycle.failed_inits[model]))
                 continue
             try:
-                runner = runners.get(model)
+                runner = lifecycle.runners.get(model)
                 if runner is None:
                     runner = self._runner_for_model(model, self.get(job_id))
-                    runners[model] = runner
+                    lifecycle.runners[model] = runner
             except Exception as error:
                 error_text = exception_summary(error)
-                failed_model_inits[model] = error_text
+                lifecycle.failed_inits[model] = error_text
                 self._append_event(job_id, "error", f"{model} initialization failed: {error_text}", model=model)
                 for item in model_items:
                     self._record_model_failure(job_id, model, item.track, RuntimeError(error_text))
@@ -548,9 +569,10 @@ class AnalysisJobManager:
         apply_track_model_result(self._track_outcome(job_id, track_id), failed=failed)
 
     def _track_outcome(self, job_id: str, track_id: int) -> AnalysisTrackOutcome | None:
-        payload = cast(dict[str, object], self._store.payload(job_id) or {})
-        outcomes = cast(dict[int, AnalysisTrackOutcome], payload.get("track_outcomes") or {})
-        return outcomes.get(track_id)
+        return self._analysis_payload(job_id).track_outcomes.get(track_id)
+
+    def _analysis_payload(self, job_id: str) -> _AnalysisPayload:
+        return cast(_AnalysisPayload, self._store.payload(job_id))
 
     def _update(self, job_id: str, **changes: object) -> None:
         self._store.update(job_id, **changes)
@@ -618,10 +640,11 @@ def _audio_targets_for_candidate(
         )
         if missing_required:
             missing = ", ".join(model.upper() for model in missing_required)
-            raise ValueError(
+            message = (
                 "CLASSIFIERS require SONARA, MAEST, and MERT data; "
                 f"select missing models in the same run or analyze them first. Missing: {missing}"
             )
+            raise ValueError(message)
     required = set(selected)
     return tuple(model for model in ANALYSIS_MODEL_ORDER if model in required and model not in analyses)
 
@@ -630,3 +653,18 @@ def _normalize_job_models(models: Sequence[str] | None, *, allow_empty: bool) ->
     if allow_empty and models is not None and not models:
         return ()
     return normalize_analysis_models(models)
+
+
+def _classifier_targets_for_batch(
+    batch: Sequence[Track],
+    classifier_targets_by_track: Mapping[int, tuple[str, ...]],
+) -> dict[int, tuple[str, ...]]:
+    return {
+        track.id: classifier_targets_by_track[track.id]
+        for track in batch
+        if track.id in classifier_targets_by_track
+    }
+
+
+def _classifier_scorer_warnings(scorer: _ClassifierScorer) -> Sequence[str]:
+    return getattr(scorer, "manifest_warnings", ())

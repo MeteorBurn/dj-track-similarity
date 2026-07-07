@@ -13,7 +13,18 @@ class SynchronousAnalysisManager:
     def __init__(self, db):
         self.db = db
 
-    def start(self, *, models=None, limit=None, device="auto", top_k=3, track_batch_size=4, inference_batch_size=24, classifier_keys=None):
+    def start(
+        self,
+        *,
+        models=None,
+        limit=None,
+        device="auto",
+        top_k=3,
+        track_batch_size=4,
+        inference_batch_size=24,
+        classifier_keys=None,
+        sonara_features=None,
+    ):
         type(self).last_request = {
             "models": models,
             "limit": limit,
@@ -22,6 +33,7 @@ class SynchronousAnalysisManager:
             "track_batch_size": track_batch_size,
             "inference_batch_size": inference_batch_size,
             "classifier_keys": classifier_keys,
+            "sonara_features": sonara_features,
         }
         return _status(
             models or ["sonara", "maest", "mert", "muq", "clap"],
@@ -104,6 +116,7 @@ def test_api_starts_selected_multi_model_analysis_job(monkeypatch, tmp_path: Pat
             "track_batch_size": 5,
             "inference_batch_size": 18,
             "classifier_keys": ["break_energy"],
+            "sonara_features": ["structure", "loudness"],
         },
     )
 
@@ -124,6 +137,7 @@ def test_api_starts_selected_multi_model_analysis_job(monkeypatch, tmp_path: Pat
         "track_batch_size": 5,
         "inference_batch_size": 18,
         "classifier_keys": ["break_energy"],
+        "sonara_features": ["structure", "loudness"],
     }
 
 
@@ -146,6 +160,7 @@ def test_api_allows_classifier_only_unified_analysis_job(monkeypatch, tmp_path: 
     assert response.status_code == 200
     assert SynchronousAnalysisManager.last_request["models"] == []
     assert SynchronousAnalysisManager.last_request["classifier_keys"] == ["break_energy"]
+    assert SynchronousAnalysisManager.last_request["sonara_features"] == []
 
 
 def test_api_rejects_classifier_analysis_when_required_inputs_are_missing(monkeypatch, tmp_path: Path) -> None:
@@ -184,6 +199,28 @@ def test_api_defaults_multi_model_analysis_to_all_models(monkeypatch, tmp_path: 
     assert SynchronousAnalysisManager.last_request["track_batch_size"] == 4
     assert SynchronousAnalysisManager.last_request["inference_batch_size"] == 24
     assert SynchronousAnalysisManager.last_request["classifier_keys"] == []
+    assert SynchronousAnalysisManager.last_request["sonara_features"] == []
+
+
+def test_api_exposes_analysis_job_lookup_latest_and_cancel_contract(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    LibraryDatabase(db_path)
+    monkeypatch.setattr(api_state, "AnalysisJobManager", SynchronousAnalysisManager)
+    client = TestClient(api.create_app(db_path))
+
+    latest = client.get("/api/analysis/jobs/latest")
+    fetched = client.get("/api/analysis/jobs/job-1")
+    cancelled = client.post("/api/analysis/jobs/job-1/cancel", json={})
+    missing = client.get("/api/analysis/jobs/missing-job")
+
+    assert latest.status_code == 200
+    assert latest.json()["job_id"] == "job-1"
+    assert fetched.status_code == 200
+    assert fetched.json()["models"] == ["sonara"]
+    assert cancelled.status_code == 200
+    assert cancelled.json()["state"] == "cancelled"
+    assert missing.status_code == 404
+    assert "missing-job" in missing.json()["detail"]
 
 
 def test_api_rejects_unknown_analysis_classifier_key(monkeypatch, tmp_path: Path) -> None:
@@ -200,6 +237,32 @@ def test_api_rejects_unknown_analysis_classifier_key(monkeypatch, tmp_path: Path
 
     assert response.status_code == 400
     assert "missing_profile" in response.json()["detail"]
+
+
+def test_api_rejects_invalid_manifest_classifier_key_for_unified_analysis(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    LibraryDatabase(db_path)
+    monkeypatch.setattr(api_state, "AnalysisJobManager", SynchronousAnalysisManager)
+    monkeypatch.setattr(
+        api,
+        "promoted_classifiers",
+        lambda: [
+            {
+                "classifier_key": "break_energy",
+                "is_scoring_compatible": False,
+                "manifest_errors": ["model.json positive_label is required"],
+            }
+        ],
+    )
+    client = TestClient(api.create_app(db_path))
+
+    response = client.post(
+        "/api/analysis/jobs",
+        json={"models": [], "classifier_keys": ["break_energy"]},
+    )
+
+    assert response.status_code == 400
+    assert "positive_label" in response.json()["detail"]
 
 
 def test_real_analysis_job_status_does_not_emit_legacy_batch_size(tmp_path: Path) -> None:

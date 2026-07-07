@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-import csv
 from dataclasses import dataclass
 import hashlib
 import json
@@ -19,6 +18,7 @@ from .candidates import (
     CandidateSourceContribution,
     generate_candidate_pool_rows,
 )
+from .csv_io import CsvRow, write_csv_rows
 from .score_profiles import DEFAULT_RRF_K, ScoreProfile, score_profile_to_dict, validate_score_profile
 
 if TYPE_CHECKING:
@@ -91,7 +91,7 @@ class WeightedCandidateRow:
     def score_profile_weights_json(self) -> str:
         return json.dumps(dict(sorted(self.score_profile_weights.items())), ensure_ascii=False, sort_keys=True)
 
-    def csv_row(self) -> dict[str, object]:
+    def csv_row(self) -> CsvRow:
         return {
             "seed_track_id": self.seed_track_id,
             "candidate_track_id": self.candidate_track_id,
@@ -121,7 +121,7 @@ class WeightedCandidateRow:
         }
 
     def api_row(self) -> dict[str, object]:
-        row = self.csv_row()
+        row: dict[str, object] = dict(self.csv_row())
         row["transition_risk"] = self.transition_risk
         row["sources"] = _source_contribution_payload(self.source_contributions)
         row["score_profile_weights"] = dict(sorted(self.score_profile_weights.items()))
@@ -204,13 +204,7 @@ def build_weighted_candidate_pool(
 
 
 def write_weighted_candidate_pool_csv(path: str | Path, rows: Sequence[WeightedCandidateRow]) -> None:
-    output_path = Path(path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", encoding="utf-8", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=WEIGHTED_CANDIDATE_COLUMNS)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow(row.csv_row())
+    write_csv_rows(path, WEIGHTED_CANDIDATE_COLUMNS, rows)
 
 
 def limit_weighted_candidate_rows_per_seed(rows: Sequence[WeightedCandidateRow], limit_per_seed: int) -> tuple[WeightedCandidateRow, ...]:

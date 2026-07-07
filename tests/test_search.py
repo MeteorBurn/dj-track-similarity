@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.search import SearchFilters, SimilaritySearch
@@ -184,3 +185,27 @@ def test_search_contrast_vectors_rank_positive_over_negative_match(tmp_path: Pat
     assert [result.track.id for result in results] == [positive_match, mixed_match, negative_match]
     assert results[0].score > results[1].score > results[2].score
     assert results[0].score_breakdown == {"positive": 1.0, "negative": 0.0, "contrast": 1.0, "negative_weight": 0.35}
+
+
+def test_search_contrast_vectors_use_hard_negative_margin_not_probability(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    positive_match = _add_track_with_embedding_key(db, "positive.wav", [1.0, 0.0, 0.0], "clap")
+    margin_match = _add_track_with_embedding_key(db, "margin.wav", [0.70710677, 0.0, 0.70710677], "clap")
+
+    results = SimilaritySearch(db, embedding_key="clap").search_contrast_vectors(
+        positive_vectors=[np.array([1.0, 0.0, 0.0], dtype=np.float32)],
+        negative_vectors=[
+            np.array([0.0, 1.0, 0.0], dtype=np.float32),
+            np.array([0.0, 0.0, 1.0], dtype=np.float32),
+        ],
+        limit=5,
+    )
+
+    assert [result.track.id for result in results] == [positive_match, margin_match]
+    assert results[1].score == pytest.approx(0.4596194)
+    assert results[1].score_breakdown == {
+        "positive": pytest.approx(0.70710677),
+        "negative": pytest.approx(0.70710677),
+        "contrast": pytest.approx(0.4596194),
+        "negative_weight": 0.35,
+    }

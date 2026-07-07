@@ -481,6 +481,24 @@ def test_multi_model_runner_factory_loads_only_models_with_work(tmp_path: Path) 
     assert status.model_progress["mert"].total == 0
 
 
+def test_multi_model_job_preserves_sonara_feature_families_for_runner(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    _track(db, tmp_path, "a-missing-sonara.wav")
+    observed: list[tuple[str, ...]] = []
+
+    def runner_factory(model: str, device: str, inference_batch_size: int, top_k: int, sonara_features: tuple[str, ...] = ()):
+        observed.append(sonara_features)
+        return FakeModelRunner(model)
+
+    manager = AnalysisJobManager(db, runner_factory=runner_factory, decode_audio=DecodeRecorder(), track_batch_size=1)
+
+    status = manager.run_sync(models=["sonara"], device="cpu", sonara_features=["vocalness"])
+
+    assert status.state == "completed"
+    assert status.sonara_features == ["vocalness"]
+    assert observed == [("vocalness",)]
+
+
 def test_multi_model_runner_init_failure_marks_only_that_model_failed(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_id = _track(db, tmp_path, "a-track.wav")

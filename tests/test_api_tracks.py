@@ -32,6 +32,20 @@ def test_tracks_endpoint_returns_paginated_slim_items_and_total(tmp_path: Path) 
     assert all(item["metadata"] is None for item in payload["items"])
 
 
+def test_tracks_endpoints_return_empty_contract_for_new_database(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    _ = LibraryDatabase(db_path)
+    client = TestClient(create_app(db_path))
+
+    page_response = client.get("/api/tracks", params={"limit": 50, "offset": 0, "include_metadata": "false"})
+    filtered_response = client.post("/api/tracks/filtered", json={"query": "missing", "liked": True})
+
+    assert page_response.status_code == 200
+    assert page_response.json() == {"items": [], "total": 0, "limit": 50, "offset": 0}
+    assert filtered_response.status_code == 200
+    assert filtered_response.json() == {"items": [], "total": 0}
+
+
 def test_tracks_endpoint_does_not_parse_metadata_for_slim_items(monkeypatch, tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
@@ -291,6 +305,24 @@ def test_classifier_job_endpoints_scope_lookup_to_classifier_key(monkeypatch, tm
     ]
 
 
+def test_classifier_job_endpoint_returns_404_for_unknown_scoped_job(monkeypatch, tmp_path: Path) -> None:
+    from dj_track_similarity.classifier_jobs import ClassifierJobManager
+
+    db_path = tmp_path / "library.sqlite"
+    LibraryDatabase(db_path)
+
+    def fake_get(self, job_id: str, *, classifier: str | None = None):
+        raise KeyError(f"{classifier}:{job_id}")
+
+    monkeypatch.setattr(ClassifierJobManager, "get", fake_get)
+    client = TestClient(create_app(db_path))
+
+    response = client.get("/api/classifiers/live_instrumentation/analyze/jobs/missing-job")
+
+    assert response.status_code == 404
+    assert "missing-job" in response.json()["detail"]
+
+
 def test_classifier_reset_endpoint_deletes_requested_scores_only(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
@@ -314,7 +346,10 @@ def test_classifier_reset_endpoint_deletes_requested_scores_only(tmp_path: Path)
     )
 
     assert response.status_code == 200
-    assert response.json()["scores_deleted"] == 2
+    assert response.json() == {
+        "classifiers": ["break_energy", "live_instrumentation"],
+        "scores_deleted": 2,
+    }
     assert db.classifier_score(track_id, "break_energy") is None
     assert db.classifier_score(track_id, "live_instrumentation") is None
     assert db.classifier_score(track_id, "other_classifier") is not None
@@ -494,6 +529,8 @@ def test_media_endpoint_transcodes_aiff_preview_to_browser_playable_wav(monkeypa
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
     track_id = _add_track(db, tmp_path, "preview.aiff", "Artist", "Preview", {})
+    source_path = tmp_path / "preview.aiff"
+    source_bytes = source_path.read_bytes()
     calls: list[list[str]] = []
 
     def fail_streaming_process(*_args: object, **_kwargs: object) -> None:
@@ -516,6 +553,9 @@ def test_media_endpoint_transcodes_aiff_preview_to_browser_playable_wav(monkeypa
     assert response.headers["content-disposition"].startswith("inline;")
     assert response.headers["content-length"] == str(len(b"RIFFbrowser-compatible-wav"))
     assert response.content == b"RIFFbrowser-compatible-wav"
+    assert source_path.read_bytes() == source_bytes
+    assert Path(calls[0][-1]) != source_path
+    assert not Path(calls[0][-1]).exists()
     assert calls == [[
         "ffmpeg-test",
         "-i",
@@ -536,6 +576,19 @@ def test_media_endpoint_transcodes_aiff_preview_to_browser_playable_wav(monkeypa
         "-y",
         calls[0][-1],
     ]]
+
+
+def test_media_endpoint_reports_missing_audio_file_without_traceback(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    missing_path = tmp_path / "missing.wav"
+    track_id = db.upsert_track(path=missing_path, size=1, mtime=1, metadata={"title": "Missing"})
+
+    response = TestClient(create_app(db_path), raise_server_exceptions=False).get(f"/media/{track_id}")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Audio file is missing"}
+    assert "Traceback" not in response.text
 
 
 def test_media_endpoint_transcodes_flac_preview_to_browser_playable_wav(monkeypatch, tmp_path: Path) -> None:

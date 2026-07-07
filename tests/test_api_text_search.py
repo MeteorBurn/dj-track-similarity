@@ -139,6 +139,56 @@ def test_text_search_uses_weighted_hard_negative_margin(monkeypatch, tmp_path: P
     assert FakeClapAdapter.queries == ["broken drums.", "straight house groove."]
 
 
+def test_text_search_disabled_adaptive_contrast_uses_single_positive_prompt(monkeypatch, tmp_path: Path) -> None:
+    FakeClapAdapter.queries = []
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    direct_id = _track_with_embedding(db, "direct.wav", [1.0, 0.0, 0.0], "clap")
+    bank_id = _track_with_embedding(db, "bank.wav", [0.70710677, 0.70710677, 0.0], "clap")
+    monkeypatch.setattr(api, "ClapEmbeddingAdapter", FakeClapAdapter)
+
+    response = TestClient(create_app(db_path)).post(
+        "/api/search/text",
+        json={
+            "query": "broken drums.",
+            "positive_queries": ["broken drums.", "syncopated percussion."],
+            "negative_queries": ["straight house groove."],
+            "adaptive_contrast": False,
+            "limit": 5,
+            "device": "cpu",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["track"]["id"] for item in payload] == [direct_id, bank_id]
+    assert payload[0]["score_breakdown"] is None
+    assert FakeClapAdapter.queries == ["broken drums."]
+
+
+def test_text_search_rejects_blank_query_before_loading_clap(monkeypatch, tmp_path: Path) -> None:
+    FakeClapAdapter.queries = []
+    monkeypatch.setattr(api, "ClapEmbeddingAdapter", FakeClapAdapter)
+
+    response = TestClient(create_app(tmp_path / "library.sqlite")).post(
+        "/api/search/text",
+        json={"query": "   ", "positive_queries": ["broken drums."], "device": "cpu"},
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Text query is required"}
+    assert FakeClapAdapter.queries == []
+
+
+def test_text_search_rejects_unknown_contract_fields(tmp_path: Path) -> None:
+    response = TestClient(create_app(tmp_path / "library.sqlite")).post(
+        "/api/search/text",
+        json={"query": "broken drums.", "score_is_probability": True},
+    )
+
+    assert response.status_code == 422
+
+
 def _track_with_embedding(db: LibraryDatabase, name: str, embedding: list[float], embedding_key: str) -> int:
     path = Path("C:/music") / name
     track_id = db.upsert_track(path=path, size=100, mtime=1, metadata={"title": name})

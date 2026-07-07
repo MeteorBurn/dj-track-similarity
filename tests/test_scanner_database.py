@@ -566,8 +566,21 @@ def test_database_clear_library_removes_tracks_and_embeddings(tmp_path: Path) ->
     import numpy as np
 
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_id = db.upsert_track(path=tmp_path / "track.wav", size=10, mtime=1, metadata={"title": "Track"})
+    audio_path = tmp_path / "track.wav"
+    audio_path.write_bytes(b"audio")
+    original_audio = audio_path.read_bytes()
+    track_id = db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": "Track"})
     db.save_embedding(track_id, np.array([1, 0, 0], dtype=np.float32), "mert-model", 3, embedding_key="mert")
+    db.save_classifier_score(
+        track_id,
+        classifier="break_energy",
+        score=0.9,
+        label="high",
+        confidence=0.9,
+        probabilities={"break_energy": 0.9, "straight_energy": 0.1},
+        feature_set="combined",
+        model_id="model.joblib",
+    )
 
     result = db.clear_library()
 
@@ -577,6 +590,7 @@ def test_database_clear_library_removes_tracks_and_embeddings(tmp_path: Path) ->
     }
     assert db.list_tracks() == []
     assert db.load_embedding_matrix("mert")[0] == []
+    assert audio_path.read_bytes() == original_audio
 
 
 def test_existing_database_with_old_user_version_is_rejected(tmp_path: Path) -> None:
@@ -711,8 +725,11 @@ def test_database_rejects_non_finite_embedding_vectors(tmp_path: Path) -> None:
 
 def test_database_resets_metadata_backed_analyses(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
+    audio_path = tmp_path / "track.wav"
+    audio_path.write_bytes(b"audio")
+    original_audio = audio_path.read_bytes()
     track_id = db.upsert_track(
-        path=tmp_path / "track.wav",
+        path=audio_path,
         size=10,
         mtime=1,
         metadata={"title": "Track", "bpm": 120, "initialkey": "A minor", "duration": 90},
@@ -752,6 +769,7 @@ def test_database_resets_metadata_backed_analyses(tmp_path: Path) -> None:
     assert db.load_embedding_matrix("maest")[0] == []
     assert "maest_syncopated_rhythm" not in after_maest.metadata
     assert after_maest.analyses is None
+    assert audio_path.read_bytes() == original_audio
 
 
 def test_database_does_not_enrich_existing_sonara_key_with_camelot_on_read(tmp_path: Path) -> None:
@@ -780,8 +798,11 @@ def test_database_does_not_enrich_existing_sonara_key_with_camelot_on_read(tmp_p
 
 def test_refresh_track_file_metadata_preserves_analysis_outputs(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
+    audio_path = tmp_path / "track.wav"
+    audio_path.write_bytes(b"audio")
+    original_audio = audio_path.read_bytes()
     track_id = db.upsert_track(
-        path=tmp_path / "track.wav",
+        path=audio_path,
         size=10,
         mtime=1,
         metadata={"title": "Old", "year": "2023", "random_old": "kept"},
@@ -813,6 +834,24 @@ def test_refresh_track_file_metadata_preserves_analysis_outputs(tmp_path: Path) 
     assert track.metadata["country"] == "DE"
     assert track.metadata["random_old"] == "kept"
     assert track.analyses == ["sonara"]
+    assert audio_path.read_bytes() == original_audio
+
+
+def test_liked_toggle_is_db_only_and_invalidates_changed_embedding_cache(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    audio_path = tmp_path / "liked.wav"
+    audio_path.write_bytes(b"audio")
+    original_audio = audio_path.read_bytes()
+    track_id = db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": "Liked"})
+    db.save_embedding(track_id, np.asarray([1.0, 0.0], dtype=np.float32), "mert-test", embedding_key="mert")
+    db.load_embedding_matrix("mert")
+
+    liked_track = db.set_track_liked(track_id, True)
+
+    assert liked_track.liked is True
+    assert ("mert", False) not in db._embedding_matrix_cache
+    assert db.get_track(track_id).path == audio_path.as_posix()
+    assert audio_path.read_bytes() == original_audio
 
 
 def test_database_blocks_new_invalid_metadata_json_values(tmp_path: Path) -> None:
@@ -867,10 +906,24 @@ def test_relocate_library_apply_updates_paths_without_losing_analysis(tmp_path: 
     new_file.parent.mkdir()
     old_file.write_bytes(b"audio")
     new_file.write_bytes(b"audio")
+    old_file_bytes = old_file.read_bytes()
+    new_file_bytes = new_file.read_bytes()
 
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_id = db.upsert_track(path=old_file, size=old_file.stat().st_size, mtime=old_file.stat().st_mtime)
     db.save_sonara_features(track_id, {"tempo": 128}, bpm=128.0, model_name="sonara-test")
+    db.save_embedding(track_id, np.asarray([1.0, 0.0], dtype=np.float32), "mert-test", embedding_key="mert")
+    db.save_classifier_score(
+        track_id,
+        classifier="break_energy",
+        score=0.91,
+        label="high",
+        confidence=0.91,
+        probabilities={"break_energy": 0.91, "straight_energy": 0.09},
+        feature_set="combined",
+        model_id="model.joblib",
+    )
+    db.set_track_liked(track_id, True)
 
     result = db.relocate_library(old_root, new_root, apply=True)
 
@@ -881,6 +934,12 @@ def test_relocate_library_apply_updates_paths_without_losing_analysis(tmp_path: 
     track = db.get_track(track_id)
     assert track.path == new_file.as_posix()
     assert track.bpm == 128.0
+    assert track.liked is True
+    assert track.analyses == ["sonara", "mert"]
+    assert track.classifier_scores is not None
+    assert track.classifier_scores["break_energy"]["score"] == 0.91
+    assert old_file.read_bytes() == old_file_bytes
+    assert new_file.read_bytes() == new_file_bytes
 
 
 def test_relocate_library_apply_rejects_path_conflicts(tmp_path: Path) -> None:
@@ -914,6 +973,41 @@ def test_relocate_library_apply_rejects_path_conflicts(tmp_path: Path) -> None:
     else:
         raise AssertionError("relocate_library should reject conflicting paths")
     assert db.get_track(old_track_id).path == old_file.as_posix()
+
+
+def test_relocate_library_apply_rejects_conflicts_without_partial_path_updates(tmp_path: Path) -> None:
+    old_root = tmp_path / "ssd_music"
+    new_root = tmp_path / "archive_music"
+    old_root.mkdir()
+    new_root.mkdir()
+    movable_old = old_root / "movable.wav"
+    movable_new = new_root / "movable.wav"
+    conflicting_old = old_root / "conflict.wav"
+    conflicting_new = new_root / "conflict.wav"
+    movable_old.write_bytes(b"old movable")
+    movable_new.write_bytes(b"new movable")
+    conflicting_old.write_bytes(b"old conflict")
+    conflicting_new.write_bytes(b"new conflict")
+
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    movable_id = db.upsert_track(path=movable_old, size=movable_old.stat().st_size, mtime=movable_old.stat().st_mtime)
+    conflicting_id = db.upsert_track(
+        path=conflicting_old,
+        size=conflicting_old.stat().st_size,
+        mtime=conflicting_old.stat().st_mtime,
+    )
+    existing_id = db.upsert_track(
+        path=conflicting_new,
+        size=conflicting_new.stat().st_size,
+        mtime=conflicting_new.stat().st_mtime,
+    )
+
+    with pytest.raises(ValueError, match="conflict"):
+        db.relocate_library(old_root, new_root, apply=True)
+
+    assert db.get_track(movable_id).path == movable_old.as_posix()
+    assert db.get_track(conflicting_id).path == conflicting_old.as_posix()
+    assert db.get_track(existing_id).path == conflicting_new.as_posix()
 
 
 def _analysis_flag_row(db: LibraryDatabase, track_id: int) -> dict[str, int]:

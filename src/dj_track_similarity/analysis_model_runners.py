@@ -4,6 +4,7 @@ from collections.abc import Callable, Sequence
 from typing import Protocol, cast
 
 import numpy as np
+import numpy.typing as npt
 
 from .analysis_job_batch import AnalysisBatchItem
 from .audio_loader import DecodedAudio
@@ -14,9 +15,17 @@ from .sonara_features import analyze_and_store_sonara_features_from_audio
 
 
 class AnalysisModelRunner(Protocol):
-    model: str
-    model_name: str
-    device: str | None
+    @property
+    def model(self) -> str:
+        ...
+
+    @property
+    def model_name(self) -> str:
+        ...
+
+    @property
+    def device(self) -> str | None:
+        ...
 
     def analyze_batch(self, db: LibraryDatabase, items: Sequence[AnalysisBatchItem]) -> None:
         ...
@@ -26,16 +35,20 @@ RunnerFactory = Callable[[str, str, int, int, tuple[str, ...]], AnalysisModelRun
 
 
 class SonaraModelRunner:
+    model: str
+    model_name: str
+    device: str | None
+
     model = "sonara"
     model_name = "sonara-playlist-lab"
     device = "cpu"
 
     def __init__(self, *, feature_families: tuple[str, ...] = ()) -> None:
-        self.feature_families = tuple(feature_families)
+        self.feature_families: tuple[str, ...] = tuple(feature_families)
 
     def analyze_batch(self, db: LibraryDatabase, items: Sequence[AnalysisBatchItem]) -> None:
         for item in items:
-            analyze_and_store_sonara_features_from_audio(
+            _ = analyze_and_store_sonara_features_from_audio(
                 db,
                 item.track,
                 cast(DecodedAudio, item.decoded),
@@ -44,10 +57,14 @@ class SonaraModelRunner:
 
 
 class MaestModelRunner:
-    model = "maest"
+    model: str = "maest"
 
     def __init__(self, *, device: str, top_k: int, inference_batch_size: int) -> None:
-        self.adapter = MaestGenreAdapter(device=device, top_k=top_k, inference_batch_size=inference_batch_size)
+        self.adapter: MaestGenreAdapter = MaestGenreAdapter(
+            device=device,
+            top_k=top_k,
+            inference_batch_size=inference_batch_size,
+        )
 
     @property
     def model_name(self) -> str:
@@ -64,7 +81,7 @@ class MaestModelRunner:
         if len(genres_by_track) != len(tracks):
             raise ValueError("MAEST batch result count does not match track count")
         for track, decoded, genres in zip(tracks, decoded_items, genres_by_track):
-            db.save_genres(track.id, genres, model_name=self.adapter.model_name)
+            db.save_genres(track.id, cast(list[dict[str, object]], genres), model_name=self.adapter.model_name)
             embedding = _embedding_for_path(self.adapter, decoded.path)
             if embedding is not None:
                 db.save_embedding(
@@ -78,14 +95,17 @@ class MaestModelRunner:
 
 class EmbeddingModelRunner:
     def __init__(self, model: str, *, device: str, inference_batch_size: int) -> None:
-        self.model = model
+        self.model: str = model
         adapter_classes = {
             "mert": MertEmbeddingAdapter,
             "muq": MuqEmbeddingAdapter,
             "clap": ClapEmbeddingAdapter,
         }
         adapter_class = adapter_classes[model]
-        self.adapter = adapter_class(device=device, inference_batch_size=inference_batch_size)
+        self.adapter: MertEmbeddingAdapter | MuqEmbeddingAdapter | ClapEmbeddingAdapter = adapter_class(
+            device=device,
+            inference_batch_size=inference_batch_size,
+        )
 
     @property
     def model_name(self) -> str:
@@ -110,7 +130,7 @@ class EmbeddingModelRunner:
             )
 
 
-def _default_model_runners(
+def default_model_runners(
     model: str,
     device: str,
     inference_batch_size: int,
@@ -126,11 +146,11 @@ def _default_model_runners(
     raise ValueError(f"No analysis runner configured for: {model}")
 
 
-def _embedding_for_path(adapter: object, path: str) -> np.ndarray | None:
-    getter = getattr(adapter, "embedding_for_path", None)
-    if not callable(getter):
-        return None
-    vector = getter(path)
+_default_model_runners: RunnerFactory = default_model_runners
+
+
+def _embedding_for_path(adapter: MaestGenreAdapter, path: str) -> npt.NDArray[np.float32] | None:
+    vector = adapter.embedding_for_path(path)
     if vector is None:
         return None
     return np.asarray(vector, dtype=np.float32)

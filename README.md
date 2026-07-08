@@ -5,7 +5,7 @@
 >
 > The goal is to build practical tools for music similarity, custom music classifiers, and DJ-oriented music analysis.
 >
-> Most components are experimental and the architecture is still evolving. Expect incomplete features, breaking changes, and frequent refactoring.
+> Most components are experimental and the architecture still changes often. Expect incomplete features, breaking changes, and frequent refactoring.
 
 # 🎧 DJ Track Similarity
 
@@ -74,7 +74,7 @@ This project should help you:
 A typical use case:
 
 1. Pick an unusual reference track as the opening of a set.
-2. Ask the system for candidates from your local library.
+2. Ask the system for candidates from your local library, or use LAB Reference Compare to inspect how each model ranks the same reference.
 3. Review tracks that are close in sound, compatible for mixing, and useful for the next emotional step.
 4. Add one candidate.
 5. Continue from the previously selected track, letting the set evolve step by step.
@@ -318,10 +318,11 @@ The browser UI is split into three working areas:
 The search panel uses these tabs:
 
 - **SET** builds a read-only ordered set preview. Manual mode uses selected seeds. Auto mode chooses anchors from feature-complete tracks.
-- **SONARA** searches from seed tracks with feature mixer and modifier controls.
+- **SONARA** searches from seed tracks with built-in modes plus feature mixer and modifier controls.
 - **MERT** searches from selected seeds in the MERT embedding space.
 - **CLAP** searches from text prompts against stored CLAP audio embeddings.
 - **CLASS** filters and rescans promoted local classifier profiles.
+- **LAB** compares CLAP, MERT, MuQ, MAEST, and SONARA result groups for the first selected seed and can save model-specific listening verdicts.
 
 ## 🛠️ Maintenance tools
 

@@ -57,6 +57,8 @@ Analysis payload fields include `models`, `classifier_keys`, `limit`, `device`, 
 | `POST` | `/api/search/text` | CLAP text search |
 | `POST` | `/api/search/hybrid` | weighted Hybrid preview |
 | `POST` | `/api/set-builder/generate` | Smart Set Builder preview |
+| `POST` | `/api/reference/compare` | per-model Reference Compare groups for one seed |
+| `POST` | `/api/reference/compare/verdict` | save one Reference Compare listening verdict |
 
 Important ranges:
 
@@ -67,6 +69,8 @@ Important ranges:
 - SET `limit` is `1..500`,
 - SET `auto_seed_count` is `1..5`,
 - SET `bpm_start` and `bpm_target` are `20..300` when provided.
+
+Reference Compare accepts one `seed_track_id`, optional `models` from `clap`, `mert`, `muq`, `maest`, and `sonara`, and `limit=1..100`. Verdicts use `mood`, `palette`, `instruments`, `groove`, `genre`, `transition`, or `miss`. They persist as local pair feedback under `reference_compare:<model>`.
 
 ## Tags and export
 

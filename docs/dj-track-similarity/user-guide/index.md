@@ -10,7 +10,7 @@ The UI is a three-panel workbench. Database and analysis controls sit on the lef
 
 - [Browse library](./browse-library.md): pagination, search, metadata, preview, seeds, and set actions.
 - [Analyze library](./analyze-library.md): model selection, limits, device, progress, cancellation, and reset.
-- [Search with seed tracks](./search-with-seeds.md): MERT and SONARA seed workflows.
+- [Search with seed tracks](./search-with-seeds.md): MERT, SONARA, and LAB Reference Compare seed workflows.
 - [Smart Set Builder](./smart-set-builder.md): covers the SET controls and Hybrid preview, including automatic anchors and the explicit add-preview step.
 - [Text search](./text-search.md): CLAP prompts, negative prompts, presets, and score scale.
 - [CLASS tab](./class-tab.md): promoted classifier filters and rescoring.

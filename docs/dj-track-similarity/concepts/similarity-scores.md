@@ -28,6 +28,12 @@ Smart Set Builder combines MERT, CLAP audio, MAEST embedding, broad SONARA simil
 
 Hybrid preview uses weighted reciprocal-rank fusion across enabled sources, optional transition-risk penalty, and optional classifier controls. Its detail panel is designed to explain source support and risk, not to prove a final mix.
 
+## Reference Compare scores
+
+The LAB Reference Compare panel keeps CLAP, MERT, MuQ, MAEST, and SONARA results in separate groups for one seed track. Compare scores within one model group first. A high MERT score, a high CLAP audio score, and a high SONARA score are related listening hints, not the same measurement.
+
+Saved LAB verdicts are manual pair-feedback labels for a specific model source. They record what you heard. They are not automatic truth labels and they do not rewrite the model score.
+
 ## Audio Dedup thresholds
 
 Audio Dedup `min_similarity` is an audio-to-audio content gate over stored MERT, MAEST, and CLAP audio embeddings. It is not comparable to CLAP text-search similarity.
@@ -38,3 +44,4 @@ Audio Dedup `min_similarity` is an audio-to-audio content gate over stored MERT,
 - Be careful after changing thresholds, weights, or prompts.
 - Preview audio before adding to a set.
 - Do not use one tab's threshold as another tab's safety rule.
+- Use LAB when you need to compare model families by ear before deciding which signal to trust for a reference track.

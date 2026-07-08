@@ -30,11 +30,16 @@
 | Similarity | `0.00..1.00` | MERT and SONARA threshold |
 | CLAP Similarity | raw text score threshold | not comparable to MERT seed scores |
 | Limit | `1..500` | search result count |
-| SONARA mixer | `0..5` | timbre, rhythm, dynamics, harmonic, tempo |
-| SONARA modifiers | `-1..1` | directional bias from seed context |
+| SONARA mode | balanced, vibe, sound, dj transition, custom mixer | custom mode enables the visible mixer and modifiers |
+| SONARA mixer | `0..5` | timbre, rhythm, dynamics, harmonic, tempo. Dynamics includes SONARA 2.0 loudness range, and harmonic includes Camelot key |
+| SONARA modifiers | `-1..1` | directional bias from seed context, including vocalness |
+| LAB Limit | `1..100` | Reference Compare candidates per model |
+| LAB verdict | mood, palette, instruments, groove, genre, transition, miss | local listening feedback for one candidate and model |
 
 Tempo-aware search filters resolve BPM from stored SONARA analysis first, then from the Mutagen BPM
 tag when SONARA BPM is missing.
+
+The LAB tab compares CLAP, MERT, MuQ, MAEST, and SONARA around the first selected seed. The groups are diagnostic and remain separate. LAB is a listening comparison surface for model families.
 
 ## SET
 

@@ -16,6 +16,8 @@ These are source-file tags. They can be incomplete or inconsistent. The app stor
 
 SONARA produces explainable audio features and derived working fields such as BPM, key, duration, and energy. SONARA features support the SONARA tab and help Smart Set Builder reason about rhythm, dynamics, timbre, tonal content, energy flow, and transition compatibility.
 
+Newer SONARA analysis adds search-relevant scalar fields such as Camelot key, vocalness, and loudness measurements. It also stores beat-grid diagnostics, structure markers, and silence markers. The UI uses these values as ranking signals, not as objective truth.
+
 SONARA values are analysis results, not copied file tags.
 Tempo-aware workflows prefer SONARA BPM when it is stored, and use Mutagen BPM only as a fallback
 when SONARA BPM is missing.

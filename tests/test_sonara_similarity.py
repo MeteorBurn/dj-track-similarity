@@ -291,6 +291,83 @@ def test_custom_modifier_on_group_shared_field_still_biases_direction(tmp_path: 
     }
 
 
+def test_custom_dynamics_group_uses_sonara_20_loudness_fields(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed = _add_sonara_track(
+        db,
+        "seed.wav",
+        {"loudness_range_lu": 5.0, "loudness_momentary_max_db": -8.0},
+    )
+    loudness_close = _add_sonara_track(
+        db,
+        "loudness-close.wav",
+        {"loudness_range_lu": 5.2, "loudness_momentary_max_db": -8.2},
+    )
+    loudness_far = _add_sonara_track(
+        db,
+        "loudness-far.wav",
+        {"loudness_range_lu": 14.0, "loudness_momentary_max_db": -3.5},
+    )
+
+    results = SonaraSimilaritySearch(db).search(
+        [seed],
+        mode="custom",
+        mixer_weights={"timbre": 0.0, "rhythm": 0.0, "dynamics": 1.0, "harmonic": 0.0, "tempo": 0.0},
+        limit=5,
+    )
+
+    assert [result.track.id for result in results] == [loudness_close, loudness_far]
+    first_breakdown = results[0].score_breakdown
+    second_breakdown = results[1].score_breakdown
+    assert first_breakdown is not None
+    assert second_breakdown is not None
+    assert first_breakdown["dynamics"] > second_breakdown["dynamics"]
+
+
+def test_custom_harmonic_group_uses_sonara_20_camelot_key(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed = _add_sonara_track(db, "seed.wav", {"key_camelot": "8A", "dissonance": 0.2})
+    camelot_close = _add_sonara_track(db, "camelot-close.wav", {"key_camelot": "8A", "dissonance": 0.22})
+    camelot_far = _add_sonara_track(db, "camelot-far.wav", {"key_camelot": "3B", "dissonance": 0.22})
+
+    results = SonaraSimilaritySearch(db).search(
+        [seed],
+        mode="custom",
+        mixer_weights={"timbre": 0.0, "rhythm": 0.0, "dynamics": 0.0, "harmonic": 1.0, "tempo": 0.0},
+        limit=5,
+    )
+
+    assert [result.track.id for result in results] == [camelot_close, camelot_far]
+    assert results[0].score > results[1].score
+
+
+def test_custom_vocalness_modifier_biases_vocal_or_instrumental_tracks(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed = _add_sonara_track(db, "seed.wav", {"mfcc_mean": [0.2, 0.4], "vocalness": 0.5})
+    vocal = _add_sonara_track(db, "vocal.wav", {"mfcc_mean": [0.21, 0.41], "vocalness": 0.9})
+    instrumental = _add_sonara_track(db, "instrumental.wav", {"mfcc_mean": [0.21, 0.41], "vocalness": 0.1})
+
+    vocal_results = SonaraSimilaritySearch(db).search(
+        [seed],
+        mode="custom",
+        mixer_weights={"timbre": 1.0, "rhythm": 0.0, "dynamics": 0.0, "harmonic": 0.0, "tempo": 0.0},
+        modifiers={"vocalness": 1.0},
+        limit=5,
+    )
+    instrumental_results = SonaraSimilaritySearch(db).search(
+        [seed],
+        mode="custom",
+        mixer_weights={"timbre": 1.0, "rhythm": 0.0, "dynamics": 0.0, "harmonic": 0.0, "tempo": 0.0},
+        modifiers={"vocalness": -1.0},
+        limit=5,
+    )
+
+    assert [result.track.id for result in vocal_results] == [vocal, instrumental]
+    assert [result.track.id for result in instrumental_results] == [instrumental, vocal]
+    assert vocal_results[0].score_breakdown
+    assert "modifier_vocalness" in vocal_results[0].score_breakdown
+
+
 def test_custom_harmonic_knob_is_not_a_hard_exact_key_gate(tmp_path: Path) -> None:
     # The Harmonic knob should reflect harmonic color, so a track with very close chroma/dissonance
     # but a different key should still be able to outrank a same-key track that is harmonically far.

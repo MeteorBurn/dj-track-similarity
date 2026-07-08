@@ -25,6 +25,10 @@ import type {
   HybridSearchResponse,
   LibrarySummary,
   PromotedClassifier,
+  ReferenceComparePayload,
+  ReferenceCompareResponse,
+  ReferenceCompareVerdictPayload,
+  ReferenceCompareVerdictResult,
   RhythmLabCollectionSaveResult,
   RhythmLabLaunchResult,
   RhythmLabStatus,
@@ -311,6 +315,19 @@ const searchApi = {
     })
 };
 
+const referenceCompareApi = {
+  referenceCompare: (payload: ReferenceComparePayload) =>
+    request<ReferenceCompareResponse>("/api/reference/compare", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }),
+  referenceCompareVerdict: (payload: ReferenceCompareVerdictPayload) =>
+    request<ReferenceCompareVerdictResult>("/api/reference/compare/verdict", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    })
+};
+
 const evaluationApi = {
   evaluationSummary: () => request<EvaluationSummary>("/api/evaluation/summary"),
   evaluationPairFeedback: (payload: EvaluationPairFeedbackPayload) =>
@@ -375,6 +392,7 @@ export const api = {
   ...helperToolsApi,
   ...analysisApi,
   ...searchApi,
+  ...referenceCompareApi,
   ...evaluationApi,
   ...playlistApi,
   ...tagApi

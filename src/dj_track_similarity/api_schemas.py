@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -22,6 +22,8 @@ from .analysis_config import (
 
 EvaluationSource = Literal["mert", "maest", "sonara", "clap"]
 HybridSearchSource = Literal["mert", "maest", "sonara", "clap"]
+ReferenceCompareModel = Literal["clap", "mert", "muq", "maest", "sonara"]
+ReferenceCompareVerdict = Literal["mood", "palette", "instruments", "groove", "genre", "transition", "miss"]
 EvaluationPairReasonTag = Literal[
     "good_groove",
     "good_density",
@@ -162,6 +164,7 @@ class SonaraModifiers(BaseModel):
     rhythm_density: float = Field(default=0.0, ge=-1.0, le=1.0)
     dynamic_range: float = Field(default=0.0, ge=-1.0, le=1.0)
     loudness: float = Field(default=0.0, ge=-1.0, le=1.0)
+    vocalness: float = Field(default=0.0, ge=-1.0, le=1.0)
 
 
 class SonaraSearchRequest(BaseModel):
@@ -213,6 +216,30 @@ class HybridSearchRequest(BaseModel):
         if len(set(self.seed_track_ids)) != len(self.seed_track_ids):
             raise ValueError("seed_track_ids must be unique")
         return self
+
+
+class ReferenceCompareRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    seed_track_id: EvaluationTrackId
+    models: list[ReferenceCompareModel] = Field(default_factory=lambda: ["clap", "mert", "muq", "maest", "sonara"], min_length=1, max_length=5)
+    limit: int = Field(default=10, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def reject_duplicate_models(self) -> "ReferenceCompareRequest":
+        if len(set(self.models)) != len(self.models):
+            raise ValueError("models must be unique")
+        return self
+
+
+class ReferenceCompareVerdictRequest(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    seed_track_id: EvaluationTrackId
+    candidate_track_id: EvaluationTrackId
+    model: ReferenceCompareModel
+    verdict: ReferenceCompareVerdict
+    notes: str | None = None
 
 
 class HybridSearchResult(BaseModel):

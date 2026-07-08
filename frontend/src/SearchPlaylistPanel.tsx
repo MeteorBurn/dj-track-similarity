@@ -1,11 +1,12 @@
 import { Dispatch, Fragment, SetStateAction, useEffect, useRef, useState } from "react";
 import { Download, FolderOpen, ListFilter, ListMusic, ListPlus, Pause, Play, RotateCcw, Search, Tags, Trash2, X } from "lucide-react";
-import { AnalysisJobStatus, api, HybridClassifierSignal, HybridMatchAxis, HybridSearchResult, HybridSearchSource, PromotedClassifier, SearchResult, SetBuilderBpmChange, SetBuilderBpmMode, SetBuilderClassifierFlow, SetBuilderEnergyCurve, SetBuilderGeneratePayload, SetBuilderMode, SetBuilderSeedMode, SonaraMixerWeights, SonaraModifiers, Track } from "./api";
+import { AnalysisJobStatus, api, HybridClassifierSignal, HybridMatchAxis, HybridSearchResult, HybridSearchSource, PromotedClassifier, SearchResult, SetBuilderBpmChange, SetBuilderBpmMode, SetBuilderClassifierFlow, SetBuilderEnergyCurve, SetBuilderGeneratePayload, SetBuilderMode, SetBuilderSeedMode, SonaraMixerWeights, SonaraModifiers, SonaraSearchMode, Track } from "./api";
 import type { EvaluationPairFeedbackResult, EvaluationPairFeedbackState, EvaluationPairReasonTag } from "./api";
 import { ClapSearchTab } from "./ClapSearchTab";
 import { classifierScoringBlockedReason } from "./classifierCompatibility";
 import type { ClapPromptPreset } from "./clapPrompt";
 import { playlistPage } from "./playlistView";
+import { ReferenceComparePanel } from "./ReferenceComparePanel";
 import { resetSetBuilderSliders, setBuilderDefaultDiversity, setBuilderDefaultFlow } from "./setBuilderControls";
 import { ResultRow } from "./TrackRows";
 import { displayTrack } from "./trackDisplay";
@@ -15,6 +16,7 @@ const playlistPageSize = 200;
 export type SearchFiltersState = {
   minSimilarity: number;
   limit: number;
+  sonaraMode: SonaraSearchMode;
   sonaraMixer: SonaraMixerWeights;
   sonaraModifiers: SonaraModifiers;
 };
@@ -24,6 +26,7 @@ type SearchHelpText = {
   similarity: string;
   clapSimilarity: string;
   limit: string;
+  sonaraMode: string;
   sonaraMixerTimbre: string;
   sonaraMixerRhythm: string;
   sonaraMixerDynamics: string;
@@ -36,6 +39,7 @@ type SearchHelpText = {
   sonaraModifierRhythmDensity: string;
   sonaraModifierDynamicRange: string;
   sonaraModifierLoudness: string;
+  sonaraModifierVocalness: string;
   playlistName: string;
   outputDir: string;
 };
@@ -156,6 +160,34 @@ const setClassifierFlowOptions: Array<SelectOption<SetBuilderClassifierFlow>> = 
     value: "fall",
     label: "Fall",
     title: "Fall: сильнее держит выбранную Preference-сторону в начале SET и ослабляет ее к концу."
+  }
+];
+
+const sonaraModeOptions: Array<SelectOption<SonaraSearchMode>> = [
+  {
+    value: "balanced",
+    label: "Balanced",
+    title: "Balanced: mixes vibe, timbre, BPM, and light harmonic agreement without custom directional bias."
+  },
+  {
+    value: "vibe",
+    label: "Vibe",
+    title: "Vibe: emphasizes energy, danceability, valence, acousticness, and broad dynamics."
+  },
+  {
+    value: "sound",
+    label: "Sound",
+    title: "Sound: emphasizes timbre, MFCC, and spectral texture."
+  },
+  {
+    value: "dj_transition",
+    label: "DJ transition",
+    title: "DJ transition: emphasizes BPM, onset density, energy, danceability, and tonal compatibility."
+  },
+  {
+    value: "custom",
+    label: "Custom mixer",
+    title: "Custom mixer: use the visible mixer weights and directional modifiers."
   }
 ];
 
@@ -341,7 +373,7 @@ export function SearchPlaylistPanel({
   handleSaveToCollection: () => void;
   handleExport: (format: "m3u" | "csv") => void;
 }) {
-  const [activeSearchTab, setActiveSearchTab] = useState<"set" | "sonara" | "mert" | "clap" | "class">("sonara");
+  const [activeSearchTab, setActiveSearchTab] = useState<"set" | "sonara" | "mert" | "clap" | "class" | "lab">("sonara");
   const [setAdvancedControlsOpen, setSetAdvancedControlsOpen] = useState(false);
   const [playlistOffset, setPlaylistOffset] = useState(0);
   const [setSeedMode, setSetSeedMode] = useState<SetBuilderSeedMode>("manual");
@@ -389,15 +421,17 @@ export function SearchPlaylistPanel({
     { key: "harmonic", label: "Harmonic", title: helpText.sonaraMixerHarmonic },
     { key: "tempo", label: "Tempo", title: helpText.sonaraMixerTempo }
   ];
-  const modifierControls: Array<{ key: keyof SonaraModifiers; label: string; title: string }> = [
+ const modifierControls: Array<{ key: keyof SonaraModifiers; label: string; title: string }> = [
     { key: "energy", label: "Energy", title: helpText.sonaraModifierEnergy },
     { key: "valence", label: "Valence", title: helpText.sonaraModifierValence },
     { key: "acousticness", label: "Acoustic", title: helpText.sonaraModifierAcousticness },
     { key: "brightness", label: "Bright", title: helpText.sonaraModifierBrightness },
     { key: "rhythm_density", label: "Density", title: helpText.sonaraModifierRhythmDensity },
     { key: "dynamic_range", label: "Range", title: helpText.sonaraModifierDynamicRange },
-    { key: "loudness", label: "LUFS", title: helpText.sonaraModifierLoudness }
+    { key: "loudness", label: "LUFS", title: helpText.sonaraModifierLoudness },
+    { key: "vocalness", label: "Vocal", title: helpText.sonaraModifierVocalness }
   ];
+  const sonaraModeTitle = optionTitle(sonaraModeOptions, filters.sonaraMode);
   const setSeedModeTitle = optionTitle(setSeedModeOptions, setSeedMode);
   const setBuilderModeTitle = optionTitle(setBuilderModeOptions, setBuilderMode);
   const setEnergyCurveTitle = optionTitle(setEnergyCurveOptions, setEnergyCurve);
@@ -417,6 +451,7 @@ export function SearchPlaylistPanel({
   const autoSeedCountDisabled = setSeedMode !== "auto";
   const autoSeedCountControlTitle = autoSeedCountDisabled ? `${setAutoSeedCountTitle} Активно только когда выбран Auto - random start.` : setAutoSeedCountTitle;
   const bpmControlsDisabled = setBpmMode === "general";
+  const customSonaraDisabled = filters.sonaraMode !== "custom";
   const selectedHybridSources = hybridSourceKeys.filter((source) => hybridSources[source]);
   const hybridClassifierOptions = hybridClassifierSignalOptions(classifiers);
   const hybridSeedMessage = hybridSeedRequirementMessage(seeds.length);
@@ -469,7 +504,7 @@ export function SearchPlaylistPanel({
     setFilters((current) => ({
       ...current,
       sonaraMixer: { timbre: 1, rhythm: 1, dynamics: 0.8, harmonic: 0.8, tempo: 0.35 },
-      sonaraModifiers: { energy: 0, valence: 0, acousticness: 0, brightness: 0, rhythm_density: 0, dynamic_range: 0, loudness: 0 }
+      sonaraModifiers: { energy: 0, valence: 0, acousticness: 0, brightness: 0, rhythm_density: 0, dynamic_range: 0, loudness: 0, vocalness: 0 }
     }));
   }
 
@@ -698,7 +733,24 @@ export function SearchPlaylistPanel({
           <button className={`model-search-tab ${activeSearchTab === "class" ? "active" : ""}`} title="Classifier controls" onClick={() => setActiveSearchTab("class")} role="tab" aria-selected={activeSearchTab === "class"} type="button">
             CLASS
           </button>
+          <button className={`model-search-tab ${activeSearchTab === "lab" ? "active" : ""}`} title="Reference Compare: compare model-specific similarity outputs" onClick={() => setActiveSearchTab("lab")} role="tab" aria-selected={activeSearchTab === "lab"} type="button">LAB</button>
         </div>
+        {activeSearchTab === "lab" && (
+          <div className="search-tab-panel" role="tabpanel">
+            <ReferenceComparePanel
+              seedTracks={seedTracks}
+              busy={busy}
+              seedSet={seedSet}
+              playlistSet={playlistSet}
+              playingTrackId={playingTrackId}
+              onSeed={addSeed}
+              onToggleLiked={toggleLiked}
+              onTogglePlaylist={togglePlaylist}
+              onPreview={setPreview}
+              onDetails={setMetadataTrack}
+            />
+          </div>
+        )}
         {activeSearchTab === "set" && (
           <div className="search-tab-panel" role="tabpanel">
             <div className="set-builder-controls">
@@ -980,7 +1032,7 @@ export function SearchPlaylistPanel({
         )}
         {activeSearchTab === "sonara" && (
           <div className="search-tab-panel" role="tabpanel">
-            <div className="sonara-custom-controls">
+            <div className={customSonaraDisabled ? "sonara-custom-controls disabled-filter" : "sonara-custom-controls"}>
               <div className="custom-control-header">
                 <span>Mixer</span>
                 <button className="sonara-mixer-reset-button" title="Сбросить SONARA mixer и modifiers" type="button" onClick={resetCustomSonara}>Reset</button>
@@ -999,6 +1051,7 @@ export function SearchPlaylistPanel({
                       step={0.05}
                       value={filters.sonaraMixer[control.key]}
                       title={control.title}
+                      disabled={customSonaraDisabled}
                       onChange={(event) => setSonaraMixerValue(control.key, Number(event.target.value))}
                     />
                   </label>
@@ -1021,6 +1074,7 @@ export function SearchPlaylistPanel({
                       step={0.05}
                       value={filters.sonaraModifiers[control.key]}
                       title={control.title}
+                      disabled={customSonaraDisabled}
                       onChange={(event) => setSonaraModifierValue(control.key, Number(event.target.value))}
                     />
                   </label>
@@ -1028,6 +1082,21 @@ export function SearchPlaylistPanel({
               </div>
             </div>
             <div className="search-filter-grid">
+              <label title={sonaraModeTitle}>
+                Mode
+                <select
+                  value={filters.sonaraMode}
+                  title={sonaraModeTitle}
+                  onChange={(event) => {
+                    const selectedMode = sonaraModeOptions.find((option) => option.value === event.target.value);
+                    if (selectedMode) setFilters({ ...filters, sonaraMode: selectedMode.value });
+                  }}
+                >
+                  {sonaraModeOptions.map((option) => (
+                    <option key={option.value} value={option.value} title={option.title}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
               <label title={helpText.similarity}>Similarity<input type="number" value={filters.minSimilarity} min={0} max={1} step={0.01} title={helpText.similarity} onChange={(event) => setFilters({ ...filters, minSimilarity: Number(event.target.value) })} /></label>
               <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => setFilters({ ...filters, limit: Number(event.target.value) })} /></label>
             </div>

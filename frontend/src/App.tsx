@@ -13,7 +13,7 @@ import { helpText } from "./helpText";
 import { analysisJobRequest, cancelAnalysisJob, scanSummary, stageIndicatorLabel } from "./jobUi";
 import { LibraryPanel } from "./LibraryPanel";
 import { appendVisibleTracksToPlaylist } from "./libraryView";
-import { SearchPlaylistPanel } from "./SearchPlaylistPanel";
+import { SearchPlaylistPanel, type SearchFiltersState } from "./SearchPlaylistPanel";
 import { TrackMetadataDialog } from "./TrackMetadataDialog";
 import { TrackPanel } from "./TrackPanel";
 import { displayTrack } from "./trackDisplay";
@@ -136,9 +136,10 @@ export function App() {
   const [theme, setTheme] = useState<ThemeMode>(() => resolveInitialTheme());
   const { confirmation, requestConfirmation, confirmPendingAction, cancelConfirmation } = useConfirmation();
   const [busy, setBusy] = useState(false);
-  const [filters, setFilters] = useState({
+  const [filters, setFilters] = useState<SearchFiltersState>({
     minSimilarity: 0,
     limit: 10,
+    sonaraMode: "custom",
     sonaraMixer: {
       timbre: 1,
       rhythm: 1,
@@ -153,7 +154,8 @@ export function App() {
       brightness: 0,
       rhythm_density: 0,
       dynamic_range: 0,
-      loudness: 0
+      loudness: 0,
+      vocalness: 0
     }
   });
 
@@ -454,15 +456,16 @@ export function App() {
       setNotice({ kind: "error", text: "Выберите seed-треки" });
       return;
     }
-    appendActivity("info", "SONARA search запущен", `custom mixer · ${seeds.length} seed`);
+    const customMode = filters.sonaraMode === "custom";
+    appendActivity("info", "SONARA search запущен", `${filters.sonaraMode} · ${seeds.length} seed`);
     await run(
       () =>
         api.sonaraSearch({
           seed_track_ids: seeds,
           limit: filters.limit,
-          mode: "custom",
-          mixer_weights: filters.sonaraMixer,
-          modifiers: filters.sonaraModifiers,
+          mode: filters.sonaraMode,
+          mixer_weights: customMode ? filters.sonaraMixer : null,
+          modifiers: customMode ? filters.sonaraModifiers : null,
           min_similarity: filters.minSimilarity
         }),
       (value) => {

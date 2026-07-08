@@ -14,6 +14,7 @@ from .api_routes_analysis import register_analysis_routes
 from .api_routes_database import register_database_routes
 from .api_routes_evaluation import register_evaluation_routes
 from .api_routes_library import register_library_routes
+from .api_routes_reference_compare import register_reference_compare_routes
 from .api_routes_rhythm_lab import register_rhythm_lab_routes
 from .api_routes_search import register_search_routes
 from .api_routes_server import register_server_routes
@@ -120,6 +121,7 @@ def create_app(
     register_audio_dedup_routes(app, state)
     register_audio_doctor_routes(app, state)
     register_evaluation_routes(app, state)
+    register_reference_compare_routes(app, state)
     register_search_routes(app, state, clap_embedding_adapter=ClapEmbeddingAdapter)
     register_server_routes(app)
     register_set_builder_routes(app, state, promoted_classifiers=promoted_classifiers)

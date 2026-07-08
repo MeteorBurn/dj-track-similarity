@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
 from math import inf
 
@@ -47,6 +48,7 @@ DJ_NUMERIC_WEIGHTS = {
 }
 TONAL_TEXT_WEIGHTS = {
     "key": 4.0,
+    "key_camelot": 3.0,
     "predominant_chord": 3.0,
 }
 BALANCED_WEIGHTS = {
@@ -74,9 +76,12 @@ CUSTOM_GROUP_WEIGHTS = {
     },
     "dynamics": {
         "energy": 1.2,
+        "energy_level": 0.7,
         "rms_mean": 1.0,
         "rms_max": 0.7,
         "loudness_lufs": 0.9,
+        "loudness_momentary_max_db": 0.8,
+        "loudness_range_lu": 0.8,
         "dynamic_range_db": 0.8,
     },
     "harmonic": {
@@ -104,6 +109,7 @@ CUSTOM_MODIFIER_FIELDS = {
     "rhythm_density": "onset_density",
     "dynamic_range": "dynamic_range_db",
     "loudness": "loudness_lufs",
+    "vocalness": "vocalness",
 }
 # The custom Harmonic knob should reflect harmonic color (chroma, dissonance, chord movement), not
 # act as an exact-key gate. Standard modes weight exact key/chord text at 4.0/3.0; in the custom
@@ -111,6 +117,7 @@ CUSTOM_MODIFIER_FIELDS = {
 # dominating the group.
 CUSTOM_HARMONIC_TONAL_WEIGHTS = {
     "key": 0.9,
+    "key_camelot": 0.9,
     "predominant_chord": 0.6,
 }
 # A modifier is a deliberate directional push. Give it enough weight that a maxed knob is actually
@@ -148,9 +155,11 @@ def numeric_dimensions(
     dimensions: list[tuple[str, int | None, float]] = []
     ranges: dict[tuple[str, int | None], tuple[float, float]] = {}
     for field, weight in field_weights.items():
-        indexes = sorted(index for name, index in values if name == field)
-        if not indexes and (field, None) in values:
+        indexes: Sequence[int | None]
+        if (field, None) in values:
             indexes = [None]
+        else:
+            indexes = sorted(index for name, index in values if name == field and index is not None)
         valid_indexes = [index for index in indexes if len(values.get((field, index), [])) >= 2]
         if not valid_indexes:
             continue
@@ -461,6 +470,8 @@ def denormalize_feature(value: float, value_range: tuple[float, float]) -> float
 
 def optional_float(value: object) -> float | None:
     if value is None or value == "":
+        return None
+    if not isinstance(value, (str, bytes, int, float, np.integer, np.floating)):
         return None
     try:
         number = float(value)

@@ -45,6 +45,35 @@ export type SearchResult = {
 };
 
 export type HybridSearchSource = "mert" | "maest" | "sonara" | "clap";
+export type ReferenceCompareModel = "clap" | "mert" | "muq" | "maest" | "sonara";
+export type ReferenceCompareVerdict = "mood" | "palette" | "instruments" | "groove" | "genre" | "transition" | "miss";
+export type ReferenceComparePayload = {
+  seed_track_id: number;
+  models?: ReferenceCompareModel[];
+  limit?: number;
+};
+export type ReferenceCompareGroup = {
+  model: ReferenceCompareModel;
+  available: boolean;
+  reason?: string | null;
+  results: SearchResult[];
+};
+export type ReferenceCompareResponse = {
+  seed_track_id: number;
+  groups: ReferenceCompareGroup[];
+};
+export type ReferenceCompareVerdictPayload = {
+  seed_track_id: number;
+  candidate_track_id: number;
+  model: ReferenceCompareModel;
+  verdict: ReferenceCompareVerdict;
+  notes?: string | null;
+};
+export type ReferenceCompareVerdictResult = ReferenceCompareVerdictPayload & {
+  id: number;
+  source: string;
+  rating: number;
+};
 export type HybridMatchAxis = "groove" | "density" | "texture" | "mood" | "tonal" | "vocalness" | "energy_flow" | "novelty";
 export type HybridClassifierSignalRole = "preference_boost" | "preference_penalty" | "risk_penalty" | "context_modifier";
 export type HybridClassifierSignal = {
@@ -226,6 +255,7 @@ export type SonaraModifiers = {
   rhythm_density: number;
   dynamic_range: number;
   loudness: number;
+  vocalness: number;
 };
 
 export type ScanStats = {

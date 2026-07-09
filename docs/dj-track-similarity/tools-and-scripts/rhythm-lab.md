@@ -124,6 +124,17 @@ The command reads the source library without writes. Experimental artifacts stay
 under the profile artifact folder, and the benchmark output is a JSON report. It
 does not promote models or write classifier scores.
 
+The default ablation matrix includes embedding-only combinations, the original
+SONARA playlist feature set, and two SONARA 2.0 variants:
+
+- `sonara2` adds numeric SONARA 2.0 opt-in fields such as structure, loudness,
+  beatgrid, and silence summary values, but excludes `vocalness`.
+- `sonara2vocal` uses the same fields and also includes `vocalness`.
+
+Both variants still require only stored SONARA features at scoring time. Compare
+them per classifier profile before promotion; `vocalness` can help or hurt
+depending on what that profile's labels mean.
+
 The Training tab has the same active-profile workflow: collect labels, train,
 review candidates, run a benchmark, choose a promotion variant, and promote.
 `Train` retrains from current labels and refreshes candidates automatically.

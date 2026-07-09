@@ -70,6 +70,27 @@ def test_promoted_classifiers_accept_non_combined_required_inputs(tmp_path: Path
     assert payload["required_inputs"] == ["mert", "clap"]
 
 
+def test_promoted_classifiers_accept_sonara2_feature_set_aliases(tmp_path: Path) -> None:
+    root = tmp_path / "models" / "classifiers"
+    profile_dir = root / "voice-presence"
+    profile_dir.mkdir(parents=True)
+    (profile_dir / "model.joblib").write_bytes(b"model")
+    _write_manifest(
+        profile_dir / "model.json",
+        classifier_key="voice_presence",
+        feature_set="sonara2vocal+maest+clap",
+        feature_count=4,
+        required_inputs=["sonara", "maest", "clap"],
+    )
+
+    payload = promoted_classifiers(root)[0]
+
+    assert payload["manifest_status"] == "valid"
+    assert payload["is_scoring_compatible"] is True
+    assert payload["feature_set"] == "sonara2vocal+maest+clap"
+    assert payload["required_inputs"] == ["sonara", "maest", "clap"]
+
+
 def test_promoted_classifiers_expose_hybrid_signal_manifest_metadata(tmp_path: Path) -> None:
     root = tmp_path / "models" / "classifiers"
     profile_dir = root / "deep-groove"

@@ -25,7 +25,7 @@ from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.rhythm_lab_collections import RhythmLabCollections
 
 from rhythm_lab.ablation import benchmark_profile_ablation
-from rhythm_lab.features import SONARA_SCALAR_FIELDS, SONARA_VECTOR_FIELDS, build_labeled_feature_matrix
+from rhythm_lab.features import SONARA_SCALAR_FIELDS, SONARA_VECTOR_FIELDS, build_labeled_feature_matrix, feature_sources
 from rhythm_lab.cli import PromotionError, promote_profile_model
 from rhythm_lab.lab_db import RhythmLabDatabase
 from rhythm_lab.predictions import _predict_probabilities, apply_model_to_lab, export_predictions_csv
@@ -3004,6 +3004,41 @@ def test_sonara_scalar_fields_are_never_stored_as_vectors() -> None:
     overlap = known_vector_fields & set(SONARA_SCALAR_FIELDS)
     assert not overlap, f"vector fields wrongly declared scalar (would score 0.0): {sorted(overlap)}"
     assert set(SONARA_VECTOR_FIELDS) == {"mfcc_mean", "chroma_mean", "spectral_contrast_mean"}
+
+
+def test_sonara2_feature_sets_include_numeric_optins_with_vocalness_toggle(tmp_path: Path) -> None:
+    source = LibraryDatabase(tmp_path / "source.sqlite")
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
+    scoped_labels = RhythmLabDatabase(labels.path, classifier_key="break_energy")
+    for index in range(4):
+        track_id = _track(source, tmp_path, f"sonara2-{index}.wav", title=f"Sonara2 {index}")
+        source.save_sonara_features(
+            track_id,
+            {
+                "onset_density": {"type": "float", "value": float(index)},
+                "mfcc_mean": {"type": "list", "value": [float(index)] * 13},
+                "chroma_mean": {"type": "list", "value": [float(index)] * 12},
+                "spectral_contrast_mean": {"type": "list", "value": [float(index)] * 7},
+                "bpm_raw": {"type": "float", "value": 124.0 + float(index)},
+                "energy_level": {"type": "int", "value": index + 1},
+                "grid_stability": {"type": "float", "value": 0.9},
+                "vocalness": {"type": "float", "value": 0.8 if index < 2 else 0.1},
+            },
+            model_name="sonara-test",
+        )
+        scoped_labels.set_label(source.get_track(track_id), "broken" if index < 2 else "straight")
+
+    without_vocalness = build_labeled_feature_matrix(source.path, labels.path, "sonara2", classifier_key="break_energy")
+    with_vocalness = build_labeled_feature_matrix(source.path, labels.path, "sonara2vocal", classifier_key="break_energy")
+
+    assert feature_sources("sonara2+maest+clap") == ("sonara", "maest", "clap")
+    assert "sonara:bpm_raw" in without_vocalness.feature_names
+    assert "sonara:energy_level" in without_vocalness.feature_names
+    assert "sonara:grid_stability" in without_vocalness.feature_names
+    assert "sonara:vocalness" not in without_vocalness.feature_names
+    assert "sonara:vocalness" in with_vocalness.feature_names
+    assert with_vocalness.matrix.shape[1] == without_vocalness.matrix.shape[1] + 1
 
 
 def test_benchmark_profile_ablation_ranks_requested_feature_sets(tmp_path: Path) -> None:

@@ -10,6 +10,7 @@ from typing import Any, Mapping
 CLASSIFIER_MANIFEST_VERSION = 1
 CLASSIFIER_REQUIRED_INPUTS = ("sonara", "mert", "maest")
 CLASSIFIER_SUPPORTED_INPUTS = ("sonara", "mert", "maest", "clap")
+CLASSIFIER_FEATURE_SOURCE_ALIASES = {"sonara2": "sonara", "sonara2vocal": "sonara"}
 CLASSIFIER_SCORE_SEMANTICS = "positive_label_probability"
 COMPATIBLE_MANIFEST_STATUSES = {"valid", "legacy"}
 CLASSIFIER_HYBRID_SIGNAL_ROLES = ("preference_boost", "preference_penalty", "risk_penalty", "context_modifier")
@@ -441,10 +442,11 @@ def _production_required_inputs(value: object, errors: list[str]) -> tuple[str, 
 def _feature_set_sources(feature_set: str, errors: list[str]) -> tuple[str, ...]:
     if feature_set == "combined":
         return CLASSIFIER_REQUIRED_INPUTS
-    sources = tuple(part.strip() for part in feature_set.split("+") if part.strip())
-    if not sources:
+    raw_sources = tuple(part.strip() for part in feature_set.split("+") if part.strip())
+    if not raw_sources:
         errors.append("model.json feature_set must name at least one feature source")
         return ()
+    sources = tuple(CLASSIFIER_FEATURE_SOURCE_ALIASES.get(source, source) for source in raw_sources)
     unknown = sorted(set(sources) - set(CLASSIFIER_SUPPORTED_INPUTS))
     if unknown:
         errors.append(f"model.json feature_set contains unsupported sources: {', '.join(unknown)}")

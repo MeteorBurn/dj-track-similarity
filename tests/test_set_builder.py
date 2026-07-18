@@ -8,6 +8,7 @@ import pytest
 from dj_track_similarity.database import LibraryDatabase
 import dj_track_similarity.set_builder as set_builder_module
 from dj_track_similarity.set_builder import SetBuilderConfig, SmartSetBuilder
+from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature, sonara_analysis_signature_id
 
 
 def _select_highest_score(scores, rng, *, mode, force_sample):
@@ -47,6 +48,30 @@ def test_manual_set_builder_includes_seed_and_uses_broad_sonara_when_embeddings_
     assert result["items"][0]["reason"] == "seed_anchor"
     assert result["items"][1]["score_breakdown"]["sonara_broad"] > result["items"][2]["score_breakdown"]["sonara_broad"]
     assert result["items"][1]["sonara_groups"]["dynamics"] > result["items"][2]["sonara_groups"]["dynamics"]
+
+
+def test_set_builder_includes_current_sonara_analysis_and_excludes_stale_revision(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed_id = _complete_track(db, tmp_path, "seed.wav")
+    current_id = _complete_track(db, tmp_path, "current.wav")
+    stale_signature = expected_sonara_analysis_signature([])
+    stale_signature["project_feature_revision"] = 0
+    stale_signature["signature_id"] = sonara_analysis_signature_id(stale_signature)
+    stale_id = _complete_track(
+        db,
+        tmp_path,
+        "stale.wav",
+        analysis_signature=stale_signature,
+    )
+
+    result = SmartSetBuilder(db).generate(
+        SetBuilderConfig(seed_mode="manual", seed_track_ids=[seed_id], limit=3, random_seed=1)
+    )
+
+    result_ids = [item["track"].id for item in result["items"]]
+    assert result_ids == [seed_id, current_id]
+    assert stale_id not in result_ids
+    assert result["coverage"]["eligible_tracks"] == 2
 
 
 def test_set_builder_expands_sonara_array_summaries_and_ignores_maest_genres(tmp_path: Path) -> None:
@@ -908,7 +933,7 @@ def test_set_builder_prefers_sonara_bpm_over_tag_bpm_for_curve_and_response(tmp_
         tmp_path,
         "seed-tag-110-sonara-130.wav",
         metadata={"artist": "Seed Artist", "title": "Seed", "bpm": 110, "key": "8A"},
-        features=_features(bpm=130, energy=0.45),
+        features=_features(bpm=130, energy=0.45, bpm_confidence=1.0),
         vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
     )
     tag_match_id = _complete_track(
@@ -916,7 +941,7 @@ def test_set_builder_prefers_sonara_bpm_over_tag_bpm_for_curve_and_response(tmp_
         tmp_path,
         "tag-117-sonara-130.wav",
         metadata={"artist": "Tag Artist", "title": "Tag BPM", "bpm": 117, "key": "8A"},
-        features=_features(bpm=130, energy=0.50),
+        features=_features(bpm=130, energy=0.50, bpm_confidence=1.0),
         vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
     )
     fallback_id = _complete_track(
@@ -924,7 +949,7 @@ def test_set_builder_prefers_sonara_bpm_over_tag_bpm_for_curve_and_response(tmp_
         tmp_path,
         "no-tag-sonara-130.wav",
         metadata={"artist": "Fallback Artist", "title": "SONARA BPM", "key": "8A"},
-        features=_features(bpm=130, energy=0.50),
+        features=_features(bpm=130, energy=0.50, bpm_confidence=1.0),
         vectors={"mert": [1, 0], "maest": [1, 0], "clap": [1, 0]},
     )
 
@@ -1076,6 +1101,73 @@ def test_manual_mode_rejects_invalid_seed_counts(tmp_path: Path) -> None:
         SmartSetBuilder(db).generate(SetBuilderConfig(seed_mode="manual", seed_track_ids=[]))
 
 
+def test_set_light_candidates_do_not_reuse_columns_left_by_current_empty_sonara_result(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = _complete_track(db, tmp_path, "stale-columns.wav", features=_features(bpm=140.0, energy=0.9))
+    db.save_sonara_features(
+        track_id,
+        {},
+        bpm=None,
+        musical_key=None,
+        energy=None,
+        analysis_signature=expected_sonara_analysis_signature([]),
+    )
+
+    light_candidates, _coverage = SmartSetBuilder(db)._load_light_candidates()
+    candidates = SmartSetBuilder(db)._hydrate_candidates(light_candidates)
+    candidate = next(item for item in candidates if item.track.id == track_id)
+
+    assert set_builder_module._track_bpm(candidate) is None
+    assert set_builder_module._track_key(candidate) is None
+    assert set_builder_module._track_energy(candidate) is None
+
+    result = SmartSetBuilder(db).generate(
+        SetBuilderConfig(seed_mode="manual", seed_track_ids=[track_id], limit=1)
+    )
+    public_track = result["items"][0]["track"]
+    assert public_track.bpm is None
+    assert public_track.musical_key is None
+    assert public_track.energy is None
+
+
+def test_set_light_candidates_resolve_current_sonara_energy_from_numeric_values(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = _complete_track(db, tmp_path, "current-energy.wav", features=_features(energy=0.9))
+
+    light_candidates, _coverage = SmartSetBuilder(db)._load_light_candidates()
+    candidates = SmartSetBuilder(db)._hydrate_candidates(light_candidates)
+    candidate = next(item for item in candidates if item.track.id == track_id)
+
+    assert set_builder_module._track_energy(candidate) == pytest.approx(0.9)
+
+
+def test_set_light_candidates_preserve_list_tags_for_camelot_resolution(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    features = _features(bpm=129.0)
+    features["key"] = {"type": "str", "value": "9A"}
+    features["key_camelot"] = {"type": "str", "value": "9A"}
+    track_id = _complete_track(
+        db,
+        tmp_path,
+        "list-tags.wav",
+        metadata={
+            "title": "List tags",
+            "bpm": [123.0, 124.0],
+            "key": ["F# minor", "8A"],
+            "initialkey": ["G minor", "6A"],
+        },
+        features=features,
+    )
+
+    light_candidates, _coverage = SmartSetBuilder(db)._load_light_candidates()
+    candidate = next(item for item in light_candidates if item.track.id == track_id)
+
+    assert candidate.track.metadata["bpm"] == [123.0, 124.0]
+    assert candidate.track.metadata["key"] == ["F# minor", "8A"]
+    assert candidate.track.metadata["initialkey"] == ["G minor", "6A"]
+    assert set_builder_module._track_key(candidate) == "8A"
+
+
 def _track(db: LibraryDatabase, tmp_path: Path, filename: str, *, metadata: dict[str, object] | None = None) -> int:
     path = tmp_path / filename
     path.write_bytes(b"audio")
@@ -1090,6 +1182,7 @@ def _complete_track(
     metadata: dict[str, object] | None = None,
     features: dict[str, object] | None = None,
     vectors: dict[str, list[float]] | None = None,
+    analysis_signature: dict[str, object] | None = None,
 ) -> int:
     track_id = _track(db, tmp_path, filename, metadata=metadata)
     feature_payload = features or _features()
@@ -1101,6 +1194,7 @@ def _complete_track(
         energy=_feature_number(feature_payload, "energy"),
         duration=_feature_number(feature_payload, "duration_sec"),
         model_name="sonara-test",
+        analysis_signature=analysis_signature or expected_sonara_analysis_signature([]),
     )
     for key, values in (vectors or {"mert": [1.0, 0.0], "maest": [1.0, 0.0], "clap": [1.0, 0.0]}).items():
         db.save_embedding(track_id, np.asarray(values, dtype=np.float32), f"{key}-test", embedding_key=key)
@@ -1120,6 +1214,7 @@ def _features(
     mfcc_std: float = 0.05,
     chroma_mean: float = 0.4,
     chroma_std: float = 0.08,
+    bpm_confidence: float | None = None,
 ) -> dict[str, object]:
     scalar_values = {
         "bpm": bpm,
@@ -1145,6 +1240,8 @@ def _features(
         "duration_sec": 360,
     }
     payload: dict[str, object] = {key: {"type": "float", "value": value} for key, value in scalar_values.items()}
+    if bpm_confidence is not None:
+        payload["bpm_confidence"] = {"type": "float", "value": bpm_confidence}
     payload["key"] = {"type": "str", "value": "8A"}
     payload["predominant_chord"] = {"type": "str", "value": "Am"}
     payload["beats"] = {"type": "ndarray", "value": None, "summary": {"min": 0.0, "max": 360.0, "mean": 180.0, "std": 102.0}}

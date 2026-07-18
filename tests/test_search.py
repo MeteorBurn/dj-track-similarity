@@ -4,7 +4,9 @@ import numpy as np
 import pytest
 
 from dj_track_similarity.database import LibraryDatabase
+import dj_track_similarity.search as search_module
 from dj_track_similarity.search import SearchFilters, SimilaritySearch
+from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature
 
 
 def _add_track(db: LibraryDatabase, name: str, embedding: list[float], bpm: float | None = None, key: str | None = None, energy: float | None = None) -> int:
@@ -36,6 +38,7 @@ def _add_track_with_tag_and_sonara_bpm(
     *,
     tag_bpm: float,
     sonara_bpm: float,
+    bpm_confidence: float = 0.9,
 ) -> int:
     path = Path("C:/music") / name
     track_id = db.upsert_track(
@@ -46,7 +49,11 @@ def _add_track_with_tag_and_sonara_bpm(
             "title": name,
             "artist": "Test",
             "bpm": tag_bpm,
-            "sonara_features": {"bpm": {"type": "float", "value": sonara_bpm}},
+            "sonara_features": {
+                "bpm": {"type": "float", "value": sonara_bpm},
+                "bpm_confidence": {"type": "float", "value": bpm_confidence},
+            },
+            "sonara_analysis_signature": expected_sonara_analysis_signature([]),
         },
         bpm=tag_bpm,
     )
@@ -119,6 +126,94 @@ def test_search_bpm_filter_prefers_sonara_bpm_over_tag_bpm(tmp_path: Path) -> No
 
     assert [result.track.id for result in results] == [sonara_match]
     assert tag_only_match not in {result.track.id for result in results}
+
+
+def test_search_bpm_filter_does_not_reject_low_confidence_sonara_tempo(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed = _add_track_with_tag_and_sonara_bpm(
+        db,
+        "seed.wav",
+        [1.0, 0.0, 0.0],
+        tag_bpm=128,
+        sonara_bpm=128,
+    )
+    uncertain = _add_track_with_tag_and_sonara_bpm(
+        db,
+        "uncertain.wav",
+        [0.99, 0.01, 0.0],
+        tag_bpm=110,
+        sonara_bpm=155,
+        bpm_confidence=0.2,
+    )
+    reliable_mismatch = _add_track_with_tag_and_sonara_bpm(
+        db,
+        "reliable-mismatch.wav",
+        [0.98, 0.02, 0.0],
+        tag_bpm=110,
+        sonara_bpm=155,
+        bpm_confidence=0.9,
+    )
+
+    results = SimilaritySearch(db).search([seed], filters=SearchFilters(bpm_tolerance=3), limit=10)
+
+    assert uncertain in {result.track.id for result in results}
+    assert reliable_mismatch not in {result.track.id for result in results}
+
+
+def test_search_key_filter_uses_tag_camelot_instead_of_denormalized_column(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+
+    def add(name: str, tag_key: str, column_key: str, embedding: list[float]) -> int:
+        track_id = db.upsert_track(
+            path=Path("C:/music") / name,
+            size=100,
+            mtime=1,
+            metadata={"title": name, "key": [tag_key]},
+            musical_key=column_key,
+        )
+        db.save_embedding(track_id, np.asarray(embedding, dtype=np.float32), "fake-model", 3)
+        return track_id
+
+    seed = add("seed-key.wav", "8A", "2A", [1.0, 0.0, 0.0])
+    good = add("good-key.wav", "8B", "12B", [0.99, 0.01, 0.0])
+    bad = add("bad-key.wav", "2B", "2B", [0.98, 0.02, 0.0])
+
+    results = SimilaritySearch(db).search(
+        [seed],
+        filters=SearchFilters(key_compatibility="compatible"),
+        limit=10,
+    )
+
+    assert [result.track.id for result in results] == [good]
+    assert bad not in {result.track.id for result in results}
+
+
+def test_search_energy_filter_ignores_column_left_by_current_empty_sonara_result(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    stale_id = _add_track(db, "stale-energy.wav", [1.0, 0.0, 0.0], energy=0.9)
+    valid_id = _add_track(db, "valid-energy.wav", [0.99, 0.01, 0.0], energy=0.5)
+    db.save_sonara_features(
+        stale_id,
+        {},
+        energy=None,
+        analysis_signature=expected_sonara_analysis_signature([]),
+    )
+
+    results = SimilaritySearch(db).search_vector(
+        np.asarray([1.0, 0.0, 0.0], dtype=np.float32),
+        filters=SearchFilters(energy_max=0.6),
+        limit=10,
+    )
+
+    assert [result.track.id for result in results] == [valid_id]
+
+
+def test_every_filter_that_resolves_tags_or_sonara_requests_metadata() -> None:
+    assert search_module._needs_filter_metadata(SearchFilters(bpm_tolerance=2.0))
+    assert search_module._needs_filter_metadata(SearchFilters(key_compatibility="compatible"))
+    assert search_module._needs_filter_metadata(SearchFilters(energy_min=0.2))
+    assert search_module._needs_filter_metadata(SearchFilters(energy_max=0.8))
+    assert not search_module._needs_filter_metadata(SearchFilters(min_similarity=0.5))
 
 
 def test_search_epsilon_keeps_only_candidates_near_the_best_score(tmp_path: Path) -> None:

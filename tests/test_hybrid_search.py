@@ -10,6 +10,7 @@ from dj_track_similarity.evaluation.candidates import CandidatePoolRow, Candidat
 import dj_track_similarity.hybrid_search as hybrid_search
 from dj_track_similarity.hybrid_explanation import MATCH_CHARACTER_AXES
 from dj_track_similarity.hybrid_search import build_hybrid_search_preview
+from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature
 
 RISK_BREAKDOWN_KEYS = {
     "bpm",
@@ -19,6 +20,8 @@ RISK_BREAKDOWN_KEYS = {
     "texture_clash",
     "mood_clash",
     "vocal_conflict",
+    "grid_instability",
+    "structure_transition",
     "source_disagreement",
     "confidence_missingness",
 }
@@ -46,6 +49,53 @@ def test_hybrid_search_uses_equal_weights_by_default(tmp_path: Path) -> None:
     assert result.results[0].calibrated_score is None
     assert tuple(result.results[0].match_character) == MATCH_CHARACTER_AXES
     assert set(result.results[0].risk_breakdown) == RISK_BREAKDOWN_KEYS
+
+
+def test_hybrid_transition_hydrates_current_sonara_context_from_embedding_candidates(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed_id = _track(db, tmp_path, "hydrated-seed")
+    candidate_id = _track(db, tmp_path, "hydrated-candidate")
+    _save_embeddings(db, seed_id, mert=[1.0, 0.0], maest=[1.0, 0.0])
+    _save_embeddings(db, candidate_id, mert=[0.99, 0.01], maest=[0.99, 0.01])
+    signature = expected_sonara_analysis_signature([])
+    db.save_sonara_features(
+        seed_id,
+        {
+            "bpm": {"value": 128.0},
+            "bpm_confidence": {"value": 0.9},
+            "grid_stability": {"value": 1.0},
+            "duration_sec": {"value": 200.0},
+            "outro_start_sec": {"value": 180.0},
+            "segments": {"value": [{"energy": 0.4}]},
+        },
+        bpm=128.0,
+        analysis_signature=signature,
+    )
+    db.save_sonara_features(
+        candidate_id,
+        {
+            "bpm": {"value": 129.0},
+            "bpm_confidence": {"value": 0.8},
+            "grid_stability": {"value": 0.64},
+            "intro_end_sec": {"value": 20.0},
+            "segments": {"value": [{"energy": 0.5}]},
+        },
+        bpm=129.0,
+        analysis_signature=signature,
+    )
+
+    result = build_hybrid_search_preview(
+        db,
+        seed_track_ids=[seed_id],
+        sources=["mert", "maest"],
+        per_source=1,
+        limit=1,
+    )
+
+    row = result.results[0]
+    assert row.track.metadata is not None
+    assert row.transition_diagnostics["components"]["grid_instability_risk"] is not None
+    assert row.transition_diagnostics["components"]["structure_transition_risk"] is not None
 
 
 def test_hybrid_search_custom_weights_change_order(tmp_path: Path) -> None:

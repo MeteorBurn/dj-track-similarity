@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 from ..models import SearchResult, Track
 from ..search import SimilaritySearch
 from ..sonara_similarity import SonaraSimilaritySearch
+from ..tempo_resolution import resolve_tempo_evidence
+from ..track_resolution import resolve_track_camelot, resolve_track_energy, resolve_track_key
 from .csv_io import CsvRow, write_csv_rows
 
 if TYPE_CHECKING:
@@ -72,6 +74,7 @@ class CandidatePoolRow:
         return max(scores)
 
     def csv_row(self) -> CsvRow:
+        candidate_key = resolve_track_camelot(self.candidate_track) or resolve_track_key(self.candidate_track)
         return {
             "seed_track_id": self.seed_track_id,
             "candidate_track_id": self.candidate_track_id,
@@ -84,9 +87,9 @@ class CandidatePoolRow:
             "seed_title": _optional_text(self.seed_track.title),
             "candidate_artist": _optional_text(self.candidate_track.artist),
             "candidate_title": _optional_text(self.candidate_track.title),
-            "candidate_bpm": _optional_number(self.candidate_track.bpm),
-            "candidate_key": _optional_text(self.candidate_track.musical_key),
-            "candidate_energy": _optional_number(self.candidate_track.energy),
+            "candidate_bpm": _optional_number(resolve_tempo_evidence(self.candidate_track).bpm),
+            "candidate_key": _optional_text(candidate_key),
+            "candidate_energy": _optional_number(resolve_track_energy(self.candidate_track)),
             "sources_json": self.sources_json,
         }
 
@@ -234,6 +237,8 @@ def _collect_candidates_for_seed(
             warnings.append(f"seed_track_id={seed_track_id} source={source} returned no candidates")
             continue
         _merge_source_results(candidates, source, seed_track_id, results)
+    for track_id, accumulator in candidates.items():
+        accumulator.track = db.get_track(track_id)
     return candidates
 
 

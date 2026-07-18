@@ -9,6 +9,7 @@ from typer.testing import CliRunner
 
 import dj_track_similarity.cli as cli
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature
 
 
 def test_eval_import_pair_feedback_cli_upserts_labels(tmp_path: Path) -> None:
@@ -827,6 +828,7 @@ def _save_cli_seed_sample_analysis(db: LibraryDatabase, track_id: int) -> None:
             "key": "1A",
             "key_confidence": 0.9,
         },
+        analysis_signature=expected_sonara_analysis_signature([]),
     )
 
 

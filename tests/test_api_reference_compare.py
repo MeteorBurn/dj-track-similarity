@@ -8,6 +8,7 @@ import numpy as np
 import dj_track_similarity.api as api
 from dj_track_similarity.api import create_app
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature
 
 
 def test_reference_compare_returns_separate_model_groups(monkeypatch, tmp_path: Path) -> None:
@@ -109,8 +110,19 @@ def _reference_library(db_path: Path, tmp_path: Path) -> tuple[LibraryDatabase, 
     _embedding(db, track_ids["muq_top"], "muq", [0.02, 0.0, 0.98])
     _embedding(db, track_ids["seed"], "maest", [0.7, 0.7, 0.0])
     _embedding(db, track_ids["maest_top"], "maest", [0.69, 0.71, 0.0])
-    db.save_sonara_features(track_ids["seed"], {"energy": 0.8, "danceability": 0.8}, energy=0.8)
-    db.save_sonara_features(track_ids["sonara_top"], {"energy": 0.79, "danceability": 0.79}, energy=0.79)
+    signature = expected_sonara_analysis_signature([])
+    db.save_sonara_features(
+        track_ids["seed"],
+        {"energy": 0.8, "danceability": 0.8},
+        energy=0.8,
+        analysis_signature=signature,
+    )
+    db.save_sonara_features(
+        track_ids["sonara_top"],
+        {"energy": 0.79, "danceability": 0.79},
+        energy=0.79,
+        analysis_signature=signature,
+    )
     return db, track_ids
 
 

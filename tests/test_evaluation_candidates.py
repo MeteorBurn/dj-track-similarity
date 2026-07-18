@@ -6,7 +6,11 @@ from pathlib import Path
 import numpy as np
 
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.evaluation.candidates import CandidatePoolRow, export_candidate_pools
+from dj_track_similarity.evaluation.candidates import (
+    CandidatePoolRow,
+    CandidateSourceContribution,
+    export_candidate_pools,
+)
 
 
 def test_export_candidate_pools_deduplicates_and_blinds_deterministically(tmp_path: Path) -> None:
@@ -39,6 +43,7 @@ def test_export_candidate_pools_deduplicates_and_blinds_deterministically(tmp_pa
     }
     assert [row.blind_rank for row in first.rows] == [1, 2, 3]
     assert all(row.candidate_track_id != row.seed_track_id for row in first.rows)
+    assert all(row.candidate_track.metadata is not None for row in first.rows)
 
     shared_row = next(row for row in first.rows if row.candidate_track_id == track_ids["shared"])
     assert json.loads(shared_row.sources_json) == {
@@ -82,6 +87,37 @@ def test_export_candidate_pools_supports_clap_audio_embedding_source(tmp_path: P
     assert len(result.rows) == 1
     assert result.rows[0].candidate_track_id == track_ids["shared"]
     assert list(result.rows[0].source_contributions) == ["clap"]
+
+
+def test_candidate_csv_resolves_tags_without_exporting_stale_sonara_columns(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed_id = _track(db, tmp_path, "seed", artist="Seed", title="Seed", bpm=120.0, energy=0.5)
+    candidate_id = db.upsert_track(
+        path=tmp_path / "candidate.wav",
+        size=10,
+        mtime=1,
+        metadata={"artist": "Candidate", "bpm": [123.0], "key": ["D minor"]},
+        bpm=90.0,
+        musical_key="2B",
+        energy=0.9,
+    )
+    db.save_sonara_features(
+        candidate_id,
+        {"bpm": 90.0, "key_camelot": "2B", "energy": 0.9},
+        bpm=90.0,
+        musical_key="2B",
+        energy=0.9,
+    )
+    row = CandidatePoolRow(
+        seed_track=db.get_track(seed_id),
+        candidate_track=db.get_track(candidate_id),
+        blind_rank=1,
+        source_contributions={"mert": CandidateSourceContribution(rank=1, score=0.9)},
+    ).csv_row()
+
+    assert row["candidate_bpm"] == "123.0"
+    assert row["candidate_key"] == "7A"
+    assert row["candidate_energy"] == ""
 
 
 def _pool_snapshot(rows: tuple[CandidatePoolRow, ...]) -> list[tuple[int, int, int, str]]:

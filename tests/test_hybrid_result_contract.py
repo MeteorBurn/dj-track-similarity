@@ -16,6 +16,8 @@ RISK_BREAKDOWN_KEYS = {
     "texture_clash",
     "mood_clash",
     "vocal_conflict",
+    "grid_instability",
+    "structure_transition",
     "source_disagreement",
     "confidence_missingness",
 }

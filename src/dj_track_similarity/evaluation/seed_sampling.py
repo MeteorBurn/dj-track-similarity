@@ -7,6 +7,9 @@ from pathlib import Path
 import random
 from typing import TYPE_CHECKING
 
+from ..metadata_payload import metadata_from_json
+from ..models import Track
+from ..track_resolution import resolve_track_bpm, resolve_track_energy, resolve_track_key
 from .csv_io import CsvRow, write_csv_rows
 
 if TYPE_CHECKING:
@@ -116,8 +119,9 @@ def load_seed_sample_eligible_tracks(
     with db.connect() as connection:
         rows = connection.execute(
             f"""
-            SELECT id, artist, title, album, bpm, musical_key, energy,
-                   has_sonara_analysis, has_mert_embedding, has_clap_embedding, has_maest_embedding
+            SELECT id, path, size, mtime, artist, title, album, bpm, musical_key, energy, metadata_json,
+                   sonara_analysis_is_current(metadata_json) AS has_sonara_analysis,
+                   has_mert_embedding, has_clap_embedding, has_maest_embedding
             FROM tracks
             {where_sql}
             ORDER BY id
@@ -150,6 +154,7 @@ def write_seed_sample_csv(path: str | Path, rows: Sequence[SeedSampleTrack]) -> 
 def _complete_analysis_where_sql() -> str:
     return """
             WHERE has_sonara_analysis = 1
+              AND sonara_analysis_is_current(metadata_json) = 1
               AND has_mert_embedding = 1
               AND has_clap_embedding = 1
               AND has_maest_embedding = 1
@@ -157,17 +162,33 @@ def _complete_analysis_where_sql() -> str:
 
 
 def _row_to_seed_sample_track(row: Mapping[str, object]) -> SeedSampleTrack:
-    bpm = _optional_float(row["bpm"])
-    energy = _optional_float(row["energy"])
+    has_sonara = bool(row["has_sonara_analysis"])
+    metadata = metadata_from_json(row["metadata_json"])
+    track = Track(
+        id=int(row["id"]),
+        path=str(row["path"]),
+        size=int(row["size"]),
+        mtime=float(row["mtime"]),
+        artist=_optional_text_or_none(row["artist"]),
+        title=_optional_text_or_none(row["title"]),
+        album=_optional_text_or_none(row["album"]),
+        bpm=_optional_float(row["bpm"]),
+        musical_key=_optional_text_or_none(row["musical_key"]),
+        energy=_optional_float(row["energy"]),
+        metadata=metadata,
+    )
+    bpm = resolve_track_bpm(track)
+    energy = resolve_track_energy(track)
+    musical_key = resolve_track_key(track)
     return SeedSampleTrack(
         track_id=int(row["id"]),
         artist=_optional_text_or_none(row["artist"]),
         title=_optional_text_or_none(row["title"]),
         album=_optional_text_or_none(row["album"]),
         bpm=bpm,
-        musical_key=_optional_text_or_none(row["musical_key"]),
+        musical_key=musical_key,
         energy=energy,
-        has_sonara_analysis=bool(row["has_sonara_analysis"]),
+        has_sonara_analysis=has_sonara,
         has_mert_embedding=bool(row["has_mert_embedding"]),
         has_clap_embedding=bool(row["has_clap_embedding"]),
         has_maest_embedding=bool(row["has_maest_embedding"]),
@@ -334,10 +355,33 @@ def _optional_number(value: object) -> str:
 def _optional_float(value: object) -> float | None:
     if value is None:
         return None
-    clean_value = float(value)
+    try:
+        clean_value = float(value)
+    except (TypeError, ValueError):
+        return None
     if not math.isfinite(clean_value):
         return None
     return clean_value
+
+
+def _metadata_first_float(value: object) -> float | None:
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            number = _optional_float(item)
+            if number is not None:
+                return number
+        return None
+    return _optional_float(value)
+
+
+def _metadata_first_text(value: object) -> str | None:
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            text = _optional_text_or_none(item)
+            if text is not None:
+                return text
+        return None
+    return _optional_text_or_none(value)
 
 
 def _analysis_flag(value: bool) -> int:

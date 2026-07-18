@@ -7,6 +7,7 @@ import numpy as np
 
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.evaluation.seed_sampling import SEED_SAMPLE_COLUMNS, export_seed_sample, write_seed_sample_csv
+from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature
 
 
 def test_seed_sample_is_deterministic_for_same_seed(tmp_path: Path) -> None:
@@ -35,6 +36,69 @@ def test_seed_sample_complete_analysis_filter_can_be_relaxed(tmp_path: Path) -> 
     assert _track_ids(complete_result.rows) == [complete_id]
     assert partial_result.eligible_count == 2
     assert set(_track_ids(partial_result.rows)) == {complete_id, partial_id}
+
+
+def test_seed_sample_rejects_stale_sonara_and_does_not_export_its_derived_columns(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = db.upsert_track(
+        path=tmp_path / "stale.wav",
+        size=10,
+        mtime=1,
+        metadata={"artist": "Stale", "bpm": [123.0], "key": ["D minor"]},
+        bpm=90.0,
+        musical_key="8A",
+        energy=0.9,
+    )
+    normalized = np.asarray([1.0, 0.0], dtype=np.float32)
+    for embedding_key in ("mert", "clap", "maest"):
+        db.save_embedding(track_id, normalized, f"test-{embedding_key}", embedding_key=embedding_key)
+    db.save_sonara_features(track_id, {"bpm": 90.0, "energy": 0.9}, bpm=90.0, energy=0.9)
+
+    complete = export_seed_sample(db, count=5, require_complete_analysis=True)
+    relaxed = export_seed_sample(db, count=5, require_complete_analysis=False)
+
+    assert complete.eligible_count == 0
+    assert relaxed.eligible_count == 1
+    row = relaxed.rows[0]
+    assert row.has_sonara_analysis is False
+    assert row.bpm == 123.0
+    assert row.musical_key == "D minor"
+    assert row.energy is None
+
+
+def test_seed_sample_does_not_reuse_old_columns_after_current_empty_reanalysis(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = db.upsert_track(
+        path=tmp_path / "reanalyzed.wav",
+        size=10,
+        mtime=1,
+        metadata={"artist": "Current", "bpm": [123.0], "key": ["D minor"]},
+        bpm=90.0,
+        musical_key="8A",
+        energy=0.9,
+    )
+    normalized = np.asarray([1.0, 0.0], dtype=np.float32)
+    for embedding_key in ("mert", "clap", "maest"):
+        db.save_embedding(track_id, normalized, f"test-{embedding_key}", embedding_key=embedding_key)
+    signature = expected_sonara_analysis_signature([])
+    db.save_sonara_features(
+        track_id,
+        {"bpm": 90.0, "key": "8A", "energy": 0.9},
+        bpm=90.0,
+        musical_key="8A",
+        energy=0.9,
+        analysis_signature=signature,
+    )
+    db.save_sonara_features(track_id, {}, analysis_signature=signature)
+
+    result = export_seed_sample(db, count=1, require_complete_analysis=True)
+
+    assert result.eligible_count == 1
+    row = result.rows[0]
+    assert row.has_sonara_analysis is True
+    assert row.bpm == 123.0
+    assert row.musical_key == "D minor"
+    assert row.energy is None
 
 
 def test_seed_sample_prefers_distinct_known_artists(tmp_path: Path) -> None:
@@ -108,10 +172,17 @@ def _track(db: LibraryDatabase, tmp_path: Path, stem: str, *, artist: str, bpm: 
 
 def _save_complete_analysis(db: LibraryDatabase, track_id: int, *, vector: list[float]) -> None:
     normalized = np.asarray(vector, dtype=np.float32)
+    track = db.get_track(track_id)
     db.save_embedding(track_id, normalized, "test-mert", embedding_key="mert")
     db.save_embedding(track_id, normalized, "test-clap", embedding_key="clap")
     db.save_embedding(track_id, normalized, "test-maest", embedding_key="maest")
-    db.save_sonara_features(track_id, {"bpm": 120.0, "energy": 0.5})
+    db.save_sonara_features(
+        track_id,
+        {"bpm": track.bpm, "energy": track.energy},
+        bpm=track.bpm,
+        energy=track.energy,
+        analysis_signature=expected_sonara_analysis_signature([]),
+    )
 
 
 def _track_ids(rows: tuple[object, ...]) -> list[int]:

@@ -144,6 +144,13 @@ def test_weighted_candidates_require_requested_sources_to_match_profile(tmp_path
 
 def test_weighted_candidate_csv_row_contains_expected_manual_columns(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     db, tracks = _weighted_library(tmp_path)
+    db.save_sonara_features(
+        tracks["mert_top"],
+        {"bpm": 90.0, "key_camelot": "2B", "energy": 0.9},
+        bpm=90.0,
+        musical_key="2B",
+        energy=0.9,
+    )
     rows = (_candidate_row(db, tracks["seed"], tracks["mert_top"], {"mert": (1, 0.9)}),)
     monkeypatch.setattr(weighted_candidates, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
 
@@ -155,6 +162,9 @@ def test_weighted_candidate_csv_row_contains_expected_manual_columns(monkeypatch
     assert csv_row["notes"] == ""
     assert csv_row["source"] == "manual"
     assert csv_row["candidate_album"] == "Album mert_top"
+    assert csv_row["candidate_bpm"] == ""
+    assert csv_row["candidate_musical_key"] == ""
+    assert csv_row["candidate_energy"] == ""
     assert csv_row["transition_risk_weight"] == 0.0
     assert csv_row["transition_risk_penalty"] == 0.0
     assert json.loads(str(csv_row["sources_json"])) == {"mert": {"rank": 1, "score": 0.9}}

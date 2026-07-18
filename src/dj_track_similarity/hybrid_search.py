@@ -416,7 +416,7 @@ def _ranked_result_rows(
         )
         result_rows.append(
             HybridSearchResultRow(
-                track=candidate.candidate.track,
+                track=candidate_track,
                 score=ranked_candidate.adjusted_score,
                 total_score=explanation.total_score,
                 calibrated_score=explanation.calibrated_score,

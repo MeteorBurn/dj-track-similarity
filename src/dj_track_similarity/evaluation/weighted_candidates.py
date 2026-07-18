@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..models import Track
+from ..tempo_resolution import resolve_tempo_evidence
+from ..track_resolution import resolve_track_camelot, resolve_track_energy, resolve_track_key
 from ..transition_diagnostics import TRANSITION_RISK_V2, compute_transition_diagnostics
 from .candidates import (
     ALLOWED_CANDIDATE_SOURCES,
@@ -92,6 +94,7 @@ class WeightedCandidateRow:
         return json.dumps(dict(sorted(self.score_profile_weights.items())), ensure_ascii=False, sort_keys=True)
 
     def csv_row(self) -> CsvRow:
+        candidate_key = resolve_track_camelot(self.candidate_track) or resolve_track_key(self.candidate_track)
         return {
             "seed_track_id": self.seed_track_id,
             "candidate_track_id": self.candidate_track_id,
@@ -111,9 +114,9 @@ class WeightedCandidateRow:
             "candidate_artist": _optional_text(self.candidate_track.artist),
             "candidate_title": _optional_text(self.candidate_track.title),
             "candidate_album": _optional_text(self.candidate_track.album),
-            "candidate_bpm": _optional_number(self.candidate_track.bpm),
-            "candidate_musical_key": _optional_text(self.candidate_track.musical_key),
-            "candidate_energy": _optional_number(self.candidate_track.energy),
+            "candidate_bpm": _optional_number(resolve_tempo_evidence(self.candidate_track).bpm),
+            "candidate_musical_key": _optional_text(candidate_key),
+            "candidate_energy": _optional_number(resolve_track_energy(self.candidate_track)),
             "source_count": self.source_count,
             "sources_json": self.sources_json,
             "score_profile_name": self.score_profile_name,

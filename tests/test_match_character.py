@@ -4,6 +4,7 @@ import math
 
 from dj_track_similarity.hybrid_explanation import MATCH_CHARACTER_AXES, build_hybrid_explanation
 from dj_track_similarity.models import Track
+from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature
 
 
 FORBIDDEN_COPY = ("confidence", "probability", "guaranteed", "perfect transition")
@@ -15,6 +16,8 @@ RISK_BREAKDOWN_KEYS = {
     "texture_clash",
     "mood_clash",
     "vocal_conflict",
+    "grid_instability",
+    "structure_transition",
     "source_disagreement",
     "confidence_missingness",
 }
@@ -94,6 +97,7 @@ def _track(track_id: int, *, bpm: float | None = None, energy: float | None = No
     metadata: dict[str, object] = {"artist": f"Artist {track_id}", "title": f"Track {track_id}"}
     if features is not None:
         metadata["sonara_features"] = features
+        metadata["sonara_analysis_signature"] = expected_sonara_analysis_signature([])
     return Track(
         id=track_id,
         path=f"/tmp/{track_id}.wav",

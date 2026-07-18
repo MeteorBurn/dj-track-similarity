@@ -7,8 +7,23 @@ from typing import Any
 
 from .metadata_payload import optional_float
 from .models import Track
+from .sonara_contract import current_sonara_features
 from .sonara_similarity_scoring import unwrap_feature_value
-from .track_resolution import camelot_compatibility, resolve_track_bpm, resolve_track_key
+from .tempo_resolution import (
+    LOW_BPM_CONFIDENCE,
+    confidence_aware_tempo_risk,
+    resolve_tempo_evidence,
+    tempo_pair_reliability,
+)
+from .track_resolution import (
+    attenuate_harmonic_score,
+    canonical_camelot,
+    camelot_compatibility,
+    resolve_track_camelot,
+    resolve_track_energy,
+    resolve_track_key,
+    resolve_track_key_confidence,
+)
 
 
 TRANSITION_RISK_V1 = "v1"
@@ -26,6 +41,8 @@ COMPONENT_NAMES = (
     "texture_clash_risk",
     "mood_clash_risk",
     "vocal_conflict_risk",
+    "grid_instability_risk",
+    "structure_transition_risk",
     "confidence_missingness_risk",
 )
 V2_COMPONENT_WEIGHTS = {
@@ -37,6 +54,8 @@ V2_COMPONENT_WEIGHTS = {
     "texture_clash_risk": 0.75,
     "mood_clash_risk": 0.75,
     "vocal_conflict_risk": 0.6,
+    "grid_instability_risk": 0.6,
+    "structure_transition_risk": 0.65,
     "confidence_missingness_risk": 0.4,
 }
 DENSITY_FEATURE_FIELDS = ("onset_density", "rhythm_density", "rms_mean", "loudness_lufs", "dynamic_range_db")
@@ -74,6 +93,16 @@ class TransitionDiagnostics:
     components_v1: dict[str, float | None] | None = None
 
 
+def structure_transition_score(
+    seed_track: Mapping[str, Any] | Track,
+    candidate_track: Mapping[str, Any] | Track,
+) -> float | None:
+    """Return the stored-structure compatibility used by transition risk and SET ordering."""
+
+    risk, _warning = _structure_transition_risk(seed_track, candidate_track)
+    return None if risk is None else _clamp(1.0 - risk)
+
+
 def compute_transition_diagnostics(
     seed_track: Mapping[str, Any] | Track,
     candidate_track: Mapping[str, Any] | Track,
@@ -87,8 +116,8 @@ def compute_transition_diagnostics(
 
     clean_risk_version = _risk_version(risk_version)
     clean_classifier_risk_weights = _clean_classifier_risk_weights(classifier_risk_weights)
-    bpm_risk, bpm_warning = _bpm_risk(_track_bpm(seed_track), _track_bpm(candidate_track))
-    key_risk, key_warning = _key_risk(_track_key(seed_track), _track_key(candidate_track))
+    bpm_risk, bpm_warning = _bpm_risk(_legacy_track_bpm(seed_track), _legacy_track_bpm(candidate_track))
+    key_risk, key_warning = _legacy_key_risk(_legacy_track_key(seed_track), _legacy_track_key(candidate_track))
     energy_risk, energy_warning = _energy_jump_risk(_track_energy(seed_track), _track_energy(candidate_track))
     source_risk, source_warning = _source_disagreement_risk(source_count, max_source_count)
     v1_components = {
@@ -114,6 +143,8 @@ def compute_transition_diagnostics(
             components_v1=dict(v1_components),
         )
 
+    bpm_risk, bpm_warning = _confidence_aware_bpm_risk(seed_track, candidate_track)
+    key_risk, key_warning = _key_risk(seed_track, candidate_track)
     density_risk, density_warning = _feature_group_risk(seed_track, candidate_track, DENSITY_FEATURE_FIELDS, "missing_density_features")
     texture_risk, texture_warning = _feature_group_risk(seed_track, candidate_track, TEXTURE_FEATURE_FIELDS, "missing_texture_features")
     mood_risk, mood_warning = _feature_group_risk(seed_track, candidate_track, MOOD_FEATURE_FIELDS, "missing_mood_features")
@@ -122,23 +153,34 @@ def compute_transition_diagnostics(
         candidate_track,
         classifier_risk_weights=clean_classifier_risk_weights,
     )
+    grid_risk, grid_warning = _grid_instability_risk(seed_track, candidate_track)
+    structure_risk, structure_warning = _structure_transition_risk(seed_track, candidate_track)
     components = {
         **v1_components,
+        "bpm_risk": bpm_risk,
+        "key_risk": key_risk,
         "density_jump_risk": density_risk,
         "texture_clash_risk": texture_risk,
         "mood_clash_risk": mood_risk,
         "vocal_conflict_risk": vocal_risk,
+        "grid_instability_risk": grid_risk,
+        "structure_transition_risk": structure_risk,
     }
     missingness_risk, missingness_warning = _confidence_missingness_risk(components)
     components["confidence_missingness_risk"] = missingness_risk
     warnings = [
         warning
         for warning in (
-            *v1_warnings,
+            bpm_warning,
+            key_warning,
+            energy_warning,
+            source_warning,
             density_warning,
             texture_warning,
             mood_warning,
             vocal_warning,
+            grid_warning,
+            structure_warning,
             missingness_warning,
         )
         if warning is not None
@@ -163,10 +205,51 @@ def _bpm_risk(seed_bpm: float | None, candidate_bpm: float | None) -> tuple[floa
     return _clamp(relative_delta / 0.12), None
 
 
-def _key_risk(seed_key: str | None, candidate_key: str | None) -> tuple[float | None, str | None]:
+def _confidence_aware_bpm_risk(
+    seed_track: Mapping[str, Any] | Track,
+    candidate_track: Mapping[str, Any] | Track,
+) -> tuple[float | None, str | None]:
+    seed_tempo = resolve_tempo_evidence(seed_track)
+    candidate_tempo = resolve_tempo_evidence(candidate_track)
+    risk = confidence_aware_tempo_risk(candidate_tempo, seed_tempo)
+    if risk is None:
+        return None, "missing_bpm"
+    warning = "low_bpm_confidence" if tempo_pair_reliability(candidate_tempo, seed_tempo) < LOW_BPM_CONFIDENCE else None
+    return risk, warning
+
+
+def _key_risk(
+    seed_track: Mapping[str, Any] | Track,
+    candidate_track: Mapping[str, Any] | Track,
+) -> tuple[float | None, str | None]:
+    seed_key = _track_key(seed_track)
+    candidate_key = _track_key(candidate_track)
     if seed_key is None or candidate_key is None:
         return None, "missing_key"
     _relation, compatibility_score = camelot_compatibility(candidate_key, seed_key)
+    seed_confidence = resolve_track_key_confidence(seed_track)
+    candidate_confidence = resolve_track_key_confidence(candidate_track)
+    compatibility_score = attenuate_harmonic_score(
+        compatibility_score,
+        seed_confidence,
+        candidate_confidence,
+    )
+    confidence_values = [value for value in (seed_confidence, candidate_confidence) if value is not None]
+    warning = None
+    if confidence_values and math.prod(confidence_values) ** (1.0 / len(confidence_values)) < 0.45:
+        warning = "low_key_confidence"
+    return _clamp(1.0 - compatibility_score), warning
+
+
+def _legacy_key_risk(seed_key: str | None, candidate_key: str | None) -> tuple[float | None, str | None]:
+    if seed_key is None or candidate_key is None:
+        return None, "missing_key"
+    seed_camelot = canonical_camelot(seed_key)
+    candidate_camelot = canonical_camelot(candidate_key)
+    if seed_camelot is None or candidate_camelot is None:
+        compatibility_score = 1.0 if seed_key.strip().casefold() == candidate_key.strip().casefold() else 0.55
+    else:
+        _relation, compatibility_score = camelot_compatibility(candidate_camelot, seed_camelot)
     return _clamp(1.0 - compatibility_score), None
 
 
@@ -222,6 +305,14 @@ def _feature_similarity(seed_features: Mapping[str, Any], candidate_features: Ma
 
 
 def _numeric_values(value: object) -> tuple[float, ...]:
+    if isinstance(value, Mapping):
+        summary = value.get("summary")
+        if isinstance(summary, Mapping):
+            return tuple(
+                number
+                for key in ("mean", "std", "min", "max")
+                if (number := optional_float(summary.get(key))) is not None
+            )
     unwrapped = unwrap_feature_value(value)
     if isinstance(unwrapped, Mapping):
         summary = unwrapped.get("summary")
@@ -267,6 +358,64 @@ def _vocal_conflict_risk(
     return None, None
 
 
+def _grid_instability_risk(
+    seed_track: Mapping[str, Any] | Track,
+    candidate_track: Mapping[str, Any] | Track,
+) -> tuple[float | None, str | None]:
+    seed_features = _track_sonara_features(seed_track)
+    candidate_features = _track_sonara_features(candidate_track)
+    if seed_features is None and candidate_features is None:
+        return None, None
+    if seed_features is None or candidate_features is None:
+        return None, "missing_grid_stability"
+    seed_stability = _unit_feature(seed_features, "grid_stability")
+    candidate_stability = _unit_feature(candidate_features, "grid_stability")
+    if seed_stability is None or candidate_stability is None:
+        return None, "missing_grid_stability"
+    reliability = math.sqrt(seed_stability * candidate_stability)
+    return _clamp(1.0 - reliability), None
+
+
+def _structure_transition_risk(
+    seed_track: Mapping[str, Any] | Track,
+    candidate_track: Mapping[str, Any] | Track,
+) -> tuple[float | None, str | None]:
+    seed_features = _track_sonara_features(seed_track)
+    candidate_features = _track_sonara_features(candidate_track)
+    if seed_features is None and candidate_features is None:
+        return None, None
+    if seed_features is None or candidate_features is None:
+        return None, "missing_structure_features"
+
+    risks: list[float] = []
+    seed_outro_start = _feature_number(seed_features, "outro_start_sec")
+    seed_duration = _track_duration(seed_track, seed_features)
+    candidate_intro_end = _feature_number(candidate_features, "intro_end_sec")
+    if seed_outro_start is not None and seed_duration is not None and candidate_intro_end is not None:
+        outro_length = max(0.0, seed_duration - seed_outro_start)
+        intro_length = max(0.0, candidate_intro_end)
+        shared_mix_window = min(outro_length, intro_length)
+        risks.append(_clamp(1.0 - shared_mix_window / 16.0))
+
+    seed_boundary_energy = _segment_boundary_energy(seed_features, use_last=True)
+    candidate_boundary_energy = _segment_boundary_energy(candidate_features, use_last=False)
+    if seed_boundary_energy is not None and candidate_boundary_energy is not None:
+        risks.append(_clamp(abs(candidate_boundary_energy - seed_boundary_energy)))
+
+    seed_energy_level = _feature_number(seed_features, "energy_level")
+    candidate_energy_level = _feature_number(candidate_features, "energy_level")
+    if seed_energy_level is not None and candidate_energy_level is not None:
+        risks.append(_clamp(abs(candidate_energy_level - seed_energy_level) / 10.0))
+
+    curve_similarity = _feature_similarity(seed_features, candidate_features, "energy_curve_summary")
+    if curve_similarity is not None:
+        risks.append(_clamp(1.0 - curve_similarity))
+
+    if not risks:
+        return None, "missing_structure_features"
+    return _mean(risks), None
+
+
 def _confidence_missingness_risk(components: Mapping[str, float | None]) -> tuple[float | None, str | None]:
     present_optional = [name for name in MISSINGNESS_COMPONENT_NAMES if components.get(name) is not None]
     if not present_optional:
@@ -277,20 +426,74 @@ def _confidence_missingness_risk(components: Mapping[str, float | None]) -> tupl
     return _clamp((missing_count / len(MISSINGNESS_COMPONENT_NAMES)) * 0.35), "partial_risk_feature_coverage"
 
 
-def _track_bpm(track: Mapping[str, Any] | Track) -> float | None:
-    return resolve_track_bpm(track)
+def _legacy_track_bpm(track: Mapping[str, Any] | Track) -> float | None:
+    metadata = _track_metadata(track)
+    features = _track_sonara_features(track)
+    if features is not None:
+        sonara_bpm = optional_float(unwrap_feature_value(features.get("bpm")))
+        if sonara_bpm is not None:
+            return sonara_bpm
+    metadata_bpm = _metadata_first_number(metadata.get("bpm"))
+    if metadata_bpm is not None:
+        return metadata_bpm
+    if not isinstance(track, Mapping) and isinstance(metadata.get("sonara_features"), Mapping):
+        return None
+    return optional_float(_track_value(track, "bpm"))
+
+
+def _metadata_first_number(value: object) -> float | None:
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            number = optional_float(item)
+            if number is not None:
+                return number
+        return None
+    return optional_float(value)
 
 
 def _track_key(track: Mapping[str, Any] | Track) -> str | None:
+    return resolve_track_camelot(track)
+
+
+def _legacy_track_key(track: Mapping[str, Any] | Track) -> str | None:
     return resolve_track_key(track)
 
 
+def _track_duration(track: Mapping[str, Any] | Track, features: Mapping[str, Any]) -> float | None:
+    return optional_float(
+        _first_present(
+            unwrap_feature_value(features.get("duration_sec")),
+            _track_value(track, "duration"),
+            _track_metadata(track).get("duration"),
+        )
+    )
+
+
+def _feature_number(features: Mapping[str, Any], field: str) -> float | None:
+    return optional_float(unwrap_feature_value(features.get(field)))
+
+
+def _unit_feature(features: Mapping[str, Any], field: str) -> float | None:
+    value = _feature_number(features, field)
+    return _clamp(value) if value is not None else None
+
+
+def _segment_boundary_energy(features: Mapping[str, Any], *, use_last: bool) -> float | None:
+    segments = unwrap_feature_value(features.get("segments"))
+    if not isinstance(segments, (list, tuple)) or not segments:
+        return None
+    segment = segments[-1] if use_last else segments[0]
+    if not isinstance(segment, Mapping):
+        return None
+    return optional_float(unwrap_feature_value(segment.get("energy")))
+
+
 def _track_energy(track: Mapping[str, Any] | Track) -> float | None:
-    return optional_float(_first_present(_track_value(track, "energy"), _track_metadata(track).get("energy")))
+    return resolve_track_energy(track)
 
 
 def _track_sonara_features(track: Mapping[str, Any] | Track) -> Mapping[str, Any] | None:
-    features = _track_metadata(track).get("sonara_features")
+    features = current_sonara_features(_track_metadata(track), allow_unsigned=isinstance(track, Mapping))
     return features if isinstance(features, Mapping) else None
 
 

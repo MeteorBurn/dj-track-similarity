@@ -3,8 +3,6 @@ from __future__ import annotations
 import json
 from collections import Counter
 from dataclasses import dataclass, field, replace
-from math import inf
-from typing import Any
 
 import numpy as np
 
@@ -23,7 +21,24 @@ from .set_sequence import (
     uses_pending_seed_artist as _uses_pending_seed_artist,
 )
 from .sonara_similarity_scoring import unwrap_feature_value
-from .track_resolution import camelot_compatibility, resolve_track_bpm, resolve_track_key
+from .sonara_contract import SONARA_ANALYSIS_SIGNATURE_KEY, sonara_analysis_signature_errors
+from .tempo_resolution import (
+    LOW_BPM_CONFIDENCE,
+    TempoEvidence,
+    best_tempo_distance,
+    confidence_aware_target_score,
+    confidence_aware_tempo_score,
+    resolve_tempo_evidence,
+)
+from .transition_diagnostics import structure_transition_score
+from .track_resolution import (
+    attenuate_harmonic_score,
+    camelot_compatibility,
+    resolve_track_camelot,
+    resolve_track_energy,
+    resolve_track_key,
+    resolve_track_key_confidence,
+)
 
 
 SET_BUILDER_MODES = {"similar_crate", "weird_adjacent", "balanced_set", "discovery"}
@@ -82,7 +97,6 @@ SONARA_NUMERIC_FIELDS: dict[str, tuple[str, float]] = {
     "danceability": ("perception", 1.0),
     "valence": ("perception", 0.7),
     "acousticness": ("perception", 0.7),
-    "key_confidence": ("tonal", 0.5),
     "chord_change_rate": ("tonal", 0.8),
     "dissonance": ("tonal", 0.8),
     "spectral_centroid_mean": ("timbre", 0.8),
@@ -100,6 +114,18 @@ SONARA_NUMERIC_FIELDS: dict[str, tuple[str, float]] = {
     "chroma_mean.summary.mean": ("tonal", 0.7),
     "chroma_mean.summary.std": ("tonal", 0.55),
 }
+SONARA_AUXILIARY_FIELDS = (
+    "bpm_confidence",
+    "bpm_candidates",
+    "grid_stability",
+    "key_confidence",
+    "duration_sec",
+    "intro_end_sec",
+    "outro_start_sec",
+    "energy_level",
+    "segments",
+    "energy_curve_summary",
+)
 QUICK_DIVERSITY_FIELDS = (
     "energy",
     "danceability",
@@ -231,8 +257,9 @@ class SmartSetBuilder:
         summary = self.db.library_summary()
         classifier_scores_field = TRACK_CLASSIFIER_SCORES_FIELD if config and _uses_classifier_config(config) else "NULL AS classifier_scores_json"
         numeric_paths, numeric_slices = _json_path_plan(SONARA_NUMERIC_FIELDS)
-        text_paths, text_slices = _json_path_plan(("predominant_chord", "key"))
-        metadata_paths = ("$.bpm[0]", "$.bpm", "$.key[0]", "$.key", "$.initialkey[0]", "$.initialkey")
+        auxiliary_paths, auxiliary_slices = _json_path_plan(SONARA_AUXILIARY_FIELDS)
+        text_paths, text_slices = _json_path_plan(("predominant_chord", "key", "key_camelot"))
+        metadata_paths = ("$.bpm", "$.bpm[0]", "$.key", "$.key[0]", "$.initialkey", "$.initialkey[0]")
         with self.db.connect() as connection:
             rows = connection.execute(
                 f"""
@@ -241,11 +268,14 @@ class SmartSetBuilder:
                     t.bpm, t.musical_key, t.energy, t.duration,
                     EXISTS(SELECT 1 FROM track_likes tl WHERE tl.track_id = t.id) AS liked,
                     {_json_extract_sql("t.metadata_json", numeric_paths)} AS sonara_values_json,
+                    {_json_extract_sql("t.metadata_json", auxiliary_paths)} AS sonara_auxiliary_json,
                     {_json_extract_sql("t.metadata_json", text_paths)} AS sonara_text_json,
                     {_json_extract_sql("t.metadata_json", metadata_paths)} AS metadata_values_json,
+                    json_extract(t.metadata_json, '$.sonara_analysis_signature') AS sonara_signature_json,
                     {classifier_scores_field}
                 FROM tracks t
                 WHERE t.has_sonara_analysis = 1
+                  AND sonara_analysis_is_current(t.metadata_json) = 1
                   AND t.has_mert_embedding = 1
                   AND t.has_maest_embedding = 1
                   AND t.has_clap_embedding = 1
@@ -254,9 +284,15 @@ class SmartSetBuilder:
             ).fetchall()
         candidates: list[_LightCandidate] = []
         for row in rows:
+            signature = _json_object(row["sonara_signature_json"])
+            if sonara_analysis_signature_errors(signature):
+                continue
             values = _values_from_json_row(row["sonara_values_json"], numeric_slices)
             text_values, sonara_features = _text_and_feature_values_from_json_row(row["sonara_text_json"], text_slices)
+            sonara_features.update(_feature_values_from_json_row(row["sonara_auxiliary_json"], auxiliary_slices))
             metadata = _metadata_from_json_row(row["metadata_values_json"])
+            metadata["sonara_features"] = sonara_features
+            metadata[SONARA_ANALYSIS_SIGNATURE_KEY] = signature
             track = Track(
                 id=int(row["id"]),
                 path=str(row["path"]),
@@ -791,14 +827,14 @@ def _chunks(values: list[int], size: int):
 def _json_path_plan(fields) -> tuple[tuple[str, ...], dict[str, slice]]:
     paths: list[str] = []
     slices: dict[str, slice] = {}
-    for field in fields:
+    for field_name in fields:
         start = len(paths)
-        parts = str(field).split(".")
+        parts = str(field_name).split(".")
         if len(parts) == 3 and parts[1] == "summary":
             paths.append(f"$.sonara_features.{parts[0]}.summary.{parts[2]}")
         else:
-            paths.extend((f"$.sonara_features.{field}.value", f"$.sonara_features.{field}"))
-        slices[str(field)] = slice(start, len(paths))
+            paths.extend((f"$.sonara_features.{field_name}.value", f"$.sonara_features.{field_name}"))
+        slices[str(field_name)] = slice(start, len(paths))
     return tuple(paths), slices
 
 
@@ -854,9 +890,20 @@ def _text_and_feature_values_from_json_row(raw: object, slices: dict[str, slice]
             continue
         if key == "predominant_chord":
             text_values[key] = text.casefold()
-        elif key == "key":
+        elif key in {"key", "key_camelot"}:
             sonara_features[key] = text
     return text_values, sonara_features
+
+
+def _feature_values_from_json_row(raw: object, slices: dict[str, slice]) -> dict[str, object]:
+    row_values = _json_array(raw)
+    values: dict[str, object] = {}
+    for key, value_slice in slices.items():
+        value = _first_present(row_values, value_slice)
+        if value is not None:
+            unwrapped = unwrap_feature_value(value)
+            values[key] = value if unwrapped is None and isinstance(value, dict) else unwrapped
+    return values
 
 
 def _metadata_from_json_row(raw: object) -> dict[str, object]:
@@ -908,7 +955,13 @@ def _prefilter_light_candidates(
     if seed_candidates:
         seed_centroid = _sonara_centroid(seed_candidates, ranges)
         chord_context = _text_context(seed_candidates, "predominant_chord")
-        seed_scores = _sonara_similarity_scores_to_centroid(available, ranges, seed_centroid, chord_context)
+        seed_scores = _sonara_similarity_scores_to_centroid(
+            available,
+            ranges,
+            seed_centroid,
+            chord_context,
+            tempo_context=seed_candidates,
+        )
 
         def sonara_score(candidate: _LightCandidate) -> float:
             return seed_scores.get(candidate.track.id, 0.0)
@@ -1020,20 +1073,31 @@ def _embedding_similarity(candidate: _Candidate, context: _Context, key: str) ->
 def _sonara_similarity(candidate: _Candidate, context: _Context) -> tuple[float | None, dict[str, float]]:
     seed_centroid = context.sonara_centroid or _sonara_centroid(context.seeds, context.ranges)
     chord_context = context.chord_context or _text_context(context.seeds, "predominant_chord")
-    return _sonara_similarity_to_centroid(candidate, context.ranges, seed_centroid, chord_context)
+    return _sonara_similarity_to_centroid(
+        candidate,
+        context.ranges,
+        seed_centroid,
+        chord_context,
+        tempo_context=context.seeds,
+    )
 
 
-def _global_sonara_centrality_scores(candidates: list[_Candidate], ranges: dict[str, tuple[float, float]]) -> dict[int, float]:
+def _global_sonara_centrality_scores(
+    candidates: list[_LightCandidate] | list[_Candidate],
+    ranges: dict[str, tuple[float, float]],
+) -> dict[int, float]:
     seed_centroid = _sonara_centroid(candidates, ranges)
     chord_context = _text_context(candidates, "predominant_chord")
     return _sonara_similarity_scores_to_centroid(candidates, ranges, seed_centroid, chord_context)
 
 
 def _sonara_similarity_scores_to_centroid(
-    candidates: list[_Candidate],
+    candidates: list[_LightCandidate] | list[_Candidate],
     ranges: dict[str, tuple[float, float]],
     seed_centroid: dict[str, float],
     chord_context: set[str],
+    *,
+    tempo_context: list[_LightCandidate] | list[_Candidate] | None = None,
 ) -> dict[int, float]:
     if not candidates:
         return {}
@@ -1046,6 +1110,27 @@ def _sonara_similarity_scores_to_centroid(
         for group in SONARA_GROUP_WEIGHTS
     }
     for key, centroid in seed_centroid.items():
+        if key == "bpm":
+            if not tempo_context:
+                # Global auto-centrality must stay O(N), and confidence is not a similarity
+                # dimension. Seeded paths pass their small context explicitly for pairwise tempo.
+                continue
+            raw_scores = np.array(
+                [
+                    score if (score := _tempo_similarity_for_candidate(candidate, tempo_context)) is not None else np.nan
+                    for candidate in candidates
+                ],
+                dtype=np.float32,
+            )
+            mask = np.isfinite(raw_scores)
+            if not np.any(mask):
+                continue
+            scores = np.zeros(len(candidates), dtype=np.float32)
+            scores[mask] = raw_scores[mask]
+            group, weight = SONARA_NUMERIC_FIELDS[key]
+            group_score_sums[group] += scores * weight
+            group_weight_sums[group][mask] += weight
+            continue
         value_range = ranges.get(key)
         if value_range is None:
             continue
@@ -1101,16 +1186,23 @@ def _sonara_similarity_to_centroid(
     ranges: dict[str, tuple[float, float]],
     seed_centroid: dict[str, float],
     chord_context: set[str],
+    *,
+    tempo_context: list[_Candidate] | None = None,
 ) -> tuple[float | None, dict[str, float]]:
     group_scores: dict[str, list[tuple[float, float]]] = {group: [] for group in SONARA_GROUP_WEIGHTS}
     for key, value in candidate.sonara_values.items():
         if key not in seed_centroid or key not in ranges:
             continue
-        normalized = _normalize(value, ranges[key])
-        if normalized is None:
-            continue
         group, weight = SONARA_NUMERIC_FIELDS[key]
-        score = max(0.0, 1.0 - abs(normalized - seed_centroid[key]))
+        if key == "bpm":
+            score = _tempo_similarity_for_candidate(candidate, tempo_context or [])
+            if score is None:
+                continue
+        else:
+            normalized = _normalize(value, ranges[key])
+            if normalized is None:
+                continue
+            score = max(0.0, 1.0 - abs(normalized - seed_centroid[key]))
         group_scores[group].append((score, weight))
 
     candidate_chord = candidate.text_values.get("predominant_chord")
@@ -1133,7 +1225,10 @@ def _sonara_similarity_to_centroid(
     return _bounded(weighted_total / weight_total), collapsed
 
 
-def _sonara_centroid(seeds: list[_Candidate], ranges: dict[str, tuple[float, float]]) -> dict[str, float]:
+def _sonara_centroid(
+    seeds: list[_LightCandidate] | list[_Candidate],
+    ranges: dict[str, tuple[float, float]],
+) -> dict[str, float]:
     centroid: dict[str, float] = {}
     for key in ranges:
         values = [
@@ -1147,7 +1242,20 @@ def _sonara_centroid(seeds: list[_Candidate], ranges: dict[str, tuple[float, flo
     return centroid
 
 
-def _text_context(seeds: list[_Candidate], key: str) -> set[str]:
+def _tempo_similarity_for_candidate(
+    candidate: _LightCandidate | _Candidate,
+    references: list[_LightCandidate] | list[_Candidate],
+) -> float | None:
+    candidate_tempo = _tempo_evidence(candidate)
+    scores: list[float] = []
+    for reference in references:
+        score = confidence_aware_tempo_score(candidate_tempo, _tempo_evidence(reference))
+        if score is not None:
+            scores.append(score)
+    return float(np.mean(scores)) if scores else None
+
+
+def _text_context(seeds: list[_LightCandidate] | list[_Candidate], key: str) -> set[str]:
     values = [seed.text_values.get(key) for seed in seeds if seed.text_values.get(key)]
     if not values:
         return set()
@@ -1485,9 +1593,10 @@ def _energy_curve_score(candidate: _Candidate, curve: str, position: int, target
 
 
 def _track_energy(candidate: _Candidate) -> float | None:
-    if candidate.track.energy is not None:
-        return _bounded(float(candidate.track.energy))
-    value = candidate.sonara_values.get("energy")
+    sonara_features = dict(candidate.sonara_features)
+    if (energy := candidate.sonara_values.get("energy")) is not None:
+        sonara_features["energy"] = energy
+    value = resolve_track_energy(candidate.track, sonara_features=sonara_features)
     return _bounded(value) if value is not None else None
 
 
@@ -1497,11 +1606,11 @@ def _bpm_plan(config: SetBuilderConfig, candidates: list[_Candidate], seeds: lis
     bpms = [
         bpm
         for candidate in candidates
-        if (bpm := _usable_bpm(_track_bpm(candidate))) is not None
+        if (bpm := _reliable_track_bpm(candidate)) is not None
     ]
     if not bpms:
         return None
-    seed_bpm = _usable_bpm(_track_bpm(seeds[0])) if seeds else None
+    seed_bpm = _reliable_track_bpm(seeds[0]) if seeds else None
     if config.bpm_mode == "low_to_high":
         start = _first_bpm(config.bpm_start, seed_bpm, min(bpms))
         target = config.bpm_target if config.bpm_target is not None else max(bpms)
@@ -1531,12 +1640,10 @@ def _bpm_curve_weight(mode: str, bpm_plan: _BpmPlan | None) -> float:
 def _bpm_curve_score(candidate: _Candidate, bpm_plan: _BpmPlan | None, position: int, target_count: int) -> float:
     if bpm_plan is None:
         return 0.5
-    bpm = _usable_bpm(_track_bpm(candidate))
-    if bpm is None:
-        return 0.5
     desired = _bpm_curve_target(bpm_plan, position, target_count)
     tolerance = _bpm_curve_tolerance(bpm_plan)
-    return _bounded(1.0 - abs(bpm - desired) / tolerance)
+    score = confidence_aware_target_score(_tempo_evidence(candidate), desired, tolerance)
+    return 0.5 if score is None else score
 
 
 def _bpm_curve_target(bpm_plan: _BpmPlan, position: int, target_count: int) -> float:
@@ -1577,40 +1684,84 @@ def _transition(previous: _Candidate | None, candidate: _Candidate) -> dict[str,
             "key_relation": "anchor",
             "confidence": 1.0,
         }
-    bpm_delta = _tempo_distance(_track_bpm(candidate), _track_bpm(previous))
-    bpm_score = 0.55 if bpm_delta is None else max(0.0, 1.0 - bpm_delta / 18.0)
-    key_relation, key_score = _key_relation(_track_key(candidate), _track_key(previous))
-    confidence = _bounded(bpm_score * 0.6 + key_score * 0.4)
+    candidate_tempo = _tempo_evidence(candidate)
+    previous_tempo = _tempo_evidence(previous)
+    bpm_delta = _tempo_evidence_distance(candidate_tempo, previous_tempo)
+    bpm_score = confidence_aware_tempo_score(candidate_tempo, previous_tempo)
+    if bpm_score is None:
+        bpm_score = 0.5
+    key_relation, key_score = _key_relation(
+        _track_key(candidate),
+        _track_key(previous),
+        _track_key_confidence(candidate),
+        _track_key_confidence(previous),
+    )
+    structure_score = structure_transition_score(_transition_track_view(previous), _transition_track_view(candidate))
+    if structure_score is None:
+        confidence = _bounded(bpm_score * 0.6 + key_score * 0.4)
+    else:
+        confidence = _bounded(bpm_score * 0.5 + key_score * 0.3 + structure_score * 0.2)
     return {
         "from_track_id": previous.track.id,
         "bpm_delta": bpm_delta,
         "key_relation": key_relation,
+        "structure_score": structure_score,
         "confidence": confidence,
     }
 
 
 def _track_bpm(candidate: _Candidate) -> float | None:
-    return resolve_track_bpm(
+    return _tempo_evidence(candidate).bpm
+
+
+def _tempo_evidence(candidate: _LightCandidate | _Candidate) -> TempoEvidence:
+    return resolve_tempo_evidence(
         candidate.track,
         sonara_values=candidate.sonara_values,
         sonara_features=candidate.sonara_features,
     )
 
 
-def _track_key(candidate: _Candidate) -> str | None:
-    return resolve_track_key(candidate.track, sonara_features=candidate.sonara_features)
+def _transition_track_view(candidate: _Candidate) -> dict[str, object]:
+    return {
+        "duration": candidate.track.duration,
+        "metadata": {"sonara_features": candidate.sonara_features},
+    }
 
 
-def _tempo_distance(candidate_bpm: float | None, previous_bpm: float | None) -> float | None:
-    if candidate_bpm is None or previous_bpm is None:
+def _reliable_track_bpm(candidate: _LightCandidate | _Candidate) -> float | None:
+    evidence = _tempo_evidence(candidate)
+    if evidence.reliability < LOW_BPM_CONFIDENCE:
         return None
-    candidate_variants = [candidate_bpm / 2, candidate_bpm, candidate_bpm * 2]
-    previous_variants = [previous_bpm / 2, previous_bpm, previous_bpm * 2]
-    return min(abs(candidate - previous) for candidate in candidate_variants for previous in previous_variants)
+    return _usable_bpm(evidence.bpm)
 
 
-def _key_relation(candidate_key: str | None, previous_key: str | None) -> tuple[str, float]:
-    return camelot_compatibility(candidate_key, previous_key)
+def _track_key(candidate: _Candidate) -> str | None:
+    return resolve_track_camelot(candidate.track, sonara_features=candidate.sonara_features)
+
+
+def _track_key_confidence(candidate: _Candidate) -> float | None:
+    return resolve_track_key_confidence(candidate.track, sonara_features=candidate.sonara_features)
+
+
+def _tempo_evidence_distance(candidate: TempoEvidence, previous: TempoEvidence) -> float | None:
+    if candidate.bpm is None or previous.bpm is None:
+        return None
+    return min(
+        best_tempo_distance(candidate_bpm, previous_bpm)
+        for candidate_bpm in candidate.alternatives or (candidate.bpm,)
+        for previous_bpm in previous.alternatives or (previous.bpm,)
+    )
+
+
+def _key_relation(
+    candidate_key: str | None,
+    previous_key: str | None,
+    candidate_confidence: float | None = None,
+    previous_confidence: float | None = None,
+) -> tuple[str, float]:
+    relation, score = camelot_compatibility(candidate_key, previous_key)
+    return relation, attenuate_harmonic_score(score, candidate_confidence, previous_confidence)
 
 
 def _combined_similarity(candidate: _Candidate, seed: _Candidate, ranges: dict[str, tuple[float, float]]) -> float:
@@ -1686,7 +1837,13 @@ def _item(
 ) -> dict[str, object]:
     return {
         "candidate": candidate,
-        "track": replace(candidate.track, bpm=_track_bpm(candidate)),
+        "track": replace(
+            candidate.track,
+            bpm=_track_bpm(candidate),
+            musical_key=_track_key(candidate)
+            or resolve_track_key(candidate.track, sonara_features=candidate.sonara_features),
+            energy=_track_energy(candidate),
+        ),
         "reason": reason,
         "score": _bounded(score),
         "score_breakdown": {key: round(float(value), 6) for key, value in breakdown.items()},

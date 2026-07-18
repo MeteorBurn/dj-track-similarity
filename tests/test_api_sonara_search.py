@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 import dj_track_similarity.api as api
 from dj_track_similarity.api import create_app
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature
 
 
 def test_sonara_search_endpoint_uses_stored_sonara_features(monkeypatch, tmp_path: Path) -> None:
@@ -140,6 +141,7 @@ def _add_sonara_track(db: LibraryDatabase, name: str, features: dict[str, float 
         musical_key=str(musical_key) if musical_key else None,
         energy=float(energy) if isinstance(energy, (float, int, str)) else None,
         duration=float(duration) if isinstance(duration, (float, int, str)) else None,
+        analysis_signature=expected_sonara_analysis_signature([]),
     )
     return track_id
 

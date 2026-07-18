@@ -3,11 +3,12 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
-from math import inf
-
 import numpy as np
 
 from .models import Track
+from .sonara_contract import current_sonara_features
+from .tempo_resolution import confidence_aware_tempo_score, measured_tempo_score, resolve_tempo_evidence
+from .track_resolution import attenuate_harmonic_score, camelot_compatibility
 
 
 @dataclass(frozen=True)
@@ -42,7 +43,6 @@ DJ_NUMERIC_WEIGHTS = {
     "onset_density": 2.0,
     "energy": 1.3,
     "danceability": 1.3,
-    "key_confidence": 0.6,
     "chord_change_rate": 1.0,
     "dissonance": 1.0,
 }
@@ -57,7 +57,6 @@ BALANCED_WEIGHTS = {
     "bpm": 1.0,
     "chord_change_rate": 0.7,
     "dissonance": 0.7,
-    "key_confidence": 0.4,
 }
 CUSTOM_GROUP_WEIGHTS = {
     "timbre": {
@@ -88,7 +87,6 @@ CUSTOM_GROUP_WEIGHTS = {
         "chroma_mean": 1.2,
         "dissonance": 0.9,
         "chord_change_rate": 0.8,
-        "key_confidence": 0.4,
     },
     "tempo": {
         "bpm": 1.0,
@@ -124,11 +122,14 @@ CUSTOM_HARMONIC_TONAL_WEIGHTS = {
 # felt in the final ranking instead of being averaged away by the mixer-group weights, while still
 # staying bounded so it cannot completely override sonic similarity.
 MODIFIER_GAIN = 2.5
+KEY_TONAL_FIELDS = {"key", "key_camelot"}
+KEY_CONFIDENCE_CONTEXT = "_key_confidence"
+TonalContext = dict[str, set[str] | float]
 
 
 def sonara_features(track: Track) -> dict[str, object] | None:
     metadata = track.metadata or {}
-    features = metadata.get("sonara_features")
+    features = current_sonara_features(metadata)
     return features if isinstance(features, dict) else None
 
 
@@ -226,7 +227,8 @@ def score_candidate(
     dimensions: list[tuple[str, int | None, float]],
     ranges: dict[tuple[str, int | None], tuple[float, float]],
     feature_centroid: dict[tuple[str, int | None], float],
-    tonal_context: dict[str, set[str]],
+    tonal_context: TonalContext,
+    tempo_context: list[ComparableTrack] | None = None,
 ) -> float | None:
     weighted_score = 0.0
     total_weight = 0.0
@@ -239,7 +241,9 @@ def score_candidate(
         if raw_value is None:
             continue
         if field == "bpm":
-            score = tempo_score(raw_value, denormalize_feature(feature_centroid[key], ranges[key]))
+            score = _tempo_similarity(item, tempo_context) if tempo_context else None
+            if score is None:
+                score = tempo_score(raw_value, denormalize_feature(feature_centroid[key], ranges[key]))
         else:
             value = normalize_feature(raw_value, ranges[key])
             if value is None:
@@ -251,11 +255,11 @@ def score_candidate(
 
     if mode in {"balanced", "dj_transition"}:
         for field, weight in TONAL_TEXT_WEIGHTS.items():
-            context_values = tonal_context.get(field, set())
-            candidate = normalize_text(item.features.get(field))
-            if not context_values or candidate is None:
+            context_values = _tonal_context_values(tonal_context, field)
+            tonal_score = _tonal_similarity(item, field, context_values, tonal_context)
+            if tonal_score is None:
                 continue
-            weighted_score += (1.0 if candidate in context_values else 0.0) * weight
+            weighted_score += tonal_score * weight
             total_weight += weight
 
     if numeric_overlap < 2 or total_weight <= 0:
@@ -268,9 +272,10 @@ def score_custom_candidate(
     dimensions: list[tuple[str, int | None, float]],
     ranges: dict[tuple[str, int | None], tuple[float, float]],
     feature_centroid: dict[tuple[str, int | None], float],
-    tonal_context: dict[str, set[str]],
+    tonal_context: TonalContext,
     mixer_weights: dict[str, float],
     modifiers: dict[str, float],
+    tempo_context: list[ComparableTrack] | None = None,
 ) -> tuple[float, dict[str, float]] | None:
     weighted_score = 0.0
     total_weight = 0.0
@@ -287,7 +292,14 @@ def score_custom_candidate(
         if group_weight <= 0:
             continue
         group_score = score_custom_group(
-            item, group_name, dimensions, ranges, feature_centroid, tonal_context, exclude_fields=modifier_fields
+            item,
+            group_name,
+            dimensions,
+            ranges,
+            feature_centroid,
+            tonal_context,
+            tempo_context=tempo_context,
+            exclude_fields=modifier_fields,
         )
         if group_score is None:
             continue
@@ -318,8 +330,9 @@ def score_custom_group(
     dimensions: list[tuple[str, int | None, float]],
     ranges: dict[tuple[str, int | None], tuple[float, float]],
     feature_centroid: dict[tuple[str, int | None], float],
-    tonal_context: dict[str, set[str]],
+    tonal_context: TonalContext,
     *,
+    tempo_context: list[ComparableTrack] | None = None,
     exclude_fields: set[str] | None = None,
 ) -> float | None:
     field_weights = CUSTOM_GROUP_WEIGHTS[group_name]
@@ -346,7 +359,9 @@ def score_custom_group(
         if raw_value is None:
             continue
         if field == "bpm":
-            score = tempo_score(raw_value, denormalize_feature(feature_centroid[key], ranges[key]))
+            score = _tempo_similarity(item, tempo_context) if tempo_context else None
+            if score is None:
+                score = tempo_score(raw_value, denormalize_feature(feature_centroid[key], ranges[key]))
         else:
             value = normalize_feature(raw_value, ranges[key])
             if value is None:
@@ -358,11 +373,11 @@ def score_custom_group(
 
     if group_name == "harmonic":
         for field, weight in CUSTOM_HARMONIC_TONAL_WEIGHTS.items():
-            context_values = tonal_context.get(field, set())
-            candidate = normalize_text(item.features.get(field))
-            if not context_values or candidate is None:
+            context_values = _tonal_context_values(tonal_context, field)
+            tonal_score = _tonal_similarity(item, field, context_values, tonal_context)
+            if tonal_score is None:
                 continue
-            weighted_score += (1.0 if candidate in context_values else 0.0) * weight
+            weighted_score += tonal_score * weight
             total_weight += weight
 
     if total_weight <= 0:
@@ -433,15 +448,45 @@ def custom_numeric_fields(mixer_weights: dict[str, float], modifiers: dict[str, 
     return fields
 
 
-def tonal_context(context: list[ComparableTrack]) -> dict[str, set[str]]:
-    result: dict[str, set[str]] = {}
+def tonal_context(context: list[ComparableTrack]) -> TonalContext:
+    result: TonalContext = {}
     for field in TONAL_TEXT_WEIGHTS:
         values = [normalize_text(item.features.get(field)) for item in context]
         values = [value for value in values if value]
         if values:
             most_common_count = Counter(values).most_common(1)[0][1]
             result[field] = {value for value, count in Counter(values).items() if count == most_common_count}
+    confidences = [
+        confidence
+        for item in context
+        if (confidence := feature_value(item.features, "key_confidence", None)) is not None
+    ]
+    if confidences:
+        result[KEY_CONFIDENCE_CONTEXT] = float(np.mean([max(0.0, min(1.0, value)) for value in confidences]))
     return result
+
+
+def _tonal_context_values(context: TonalContext, field: str) -> set[str]:
+    values = context.get(field)
+    return values if isinstance(values, set) else set()
+
+
+def _tonal_similarity(
+    item: ComparableTrack,
+    field: str,
+    context_values: set[str],
+    context: TonalContext,
+) -> float | None:
+    candidate = normalize_text(item.features.get(field))
+    if not context_values or candidate is None:
+        return None
+    if field not in KEY_TONAL_FIELDS:
+        return 1.0 if candidate in context_values else 0.0
+    measured_score = max(camelot_compatibility(candidate, context_key)[1] for context_key in context_values)
+    candidate_confidence = feature_value(item.features, "key_confidence", None)
+    raw_context_confidence = context.get(KEY_CONFIDENCE_CONTEXT)
+    context_confidence = float(raw_context_confidence) if isinstance(raw_context_confidence, (int, float)) else None
+    return attenuate_harmonic_score(measured_score, candidate_confidence, context_confidence)
 
 
 def feature_value(features: dict[str, object], field: str, index: int | None) -> float | None:
@@ -497,10 +542,17 @@ def unwrap_feature_value(value: object) -> object:
 
 
 def tempo_score(candidate_bpm: float, centroid_bpm: float) -> float:
-    candidate_variants = [candidate_bpm / 2, candidate_bpm, candidate_bpm * 2]
-    centroid_variants = [centroid_bpm / 2, centroid_bpm, centroid_bpm * 2]
-    best = inf
-    for candidate in candidate_variants:
-        for centroid_value in centroid_variants:
-            best = min(best, abs(candidate - centroid_value))
-    return max(0.0, 1.0 - best / 16.0)
+    return measured_tempo_score(candidate_bpm, centroid_bpm)
+
+
+def _tempo_similarity(item: ComparableTrack, context: list[ComparableTrack] | None) -> float | None:
+    if not context:
+        return None
+    candidate = resolve_tempo_evidence(item.track, sonara_features=item.features)
+    scores: list[float] = []
+    for reference_item in context:
+        reference = resolve_tempo_evidence(reference_item.track, sonara_features=reference_item.features)
+        score = confidence_aware_tempo_score(candidate, reference)
+        if score is not None:
+            scores.append(score)
+    return float(np.mean(scores)) if scores else None

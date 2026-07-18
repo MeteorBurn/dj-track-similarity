@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature
 from dj_track_similarity.sonara_similarity import SonaraSimilaritySearch
 
 
@@ -16,6 +17,7 @@ def _add_sonara_track(db: LibraryDatabase, name: str, features: dict[str, object
         musical_key=str(features["key"]) if features.get("key") else None,
         energy=_float_or_none(features.get("energy")),
         duration=_float_or_none(features.get("duration_sec")),
+        analysis_signature=expected_sonara_analysis_signature([]),
     )
     return track_id
 
@@ -42,6 +44,60 @@ def test_vibe_mode_ranks_energy_danceability_valence_and_acousticness(tmp_path: 
 
     assert [result.track.id for result in results] == [close, far]
     assert results[0].score > results[1].score
+
+
+def test_archival_sonara_fields_do_not_change_similarity_scores(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed = _add_sonara_track(
+        db,
+        "seed.wav",
+        {
+            "energy": 0.5,
+            "danceability": 0.4,
+            "instrumentalness": 0.1,
+            "mood_happy": 0.9,
+            "mood_aggressive": 0.2,
+            "mood_relaxed": 0.8,
+            "mood_sad": 0.1,
+            "true_peak_db": -0.2,
+            "replaygain_db": -7.0,
+        },
+    )
+    same_archival_values = _add_sonara_track(
+        db,
+        "same-archival-values.wav",
+        {
+            "energy": 0.6,
+            "danceability": 0.5,
+            "instrumentalness": 0.1,
+            "mood_happy": 0.9,
+            "mood_aggressive": 0.2,
+            "mood_relaxed": 0.8,
+            "mood_sad": 0.1,
+            "true_peak_db": -0.2,
+            "replaygain_db": -7.0,
+        },
+    )
+    opposite_archival_values = _add_sonara_track(
+        db,
+        "opposite-archival-values.wav",
+        {
+            "energy": 0.6,
+            "danceability": 0.5,
+            "instrumentalness": 0.9,
+            "mood_happy": 0.1,
+            "mood_aggressive": 0.9,
+            "mood_relaxed": 0.1,
+            "mood_sad": 0.9,
+            "true_peak_db": -8.0,
+            "replaygain_db": 3.0,
+        },
+    )
+
+    results = SonaraSimilaritySearch(db).search([seed], mode="vibe", limit=5)
+    scores = {result.track.id: result.score for result in results}
+
+    assert scores[same_archival_values] == pytest.approx(scores[opposite_archival_values])
 
 
 def test_sound_mode_ranks_mfcc_and_spectral_summaries(tmp_path: Path) -> None:
@@ -90,6 +146,63 @@ def test_dj_transition_mode_ranks_bpm_onset_and_raw_tonal_data(tmp_path: Path) -
 
     assert [result.track.id for result in results] == [close, wrong_key]
     assert results[0].score > results[1].score
+
+
+def test_custom_tempo_uses_confidence_as_reliability_not_similarity_dimension(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed = _add_sonara_track(db, "seed.wav", {"bpm": 128.0, "bpm_confidence": 1.0})
+    low_confidence = _add_sonara_track(db, "low.wav", {"bpm": 136.0, "bpm_confidence": 0.1})
+    high_confidence = _add_sonara_track(db, "high.wav", {"bpm": 136.0, "bpm_confidence": 0.9})
+
+    results = SonaraSimilaritySearch(db).search(
+        [seed],
+        mode="custom",
+        mixer_weights={"timbre": 0.0, "rhythm": 0.0, "dynamics": 0.0, "harmonic": 0.0, "tempo": 1.0},
+        limit=5,
+    )
+    scores = {result.track.id: result.score for result in results}
+
+    # At a measured tempo match of exactly 0.5, reliability interpolation stays neutral. Merely
+    # having a similar or higher confidence therefore cannot create a similarity bonus.
+    assert scores[low_confidence] == pytest.approx(0.5)
+    assert scores[high_confidence] == pytest.approx(0.5)
+
+
+def test_low_tempo_confidence_pulls_a_mismatch_toward_neutral(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed = _add_sonara_track(db, "seed.wav", {"bpm": 128.0, "bpm_confidence": 1.0})
+    uncertain = _add_sonara_track(db, "uncertain.wav", {"bpm": 160.0, "bpm_confidence": 0.04})
+    reliable = _add_sonara_track(db, "reliable.wav", {"bpm": 160.0, "bpm_confidence": 1.0})
+
+    results = SonaraSimilaritySearch(db).search(
+        [seed],
+        mode="custom",
+        mixer_weights={"timbre": 0.0, "rhythm": 0.0, "dynamics": 0.0, "harmonic": 0.0, "tempo": 1.0},
+        limit=5,
+    )
+    scores = {result.track.id: result.score for result in results}
+
+    assert scores[uncertain] == pytest.approx(0.4)
+    assert scores[reliable] == 0.0
+
+
+def test_multi_seed_tempo_is_pairwise_instead_of_an_arithmetic_bpm_centroid(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    seed_half = _add_sonara_track(db, "seed-half.wav", {"bpm": 64.0, "bpm_confidence": 1.0})
+    seed_full = _add_sonara_track(db, "seed-full.wav", {"bpm": 128.0, "bpm_confidence": 1.0})
+    compatible = _add_sonara_track(db, "compatible.wav", {"bpm": 64.0, "bpm_confidence": 1.0})
+    arithmetic_midpoint = _add_sonara_track(db, "midpoint.wav", {"bpm": 96.0, "bpm_confidence": 1.0})
+
+    results = SonaraSimilaritySearch(db).search(
+        [seed_half, seed_full],
+        mode="custom",
+        mixer_weights={"timbre": 0.0, "rhythm": 0.0, "dynamics": 0.0, "harmonic": 0.0, "tempo": 1.0},
+        limit=5,
+    )
+    scores = {result.track.id: result.score for result in results}
+
+    assert scores[compatible] == 1.0
+    assert scores[arithmetic_midpoint] == 0.0
 
 
 def test_sonara_search_ignores_camelot_key_and_excludes_missing_features(tmp_path: Path) -> None:
@@ -396,7 +509,7 @@ def test_custom_harmonic_knob_is_not_a_hard_exact_key_gate(tmp_path: Path) -> No
             "predominant_chord": "F#",
         },
     )
-    same_key_color_far = _add_sonara_track(
+    _same_key_color_far = _add_sonara_track(
         db,
         "same-key-far.wav",
         {
@@ -501,6 +614,7 @@ def test_sonara_feature_row_cache_refreshes_after_sonara_write(tmp_path: Path) -
         {"energy": 0.9, "danceability": 0.8, "valence": 0.7, "acousticness": 0.1},
         energy=0.9,
         model_name="sonara-test",
+        analysis_signature=expected_sonara_analysis_signature([]),
     )
     _tracks, refreshed_features = db.load_sonara_feature_rows()
 

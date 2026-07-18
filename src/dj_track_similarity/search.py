@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import inf
 from typing import Final
 
 import numpy as np
@@ -9,7 +8,8 @@ from numpy.typing import NDArray
 
 from .database import LibraryDatabase
 from .models import SearchResult, Track
-from .track_resolution import camelot_compatible, resolve_track_bpm
+from .tempo_resolution import resolve_tempo_evidence, tempo_filter_compatible
+from .track_resolution import camelot_compatible, resolve_track_camelot, resolve_track_energy
 from .vector_index import ExactVectorSearchBackend, VectorSearchBackend, VectorSearchHit
 
 FloatArray = NDArray[np.float32]
@@ -51,7 +51,7 @@ class SimilaritySearch:
         filters = filters or SearchFilters()
         tracks, matrix = self.db.load_embedding_matrix(
             self.embedding_key,
-            include_metadata=_needs_bpm_metadata(filters),
+            include_metadata=_needs_filter_metadata(filters),
         )
         if matrix.size == 0:
             return []
@@ -100,7 +100,7 @@ class SimilaritySearch:
         filters = filters or SearchFilters()
         tracks, matrix = self.db.load_embedding_matrix(
             self.embedding_key,
-            include_metadata=_needs_bpm_metadata(filters),
+            include_metadata=_needs_filter_metadata(filters),
         )
         if matrix.size == 0:
             return []
@@ -141,7 +141,7 @@ class SimilaritySearch:
         filters = filters or SearchFilters()
         tracks, matrix = self.db.load_embedding_matrix(
             self.embedding_key,
-            include_metadata=_needs_bpm_metadata(filters),
+            include_metadata=_needs_filter_metadata(filters),
         )
         if matrix.size == 0:
             return []
@@ -244,9 +244,10 @@ def _track_for_hit(hit: VectorSearchHit, tracks: list[Track], track_by_id: dict[
 def _passes_filters(track: Track, seeds: list[Track], score: float, filters: SearchFilters) -> bool:
     if filters.min_similarity is not None and score < filters.min_similarity:
         return False
-    if filters.energy_min is not None and (track.energy is None or track.energy < filters.energy_min):
+    energy = resolve_track_energy(track)
+    if filters.energy_min is not None and (energy is None or energy < filters.energy_min):
         return False
-    if filters.energy_max is not None and (track.energy is None or track.energy > filters.energy_max):
+    if filters.energy_max is not None and (energy is None or energy > filters.energy_max):
         return False
     if filters.bpm_tolerance is not None and not _bpm_compatible(track, seeds, filters.bpm_tolerance):
         return False
@@ -255,8 +256,15 @@ def _passes_filters(track: Track, seeds: list[Track], score: float, filters: Sea
     return True
 
 
-def _needs_bpm_metadata(filters: SearchFilters) -> bool:
-    return filters.bpm_tolerance is not None
+def _needs_filter_metadata(filters: SearchFilters) -> bool:
+    return any(
+        (
+            filters.bpm_tolerance is not None,
+            filters.key_compatibility == "compatible",
+            filters.energy_min is not None,
+            filters.energy_max is not None,
+        )
+    )
 
 
 def _ranking_score(track: Track, score: float, noise: float) -> float:
@@ -268,29 +276,20 @@ def _ranking_score(track: Track, score: float, noise: float) -> float:
 
 
 def _bpm_compatible(track: Track, seeds: list[Track], tolerance: float) -> bool:
-    track_bpm = resolve_track_bpm(track)
-    if track_bpm is None:
+    candidate = resolve_tempo_evidence(track)
+    if candidate.bpm is None:
         return False
-    seed_bpms = [bpm for seed in seeds if (bpm := resolve_track_bpm(seed)) is not None]
-    if not seed_bpms:
+    references = [evidence for seed in seeds if (evidence := resolve_tempo_evidence(seed)).bpm is not None]
+    if not references:
         return True
-    return min(_tempo_distance(track_bpm, seed_bpm) for seed_bpm in seed_bpms) <= tolerance
-
-
-def _tempo_distance(candidate_bpm: float, seed_bpm: float) -> float:
-    candidate_variants = [candidate_bpm / 2, candidate_bpm, candidate_bpm * 2]
-    seed_variants = [seed_bpm / 2, seed_bpm, seed_bpm * 2]
-    best = inf
-    for candidate in candidate_variants:
-        for seed in seed_variants:
-            best = min(best, abs(candidate - seed))
-    return best
+    return any(tempo_filter_compatible(candidate, reference, tolerance) for reference in references)
 
 
 def _key_compatible(track: Track, seeds: list[Track]) -> bool:
-    if not track.musical_key:
+    track_key = resolve_track_camelot(track)
+    if not track_key:
         return False
-    seed_keys = [seed.musical_key for seed in seeds if seed.musical_key]
+    seed_keys = [key for seed in seeds if (key := resolve_track_camelot(seed))]
     if not seed_keys:
         return True
-    return any(camelot_compatible(track.musical_key or "", seed_key or "") for seed_key in seed_keys)
+    return any(camelot_compatible(track_key, seed_key) for seed_key in seed_keys)

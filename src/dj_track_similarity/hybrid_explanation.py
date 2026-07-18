@@ -6,7 +6,10 @@ import math
 from typing import Any
 
 from .models import Track
-from .sonara_similarity_scoring import optional_float, tempo_score, unwrap_feature_value
+from .sonara_contract import current_sonara_features
+from .sonara_similarity_scoring import optional_float, unwrap_feature_value
+from .tempo_resolution import confidence_aware_tempo_score, resolve_tempo_evidence
+from .track_resolution import resolve_track_energy
 
 
 MATCH_CHARACTER_AXES = (
@@ -27,6 +30,8 @@ RISK_BREAKDOWN_COMPONENTS = {
     "texture_clash_risk": "texture_clash",
     "mood_clash_risk": "mood_clash",
     "vocal_conflict_risk": "vocal_conflict",
+    "grid_instability_risk": "grid_instability",
+    "structure_transition_risk": "structure_transition",
     "source_disagreement_risk": "source_disagreement",
     "confidence_missingness_risk": "confidence_missingness",
 }
@@ -42,7 +47,7 @@ SONARA_TEXTURE_FIELDS = (
     "spectral_contrast_mean",
 )
 SONARA_MOOD_FIELDS = ("energy", "valence", "acousticness")
-SONARA_TONAL_FIELDS = ("key_confidence", "chroma_mean", "dissonance")
+SONARA_TONAL_FIELDS = ("chroma_mean", "dissonance")
 VOCAL_CLASSIFIER_KEYWORDS = ("voice", "vocal")
 TEXTURE_CLASSIFIER_KEYWORDS = ("live", "instrument")
 
@@ -297,7 +302,7 @@ def _sonara_similarity(seed_tracks: Sequence[Track], candidate_track: Track, fie
 
 def _sonara_features(track: Track) -> Mapping[str, Any] | None:
     metadata = track.metadata or {}
-    features = metadata.get("sonara_features")
+    features = current_sonara_features(metadata)
     return features if isinstance(features, Mapping) else None
 
 
@@ -305,11 +310,10 @@ def _feature_similarity(seed_features: Mapping[str, Any], candidate_features: Ma
     seed_value = unwrap_feature_value(seed_features.get(field))
     candidate_value = unwrap_feature_value(candidate_features.get(field))
     if field == "bpm":
-        seed_bpm = optional_float(seed_value)
-        candidate_bpm = optional_float(candidate_value)
-        if seed_bpm is None or candidate_bpm is None:
-            return None
-        return _clamp01(tempo_score(candidate_bpm, seed_bpm))
+        seed_tempo = resolve_tempo_evidence({"metadata": {}}, sonara_features=seed_features)
+        candidate_tempo = resolve_tempo_evidence({"metadata": {}}, sonara_features=candidate_features)
+        score = confidence_aware_tempo_score(candidate_tempo, seed_tempo)
+        return _clamp01(score) if score is not None else None
     seed_values = _numeric_values(seed_value)
     candidate_values = _numeric_values(candidate_value)
     if not seed_values or not candidate_values:
@@ -377,10 +381,10 @@ def _contains_keyword(value: object, keywords: Sequence[str]) -> bool:
 
 
 def _track_energy_similarity(seed_tracks: Sequence[Track], candidate_track: Track) -> float | None:
-    candidate_energy = optional_float(candidate_track.energy)
+    candidate_energy = resolve_track_energy(candidate_track)
     if candidate_energy is None:
         return None
-    seed_energies = [energy for track in seed_tracks if (energy := optional_float(track.energy)) is not None]
+    seed_energies = [energy for track in seed_tracks if (energy := resolve_track_energy(track)) is not None]
     if not seed_energies:
         return None
     seed_energy = sum(seed_energies) / len(seed_energies)

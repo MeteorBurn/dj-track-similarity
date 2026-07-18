@@ -10,6 +10,7 @@ from dj_track_similarity.api_schemas import SetBuilderGenerateRequest
 from dj_track_similarity.api import create_app
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.set_builder import SetBuilderConfig
+from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature
 
 
 def test_set_builder_endpoint_generates_ordered_preview(monkeypatch, tmp_path: Path) -> None:
@@ -227,6 +228,7 @@ def _complete_track(db: LibraryDatabase, tmp_path: Path, filename: str, vector: 
         energy=0.6,
         duration=360,
         model_name="sonara-test",
+        analysis_signature=expected_sonara_analysis_signature([]),
     )
     for key in ("mert", "maest", "clap"):
         db.save_embedding(track_id, np.asarray(vector, dtype=np.float32), f"{key}-test", embedding_key=key)

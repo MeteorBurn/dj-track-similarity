@@ -83,7 +83,15 @@ class SonaraSimilaritySearch:
         for item in tracks:
             if item.track.id in context_ids:
                 continue
-            score = score_candidate(item, mode, dimensions, ranges, feature_centroid, context_tones)
+            score = score_candidate(
+                item,
+                mode,
+                dimensions,
+                ranges,
+                feature_centroid,
+                context_tones,
+                tempo_context=context,
+            )
             if score is None:
                 continue
             if min_similarity is not None and score < min_similarity:
@@ -124,6 +132,7 @@ class SonaraSimilaritySearch:
                 context_tones,
                 clean_mixer,
                 clean_directional_modifiers,
+                tempo_context=context,
             )
             if scored is None:
                 continue

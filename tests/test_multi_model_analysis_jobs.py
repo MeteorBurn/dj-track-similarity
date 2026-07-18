@@ -6,6 +6,7 @@ import pytest
 
 from dj_track_similarity.analysis_jobs import AnalysisJobManager
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature
 
 
 def _track(db: LibraryDatabase, tmp_path: Path, name: str) -> int:
@@ -16,7 +17,12 @@ def _track(db: LibraryDatabase, tmp_path: Path, name: str) -> int:
 
 def _mark_analyzed(db: LibraryDatabase, track_id: int, model: str) -> None:
     if model == "sonara":
-        db.save_sonara_features(track_id, {"bpm": {"value": 128.0}}, model_name="fake-sonara")
+        db.save_sonara_features(
+            track_id,
+            {"bpm": {"value": 128.0}},
+            model_name="fake-sonara",
+            analysis_signature=expected_sonara_analysis_signature([]),
+        )
         return
     if model == "maest":
         db.save_genres(track_id, [{"label": "Techno", "score": 0.9}], model_name="fake-maest")
@@ -171,9 +177,13 @@ def test_multi_model_job_uses_lean_analysis_candidates(tmp_path: Path, monkeypat
     original_candidates = db.list_analysis_candidates
     calls: list[tuple[tuple[str, ...], int | None]] = []
 
-    def spy_candidates(models, *, limit=None):
+    def spy_candidates(models, *, limit=None, expected_sonara_signature=None):
         calls.append((tuple(models), limit))
-        return original_candidates(models, limit=limit)
+        return original_candidates(
+            models,
+            limit=limit,
+            expected_sonara_signature=expected_sonara_signature,
+        )
 
     monkeypatch.setattr(db, "list_analysis_candidates", spy_candidates)
 

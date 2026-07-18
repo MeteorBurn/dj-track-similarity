@@ -6,6 +6,8 @@ from typing import Any
 
 import numpy as np
 
+from .sonara_contract import sonara_analysis_is_current
+
 
 def optional_float(value: object) -> float | None:
     if value is None or value == "":
@@ -88,9 +90,10 @@ def genres_from_metadata(metadata: dict[str, object]) -> tuple[list[str] | None,
 def analyses_from_row(row: Any, metadata: dict[str, object]) -> list[str] | None:
     analyses_set: set[str] = set()
     row_keys = set(row.keys())
-    if "has_sonara" in row_keys and row["has_sonara"]:
-        analyses_set.add("sonara")
-    elif metadata.get("sonara_features"):
+    if "has_sonara" in row_keys:
+        if row["has_sonara"]:
+            analyses_set.add("sonara")
+    elif sonara_analysis_is_current(metadata):
         analyses_set.add("sonara")
     keys_json = row["embedding_keys_json"] if "embedding_keys_json" in row_keys else None
     try:

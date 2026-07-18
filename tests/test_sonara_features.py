@@ -3,9 +3,11 @@ from pathlib import Path
 import wave
 
 import numpy as np
+import pytest
 
 from dj_track_similarity.audio_loader import DecodedAudio
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.sonara_contract import SONARA_ANALYSIS_SIGNATURE_KEY, sonara_analysis_signature_errors
 from dj_track_similarity.sonara_features import (
     analyze_and_store_sonara_features,
     analyze_and_store_sonara_features_from_audio,
@@ -44,11 +46,11 @@ class FakeSonara:
                 "bpm_max": bpm_max,
             }
         )
-        # sonara 2.0 default playlist output: base fields plus the new default extras
-        # (bpm_raw, bpm_candidates, key_camelot) that arrive without any opt-in request.
+        # SONARA default playlist output: base fields plus extras that arrive without opt-in.
         analysis = {
             "bpm": 126.4,
             "bpm_raw": 126.4,
+            "bpm_confidence": 0.88,
             "bpm_candidates": [[126.4, 4.1], [63.2, 3.7], [252.8, 2.9]],
             "key": "A minor",
             "key_camelot": "8A",
@@ -69,6 +71,10 @@ class FakeSonara:
             "zero_crossing_rate": 0.08,
             "duration_sec": 183.5,
             "chord_sequence": ["Am", "F", "C", "G"],
+            "chord_events": [
+                {"label": "Am", "start_sec": 0.0, "end_sec": 46.0},
+                {"label": "F", "start_sec": 46.0, "end_sec": 92.0},
+            ],
             "predominant_chord": "Am",
             "chord_change_rate": 0.43,
             "dissonance": 0.18,
@@ -78,12 +84,25 @@ class FakeSonara:
             "spectral_contrast_mean": np.array([12.0, 10.0, 8.0, 7.0, 6.0, 5.0, 4.0], dtype=np.float32),
             "mfcc_mean": np.array([1.0, 2.0, 3.0], dtype=np.float32),
             "chroma_mean": np.array([0.1, 0.2], dtype=np.float32),
-            "tempo_curve": [126.0, 127.0],
-            "time_signature": "4/4",
         }
         # Opt-in families only appear when explicitly requested via features=[...],
         # mirroring sonara 2.0 where features REPLACES the mode preset.
         requested = set(features or ())
+        analysis["provenance"] = {
+            "schema_version": 3,
+            "sample_rate": sr,
+            "hop_length": 512,
+            "mode": mode,
+            **({"requested_features": sorted(requested)} if features is not None else {}),
+        }
+        if "tempo_curve" in requested:
+            analysis.update({"tempo_curve": [126.0, 127.0], "tempo_variability": 0.04})
+        if "time_signature" in requested:
+            analysis.update({"time_signature": "4/4", "time_signature_confidence": 0.91})
+        if "embedding" in requested:
+            analysis.update({"embedding": [float(index) / 47.0 for index in range(48)], "embedding_version": 2})
+        if "fingerprint" in requested:
+            analysis.update({"fingerprint": "AQIDBAUGBwg=", "fingerprint_version": 1})
         if "structure" in requested:
             analysis.update(
                 {
@@ -124,6 +143,17 @@ class FakeSonara:
             ]
         if "vocalness" in requested:
             analysis["vocalness"] = 0.61
+        if "mood" in requested:
+            analysis.update(
+                {
+                    "mood_happy": 0.71,
+                    "mood_aggressive": 0.30,
+                    "mood_relaxed": 0.55,
+                    "mood_sad": 0.12,
+                }
+            )
+        if "instrumentalness" in requested:
+            analysis["instrumentalness"] = 0.39
         if "silence" in requested:
             analysis.update({"leading_silence_sec": 0.0, "trailing_silence_sec": 7.08})
         return analysis
@@ -163,6 +193,10 @@ class FakeSonara:
     @staticmethod
     def power_to_db(values):
         return np.asarray(values, dtype=np.float32) - 10
+
+
+class FakeCurrentSonara(FakeSonara):
+    __version__ = "0.2.4"
 
 
 class FakeFallbackSonara(FakeSonara):
@@ -284,7 +318,7 @@ def test_analyze_and_store_sonara_features_writes_metadata_and_json_dump(tmp_pat
     result = analyze_and_store_sonara_features(
         db,
         db.get_track(track_id),
-        sonara_module=FakeSonara,
+        sonara_module=FakeCurrentSonara,
     )
 
     track = db.get_track(track_id)
@@ -328,6 +362,7 @@ def test_analyze_and_store_sonara_features_writes_metadata_and_json_dump(tmp_pat
         "mfcc_mean",
         "chroma_mean",
         "bpm_raw",
+        "bpm_confidence",
         "bpm_candidates",
         "key_camelot",
     ]
@@ -358,7 +393,7 @@ def test_analyze_sonara_uses_shared_decoded_audio_without_file_decode(tmp_path: 
         db,
         db.get_track(track_id),
         decoded,
-        sonara_module=FakeSonara,
+        sonara_module=FakeCurrentSonara,
     )
 
     track = db.get_track(track_id)
@@ -399,14 +434,14 @@ def test_analyze_sonara_falls_back_to_signal_for_truncated_wav(tmp_path: Path) -
     assert "decode_path" not in track.metadata["sonara_features"]
 
 
-def test_default_analysis_requests_no_optin_features_and_stores_no_curves(tmp_path: Path) -> None:
+def test_default_analysis_requests_no_optin_features_and_stores_playlist_sequences_out_of_band(tmp_path: Path) -> None:
     FakeSonara.reset()
     db = LibraryDatabase(tmp_path / "library.sqlite")
     audio_path = tmp_path / "Artist - Track.wav"
     _write_wav(audio_path)
     track_id = db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": "Track"})
 
-    analyze_and_store_sonara_features(db, db.get_track(track_id), sonara_module=FakeSonara)
+    analyze_and_store_sonara_features(db, db.get_track(track_id), sonara_module=FakeCurrentSonara)
 
     # No family requested -> sonara runs plain playlist mode (no features kwarg forwarded).
     assert FakeSonara.file_calls[-1]["features"] is None
@@ -414,10 +449,48 @@ def test_default_analysis_requests_no_optin_features_and_stores_no_curves(tmp_pa
     # Default 2.0 extras land in the hot path; opt-in families do not appear.
     assert "key_camelot" in features
     assert "bpm_raw" in features
+    assert features["bpm_confidence"]["value"] == 0.88
     assert "bpm_candidates" in features
-    for optin in ("energy_curve", "energy_level", "vocalness", "true_peak_db", "grid_stability", "key_candidates"):
+    assert db.get_track(track_id).metadata["sonara_provenance"] == {
+        "schema_version": 3,
+        "sample_rate": 22050,
+        "hop_length": 512,
+        "mode": "playlist",
+        "package_version": "0.2.4",
+    }
+    signature = db.get_track(track_id).metadata[SONARA_ANALYSIS_SIGNATURE_KEY]
+    assert signature == {
+        "sonara_version": "0.2.4",
+        "schema_version": 3,
+        "mode": "playlist",
+        "sample_rate": 22050,
+        "bpm_range": [79, 192],
+        "requested_features": [],
+        "project_feature_revision": 1,
+        "signature_id": signature["signature_id"],
+    }
+    assert sonara_analysis_signature_errors(signature, require_current_contract=False) == ()
+    for optin in (
+        "energy_curve",
+        "energy_curve_summary",
+        "energy_level",
+        "vocalness",
+        "mood_happy",
+        "instrumentalness",
+        "true_peak_db",
+        "grid_stability",
+        "key_candidates",
+    ):
         assert optin not in features
-    assert db.load_sonara_curves(track_id) is None
+    sequences = db.load_sonara_curves(track_id)
+    assert sequences is not None
+    assert sequences["beats"]["value"] == [1, 2, 3]
+    assert sequences["onset_frames"]["value"] == [1, 4, 8]
+    assert sequences["chord_sequence"]["value"] == ["Am", "F", "C", "G"]
+    assert sequences["chord_events"]["value"] == [
+        {"label": "Am", "start_sec": 0.0, "end_sec": 46.0},
+        {"label": "F", "start_sec": 46.0, "end_sec": 92.0},
+    ]
 
 
 def test_optin_families_split_light_into_features_and_curves_out_of_band(tmp_path: Path) -> None:
@@ -430,8 +503,17 @@ def test_optin_families_split_light_into_features_and_curves_out_of_band(tmp_pat
     analyze_and_store_sonara_features(
         db,
         db.get_track(track_id),
-        sonara_module=FakeSonara,
-        feature_families=["structure", "loudness", "beatgrid", "key_candidates", "vocalness", "silence"],
+        sonara_module=FakeCurrentSonara,
+        feature_families=[
+            "structure",
+            "loudness",
+            "beatgrid",
+            "key_candidates",
+            "vocalness",
+            "mood",
+            "instrumentalness",
+            "silence",
+        ],
     )
 
     # sonara features REPLACES the mode preset, so a request must carry the full playlist set
@@ -439,28 +521,57 @@ def test_optin_families_split_light_into_features_and_curves_out_of_band(tmp_pat
     requested = FakeSonara.file_calls[-1]["features"]
     assert requested is not None
     assert "key" in requested and "mfcc" in requested and "chroma" in requested
-    for family in ("structure", "loudness", "beatgrid", "key_candidates", "vocalness", "silence"):
+    for archival in ("tempo_curve", "time_signature", "embedding", "fingerprint"):
+        assert archival in requested
+    for family in (
+        "structure",
+        "loudness",
+        "beatgrid",
+        "key_candidates",
+        "vocalness",
+        "mood",
+        "instrumentalness",
+        "silence",
+    ):
         assert family in requested
 
     features = db.get_track(track_id).metadata["sonara_features"]
     # Light opt-in fields live in the hot-path JSON.
     assert features["energy_level"]["value"] == 9
     assert features["true_peak_db"]["value"] == 0.19
+    assert features["replaygain_db"]["value"] == -5.46
     assert features["grid_stability"]["value"] == 1.0
     assert features["vocalness"]["value"] == 0.61
+    assert features["mood_happy"]["value"] == 0.71
+    assert features["mood_aggressive"]["value"] == 0.30
+    assert features["mood_relaxed"]["value"] == 0.55
+    assert features["mood_sad"]["value"] == 0.12
+    assert features["instrumentalness"]["value"] == 0.39
+    assert features["tempo_variability"]["value"] == 0.04
+    assert features["time_signature"]["value"] == "4/4"
+    assert features["time_signature_confidence"]["value"] == 0.91
+    assert features["embedding_version"]["value"] == 2
+    assert features["fingerprint_version"]["value"] == 1
     assert features["leading_silence_sec"]["value"] == 0.0
     assert features["key_candidates"]["length"] == 3
     assert features["segments"]["length"] == 2
+    assert features["energy_curve_summary"]["value"] is None
+    assert features["energy_curve_summary"]["summary"]["mean"] == pytest.approx(1.92)
     # Heavy curves are NOT in the hot-path JSON.
     for curve in ("energy_curve", "loudness_curve", "downbeats"):
         assert curve not in features
 
-    # Heavy curves are stored whole (not truncated) in the out-of-band table.
+    # Heavy curves and default playlist sequences are stored whole (not truncated) out of band.
     curves = db.load_sonara_curves(track_id)
     assert curves is not None
     assert len(curves["energy_curve"]["value"]) == 385
     assert len(curves["loudness_curve"]["value"]) == 195
     assert len(curves["downbeats"]["value"]) == 104
+    assert curves["beats"]["value"] == [1, 2, 3]
+    assert curves["chord_events"]["value"][0]["label"] == "Am"
+    assert curves["tempo_curve"]["value"] == [126.0, 127.0]
+    assert len(curves["embedding"]["value"]) == 48
+    assert curves["fingerprint"]["value"] == "AQIDBAUGBwg="
 
 
 def test_reset_sonara_clears_curves_table(tmp_path: Path) -> None:
@@ -471,11 +582,14 @@ def test_reset_sonara_clears_curves_table(tmp_path: Path) -> None:
     track_id = db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": "Track"})
 
     analyze_and_store_sonara_features(
-        db, db.get_track(track_id), sonara_module=FakeSonara, feature_families=["structure"]
+        db, db.get_track(track_id), sonara_module=FakeCurrentSonara, feature_families=["structure"]
     )
     assert db.load_sonara_curves(track_id) is not None
 
     db.reset_analysis("sonara")
 
     assert db.load_sonara_curves(track_id) is None
-    assert db.get_track(track_id).metadata.get("sonara_features") is None
+    metadata = db.get_track(track_id).metadata
+    assert metadata.get("sonara_features") is None
+    assert metadata.get("sonara_provenance") is None
+    assert metadata.get(SONARA_ANALYSIS_SIGNATURE_KEY) is None

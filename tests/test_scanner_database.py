@@ -11,6 +11,7 @@ import dj_track_similarity.scanner as scanner
 from dj_track_similarity.db_schema import CURRENT_SCHEMA_VERSION
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.scanner import read_audio_metadata, scan_library
+from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature
 
 
 def test_database_uses_wal_and_busy_timeout_for_concurrent_jobs(tmp_path: Path) -> None:
@@ -813,6 +814,7 @@ def test_database_resets_metadata_backed_analyses(tmp_path: Path) -> None:
         energy=0.8,
         duration=100,
         model_name="sonara",
+        analysis_signature=expected_sonara_analysis_signature([]),
     )
 
     sonara_result = db.reset_analysis("sonara")
@@ -879,6 +881,7 @@ def test_refresh_track_file_metadata_preserves_analysis_outputs(tmp_path: Path) 
         energy=0.8,
         duration=100,
         model_name="sonara",
+        analysis_signature=expected_sonara_analysis_signature([]),
     )
 
     db.refresh_track_file_metadata(
@@ -942,7 +945,13 @@ def test_relocate_library_dry_run_preserves_tracks_and_reports_missing_files(tmp
 
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_id = db.upsert_track(path=old_file, size=old_file.stat().st_size, mtime=old_file.stat().st_mtime)
-    db.save_sonara_features(track_id, {"tempo": 128}, bpm=128.0, model_name="sonara-test")
+    db.save_sonara_features(
+        track_id,
+        {"tempo": 128},
+        bpm=128.0,
+        model_name="sonara-test",
+        analysis_signature=expected_sonara_analysis_signature([]),
+    )
 
     result = db.relocate_library(old_root, new_root, apply=False)
 
@@ -975,7 +984,13 @@ def test_relocate_library_apply_updates_paths_without_losing_analysis(tmp_path: 
 
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_id = db.upsert_track(path=old_file, size=old_file.stat().st_size, mtime=old_file.stat().st_mtime)
-    db.save_sonara_features(track_id, {"tempo": 128}, bpm=128.0, model_name="sonara-test")
+    db.save_sonara_features(
+        track_id,
+        {"tempo": 128},
+        bpm=128.0,
+        model_name="sonara-test",
+        analysis_signature=expected_sonara_analysis_signature([]),
+    )
     db.save_embedding(track_id, np.asarray([1.0, 0.0], dtype=np.float32), "mert-test", embedding_key="mert")
     db.save_classifier_score(
         track_id,

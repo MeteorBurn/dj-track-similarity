@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from dj_track_similarity.analysis_config import (
+    DEFAULT_SONARA_FEATURE_FAMILIES,
     build_analysis_job_config,
     normalize_analysis_device,
     normalize_analysis_models,
@@ -53,6 +54,11 @@ def test_build_analysis_job_config_normalizes_shared_cli_api_values() -> None:
     assert config.top_k == 4
     assert config.track_batch_size == 3
     assert config.inference_batch_size == 18
+    assert config.sonara_features == DEFAULT_SONARA_FEATURE_FAMILIES
+
+
+def test_build_analysis_job_config_allows_explicit_minimal_sonara_profile() -> None:
+    assert build_analysis_job_config(sonara_features=[]).sonara_features == ()
 
 
 @pytest.mark.parametrize(

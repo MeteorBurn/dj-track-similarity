@@ -97,6 +97,15 @@ def register_library_routes(
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
+    @app.get("/api/tracks/{track_id}/sonara-curves")
+    def track_sonara_curves(track_id: int):
+        db = state.require_db()
+        try:
+            db.get_track(track_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        return db.load_sonara_curves(track_id) or {}
+
     @app.post("/api/tracks/filtered")
     def filtered_tracks(request: FilteredTracksRequest):
         return state.require_db().list_filtered_tracks(

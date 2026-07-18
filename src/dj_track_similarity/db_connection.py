@@ -5,6 +5,7 @@ import threading
 from pathlib import Path
 
 from .db_schema import SQLITE_BUSY_TIMEOUT_SECONDS, ensure_schema
+from .sonara_contract import sonara_analysis_json_is_current
 
 
 _write_locks: dict[Path, threading.RLock] = {}
@@ -28,6 +29,12 @@ def write_lock_for_path(path: str | Path) -> threading.RLock:
 def connect_database(path: str | Path) -> sqlite3.Connection:
     connection = sqlite3.connect(resolve_database_path(path), timeout=SQLITE_BUSY_TIMEOUT_SECONDS)
     connection.row_factory = sqlite3.Row
+    connection.create_function(
+        "sonara_analysis_is_current",
+        1,
+        sonara_analysis_json_is_current,
+        deterministic=True,
+    )
     connection.execute("PRAGMA foreign_keys = ON")
     connection.execute(f"PRAGMA busy_timeout = {SQLITE_BUSY_TIMEOUT_SECONDS * 1000}")
     connection.execute("PRAGMA synchronous = NORMAL")

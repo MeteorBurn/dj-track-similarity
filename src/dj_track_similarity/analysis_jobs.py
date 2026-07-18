@@ -38,11 +38,14 @@ from .analysis_config import (
     DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
     DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
     normalize_analysis_models,
+    normalize_sonara_features,
 )
 from .database import LibraryDatabase
 from .job_runtime import JobStore, chunks
 from .logging_config import exception_summary, log_failure, log_job_event
 from .models import AnalysisCandidate, Track
+from .sonara_contract import sonara_analysis_is_compatible
+from .sonara_features import sonara_analysis_signature_for_families
 
 
 LOGGER = logging.getLogger(__name__)
@@ -140,7 +143,13 @@ class AnalysisJobManager:
     ) -> str:
         selected_classifier_keys = self._clean_classifier_keys(classifier_keys)
         selected = _normalize_job_models(models, allow_empty=bool(selected_classifier_keys))
-        work = self._analysis_work(selected, selected_classifier_keys, limit=limit)
+        selected_sonara_features = normalize_sonara_features(sonara_features)
+        work = self._analysis_work(
+            selected,
+            selected_classifier_keys,
+            limit=limit,
+            sonara_features=selected_sonara_features,
+        )
         job_id = str(uuid.uuid4())
         effective_track_batch_size = max(1, int(track_batch_size if track_batch_size is not None else self.track_batch_size))
         effective_inference_batch_size = max(
@@ -159,7 +168,7 @@ class AnalysisJobManager:
             track_batch_size=effective_track_batch_size,
             inference_batch_size=effective_inference_batch_size,
             top_k=max(1, int(top_k)),
-            sonara_features=list(sonara_features or ()),
+            sonara_features=list(selected_sonara_features),
         )
         self._store.add(
             job_id,
@@ -180,16 +189,25 @@ class AnalysisJobManager:
         classifier_keys: tuple[str, ...],
         *,
         limit: int | None,
+        sonara_features: tuple[str, ...],
     ) -> _AnalysisWork:
+        expected_sonara_signature = sonara_analysis_signature_for_families(sonara_features)
         candidates_by_id: dict[int, AnalysisCandidate] = {}
-        for candidate in self.db.list_analysis_candidates(selected, limit=limit):
+        for candidate in self.db.list_analysis_candidates(
+            selected,
+            limit=limit,
+            expected_sonara_signature=expected_sonara_signature,
+        ):
             candidates_by_id[candidate.id] = candidate
 
         classifier_targets: dict[int, list[str]] = {}
         for classifier in classifier_keys:
             for track in self.db.list_tracks_missing_classifier(classifier, limit=limit):
                 classifier_targets.setdefault(track.id, []).append(classifier)
-                _ = candidates_by_id.setdefault(track.id, _candidate_from_track(track))
+                _ = candidates_by_id.setdefault(
+                    track.id,
+                    _candidate_from_track(track, expected_sonara_signature=expected_sonara_signature),
+                )
 
         effective_models = tuple(model for model in ANALYSIS_MODEL_ORDER if model in selected)
         candidates: list[AnalysisCandidate] = []
@@ -611,7 +629,14 @@ class AnalysisJobManager:
         return copy_analysis_status(status)
 
 
-def _candidate_from_track(track: Track) -> AnalysisCandidate:
+def _candidate_from_track(
+    track: Track,
+    *,
+    expected_sonara_signature: dict[str, object],
+) -> AnalysisCandidate:
+    analyses = set(track.analyses or ())
+    if "sonara" in analyses and not sonara_analysis_is_compatible(track.metadata, expected_sonara_signature):
+        analyses.remove("sonara")
     return AnalysisCandidate(
         id=track.id,
         path=track.path,
@@ -624,7 +649,7 @@ def _candidate_from_track(track: Track) -> AnalysisCandidate:
         musical_key=track.musical_key,
         energy=track.energy,
         duration=track.duration,
-        analyses=tuple(track.analyses or ()),
+        analyses=tuple(model for model in ANALYSIS_MODEL_ORDER if model in analyses),
     )
 
 

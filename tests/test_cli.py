@@ -8,6 +8,7 @@ import pytest
 
 import dj_track_similarity.api as api
 import dj_track_similarity.cli as cli
+from dj_track_similarity.analysis_config import DEFAULT_SONARA_FEATURE_FAMILIES
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.logging_config import set_analysis_diagnostics_enabled
 
@@ -154,6 +155,17 @@ def test_analyze_cli_prints_live_progress_for_default_models(monkeypatch, tmp_pa
     assert "eta=" in result.output
     assert "state=completed" in result.output
     assert "models=sonara,maest,mert,muq,clap" in result.output
+    assert _FakeAnalysisManager.last_kwargs["sonara_features"] == list(DEFAULT_SONARA_FEATURE_FAMILIES)
+
+
+def test_analyze_cli_allows_explicit_minimal_sonara_profile(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli, "AnalysisJobManager", _FakeAnalysisManager)
+    db_path = tmp_path / "library.sqlite"
+
+    result = CliRunner().invoke(cli.app, ["analyze", "--sonara-minimal", "--db", str(db_path)])
+
+    assert result.exit_code == 0
+    assert _FakeAnalysisManager.last_kwargs["sonara_features"] == []
 
 
 def test_analyze_cli_accepts_selected_models_and_diagnostics_flag(monkeypatch, tmp_path):

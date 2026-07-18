@@ -23,6 +23,7 @@ from .db_schema import MAEST_HAS_GENRES_SQL, TRACK_SELECT_FIELDS, TRACK_SLIM_SEL
 from .db_search_fts import rebuild_track_search_fts, upsert_track_search_fts
 from .metadata_payload import clean_maest_genre_label, metadata_from_json, metadata_to_json, optional_float, string_or_none
 from .models import AnalysisCandidate, Track
+from .sonara_contract import SONARA_ANALYSIS_SIGNATURE_KEY, feature_set_uses_sonara, sonara_analysis_is_current
 
 
 EMBEDDING_PRESENCE_FLAG_COLUMNS = {
@@ -33,19 +34,54 @@ EMBEDDING_PRESENCE_FLAG_COLUMNS = {
 }
 
 
+def _delete_sonara_dependent_classifier_scores(connection, *, track_id: int | None = None) -> int:
+    where_sql = " WHERE track_id = ?" if track_id is not None else ""
+    params: tuple[object, ...] = (int(track_id),) if track_id is not None else ()
+    rows = connection.execute(
+        f"SELECT track_id, classifier, feature_set FROM track_classifier_scores{where_sql}",
+        params,
+    ).fetchall()
+    targets = [
+        (int(row["track_id"]), str(row["classifier"]))
+        for row in rows
+        if feature_set_uses_sonara(row["feature_set"])
+    ]
+    if targets:
+        connection.executemany(
+            "DELETE FROM track_classifier_scores WHERE track_id = ? AND classifier = ?",
+            targets,
+        )
+    return len(targets)
+
+
 class AnalysisRepository:
-    def list_analysis_candidates(self, models: Iterable[str], *, limit: int | None = None) -> list[AnalysisCandidate]:
+    def list_analysis_candidates(
+        self,
+        models: Iterable[str],
+        *,
+        limit: int | None = None,
+        expected_sonara_signature: dict[str, object] | None = None,
+    ) -> list[AnalysisCandidate]:
         selected = clean_analysis_models(models)
         if not selected:
             return []
         candidate_ids: dict[int, None] = {}
         per_model_limit = limit if limit is not None else None
         limit_sql, limit_params = _limit_sql(per_model_limit)
+        sonara_signature_id = (
+            str(expected_sonara_signature.get("signature_id"))
+            if expected_sonara_signature is not None and expected_sonara_signature.get("signature_id")
+            else None
+        )
         with self.connect() as connection:
             for model in selected:
                 rows = connection.execute(
-                    missing_analysis_ids_sql(model, limit_sql),
-                    missing_analysis_ids_params(model, limit_params),
+                    missing_analysis_ids_sql(model, limit_sql, sonara_signature_id=sonara_signature_id),
+                    missing_analysis_ids_params(
+                        model,
+                        limit_params,
+                        sonara_signature_id=sonara_signature_id,
+                    ),
                 ).fetchall()
                 for row in rows:
                     candidate_ids[int(row["id"])] = None
@@ -58,7 +94,14 @@ class AnalysisRepository:
                     analysis_candidate_select_sql(placeholders),
                     ids,
                 ).fetchall()
-                candidates.extend(row_to_analysis_candidate(row, selected) for row in rows)
+                candidates.extend(
+                    row_to_analysis_candidate(
+                        row,
+                        selected,
+                        expected_sonara_signature=expected_sonara_signature,
+                    )
+                    for row in rows
+                )
         candidates.sort(key=lambda candidate: (candidate.artist or "", candidate.title or "", candidate.path))
         if limit is not None:
             return candidates[: max(0, int(limit))]
@@ -163,11 +206,22 @@ class AnalysisRepository:
         energy: float | None = None,
         duration: float | None = None,
         model_name: str = "sonara",
+        provenance: dict[str, object] | None = None,
+        analysis_signature: dict[str, object] | None = None,
+        curves: dict[str, object] | None = None,
     ) -> None:
         with self._write_lock, self.connect() as connection:
             metadata = self._metadata_for_track_update(connection, track_id)
             metadata["sonara_features"] = features
             metadata["sonara_model"] = model_name
+            if provenance is not None:
+                metadata["sonara_provenance"] = provenance
+            else:
+                metadata.pop("sonara_provenance", None)
+            if analysis_signature is not None:
+                metadata[SONARA_ANALYSIS_SIGNATURE_KEY] = analysis_signature
+            else:
+                metadata.pop(SONARA_ANALYSIS_SIGNATURE_KEY, None)
             connection.execute(
                 """
                 UPDATE tracks
@@ -190,13 +244,31 @@ class AnalysisRepository:
                 ),
             )
             upsert_track_search_fts(connection, track_id)
+            if curves is not None:
+                if curves:
+                    connection.execute(
+                        """
+                        INSERT INTO sonara_curves (track_id, curves_json, updated_at)
+                        VALUES (?, ?, CURRENT_TIMESTAMP)
+                        ON CONFLICT(track_id) DO UPDATE SET
+                            curves_json = excluded.curves_json,
+                            updated_at = CURRENT_TIMESTAMP
+                        """,
+                        (int(track_id), metadata_to_json(curves, sort_keys=False)),
+                    )
+                else:
+                    connection.execute("DELETE FROM sonara_curves WHERE track_id = ?", (int(track_id),))
             embedding_keys = _embedding_keys_for_track(connection, track_id)
+            _delete_sonara_dependent_classifier_scores(connection, track_id=track_id)
         self._invalidate_embedding_cache_keys(embedding_keys)
         self._invalidate_sonara_feature_cache()
 
     def save_sonara_curves(self, track_id: int, curves: dict[str, object]) -> None:
-        """Store heavy SONARA curve data (energy_curve, loudness_curve, downbeats) out of the hot
-        search path. This is UI-only lazy data and must never be read by load_sonara_feature_rows."""
+        """Store complete SONARA curves and sequences out of the hot search path.
+
+        This includes optional energy/loudness/downbeat arrays and playlist sequences such as beat,
+        onset, and chord events. This lazy data must never be read by load_sonara_feature_rows.
+        """
         curves_json = metadata_to_json(curves, sort_keys=False)
         with self._write_lock, self.connect() as connection:
             connection.execute(
@@ -213,10 +285,17 @@ class AnalysisRepository:
     def load_sonara_curves(self, track_id: int) -> dict[str, object] | None:
         with self.connect() as connection:
             row = connection.execute(
-                "SELECT curves_json FROM sonara_curves WHERE track_id = ?",
+                """
+                SELECT c.curves_json, t.metadata_json
+                FROM sonara_curves c
+                JOIN tracks t ON t.id = c.track_id
+                WHERE c.track_id = ?
+                """,
                 (int(track_id),),
             ).fetchone()
         if row is None:
+            return None
+        if not sonara_analysis_is_current(metadata_from_json(row["metadata_json"])):
             return None
         curves = metadata_from_json(row["curves_json"])
         return curves if isinstance(curves, dict) else None
@@ -392,7 +471,13 @@ class AnalysisRepository:
     def _reset_sonara_analysis(self) -> dict[str, object]:
         updated = 0
         embedding_keys_to_invalidate: set[str] = set()
-        keys = ("sonara_features", "sonara_features_file", "sonara_model")
+        keys = (
+            "sonara_features",
+            "sonara_features_file",
+            "sonara_model",
+            "sonara_provenance",
+            SONARA_ANALYSIS_SIGNATURE_KEY,
+        )
         with self._write_lock, self.connect() as connection:
             rows = connection.execute("SELECT id, metadata_json FROM tracks").fetchall()
             for row in rows:
@@ -426,10 +511,16 @@ class AnalysisRepository:
                 updated += 1
             connection.execute("UPDATE tracks SET has_sonara_analysis = 0 WHERE has_sonara_analysis != 0")
             connection.execute("DELETE FROM sonara_curves")
-        if updated:
+            classifier_scores_deleted = _delete_sonara_dependent_classifier_scores(connection)
+        if updated or classifier_scores_deleted:
             self._invalidate_embedding_cache_keys(embedding_keys_to_invalidate)
             self._invalidate_sonara_feature_cache()
-        return {"adapter": "sonara", "tracks_updated": updated, "embeddings_deleted": 0}
+        return {
+            "adapter": "sonara",
+            "tracks_updated": updated,
+            "embeddings_deleted": 0,
+            "classifier_scores_deleted": classifier_scores_deleted,
+        }
 
     def load_embedding_matrix(
         self,
@@ -491,6 +582,8 @@ class AnalysisRepository:
         for row in rows:
             track = self._row_to_track(row, include_metadata=True)
             metadata = track.metadata or {}
+            if not sonara_analysis_is_current(metadata):
+                continue
             features = metadata.get("sonara_features")
             if not isinstance(features, dict):
                 continue

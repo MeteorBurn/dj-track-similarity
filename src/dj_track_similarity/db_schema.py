@@ -3,17 +3,22 @@ from __future__ import annotations
 import sqlite3
 
 from .db_search_fts import create_track_search_fts
+from .sonara_contract import SONARA_PROJECT_FEATURE_REVISION, feature_set_uses_sonara
 
 
 CURRENT_SCHEMA_VERSION = 5
 SQLITE_BUSY_TIMEOUT_SECONDS = 30
+SONARA_CLASSIFIER_REVISION_SETTING_KEY = "classifier.sonara_feature_revision"
 
 TRACK_BASE_FIELDS = """
 t.id, t.path, t.size, t.mtime, t.artist, t.title, t.album, t.bpm, t.musical_key, t.energy, t.duration,
 EXISTS(SELECT 1 FROM track_likes tl WHERE tl.track_id = t.id) AS liked
 """
 TRACK_ANALYSIS_FLAG_FIELDS = """
-t.has_sonara_analysis = 1 AS has_sonara,
+(
+    t.has_sonara_analysis = 1
+    AND sonara_analysis_is_current(t.metadata_json) = 1
+) AS has_sonara,
 t.has_maest_embedding = 1 AS has_maest
 """
 TRACK_EMBEDDING_KEY_FIELD = """
@@ -46,6 +51,7 @@ TRACK_CLASSIFIER_SCORES_FIELD = """
 """
 TRACK_SELECT_FIELDS = f"""
 {TRACK_BASE_FIELDS}, t.metadata_json, e.model_name AS embedding_model, e.dim AS embedding_dim,
+{TRACK_ANALYSIS_FLAG_FIELDS},
 {TRACK_EMBEDDING_KEY_FIELD},
 {TRACK_CLASSIFIER_SCORES_FIELD}
 """
@@ -78,6 +84,7 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
 
     if not tables:
         _create_current_schema(connection)
+        _ensure_sonara_classifier_feature_revision(connection)
         return
 
     if _schema_version(connection) == 4:
@@ -87,6 +94,7 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
         raise RuntimeError(_migration_required_message())
     _validate_current_schema(connection)
     _create_current_indexes_and_triggers(connection)
+    _ensure_sonara_classifier_feature_revision(connection)
 
 
 def _create_current_schema(connection: sqlite3.Connection) -> None:
@@ -366,6 +374,39 @@ def _migrate_v4_to_v5(connection: sqlite3.Connection) -> None:
             """
         )
     connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
+
+
+def _ensure_sonara_classifier_feature_revision(connection: sqlite3.Connection) -> None:
+    row = connection.execute(
+        "SELECT value FROM library_settings WHERE key = ?",
+        (SONARA_CLASSIFIER_REVISION_SETTING_KEY,),
+    ).fetchone()
+    if row is not None and str(row["value"]) == str(SONARA_PROJECT_FEATURE_REVISION):
+        return
+
+    score_rows = connection.execute(
+        "SELECT track_id, classifier, feature_set FROM track_classifier_scores"
+    ).fetchall()
+    stale_scores = [
+        (int(score["track_id"]), str(score["classifier"]))
+        for score in score_rows
+        if feature_set_uses_sonara(score["feature_set"])
+    ]
+    if stale_scores:
+        connection.executemany(
+            "DELETE FROM track_classifier_scores WHERE track_id = ? AND classifier = ?",
+            stale_scores,
+        )
+    connection.execute(
+        """
+        INSERT INTO library_settings (key, value, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(key) DO UPDATE SET
+            value = excluded.value,
+            updated_at = CURRENT_TIMESTAMP
+        """,
+        (SONARA_CLASSIFIER_REVISION_SETTING_KEY, str(SONARA_PROJECT_FEATURE_REVISION)),
+    )
 
 
 def _validate_current_schema(connection: sqlite3.Connection) -> None:

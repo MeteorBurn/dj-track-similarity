@@ -5,9 +5,20 @@ from dataclasses import dataclass
 
 
 ANALYSIS_MODEL_ORDER = ("sonara", "maest", "mert", "muq", "clap")
-# Opt-in SONARA 2.0 feature families. Each maps to sonara `features=[...]` requests in
-# sonara_features.py. Empty by default so a plain analyze run keeps the pre-2.0 playlist output.
-SONARA_FEATURE_FAMILIES = ("structure", "loudness", "beatgrid", "key_candidates", "vocalness", "silence")
+# SONARA 2.0 feature families. Each maps to sonara `features=[...]` requests in sonara_features.py.
+# New jobs default to the full capture profile; callers can still pass an explicit empty sequence
+# when they intentionally need plain playlist output.
+SONARA_FEATURE_FAMILIES = (
+    "structure",
+    "loudness",
+    "beatgrid",
+    "key_candidates",
+    "vocalness",
+    "mood",
+    "instrumentalness",
+    "silence",
+)
+DEFAULT_SONARA_FEATURE_FAMILIES = SONARA_FEATURE_FAMILIES
 ANALYSIS_DEVICE_CHOICES = ("auto", "cpu", "cuda")
 ANALYSIS_DEVICE_PATTERN = "^(auto|cpu|cuda)$"
 DEFAULT_ANALYSIS_DEVICE = "auto"
@@ -100,7 +111,9 @@ def build_analysis_job_config(
             minimum=MIN_ANALYSIS_INFERENCE_BATCH_SIZE,
             maximum=MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
         ),
-        sonara_features=normalize_sonara_features(sonara_features),
+        sonara_features=normalize_sonara_features(
+            DEFAULT_SONARA_FEATURE_FAMILIES if sonara_features is None else sonara_features
+        ),
     )
 
 

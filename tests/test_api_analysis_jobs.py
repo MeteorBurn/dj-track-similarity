@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 import dj_track_similarity.api as api
 import dj_track_similarity.api_state as api_state
+from dj_track_similarity.analysis_config import DEFAULT_SONARA_FEATURE_FAMILIES
 from dj_track_similarity.database import LibraryDatabase
 
 
@@ -160,7 +161,7 @@ def test_api_allows_classifier_only_unified_analysis_job(monkeypatch, tmp_path: 
     assert response.status_code == 200
     assert SynchronousAnalysisManager.last_request["models"] == []
     assert SynchronousAnalysisManager.last_request["classifier_keys"] == ["break_energy"]
-    assert SynchronousAnalysisManager.last_request["sonara_features"] == []
+    assert SynchronousAnalysisManager.last_request["sonara_features"] == list(DEFAULT_SONARA_FEATURE_FAMILIES)
 
 
 def test_api_rejects_classifier_analysis_when_required_inputs_are_missing(monkeypatch, tmp_path: Path) -> None:
@@ -199,7 +200,7 @@ def test_api_defaults_multi_model_analysis_to_all_models(monkeypatch, tmp_path: 
     assert SynchronousAnalysisManager.last_request["track_batch_size"] == 4
     assert SynchronousAnalysisManager.last_request["inference_batch_size"] == 24
     assert SynchronousAnalysisManager.last_request["classifier_keys"] == []
-    assert SynchronousAnalysisManager.last_request["sonara_features"] == []
+    assert SynchronousAnalysisManager.last_request["sonara_features"] == list(DEFAULT_SONARA_FEATURE_FAMILIES)
 
 
 def test_api_exposes_analysis_job_lookup_latest_and_cancel_contract(monkeypatch, tmp_path: Path) -> None:

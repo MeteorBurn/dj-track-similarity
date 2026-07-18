@@ -12,6 +12,7 @@ import dj_track_similarity.database as database_module
 import dj_track_similarity.media_preview as media_preview_module
 from dj_track_similarity.api import create_app
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature
 
 
 def test_tracks_endpoint_returns_paginated_slim_items_and_total(tmp_path: Path) -> None:
@@ -46,11 +47,69 @@ def test_tracks_endpoints_return_empty_contract_for_new_database(tmp_path: Path)
     assert filtered_response.json() == {"items": [], "total": 0}
 
 
+def test_track_sonara_curves_endpoint_returns_lazy_out_of_band_data(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    with_curves_id = _add_track(db, tmp_path, "curves.wav", "Artist", "Curves", {})
+    without_curves_id = _add_track(db, tmp_path, "plain.wav", "Artist", "Plain", {})
+    stale_curves_id = _add_track(db, tmp_path, "stale-curves.wav", "Artist", "Stale Curves", {})
+    curves = {
+        "energy_curve": {"type": "list", "value": [0.1, 0.4, 0.8], "length": 3},
+        "loudness_curve": {"type": "list", "value": [-18.0, -12.0], "length": 2},
+        "downbeats": {"type": "list", "value": [0, 4, 8], "length": 3},
+    }
+    signature = expected_sonara_analysis_signature([])
+    db.save_sonara_features(
+        with_curves_id,
+        {},
+        analysis_signature=signature,
+        curves=curves,
+    )
+    db.save_sonara_features(
+        stale_curves_id,
+        {},
+        analysis_signature=signature,
+        curves=curves,
+    )
+    with db.connect() as connection:
+        connection.execute(
+            """
+            UPDATE tracks
+            SET metadata_json = json_set(metadata_json, '$.sonara_analysis_signature.schema_version', 2)
+            WHERE id = ?
+            """,
+            (stale_curves_id,),
+        )
+    client = TestClient(create_app(db_path))
+
+    stored = client.get(f"/api/tracks/{with_curves_id}/sonara-curves")
+    empty = client.get(f"/api/tracks/{without_curves_id}/sonara-curves")
+    stale = client.get(f"/api/tracks/{stale_curves_id}/sonara-curves")
+    missing = client.get("/api/tracks/999999/sonara-curves")
+
+    assert stored.status_code == 200
+    assert stored.json()["energy_curve"]["value"] == [0.1, 0.4, 0.8]
+    assert stored.json()["loudness_curve"]["value"] == [-18.0, -12.0]
+    assert stored.json()["downbeats"]["value"] == [0, 4, 8]
+    assert empty.status_code == 200
+    assert empty.json() == {}
+    assert stale.status_code == 200
+    assert stale.json() == {}
+    assert db.load_sonara_curves(stale_curves_id) is None
+    assert missing.status_code == 404
+
+
 def test_tracks_endpoint_does_not_parse_metadata_for_slim_items(monkeypatch, tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
     track_id = _add_track(db, tmp_path, "analyzed.wav", "Artist", "Analyzed", {"comment": "large metadata"})
-    db.save_sonara_features(track_id, {"energy": 0.7}, energy=0.7, model_name="sonara-test")
+    db.save_sonara_features(
+        track_id,
+        {"energy": 0.7},
+        energy=0.7,
+        model_name="sonara-test",
+        analysis_signature=expected_sonara_analysis_signature([]),
+    )
     db.save_genres(track_id, [{"label": "Breakbeat", "score": 0.9}], model_name="maest-test")
     db.save_embedding(track_id, np.asarray([0.0, 1.0], dtype=np.float32), model_name="maest-test", embedding_key="maest")
     db.save_embedding(track_id, np.asarray([1.0, 0.0], dtype=np.float32), model_name="mert-test", embedding_key="mert")
@@ -249,6 +308,11 @@ def test_classifier_analyze_endpoint_uses_classifier_key(monkeypatch, tmp_path: 
         )
 
     monkeypatch.setattr(ClassifierJobManager, "start", fake_start)
+    monkeypatch.setattr(
+        api_module,
+        "promoted_classifiers",
+        lambda: [{"classifier_key": "live_instrumentation", "is_scoring_compatible": True}],
+    )
     client = TestClient(create_app(db_path))
 
     response = client.post("/api/classifiers/live_instrumentation/analyze", json={"limit": 7})
@@ -474,7 +538,13 @@ def test_library_summary_counts_tracks_and_analysis_families(tmp_path: Path) -> 
     maest_id = _add_track(db, tmp_path, "maest.wav", "Artist", "Maest", {})
     maest_genres_only_id = _add_track(db, tmp_path, "maest-genres-only.wav", "Artist", "Maest Genres Only", {})
     mert_id = _add_track(db, tmp_path, "mert.wav", "Artist", "Mert", {})
-    db.save_sonara_features(sonara_id, {"energy": 0.7}, energy=0.7, model_name="sonara-test")
+    db.save_sonara_features(
+        sonara_id,
+        {"energy": 0.7},
+        energy=0.7,
+        model_name="sonara-test",
+        analysis_signature=expected_sonara_analysis_signature([]),
+    )
     db.save_genres(maest_id, [{"label": "Breakbeat", "score": 0.9}], model_name="maest-test")
     db.save_embedding(maest_id, np.asarray([0.0, 1.0], dtype=np.float32), model_name="maest-test", embedding_key="maest")
     db.save_genres(maest_genres_only_id, [{"label": "House", "score": 0.8}], model_name="maest-test")
@@ -486,6 +556,20 @@ def test_library_summary_counts_tracks_and_analysis_families(tmp_path: Path) -> 
 
     assert response.status_code == 200
     assert response.json() == {"tracks": 4, "sonara": 1, "maest": 1, "mert": 1, "muq": 1, "clap": 0, "liked": 1, "classifiers": 0}
+
+
+def test_library_summary_and_track_status_ignore_unsigned_sonara(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    track_id = _add_track(db, tmp_path, "legacy.wav", "Artist", "Legacy", {})
+    db.save_sonara_features(track_id, {"bpm": 128.0}, bpm=128.0, model_name="sonara-legacy")
+    client = TestClient(create_app(db_path))
+
+    summary = client.get("/api/library/summary").json()
+    track = client.get("/api/tracks?include_metadata=false").json()["items"][0]
+
+    assert summary["sonara"] == 0
+    assert track["analyses"] is None
 
 
 def test_library_summary_counts_tracks_with_complete_promoted_classifier_scores(monkeypatch, tmp_path: Path) -> None:

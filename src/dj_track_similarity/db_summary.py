@@ -13,6 +13,7 @@ class SummaryRepository:
                     SELECT COUNT(*)
                     FROM tracks INDEXED BY idx_tracks_present_sonara_flag
                     WHERE has_sonara_analysis = 1
+                      AND sonara_analysis_is_current(metadata_json) = 1
                     """
                 ).fetchone()[0]
             )

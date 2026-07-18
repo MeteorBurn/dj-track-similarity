@@ -7,6 +7,11 @@ from pathlib import Path
 import numpy as np
 
 from dj_track_similarity.models import Track
+from dj_track_similarity.sonara_contract import (
+    SONARA_ANALYSIS_SIGNATURE_KEY,
+    sonara_analysis_signature_errors,
+    sonara_analysis_signatures_match,
+)
 from dj_track_similarity.sonara_similarity_scoring import optional_float, unwrap_feature_value
 
 from .lab_db import RhythmLabDatabase
@@ -42,7 +47,6 @@ SONARA_SCALAR_FIELDS = (
     "danceability",
     "valence",
     "acousticness",
-    "key_confidence",
     "chord_change_rate",
     "dissonance",
     "spectral_bandwidth_mean",
@@ -66,6 +70,7 @@ SONARA2_EXTRA_SCALAR_FIELDS = (
 )
 SONARA2_SCALAR_FIELDS = (*SONARA_SCALAR_FIELDS, *SONARA2_EXTRA_SCALAR_FIELDS)
 SONARA2VOCAL_SCALAR_FIELDS = (*SONARA2_SCALAR_FIELDS, "vocalness")
+SONARA_STRICT_OPTIN_SCALAR_FIELDS = {*SONARA2_EXTRA_SCALAR_FIELDS, "vocalness"}
 # spectral_contrast_mean is a per-band vector (7 sub-band contrast values), not a scalar. It used to
 # sit in SONARA_SCALAR_FIELDS, where optional_float() on a list returned None and every track got a
 # constant 0.0 for it - one dead feature in every trained model. It belongs here with the other
@@ -84,6 +89,7 @@ class FeatureMatrix:
     matrix: np.ndarray
     feature_names: list[str]
     skipped_track_ids: list[int]
+    sonara_analysis_signature: dict[str, object] | None = None
 
 
 def build_labeled_feature_matrix(
@@ -99,10 +105,20 @@ def build_labeled_feature_matrix(
     return build_feature_matrix(source, feature_set, labels_by_track=labels_by_track)
 
 
-def build_unlabeled_feature_matrix(source_db_path: str | Path, feature_set: str) -> FeatureMatrix:
+def build_unlabeled_feature_matrix(
+    source_db_path: str | Path,
+    feature_set: str,
+    *,
+    expected_sonara_signature: dict[str, object] | None = None,
+) -> FeatureMatrix:
     source = SourceDatabase(source_db_path)
     labels_by_track = {track.id: "" for track in source.list_tracks()}
-    return build_feature_matrix(source, feature_set, labels_by_track=labels_by_track)
+    return build_feature_matrix(
+        source,
+        feature_set,
+        labels_by_track=labels_by_track,
+        expected_sonara_signature=expected_sonara_signature,
+    )
 
 
 def build_feature_matrix(
@@ -112,6 +128,7 @@ def build_feature_matrix(
     labels_by_track: dict[int, str],
     tracks_by_id: dict[int, Track] | None = None,
     embedding_vectors: dict[str, dict[int, np.ndarray]] | None = None,
+    expected_sonara_signature: dict[str, object] | None = None,
 ) -> FeatureMatrix:
     sources = feature_sources(feature_set)
     sonara_scalar_fields = _sonara_scalar_fields(feature_set)
@@ -126,11 +143,27 @@ def build_feature_matrix(
     track_ids: list[int] = []
     skipped: list[int] = []
     feature_names = _feature_names(sources, mert_vectors, maest_vectors, clap_vectors, sonara_scalar_fields=sonara_scalar_fields)
+    active_sonara_signature = dict(expected_sonara_signature) if expected_sonara_signature is not None else None
+    if active_sonara_signature is not None:
+        signature_errors = sonara_analysis_signature_errors(active_sonara_signature)
+        if signature_errors:
+            raise ValueError(f"Incompatible expected SONARA analysis signature: {'; '.join(signature_errors)}")
     for track_id, label in labels_by_track.items():
         track = tracks_by_id.get(track_id)
         if track is None:
             skipped.append(track_id)
             continue
+        track_signature: object = None
+        if "sonara" in sources:
+            track_signature = (track.metadata or {}).get(SONARA_ANALYSIS_SIGNATURE_KEY)
+            if sonara_analysis_signature_errors(track_signature):
+                skipped.append(track_id)
+                continue
+            if active_sonara_signature is not None and not sonara_analysis_signatures_match(
+                track_signature, active_sonara_signature
+            ):
+                skipped.append(track_id)
+                continue
         row = _track_features(
             track,
             sources,
@@ -142,11 +175,20 @@ def build_feature_matrix(
         if row is None:
             skipped.append(track_id)
             continue
+        if "sonara" in sources and active_sonara_signature is None:
+            active_sonara_signature = dict(track_signature)
         rows.append(row)
         labels.append(label)
         track_ids.append(track_id)
     matrix = np.vstack(rows).astype(np.float32) if rows else np.zeros((0, len(feature_names)), dtype=np.float32)
-    return FeatureMatrix(track_ids=track_ids, labels=labels, matrix=matrix, feature_names=feature_names, skipped_track_ids=skipped)
+    return FeatureMatrix(
+        track_ids=track_ids,
+        labels=labels,
+        matrix=matrix,
+        feature_names=feature_names,
+        skipped_track_ids=skipped,
+        sonara_analysis_signature=active_sonara_signature if "sonara" in sources else None,
+    )
 
 
 def _track_features(
@@ -189,15 +231,18 @@ def _sonara_features(track: Track, *, sonara_scalar_fields: tuple[str, ...]) -> 
         return None
     values: list[float] = []
     for field in sonara_scalar_fields:
-        values.append(_numeric_feature(raw_features.get(field)))
+        value = _optional_numeric_feature(raw_features.get(field))
+        if value is None and field in SONARA_STRICT_OPTIN_SCALAR_FIELDS:
+            return None
+        values.append(value if value is not None else 0.0)
     for field, length in SONARA_VECTOR_FIELDS.items():
         values.extend(_numeric_vector(raw_features.get(field), length))
     return np.asarray(values, dtype=np.float32)
 
 
-def _numeric_feature(value: object) -> float:
+def _optional_numeric_feature(value: object) -> float | None:
     number = optional_float(unwrap_feature_value(value))
-    return float(number) if number is not None else 0.0
+    return float(number) if number is not None else None
 
 
 def _numeric_vector(value: object, length: int) -> list[float]:

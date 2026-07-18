@@ -9,9 +9,11 @@ from pathlib import Path
 import shutil
 
 from dj_track_similarity.classifier_production import normalize_label_suggestion_mode, suggest_classifier_labels
+from dj_track_similarity.classifier_manifest import CLASSIFIER_MANIFEST_VERSION
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.logging_config import uvicorn_log_config
 from dj_track_similarity.rhythm_lab_collections import RhythmLabCollections
+from dj_track_similarity.sonara_contract import feature_set_uses_sonara, sonara_analysis_signature_errors
 
 from .ablation import ABLATION_FEATURE_SETS, cli_summary, run_ablation_benchmark
 from .features import feature_sources
@@ -227,6 +229,14 @@ def promote_profile_model(
     if feature_set is not None and artifact_feature_set != feature_set:
         raise PromotionError(f"Expected a {feature_set!r} artifact, got feature_set={artifact_feature_set!r}")
     required_inputs = list(feature_sources(artifact_feature_set))
+    sonara_analysis_signature = payload.get("sonara_analysis_signature")
+    if feature_set_uses_sonara(artifact_feature_set):
+        signature_errors = sonara_analysis_signature_errors(sonara_analysis_signature)
+        if signature_errors:
+            raise PromotionError(
+                "SONARA-dependent artifacts must be retrained with the current analysis signature: "
+                + "; ".join(signature_errors)
+            )
     production_calibration = _artifact_calibration_payload(payload)
     if require_calibration and production_calibration.get("status") != "calibrated":
         reason = production_calibration.get("reason") or production_calibration.get("status") or "unknown"
@@ -243,7 +253,7 @@ def promote_profile_model(
     model_id = f"{profile.classifier_key}_{promoted_stamp}_{artifact_hash[:8]}"
     metadata = {
         "classifier_key": profile.classifier_key,
-        "manifest_version": 1,
+        "manifest_version": CLASSIFIER_MANIFEST_VERSION,
         "model_id": model_id,
         "artifact_hash": f"sha256:{artifact_hash}",
         "profile_name": profile.name,
@@ -263,6 +273,9 @@ def promote_profile_model(
         },
         "trained_label_counts": labels_db.label_counts(),
     }
+    if feature_set_uses_sonara(artifact_feature_set):
+        assert isinstance(sonara_analysis_signature, dict)
+        metadata["production"]["sonara_analysis_signature"] = dict(sonara_analysis_signature)
     if production_calibration.get("status") == "uncalibrated" and allow_uncalibrated:
         metadata["production"]["calibration"]["allowed_uncalibrated"] = True
     metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")

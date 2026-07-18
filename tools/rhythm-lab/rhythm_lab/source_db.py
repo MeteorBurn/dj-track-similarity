@@ -12,6 +12,11 @@ from dj_track_similarity.database import DEFAULT_EMBEDDING_KEY, LibraryDatabase
 from dj_track_similarity.db_schema import TRACK_SELECT_FIELDS, TRACK_SLIM_SELECT_FIELDS_WITH_VECTOR
 from dj_track_similarity.metadata_payload import genres_from_metadata, metadata_from_json, optional_float
 from dj_track_similarity.models import Track
+from dj_track_similarity.sonara_contract import (
+    current_sonara_features,
+    sonara_analysis_is_current,
+    sonara_analysis_json_is_current,
+)
 
 
 REQUIRED_TRACK_COLUMNS = {
@@ -50,6 +55,12 @@ class SourceDatabase:
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA query_only = ON")
+        connection.create_function(
+            "sonara_analysis_is_current",
+            1,
+            sonara_analysis_json_is_current,
+            deterministic=True,
+        )
         connection.create_function("rhythm_lab_random_rank", 2, _stable_random_rank, deterministic=True)
         return connection
 
@@ -73,7 +84,8 @@ class SourceDatabase:
                     """
                     SELECT COUNT(*)
                     FROM tracks
-                    WHERE json_type(metadata_json, '$.sonara_features') IS NOT NULL
+                    WHERE has_sonara_analysis = 1
+                      AND sonara_analysis_is_current(metadata_json) = 1
                     """
                 ).fetchone()[0]
             )
@@ -520,7 +532,7 @@ def _track_page_item(row: sqlite3.Row) -> dict[str, object]:
         "label_trained": bool(row["classifier_label_trained"]),
         "maest_syncopated_rhythm": metadata.get("maest_syncopated_rhythm") is True,
         "feature_status": {
-            "sonara": isinstance(metadata.get("sonara_features"), dict),
+            "sonara": sonara_analysis_is_current(metadata),
             "mert": bool(row["has_mert_embedding"]),
             "maest": bool(row["has_maest_embedding"]),
         },
@@ -663,7 +675,7 @@ def _prediction_page_item(
         "genre_scores": genre_scores,
         "maest_syncopated_rhythm": metadata.get("maest_syncopated_rhythm") is True,
         "feature_status": {
-            "sonara": isinstance(metadata.get("sonara_features"), dict),
+            "sonara": sonara_analysis_is_current(metadata),
             "mert": bool(row["has_mert_embedding"]),
             "maest": bool(row["has_maest_embedding"]),
         },
@@ -685,6 +697,7 @@ def _json_probability_path(label: str) -> str:
 def _sonara_bpm_sql(metadata_column: str) -> str:
     return (
         "CASE "
+        f"WHEN sonara_analysis_is_current({metadata_column}) != 1 THEN NULL "
         f"WHEN json_type({metadata_column}, '$.sonara_features.bpm.value') IN ('integer', 'real', 'text') "
         f"THEN CAST(json_extract({metadata_column}, '$.sonara_features.bpm.value') AS REAL) "
         f"WHEN json_type({metadata_column}, '$.sonara_features.bpm') IN ('integer', 'real', 'text') "
@@ -694,8 +707,8 @@ def _sonara_bpm_sql(metadata_column: str) -> str:
 
 
 def _sonara_bpm_from_metadata(metadata: dict[str, object]) -> float | None:
-    features = metadata.get("sonara_features")
-    if not isinstance(features, dict):
+    features = current_sonara_features(metadata)
+    if features is None:
         return None
     value = features.get("bpm")
     if isinstance(value, dict):

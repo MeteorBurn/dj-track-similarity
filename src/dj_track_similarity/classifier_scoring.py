@@ -15,6 +15,11 @@ from .classifier_manifest import (
 )
 from .database import LibraryDatabase
 from .models import Track
+from .sonara_contract import (
+    feature_set_uses_sonara,
+    sonara_analysis_is_compatible,
+    sonara_analysis_signatures_match,
+)
 from .sonara_similarity_scoring import optional_float, unwrap_feature_value
 
 
@@ -113,7 +118,14 @@ class ClassifierScorer:
         if not self.label_order:
             raise ValueError(f"{self.classifier_key} model artifact does not contain label_order")
         self.positive_label = str(self.payload.get("positive_label") or self.label_order[0])
+        self.needs_sonara = feature_set_uses_sonara(self.feature_set) or any(
+            name.startswith("sonara:") for name in self.feature_names
+        )
         _validate_payload_against_manifest(self.payload, self.manifest, self.classifier_key)
+        if self.needs_sonara and (self.manifest is None or self.manifest.sonara_analysis_signature is None):
+            raise ValueError(
+                f"{self.classifier_key} uses SONARA inputs but has no compatible SONARA analysis signature"
+            )
         self.needs_mert = any(name.startswith("mert:") for name in self.feature_names)
         self.needs_maest = any(name.startswith("maest:") for name in self.feature_names)
         self.needs_clap = any(name.startswith("clap:") for name in self.feature_names)
@@ -126,6 +138,11 @@ class ClassifierScorer:
         return str(self.path)
 
     def score_track(self, track: Track) -> dict[str, float] | None:
+        if self.needs_sonara and not sonara_analysis_is_compatible(
+            track.metadata,
+            self.manifest.sonara_analysis_signature if self.manifest is not None else None,
+        ):
+            return None
         self._load_recent_embedding_vectors(track.id)
         row = _track_feature_row(
             track,
@@ -211,6 +228,10 @@ def _validate_payload_against_manifest(
     feature_names = [str(name) for name in payload.get("feature_names", [])]
     if manifest.feature_count is not None and feature_names and len(feature_names) != manifest.feature_count:
         raise ValueError(f"{classifier_key} model artifact feature count does not match model.json")
+    if feature_set_uses_sonara(feature_set):
+        payload_signature = payload.get("sonara_analysis_signature")
+        if not sonara_analysis_signatures_match(payload_signature, manifest.sonara_analysis_signature):
+            raise ValueError(f"{classifier_key} model artifact SONARA analysis signature does not match model.json")
 
 
 def _classifier_key_from_metadata_or_slug(metadata_path: Path, artifact_slug: str) -> str:
@@ -243,6 +264,12 @@ def _promoted_classifier_payload(summary: ClassifierManifestSummary, *, model_pa
         payload["manifest_status"] = "invalid"
         payload["manifest_errors"] = [*payload["manifest_errors"], "model.joblib is missing"]
         payload["is_scoring_compatible"] = False
+    elif summary.status == "legacy":
+        payload["manifest_errors"] = [
+            *payload["manifest_errors"],
+            "model.json is missing; promote the artifact again before scoring",
+        ]
+        payload["is_scoring_compatible"] = False
     return payload
 
 
@@ -262,7 +289,10 @@ def _track_feature_row(
         if source == "sonara":
             if not isinstance(sonara, dict):
                 return None
-            values.append(_sonara_feature_value(sonara, key))
+            value = _sonara_feature_value(sonara, key)
+            if value is None:
+                return None
+            values.append(value)
             continue
         if source == "mert":
             vector = mert_vectors.get(track.id)
@@ -286,7 +316,7 @@ def _track_feature_row(
     return np.asarray(values, dtype=np.float32)
 
 
-def _sonara_feature_value(features: dict[str, object], key: str) -> float:
+def _sonara_feature_value(features: dict[str, object], key: str) -> float | None:
     field, separator, index_text = key.rpartition(":")
     if separator and index_text.isdigit():
         raw = unwrap_feature_value(features.get(field))
@@ -294,10 +324,10 @@ def _sonara_feature_value(features: dict[str, object], key: str) -> float:
             index = int(index_text)
             if 0 <= index < len(raw):
                 number = optional_float(raw[index])
-                return float(number) if number is not None else 0.0
-        return 0.0
+                return float(number) if number is not None else None
+        return None
     number = optional_float(unwrap_feature_value(features.get(key)))
-    return float(number) if number is not None else 0.0
+    return float(number) if number is not None else None
 
 
 def _vector_value(vector: np.ndarray, index_text: str) -> float:

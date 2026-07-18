@@ -10,6 +10,7 @@ from typing import Literal
 from dj_track_similarity.metadata_payload import metadata_to_json
 from dj_track_similarity.models import Track
 from dj_track_similarity.rhythm_lab_collections import ensure_review_collection_schema
+from dj_track_similarity.sonara_contract import SONARA_PROJECT_FEATURE_REVISION, feature_set_uses_sonara
 
 
 ClassifierLabelName = Literal["broken", "straight", "ambiguous"]
@@ -32,6 +33,7 @@ LABEL_QUEUE_STATES: tuple[str, ...] = (
     "used_for_training",
     "archived",
 )
+SONARA_PREDICTION_REVISION_SETTING_KEY = "classifier.sonara_feature_revision"
 DEFAULT_TRAINING_MIN_ADDED = 50
 PROFILE_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 LABEL_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -99,6 +101,7 @@ class RhythmLabDatabase:
         with self.connect() as connection:
             _ensure_profile_tables(connection)
             _ensure_classifier_tables(connection)
+            _ensure_sonara_prediction_feature_revision(connection)
             ensure_review_collection_schema(connection)
             connection.executescript(
                 """
@@ -1195,6 +1198,43 @@ def _classifier_predictions_table_sql(table: str) -> str:
             PRIMARY KEY(classifier_key, source_track_id, feature_set, model_artifact)
         )
     """
+
+
+def _ensure_sonara_prediction_feature_revision(connection: sqlite3.Connection) -> None:
+    """Drop stale derived predictions once while preserving labels, queues, and feedback."""
+
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS rhythm_lab_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    row = connection.execute(
+        "SELECT value FROM rhythm_lab_settings WHERE key = ?",
+        (SONARA_PREDICTION_REVISION_SETTING_KEY,),
+    ).fetchone()
+    if row is not None and str(row["value"]) == str(SONARA_PROJECT_FEATURE_REVISION):
+        return
+    predictions = connection.execute("SELECT rowid, feature_set FROM classifier_predictions").fetchall()
+    stale_rowids = [int(row["rowid"]) for row in predictions if feature_set_uses_sonara(row["feature_set"])]
+    if stale_rowids:
+        connection.executemany(
+            "DELETE FROM classifier_predictions WHERE rowid = ?",
+            ((rowid,) for rowid in stale_rowids),
+        )
+    connection.execute(
+        """
+        INSERT INTO rhythm_lab_settings (key, value, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(key) DO UPDATE SET
+            value = excluded.value,
+            updated_at = CURRENT_TIMESTAMP
+        """,
+        (SONARA_PREDICTION_REVISION_SETTING_KEY, str(SONARA_PROJECT_FEATURE_REVISION)),
+    )
 
 
 def _classifier_training_checkpoints_table_sql(table: str) -> str:

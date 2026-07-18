@@ -15,6 +15,7 @@ import dj_track_similarity.cli as cli
 from dj_track_similarity.classifier_production import build_classifier_calibration_report, suggest_classifier_labels
 from dj_track_similarity.classifier_scoring import ClassifierScorer, promoted_classifiers
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature, feature_set_uses_sonara
 
 
 class FixedProbabilityModel:
@@ -134,6 +135,73 @@ def test_classifier_scorer_rejects_manifest_payload_mismatch(tmp_path: Path) -> 
         ClassifierScorer(db, classifier="break_energy", model_path=model_path)
 
 
+def test_sonara_classifier_manifest_without_analysis_signature_is_invalid(tmp_path: Path) -> None:
+    root = tmp_path / "models" / "classifiers"
+    profile_dir = root / "old-sonara"
+    profile_dir.mkdir(parents=True)
+    (profile_dir / "model.joblib").write_bytes(b"model")
+    manifest_path = profile_dir / "model.json"
+    _write_manifest(manifest_path, classifier_key="old_sonara", feature_set="sonara", required_inputs=["sonara"])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["production"].pop("sonara_analysis_signature")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    payload = promoted_classifiers(root)[0]
+
+    assert payload["is_scoring_compatible"] is False
+    assert any("sonara_analysis_signature" in error for error in payload["manifest_errors"])
+
+
+def test_classifier_scorer_requires_matching_track_signature_and_present_sonara_value(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    track_id = _track(db, tmp_path, "track.wav")
+    signature = expected_sonara_analysis_signature([])
+    model_path = tmp_path / "models" / "classifiers" / "sonara-only" / "model.joblib"
+    model_path.parent.mkdir(parents=True)
+    joblib.dump(
+        {
+            "model": FixedProbabilityModel(),
+            "feature_set": "sonara",
+            "feature_names": ["sonara:bpm"],
+            "label_order": ["broken", "straight"],
+            "classifier_key": "sonara_only",
+            "positive_label": "broken",
+            "sonara_analysis_signature": signature,
+        },
+        model_path,
+    )
+    _write_manifest(
+        model_path.with_name("model.json"),
+        classifier_key="sonara_only",
+        feature_set="sonara",
+        feature_count=1,
+        required_inputs=["sonara"],
+    )
+    scorer = ClassifierScorer(db, classifier="sonara_only", model_path=model_path)
+
+    db.save_sonara_features(
+        track_id,
+        {"bpm": {"value": 128.0}},
+        analysis_signature=signature,
+    )
+    assert scorer.score_track(db.get_track(track_id)) == {"broken": 0.8, "straight": 0.2}
+
+    db.save_sonara_features(
+        track_id,
+        {"energy": {"value": 0.5}},
+        analysis_signature=signature,
+    )
+    assert scorer.score_track(db.get_track(track_id)) is None
+
+    mismatched = expected_sonara_analysis_signature(["vocalness"])
+    db.save_sonara_features(
+        track_id,
+        {"bpm": {"value": 128.0}},
+        analysis_signature=mismatched,
+    )
+    assert scorer.score_track(db.get_track(track_id)) is None
+
+
 def test_classifier_calibration_report_is_insufficient_without_feedback(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     scored_id = _track(db, tmp_path, "scored.wav")
@@ -220,7 +288,9 @@ def test_classifier_cli_calibration_report_outputs_json(tmp_path: Path) -> None:
     assert result.exit_code == 0
     payload = json.loads(_cli_output_text(result.output))
     assert payload["classifier_key"] == "break_energy"
-    assert payload["status"] == "stale"
+    assert payload["status"] == "invalid_manifest"
+    assert payload["manifest"]["is_scoring_compatible"] is False
+    assert payload["manifest"]["manifest_errors"]
 
 
 def test_classifier_cli_suggest_labels_outputs_ordered_json(tmp_path: Path) -> None:
@@ -238,7 +308,8 @@ def test_classifier_cli_suggest_labels_outputs_ordered_json(tmp_path: Path) -> N
 
     assert result.exit_code == 0
     payload = json.loads(_cli_output_text(result.output))
-    assert [item["track"]["id"] for item in payload["suggestions"]] == [near_id, far_id]
+    assert payload["status"] == "invalid_manifest"
+    assert payload["suggestions"] == []
 
 
 def test_classifier_api_rejects_invalid_manifest_for_scoring(monkeypatch, tmp_path: Path) -> None:
@@ -363,6 +434,7 @@ def _write_model(path: Path) -> Path:
             "label_order": ["broken", "straight"],
             "classifier_key": "break_energy",
             "positive_label": "broken",
+            "sonara_analysis_signature": expected_sonara_analysis_signature([]),
         },
         path,
     )
@@ -385,7 +457,7 @@ def _write_manifest(
         json.dumps(
             {
                 "classifier_key": classifier_key,
-                "manifest_version": 1,
+                "manifest_version": 2,
                 "profile_name": classifier_key.replace("_", " ").title(),
                 "profile_type": "binary",
                 "feature_set": feature_set,
@@ -400,6 +472,11 @@ def _write_manifest(
                     "score_semantics": "positive_label_probability",
                     "required_inputs": required_inputs or ["sonara", "mert", "maest"],
                     "calibration": {"status": "uncalibrated", "method": None, "report": None},
+                    **(
+                        {"sonara_analysis_signature": expected_sonara_analysis_signature([])}
+                        if feature_set_uses_sonara(feature_set)
+                        else {}
+                    ),
                 },
             }
         ),

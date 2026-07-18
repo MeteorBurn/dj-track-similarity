@@ -23,15 +23,25 @@ sys.path.insert(0, str(LAB_ROOT))
 from dj_track_similarity import media_preview as media_preview_module
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.rhythm_lab_collections import RhythmLabCollections
+from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature
 
 from rhythm_lab.ablation import benchmark_profile_ablation
-from rhythm_lab.features import SONARA_SCALAR_FIELDS, SONARA_VECTOR_FIELDS, build_labeled_feature_matrix, feature_sources
+from rhythm_lab.features import (
+    SONARA2_EXTRA_SCALAR_FIELDS,
+    SONARA_SCALAR_FIELDS,
+    SONARA_VECTOR_FIELDS,
+    build_labeled_feature_matrix,
+    feature_sources,
+)
 from rhythm_lab.cli import PromotionError, promote_profile_model
-from rhythm_lab.lab_db import RhythmLabDatabase
+from rhythm_lab.lab_db import RhythmLabDatabase, SONARA_PREDICTION_REVISION_SETTING_KEY
 from rhythm_lab.predictions import _predict_probabilities, apply_model_to_lab, export_predictions_csv
 from rhythm_lab.source_db import SourceDatabase
 from rhythm_lab.training import train_feature_set
 from rhythm_lab.web_app import create_app, install_rhythm_lab_asyncio_exception_logging
+
+
+TEST_SONARA_SIGNATURE = expected_sonara_analysis_signature([])
 
 
 def _create_break_energy_profile(labels: RhythmLabDatabase):
@@ -125,6 +135,66 @@ def test_labels_database_starts_without_implicit_profiles(tmp_path: Path) -> Non
         assert connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='classifier_track_likes'"
         ).fetchone() is None
+
+
+def test_sonara_prediction_revision_invalidates_only_dependent_predictions_and_preserves_label_state(
+    tmp_path: Path,
+) -> None:
+    source = LibraryDatabase(tmp_path / "source.sqlite")
+    track_id = _track(source, tmp_path, "track.wav", title="Track")
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
+    scoped = RhythmLabDatabase(labels.path, classifier_key="break_energy")
+    track = source.get_track(track_id)
+    scoped.set_label(track, "broken", note="keep this label")
+    scoped.upsert_label_queue_items(
+        mode="uncertainty",
+        items=[
+            {
+                "source_track_id": track_id,
+                "score": 0.49,
+                "priority": 5.0,
+                "reason": {"reason": "keep this feedback"},
+            }
+        ],
+    )
+    scoped.save_prediction(
+        track,
+        feature_set="combined",
+        model_artifact="sonara-model.joblib",
+        label="broken",
+        confidence=0.8,
+        probabilities={"broken": 0.8, "straight": 0.2},
+    )
+    scoped.save_prediction(
+        track,
+        feature_set="mert+maest",
+        model_artifact="embedding-model.joblib",
+        label="straight",
+        confidence=0.7,
+        probabilities={"broken": 0.3, "straight": 0.7},
+    )
+    with scoped.connect() as connection:
+        connection.execute(
+            "DELETE FROM rhythm_lab_settings WHERE key = ?",
+            (SONARA_PREDICTION_REVISION_SETTING_KEY,),
+        )
+
+    migrated = RhythmLabDatabase(labels.path, classifier_key="break_energy")
+
+    predictions = migrated.predictions()
+    assert [(row["feature_set"], row["model_artifact"]) for row in predictions] == [
+        ("mert+maest", "embedding-model.joblib"),
+    ]
+    assert migrated.label_for_track(track_id).label == "broken"
+    assert migrated.label_for_track(track_id).note == "keep this label"
+    assert migrated.label_queue_items()[0]["reason"] == {"reason": "keep this feedback"}
+    with migrated.connect() as connection:
+        revision = connection.execute(
+            "SELECT value FROM rhythm_lab_settings WHERE key = ?",
+            (SONARA_PREDICTION_REVISION_SETTING_KEY,),
+        ).fetchone()[0]
+    assert revision == "1"
 
 
 def test_existing_break_energy_profile_remains_normal_profile(tmp_path: Path) -> None:
@@ -715,7 +785,12 @@ def test_web_app_reads_source_database_and_writes_labels_database_only(tmp_path:
     broken_id = _track(source, tmp_path, "broken.wav", title="Broken")
     straight_id = _track(source, tmp_path, "straight.wav", title="Straight")
     source.save_genres(broken_id, [{"label": "Breakbeat", "score": 0.9}], model_name="maest-test")
-    source.save_sonara_features(broken_id, {"onset_density": {"type": "float", "value": 4.2}}, model_name="sonara-test")
+    source.save_sonara_features(
+        broken_id,
+        {"onset_density": {"type": "float", "value": 4.2}},
+        model_name="sonara-test",
+        analysis_signature=TEST_SONARA_SIGNATURE,
+    )
     source.save_embedding(broken_id, np.asarray([1, 0, 0], dtype=np.float32), "maest-test", embedding_key="maest")
     labels_path = tmp_path / "labels.sqlite"
     _create_break_energy_profile(RhythmLabDatabase(labels_path))
@@ -747,6 +822,40 @@ def test_web_app_reads_source_database_and_writes_labels_database_only(tmp_path:
         ).fetchone() is None
 
 
+def test_web_app_ignores_unsigned_sonara_in_coverage_status_and_bpm_filters(tmp_path: Path) -> None:
+    from fastapi.testclient import TestClient
+
+    source_path = tmp_path / "source.sqlite"
+    source = LibraryDatabase(source_path)
+    current_id = _track(source, tmp_path, "current.wav", title="Current")
+    legacy_id = _track(source, tmp_path, "legacy.wav", title="Legacy")
+    source.save_sonara_features(
+        current_id,
+        {"bpm": {"value": 128.0}},
+        bpm=128.0,
+        analysis_signature=TEST_SONARA_SIGNATURE,
+    )
+    source.save_sonara_features(legacy_id, {"bpm": {"value": 126.0}}, bpm=126.0)
+    labels_path = tmp_path / "labels.sqlite"
+    _create_break_energy_profile(RhythmLabDatabase(labels_path))
+    client = TestClient(create_app(source_path, labels_db_path=labels_path))
+
+    summary = client.get("/api/profiles/break_energy/summary").json()
+    page = client.get("/api/profiles/break_energy/tracks", params={"label": "all"}).json()
+    filtered = client.get(
+        "/api/profiles/break_energy/tracks",
+        params={"label": "all", "bpm_min": 120, "bpm_max": 130},
+    ).json()
+
+    by_id = {item["id"]: item for item in page["items"]}
+    assert summary["sonara"] == 1
+    assert by_id[current_id]["feature_status"]["sonara"] is True
+    assert by_id[current_id]["bpm"] == 128.0
+    assert by_id[legacy_id]["feature_status"]["sonara"] is False
+    assert by_id[legacy_id]["bpm"] is None
+    assert [item["id"] for item in filtered["items"]] == [current_id]
+
+
 def test_web_app_bpm_range_filters_use_only_sonara_bpm_when_bounds_are_set(tmp_path: Path) -> None:
     from fastapi.testclient import TestClient
 
@@ -766,6 +875,7 @@ def test_web_app_bpm_range_filters_use_only_sonara_bpm_when_bounds_are_set(tmp_p
         tagged_id,
         {"bpm": {"type": "float", "value": 150.0}},
         model_name="sonara-test",
+        analysis_signature=TEST_SONARA_SIGNATURE,
     )
 
     fallback_path = tmp_path / "fallback.wav"
@@ -781,6 +891,7 @@ def test_web_app_bpm_range_filters_use_only_sonara_bpm_when_bounds_are_set(tmp_p
         fallback_id,
         {"bpm": {"type": "float", "value": 126.0}},
         model_name="sonara-test",
+        analysis_signature=TEST_SONARA_SIGNATURE,
     )
 
     outside_path = tmp_path / "outside.wav"
@@ -796,6 +907,7 @@ def test_web_app_bpm_range_filters_use_only_sonara_bpm_when_bounds_are_set(tmp_p
         outside_id,
         {"bpm": {"type": "float", "value": 132.0}},
         model_name="sonara-test",
+        analysis_signature=TEST_SONARA_SIGNATURE,
     )
 
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
@@ -969,7 +1081,12 @@ def test_web_app_predictions_endpoint_filters_candidates_by_probability_focus(mo
     balanced_id = _track(source, tmp_path, "balanced.wav", title="Balanced")
     source.set_track_liked(high_id, True)
     source.save_genres(high_id, [{"label": "Breakbeat", "score": 0.9}], model_name="maest-test")
-    source.save_sonara_features(high_id, {"onset_density": {"type": "float", "value": 4.2}}, model_name="sonara-test")
+    source.save_sonara_features(
+        high_id,
+        {"onset_density": {"type": "float", "value": 4.2}},
+        model_name="sonara-test",
+        analysis_signature=TEST_SONARA_SIGNATURE,
+    )
     source.save_embedding(high_id, np.asarray([1, 0, 0], dtype=np.float32), "maest-test", embedding_key="maest")
     source.save_embedding(high_id, np.asarray([0, 1, 0], dtype=np.float32), "mert-test", embedding_key="mert")
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
@@ -1652,6 +1769,7 @@ def test_web_app_promote_copies_latest_trained_combined_model(tmp_path: Path) ->
             "feature_names": ["tempo", "energy"],
             "label_order": ["broken", "straight"],
             "positive_label": "broken",
+            "sonara_analysis_signature": TEST_SONARA_SIGNATURE,
             "model": object(),
         },
         latest,
@@ -1814,6 +1932,7 @@ def test_cli_promote_profile_copies_latest_combined_model_to_classifier_asset(tm
             "feature_set": "combined",
             "label_order": ["live_instrument", "no_instrument"],
             "positive_label": "live_instrument",
+            "sonara_analysis_signature": TEST_SONARA_SIGNATURE,
             "model": object(),
         },
         old,
@@ -1824,6 +1943,7 @@ def test_cli_promote_profile_copies_latest_combined_model_to_classifier_asset(tm
             "feature_set": "combined",
             "label_order": ["live_instrument", "no_instrument"],
             "positive_label": "live_instrument",
+            "sonara_analysis_signature": TEST_SONARA_SIGNATURE,
             "model": object(),
         },
         latest,
@@ -2852,6 +2972,7 @@ def test_feature_matrix_uses_source_database_features_and_external_labels(tmp_pa
                 "chroma_mean": {"type": "list", "value": [float(index)] * 12},
             },
             model_name="sonara-test",
+            analysis_signature=TEST_SONARA_SIGNATURE,
         )
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
     _create_break_energy_profile(labels)
@@ -2882,6 +3003,7 @@ def test_apply_model_to_lab_saves_predictions_and_exports_csv(tmp_path: Path) ->
                 "chroma_mean": {"type": "list", "value": [float(index)] * 12},
             },
             model_name="sonara-test",
+            analysis_signature=TEST_SONARA_SIGNATURE,
         )
         scoped_labels.set_label(source.get_track(track_id), "broken" if index < 3 else "straight")
 
@@ -2896,6 +3018,7 @@ def test_apply_model_to_lab_saves_predictions_and_exports_csv(tmp_path: Path) ->
         positive_label="broken",
         artifact_prefix="break-energy",
         classifier_key="break_energy",
+        sonara_analysis_signature=features.sonara_analysis_signature,
     )
 
     summary = apply_model_to_lab(source.path, labels.path, trained.artifact_path)
@@ -2917,6 +3040,7 @@ def test_apply_model_to_lab_rejects_artifact_without_profile_key(tmp_path: Path)
             "chroma_mean": {"type": "list", "value": [1.0] * 12},
         },
         model_name="sonara-test",
+        analysis_signature=TEST_SONARA_SIGNATURE,
     )
     labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
     artifact_path = tmp_path / "legacy.joblib"
@@ -2952,6 +3076,7 @@ def test_build_labeled_feature_matrix_accepts_feature_source_combinations(tmp_pa
                 "chroma_mean": {"type": "list", "value": [float(index)] * 12},
             },
             model_name="sonara-test",
+            analysis_signature=TEST_SONARA_SIGNATURE,
         )
         source.save_embedding(track_id, np.asarray([1.0, float(index + 1)], dtype=np.float32), "mert-test", embedding_key="mert")
         source.save_embedding(track_id, np.asarray([float(index + 1), 1.0], dtype=np.float32), "clap-test", embedding_key="clap")
@@ -2986,6 +3111,7 @@ def test_sonara_spectral_contrast_is_a_seven_dim_vector_feature(tmp_path: Path) 
                 "spectral_contrast_mean": {"type": "list", "value": [float(index)] * 7},
             },
             model_name="sonara-test",
+            analysis_signature=TEST_SONARA_SIGNATURE,
         )
         scoped_labels.set_label(source.get_track(track_id), "broken" if index < 2 else "straight")
 
@@ -3003,6 +3129,9 @@ def test_sonara_scalar_fields_are_never_stored_as_vectors() -> None:
     known_vector_fields = {"spectral_contrast_mean", "mfcc_mean", "chroma_mean"}
     overlap = known_vector_fields & set(SONARA_SCALAR_FIELDS)
     assert not overlap, f"vector fields wrongly declared scalar (would score 0.0): {sorted(overlap)}"
+    assert "key_confidence" not in SONARA_SCALAR_FIELDS
+    data_only_fields = {"bpm_confidence", "instrumentalness", "mood_happy", "mood_aggressive", "mood_relaxed", "mood_sad"}
+    assert not data_only_fields & set((*SONARA_SCALAR_FIELDS, *SONARA2_EXTRA_SCALAR_FIELDS))
     assert set(SONARA_VECTOR_FIELDS) == {"mfcc_mean", "chroma_mean", "spectral_contrast_mean"}
 
 
@@ -3026,6 +3155,7 @@ def test_sonara2_feature_sets_include_numeric_optins_with_vocalness_toggle(tmp_p
                 "vocalness": {"type": "float", "value": 0.8 if index < 2 else 0.1},
             },
             model_name="sonara-test",
+            analysis_signature=TEST_SONARA_SIGNATURE,
         )
         scoped_labels.set_label(source.get_track(track_id), "broken" if index < 2 else "straight")
 
@@ -3039,6 +3169,47 @@ def test_sonara2_feature_sets_include_numeric_optins_with_vocalness_toggle(tmp_p
     assert "sonara:vocalness" not in without_vocalness.feature_names
     assert "sonara:vocalness" in with_vocalness.feature_names
     assert with_vocalness.matrix.shape[1] == without_vocalness.matrix.shape[1] + 1
+
+
+def test_sonara2_cohort_signature_is_selected_only_after_a_usable_row(tmp_path: Path) -> None:
+    source = LibraryDatabase(tmp_path / "source.sqlite")
+    labels = RhythmLabDatabase(tmp_path / "labels.sqlite")
+    _create_break_energy_profile(labels)
+    scoped_labels = RhythmLabDatabase(labels.path, classifier_key="break_energy")
+    minimal_id = _track(source, tmp_path, "minimal-first.wav", title="Minimal first")
+    full_id = _track(source, tmp_path, "full-second.wav", title="Full second")
+    minimal_signature = expected_sonara_analysis_signature([])
+    full_signature = expected_sonara_analysis_signature(["structure"])
+    source.save_sonara_features(
+        minimal_id,
+        {"onset_density": {"type": "float", "value": 0.5}},
+        analysis_signature=minimal_signature,
+    )
+    full_features = {
+        field: {"type": "float", "value": 0.5}
+        for field in SONARA2_EXTRA_SCALAR_FIELDS
+    }
+    full_features.update(
+        {
+            "mfcc_mean": {"type": "list", "value": [0.1] * 13},
+            "chroma_mean": {"type": "list", "value": [0.1] * 12},
+            "spectral_contrast_mean": {"type": "list", "value": [0.1] * 7},
+        }
+    )
+    source.save_sonara_features(full_id, full_features, analysis_signature=full_signature)
+    scoped_labels.set_label(source.get_track(minimal_id), "broken")
+    scoped_labels.set_label(source.get_track(full_id), "straight")
+
+    matrix = build_labeled_feature_matrix(
+        source.path,
+        labels.path,
+        "sonara2",
+        classifier_key="break_energy",
+    )
+
+    assert matrix.track_ids == [full_id]
+    assert matrix.skipped_track_ids == [minimal_id]
+    assert matrix.sonara_analysis_signature == full_signature
 
 
 def test_benchmark_profile_ablation_ranks_requested_feature_sets(tmp_path: Path) -> None:
@@ -3055,6 +3226,7 @@ def test_benchmark_profile_ablation_ranks_requested_feature_sets(tmp_path: Path)
                 "chroma_mean": {"type": "list", "value": [float(index)] * 12},
             },
             model_name="sonara-test",
+            analysis_signature=TEST_SONARA_SIGNATURE,
         )
         source.save_embedding(track_id, np.asarray([1.0, float(index + 1)], dtype=np.float32), "mert-test", embedding_key="mert")
         source.save_embedding(track_id, np.asarray([float(index + 1), 1.0], dtype=np.float32), "maest-test", embedding_key="maest")
@@ -3090,6 +3262,7 @@ def test_cli_benchmark_ablation_writes_report_for_requested_profile(tmp_path: Pa
                 "chroma_mean": {"type": "list", "value": [float(index)] * 12},
             },
             model_name="sonara-test",
+            analysis_signature=TEST_SONARA_SIGNATURE,
         )
         source.save_embedding(track_id, np.asarray([1.0, float(index + 1)], dtype=np.float32), "mert-test", embedding_key="mert")
         source.save_embedding(track_id, np.asarray([float(index + 2), 1.0], dtype=np.float32), "clap-test", embedding_key="clap")
@@ -3157,6 +3330,7 @@ def test_custom_profile_training_and_prediction_use_profile_labels(tmp_path: Pat
                 "chroma_mean": {"type": "list", "value": [float(index)] * 12},
             },
             model_name="sonara-test",
+            analysis_signature=TEST_SONARA_SIGNATURE,
         )
         scoped.set_label(source.get_track(track_id), "vocal" if index < 4 else "instrumental")
 
@@ -3171,6 +3345,7 @@ def test_custom_profile_training_and_prediction_use_profile_labels(tmp_path: Pat
         positive_label="vocal",
         artifact_prefix="vocal-presence",
         classifier_key="vocal_presence",
+        sonara_analysis_signature=features.sonara_analysis_signature,
     )
     summary = apply_model_to_lab(source.path, labels.path, trained.artifact_path, classifier_key="vocal_presence")
 
@@ -3237,6 +3412,7 @@ def test_train_feature_set_can_write_calibrated_validation_report(tmp_path: Path
         artifact_dir=tmp_path / "artifacts",
         **_break_energy_train_kwargs(),
         calibrate=True,
+        sonara_analysis_signature=TEST_SONARA_SIGNATURE,
     )
 
     payload = joblib.load(result.artifact_path)
@@ -3270,6 +3446,7 @@ def test_promote_require_calibration_blocks_uncalibrated_artifact(tmp_path: Path
         feature_set="combined",
         artifact_dir=artifact_dir,
         **_break_energy_train_kwargs(),
+        sonara_analysis_signature=TEST_SONARA_SIGNATURE,
     )
 
     try:
@@ -3338,6 +3515,7 @@ def test_promote_calibrated_artifact_writes_identity_and_calibration_manifest(tm
         artifact_dir=artifact_dir,
         **_break_energy_train_kwargs(),
         calibrate=True,
+        sonara_analysis_signature=TEST_SONARA_SIGNATURE,
     )
 
     promoted = promote_profile_model(
@@ -3526,6 +3704,7 @@ def test_cli_train_accepts_separate_source_and_labels_databases(tmp_path: Path) 
                 "chroma_mean": {"type": "list", "value": [float(index)] * 12},
             },
             model_name="sonara-test",
+            analysis_signature=TEST_SONARA_SIGNATURE,
         )
         labels.set_label(source.get_track(track_id), "broken" if index < 3 else "straight")
 
@@ -3602,10 +3781,9 @@ def test_cli_suggest_labels_can_write_queue(tmp_path: Path) -> None:
     payload = json.loads(result.stdout)
     queued = labels.label_queue_items()
     assert result.returncode == 0, result.stderr
-    assert payload["queue_written"] == 2
-    assert [item["source_track_id"] for item in queued] == [first_id, second_id]
-    assert queued[0]["mode"] == "uncertainty"
-    assert queued[0]["reason"]["label_status"] == "unlabeled"
+    assert payload["queue_written"] == 0
+    assert payload["status"] == "invalid_manifest"
+    assert queued == []
 
 
 def test_cli_delete_profile_accepts_name_or_key_with_confirmation(tmp_path: Path) -> None:

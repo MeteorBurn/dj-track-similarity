@@ -5,6 +5,8 @@ from pathlib import Path
 
 import numpy as np
 
+from dj_track_similarity.sonara_contract import feature_set_uses_sonara, sonara_analysis_signature_errors
+
 from .features import build_unlabeled_feature_matrix
 from .lab_db import RhythmLabDatabase
 from .source_db import SourceDatabase
@@ -27,7 +29,19 @@ def apply_model_to_lab(
     model = payload["model"]
     feature_set = str(payload["feature_set"])
     label_order = [str(label) for label in payload.get("label_order", getattr(model, "classes_", []))]
-    features = build_unlabeled_feature_matrix(source_db_path, feature_set)
+    sonara_signature = payload.get("sonara_analysis_signature")
+    if feature_set_uses_sonara(feature_set):
+        signature_errors = sonara_analysis_signature_errors(sonara_signature)
+        if signature_errors:
+            raise ValueError(
+                "SONARA-dependent prediction artifact has no compatible analysis signature: "
+                + "; ".join(signature_errors)
+            )
+    features = build_unlabeled_feature_matrix(
+        source_db_path,
+        feature_set,
+        expected_sonara_signature=dict(sonara_signature) if isinstance(sonara_signature, dict) else None,
+    )
     if features.matrix.shape[0] == 0:
         return {"feature_set": feature_set, "predicted": 0, "skipped": len(features.skipped_track_ids)}
 

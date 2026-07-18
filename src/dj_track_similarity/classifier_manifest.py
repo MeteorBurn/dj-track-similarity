@@ -6,13 +6,15 @@ import math
 from pathlib import Path
 from typing import Any, Mapping
 
+from .sonara_contract import sonara_analysis_signature_errors
 
-CLASSIFIER_MANIFEST_VERSION = 1
+CLASSIFIER_MANIFEST_VERSION = 2
+CLASSIFIER_SUPPORTED_MANIFEST_VERSIONS = (1, CLASSIFIER_MANIFEST_VERSION)
 CLASSIFIER_REQUIRED_INPUTS = ("sonara", "mert", "maest")
 CLASSIFIER_SUPPORTED_INPUTS = ("sonara", "mert", "maest", "clap")
 CLASSIFIER_FEATURE_SOURCE_ALIASES = {"sonara2": "sonara", "sonara2vocal": "sonara"}
 CLASSIFIER_SCORE_SEMANTICS = "positive_label_probability"
-COMPATIBLE_MANIFEST_STATUSES = {"valid", "legacy"}
+COMPATIBLE_MANIFEST_STATUSES = {"valid"}
 CLASSIFIER_HYBRID_SIGNAL_ROLES = ("preference_boost", "preference_penalty", "risk_penalty", "context_modifier")
 CLASSIFIER_HYBRID_SIGNAL_AXES = (
     "groove",
@@ -92,6 +94,7 @@ class ClassifierManifestSummary:
     required_inputs: tuple[str, ...] = CLASSIFIER_REQUIRED_INPUTS
     hybrid_signal: dict[str, Any] | None = None
     hybrid_signal_source: str | None = None
+    sonara_analysis_signature: dict[str, Any] | None = None
 
     @property
     def is_scoring_compatible(self) -> bool:
@@ -139,6 +142,7 @@ class ClassifierManifestSummary:
             "calibration": dict(self.calibration or {}),
             "has_calibrated_probability": self.has_calibrated_probability,
             "required_inputs": list(self.required_inputs),
+            "sonara_analysis_signature": dict(self.sonara_analysis_signature or {}),
             **classifier_hybrid_signal_api_fields(self),
         }
 
@@ -163,9 +167,9 @@ def load_classifier_manifest_summary(
             metadata_path=clean_metadata_path,
             model_path=clean_model_path,
             status="legacy",
+            errors=("model.json manifest is missing; scoring is blocked until the artifact is promoted again",),
             warnings=(
-                "model.json manifest is missing; this legacy classifier can be scored, "
-                "but scores are treated as uncalibrated until the profile is promoted again.",
+                "model.json manifest is missing; this legacy classifier cannot prove its analysis compatibility.",
             ),
             artifact_prefix=artifact_prefix,
         )
@@ -226,6 +230,7 @@ def classifier_manifest_api_fields(summary: ClassifierManifestSummary) -> dict[s
         "calibration": dict(summary.calibration or {}),
         "has_calibrated_probability": summary.has_calibrated_probability,
         "required_inputs": list(summary.required_inputs),
+        "sonara_analysis_signature": dict(summary.sonara_analysis_signature or {}),
         **classifier_hybrid_signal_api_fields(summary),
     }
 
@@ -264,10 +269,11 @@ def _parse_manifest_payload(
         errors.append(f"model.json classifier_key {classifier_key!r} does not match requested classifier {expected_classifier_key!r}")
 
     feature_set = _optional_text(payload.get("feature_set"))
+    feature_sources: tuple[str, ...] = ()
     if feature_set is None:
         errors.append("model.json feature_set is required")
     else:
-        _feature_set_sources(feature_set, errors)
+        feature_sources = _feature_set_sources(feature_set, errors)
 
     label_order = _string_tuple(payload.get("label_order"), "label_order", errors)
     positive_label = _optional_text(payload.get("positive_label"))
@@ -294,11 +300,16 @@ def _parse_manifest_payload(
     calibration_payload: dict[str, Any] | None = None
     required_inputs = CLASSIFIER_REQUIRED_INPUTS
     hybrid_signal = _hybrid_signal(payload.get("hybrid_signal"), errors, warnings)
+    sonara_analysis_signature: dict[str, Any] | None = None
 
     if manifest_version is None:
         warnings.append("model.json has no manifest_version; treating it as a legacy-compatible production manifest")
-    elif manifest_version != CLASSIFIER_MANIFEST_VERSION:
+    elif manifest_version not in CLASSIFIER_SUPPORTED_MANIFEST_VERSIONS:
         errors.append(f"model.json manifest_version {manifest_version!r} is not supported")
+    elif manifest_version < CLASSIFIER_MANIFEST_VERSION:
+        warnings.append(
+            f"model.json manifest_version {manifest_version} is legacy; promote again to write version {CLASSIFIER_MANIFEST_VERSION}"
+        )
 
     if production is None:
         warnings.append("model.json has no production metadata; scores are not calibrated probabilities")
@@ -309,6 +320,11 @@ def _parse_manifest_payload(
         if score_semantics != CLASSIFIER_SCORE_SEMANTICS:
             errors.append(f"Unsupported classifier score semantics: {score_semantics!r}")
         required_inputs = _production_required_inputs(production.get("required_inputs"), errors)
+        raw_signature = production.get("sonara_analysis_signature")
+        if isinstance(raw_signature, Mapping):
+            sonara_analysis_signature = dict(raw_signature)
+        elif raw_signature is not None:
+            errors.append("model.json production.sonara_analysis_signature must be an object")
         calibration = production.get("calibration")
         if calibration is None:
             warnings.append("model.json production.calibration is missing; scores are not calibrated probabilities")
@@ -317,6 +333,15 @@ def _parse_manifest_payload(
         else:
             calibration_status = _optional_text(calibration.get("status")) or "uncalibrated"
             calibration_payload = dict(calibration)
+
+    if "sonara" in feature_sources:
+        if sonara_analysis_signature is None:
+            errors.append("model.json production.sonara_analysis_signature is required for SONARA inputs")
+        else:
+            errors.extend(
+                f"model.json production.sonara_analysis_signature: {error}"
+                for error in sonara_analysis_signature_errors(sonara_analysis_signature)
+            )
 
     status = "invalid" if errors else "valid"
     return ClassifierManifestSummary(
@@ -345,6 +370,7 @@ def _parse_manifest_payload(
         required_inputs=required_inputs,
         hybrid_signal=hybrid_signal,
         hybrid_signal_source="manifest" if hybrid_signal is not None else None,
+        sonara_analysis_signature=sonara_analysis_signature,
     )
 
 

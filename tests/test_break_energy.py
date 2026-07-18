@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import joblib
@@ -14,6 +15,7 @@ from dj_track_similarity.classifier_scoring import (
     default_classifier_model_path,
 )
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature, feature_set_uses_sonara
 
 
 class FixedProbabilityModel:
@@ -40,7 +42,7 @@ def test_analyze_classifier_scores_feature_complete_tracks_and_skips_missing_fea
     db = LibraryDatabase(tmp_path / "library.sqlite")
     complete_id = _track(db, tmp_path, "complete.wav")
     missing_id = _track(db, tmp_path, "missing.wav")
-    db.save_sonara_features(complete_id, {"bpm": {"type": "float", "value": 128.0}}, model_name="sonara-test")
+    _save_sonara_features(db, complete_id)
     db.save_embedding(complete_id, np.asarray([1.0], dtype=np.float32), "mert-test", embedding_key="mert")
     db.save_embedding(complete_id, np.asarray([1.0], dtype=np.float32), "maest-test", embedding_key="maest")
     model_path = _write_model(tmp_path / "model.joblib")
@@ -137,7 +139,7 @@ def test_analyze_classifier_treats_other_classifier_scores_as_missing_for_reques
 def test_analyze_classifier_preserves_high_confidence_probability_precision(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_id = _track(db, tmp_path, "complete.wav")
-    db.save_sonara_features(track_id, {"bpm": {"type": "float", "value": 128.0}}, model_name="sonara-test")
+    _save_sonara_features(db, track_id)
     db.save_embedding(track_id, np.asarray([1.0], dtype=np.float32), "mert-test", embedding_key="mert")
     db.save_embedding(track_id, np.asarray([1.0], dtype=np.float32), "maest-test", embedding_key="maest")
     model_path = _write_model(tmp_path / "model.joblib", model=AlmostCertainModel())
@@ -353,7 +355,7 @@ def test_classifier_embedding_vector_map_reuses_cached_matrix_rows(tmp_path: Pat
 def test_classifier_scorer_loads_embeddings_created_after_scorer_initialization(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_id = _track(db, tmp_path, "later-ready.wav")
-    db.save_sonara_features(track_id, {"bpm": {"type": "float", "value": 128.0}}, model_name="sonara-test")
+    _save_sonara_features(db, track_id)
     model_path = _write_model(tmp_path / "model.joblib")
     scorer = ClassifierScorer(db, classifier="break_energy", model_path=model_path)
 
@@ -371,10 +373,19 @@ def _track(db: LibraryDatabase, tmp_path: Path, filename: str, title: str | None
 
 def _complete_track(db: LibraryDatabase, tmp_path: Path, filename: str) -> int:
     track_id = _track(db, tmp_path, filename)
-    db.save_sonara_features(track_id, {"bpm": {"type": "float", "value": 128.0}}, model_name="sonara-test")
+    _save_sonara_features(db, track_id)
     db.save_embedding(track_id, np.asarray([1.0], dtype=np.float32), "mert-test", embedding_key="mert")
     db.save_embedding(track_id, np.asarray([1.0], dtype=np.float32), "maest-test", embedding_key="maest")
     return track_id
+
+
+def _save_sonara_features(db: LibraryDatabase, track_id: int) -> None:
+    db.save_sonara_features(
+        track_id,
+        {"bpm": {"type": "float", "value": 128.0}},
+        model_name="sonara-test",
+        analysis_signature=expected_sonara_analysis_signature([]),
+    )
 
 
 def _write_model(
@@ -384,15 +395,43 @@ def _write_model(
     feature_set: str = "combined",
     feature_names: list[str] | None = None,
 ) -> Path:
+    uses_sonara = feature_set_uses_sonara(feature_set)
+    signature = expected_sonara_analysis_signature([]) if uses_sonara else None
+    effective_feature_names = feature_names or ["sonara:bpm", "mert:0", "maest:0"]
     payload = {
         "model": model or FixedProbabilityModel(),
         "feature_set": feature_set,
-        "feature_names": feature_names or ["sonara:bpm", "mert:0", "maest:0"],
+        "feature_names": effective_feature_names,
         "label_order": ["broken", "straight"],
         "classifier_key": "break_energy",
         "positive_label": "broken",
+        **({"sonara_analysis_signature": signature} if signature is not None else {}),
     }
     joblib.dump(payload, path)
+    required_inputs = sorted({name.split(":", 1)[0] for name in effective_feature_names})
+    path.with_name("model.json").write_text(
+        json.dumps(
+            {
+                "classifier_key": "break_energy",
+                "manifest_version": 2,
+                "profile_name": "Break Energy",
+                "profile_type": "binary",
+                "feature_set": feature_set,
+                "feature_count": len(effective_feature_names),
+                "label_order": ["broken", "straight"],
+                "positive_label": "broken",
+                "negative_label": "straight",
+                "trained_label_counts": {"broken": 10, "straight": 10},
+                "production": {
+                    "score_semantics": "positive_label_probability",
+                    "required_inputs": required_inputs,
+                    "calibration": {"status": "uncalibrated", "method": None, "report": None},
+                    **({"sonara_analysis_signature": signature} if signature is not None else {}),
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     return path
 
 

@@ -8,6 +8,8 @@ from pathlib import Path
 
 import numpy as np
 
+from dj_track_similarity.sonara_contract import feature_set_uses_sonara, sonara_analysis_signature_errors
+
 from .features import FEATURE_SETS, build_labeled_feature_matrix
 from .lab_db import RhythmLabDatabase
 
@@ -42,6 +44,7 @@ def train_feature_set(
     classifier_key: str,
     random_state: int = 42,
     calibrate: bool = False,
+    sonara_analysis_signature: dict[str, object] | None = None,
 ) -> TrainResult:
     from joblib import dump
     from sklearn.calibration import CalibratedClassifierCV
@@ -52,6 +55,13 @@ def train_feature_set(
     labels = [str(label) for label in labels]
     ordered_labels = [str(label) for label in label_order]
     positive_label = str(positive_label)
+    if feature_set_uses_sonara(feature_set):
+        signature_errors = sonara_analysis_signature_errors(sonara_analysis_signature)
+        if signature_errors:
+            raise ValueError(
+                "SONARA-dependent training requires one current analysis signature: "
+                + "; ".join(signature_errors)
+            )
     _validate_training_data(matrix, labels, label_order=ordered_labels)
 
     train_x, test_x, train_y, test_y = train_test_split(
@@ -99,6 +109,8 @@ def train_feature_set(
         "positive_label": positive_label,
         "created_at": stamp,
     }
+    if feature_set_uses_sonara(feature_set):
+        payload["sonara_analysis_signature"] = dict(sonara_analysis_signature or {})
     positive_discovery = _positive_discovery_metrics(test_y, positive_probabilities, positive_label=positive_label)
     cross_validation = _cross_validation_metrics(
         matrix,
@@ -134,6 +146,8 @@ def train_feature_set(
         "cross_validation": cross_validation,
         "production_calibration": production_calibration,
     }
+    if feature_set_uses_sonara(feature_set):
+        metrics["sonara_analysis_signature"] = dict(sonara_analysis_signature or {})
     metrics_path.write_text(json.dumps(metrics, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
     return TrainResult(feature_set, model, artifact_path, metrics_path, len(labels), 0)
 
@@ -171,6 +185,7 @@ def benchmark_lab_database(
                 classifier_key=profile.classifier_key,
                 random_state=random_state,
                 calibrate=calibrate,
+                sonara_analysis_signature=features.sonara_analysis_signature,
             )
             results[feature_set] = {
                 "status": "trained",

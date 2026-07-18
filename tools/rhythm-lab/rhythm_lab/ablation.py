@@ -188,6 +188,7 @@ def _train_feature_set_row(
             classifier_key=profile.classifier_key,
             random_state=random_state,
             calibrate=calibrate,
+            sonara_analysis_signature=features.sonara_analysis_signature,
         )
     except ValueError as error:
         return {

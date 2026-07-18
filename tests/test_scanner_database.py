@@ -71,7 +71,7 @@ def test_new_database_uses_current_schema_version_and_indexes(tmp_path: Path) ->
     assert "idx_embeddings_key_track" in embedding_indexes
 
 
-def test_existing_v4_database_without_muq_flag_is_rejected(tmp_path: Path) -> None:
+def test_existing_v4_database_without_muq_flag_is_migrated(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     with sqlite3.connect(db_path) as connection:
         connection.executescript(
@@ -109,12 +109,76 @@ def test_existing_v4_database_without_muq_flag_is_rejected(tmp_path: Path) -> No
             VALUES ('muq.wav', 10, 1, 'MuQ', '{}'), ('mert.wav', 10, 1, 'MERT', '{}');
             INSERT INTO embeddings (track_id, embedding_key, model_name, dim, vector)
             VALUES (1, 'muq', 'muq-test', 2, X'0000'), (2, 'mert', 'mert-test', 2, X'0000');
+            CREATE TABLE library_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE VIRTUAL TABLE track_search_fts USING fts5(
+                track_id UNINDEXED,
+                search_text,
+                tokenize = 'unicode61'
+            );
+            CREATE TABLE search_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mode TEXT NOT NULL,
+                seed_track_ids_json TEXT NOT NULL CHECK(json_valid(seed_track_ids_json)),
+                request_json TEXT NOT NULL CHECK(json_valid(request_json)),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE search_result_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL REFERENCES search_sessions(id) ON DELETE CASCADE,
+                track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+                rank INTEGER NOT NULL,
+                total_score REAL NOT NULL,
+                score_breakdown_json TEXT NOT NULL CHECK(json_valid(score_breakdown_json)),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE track_pair_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                seed_track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+                candidate_track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+                rating INTEGER NOT NULL CHECK(rating BETWEEN 0 AND 3),
+                reason_tags_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(reason_tags_json)),
+                notes TEXT,
+                source TEXT NOT NULL DEFAULT 'manual',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(seed_track_id, candidate_track_id, source)
+            );
+            CREATE TABLE transition_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                outgoing_track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+                incoming_track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+                rating INTEGER NOT NULL CHECK(rating BETWEEN 0 AND 3),
+                risk_tags_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(risk_tags_json)),
+                notes TEXT,
+                source TEXT NOT NULL DEFAULT 'manual',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE calibration_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_name TEXT NOT NULL,
+                search_mode TEXT NOT NULL,
+                config_json TEXT NOT NULL CHECK(json_valid(config_json)),
+                metrics_json TEXT NOT NULL CHECK(json_valid(metrics_json)),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
             PRAGMA user_version = 4;
             """
         )
 
-    with pytest.raises(RuntimeError, match="schema is not current"):
-        LibraryDatabase(db_path)
+    LibraryDatabase(db_path)
+
+    with sqlite3.connect(db_path) as connection:
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        track_columns = {row[1] for row in connection.execute("PRAGMA table_info(tracks)").fetchall()}
+        flags = connection.execute("SELECT path, has_muq_embedding FROM tracks ORDER BY id").fetchall()
+
+    assert version == CURRENT_SCHEMA_VERSION
+    assert "has_muq_embedding" in track_columns
+    assert flags == [("muq.wav", 1), ("mert.wav", 0)]
 
 
 def test_track_search_fts_mode_is_explicit_token_search(tmp_path: Path) -> None:

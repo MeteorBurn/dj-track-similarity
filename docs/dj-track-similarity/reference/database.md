@@ -20,6 +20,13 @@ The database stores:
 - FTS rows for library search,
 - library settings such as promoted score-profile data where used.
 
+## Schema migration
+
+Opening a schema v4 database migrates it to schema v5. The migration adds the
+`tracks.has_muq_embedding` flag and backfills it from existing `muq` rows in the
+`embeddings` table. Existing tracks, analysis data, likes, feedback, and classifier scores
+remain in the same database.
+
 ## Evaluation and feedback state
 
 Search and Hybrid diagnostics can record local evaluation rows. Examples include sessions plus result, feedback, and calibration rows.

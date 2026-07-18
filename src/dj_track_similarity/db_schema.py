@@ -80,6 +80,9 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
         _create_current_schema(connection)
         return
 
+    if _schema_version(connection) == 4:
+        _migrate_v4_to_v5(connection)
+
     if _schema_version(connection) != CURRENT_SCHEMA_VERSION:
         raise RuntimeError(_migration_required_message())
     _validate_current_schema(connection)
@@ -344,6 +347,25 @@ def _create_evaluation_schema(connection: sqlite3.Connection) -> None:
         ON calibration_runs(profile_name, search_mode, created_at);
         """
     )
+
+
+def _migrate_v4_to_v5(connection: sqlite3.Connection) -> None:
+    track_columns = _columns(connection, "tracks")
+    if "has_muq_embedding" not in track_columns:
+        connection.execute("ALTER TABLE tracks ADD COLUMN has_muq_embedding INTEGER NOT NULL DEFAULT 0")
+        connection.execute(
+            """
+            UPDATE tracks
+            SET has_muq_embedding = 1
+            WHERE EXISTS (
+                SELECT 1
+                FROM embeddings
+                WHERE embeddings.track_id = tracks.id
+                  AND embeddings.embedding_key = 'muq'
+            )
+            """
+        )
+    connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
 
 
 def _validate_current_schema(connection: sqlite3.Connection) -> None:

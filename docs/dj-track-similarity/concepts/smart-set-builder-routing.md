@@ -45,8 +45,10 @@ Known artists are guarded so one preview uses at most one track per known artist
 
 General BPM mode uses tempo for transition compatibility. Low-to-high and high-to-low modes add an actual BPM trajectory. Half/double tempo matching helps transition compatibility but does not replace the actual trajectory.
 
-SET resolves tempo from stored SONARA BPM first. If SONARA BPM is missing, it falls back to the
-Mutagen BPM tag from scan or Refresh Tags.
+SET resolves current SONARA tempo evidence first. Below `0.45` confidence, ranked SONARA candidates
+and the Mutagen BPM tag can corroborate or replace the working estimate. Beat-grid stability weakens
+unreliable tempo evidence, and a low-reliability estimate cannot become a hard rejection by itself.
+See the [SONARA v0.2.4 project contract](../reference/sonara-v0-2-4-contract.md).
 
 ## Add preview is explicit
 

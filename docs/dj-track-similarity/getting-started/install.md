@@ -46,6 +46,15 @@ On Windows x64, the `sonara` extra installs the pinned SONARA `v0.2.4` wheel fro
 [MeteorBurn release](https://github.com/MeteorBurn/sonara/releases/tag/v0.2.4). Other
 platforms install the same package version from PyPI.
 
+Verify the runtime before reanalyzing an existing library:
+
+```powershell
+python -c "import sonara; print(sonara.__version__)"
+```
+
+The command must print `0.2.4`. Existing analyzed databases should then follow the
+[SONARA migration workflow](../workflows/migrate-sonara-v0-2-4.md).
+
 - `sonara`: SONARA feature extraction.
 - `ml`: PyTorch, Torchaudio, Torchvision, TorchCodec, nnaudio, Transformers, Hugging Face Hub, LAION CLAP, MAEST, and MuQ inference packages.
 - `ann`: optional HNSW backend for persistent ANN sidecar indexes.
@@ -68,15 +77,14 @@ python -m pip install -e ".[rhythm-lab,dev]"
 The backend serves `frontend/dist` when it exists. Create that bundle with:
 
 ```powershell
-cd frontend
-npm install
-npm run build
+npm --prefix .\frontend install
+npm --prefix .\frontend run build
 ```
 
 For live frontend development, use:
 
 ```powershell
-npm run dev
+npm --prefix .\frontend run dev
 ```
 
 The development server binds to `127.0.0.1` by default.
@@ -86,10 +94,9 @@ The development server binds to `127.0.0.1` by default.
 The backend serves static docs from `docs/dj-track-similarity/site` when that directory exists. Build and check docs with:
 
 ```powershell
-cd docs\dj-track-similarity
-npm install --no-package-lock
-npm run vale:sync
-npm run check
+npm --prefix .\docs\dj-track-similarity install --no-package-lock
+npm --prefix .\docs\dj-track-similarity run vale:sync
+npm --prefix .\docs\dj-track-similarity run check
 ```
 
 `npm run check` runs strict Vale style checks before the VitePress build, and Git ignores the generated `site/` directory.

@@ -23,8 +23,9 @@ Common controls:
 - **Similarity**: minimum score threshold from `0.00` to `1.00`.
 - **Limit**: maximum result count, `1..500`.
 
-When BPM filtering is applied, MERT search resolves BPM from stored SONARA analysis first. It falls
-back to the Mutagen BPM tag only when SONARA BPM is missing.
+When BPM filtering is applied, MERT search resolves current SONARA tempo evidence first. At low
+confidence, it also checks ranked SONARA candidates and the Mutagen BPM tag. Unreliable tempo does
+not become a hard rejection after those alternatives are checked.
 
 ## SONARA tab
 
@@ -46,6 +47,10 @@ The mixer weights are:
 - **Harmonic**: chroma, dissonance, chord movement, and graduated SONARA Camelot compatibility.
   Key confidence only weakens uncertain harmonic evidence. It is not scored as a similarity value.
 - **Tempo**: BPM compatibility, including half/double tempo logic.
+
+Tempo confidence changes the strength of this evidence, not the similarity question. The exact
+neutralization and candidate rules are in the
+[SONARA v0.2.4 project contract](../reference/sonara-v0-2-4-contract.md).
 
 Modifiers bias the result direction relative to the seed context: energy, valence, acousticness, brightness, rhythm density, level range, loudness, and SONARA 2.0 vocalness. A modifier value of `0` does not pull in either direction.
 

@@ -20,15 +20,19 @@ Newer SONARA analysis adds optional Camelot key, vocalness, mood, instrumentalne
 
 Mood affinities and instrumentalness are shown as analysis data and retained for possible future workflows. They are not current similarity, SET, Hybrid, or classifier inputs. True peak and ReplayGain are also retained for possible loudness-management features rather than direct SONARA similarity. Loudness scalars can enter the `sonara2` classifier variant. The existing SONARA dynamics comparison uses momentary loudness maximum and loudness range. Vocalness is available through an explicit search modifier and the optional `sonara2vocal` variant.
 
-Complete beat positions, onset positions, chord labels/events, tempo curves, energy curves, loudness curves, and downbeat arrays live in the separate `sonara_curves` table. The SONARA embedding and fingerprint are archived there as well. The metadata dialog can load compact summaries on demand, but search and classifiers never load these out-of-band values. Time signature, time-signature confidence, tempo variability, and embedding/fingerprint version fields stay in lightweight metadata for possible future use.
+Complete beat positions, onset positions, chord labels/events, tempo curves, energy curves, loudness curves, and downbeat arrays live in the separate `sonara_curves` table. The SONARA embedding and fingerprint are archived there as well. Small beat/onset lists can also remain in hot metadata, while longer ones keep only a compact descriptor there. The metadata dialog loads the lazy payload and summarizes it in the browser. Search and classifiers never load the out-of-band copy. Time signature, time-signature confidence, tempo variability, and embedding/fingerprint version fields stay in lightweight metadata for possible future use.
 
-SONARA values are analysis results, not copied file tags.
-Tempo-aware workflows prefer SONARA BPM when it is stored, and use Mutagen BPM only as a fallback
-when SONARA BPM is missing.
+SONARA values are analysis results, not copied file tags. Tempo-aware workflows use current signed
+SONARA tempo evidence first. Below `0.45` confidence, they also inspect ranked tempo candidates and
+the Mutagen BPM tag. Beat-grid stability can weaken reliability, and unreliable evidence moves
+toward a neutral score rather than creating similarity.
 
 SONARA v0.2.4 also stores `bpm_confidence` beside raw BPM, tempo candidates, and Camelot key. The confidence value records how strongly SONARA supports its working BPM estimate. Saved provenance records the analysis schema and settings plus the installed package version when available, so results can be traced to the configuration that produced them.
 
 UI, CLI, and API defaults request the full supported SONARA profile. Plain playlist mode or a smaller subset must be requested explicitly. A deterministic signature identifies the exact profile, so a legacy or mismatched SONARA row is queued for reanalysis automatically instead of requiring a manual reset.
+
+The exact field and scoring boundaries are in the
+[SONARA v0.2.4 project contract](../reference/sonara-v0-2-4-contract.md).
 
 ## MAEST labels and embedding
 

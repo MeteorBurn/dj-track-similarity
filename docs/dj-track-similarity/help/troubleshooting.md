@@ -38,6 +38,47 @@ The selected families may already be complete for all tracks, or the database ma
 
 For classifiers, confirm required SONARA, MAEST, and MERT data exist or select missing families in the same job.
 
+## SONARA is queued again after an update
+
+This is expected when the stored signature differs in package version, upstream schema, analysis
+mode, sample rate, BPM range, requested features, or project feature revision. Normal analysis
+treats the row as missing even if its physical presence flag is still set.
+
+Verify the installed package:
+
+```powershell
+python -c "import sonara; print(sonara.__version__)"
+```
+
+Use one consistent profile. The default full profile, `--sonara-minimal`, and every subset have
+different signatures. A newly saved profile replaces the previous SONARA fields and curves instead
+of merging with them. Do not reset for a normal version or profile migration; follow
+[Migrate and reanalyze SONARA v0.2.4](../workflows/migrate-sonara-v0-2-4.md).
+
+## SONARA looks present but search or SET treats it as missing
+
+The fast `has_sonara_analysis` flag can remain set on a legacy row. Search, SET, public analysis
+lists, and the library summary require a valid current contract. Reanalyze the track and inspect its
+provenance and signature in the metadata dialog.
+
+## SONARA curves return an empty object
+
+`GET /api/tracks/{track_id}/sonara-curves` returns `{}` when no lazy row exists and when a saved row
+belongs to stale or unsigned SONARA metadata. Reanalyze with the intended profile. Do not copy old
+curves under a new signature.
+
+## A classifier reports an incompatible SONARA signature
+
+The promoted artifact can be stale or trained with another profile. It may also request an opt-in
+value that is missing from the track. The recovery order is fixed:
+
+```text
+reanalyze SONARA -> retrain -> promote -> rescore
+```
+
+Missing values are not converted to `0.0`. Labels and feedback remain available for retraining, and
+embedding-only artifacts are unaffected.
+
 ## CUDA was requested but analysis fails
 
 Use `dj-sim doctor` to inspect the PyTorch/CUDA runtime:

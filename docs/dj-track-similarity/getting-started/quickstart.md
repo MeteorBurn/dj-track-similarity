@@ -33,7 +33,17 @@ Scan walks the folder recursively and reads supported audio extensions through M
 
 The scan writes SQLite rows. It does not modify audio files.
 
-## 3. Start the UI
+## 3. Analyze a first batch
+
+Install analysis extras first if you have not done so. Then run a small batch:
+
+```powershell
+dj-sim analyze --models sonara,maest,mert,muq,clap --limit 25 --db .\data\library.sqlite
+```
+
+A small limit confirms the model stack before you analyze every track. MuQ stores embeddings only in this release, so you can omit `muq` when you only want the current search and SET paths. In the CLI, omit `--limit` for the whole library. In the UI, `Analyze limit = 0` means the whole library.
+
+## 4. Start the UI
 
 ```powershell
 dj-sim serve --host 127.0.0.1 --port 8765 --db .\data\library.sqlite
@@ -51,17 +61,7 @@ If you use the Windows launcher:
 run_server.cmd local --db .\data\library.sqlite
 ```
 
-Use `run_server.cmd lan --db .\data\library.sqlite` only when you want the server reachable from other devices on the local network.
-
-## 4. Analyze a first batch
-
-Install analysis extras first if you have not done so. Then run a small batch:
-
-```powershell
-dj-sim analyze --models sonara,maest,mert,muq,clap --limit 25 --db .\data\library.sqlite
-```
-
-A small limit confirms the model stack before you analyze every track. MuQ stores embeddings only in this release, so you can omit `muq` when you only want the current search and SET paths. In the CLI, omit `--limit` for the whole library. In the UI, `Analyze limit = 0` means the whole library.
+Use `run_server.cmd lan --db .\data\library.sqlite` only when you want the server reachable from other devices on the local network. The server command keeps its terminal occupied. Run later CLI jobs in a second activated terminal or use the UI analysis controls.
 
 ## 5. Try the UI flow
 

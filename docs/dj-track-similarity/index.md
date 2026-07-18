@@ -80,6 +80,7 @@ Relocation apply is SQLite-only. It updates stored `tracks.path` values and does
 - [Install](./getting-started/install.md): prerequisites, optional ML dependencies, frontend and docs builds.
 - [First library](./getting-started/first-library.md): build the SQLite library and understand scan behavior.
 - [First analysis](./getting-started/first-analysis.md): choose SONARA, MAEST, MERT, MuQ, CLAP, and classifier jobs.
+- [Migrate SONARA v0.2.4](./workflows/migrate-sonara-v0-2-4.md): reanalyze an existing library and rebuild dependent classifiers under validated signatures.
 - [User guide](./user-guide/index.md): daily UI work.
 - [Workflows](./workflows/index.md): DJ task recipes.
 - [Concepts](./concepts/index.md): scores, models, safety, and routing.

@@ -54,6 +54,9 @@ the main database opens and Rhythm Lab predictions when the labels database open
 labels, and feedback are preserved. Stale promoted artifacts remain visible for recovery but cannot
 score until the profile is retrained and promoted with the current signed manifest.
 
+For SONARA `0.2.4`, follow the ordered
+[migration workflow](../workflows/migrate-sonara-v0-2-4.md) before retraining or rescoring.
+
 ## Main UI use
 
 Promoted scores can appear in:

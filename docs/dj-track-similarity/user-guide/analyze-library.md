@@ -19,10 +19,12 @@ The UI lists these choices:
 
 One job can include multiple families. Tracks that already have a selected result are skipped for that family.
 
-SONARA BPM analysis uses the project range `79.0..192.0`. After SONARA BPM is stored, tempo-aware
-search, transition diagnostics, and SET prefer it over the Mutagen BPM tag. If you analyzed tracks
-before that range was configured, select SONARA and run analysis again. The legacy signature does
-not match the current range, so those tracks are queued automatically without a reset.
+SONARA BPM analysis uses the project range `79.0..192.0`. Tempo-aware workflows start with current
+signed SONARA evidence but do not trust it blindly. Below `0.45` confidence, the resolver checks
+SONARA candidates and the Mutagen BPM tag. A corroborated tag can become the working BPM.
+`grid_stability` can lower reliability, which moves the tempo score toward neutral. If you analyzed
+tracks before the current range was configured, select SONARA and run analysis again. The legacy
+signature does not match, so those tracks are queued automatically without a reset.
 
 The default SONARA v0.2.4 result also stores raw BPM, `bpm_confidence`, tempo candidates, and Camelot key. The metadata dialog shows the `0..1` BPM confidence beside saved provenance such as schema version, sample rate, hop length, analysis mode, requested features, and installed package version when available.
 
@@ -38,8 +40,9 @@ Mood and instrumentalness are stored and displayed but do not enter current simi
 Hybrid, or classifier calculations. True peak and ReplayGain are stored for possible future
 loudness-management work rather than direct SONARA similarity scoring. Complete beat/onset
 positions, chord labels/events, tempo, energy, and loudness curves, downbeat arrays, and the SONARA
-embedding and fingerprint are saved out-of-band in `sonara_curves`; the metadata dialog loads compact
-summaries on demand without putting them on the hot search path. Time signature, its confidence,
+embedding and fingerprint are saved out-of-band in `sonara_curves`; the metadata dialog loads the
+lazy payloads on demand and renders browser-side summaries without putting them on the hot search path.
+The lazy API response still contains the complete stored values. Time signature, its confidence,
 tempo variability, and embedding/fingerprint version fields remain lightweight metadata.
 
 ## Limit behavior
@@ -86,3 +89,6 @@ Reset is SQLite-only:
 
 Use reset when you intentionally want to delete stored results before a fresh run. Do not reset for a
 SONARA version/profile mismatch: normal analysis detects the signature mismatch and queues reanalysis.
+
+For a complete existing-library procedure, including backups and classifier rebuilding, follow
+[Migrate and reanalyze SONARA v0.2.4](../workflows/migrate-sonara-v0-2-4.md).

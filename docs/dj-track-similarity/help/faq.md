@@ -26,6 +26,18 @@ dj-sim analyze --models sonara,maest,mert,muq,clap --db .\data\library.sqlite
 
 In the UI, set `Analyze limit` to `0`.
 
+## Do I reset SONARA when upgrading to v0.2.4?
+
+No. Run the default SONARA analysis again. Unsigned, legacy, and mismatched rows are queued by their
+signature. Reset only when you intentionally want to purge existing SONARA data first. See the
+[migration workflow](../workflows/migrate-sonara-v0-2-4.md).
+
+## Why did my SONARA classifier scores disappear?
+
+A project feature-revision change invalidates SONARA-dependent main-library scores and Rhythm Lab
+predictions. Labels and feedback are preserved. Reanalyze SONARA, retrain the profile, promote a
+manifest version `2` artifact, and rescore.
+
 ## Why are CLAP text scores lower than MERT scores?
 
 CLAP text search is text-to-audio evidence. MERT seed search is audio-to-audio embedding similarity. They use different scales.

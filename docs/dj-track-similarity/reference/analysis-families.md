@@ -25,8 +25,10 @@ SONARA uses its CPU runner. MAEST, MERT, MuQ, and CLAP use model adapters with t
 
 SONARA analysis calls pass `bpm_min=79.0` and `bpm_max=192.0`. SONARA folds estimated tempos by octaves into that range before the project stores the working BPM field.
 
-Tempo-aware search, transition diagnostics, and SET ordering read stored SONARA BPM first. If a track
-has no SONARA BPM, they fall back to the Mutagen BPM tag stored during scan or Refresh Tags.
+Tempo-aware search, transition diagnostics, and SET ordering resolve current signed SONARA evidence
+first. Below `0.45` confidence, they retain ranked SONARA candidates and check the Mutagen BPM tag.
+`grid_stability` can weaken reliability, and an unreliable estimate moves toward neutral instead of
+adding similarity or becoming an automatic hard rejection.
 
 Harmonic transition logic resolves a key in this order: a valid Camelot tag, SONARA
 `key_camelot`, then conversion of an ordinary key name such as `A minor`. Compatibility is graded
@@ -44,6 +46,12 @@ The track metadata also stores `sonara_provenance` separately from feature value
 
 The separate `sonara_analysis_signature` is the compatibility contract rather than an informational label. Its deterministic digest covers SONARA `0.2.4`, upstream schema `3`, playlist mode, sample rate `22050`, BPM range `79..192`, the sorted requested-feature profile, and project feature revision `1`. The presence flag remains a fast storage flag. Analysis scheduling uses the signature to distinguish current results from legacy rows.
 
+The project model label `sonara-playlist-lab` is informational and is not a freshness check. The
+signature contains expanded, sorted upstream feature names rather than only the eight project family
+names. Hop length remains in provenance, not in the signature. See the
+[SONARA v0.2.4 project contract](./sonara-v0-2-4-contract.md) for the complete JSON example and
+confidence formulas.
+
 The browser UI, direct API defaults, and `dj-sim analyze` all use the complete profile with all eight extra feature families. This prevents an ordinary scripted reanalysis from silently replacing richer archived data with a smaller profile. Plain playlist mode requires either an explicit empty API `sonara_features` list or CLI `--sonara-minimal`. Individual CLI flags and non-empty API lists select intentional subsets:
 
 | Family | CLI flag | API `sonara_features` entry | Adds |
@@ -59,7 +67,21 @@ The browser UI, direct API defaults, and `dj-sim analyze` all use the complete p
 
 When an extended profile is present, the adapter requests the playlist-equivalent feature set together with the selected families. That explicit playlist set also captures `tempo_curve`, time-signature analysis, the SONARA embedding, and the SONARA fingerprint. Small archival fields such as `tempo_variability`, `time_signature`, `time_signature_confidence`, `embedding_version`, and `fingerprint_version` stay in track metadata.
 
-Light fields (scalars, `segments`, `key_candidates`) stay in the track's SONARA metadata. This includes all four `mood_*` values, `instrumentalness`, true peak, ReplayGain, momentary loudness maximum, and loudness range. Complete `beats`, `onset_frames`, `chord_sequence`, `chord_events`, `tempo_curve`, `energy_curve`, `loudness_curve`, and `downbeats` sequences, plus `embedding` and `fingerprint`, are stored out-of-band in the separate `sonara_curves` table rather than truncated or copied into the hot metadata row. They are loaded only for UI display and are never read by search or classifiers. SONARA reset and library clear remove both stores.
+The adapter does not request upstream file-tag passthrough or a SONARA genre model. Mutagen remains
+the project's file-tag source, so SONARA `tags.original_year` is not stored in this analysis family.
+
+Light fields (scalars, fixed vectors, `segments`, and `key_candidates`) stay in the track's SONARA
+metadata. This includes all four `mood_*` values, `instrumentalness`, true peak, ReplayGain,
+momentary loudness maximum, and loudness range. The supported upstream runner returns fixed vectors
+as short lists, so their components remain available to search and classifiers. A custom injected
+runner that supplies a NumPy array uses the generic summary-only serializer instead.
+
+Complete `beats`, `onset_frames`, `chord_sequence`, `chord_events`, `tempo_curve`, `energy_curve`,
+`loudness_curve`, and `downbeats` sequences, plus `embedding` and `fingerprint`, are stored
+out-of-band in the separate `sonara_curves` table. Beat and onset descriptors also remain in hot
+metadata: short lists can retain their values there, while longer lists retain only a summary. The
+metadata dialog fetches the complete lazy payload and summarizes it in the browser. Search and
+classifiers never load the out-of-band copy. SONARA reset and library clear remove both stores.
 
 Transition-risk v2 uses `grid_stability` as a beat-grid reliability signal. When structure data is
 available, it also compares the outgoing outro window with the incoming intro, segment-boundary
@@ -83,10 +105,18 @@ The archived SONARA `embedding`, `fingerprint`, tempo curve, and time-signature 
 
 Analysis jobs target missing selected results. For SONARA, only an exact current signature for the requested feature profile counts as complete. A legacy result or a mismatch in version, schema, mode, sample rate, BPM range, requested features, or project feature revision is queued for reanalysis automatically. A reset is not normally required. Other already-complete analysis families remain skipped until reset.
 
+Saving a new SONARA result replaces the old `sonara_features` object and replaces or removes the
+track's `sonara_curves` row. A minimal or subset run does not merge with a previous full result.
+
 ## Classifier requirement
 
 Classifier jobs need SONARA, MAEST, and MERT data. The analysis job can include missing required families in the same run, or you can analyze them first.
 
 SONARA-dependent classifier artifacts also carry the exact training-analysis signature in manifest version `2`. Promotion and runtime scoring reject missing, stale, or mismatched signatures. A track must match the artifact signature and contain every requested SONARA classifier value; an absent opt-in such as `vocalness` is skipped instead of becoming `0.0`.
 
-When the project SONARA feature revision changes, the main database invalidates SONARA-dependent classifier scores and the Rhythm Lab database invalidates SONARA-dependent predictions. Labels and feedback remain intact. Existing stale artifacts are not trusted: scoring stays blocked until the affected profile is retrained and promoted with a current signed manifest.
+When the project SONARA feature revision changes, the main database invalidates SONARA-dependent
+classifier scores and the Rhythm Lab database invalidates SONARA-dependent predictions. The rule
+covers `combined` and every plus-separated source whose name starts with `sonara`, including
+`sonara`, `sonara2`, and `sonara2vocal` combinations. Labels and feedback remain intact. Existing
+stale artifacts are not trusted: scoring stays blocked until the affected profile is retrained and
+promoted with a current signed manifest.

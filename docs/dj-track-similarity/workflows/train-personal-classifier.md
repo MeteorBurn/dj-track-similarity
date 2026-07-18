@@ -131,12 +131,22 @@ Use the CLASS tab or CLI:
 dj-sim analyze-classifier live_instrumentation --db .\data\library.sqlite
 ```
 
-After retraining and promoting the same classifier key, reset only that classifier's old scores before rescoring.
+After retraining and promoting the same classifier key outside a feature-revision migration, reset
+only that classifier's old scores before rescoring. In the CLASS tab, the classifier play action
+performs that reset-and-rescore flow. API clients can reset the key explicitly:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8765/api/classifiers/reset -Method Post -ContentType 'application/json' -Body '{"classifiers":["live_instrumentation"]}'
+dj-sim analyze-classifier live_instrumentation --db .\data\library.sqlite
+```
 
 After a SONARA feature revision, dependent main-library scores and Rhythm Lab predictions are
 invalidated while labels and feedback remain. Reanalyze SONARA, then retrain and promote the affected
 profiles. A stale promoted artifact stays blocked because its manifest signature cannot score current
 tracks.
+
+Use the complete [SONARA v0.2.4 migration workflow](./migrate-sonara-v0-2-4.md) when the source
+analysis contract changed. Its revision and per-track guards already remove dependent scores.
 
 ## Safety
 

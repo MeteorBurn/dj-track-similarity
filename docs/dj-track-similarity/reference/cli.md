@@ -93,6 +93,13 @@ non-similarity loudness workflows rather than direct SONARA similarity scoring.
 The exact CLI profile is part of the SONARA analysis signature. Rerunning with a different current
 profile automatically targets mismatched rows. A manual SONARA reset is not normally required.
 
+`--sonara-minimal` cannot be combined with an individual `--sonara-*` family flag. A newly saved
+profile replaces the track's previous SONARA feature object and replaces or removes its curves row;
+subset analysis does not merge with a previous full result.
+
+For an existing database, follow
+[Migrate and reanalyze SONARA v0.2.4](../workflows/migrate-sonara-v0-2-4.md).
+
 ## Text search options
 
 `dj-sim text-search` supports:

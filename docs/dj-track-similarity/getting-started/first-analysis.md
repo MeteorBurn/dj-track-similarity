@@ -10,7 +10,7 @@ Analysis jobs decode audio and write SQLite results. They do not rewrite source 
 
 | Family | Writes | Unlocks |
 | --- | --- | --- |
-| SONARA | metadata fields and `has_sonara_analysis` | feature search, SET ordering, BPM/key/energy fallback, classifier inputs |
+| SONARA | signed metadata, provenance, curves, and `has_sonara_analysis` | feature search, confidence-aware tempo, Camelot resolution, SET ordering, transition diagnostics, classifier inputs |
 | MAEST | genre labels, syncopated rhythm data, MAEST embedding | genre display, genre tag apply, SET and Hybrid MAEST source |
 | MERT | MERT embedding | seed search, SET, Hybrid, Audio Dedup evidence |
 | MuQ | MuQ embedding | stored coverage for future workflows; no search or SET integration yet |
@@ -63,6 +63,10 @@ chord, tempo, energy, loudness, downbeat, embedding, and fingerprint data outsid
 ## Already analyzed tracks
 
 Analysis jobs target missing results for the selected families. SONARA also targets a row when its deterministic signature does not match the requested current profile, so an upgrade or profile change is reanalyzed without a manual reset. Other complete families are skipped. Use the per-family reset buttons only when you intentionally want to delete stored results and rerun.
+
+For an existing analyzed database, use the ordered
+[SONARA v0.2.4 migration workflow](../workflows/migrate-sonara-v0-2-4.md) before rebuilding dependent
+classifiers.
 
 ## Reset boundaries
 

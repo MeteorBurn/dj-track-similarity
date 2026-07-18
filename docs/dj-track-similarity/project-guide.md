@@ -33,6 +33,7 @@ Use this guide as the table of contents for real work. The docs describe the cur
 ## If you are maintaining a library
 
 - [Maintain library](./workflows/maintain-library.md) gives a safe routine.
+- [Migrate SONARA v0.2.4](./workflows/migrate-sonara-v0-2-4.md) gives the safe reanalysis and classifier-rebuild order for an existing database.
 - [Tags and audio writes](./user-guide/tags-and-audio-writes.md) lists the exact file-writing paths.
 - [Audio Doctor](./tools-and-scripts/audio-doctor.md) covers dry-run-first repair.
 - [Audio Dedup](./tools-and-scripts/audio-dedup.md) covers report-first duplicate checks.
@@ -43,6 +44,7 @@ Use this guide as the table of contents for real work. The docs describe the cur
 - [CLI reference](./reference/cli.md) lists `dj-sim` commands and standalone tool commands.
 - [API reference](./reference/api.md) lists endpoint families and important payloads.
 - [Configuration reference](./reference/configuration.md) lists environment variables, ports, local artifacts, and build commands.
+- [SONARA v0.2.4 contract](./reference/sonara-v0-2-4-contract.md) defines the exact signature, profile, field storage, and confidence-aware algorithms.
 - [UI controls reference](./reference/ui-controls.md) lists ranges and defaults for common controls.
 - [Model citations and licenses](./reference/model-citations.md) lists the current upstream model and SONARA sources.
 

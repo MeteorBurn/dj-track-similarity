@@ -157,8 +157,10 @@ The app keeps evidence sources separate:
 - **CLAP** stores an audio embedding for text-to-audio search and audio-to-audio comparison.
 - **Rhythm Lab classifiers** store optional local scores under a classifier key.
 
-Tempo-aware search, transition diagnostics, and SET ordering prefer SONARA BPM once it exists.
-Mutagen BPM remains the fallback when a track has no stored SONARA BPM.
+Tempo-aware search, transition diagnostics, and SET ordering use current signed SONARA tempo
+evidence. At low confidence, they also inspect SONARA candidates and the Mutagen BPM tag, while
+`grid_stability` can weaken reliability. Unreliable tempo evidence moves toward a neutral score
+instead of earning a similarity bonus or becoming an automatic hard rejection.
 
 SONARA mood and instrumentalness values are retained for inspection and possible future audio workflows; they are not current similarity, SET, Hybrid, or classifier inputs. True peak and ReplayGain are also stored for future loudness-management work, not direct SONARA similarity scoring. Complete beat, onset, chord-event, tempo, energy, loudness, and downbeat sequences, plus the SONARA embedding and fingerprint, are kept out-of-band in SQLite so the hot search metadata remains small.
 
@@ -388,11 +390,13 @@ Start here:
 - [Install](docs/dj-track-similarity/getting-started/install.md)
 - [First library](docs/dj-track-similarity/getting-started/first-library.md)
 - [First analysis](docs/dj-track-similarity/getting-started/first-analysis.md)
+- [Migrate SONARA v0.2.4](docs/dj-track-similarity/workflows/migrate-sonara-v0-2-4.md)
 - [Browse library](docs/dj-track-similarity/user-guide/browse-library.md)
 - [Search with seeds](docs/dj-track-similarity/user-guide/search-with-seeds.md)
 - [Smart Set Builder](docs/dj-track-similarity/user-guide/smart-set-builder.md)
 - [Text search](docs/dj-track-similarity/user-guide/text-search.md)
 - [Local-first safety](docs/dj-track-similarity/concepts/local-first-safety.md)
+- [SONARA v0.2.4 contract](docs/dj-track-similarity/reference/sonara-v0-2-4-contract.md)
 - [Tools and scripts](docs/dj-track-similarity/tools-and-scripts/index.md)
 - [CLI reference](docs/dj-track-similarity/reference/cli.md)
 - [Model citations and licenses](docs/dj-track-similarity/reference/model-citations.md)

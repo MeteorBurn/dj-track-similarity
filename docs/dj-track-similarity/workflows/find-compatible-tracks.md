@@ -22,8 +22,9 @@ Add a second or third seed that represents the intended direction. Do not add un
 
 SONARA tempo weighting uses compatibility logic that can handle half/double relationships. SET BPM trajectory is separate: use it only when you want the actual order to move toward a BPM target.
 
-When a stored SONARA BPM exists, tempo-aware search and SET use it before the Mutagen BPM tag. The
-tag BPM is still used as a fallback for tracks without SONARA BPM.
+Tempo-aware search and SET start with current SONARA evidence. Below `0.45` confidence, they inspect
+ranked SONARA candidates and the Mutagen BPM tag. Grid stability can weaken the evidence, and low
+reliability moves the score toward neutral rather than creating a bonus or automatic rejection.
 
 ## Output
 

@@ -36,8 +36,9 @@
 | LAB Limit | `1..100` | Reference Compare candidates per model |
 | LAB verdict | mood, palette, instruments, groove, genre, transition, miss | local listening feedback for one candidate and model |
 
-Tempo-aware search filters resolve BPM from stored SONARA analysis first, then from the Mutagen BPM
-tag when SONARA BPM is missing.
+Tempo-aware search filters start from current SONARA evidence. Below `0.45` confidence, they also
+check SONARA candidates and the Mutagen BPM tag. Low reliability avoids a hard rejection after the
+alternatives are checked.
 
 The LAB tab compares CLAP, MERT, MuQ, MAEST, and SONARA around the first selected seed. The groups are diagnostic and remain separate. LAB is a listening comparison surface for model families.
 
@@ -58,8 +59,8 @@ The LAB tab compares CLAP, MERT, MuQ, MAEST, and SONARA around the first selecte
 | Classifier Preference | `-1.00..1.00` | missing scores stay neutral |
 | Classifier Flow | flat, rise, fall | preference shape across preview |
 
-SET BPM modes resolve tempo from stored SONARA BPM first, then from the Mutagen BPM tag when SONARA
-BPM is missing.
+SET BPM modes use the same confidence-aware resolver. `grid_stability` can weaken SONARA tempo
+evidence, and unreliable pairs move toward neutral `0.5` rather than earning a match bonus.
 
 ## Hybrid preview
 

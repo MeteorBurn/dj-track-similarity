@@ -17,7 +17,7 @@ The database stores:
 - `sonara_provenance`, including upstream analysis settings and the installed package version when available,
 - `sonara_analysis_signature`, the deterministic SONARA/schema/mode/sample-rate/BPM-range/requested-profile/project-revision compatibility contract,
 - embeddings in the `embeddings` table by `embedding_key`,
-- complete SONARA sequences (`beats`, `onset_frames`, chord labels/events, `tempo_curve`, `energy_curve`, `loudness_curve`, `downbeats`) plus the SONARA `embedding` and `fingerprint` in the out-of-band `sonara_curves` table, loaded only for UI display and never read by search or classifiers,
+- complete SONARA sequences (`beats`, `onset_frames`, chord labels/events, `tempo_curve`, `energy_curve`, `loudness_curve`, `downbeats`) plus the SONARA `embedding` and `fingerprint` in the out-of-band `sonara_curves` table, loaded only for UI display and never read by search or classifiers; beat/onset descriptors can also remain in hot metadata,
 - liked tracks,
 - classifier scores by `classifier_key`,
 - FTS rows for library search,
@@ -27,6 +27,11 @@ The out-of-band rows preserve every returned sequence value without expanding th
 
 `GET /api/tracks/{track_id}/sonara-curves` loads the out-of-band payload only when the UI or another client requests it. Regular track rows and full metadata responses do not load the curve table.
 
+The physical `has_sonara_analysis` flag is a fast storage marker and can remain `1` on a legacy
+row. Public analysis lists, search loaders, and library summary counts require a valid current
+contract. A current full, minimal, or subset signature can satisfy that broad current-contract
+check. Analysis scheduling requires an exact match with the requested profile.
+
 ## Schema migration
 
 Opening a schema v4 database migrates it to schema v5. The migration adds the
@@ -34,7 +39,18 @@ Opening a schema v4 database migrates it to schema v5. The migration adds the
 `embeddings` table. Existing tracks, analysis data, likes, and feedback remain in the same
 database. The independent SONARA classifier revision check is described below.
 
-The project also records the SONARA classifier feature revision in `library_settings`. On the first main-database open after this revision changes, stored scores whose `feature_set` uses `sonara`, `sonara2`, `sonara2vocal`, or `combined` are invalidated. Rhythm Lab records the same revision independently and removes SONARA-dependent predictions when its labels database opens. Embedding-only scores and predictions, Rhythm Lab labels, likes, pair feedback, and transition feedback are preserved. Old model files are left in place for recovery, but SONARA-dependent manifests without the current analysis signature cannot be scored. Retraining and promotion are required.
+The project also records the SONARA classifier feature revision in `library_settings`. On the first
+main-database open after this revision changes, stored scores are invalidated when `feature_set` is
+`combined` or any plus-separated source begins with `sonara`. This includes `sonara`, `sonara2`,
+`sonara2vocal`, and their embedding combinations. Rhythm Lab records the same revision independently
+and removes SONARA-dependent predictions when its labels database opens. Embedding-only scores and
+predictions, Rhythm Lab labels, likes, pair feedback, and transition feedback are preserved. Old
+model files are left in place for recovery, but SONARA-dependent manifests without the current
+analysis signature cannot be scored. Retraining and promotion are required.
+
+Do not confuse the version numbers: upstream SONARA analysis schema is `3`, the main SQLite schema
+is `5`, the project SONARA feature revision is `1`, and the promoted classifier manifest version is
+`2`.
 
 ## Evaluation and feedback state
 

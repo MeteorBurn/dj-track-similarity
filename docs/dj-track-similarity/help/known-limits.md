@@ -20,6 +20,14 @@ Search and SET scores are ranking signals. CLAP text scores, MERT seed scores, S
 
 Smart Set Builder requires SONARA plus MERT, MAEST, and CLAP embeddings. A partly analyzed library can browse and search in other tabs, but SET eligible counts will be low.
 
+## SONARA current coverage is broader than one profile
+
+The library summary counts any signed SONARA profile that matches the current version, schema, mode,
+sample rate, BPM range, and project revision. It does not prove that every row has the exact full
+profile. Check analysis jobs and sample signatures when validating a migration. The project full
+profile means all supported adapter audio families; it does not request SONARA tags or its genre
+model. See the [SONARA v0.2.4 project contract](../reference/sonara-v0-2-4-contract.md).
+
 ## Browser preview depends on files still existing
 
 The database stores paths. If files move or disappear, preview fails until you rescan or relocate stored paths.

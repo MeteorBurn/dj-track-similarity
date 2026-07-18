@@ -44,9 +44,10 @@ The response includes total-track and eligible-track counts, plus missing counts
 
 ## BPM controls
 
-Default **General BPM** uses BPM and key as soft transition compatibility signals only.
-SET uses stored SONARA BPM for those signals and for trajectory modes when it exists. If SONARA BPM
-is missing, SET falls back to the Mutagen BPM tag.
+Default **General BPM** uses BPM and key as soft transition compatibility signals only. SET uses
+current signed SONARA tempo evidence first. Below `0.45` confidence, it checks SONARA candidates and
+the Mutagen BPM tag. `grid_stability` can weaken tempo reliability, and the score moves toward
+neutral when reliability is low instead of becoming a similarity bonus or hard rejection.
 
 For key transitions, SET prefers a valid Camelot tag, then SONARA's Camelot result, then converts a
 conventional key name. Same, relative, and adjacent keys receive graduated compatibility rather
@@ -90,6 +91,14 @@ Hybrid preview:
 Transition-risk v2 can also use stored beat-grid stability and SONARA structure boundaries. These
 signals remain diagnostics for listening-led ordering: they are not cue points or a promise that a
 mix will work. Transition-risk v1 keeps its original calculation for reproducible evaluations.
+
+SET sequencing uses structure separately from the Hybrid risk components. When structure evidence
+exists, transition confidence combines `50%` tempo, `30%` harmonic compatibility, and `20%`
+structure. Without structure, it uses `60%` tempo and `40%` harmonic compatibility. Beat-grid
+stability reaches SET through tempo reliability.
+
+See the [SONARA v0.2.4 project contract](../reference/sonara-v0-2-4-contract.md) for the exact tempo,
+Camelot, and structure rules.
 
 The UI records evaluation session and event rows for feedback. The preview itself leaves tracks and the current set unchanged.
 

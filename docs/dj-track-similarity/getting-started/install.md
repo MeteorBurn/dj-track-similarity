@@ -42,6 +42,10 @@ Install only the extras you need:
 python -m pip install -e ".[sonara,ml,dev]"
 ```
 
+On Windows x64, the `sonara` extra installs the pinned SONARA `v0.2.4` wheel from the
+[MeteorBurn release](https://github.com/MeteorBurn/sonara/releases/tag/v0.2.4). Other
+platforms install the same package version from PyPI.
+
 - `sonara`: SONARA feature extraction.
 - `ml`: PyTorch, Torchaudio, Torchvision, TorchCodec, nnaudio, Transformers, Hugging Face Hub, LAION CLAP, MAEST, and MuQ inference packages.
 - `ann`: optional HNSW backend for persistent ANN sidecar indexes.

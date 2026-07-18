@@ -288,6 +288,10 @@ The base install is enough for scan, browse, UI serving, existing SQLite data, a
 python -m pip install -e ".[sonara,ml,dev]"
 ```
 
+On Windows x64, the `sonara` extra installs the pinned SONARA `v0.2.4` wheel from the
+[MeteorBurn release](https://github.com/MeteorBurn/sonara/releases/tag/v0.2.4). Other
+platforms install the same package version from PyPI.
+
 Run a small first pass:
 
 ```powershell

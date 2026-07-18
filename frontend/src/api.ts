@@ -28,6 +28,20 @@ export type Track = {
   embedding_dim?: number | null;
 };
 
+export type SonaraFeaturePayload = {
+  value?: unknown;
+  type?: string;
+  shape?: number[];
+  size?: number;
+  dtype?: string;
+  summary?: Record<string, unknown>;
+  storage?: string;
+  length?: number;
+  fields?: Record<string, SonaraFeaturePayload>;
+};
+
+export type SonaraCurves = Record<string, SonaraFeaturePayload>;
+
 export type SearchResult = {
   position?: number;
   track: Track;
@@ -461,6 +475,7 @@ export type AnalysisResetResult = {
   adapter: string;
   tracks_updated: number;
   embeddings_deleted: number;
+  classifier_scores_deleted?: number;
 };
 
 export type ClassifierResetResult = {

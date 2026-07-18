@@ -71,16 +71,27 @@ dj-sim doctor
 | `--track-batch-size` | `1..64` decoded tracks per job batch |
 | `--inference-batch-size` | `1..128` model samples per forward pass |
 | `--diagnostics` | file-log decoder and batch timing diagnostics |
-| `--sonara-structure` | SONARA opt-in: energy curve, segments, intro/outro, energy level |
-| `--sonara-loudness` | SONARA opt-in: true peak, ReplayGain, loudness curve, momentary max, LRA |
-| `--sonara-beatgrid` | SONARA opt-in: downbeats, grid offset, grid stability |
-| `--sonara-key-candidates` | SONARA opt-in: top-3 key candidates with Camelot codes |
-| `--sonara-vocalness` | SONARA opt-in: vocal-presence heuristic (0-1) |
-| `--sonara-silence` | SONARA opt-in: leading/trailing silence offsets |
+| `--sonara-minimal` | intentionally request plain playlist output instead of the default full profile |
+| `--sonara-structure` | explicit subset: energy curve, segments, intro/outro, energy level |
+| `--sonara-loudness` | explicit subset: true peak, ReplayGain, loudness curve, momentary max, LRA |
+| `--sonara-beatgrid` | explicit subset: downbeats, grid offset, grid stability |
+| `--sonara-key-candidates` | explicit subset: top-3 key candidates with Camelot codes |
+| `--sonara-vocalness` | explicit subset: vocal-presence heuristic (0-1) |
+| `--sonara-mood` | explicit subset: happy, aggressive, relaxed, and sad heuristic affinities (0-1) |
+| `--sonara-instrumentalness` | explicit subset: instrumentalness heuristic (0-1) |
+| `--sonara-silence` | explicit subset: leading/trailing silence offsets |
 
-Each `--sonara-*` flag is off by default, so a plain `analyze` run reproduces the pre-2.0 SONARA
-playlist output. Light fields are stored in SONARA metadata. Heavy curves (`energy_curve`,
-`loudness_curve`, `downbeats`) are stored separately and loaded only for the metadata dialog.
+Plain `analyze` uses all eight families so scripted reanalysis cannot silently downgrade archived
+data. `--sonara-minimal` requests the base playlist profile; one or more individual family flags
+select an explicit subset. Light fields are stored in SONARA metadata. Complete sequences (`beats`,
+`onset_frames`, chord labels/events, `tempo_curve`, `energy_curve`, `loudness_curve`, `downbeats`),
+plus the SONARA embedding and fingerprint, are stored in the separate `sonara_curves` table and
+loaded only for the metadata dialog. Mood and instrumentalness are retained for future workflows but are
+not current similarity or classifier inputs. True peak and ReplayGain are stored for possible
+non-similarity loudness workflows rather than direct SONARA similarity scoring.
+
+The exact CLI profile is part of the SONARA analysis signature. Rerunning with a different current
+profile automatically targets mismatched rows. A manual SONARA reset is not normally required.
 
 ## Text search options
 

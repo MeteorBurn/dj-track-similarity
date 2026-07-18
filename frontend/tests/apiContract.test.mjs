@@ -121,6 +121,21 @@ test("filtered tracks client sends defaulted domain payloads for library view co
   });
 });
 
+test("SONARA curves client fetches out-of-band data for one track", async () => {
+  const calls = [];
+  const { api } = loadApiModule(async (path, options) => {
+    calls.push({ path, options });
+    return jsonResponse({ energy_curve: { type: "list", length: 3, value: [0.1, 0.4, 0.8] } });
+  });
+
+  const curves = await api.sonaraCurves(42);
+
+  assert.equal(calls[0].path, "/api/tracks/42/sonara-curves");
+  assert.equal(calls[0].options.headers["Content-Type"], "application/json");
+  assert.equal(calls[0].options.method, undefined);
+  assert.equal(curves.energy_curve.length, 3);
+});
+
 test("analysis job client preserves unified job defaults for model and classifier runs", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options) => {
@@ -139,7 +154,16 @@ test("analysis job client preserves unified job defaults for model and classifie
     top_k: 3,
     track_batch_size: 4,
     inference_batch_size: 24,
-    sonara_features: []
+    sonara_features: [
+      "structure",
+      "loudness",
+      "beatgrid",
+      "key_candidates",
+      "vocalness",
+      "mood",
+      "instrumentalness",
+      "silence"
+    ]
   });
 });
 

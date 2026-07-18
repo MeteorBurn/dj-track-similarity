@@ -2,7 +2,7 @@ import type { MouseEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { CopyX, FlaskConical, Moon, Power, RefreshCcw, ScrollText, Square, Sun, Wrench } from "lucide-react";
 import { AnalysisJobStatus, AnalysisModel, api, AudioDedupJobPayload, AudioDedupJobStatus, AudioDoctorJobPayload, AudioDoctorJobStatus, GenreTagJobStatus, PromotedClassifier, RhythmLabLaunchResult, ScanStats, SetBuilderGeneratePayload, Track } from "./api";
-import { analysisSelectionOrder, isAudioAnalysisModel, type AnalysisSelection } from "./analysisSelection";
+import { analysisSelectionOrder, defaultAnalysisSelections, isAudioAnalysisModel, type AnalysisSelection } from "./analysisSelection";
 import { AudioDedupDialog } from "./AudioDedupDialog";
 import { AudioDoctorDialog } from "./AudioDoctorDialog";
 import { clapPromptPresets, defaultClapPromptPresetKey, promptQueriesFromText } from "./clapPrompt";
@@ -128,7 +128,7 @@ export function App() {
   const [analysisTrackBatchSize, setAnalysisTrackBatchSize] = useState(4);
   const [analysisInferenceBatchSize, setAnalysisInferenceBatchSize] = useState(24);
   const [analysisDevice, setAnalysisDevice] = useState<DeviceMode>("auto");
-  const [selectedAnalysisModels, setSelectedAnalysisModels] = useState<AnalysisSelection[]>(analysisModelOrder);
+  const [selectedAnalysisModels, setSelectedAnalysisModels] = useState<AnalysisSelection[]>(defaultAnalysisSelections);
   const [notice, setNotice] = useState<Notice>(defaultNotice);
   const [logFrameOpen, setLogFrameOpen] = useState(false);
   const [audioDedupOpen, setAudioDedupOpen] = useState(false);
@@ -650,21 +650,31 @@ export function App() {
   async function handleAnalyzeSelected() {
     const requestedAudioModels = selectedAnalysisModels.filter(isAudioAnalysisModel);
     const includeClassifiers = selectedAnalysisModels.includes("classifiers");
+    const compatibleClassifiers = classifiers.filter((classifier) => classifier.is_scoring_compatible !== false);
     if (!requestedAudioModels.length && !includeClassifiers) {
       setNotice({ kind: "error", text: "Выберите хотя бы одну модель анализа" });
       return;
     }
-    if (!requestedAudioModels.length && includeClassifiers && !classifiers.length) {
-      setNotice({ kind: "error", text: "Нет promoted classifiers для расчета" });
+    if (!requestedAudioModels.length && includeClassifiers && !compatibleClassifiers.length) {
+      setNotice({ kind: "error", text: "Нет совместимых promoted classifiers: сначала переобучите и promote модели" });
       return;
     }
     const limit = analysisLimit > 0 ? analysisLimit : undefined;
     const models = [...requestedAudioModels];
     const labels = models.map((model) => model.toUpperCase()).join(", ");
-    const classifierKeys = includeClassifiers && classifiers.length > 0 ? classifiers.map((classifier) => classifier.classifier_key) : [];
+    const classifierKeys = includeClassifiers
+      ? compatibleClassifiers.map((classifier) => classifier.classifier_key)
+      : [];
     const classifierTail = classifierKeys.length ? " · CLASSIFIERS в этом же job" : "";
     const detail = `${labels}${classifierTail} · ${analysisDevice.toUpperCase()} · tracks ${analysisTrackBatchSize} · inference ${analysisInferenceBatchSize} · ${limit ? `limit ${limit}` : "вся библиотека"}`;
     appendActivity("info", "Анализ выбранных моделей запущен", detail);
+    if (includeClassifiers && compatibleClassifiers.length < classifiers.length) {
+      appendActivity(
+        "warn",
+        "Несовместимые CLASSIFIERS пропущены",
+        `${classifiers.length - compatibleClassifiers.length} artifact(s) требуют переобучения под текущую SONARA signature`
+      );
+    }
     setProcessLogKind("analysis");
     setAnalysisJob(null);
     await run(
@@ -676,10 +686,10 @@ export function App() {
         top_k: 3,
         track_batch_size: analysisTrackBatchSize,
         inference_batch_size: analysisInferenceBatchSize,
-        // All SONARA 2.0 opt-in families are always computed from the UI, so a single
-        // reanalysis captures every field (structure, loudness, beatgrid, key candidates,
-        // vocalness, silence). The backend ignores these for non-SONARA model selections.
-        sonara_features: ["structure", "loudness", "beatgrid", "key_candidates", "vocalness", "silence"]
+        // All configured SONARA data families are always computed from the UI, so a single
+        // reanalysis captures the stored fields (structure, loudness, beatgrid, key candidates,
+        // voice/mood heuristics, silence). The backend ignores these for non-SONARA selections.
+        sonara_features: ["structure", "loudness", "beatgrid", "key_candidates", "vocalness", "mood", "instrumentalness", "silence"]
       }),
       (job) => {
         setAnalysisJob(job);

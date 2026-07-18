@@ -16,6 +16,11 @@ dj-sim analyze --models sonara,maest,mert --db .\data\library.sqlite
 
 Benchmark variants can also use CLAP when CLAP embeddings already exist.
 
+The command above uses the full supported SONARA profile, matching the browser and direct API
+defaults. Use `--sonara-minimal` only for an intentional plain-playlist run. Individual
+`--sonara-*` flags select an explicit subset for a controlled experiment. The exact profile becomes
+part of the artifact signature.
+
 ## 2. Start Rhythm Lab
 
 From the main UI, use the flask icon to launch Rhythm Lab. Or start it manually:
@@ -127,6 +132,11 @@ dj-sim analyze-classifier live_instrumentation --db .\data\library.sqlite
 ```
 
 After retraining and promoting the same classifier key, reset only that classifier's old scores before rescoring.
+
+After a SONARA feature revision, dependent main-library scores and Rhythm Lab predictions are
+invalidated while labels and feedback remain. Reanalyze SONARA, then retrain and promote the affected
+profiles. A stale promoted artifact stays blocked because its manifest signature cannot score current
+tracks.
 
 ## Safety
 

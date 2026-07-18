@@ -21,7 +21,26 @@ One job can include multiple families. Tracks that already have a selected resul
 
 SONARA BPM analysis uses the project range `79.0..192.0`. After SONARA BPM is stored, tempo-aware
 search, transition diagnostics, and SET prefer it over the Mutagen BPM tag. If you analyzed tracks
-before that range was configured, use SONARA reset before running SONARA again for those tracks.
+before that range was configured, select SONARA and run analysis again. The legacy signature does
+not match the current range, so those tracks are queued automatically without a reset.
+
+The default SONARA v0.2.4 result also stores raw BPM, `bpm_confidence`, tempo candidates, and Camelot key. The metadata dialog shows the `0..1` BPM confidence beside saved provenance such as schema version, sample rate, hop length, analysis mode, requested features, and installed package version when available.
+
+## Full SONARA capture
+
+SONARA offers eight additional feature families: structure, loudness, beat grid, key candidates,
+vocalness, mood, instrumentalness, and silence. UI, CLI, and API defaults request all eight automatically.
+Use CLI `--sonara-minimal`, individual family flags, or an explicit API profile only when a smaller profile is intentional. Changing the
+requested profile changes the deterministic analysis signature; the next SONARA job queues mismatched
+tracks automatically, so profile changes do not normally require a reset.
+
+Mood and instrumentalness are stored and displayed but do not enter current similarity, SET,
+Hybrid, or classifier calculations. True peak and ReplayGain are stored for possible future
+loudness-management work rather than direct SONARA similarity scoring. Complete beat/onset
+positions, chord labels/events, tempo, energy, and loudness curves, downbeat arrays, and the SONARA
+embedding and fingerprint are saved out-of-band in `sonara_curves`; the metadata dialog loads compact
+summaries on demand without putting them on the hot search path. Time signature, its confidence,
+tempo variability, and embedding/fingerprint version fields remain lightweight metadata.
 
 ## Limit behavior
 
@@ -60,9 +79,10 @@ The square stop button requests cancellation. It does not kill Python mid-write.
 
 Reset is SQLite-only:
 
-- SONARA reset removes SONARA metadata and flags.
+- SONARA reset removes SONARA features, provenance, signature, curves, flags, and dependent main-library classifier scores. Labels and feedback remain intact.
 - MAEST reset removes MAEST metadata and MAEST embeddings.
 - MERT, MuQ, and CLAP reset delete embeddings for that key.
 - CLASSIFIERS reset deletes selected `track_classifier_scores` rows.
 
-Use reset when you intentionally want a fresh run. Do not reset just because search results feel surprising.
+Use reset when you intentionally want to delete stored results before a fresh run. Do not reset for a
+SONARA version/profile mismatch: normal analysis detects the signature mismatch and queues reanalysis.

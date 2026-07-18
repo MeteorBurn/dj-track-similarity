@@ -48,6 +48,11 @@ Default **General BPM** uses BPM and key as soft transition compatibility signal
 SET uses stored SONARA BPM for those signals and for trajectory modes when it exists. If SONARA BPM
 is missing, SET falls back to the Mutagen BPM tag.
 
+For key transitions, SET prefers a valid Camelot tag, then SONARA's Camelot result, then converts a
+conventional key name. Same, relative, and adjacent keys receive graduated compatibility rather
+than an exact-text-only match. Low SONARA key confidence weakens that harmonic evidence toward a
+neutral score without making matching low confidence values count as similarity by themselves.
+
 The explicit trajectory modes are:
 
 - **Low to high**: build from lower BPM to higher BPM.
@@ -81,6 +86,10 @@ Hybrid preview:
 - shows up to `1..100` preview rows,
 - can apply an optional transition-risk penalty from `0.00` to `1.00`,
 - can use classifier preference/risk controls when promoted classifiers expose compatible signals.
+
+Transition-risk v2 can also use stored beat-grid stability and SONARA structure boundaries. These
+signals remain diagnostics for listening-led ordering: they are not cue points or a promise that a
+mix will work. Transition-risk v1 keeps its original calculation for reproducible evaluations.
 
 The UI records evaluation session and event rows for feedback. The preview itself leaves tracks and the current set unchanged.
 

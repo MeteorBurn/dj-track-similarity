@@ -16,11 +16,19 @@ These are source-file tags. They can be incomplete or inconsistent. The app stor
 
 SONARA produces explainable audio features and derived working fields such as BPM, key, duration, and energy. SONARA features support the SONARA tab and help Smart Set Builder reason about rhythm, dynamics, timbre, tonal content, energy flow, and transition compatibility.
 
-Newer SONARA analysis adds search-relevant scalar fields such as Camelot key, vocalness, and loudness measurements. It also stores beat-grid diagnostics, structure markers, and silence markers. The UI uses these values as ranking signals, not as objective truth.
+Newer SONARA analysis adds optional Camelot key, vocalness, mood, instrumentalness, loudness, beat-grid, structure, and silence fields. Treat these analysis estimates as inspectable evidence. Only fields wired into a scorer affect ranking.
+
+Mood affinities and instrumentalness are shown as analysis data and retained for possible future workflows. They are not current similarity, SET, Hybrid, or classifier inputs. True peak and ReplayGain are also retained for possible loudness-management features rather than direct SONARA similarity. Loudness scalars can enter the `sonara2` classifier variant. The existing SONARA dynamics comparison uses momentary loudness maximum and loudness range. Vocalness is available through an explicit search modifier and the optional `sonara2vocal` variant.
+
+Complete beat positions, onset positions, chord labels/events, tempo curves, energy curves, loudness curves, and downbeat arrays live in the separate `sonara_curves` table. The SONARA embedding and fingerprint are archived there as well. The metadata dialog can load compact summaries on demand, but search and classifiers never load these out-of-band values. Time signature, time-signature confidence, tempo variability, and embedding/fingerprint version fields stay in lightweight metadata for possible future use.
 
 SONARA values are analysis results, not copied file tags.
 Tempo-aware workflows prefer SONARA BPM when it is stored, and use Mutagen BPM only as a fallback
 when SONARA BPM is missing.
+
+SONARA v0.2.4 also stores `bpm_confidence` beside raw BPM, tempo candidates, and Camelot key. The confidence value records how strongly SONARA supports its working BPM estimate. Saved provenance records the analysis schema and settings plus the installed package version when available, so results can be traced to the configuration that produced them.
+
+UI, CLI, and API defaults request the full supported SONARA profile. Plain playlist mode or a smaller subset must be requested explicitly. A deterministic signature identifies the exact profile, so a legacy or mismatched SONARA row is queued for reanalysis automatically instead of requiring a manual reset.
 
 ## MAEST labels and embedding
 

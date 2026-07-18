@@ -254,6 +254,8 @@ test("class tab exposes per-classifier missing-score analysis controls", () => {
   assert.match(appSource, /selectedAnalysisModels\.includes\("classifiers"\)/);
   assert.match(appSource, /classifierKeys\s*=\s*includeClassifiers/);
   assert.match(appSource, /classifier_keys:\s*classifierKeys/);
+  assert.match(appSource, /useState<AnalysisSelection\[]>\(defaultAnalysisSelections\)/);
+  assert.match(appSource, /is_scoring_compatible !== false/);
   assert.doesNotMatch(appSource, /startClassifierJobs/);
   assert.match(appSource, /api\.analyzeClassifier/);
   assert.doesNotMatch(appSource, /classifierRequiredModels/);

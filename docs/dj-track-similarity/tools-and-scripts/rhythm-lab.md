@@ -128,12 +128,33 @@ The default ablation matrix includes embedding-only combinations, the original
 SONARA playlist feature set, and two SONARA 2.0 variants:
 
 - `sonara2` adds numeric SONARA 2.0 opt-in fields such as structure, loudness,
-  beatgrid, and silence summary values, but excludes `vocalness`.
+  beatgrid, and silence summary values, but excludes `vocalness`, the four
+  `mood_*` affinities, and `instrumentalness`.
 - `sonara2vocal` uses the same fields and also includes `vocalness`.
 
 Both variants still require only stored SONARA features at scoring time. Compare
 them per classifier profile before promotion; `vocalness` can help or hurt
 depending on what that profile's labels mean.
+
+SONARA-dependent training accepts only tracks with one current, identical analysis
+signature. Training artifacts and promoted manifest version `2` retain that signature.
+Prediction, promotion, and main-app scoring reject a missing or mismatched signature,
+so a model trained on the older danceability, acousticness, or vocalness semantics cannot
+silently score v0.2.4 rows. Missing opt-in fields are incompatible data, not numeric zeroes.
+Embedding-only feature sets do not require a SONARA signature.
+
+After the SONARA feature revision changes, retrain and promote the affected profiles.
+Opening the main library invalidates dependent classifier scores; opening the Rhythm Lab labels
+database invalidates dependent predictions. Embedding-only predictions, source labels, and feedback
+remain available. Reset SONARA clears dependent main-library scores but does not delete Rhythm Lab
+labels; old promoted model files remain recoverable on disk but are blocked until a current signed
+artifact replaces them.
+
+Mood and instrumentalness stay available in the library for inspection and future
+feature-set experiments. Neither enters the current classifier matrices. Complete
+beat/onset positions, chord labels/events, tempo, energy, and loudness curves, downbeat arrays, and
+the SONARA embedding and fingerprint are stored out-of-band and are never loaded as classifier
+features.
 
 The Training tab has the same active-profile workflow: collect labels, train,
 review candidates, run a benchmark, choose a promotion variant, and promote.

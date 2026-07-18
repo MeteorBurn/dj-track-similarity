@@ -21,6 +21,8 @@ Rhythm Lab does not create a built-in starter profile. Existing profiles, includ
 
 Training can benchmark SONARA, MERT, MAEST, and combined feature sets. Combined training requires existing SONARA features plus MERT and MAEST embeddings.
 
+SONARA inputs must share one current analysis signature. Training skips stale or mixed profiles. A row missing a requested opt-in field is also skipped rather than zero-imputed.
+
 Classifier calibration is optional and data-gated. If there are not enough labels for calibration, training can still produce an uncalibrated artifact with diagnostics.
 
 Calibration is not part of the normal Training UI flow. It is an explicit API or
@@ -39,13 +41,18 @@ models/classifiers/<artifact-prefix>/model.joblib
 models/classifiers/<artifact-prefix>/model.json
 ```
 
-The main app discovers promoted profiles from those manifests.
+The main app discovers promoted profiles from those manifests. Manifest version `2` records the exact SONARA training signature whenever the feature set depends on SONARA. Older SONARA artifacts must be retrained and promoted again.
 
 ## Scoring
 
 Promoted classifier scoring is database-only. It reads existing SONARA, MERT, and MAEST inputs and writes `track_classifier_scores` for one `classifier_key` at a time.
 
-Adding or promoting one classifier does not delete scores for other classifier keys. After retraining the same classifier key, reset that classifier's old scores before rescoring.
+Adding or promoting one classifier does not delete scores for other classifier keys. After retraining the same classifier key, reset that classifier's old scores before rescoring. Reanalyzing a track with SONARA invalidates that track's SONARA-dependent scores. A full SONARA reset invalidates all such scores but preserves labels and feedback.
+
+The project SONARA feature-revision guard also invalidates SONARA-dependent main-library scores when
+the main database opens and Rhythm Lab predictions when the labels database opens. Embedding-only derived rows,
+labels, and feedback are preserved. Stale promoted artifacts remain visible for recovery but cannot
+score until the profile is retrained and promoted with the current signed manifest.
 
 ## Main UI use
 

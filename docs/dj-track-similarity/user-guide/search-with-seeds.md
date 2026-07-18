@@ -43,7 +43,8 @@ The mixer weights are:
 - **Timbre**: spectral texture and MFCC-related features.
 - **Rhythm**: onset density, danceability, and related rhythm signals.
 - **Dynamics**: energy, RMS, LUFS, SONARA 2.0 loudness range, and momentary loudness.
-- **Harmonic**: chroma, dissonance, chord movement, key confidence, and SONARA Camelot key.
+- **Harmonic**: chroma, dissonance, chord movement, and graduated SONARA Camelot compatibility.
+  Key confidence only weakens uncertain harmonic evidence. It is not scored as a similarity value.
 - **Tempo**: BPM compatibility, including half/double tempo logic.
 
 Modifiers bias the result direction relative to the seed context: energy, valence, acousticness, brightness, rhythm density, level range, loudness, and SONARA 2.0 vocalness. A modifier value of `0` does not pull in either direction.

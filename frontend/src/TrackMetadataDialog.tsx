@@ -1,6 +1,7 @@
 import { Check, Copy, X } from "lucide-react";
-import { Fragment, useState } from "react";
-import { Track } from "./api";
+import { Fragment, useEffect, useState } from "react";
+import { api, Track } from "./api";
+import { readableSonaraCurves, type ReadableSonaraCurve } from "./sonaraDisplay";
 import { formatMaestGenreLabel, hasMaestSyncopatedRhythm, SYNCOPATED_RHYTHM_LABEL } from "./syncopatedRhythm";
 import { basename, displayTrack, trackHasAnalysis } from "./trackDisplay";
 
@@ -53,12 +54,40 @@ export function TrackMetadataDialog({
   const genres = track.genres || [];
   const scores = track.genre_scores || {};
   const trackHasSyncopatedRhythm = hasMaestSyncopatedRhythm(track.metadata);
-  const sonaraFeatureGroups = readableSonaraFeatureGroups(track.metadata?.sonara_features);
-  const sonaraFeatureCount = sonaraFeatureGroups.reduce((total, group) => total + group.features.length, 0);
+  const hasSonaraAnalysis = trackHasAnalysis(track, "sonara");
+  const sonaraFeatureGroups = [
+    ...readableSonaraFeatureGroups(track.metadata?.sonara_features),
+    ...readableSonaraProvenanceGroups(track.metadata?.sonara_provenance),
+    ...readableSonaraSignatureGroups(track.metadata?.sonara_analysis_signature)
+  ];
+  const [sonaraCurves, setSonaraCurves] = useState<ReadableSonaraCurve[]>([]);
+  const [sonaraCurveStatus, setSonaraCurveStatus] = useState<"idle" | "loading" | "loaded" | "error">("idle");
+  const sonaraFeatureCount = sonaraFeatureGroups.reduce((total, group) => total + group.features.length, 0) + sonaraCurves.length;
   const classifierScores = readableClassifierScores(track);
   const analysisBadges = readableAnalysisBadges(track);
   const primaryEntries = readablePrimaryTrackInfo(track);
   const metadataEntries = readableTrackTags(track.metadata);
+
+  useEffect(() => {
+    let active = true;
+    setSonaraCurves([]);
+    if (!hasSonaraAnalysis) {
+      setSonaraCurveStatus("loaded");
+      return () => { active = false; };
+    }
+    setSonaraCurveStatus("loading");
+    void api.sonaraCurves(track.id)
+      .then((curves) => {
+        if (!active) return;
+        setSonaraCurves(readableSonaraCurves(curves));
+        setSonaraCurveStatus("loaded");
+      })
+      .catch(() => {
+        if (!active) return;
+        setSonaraCurveStatus("error");
+      });
+    return () => { active = false; };
+  }, [hasSonaraAnalysis, track.id]);
 
   async function copyFilePath() {
     const copied = await copyTextToClipboard(track.path);
@@ -114,7 +143,7 @@ export function TrackMetadataDialog({
         </div>
         <div className="sonara-block">
           <strong>SONARA features</strong>
-          {sonaraFeatureCount ? (
+          {sonaraFeatureCount || hasSonaraAnalysis ? (
             <div className="sonara-feature-groups">
               {sonaraFeatureGroups.map((group) => (
                 <div className="sonara-feature-group" key={group.title}>
@@ -126,6 +155,26 @@ export function TrackMetadataDialog({
                   </dl>
                 </div>
               ))}
+              {hasSonaraAnalysis ? (
+                <div className="sonara-feature-group">
+                  <span className="sonara-feature-group-title">Curves</span>
+                  {sonaraCurves.length ? (
+                    <dl className="metadata-grid tag-grid sonara-feature-grid">
+                      {sonaraCurves.map((feature) => (
+                        <Fragment key={feature.key}><dt title={feature.description}>{feature.label}</dt><dd title={feature.description}>{feature.value}</dd></Fragment>
+                      ))}
+                    </dl>
+                  ) : (
+                    <span className="empty-genres">
+                      {sonaraCurveStatus === "error"
+                        ? "Stored curve data could not be loaded"
+                        : sonaraCurveStatus === "loaded"
+                          ? "No stored curve data"
+                          : "Loading stored curve summaries…"}
+                    </span>
+                  )}
+                </div>
+              ) : null}
             </div>
           ) : (
             <span className="empty-genres">SONARA признаки ещё не извлечены</span>
@@ -231,6 +280,14 @@ function formatScore(value: number) {
 
 const sonaraFeatureLabels: Record<string, string> = {
   bpm: "BPM",
+  bpm_raw: "Raw BPM",
+  bpm_candidates: "BPM candidates",
+  bpm_confidence: "BPM confidence",
+  tempo_variability: "Tempo variability",
+  time_signature: "Time signature",
+  time_signature_confidence: "Time signature confidence",
+  embedding_version: "Embedding version",
+  fingerprint_version: "Fingerprint version",
   duration_sec: "Duration",
   key: "Key",
   key_camelot: "Camelot",
@@ -261,6 +318,10 @@ const sonaraFeatureLabels: Record<string, string> = {
   chroma_mean: "Chroma",
   // SONARA 2.0 opt-in: structure
   energy_level: "Energy level",
+  intro_end_sec: "Intro end",
+  outro_start_sec: "Outro start",
+  segments: "Structure segments",
+  energy_curve_hop_sec: "Energy curve hop",
   // SONARA 2.0 opt-in: loudness
   true_peak_db: "True peak",
   replaygain_db: "ReplayGain",
@@ -269,8 +330,14 @@ const sonaraFeatureLabels: Record<string, string> = {
   // SONARA 2.0 opt-in: beatgrid
   grid_offset_sec: "Grid offset",
   grid_stability: "Grid stability",
-  // SONARA 2.0 opt-in: vocalness
+  // SONARA opt-in: voice heuristics
   vocalness: "Vocalness",
+  instrumentalness: "Instrumentalness",
+  // SONARA opt-in: mood heuristics
+  mood_happy: "Happy",
+  mood_aggressive: "Aggressive",
+  mood_relaxed: "Relaxed",
+  mood_sad: "Sad",
   // SONARA 2.0 opt-in: silence
   leading_silence_sec: "Leading silence",
   trailing_silence_sec: "Trailing silence",
@@ -278,6 +345,14 @@ const sonaraFeatureLabels: Record<string, string> = {
 
 const sonaraFeatureDescriptions: Record<string, string> = {
   bpm: "Tempo (BPM)",
+  bpm_raw: "Unfolded tempo estimate before the configured BPM range is applied",
+  bpm_candidates: "Ranked tempo candidates as BPM and confidence-score pairs",
+  bpm_confidence: "Tempo detection confidence (0.0 - 1.0)",
+  tempo_variability: "Within-track tempo variation retained as archival data for future rhythm features",
+  time_signature: "Detected musical meter retained as archival data for future rhythm features",
+  time_signature_confidence: "Confidence in the detected time signature (0.0 - 1.0)",
+  embedding_version: "SONARA version identifier for the stored archival audio embedding",
+  fingerprint_version: "SONARA version identifier for the stored archival audio fingerprint",
   beats: "Beat frame positions",
   onset_frames: "Onset positions",
   onset_density: "Onsets per second",
@@ -307,13 +382,22 @@ const sonaraFeatureDescriptions: Record<string, string> = {
   key_camelot: "Camelot wheel code for harmonic mixing (SONARA analysis output)",
   key_candidates: "Top key candidates with Camelot code and score",
   energy_level: "Overall energy tier (1 = calm, 10 = intense)",
+  intro_end_sec: "Estimated end of the intro",
+  outro_start_sec: "Estimated start of the outro",
+  segments: "Estimated within-track structure segments",
+  energy_curve_hop_sec: "Time spacing between stored energy-curve values",
   true_peak_db: "True peak level (dBTP, ITU-R BS.1770-4)",
   replaygain_db: "Suggested ReplayGain adjustment (dB)",
   loudness_momentary_max_db: "Maximum momentary loudness (LUFS)",
   loudness_range_lu: "Loudness range (LU)",
   grid_offset_sec: "Beat-grid offset from the first sample",
   grid_stability: "Beat-grid stability (0 = drifting, 1 = steady)",
-  vocalness: "Vocal presence estimate (0 = instrumental, 1 = vocal)",
+  vocalness: "Heuristic v2 vocal presence estimate (0 = instrumental, 1 = vocal)",
+  instrumentalness: "Heuristic v2 instrumental estimate (1 - vocalness)",
+  mood_happy: "Heuristic v1 affinity for a happy mood (0.0 - 1.0; not a classifier)",
+  mood_aggressive: "Heuristic v1 affinity for an aggressive mood (0.0 - 1.0; not a classifier)",
+  mood_relaxed: "Heuristic v1 affinity for a relaxed mood (0.0 - 1.0; not a classifier)",
+  mood_sad: "Heuristic v1 affinity for a sad mood (0.0 - 1.0; not a classifier)",
   leading_silence_sec: "Silence before the first sound",
   trailing_silence_sec: "Silence after the last sound",
 };
@@ -321,7 +405,7 @@ const sonaraFeatureDescriptions: Record<string, string> = {
 const sonaraPlaylistFeatureGroups = [
   {
     title: "Core",
-    keys: ["duration_sec", "bpm", "beats", "onset_frames", "onset_density", "n_beats", "spectral_centroid_mean", "zero_crossing_rate", "rms_mean", "rms_max", "loudness_lufs", "dynamic_range_db"]
+    keys: ["duration_sec", "bpm", "bpm_raw", "bpm_confidence", "bpm_candidates", "beats", "onset_frames", "onset_density", "n_beats", "spectral_centroid_mean", "zero_crossing_rate", "rms_mean", "rms_max", "loudness_lufs", "dynamic_range_db"]
   },
   {
     title: "Perceptual",
@@ -340,20 +424,52 @@ const sonaraPlaylistFeatureGroups = [
     keys: ["true_peak_db", "replaygain_db", "loudness_momentary_max_db", "loudness_range_lu"]
   },
   {
+    title: "Structure",
+    keys: ["intro_end_sec", "outro_start_sec", "segments", "energy_curve_hop_sec"]
+  },
+  {
     title: "Beatgrid",
     keys: ["grid_offset_sec", "grid_stability"]
   },
   {
-    title: "Vocal",
-    keys: ["vocalness"]
+    title: "Voice",
+    keys: ["vocalness", "instrumentalness"]
+  },
+  {
+    title: "Mood",
+    keys: ["mood_happy", "mood_aggressive", "mood_relaxed", "mood_sad"]
   },
   {
     title: "Silence",
     keys: ["leading_silence_sec", "trailing_silence_sec"]
+  },
+  {
+    title: "Archive metadata",
+    keys: ["tempo_variability", "time_signature", "time_signature_confidence", "embedding_version", "fingerprint_version"]
   }
 ] as const;
 
 const sonaraPlaylistFeatureKeys = new Set(sonaraPlaylistFeatureGroups.flatMap((group) => [...group.keys]));
+
+const sonaraProvenanceFields = [
+  { key: "package_version", label: "Package version", description: "Installed SONARA package version used for this analysis" },
+  { key: "schema_version", label: "Schema version", description: "SONARA analysis schema used for field meanings and units" },
+  { key: "mode", label: "Mode", description: "SONARA analysis mode" },
+  { key: "sample_rate", label: "Sample rate", description: "Effective sample rate after resampling" },
+  { key: "hop_length", label: "Hop length", description: "Main analysis hop length in samples" },
+  { key: "requested_features", label: "Requested features", description: "Exact SONARA feature request used for this analysis" }
+] as const;
+
+const sonaraSignatureFields = [
+  { key: "sonara_version", label: "SONARA version", description: "SONARA package version required by this compatibility contract" },
+  { key: "schema_version", label: "Contract schema", description: "Upstream field schema required by this compatibility contract" },
+  { key: "mode", label: "Contract mode", description: "Analysis mode required by this compatibility contract" },
+  { key: "sample_rate", label: "Contract sample rate", description: "Sample rate required by this compatibility contract" },
+  { key: "bpm_range", label: "BPM range", description: "Tempo search range used by the analysis" },
+  { key: "requested_features", label: "Feature profile", description: "Sorted feature request covered by the signature" },
+  { key: "project_feature_revision", label: "Project feature revision", description: "Project-side classifier feature contract revision" },
+  { key: "signature_id", label: "Signature ID", description: "Deterministic SHA-256 identifier for the complete analysis contract" }
+] as const;
 
 function readableSonaraFeatureGroups(raw: unknown) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
@@ -378,6 +494,48 @@ function readableSonaraFeatureGroups(raw: unknown) {
     .filter((group) => group.features.length);
 }
 
+function readableSonaraProvenanceGroups(raw: unknown) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+  const record = raw as Record<string, unknown>;
+  const features = sonaraProvenanceFields.flatMap((definition) => {
+    const stored = record[definition.key];
+    const value = stored && typeof stored === "object" && !Array.isArray(stored) && "value" in stored
+      ? (stored as Record<string, unknown>).value
+      : stored;
+    if (value == null) return [];
+    return [{
+      key: `provenance_${definition.key}`,
+      label: definition.label,
+      value: formatSonaraProvenanceValue(definition.key, value),
+      description: definition.description
+    }];
+  });
+  return features.length ? [{ title: "Provenance", features }] : [];
+}
+
+function readableSonaraSignatureGroups(raw: unknown) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+  const record = raw as Record<string, unknown>;
+  const features = sonaraSignatureFields.flatMap((definition) => {
+    const value = record[definition.key];
+    if (value == null) return [];
+    return [{
+      key: `signature_${definition.key}`,
+      label: definition.label,
+      value: formatSonaraProvenanceValue(definition.key, value),
+      description: definition.description
+    }];
+  });
+  return features.length ? [{ title: "Analysis signature", features }] : [];
+}
+
+function formatSonaraProvenanceValue(key: string, value: unknown) {
+  if (key === "sample_rate" && typeof value === "number") return `${formatNumber(value)} Hz`;
+  if (key === "hop_length" && typeof value === "number") return `${formatNumber(value)} samples`;
+  if (Array.isArray(value)) return value.map((item) => String(item)).join(", ");
+  return formatTagValue(value);
+}
+
 function formatFeatureLabel(key: string) {
   return key
     .replace(/_/g, " ")
@@ -386,13 +544,20 @@ function formatFeatureLabel(key: string) {
     .replace(/^./, (letter) => letter.toUpperCase());
 }
 
-const sonaraSecondKeys = new Set(["grid_offset_sec", "leading_silence_sec", "trailing_silence_sec"]);
-const sonaraDbKeys = new Set(["true_peak_db", "replaygain_db", "loudness_momentary_max_db"]);
+const sonaraSecondKeys = new Set([
+  "grid_offset_sec",
+  "intro_end_sec",
+  "outro_start_sec",
+  "energy_curve_hop_sec",
+  "leading_silence_sec",
+  "trailing_silence_sec"
+]);
 
 function formatSonaraValue(record: Record<string, unknown>, key?: string) {
   const value = record.value;
   if (record.type === "unavailable") return "-";
-  if (key === "bpm" && typeof value === "number") return value.toFixed(2);
+  if ((key === "bpm" || key === "bpm_raw") && typeof value === "number") return value.toFixed(2);
+  if (key === "bpm_candidates" && Array.isArray(value)) return formatBpmCandidates(value);
   if (key === "key_candidates" && Array.isArray(value)) return formatKeyCandidates(value);
   if (record.type === "duration" && typeof value === "number") return formatPlayerDuration(value);
   if (record.type === "ndarray" || record.storage) {
@@ -407,13 +572,24 @@ function formatSonaraValue(record: Record<string, unknown>, key?: string) {
     if (key === "loudness_lufs") return `${value.toFixed(2)} LUFS`;
     if (key === "dynamic_range_db") return `${value.toFixed(2)} dB`;
     if (key === "loudness_range_lu") return `${value.toFixed(2)} LU`;
-    if (key && sonaraDbKeys.has(key)) return `${value.toFixed(2)} dB`;
+    if (key === "true_peak_db") return `${value.toFixed(2)} dBTP`;
+    if (key === "replaygain_db") return `${value.toFixed(2)} dB`;
+    if (key === "loudness_momentary_max_db") return `${value.toFixed(2)} LUFS`;
     if (key && sonaraSecondKeys.has(key)) return `${formatNumber(value)} s`;
     return formatNumber(value);
   }
   if (Array.isArray(value)) return `${value.length} values`;
   if (value == null) return "-";
   return String(value);
+}
+
+function formatBpmCandidates(value: unknown[]) {
+  const candidates = value.map((item) => {
+    if (!Array.isArray(item) || typeof item[0] !== "number") return null;
+    const bpm = item[0].toFixed(2);
+    return typeof item[1] === "number" ? `${bpm} (${formatNumber(item[1])})` : bpm;
+  }).filter((candidate): candidate is string => candidate != null);
+  return candidates.length ? candidates.join(", ") : `${value.length} values`;
 }
 
 function formatKeyCandidates(value: unknown[]) {

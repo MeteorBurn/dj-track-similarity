@@ -37,12 +37,24 @@ import type {
   ServerShutdownResult,
   SetBuilderGeneratePayload,
   SetBuilderGenerateResult,
+  SonaraCurves,
   SonaraMixerWeights,
   SonaraModifiers,
   SonaraSearchMode,
   Track,
   TrackPage
 } from "./api";
+
+const DEFAULT_SONARA_FEATURES = [
+  "structure",
+  "loudness",
+  "beatgrid",
+  "key_candidates",
+  "vocalness",
+  "mood",
+  "instrumentalness",
+  "silence"
+];
 
 type TrackQueryParams = {
   query?: string;
@@ -164,6 +176,7 @@ const libraryApi = {
       })
     }),
   track: (trackId: number) => request<Track>(`/api/tracks/${trackId}`),
+  sonaraCurves: (trackId: number) => request<SonaraCurves>(`/api/tracks/${trackId}/sonara-curves`),
   setTrackLiked: (trackId: number, liked: boolean) =>
     request<Track>(`/api/tracks/${trackId}/liked`, {
       method: "POST",
@@ -257,7 +270,7 @@ const analysisApi = {
         top_k: payload.top_k ?? 3,
         track_batch_size: payload.track_batch_size ?? 4,
         inference_batch_size: payload.inference_batch_size ?? 24,
-        sonara_features: payload.sonara_features ?? []
+        sonara_features: payload.sonara_features ?? DEFAULT_SONARA_FEATURES
       })
     }),
   analysisJob: (jobId: string) => request<AnalysisJobStatus>(`/api/analysis/jobs/${jobId}`),

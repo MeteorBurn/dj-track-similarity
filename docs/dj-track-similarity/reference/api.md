@@ -28,10 +28,13 @@ The API is local and unauthenticated by design. Bind the server carefully. Use `
 | `GET` | `/api/tracks` | paginated lightweight track rows |
 | `POST` | `/api/tracks/filtered` | full filtered list for UI set actions |
 | `GET` | `/api/tracks/{track_id}` | full metadata row |
+| `GET` | `/api/tracks/{track_id}/sonara-curves` | lazy out-of-band SONARA curves and sequences |
 | `POST` | `/api/tracks/{track_id}/liked` | toggle local liked state |
 | `GET` | `/media/{track_id}` | stream preview audio |
 
 Track list query ranges include `limit=1..500`, `offset>=0`, `search_mode=like|fts`, and `preset=all|syncopated`.
+
+The SONARA curves endpoint returns complete stored `beats`, `onset_frames`, `chord_sequence`, `chord_events`, `tempo_curve`, `energy_curve`, `loudness_curve`, `downbeats`, `embedding`, and `fingerprint` payloads when available, or `{}` when a track has no out-of-band row. It returns `404` for an unknown track. Clients should request it only when displaying archived details; list, search, SET, and classifier paths do not load these values.
 
 ## Analysis and classifiers
 
@@ -46,7 +49,9 @@ Track list query ranges include `limit=1..500`, `offset>=0`, `search_mode=like|f
 | `POST` | `/api/classifiers/{classifier_key}/analyze` | score one classifier |
 | `POST` | `/api/classifiers/reset` | delete selected classifier scores |
 
-Analysis payload fields include `models`, `classifier_keys`, `limit`, `device`, `top_k`, `track_batch_size`, and `inference_batch_size`.
+Analysis payload fields include `models`, `classifier_keys`, `limit`, `device`, `top_k`, `track_batch_size`, `inference_batch_size`, and the `sonara_features` profile. Omitting `sonara_features` requests all eight supported families: `structure`, `loudness`, `beatgrid`, `key_candidates`, `vocalness`, `mood`, `instrumentalness`, and `silence`. An explicit empty list requests plain playlist mode. Any other list is an intentional subset. SONARA scheduling compares that exact profile's current deterministic signature rather than relying on the presence flag alone, so a mismatch is queued for reanalysis without a reset.
+
+A SONARA reset response can include `classifier_scores_deleted`. These are only scores whose stored feature set depends on SONARA; labels, feedback, and embedding-only scores are not deleted.
 
 ## Search and SET
 

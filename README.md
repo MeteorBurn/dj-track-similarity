@@ -150,7 +150,7 @@ audio files -> scan tags -> SQLite library -> browse/search/export
 The app keeps evidence sources separate:
 
 - **File tags** come from Mutagen during scan and Refresh Tags.
-- **SONARA** stores audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy. SONARA BPM analysis uses the project range `79.0..192.0`.
+- **SONARA** stores audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy. Its default project profile captures all eight supported extra families, including mood affinities, instrumentalness, detailed loudness, structure, beat-grid, and silence data. The CLI can explicitly request `--sonara-minimal`, and API clients can send an empty profile when plain playlist output is intentional. SONARA BPM analysis uses the project range `79.0..192.0`.
 - **MAEST** stores genre labels and an audio embedding.
 - **MERT** stores an audio embedding for seed similarity.
 - **MuQ** stores a separate audio embedding for future workflows. It is not used by search, SET, Hybrid, or classifiers yet.
@@ -160,11 +160,17 @@ The app keeps evidence sources separate:
 Tempo-aware search, transition diagnostics, and SET ordering prefer SONARA BPM once it exists.
 Mutagen BPM remains the fallback when a track has no stored SONARA BPM.
 
+SONARA mood and instrumentalness values are retained for inspection and possible future audio workflows; they are not current similarity, SET, Hybrid, or classifier inputs. True peak and ReplayGain are also stored for future loudness-management work, not direct SONARA similarity scoring. Complete beat, onset, chord-event, tempo, energy, loudness, and downbeat sequences, plus the SONARA embedding and fingerprint, are kept out-of-band in SQLite so the hot search metadata remains small.
+
+Each SONARA result also retains analysis provenance, including the upstream schema and the installed package version when available. This makes later reanalysis and result audits easier to plan.
+
+A deterministic analysis signature also covers SONARA `0.2.4`, schema `3`, playlist mode, sample rate, BPM range, sorted feature profile, and project feature revision. Normal analysis treats a legacy or mismatched signature as missing instead of trusting only `has_sonara_analysis`.
+
 A file genre tag, a MAEST genre label, a CLAP text score, and an audio-to-audio duplicate score answer different questions. They can all help, but they should not be treated as one universal truth scale.
 
 ## 🔗 Upstream models and licenses
 
-Optional analysis uses upstream projects and downloaded checkpoints, including [SONARA](https://github.com/MeteorBurn/sonara), [MAEST](https://github.com/openmirlab/maest-infer), [MERT](https://github.com/yizhilll/MERT), [MuQ](https://github.com/tencent-ailab/muq), and [LAION CLAP](https://github.com/LAION-AI/CLAP). The repository does not vendor model weights, and upstream code and weights may use different licenses, so check source terms for anything beyond local personal use. See [model citations and licenses](docs/dj-track-similarity/reference/model-citations.md) for details.
+Optional analysis uses upstream projects and downloaded checkpoints, including [SONARA](https://github.com/kkollsga/sonara), [MAEST](https://github.com/openmirlab/maest-infer), [MERT](https://github.com/yizhilll/MERT), [MuQ](https://github.com/tencent-ailab/muq), and [LAION CLAP](https://github.com/LAION-AI/CLAP). The repository does not vendor model weights, and upstream code and weights may use different licenses, so check source terms for anything beyond local personal use. See [model citations and licenses](docs/dj-track-similarity/reference/model-citations.md) for details.
 
 ## 🎚️ Main workflows
 
@@ -221,6 +227,8 @@ The normal loop is:
 5. Use CLASS, SET, or Hybrid preview with the promoted scores.
 
 Classifier scoring is database-only. It reads existing SONARA features plus stored MERT and MAEST embeddings, then writes scores for the selected classifier key. It does not decode or retag source audio.
+
+SONARA-dependent classifier artifacts must be retrained and promoted with the current analysis signature. Manifest version `2` and each track must match exactly before scoring. Missing opt-in values are skipped rather than imputed as `0.0`. A SONARA reset or feature-revision migration invalidates dependent main-library scores. The same feature-revision guard removes dependent Rhythm Lab predictions. Labels and feedback are preserved, and stale artifacts remain blocked until retrained and promoted.
 
 Manual commands are available when you want the CLI workflow:
 
@@ -306,6 +314,7 @@ Useful options from the current CLI and API are:
 - `--track-batch-size 1..64`
 - `--inference-batch-size 1..128`
 - `--diagnostics` to write decoder and batch timing details to the file log
+- the full SONARA archival profile by default; use `--sonara-minimal` for plain playlist output or individual `--sonara-*` flags for an explicit subset
 
 MuQ uses the optional `ml` dependencies and official `OpenMuQ/MuQ-large-msd-iter` weights. The app feeds MuQ only 24 kHz `float32` audio and supports CPU or CUDA. CUDA is recommended for full-library runs. In this release, MuQ only stores embeddings and analysis status.
 

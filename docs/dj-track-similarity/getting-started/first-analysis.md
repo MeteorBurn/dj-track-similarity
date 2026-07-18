@@ -56,13 +56,17 @@ In **1. Database and analysis**:
 
 The UI creates a job and polls progress. It also shows the current model/path and keeps a process log. The stop button requests cancellation.
 
+When SONARA is selected, UI, CLI, and API defaults request all eight supported extra families. An
+explicit API empty list or CLI `--sonara-minimal` requests plain playlist mode. The full profile archives complete beat, onset,
+chord, tempo, energy, loudness, downbeat, embedding, and fingerprint data outside the hot metadata row.
+
 ## Already analyzed tracks
 
-Analysis jobs target missing results for the selected families. If a track already has a selected family, that family is skipped for that track. Use the per-family reset buttons only when you want to delete stored results and rerun.
+Analysis jobs target missing results for the selected families. SONARA also targets a row when its deterministic signature does not match the requested current profile, so an upgrade or profile change is reanalyzed without a manual reset. Other complete families are skipped. Use the per-family reset buttons only when you intentionally want to delete stored results and rerun.
 
 ## Reset boundaries
 
-- Reset SONARA removes SONARA metadata and flags and restores working BPM/key/energy/duration from remaining tags when possible.
+- Reset SONARA removes SONARA metadata, provenance, signature, curves, flags, and dependent classifier scores, then restores working BPM/key/energy/duration from remaining tags when possible. Labels and feedback remain intact.
 - Reset MAEST removes MAEST metadata and MAEST embeddings.
 - Reset MERT, MuQ, or CLAP deletes embeddings for that key.
 - Reset CLASSIFIERS deletes selected classifier scores only.

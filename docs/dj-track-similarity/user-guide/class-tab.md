@@ -15,7 +15,7 @@ models/classifiers/<artifact-prefix>/model.joblib
 models/classifiers/<artifact-prefix>/model.json
 ```
 
-The manifest describes the classifier key, labels, model id, calibration status, required inputs, and optional Hybrid signal metadata.
+The manifest describes the classifier key, labels, model id, calibration status, required inputs, and optional Hybrid signal metadata. Version `2` also requires the exact SONARA analysis signature for any SONARA-dependent feature set.
 
 ## Filtering
 
@@ -28,6 +28,8 @@ Missing classifier scores do not pass a positive minimum filter. In SET and Hybr
 The play button on a classifier row resets and rescans that one classifier key. The UI calls the reset path first, then starts `/api/classifiers/{classifier_key}/analyze`.
 
 Classifier scoring is database-only. It reads existing SONARA, MAEST, and MERT inputs and writes `track_classifier_scores`. It does not decode audio unless the same analysis job also needs missing model data.
+
+Scoring is blocked when the promoted artifact, manifest, and track do not share the same current SONARA signature. Retrain and promote legacy SONARA profiles after reanalysis. Labels and feedback remain available.
 
 ## CLASSIFIERS in analysis jobs
 

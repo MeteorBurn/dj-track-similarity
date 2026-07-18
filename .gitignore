@@ -52,6 +52,7 @@ outputs/
 # Frontend
 frontend/node_modules/
 frontend/dist/
+frontend/.npm-cache/
 frontend/.vite/
 frontend/.vite-temp/
 docs/dj-track-similarity/node_modules/

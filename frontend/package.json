@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
-    "build": "vite build",
+    "dev": "vite --host 127.0.0.1 --configLoader runner",
+    "build": "vite build --configLoader runner",
     "test": "node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit --noUnusedLocals --noUnusedParameters",
-    "preview": "vite preview --host 127.0.0.1"
+    "preview": "vite preview --host 127.0.0.1 --configLoader runner"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.1",

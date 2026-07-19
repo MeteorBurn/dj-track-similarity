@@ -46,7 +46,7 @@ MERT stores an audio embedding. The MERT tab searches from selected seed tracks 
 
 ## MuQ embedding
 
-MuQ stores a separate audio embedding from 24 kHz `float32` audio. It is tracked as its own analysis family and can be reset independently. The current app stores MuQ embeddings for future workflows, but it does not use them in search, SET, Hybrid, Audio Dedup, or classifier scoring yet.
+MuQ stores a separate audio embedding from 24 kHz `float32` audio. It is tracked as its own analysis family and can be reset independently. LAB Reference Compare can show MuQ neighbors for one seed track. MuQ is not used by MERT/SONARA search, SET, Hybrid, Audio Dedup, or classifier scoring.
 
 ## CLAP audio embedding
 

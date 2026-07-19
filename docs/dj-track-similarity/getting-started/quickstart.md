@@ -41,7 +41,7 @@ Install analysis extras first if you have not done so. Then run a small batch:
 dj-sim analyze --models sonara,maest,mert,muq,clap --limit 25 --db .\data\library.sqlite
 ```
 
-A small limit confirms the model stack before you analyze every track. MuQ stores embeddings only in this release, so you can omit `muq` when you only want the current search and SET paths. In the CLI, omit `--limit` for the whole library. In the UI, `Analyze limit = 0` means the whole library.
+A small limit confirms the model stack before you analyze every track. MuQ is only used by LAB Reference Compare in this release, so you can omit `muq` when you only want seed search, SET, Hybrid, or text search. In the CLI, omit `--limit` for the whole library. In the UI, `Analyze limit = 0` means the whole library.
 
 ## 4. Start the UI
 

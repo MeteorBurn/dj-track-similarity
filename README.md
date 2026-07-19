@@ -135,7 +135,7 @@ In that direction, a set should be able to feel like chapters in a book:
 opening mood -> first turn -> deeper chapter -> tension -> release -> final destination
 ```
 
-The current project should be understood as a local-first foundation for that idea. Some parts are already implemented as search, SET, Hybrid, CLAP text search, classifier scoring, and playlist export. Other parts are still a product direction rather than a finished automatic DJ.
+The current project should be understood as a local-first foundation for that idea. Some parts are already implemented as search, SET, Hybrid, CLAP text search, LAB Reference Compare, classifier scoring, and playlist export. Other parts are still a product direction rather than a finished automatic DJ.
 
 ## 🧩 How the pieces fit
 
@@ -153,7 +153,7 @@ The app keeps evidence sources separate:
 - **SONARA** stores audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy. Its default project profile captures all eight supported extra families, including mood affinities, instrumentalness, detailed loudness, structure, beat-grid, and silence data. The CLI can explicitly request `--sonara-minimal`, and API clients can send an empty profile when plain playlist output is intentional. SONARA BPM analysis uses the project range `79.0..192.0`.
 - **MAEST** stores genre labels and an audio embedding.
 - **MERT** stores an audio embedding for seed similarity.
-- **MuQ** stores a separate audio embedding for future workflows. It is not used by search, SET, Hybrid, or classifiers yet.
+- **MuQ** stores a separate audio embedding. LAB Reference Compare can inspect MuQ neighbors for one seed track, but MuQ is not used by MERT/SONARA search, SET, Hybrid, Audio Dedup, or classifier scoring.
 - **CLAP** stores an audio embedding for text-to-audio search and audio-to-audio comparison.
 - **Rhythm Lab classifiers** store optional local scores under a classifier key.
 
@@ -318,7 +318,7 @@ Useful options from the current CLI and API are:
 - `--diagnostics` to write decoder and batch timing details to the file log
 - the full SONARA archival profile by default; use `--sonara-minimal` for plain playlist output or individual `--sonara-*` flags for an explicit subset
 
-MuQ uses the optional `ml` dependencies and official `OpenMuQ/MuQ-large-msd-iter` weights. The app feeds MuQ only 24 kHz `float32` audio and supports CPU or CUDA. CUDA is recommended for full-library runs. In this release, MuQ only stores embeddings and analysis status.
+MuQ uses the optional `ml` dependencies and official `OpenMuQ/MuQ-large-msd-iter` weights. The app feeds MuQ only 24 kHz `float32` audio and supports CPU or CUDA. CUDA is recommended for full-library runs. In this release, MuQ stores embeddings and analysis status. LAB Reference Compare can use those embeddings for per-model listening checks.
 
 In the CLI, omit `--limit` to analyze the whole library. In the UI, `Analyze limit = 0` means the whole library.
 

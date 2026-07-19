@@ -19,7 +19,7 @@ Rhythm Lab does not create a built-in starter profile. Existing profiles, includ
 
 ## Training inputs
 
-Training can benchmark SONARA, MERT, MAEST, and combined feature sets. Combined training requires existing SONARA features plus MERT and MAEST embeddings.
+Training can benchmark SONARA, MERT, MAEST, CLAP, combined, and SONARA 2.0 feature-source variants. Combined training requires existing SONARA features plus MERT and MAEST embeddings. Variants that include CLAP require stored CLAP audio embeddings. The `sonara2` and `sonara2vocal` variants still require stored SONARA features at scoring time.
 
 SONARA inputs must share one current analysis signature. Training skips stale or mixed profiles. A row missing a requested opt-in field is also skipped rather than zero-imputed.
 

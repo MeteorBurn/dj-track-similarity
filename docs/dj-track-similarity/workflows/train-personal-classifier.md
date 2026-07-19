@@ -14,7 +14,7 @@ For combined training, run SONARA, MERT, and MAEST first:
 dj-sim analyze --models sonara,maest,mert --db .\data\library.sqlite
 ```
 
-Benchmark variants can also use CLAP when CLAP embeddings already exist.
+Benchmark variants can also use CLAP when CLAP embeddings already exist. SONARA 2.0 benchmark variants still read stored SONARA features. The `sonara2vocal` variant adds `vocalness` to the candidate feature set.
 
 The command above uses the full supported SONARA profile, matching the browser and direct API
 defaults. Use `--sonara-minimal` only for an intentional plain-playlist run. Individual
@@ -69,7 +69,9 @@ python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\lib
 ```
 
 The Training tab shows the benchmark winner and lets you choose a different
-trained variant before promotion.
+trained variant before promotion. The default benchmark matrix includes
+embedding-only combinations, the original SONARA feature set, `sonara2`, and
+`sonara2vocal`.
 
 ## 6. Optional calibration
 

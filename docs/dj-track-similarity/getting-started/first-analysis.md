@@ -13,7 +13,7 @@ Analysis jobs decode audio and write SQLite results. They do not rewrite source 
 | SONARA | signed metadata, provenance, curves, and `has_sonara_analysis` | feature search, confidence-aware tempo, Camelot resolution, SET ordering, transition diagnostics, classifier inputs |
 | MAEST | genre labels, syncopated rhythm data, MAEST embedding | genre display, genre tag apply, SET and Hybrid MAEST source |
 | MERT | MERT embedding | seed search, SET, Hybrid, Audio Dedup evidence |
-| MuQ | MuQ embedding | stored coverage for future workflows; no search or SET integration yet |
+| MuQ | MuQ embedding | LAB Reference Compare evidence; no MERT/SONARA search, SET, or Hybrid integration |
 | CLAP | CLAP audio embedding | text search, SET, Hybrid, Audio Dedup evidence |
 | CLASSIFIERS | `track_classifier_scores` rows | CLASS filters, SET bias, Hybrid diagnostics |
 
@@ -40,7 +40,7 @@ dj-sim analyze --models sonara,maest,mert,muq,clap --device auto --top-k 3 --tra
 - `--inference-batch-size` is `1..128` model samples per forward pass for MAEST, MERT, MuQ, and CLAP.
 - `--diagnostics` writes decoder fallback and batch timing details to the file log.
 
-MuQ requires the optional `ml` dependencies and downloads the official `OpenMuQ/MuQ-large-msd-iter` weights. The app gives MuQ only 24 kHz `float32` audio. CPU and CUDA are supported, with CUDA recommended for full libraries. MuQ currently stores embeddings only.
+MuQ requires the optional `ml` dependencies and downloads the official `OpenMuQ/MuQ-large-msd-iter` weights. The app gives MuQ only 24 kHz `float32` audio. CPU and CUDA are supported, with CUDA recommended for full libraries. MuQ stores embeddings for LAB Reference Compare, but it does not feed SET or Hybrid.
 
 In the CLI, omit `--limit` for the whole library.
 

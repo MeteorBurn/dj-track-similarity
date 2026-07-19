@@ -13,7 +13,7 @@ The UI lists these choices:
 - **SONARA**: audio features and working BPM/key/energy/duration data.
 - **MAEST**: genre label output plus syncopated-rhythm metadata and the MAEST embedding.
 - **MERT**: audio embedding for seed similarity.
-- **MuQ**: 24 kHz `float32` audio embedding stored for future workflows.
+- **MuQ**: 24 kHz `float32` audio embedding used by LAB Reference Compare.
 - **CLAP**: audio embedding for text search and audio-to-audio comparison.
 - **CLASSIFIERS**: promoted classifier scores, if compatible profiles are available.
 
@@ -57,7 +57,7 @@ The CLI differs: omit `--limit` for the whole library.
 - `CPU` forces CPU.
 - `CUDA` requests CUDA and should fail clearly if CUDA is unavailable.
 
-SONARA runs as a CPU runner. MAEST, MERT, MuQ, and CLAP use the selected device through their adapters. MuQ uses official `OpenMuQ/MuQ-large-msd-iter` weights and is fed only 24 kHz `float32` audio. It currently stores embeddings only, with no search or SET integration.
+SONARA runs as a CPU runner. MAEST, MERT, MuQ, and CLAP use the selected device through their adapters. MuQ uses official `OpenMuQ/MuQ-large-msd-iter` weights and is fed only 24 kHz `float32` audio. It currently supports LAB Reference Compare, with no SET, Hybrid, Audio Dedup, or classifier-scoring integration.
 
 ## Batch controls
 

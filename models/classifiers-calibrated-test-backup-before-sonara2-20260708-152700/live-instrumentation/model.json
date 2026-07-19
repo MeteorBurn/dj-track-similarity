@@ -1,0 +1,53 @@
+{
+  "artifact_hash": "sha256:fc189f3eaeb3451cf825efb98e3837172e4178c5bb72cce0a4acffa91303e121",
+  "classifier_key": "live_instrumentation",
+  "feature_count": 1280,
+  "feature_set": "maest+clap",
+  "label_order": [
+    "live_instrument",
+    "no_instrument"
+  ],
+  "manifest_version": 1,
+  "model_id": "live_instrumentation_20260706T184305Z_fc189f3e",
+  "negative_label": "no_instrument",
+  "positive_label": "live_instrument",
+  "production": {
+    "calibration": {
+      "brier": 0.10375935401071015,
+      "ece10": 0.06815725741451997,
+      "label_count": 600,
+      "method": "sigmoid",
+      "negative_count": 300,
+      "positive_count": 300,
+      "reason": null,
+      "split": "stratified_train_validation_calibration",
+      "status": "calibrated",
+      "thresholds": {
+        "default": 0.5,
+        "precision_80": 0.252728134393692,
+        "recall_80": 0.4634030759334564
+      },
+      "validation_average_precision": 0.925671995118931,
+      "validation_f1": 0.8309859154929577,
+      "validation_roc_auc": 0.9335111111111112
+    },
+    "limitations": [
+      "Scores are calibrated positive-label probabilities for the promoted model.",
+      "Promotion copies a local artifact and manifest; it does not benchmark the classifier."
+    ],
+    "required_inputs": [
+      "maest",
+      "clap"
+    ],
+    "score_semantics": "positive_label_probability"
+  },
+  "profile_name": "Live Instrumentation",
+  "profile_type": "binary",
+  "promoted_at": "2026-07-06T18:43:05.073491+00:00",
+  "source_artifact": "tools\\rhythm-lab\\artifacts-calibrated-test\\live-instrumentation\\live-instrumentation-maest+clap-20260706T184212Z.joblib",
+  "trained_label_counts": {
+    "live_instrument": 300,
+    "no_instrument": 300,
+    "uncertain": 8
+  }
+}

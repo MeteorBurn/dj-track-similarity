@@ -1,0 +1,54 @@
+{
+  "artifact_hash": "sha256:a6dbf1ca2bc607bec177add113d49be8b9b5c5f2433f0230464c6e7d1e21f86a",
+  "classifier_key": "break_energy",
+  "feature_count": 1588,
+  "feature_set": "combined",
+  "label_order": [
+    "broken",
+    "straight"
+  ],
+  "manifest_version": 1,
+  "model_id": "break_energy_20260708T152856Z_a6dbf1ca",
+  "negative_label": "straight",
+  "positive_label": "broken",
+  "production": {
+    "calibration": {
+      "brier": 0.029753034411025177,
+      "ece10": 0.02672852363369748,
+      "label_count": 2000,
+      "method": "sigmoid",
+      "negative_count": 1000,
+      "positive_count": 1000,
+      "reason": null,
+      "split": "stratified_train_validation_calibration",
+      "status": "calibrated",
+      "thresholds": {
+        "default": 0.5,
+        "precision_80": 0.03840057551860809,
+        "recall_80": 0.8509806394577026
+      },
+      "validation_average_precision": 0.994658255627859,
+      "validation_f1": 0.96,
+      "validation_roc_auc": 0.994368
+    },
+    "limitations": [
+      "Scores are calibrated positive-label probabilities for the promoted model.",
+      "Promotion copies a local artifact and manifest; it does not benchmark the classifier."
+    ],
+    "required_inputs": [
+      "sonara",
+      "mert",
+      "maest"
+    ],
+    "score_semantics": "positive_label_probability"
+  },
+  "profile_name": "Break Energy",
+  "profile_type": "binary",
+  "promoted_at": "2026-07-08T15:28:56.970250+00:00",
+  "source_artifact": "E:\\Projects\\dj-track-similarity\\tools\\rhythm-lab\\artifacts\\break-energy\\break-energy-combined-20260708T152529Z.joblib",
+  "trained_label_counts": {
+    "ambiguous": 170,
+    "broken": 1000,
+    "straight": 1000
+  }
+}

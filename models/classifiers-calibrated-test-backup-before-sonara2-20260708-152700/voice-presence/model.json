@@ -1,0 +1,54 @@
+{
+  "artifact_hash": "sha256:4ecd998431022c4b629ca110196dc9c41cf254edfea49b147c0a0e7e190bd356",
+  "classifier_key": "voice_presence",
+  "feature_count": 1326,
+  "feature_set": "sonara+maest+clap",
+  "label_order": [
+    "voice",
+    "no_voice"
+  ],
+  "manifest_version": 1,
+  "model_id": "voice_presence_20260706T184306Z_4ecd9984",
+  "negative_label": "no_voice",
+  "positive_label": "voice",
+  "production": {
+    "calibration": {
+      "brier": 0.08612311949494052,
+      "ece10": 0.07537523423011104,
+      "label_count": 600,
+      "method": "sigmoid",
+      "negative_count": 300,
+      "positive_count": 300,
+      "reason": null,
+      "split": "stratified_train_validation_calibration",
+      "status": "calibrated",
+      "thresholds": {
+        "default": 0.5,
+        "precision_80": 0.26820844411849976,
+        "recall_80": 0.5461409091949463
+      },
+      "validation_average_precision": 0.94845685175733,
+      "validation_f1": 0.8874172185430463,
+      "validation_roc_auc": 0.9555555555555555
+    },
+    "limitations": [
+      "Scores are calibrated positive-label probabilities for the promoted model.",
+      "Promotion copies a local artifact and manifest; it does not benchmark the classifier."
+    ],
+    "required_inputs": [
+      "sonara",
+      "maest",
+      "clap"
+    ],
+    "score_semantics": "positive_label_probability"
+  },
+  "profile_name": "Voice Presence",
+  "profile_type": "binary",
+  "promoted_at": "2026-07-06T18:43:06.552253+00:00",
+  "source_artifact": "tools\\rhythm-lab\\artifacts-calibrated-test\\voice-presence\\voice-presence-sonara+maest+clap-20260706T184231Z.joblib",
+  "trained_label_counts": {
+    "no_voice": 300,
+    "uncertain": 12,
+    "voice": 300
+  }
+}

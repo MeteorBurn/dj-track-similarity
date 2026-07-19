@@ -1,0 +1,53 @@
+{
+  "artifact_hash": "sha256:82c9e50038df9b502809a5561a22b27307ce07f7cf1b6a0e088c925d39332c54",
+  "classifier_key": "abstract_edge",
+  "feature_count": 1280,
+  "feature_set": "maest+clap",
+  "label_order": [
+    "abstract_edge",
+    "reference"
+  ],
+  "manifest_version": 1,
+  "model_id": "abstract_edge_20260706T184301Z_82c9e500",
+  "negative_label": "reference",
+  "positive_label": "abstract_edge",
+  "production": {
+    "calibration": {
+      "brier": 0.03153173364409626,
+      "ece10": 0.04172478074654162,
+      "label_count": 600,
+      "method": "sigmoid",
+      "negative_count": 300,
+      "positive_count": 300,
+      "reason": null,
+      "split": "stratified_train_validation_calibration",
+      "status": "calibrated",
+      "thresholds": {
+        "default": 0.5,
+        "precision_80": 0.11002695560455322,
+        "recall_80": 0.7608851194381714
+      },
+      "validation_average_precision": 0.9959347668929932,
+      "validation_f1": 0.954248366013072,
+      "validation_roc_auc": 0.9952
+    },
+    "limitations": [
+      "Scores are calibrated positive-label probabilities for the promoted model.",
+      "Promotion copies a local artifact and manifest; it does not benchmark the classifier."
+    ],
+    "required_inputs": [
+      "maest",
+      "clap"
+    ],
+    "score_semantics": "positive_label_probability"
+  },
+  "profile_name": "Abstract Edge",
+  "profile_type": "binary",
+  "promoted_at": "2026-07-06T18:43:01.596829+00:00",
+  "source_artifact": "tools\\rhythm-lab\\artifacts-calibrated-test\\abstract-edge\\abstract-edge-maest+clap-20260706T184132Z.joblib",
+  "trained_label_counts": {
+    "abstract_edge": 300,
+    "ambiguous": 1,
+    "reference": 300
+  }
+}

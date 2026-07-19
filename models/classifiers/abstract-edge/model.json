@@ -1,0 +1,59 @@
+{
+  "artifact_hash": "sha256:159b6013a5d5d39a828fb7b0dc4366b7e11c0591949886435477c2369608c176",
+  "classifier_key": "abstract_edge",
+  "feature_count": 820,
+  "feature_set": "sonara+maest",
+  "label_order": [
+    "abstract_edge",
+    "reference"
+  ],
+  "manifest_version": 1,
+  "model_id": "abstract_edge_20260708T152832Z_159b6013",
+  "negative_label": "reference",
+  "positive_label": "abstract_edge",
+  "production": {
+    "calibration": {
+      "actual_labels": 600,
+      "actual_negative": 300,
+      "actual_positive": 300,
+      "brier": 0.03016703464944993,
+      "ece10": 0.03827919117472958,
+      "label_count": 600,
+      "method": null,
+      "min_required_labels": 100,
+      "min_required_negative": 20,
+      "min_required_positive": 20,
+      "negative_count": 300,
+      "positive_count": 300,
+      "reason": "calibration_not_requested",
+      "split": "stratified_train_validation",
+      "status": "uncalibrated",
+      "thresholds": {
+        "default": 0.5,
+        "precision_80": 0.0022793610114604235,
+        "recall_80": 0.9950746297836304
+      },
+      "validation_average_precision": 0.9940606077144335,
+      "validation_f1": 0.9668874172185431,
+      "validation_roc_auc": 0.9927111111111112
+    },
+    "limitations": [
+      "Scores are the promoted model's positive-label probability, not a calibrated probability.",
+      "Promotion copies a local artifact and manifest; it does not benchmark the classifier."
+    ],
+    "required_inputs": [
+      "sonara",
+      "maest"
+    ],
+    "score_semantics": "positive_label_probability"
+  },
+  "profile_name": "Abstract Edge",
+  "profile_type": "binary",
+  "promoted_at": "2026-07-08T15:28:32.897191+00:00",
+  "source_artifact": "E:\\Projects\\dj-track-similarity\\tools\\rhythm-lab\\artifacts\\abstract-edge\\abstract-edge-sonara+maest-20260708T152423Z.joblib",
+  "trained_label_counts": {
+    "abstract_edge": 300,
+    "ambiguous": 1,
+    "reference": 300
+  }
+}

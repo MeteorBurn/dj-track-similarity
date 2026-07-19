@@ -1,0 +1,59 @@
+{
+  "artifact_hash": "sha256:720c8a8a5a69dede33eebe333e455e0dfe41b959ebe493f684f6319cb209b873",
+  "classifier_key": "live_instrumentation",
+  "feature_count": 1280,
+  "feature_set": "maest+clap",
+  "label_order": [
+    "live_instrument",
+    "no_instrument"
+  ],
+  "manifest_version": 1,
+  "model_id": "live_instrumentation_20260708T152835Z_720c8a8a",
+  "negative_label": "no_instrument",
+  "positive_label": "live_instrument",
+  "production": {
+    "calibration": {
+      "actual_labels": 600,
+      "actual_negative": 300,
+      "actual_positive": 300,
+      "brier": 0.144686776055351,
+      "ece10": 0.14354915923989783,
+      "label_count": 600,
+      "method": null,
+      "min_required_labels": 100,
+      "min_required_negative": 20,
+      "min_required_positive": 20,
+      "negative_count": 300,
+      "positive_count": 300,
+      "reason": "calibration_not_requested",
+      "split": "stratified_train_validation",
+      "status": "uncalibrated",
+      "thresholds": {
+        "default": 0.5,
+        "precision_80": 0.07822317630052567,
+        "recall_80": 0.24753648042678833
+      },
+      "validation_average_precision": 0.9186067158746528,
+      "validation_f1": 0.8028169014084507,
+      "validation_roc_auc": 0.9235555555555556
+    },
+    "limitations": [
+      "Scores are the promoted model's positive-label probability, not a calibrated probability.",
+      "Promotion copies a local artifact and manifest; it does not benchmark the classifier."
+    ],
+    "required_inputs": [
+      "maest",
+      "clap"
+    ],
+    "score_semantics": "positive_label_probability"
+  },
+  "profile_name": "Live Instrumentation",
+  "profile_type": "binary",
+  "promoted_at": "2026-07-08T15:28:35.985584+00:00",
+  "source_artifact": "E:\\Projects\\dj-track-similarity\\tools\\rhythm-lab\\artifacts\\live-instrumentation\\live-instrumentation-maest+clap-20260708T152559Z.joblib",
+  "trained_label_counts": {
+    "live_instrument": 300,
+    "no_instrument": 300,
+    "uncertain": 8
+  }
+}

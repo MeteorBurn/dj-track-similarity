@@ -486,8 +486,8 @@ rhythm-lab = [
     { name = "scikit-learn", version = "1.9.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
 sonara = [
-    { name = "sonara", version = "0.2.4", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'win32'" },
-    { name = "sonara", version = "0.2.4", source = { url = "https://github.com/MeteorBurn/sonara/releases/download/v0.2.4/sonara-0.2.4-cp39-abi3-win_amd64.whl" }, marker = "sys_platform == 'win32'" },
+    { name = "sonara", version = "0.2.8", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'win32'" },
+    { name = "sonara", version = "0.2.8", source = { url = "https://github.com/kkollsga/sonara/releases/download/v0.2.8/sonara-0.2.8.tar.gz" }, marker = "sys_platform == 'win32'" },
 ]
 
 [package.metadata]
@@ -506,8 +506,8 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8" },
     { name = "scikit-learn", marker = "extra == 'rhythm-lab'", specifier = ">=1.4" },
-    { name = "sonara", marker = "sys_platform == 'win32' and extra == 'sonara'", url = "https://github.com/MeteorBurn/sonara/releases/download/v0.2.4/sonara-0.2.4-cp39-abi3-win_amd64.whl" },
-    { name = "sonara", marker = "sys_platform != 'win32' and extra == 'sonara'", specifier = "==0.2.4" },
+    { name = "sonara", marker = "sys_platform == 'win32' and extra == 'sonara'", url = "https://github.com/kkollsga/sonara/releases/download/v0.2.8/sonara-0.2.8.tar.gz" },
+    { name = "sonara", marker = "sys_platform != 'win32' and extra == 'sonara'", specifier = "==0.2.8" },
     { name = "torch", marker = "extra == 'ml'", specifier = "==2.11.0" },
     { name = "torchaudio", marker = "extra == 'ml'", specifier = "==2.11.0" },
     { name = "torchcodec", marker = "extra == 'ml'", specifier = "==0.13.0" },
@@ -2477,7 +2477,7 @@ wheels = [
 
 [[package]]
 name = "sonara"
-version = "0.2.4"
+version = "0.2.8"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'emscripten'",
@@ -2488,12 +2488,12 @@ resolution-markers = [
     "python_full_version >= '3.11' and python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32'",
     "python_full_version < '3.11' and sys_platform != 'win32'",
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/df/09/4b48c38be48503b407f69fd26f34ef9524a6fa9076ea21fc9fb92d99676e/sonara-0.2.4.tar.gz", hash = "sha256:e301b69b9d6e02865bee999a7e1916b6366f0ae6074b0437d794490f1a77859a", size = 290986, upload-time = "2026-07-17T07:28:12.783Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5e/39/ea8126712198a606f041efd7edaa05d0aaf6035508d14b6355f569fd8a67/sonara-0.2.8.tar.gz", hash = "sha256:3243c9356631c2b3b6b555108ac1ddc1188caab00fef001d1ff48cef55cbea90", size = 340721, upload-time = "2026-07-20T10:44:40.3Z" }
 
 [[package]]
 name = "sonara"
-version = "0.2.4"
-source = { url = "https://github.com/MeteorBurn/sonara/releases/download/v0.2.4/sonara-0.2.4-cp39-abi3-win_amd64.whl" }
+version = "0.2.8"
+source = { url = "https://github.com/kkollsga/sonara/releases/download/v0.2.8/sonara-0.2.8.tar.gz" }
 resolution-markers = [
     "python_full_version >= '3.14' and platform_machine != 'AMD64' and sys_platform == 'win32'",
     "python_full_version >= '3.14' and platform_machine == 'AMD64' and sys_platform == 'win32'",
@@ -2504,9 +2504,7 @@ resolution-markers = [
     "python_full_version < '3.11' and platform_machine != 'AMD64' and sys_platform == 'win32'",
     "python_full_version < '3.11' and platform_machine == 'AMD64' and sys_platform == 'win32'",
 ]
-wheels = [
-    { url = "https://github.com/MeteorBurn/sonara/releases/download/v0.2.4/sonara-0.2.4-cp39-abi3-win_amd64.whl", hash = "sha256:2dd2c39e106f7d5ca2fef9ca09e4de163469ec7ebe173c5e5ab6019c5284019d" },
-]
+sdist = { hash = "sha256:3243c9356631c2b3b6b555108ac1ddc1188caab00fef001d1ff48cef55cbea90" }
 
 [[package]]
 name = "soundfile"

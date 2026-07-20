@@ -11,7 +11,8 @@ Rhythm Lab is the classifier workspace. It uses the main SQLite library as sourc
 For combined training, run SONARA, MERT, and MAEST first:
 
 ```powershell
-dj-sim analyze --models sonara,maest,mert --db .\data\library.sqlite
+dj-sim analyze --models sonara --db .\data\library.sqlite
+dj-sim analyze --models maest,mert --db .\data\library.sqlite
 ```
 
 Benchmark variants can also use CLAP when CLAP embeddings already exist. SONARA 2.0 benchmark variants still read stored SONARA features. The `sonara2vocal` variant adds `vocalness` to the candidate feature set.

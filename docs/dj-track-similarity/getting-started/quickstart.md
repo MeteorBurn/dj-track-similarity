@@ -38,7 +38,8 @@ The scan writes SQLite rows. It does not modify audio files.
 Install analysis extras first if you have not done so. Then run a small batch:
 
 ```powershell
-dj-sim analyze --models sonara,maest,mert,muq,clap --limit 25 --db .\data\library.sqlite
+dj-sim analyze --models sonara --limit 25 --db .\data\library.sqlite
+dj-sim analyze --models maest,mert,muq,clap --limit 25 --db .\data\library.sqlite
 ```
 
 A small limit confirms the model stack before you analyze every track. MuQ is only used by LAB Reference Compare in this release, so you can omit `muq` when you only want seed search, SET, Hybrid, or text search. In the CLI, omit `--limit` for the whole library. In the UI, `Analyze limit = 0` means the whole library.

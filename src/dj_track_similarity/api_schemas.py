@@ -9,7 +9,7 @@ from .analysis_config import (
     ANALYSIS_MODEL_ORDER,
     DEFAULT_ANALYSIS_DEVICE,
     DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
-    DEFAULT_SONARA_FEATURE_FAMILIES,
+    ML_ANALYSIS_MODEL_ORDER,
     DEFAULT_ANALYSIS_TOP_K,
     DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
     MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
@@ -69,7 +69,7 @@ class AnalysisJobRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     limit: int | None = None
-    models: list[str] = Field(default_factory=lambda: list(ANALYSIS_MODEL_ORDER))
+    models: list[str] = Field(default_factory=lambda: list(ML_ANALYSIS_MODEL_ORDER))
     classifier_keys: list[str] = Field(default_factory=list)
     device: str = Field(default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN)
     top_k: int = Field(default=DEFAULT_ANALYSIS_TOP_K, ge=MIN_ANALYSIS_TOP_K, le=MAX_ANALYSIS_TOP_K)
@@ -83,7 +83,7 @@ class AnalysisJobRequest(BaseModel):
         ge=MIN_ANALYSIS_INFERENCE_BATCH_SIZE,
         le=MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
     )
-    sonara_features: list[str] = Field(default_factory=lambda: list(DEFAULT_SONARA_FEATURE_FAMILIES))
+    sonara_features: list[str] | None = None
 
 
 class AudioDedupJobRequest(BaseModel):

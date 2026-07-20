@@ -34,7 +34,7 @@ def resolve_tempo_evidence(
 ) -> TempoEvidence:
     """Resolve tempo plus its trust signals without treating confidence as similarity.
 
-    SONARA remains the primary source when its confidence is usable. Below the v0.2.4
+    SONARA remains the primary source when its confidence is usable. Below the configured
     low-confidence threshold, candidates and the file-tag BPM are retained as alternatives. A tag
     corroborated by any SONARA candidate becomes the working BPM while the original confidence
     still controls how strongly tempo affects ranking.

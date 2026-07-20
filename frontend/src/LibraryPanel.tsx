@@ -5,7 +5,7 @@ import { analysisSelectionOrder, type AnalysisSelection } from "./analysisSelect
 type DeviceMode = "auto" | "cpu" | "cuda";
 const analysisModelOrder = analysisSelectionOrder;
 const analysisModelDescriptions: Record<AnalysisSelection, string> = {
-  sonara: "Считает темп, тональность и базовые признаки трека.",
+  sonara: "Отдельный CPU/Rust-анализ с собственным decode в 22050 Гц.",
   maest: "Помогает понять жанровый характер трека.",
   mert: "Ищет похожее звучание от выбранного seed-трека.",
   muq: "Сохраняет дополнительный слой аудио-признаков.",
@@ -170,7 +170,7 @@ export function LibraryPanel({
       </div>
       <div className="analysis-models-heading">
         <span>Анализ моделей</span>
-        <small>Один запуск обработает выбранные модели и пропустит уже готовые результаты</small>
+        <small>SONARA запускается отдельно; ML-модели и CLASSIFIERS можно объединять без SONARA</small>
       </div>
       <div className="analysis-actions">
         {analysisModelOrder.map((model) => {

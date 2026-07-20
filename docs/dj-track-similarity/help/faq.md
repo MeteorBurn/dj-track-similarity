@@ -21,7 +21,8 @@ No. Relocation apply updates stored SQLite paths only after preview checks pass.
 From CLI, omit `--limit`:
 
 ```powershell
-dj-sim analyze --models sonara,maest,mert,muq,clap --db .\data\library.sqlite
+dj-sim analyze --models sonara --db .\data\library.sqlite
+dj-sim analyze --models maest,mert,muq,clap --db .\data\library.sqlite
 ```
 
 In the UI, set `Analyze limit` to `0`.

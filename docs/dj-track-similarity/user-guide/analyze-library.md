@@ -19,14 +19,14 @@ The UI lists these choices:
 
 One job can include multiple families. Tracks that already have a selected result are skipped for that family.
 
-SONARA BPM analysis uses the project range `79.0..192.0`. Tempo-aware workflows start with current
+SONARA runs separately from the ML models and classifiers. The project FFmpeg decoder supplies one mono float32 file buffer at `22050 Hz` directly to SONARA's native Rust implementation. A SONARA job cannot include MAEST, MERT, MuQ, CLAP, or classifiers. SONARA BPM analysis uses the project range `70.0..180.0`. Tempo-aware workflows start with current
 signed SONARA evidence but do not trust it blindly. Below `0.45` confidence, the resolver checks
 SONARA candidates and the Mutagen BPM tag. A corroborated tag can become the working BPM.
 `grid_stability` can lower reliability, which moves the tempo score toward neutral. If you analyzed
 tracks before the current range was configured, select SONARA and run analysis again. The legacy
 signature does not match, so those tracks are queued automatically without a reset.
 
-The default SONARA v0.2.4 result also stores raw BPM, `bpm_confidence`, tempo candidates, and Camelot key. The metadata dialog shows the `0..1` BPM confidence beside saved provenance such as schema version, sample rate, hop length, analysis mode, requested features, and installed package version when available.
+The default SONARA v0.2.8 result also stores raw BPM, `bpm_confidence`, tempo candidates, and Camelot key. The metadata dialog shows the `0..1` BPM confidence beside saved provenance such as schema version, sample rate, hop length, analysis mode, requested features, and installed package version when available.
 
 ## Full SONARA capture
 

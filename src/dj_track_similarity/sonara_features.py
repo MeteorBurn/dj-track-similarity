@@ -98,7 +98,7 @@ SONARA_ARCHIVAL_LIGHT_KEYS = (
 
 # Default playlist fields added since SONARA 2.0 that arrive without any opt-in request and are
 # cheap to keep in the hot path. key_camelot is sonara's own analysis output (not a project-side
-# Camelot derivation); bpm_confidence is the v0.2.4 trust signal for the working BPM.
+# Camelot derivation); bpm_confidence is SONARA's trust signal for the working BPM.
 SONARA_DEFAULT_EXTRA_KEYS = ("bpm_raw", "bpm_confidence", "bpm_candidates", "key_camelot")
 
 

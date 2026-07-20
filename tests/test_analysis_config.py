@@ -12,7 +12,7 @@ from dj_track_similarity.analysis_config import (
 
 
 def test_normalize_analysis_models_preserves_canonical_order_and_deduplicates() -> None:
-    assert normalize_analysis_models(["CLAP", "muq", "mert", "clap", "sonara"]) == ("sonara", "mert", "muq", "clap")
+    assert normalize_analysis_models(["CLAP", "muq", "mert", "clap"]) == ("mert", "muq", "clap")
 
 
 def test_normalize_analysis_models_rejects_empty_and_unknown_values() -> None:
@@ -21,6 +21,9 @@ def test_normalize_analysis_models_rejects_empty_and_unknown_values() -> None:
 
     with pytest.raises(ValueError, match="Unknown analysis model: unknown"):
         normalize_analysis_models(["unknown"])
+
+    with pytest.raises(ValueError, match="SONARA analysis must run alone"):
+        normalize_analysis_models(["sonara", "mert"])
 
 
 def test_parse_analysis_models_text_uses_same_rules() -> None:
@@ -40,7 +43,7 @@ def test_normalize_analysis_device_rejects_unknown_values() -> None:
 
 def test_build_analysis_job_config_normalizes_shared_cli_api_values() -> None:
     config = build_analysis_job_config(
-        models=["clap", "SONARA"],
+        models=["clap", "MERT"],
         limit=12,
         device=" CPU ",
         top_k=4,
@@ -48,17 +51,26 @@ def test_build_analysis_job_config_normalizes_shared_cli_api_values() -> None:
         inference_batch_size=18,
     )
 
-    assert config.models == ("sonara", "clap")
+    assert config.models == ("mert", "clap")
     assert config.limit == 12
     assert config.device == "cpu"
     assert config.top_k == 4
     assert config.track_batch_size == 3
     assert config.inference_batch_size == 18
-    assert config.sonara_features == DEFAULT_SONARA_FEATURE_FAMILIES
+    assert config.sonara_features == ()
 
 
 def test_build_analysis_job_config_allows_explicit_minimal_sonara_profile() -> None:
-    assert build_analysis_job_config(sonara_features=[]).sonara_features == ()
+    assert build_analysis_job_config(models=["sonara"], sonara_features=[]).sonara_features == ()
+
+
+def test_build_analysis_job_config_defaults_sonara_only_to_full_profile() -> None:
+    assert build_analysis_job_config(models=["sonara"]).sonara_features == DEFAULT_SONARA_FEATURE_FAMILIES
+
+
+def test_build_analysis_job_config_rejects_sonara_features_for_ml_jobs() -> None:
+    with pytest.raises(ValueError, match="SONARA feature families can only"):
+        build_analysis_job_config(models=["mert"], sonara_features=["vocalness"])
 
 
 @pytest.mark.parametrize(

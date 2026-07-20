@@ -154,7 +154,7 @@ test("analysis controls use model checkboxes and one selected-run button", () =>
   assert.match(source, /classifiers/);
   assert.match(source, /CLASSIFIERS/);
   assert.match(source, /classifiersAnalyze/);
-  assert.match(source, /Считает темп, тональность и базовые признаки трека\./);
+  assert.match(source, /Отдельный CPU\/Rust-анализ с собственным decode в 22050 Гц\./);
   assert.match(source, /Помогает понять жанровый характер трека\./);
   assert.match(source, /Ищет похожее звучание от выбранного seed-трека\./);
   assert.match(source, /Сохраняет дополнительный слой аудио-признаков\./);

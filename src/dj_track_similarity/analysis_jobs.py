@@ -31,7 +31,7 @@ from .analysis_model_runners import (
     RunnerFactory,
     SonaraModelRunner,
 )
-from .audio_loader import load_decoded_audio
+from .audio_loader import load_decoded_audio, load_sonara_decoded_audio
 from .classifier_scoring import ClassifierScorer
 from .analysis_config import (
     ANALYSIS_MODEL_ORDER,
@@ -113,6 +113,7 @@ class AnalysisJobManager:
         model_runners: Mapping[str, AnalysisModelRunner] | None = None,
         *,
         decode_audio: DecodeAudio = load_decoded_audio,
+        sonara_decode_audio: DecodeAudio = load_sonara_decoded_audio,
         runner_factory: RunnerFactory | None = None,
         classifier_scorer_factory: Callable[[str], _ClassifierScorer] | None = None,
         track_batch_size: int = DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
@@ -125,6 +126,7 @@ class AnalysisJobManager:
         self._runner_factory: RunnerFactory = runner_factory or model_runner_module.default_model_runners
         self._classifier_scorer_factory: Callable[[str], _ClassifierScorer] | None = classifier_scorer_factory
         self._decode_audio: DecodeAudio = decode_audio
+        self._sonara_decode_audio: DecodeAudio = sonara_decode_audio
         self.track_batch_size: int = max(1, int(track_batch_size))
         self.inference_batch_size: int = max(1, int(inference_batch_size))
         self._store: JobStore[AnalysisJobStatus] = JobStore(self._copy_status, unknown_label="analysis job")
@@ -143,6 +145,10 @@ class AnalysisJobManager:
     ) -> str:
         selected_classifier_keys = self._clean_classifier_keys(classifier_keys)
         selected = _normalize_job_models(models, allow_empty=bool(selected_classifier_keys))
+        if "sonara" in selected and selected_classifier_keys:
+            raise ValueError("SONARA analysis must run alone and cannot be combined with classifiers")
+        if "sonara" not in selected and sonara_features:
+            raise ValueError("SONARA feature families can only be used with a SONARA-only analysis job")
         selected_sonara_features = normalize_sonara_features(sonara_features)
         work = self._analysis_work(
             selected,
@@ -457,10 +463,12 @@ class AnalysisJobManager:
         targets_by_track: Mapping[int, tuple[str, ...]],
         classifier_targets_by_track: Mapping[int, tuple[str, ...]],
     ) -> None:
+        status = self.get(job_id)
+        decode_audio = self._sonara_decode_audio if status.models == ["sonara"] else self._decode_audio
         decoded_items = decode_analysis_batch(
             batch,
             targets_by_track,
-            self._decode_audio,
+            decode_audio,
             set_current_path=lambda path: self._update(job_id, current_path=path),
             record_decode_failure=lambda track, targets, error: self._record_decode_failure(job_id, track, targets, error),
             mark_track_processed=lambda track: self._mark_track_processed(job_id, track),
@@ -666,8 +674,8 @@ def _audio_targets_for_candidate(
         if missing_required:
             missing = ", ".join(model.upper() for model in missing_required)
             message = (
-                "CLASSIFIERS require SONARA, MAEST, and MERT data; "
-                f"select missing models in the same run or analyze them first. Missing: {missing}"
+                "CLASSIFIERS require SONARA, MAEST, and MERT data to already exist; "
+                f"run missing analyses separately first. Missing: {missing}"
             )
             raise ValueError(message)
     required = set(selected)

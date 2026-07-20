@@ -22,8 +22,8 @@ ann = [
   "hnswlib>=0.8",
 ]
 sonara = [
-  "sonara @ https://github.com/MeteorBurn/sonara/releases/download/v0.2.4/sonara-0.2.4-cp39-abi3-win_amd64.whl#sha256=2dd2c39e106f7d5ca2fef9ca09e4de163469ec7ebe173c5e5ab6019c5284019d ; sys_platform == 'win32'",
-  "sonara==0.2.4 ; sys_platform != 'win32'",
+  "sonara @ https://github.com/kkollsga/sonara/releases/download/v0.2.8/sonara-0.2.8.tar.gz#sha256=3243c9356631c2b3b6b555108ac1ddc1188caab00fef001d1ff48cef55cbea90 ; sys_platform == 'win32'",
+  "sonara==0.2.8 ; sys_platform != 'win32'",
 ]
 ml = [
   "torch==2.11.0",

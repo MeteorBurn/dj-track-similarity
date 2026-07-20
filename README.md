@@ -150,7 +150,7 @@ audio files -> scan tags -> SQLite library -> browse/search/export
 The app keeps evidence sources separate:
 
 - **File tags** come from Mutagen during scan and Refresh Tags.
-- **SONARA** stores audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy. Its default project profile captures all eight supported extra families, including mood affinities, instrumentalness, detailed loudness, structure, beat-grid, and silence data. The CLI can explicitly request `--sonara-minimal`, and API clients can send an empty profile when plain playlist output is intentional. SONARA BPM analysis uses the project range `79.0..192.0`.
+- **SONARA** stores audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy. It runs as a separate CPU/Rust analysis job: project FFmpeg decodes each file directly to mono float32 at 22050 Hz, then the SONARA Rust implementation analyzes that buffer. It cannot be selected in the same job as MAEST, MERT, MuQ, CLAP, or classifiers. Its default profile captures all eight supported extra families. SONARA BPM analysis uses the project range `70.0..180.0`.
 - **MAEST** stores genre labels and an audio embedding.
 - **MERT** stores an audio embedding for seed similarity.
 - **MuQ** stores a separate audio embedding. LAB Reference Compare can inspect MuQ neighbors for one seed track, but MuQ is not used by MERT/SONARA search, SET, Hybrid, Audio Dedup, or classifier scoring.
@@ -166,7 +166,7 @@ SONARA mood and instrumentalness values are retained for inspection and possible
 
 Each SONARA result also retains analysis provenance, including the upstream schema and the installed package version when available. This makes later reanalysis and result audits easier to plan.
 
-A deterministic analysis signature also covers SONARA `0.2.4`, schema `3`, playlist mode, sample rate, BPM range, sorted feature profile, and project feature revision. Normal analysis treats a legacy or mismatched signature as missing instead of trusting only `has_sonara_analysis`.
+A deterministic analysis signature also covers SONARA `0.2.8`, schema `3`, playlist mode, sample rate, BPM range, sorted feature profile, and project feature revision. Normal analysis treats a legacy or mismatched signature as missing instead of trusting only `has_sonara_analysis`.
 
 A file genre tag, a MAEST genre label, a CLAP text score, and an audio-to-audio duplicate score answer different questions. They can all help, but they should not be treated as one universal truth scale.
 
@@ -298,19 +298,19 @@ The base install is enough for scan, browse, UI serving, existing SQLite data, a
 python -m pip install -e ".[sonara,ml,dev]"
 ```
 
-On Windows x64, the `sonara` extra installs the pinned SONARA `v0.2.4` wheel from the
-[MeteorBurn release](https://github.com/MeteorBurn/sonara/releases/tag/v0.2.4). Other
+On Windows x64, the `sonara` extra builds the pinned SONARA `v0.2.8` source distribution. Other
 platforms install the same package version from PyPI.
 
 Run a small first pass:
 
 ```powershell
-dj-sim analyze --models sonara,maest,mert,muq,clap --limit 25 --db ./data/library.sqlite
+dj-sim analyze --models sonara --limit 25 --db ./data/library.sqlite
+dj-sim analyze --models maest,mert,muq,clap --limit 25 --db ./data/library.sqlite
 ```
 
 Useful options from the current CLI and API are:
 
-- `--models sonara,maest,mert,muq,clap`
+- `--models sonara` for the standalone CPU/Rust job, or `--models maest,mert,muq,clap` for ML analysis
 - `--device auto|cpu|cuda`
 - `--top-k 1..10` for MAEST labels
 - `--track-batch-size 1..64`

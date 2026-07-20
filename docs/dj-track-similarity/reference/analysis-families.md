@@ -23,7 +23,7 @@ SONARA uses its CPU runner. MAEST, MERT, MuQ, and CLAP use model adapters with t
 
 ## SONARA BPM range
 
-SONARA analysis calls pass `bpm_min=79.0` and `bpm_max=192.0`. SONARA folds estimated tempos by octaves into that range before the project stores the working BPM field.
+SONARA analysis calls pass `bpm_min=70.0` and `bpm_max=180.0`. SONARA folds estimated tempos by octaves into that range before the project stores the working BPM field. SONARA is scheduled only as a standalone CPU job; FFmpeg decodes each file to mono float32 at `22050 Hz` before the buffer enters the native Rust analyzer.
 
 Tempo-aware search, transition diagnostics, and SET ordering resolve current signed SONARA evidence
 first. Below `0.45` confidence, they retain ranked SONARA candidates and check the Mutagen BPM tag.
@@ -40,11 +40,11 @@ Only SONARA rows with the requested current analysis signature are skipped by no
 
 ## SONARA feature profiles
 
-A plain SONARA v0.2.4 run stores the base playlist output plus four fields that arrive without an opt-in request: `bpm_raw`, `bpm_confidence`, `bpm_candidates`, and `key_camelot`. `bpm_confidence` is SONARA's `0..1` trust signal for the working BPM. `key_camelot` is SONARA's own Camelot code rather than a project-side derivation.
+A plain SONARA v0.2.8 run stores the base playlist output plus four fields that arrive without an opt-in request: `bpm_raw`, `bpm_confidence`, `bpm_candidates`, and `key_camelot`. `bpm_confidence` is SONARA's `0..1` trust signal for the working BPM. `key_camelot` is SONARA's own Camelot code rather than a project-side derivation.
 
 The track metadata also stores `sonara_provenance` separately from feature values. It preserves the provenance fields returned by SONARA, such as schema version, sample rate, hop length, mode, and requested features, and adds the installed SONARA package version when the package exposes it. The metadata dialog displays this information for result audits and reanalysis decisions. Reset SONARA removes the provenance with the feature data.
 
-The separate `sonara_analysis_signature` is the compatibility contract rather than an informational label. Its deterministic digest covers SONARA `0.2.4`, upstream schema `3`, playlist mode, sample rate `22050`, BPM range `79..192`, the sorted requested-feature profile, and project feature revision `1`. The presence flag remains a fast storage flag. Analysis scheduling uses the signature to distinguish current results from legacy rows.
+The separate `sonara_analysis_signature` is the compatibility contract rather than an informational label. Its deterministic digest covers SONARA `0.2.8`, upstream schema `3`, playlist mode, sample rate `22050`, BPM range `70..180`, the sorted requested-feature profile, and project feature revision `1`. The presence flag remains a fast storage flag. Analysis scheduling uses the signature to distinguish current results from legacy rows.
 
 The project model label `sonara-playlist-lab` is informational and is not a freshness check. The
 signature contains expanded, sorted upstream feature names rather than only the eight project family

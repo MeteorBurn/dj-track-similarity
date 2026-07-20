@@ -17,7 +17,8 @@ dj-sim scan D:\Music --db .\data\library.sqlite
 Analyze selected families:
 
 ```powershell
-dj-sim analyze --models sonara,maest,mert,muq,clap --db .\data\library.sqlite
+dj-sim analyze --models sonara --db .\data\library.sqlite
+dj-sim analyze --models maest,mert,muq,clap --db .\data\library.sqlite
 ```
 
 Serve the UI:

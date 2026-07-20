@@ -24,13 +24,15 @@ Classifier scoring needs existing or same-job SONARA, MAEST, and MERT data.
 Install optional analysis dependencies first. Then run:
 
 ```powershell
-dj-sim analyze --models sonara,maest,mert,muq,clap --limit 25 --db .\data\library.sqlite
+dj-sim analyze --models sonara --limit 25 --db .\data\library.sqlite
+dj-sim analyze --models maest,mert,muq,clap --limit 25 --db .\data\library.sqlite
 ```
 
 Useful options:
 
 ```powershell
-dj-sim analyze --models sonara,maest,mert,muq,clap --device auto --top-k 3 --track-batch-size 4 --inference-batch-size 24 --db .\data\library.sqlite
+dj-sim analyze --models sonara --db .\data\library.sqlite
+dj-sim analyze --models maest,mert,muq,clap --device auto --top-k 3 --track-batch-size 4 --inference-batch-size 24 --db .\data\library.sqlite
 ```
 
 - `--models` accepts `sonara`, `maest`, `mert`, `muq`, and `clap` as a comma-separated list.

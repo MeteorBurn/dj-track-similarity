@@ -4,7 +4,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 
-ANALYSIS_MODEL_ORDER = ("sonara", "maest", "mert", "muq", "clap")
+ML_ANALYSIS_MODEL_ORDER = ("maest", "mert", "muq", "clap")
+ANALYSIS_MODEL_ORDER = ("sonara", *ML_ANALYSIS_MODEL_ORDER)
 # SONARA 2.0 feature families. Each maps to sonara `features=[...]` requests in sonara_features.py.
 # New jobs default to the full capture profile; callers can still pass an explicit empty sequence
 # when they intentionally need plain playlist output.
@@ -45,7 +46,7 @@ class AnalysisJobConfig:
 
 
 def normalize_analysis_models(models: Sequence[str] | None) -> tuple[str, ...]:
-    requested = ANALYSIS_MODEL_ORDER if models is None else models
+    requested = ML_ANALYSIS_MODEL_ORDER if models is None else models
     selected: list[str] = []
     for model in requested:
         text = str(model).strip().lower()
@@ -55,7 +56,10 @@ def normalize_analysis_models(models: Sequence[str] | None) -> tuple[str, ...]:
             selected.append(text)
     if not selected:
         raise ValueError("At least one analysis model must be selected")
-    return tuple(model for model in ANALYSIS_MODEL_ORDER if model in selected)
+    normalized = tuple(model for model in ANALYSIS_MODEL_ORDER if model in selected)
+    if "sonara" in normalized and len(normalized) != 1:
+        raise ValueError("SONARA analysis must run alone and cannot be combined with ML models")
+    return normalized
 
 
 def parse_analysis_models_text(value: str) -> tuple[str, ...]:
@@ -94,6 +98,13 @@ def build_analysis_job_config(
     allow_empty_models: bool = False,
 ) -> AnalysisJobConfig:
     normalized_models = () if allow_empty_models and models is not None and not models else normalize_analysis_models(models)
+    if "sonara" not in normalized_models and sonara_features:
+        raise ValueError("SONARA feature families can only be used with a SONARA-only analysis job")
+    normalized_sonara_features = (
+        normalize_sonara_features(DEFAULT_SONARA_FEATURE_FAMILIES if sonara_features is None else sonara_features)
+        if "sonara" in normalized_models
+        else ()
+    )
     return AnalysisJobConfig(
         models=normalized_models,
         limit=limit,
@@ -111,9 +122,7 @@ def build_analysis_job_config(
             minimum=MIN_ANALYSIS_INFERENCE_BATCH_SIZE,
             maximum=MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
         ),
-        sonara_features=normalize_sonara_features(
-            DEFAULT_SONARA_FEATURE_FAMILIES if sonara_features is None else sonara_features
-        ),
+        sonara_features=normalized_sonara_features,
     )
 
 

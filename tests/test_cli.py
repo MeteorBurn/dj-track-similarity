@@ -20,7 +20,7 @@ class _FakeStatus:
     analyzed = 2
     failed = 1
     embedding_key = "multi"
-    models = ["sonara", "maest", "mert", "muq", "clap"]
+    models = ["maest", "mert", "muq", "clap"]
     current_model = None
     model_progress = {}
     device = "cpu"
@@ -149,20 +149,20 @@ def test_analyze_cli_prints_live_progress_for_default_models(monkeypatch, tmp_pa
     result = CliRunner().invoke(cli.app, ["analyze", "--db", str(db_path)])
 
     assert result.exit_code == 0
-    assert "Starting sonara,maest,mert,muq,clap analysis" in result.output
+    assert "Starting maest,mert,muq,clap analysis" in result.output
     assert "processed=3/3" in result.output
     assert "tracks/s" in result.output
     assert "eta=" in result.output
     assert "state=completed" in result.output
-    assert "models=sonara,maest,mert,muq,clap" in result.output
-    assert _FakeAnalysisManager.last_kwargs["sonara_features"] == list(DEFAULT_SONARA_FEATURE_FAMILIES)
+    assert "models=maest,mert,muq,clap" in result.output
+    assert _FakeAnalysisManager.last_kwargs["sonara_features"] == []
 
 
 def test_analyze_cli_allows_explicit_minimal_sonara_profile(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "AnalysisJobManager", _FakeAnalysisManager)
     db_path = tmp_path / "library.sqlite"
 
-    result = CliRunner().invoke(cli.app, ["analyze", "--sonara-minimal", "--db", str(db_path)])
+    result = CliRunner().invoke(cli.app, ["analyze", "--models", "sonara", "--sonara-minimal", "--db", str(db_path)])
 
     assert result.exit_code == 0
     assert _FakeAnalysisManager.last_kwargs["sonara_features"] == []

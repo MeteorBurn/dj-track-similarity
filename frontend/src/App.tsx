@@ -420,9 +420,13 @@ export function App() {
 
   function toggleAnalysisModel(model: AnalysisSelection) {
     setSelectedAnalysisModels((current) => {
-      const next = current.includes(model)
-        ? current.filter((item) => item !== model)
-        : [...current, model];
+      if (model === "sonara") {
+        return current.includes("sonara") ? [] : ["sonara"];
+      }
+      const withoutSonara = current.filter((item) => item !== "sonara");
+      const next: AnalysisSelection[] = withoutSonara.includes(model)
+        ? withoutSonara.filter((item) => item !== model)
+        : [...withoutSonara, model];
       return analysisModelOrder.filter((item) => next.includes(item));
     });
   }
@@ -650,6 +654,7 @@ export function App() {
   async function handleAnalyzeSelected() {
     const requestedAudioModels = selectedAnalysisModels.filter(isAudioAnalysisModel);
     const includeClassifiers = selectedAnalysisModels.includes("classifiers");
+    const includeSonara = requestedAudioModels.includes("sonara");
     const compatibleClassifiers = classifiers.filter((classifier) => classifier.is_scoring_compatible !== false);
     if (!requestedAudioModels.length && !includeClassifiers) {
       setNotice({ kind: "error", text: "Выберите хотя бы одну модель анализа" });
@@ -659,6 +664,10 @@ export function App() {
       setNotice({ kind: "error", text: "Нет совместимых promoted classifiers: сначала переобучите и promote модели" });
       return;
     }
+    if (includeSonara && (requestedAudioModels.length !== 1 || includeClassifiers)) {
+      setNotice({ kind: "error", text: "SONARA запускается отдельно от ML-моделей и CLASSIFIERS" });
+      return;
+    }
     const limit = analysisLimit > 0 ? analysisLimit : undefined;
     const models = [...requestedAudioModels];
     const labels = models.map((model) => model.toUpperCase()).join(", ");
@@ -666,7 +675,8 @@ export function App() {
       ? compatibleClassifiers.map((classifier) => classifier.classifier_key)
       : [];
     const classifierTail = classifierKeys.length ? " · CLASSIFIERS в этом же job" : "";
-    const detail = `${labels}${classifierTail} · ${analysisDevice.toUpperCase()} · tracks ${analysisTrackBatchSize} · inference ${analysisInferenceBatchSize} · ${limit ? `limit ${limit}` : "вся библиотека"}`;
+    const execution = includeSonara ? "CPU · ffmpeg 22050 Hz" : `${analysisDevice.toUpperCase()} · tracks ${analysisTrackBatchSize} · inference ${analysisInferenceBatchSize}`;
+    const detail = `${labels}${classifierTail} · ${execution} · ${limit ? `limit ${limit}` : "вся библиотека"}`;
     appendActivity("info", "Анализ выбранных моделей запущен", detail);
     if (includeClassifiers && compatibleClassifiers.length < classifiers.length) {
       appendActivity(
@@ -686,10 +696,9 @@ export function App() {
         top_k: 3,
         track_batch_size: analysisTrackBatchSize,
         inference_batch_size: analysisInferenceBatchSize,
-        // All configured SONARA data families are always computed from the UI, so a single
-        // reanalysis captures the stored fields (structure, loudness, beatgrid, key candidates,
-        // voice/mood heuristics, silence). The backend ignores these for non-SONARA selections.
-        sonara_features: ["structure", "loudness", "beatgrid", "key_candidates", "vocalness", "mood", "instrumentalness", "silence"]
+        sonara_features: models.includes("sonara")
+            ? ["structure", "loudness", "beatgrid", "key_candidates", "vocalness", "mood", "instrumentalness", "silence"]
+            : []
       }),
       (job) => {
         setAnalysisJob(job);

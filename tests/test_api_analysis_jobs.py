@@ -37,7 +37,7 @@ class SynchronousAnalysisManager:
             "sonara_features": sonara_features,
         }
         return _status(
-            models or ["sonara", "maest", "mert", "muq", "clap"],
+            models or ["maest", "mert", "muq", "clap"],
             track_batch_size=track_batch_size,
             inference_batch_size=inference_batch_size,
             device=device,
@@ -117,7 +117,7 @@ def test_api_starts_selected_multi_model_analysis_job(monkeypatch, tmp_path: Pat
             "track_batch_size": 5,
             "inference_batch_size": 18,
             "classifier_keys": ["break_energy"],
-            "sonara_features": ["structure", "loudness"],
+            "sonara_features": [],
         },
     )
 
@@ -138,7 +138,7 @@ def test_api_starts_selected_multi_model_analysis_job(monkeypatch, tmp_path: Pat
         "track_batch_size": 5,
         "inference_batch_size": 18,
         "classifier_keys": ["break_energy"],
-        "sonara_features": ["structure", "loudness"],
+        "sonara_features": [],
     }
 
 
@@ -161,7 +161,7 @@ def test_api_allows_classifier_only_unified_analysis_job(monkeypatch, tmp_path: 
     assert response.status_code == 200
     assert SynchronousAnalysisManager.last_request["models"] == []
     assert SynchronousAnalysisManager.last_request["classifier_keys"] == ["break_energy"]
-    assert SynchronousAnalysisManager.last_request["sonara_features"] == list(DEFAULT_SONARA_FEATURE_FAMILIES)
+    assert SynchronousAnalysisManager.last_request["sonara_features"] == []
 
 
 def test_api_rejects_classifier_analysis_when_required_inputs_are_missing(monkeypatch, tmp_path: Path) -> None:
@@ -186,7 +186,7 @@ def test_api_rejects_classifier_analysis_when_required_inputs_are_missing(monkey
     assert "SONARA, MAEST, and MERT" in response.json()["detail"]
 
 
-def test_api_defaults_multi_model_analysis_to_all_models(monkeypatch, tmp_path: Path) -> None:
+def test_api_defaults_analysis_to_ml_models_only(monkeypatch, tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     LibraryDatabase(db_path)
     monkeypatch.setattr(api_state, "AnalysisJobManager", SynchronousAnalysisManager)
@@ -195,12 +195,12 @@ def test_api_defaults_multi_model_analysis_to_all_models(monkeypatch, tmp_path: 
     response = client.post("/api/analysis/jobs", json={})
 
     assert response.status_code == 200
-    assert response.json()["models"] == ["sonara", "maest", "mert", "muq", "clap"]
-    assert SynchronousAnalysisManager.last_request["models"] == ["sonara", "maest", "mert", "muq", "clap"]
+    assert response.json()["models"] == ["maest", "mert", "muq", "clap"]
+    assert SynchronousAnalysisManager.last_request["models"] == ["maest", "mert", "muq", "clap"]
     assert SynchronousAnalysisManager.last_request["track_batch_size"] == 4
     assert SynchronousAnalysisManager.last_request["inference_batch_size"] == 24
     assert SynchronousAnalysisManager.last_request["classifier_keys"] == []
-    assert SynchronousAnalysisManager.last_request["sonara_features"] == list(DEFAULT_SONARA_FEATURE_FAMILIES)
+    assert SynchronousAnalysisManager.last_request["sonara_features"] == []
 
 
 def test_api_exposes_analysis_job_lookup_latest_and_cancel_contract(monkeypatch, tmp_path: Path) -> None:

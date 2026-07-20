@@ -235,7 +235,7 @@ test("metadata dialog groups archival SONARA rhythm and identity metadata as dat
 test("main analysis requests mood and instrumentalness for future data use", () => {
   const source = readFileSync(appPath, "utf8");
 
-  assert.match(source, /sonara_features:\s*\["structure", "loudness", "beatgrid", "key_candidates", "vocalness", "mood", "instrumentalness", "silence"\]/);
+  assert.match(source, /sonara_features:\s*models\.includes\("sonara"\)[\s\S]*?\["structure", "loudness", "beatgrid", "key_candidates", "vocalness", "mood", "instrumentalness", "silence"\][\s\S]*?: \[\]/);
 });
 
 test("metadata dialog displays loudness and light structure data with domain units", () => {

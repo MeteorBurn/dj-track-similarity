@@ -196,7 +196,7 @@ class FakeSonara:
 
 
 class FakeCurrentSonara(FakeSonara):
-    __version__ = "0.2.4"
+    __version__ = "0.2.8"
 
 
 class FakeFallbackSonara(FakeSonara):
@@ -274,8 +274,8 @@ def test_analyze_and_store_sonara_features_passes_project_bpm_range(tmp_path: Pa
         sonara_module=FakeSonara,
     )
 
-    assert FakeSonara.file_calls[-1]["bpm_min"] == 79.0
-    assert FakeSonara.file_calls[-1]["bpm_max"] == 192.0
+    assert FakeSonara.file_calls[-1]["bpm_min"] == 70.0
+    assert FakeSonara.file_calls[-1]["bpm_max"] == 180.0
 
 
 def test_analyze_sonara_features_from_audio_passes_project_bpm_range() -> None:
@@ -284,8 +284,8 @@ def test_analyze_sonara_features_from_audio_passes_project_bpm_range() -> None:
 
     analyze_sonara_features_from_audio(decoded, sonara_module=FakeSonara)
 
-    assert FakeSonara.signal_calls[-1]["bpm_min"] == 79.0
-    assert FakeSonara.signal_calls[-1]["bpm_max"] == 192.0
+    assert FakeSonara.signal_calls[-1]["bpm_min"] == 70.0
+    assert FakeSonara.signal_calls[-1]["bpm_max"] == 180.0
 
 
 def test_analyze_sonara_wav_fallback_passes_project_bpm_range(tmp_path: Path) -> None:
@@ -303,10 +303,10 @@ def test_analyze_sonara_wav_fallback_passes_project_bpm_range(tmp_path: Path) ->
         sonara_module=FakeFallbackSonara,
     )
 
-    assert FakeFallbackSonara.file_calls[-1]["bpm_min"] == 79.0
-    assert FakeFallbackSonara.file_calls[-1]["bpm_max"] == 192.0
-    assert FakeFallbackSonara.signal_calls[-1]["bpm_min"] == 79.0
-    assert FakeFallbackSonara.signal_calls[-1]["bpm_max"] == 192.0
+    assert FakeFallbackSonara.file_calls[-1]["bpm_min"] == 70.0
+    assert FakeFallbackSonara.file_calls[-1]["bpm_max"] == 180.0
+    assert FakeFallbackSonara.signal_calls[-1]["bpm_min"] == 70.0
+    assert FakeFallbackSonara.signal_calls[-1]["bpm_max"] == 180.0
 
 
 def test_analyze_and_store_sonara_features_writes_metadata_and_json_dump(tmp_path: Path) -> None:
@@ -456,15 +456,15 @@ def test_default_analysis_requests_no_optin_features_and_stores_playlist_sequenc
         "sample_rate": 22050,
         "hop_length": 512,
         "mode": "playlist",
-        "package_version": "0.2.4",
+        "package_version": "0.2.8",
     }
     signature = db.get_track(track_id).metadata[SONARA_ANALYSIS_SIGNATURE_KEY]
     assert signature == {
-        "sonara_version": "0.2.4",
+        "sonara_version": "0.2.8",
         "schema_version": 3,
         "mode": "playlist",
         "sample_rate": 22050,
-        "bpm_range": [79, 192],
+        "bpm_range": [70, 180],
         "requested_features": [],
         "project_feature_revision": 1,
         "signature_id": signature["signature_id"],

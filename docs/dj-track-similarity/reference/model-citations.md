@@ -12,7 +12,7 @@ Because the project does not vendor or redistribute upstream model weights, this
 
 | Analysis family | Current code path | Upstream source | License note |
 | --- | --- | --- | --- |
-| SONARA | `sonara==0.2.4`, schema 3, playlist mode with BPM range `79.0..192.0`; exact provenance is stored per track | [kkollsga/sonara](https://github.com/kkollsga/sonara), [v0.2.4 release](https://github.com/kkollsga/sonara/releases/tag/v0.2.4) | Upstream is MIT. Preserve its license and check terms before redistribution. |
+| SONARA | `sonara==0.2.8`, schema 3, playlist mode with BPM range `70.0..180.0`; exact provenance is stored per track | [kkollsga/sonara](https://github.com/kkollsga/sonara), [v0.2.8 release](https://github.com/kkollsga/sonara/releases/tag/v0.2.8) | Upstream is MIT. Preserve its license and check terms before redistribution. |
 | MAEST | `discogs-maest-30s-pw-129e-519l` via `maest-infer` | [openmirlab/maest-infer](https://github.com/openmirlab/maest-infer), original [palonso/MAEST](https://github.com/palonso/MAEST) | `maest-infer` is AGPL-3.0-only and asks research users to cite the original MAEST paper. |
 | MERT | `m-a-p/MERT-v1-95M` through Hugging Face Transformers | [yizhilll/MERT](https://github.com/yizhilll/MERT), [MERT-v1-95M checkpoint](https://huggingface.co/m-a-p/MERT-v1-95M) | GitHub code is Apache-2.0. The checkpoint page is marked CC-BY-NC-4.0. |
 | MuQ | `OpenMuQ/MuQ-large-msd-iter` through the `muq` package | [tencent-ailab/muq](https://github.com/tencent-ailab/muq), [MuQ-large-msd-iter checkpoint](https://huggingface.co/OpenMuQ/MuQ-large-msd-iter) | Upstream code is MIT. Released MuQ weights are CC-BY-NC-4.0. |

@@ -20,7 +20,7 @@ from dj_track_similarity.sonara_contract import (
 
 def test_analysis_signature_is_deterministic_and_sorts_requested_profile() -> None:
     provenance = {
-        "package_version": "0.2.4",
+        "package_version": "0.2.8",
         "schema_version": 3,
         "mode": "playlist",
         "sample_rate": 22_050,
@@ -37,7 +37,7 @@ def test_analysis_signature_is_deterministic_and_sorts_requested_profile() -> No
 
     assert first == second
     assert first["requested_features"] == ["bpm", "structure", "vocalness"]
-    assert first["bpm_range"] == [79, 192]
+    assert first["bpm_range"] == [70, 180]
     assert first["project_feature_revision"] == 1
     assert str(first["signature_id"]).startswith("sha256:")
     assert sonara_analysis_signature_errors(first) == ()

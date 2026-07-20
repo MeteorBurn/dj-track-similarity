@@ -11,7 +11,8 @@ This workflow uses the main UI.
 For SET, run all core analysis families:
 
 ```powershell
-dj-sim analyze --models sonara,maest,mert,clap --db .\data\library.sqlite
+dj-sim analyze --models sonara --db .\data\library.sqlite
+dj-sim analyze --models maest,mert,clap --db .\data\library.sqlite
 ```
 
 A track needs SONARA, MERT, MAEST, and CLAP data to be SET-eligible.

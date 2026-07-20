@@ -16,6 +16,7 @@ from .logging_config import analysis_diagnostics_enabled
 
 LOGGER = logging.getLogger(__name__)
 INVALID_AUDIO_STREAM_MESSAGE = "Invalid audio stream: ffmpeg could not decode audio"
+SONARA_DECODE_SAMPLE_RATE = 22_050
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,12 @@ def load_decoded_audio(path: str | Path) -> DecodedAudio:
         except Exception as error:
             _log_decoder_failure("wave", audio_path, error)
     audio, sample_rate, detail = _load_with_ffmpeg(audio_path)
+    return DecodedAudio(path=str(path), audio=audio, sample_rate=sample_rate, detail=detail)
+
+
+def load_sonara_decoded_audio(path: str | Path) -> DecodedAudio:
+    """Decode the standalone SONARA job directly to its required mono PCM rate."""
+    audio, sample_rate, detail = _load_with_ffmpeg(Path(path), target_sample_rate=SONARA_DECODE_SAMPLE_RATE)
     return DecodedAudio(path=str(path), audio=audio, sample_rate=sample_rate, detail=detail)
 
 
@@ -109,11 +116,13 @@ def _load_with_torchaudio(path: Path, torchaudio_module: object) -> tuple[np.nda
     return audio.astype(np.float32, copy=False), int(sample_rate), "native torchaudio decode"
 
 
-def _load_with_ffmpeg(path: Path) -> tuple[np.ndarray, int, str]:
+def _load_with_ffmpeg(path: Path, *, target_sample_rate: int | None = None) -> tuple[np.ndarray, int, str]:
     ffmpeg = _ffmpeg_path()
     if not ffmpeg:
         raise RuntimeError(f"ffmpeg executable not found on PATH or {FFMPEG_ENV_VAR}")
-    sample_rate = _source_sample_rate(path, ffmpeg_path=ffmpeg)
+    sample_rate = int(target_sample_rate) if target_sample_rate is not None else _source_sample_rate(path, ffmpeg_path=ffmpeg)
+    if sample_rate <= 0:
+        raise ValueError("target_sample_rate must be greater than zero")
     command = [
         ffmpeg,
         "-v",
@@ -133,6 +142,8 @@ def _load_with_ffmpeg(path: Path) -> tuple[np.ndarray, int, str]:
         "-ac",
         "1",
     ]
+    if target_sample_rate is not None:
+        command.extend(["-ar", str(sample_rate)])
     command.append("-")
     try:
         result = subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -145,7 +156,8 @@ def _load_with_ffmpeg(path: Path) -> tuple[np.ndarray, int, str]:
     if usable <= 0:
         raise RuntimeError(_invalid_audio_stream_message("ffmpeg produced an incomplete float32 audio buffer"))
     audio = np.frombuffer(result.stdout[:usable], dtype=np.float32)
-    return audio.astype(np.float32, copy=False), sample_rate, "ffmpeg decode"
+    detail = "ffmpeg decode" if target_sample_rate is None else f"ffmpeg decode @ {sample_rate} Hz"
+    return audio.astype(np.float32, copy=False), sample_rate, detail
 
 
 def _invalid_audio_stream_message(detail: str | None = None) -> str:

@@ -29,6 +29,7 @@ from .analysis_config import (
     MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
     MAX_ANALYSIS_TOP_K,
     MAX_ANALYSIS_TRACK_BATCH_SIZE,
+    ML_ANALYSIS_MODEL_ORDER,
     MIN_ANALYSIS_INFERENCE_BATCH_SIZE,
     MIN_ANALYSIS_TOP_K,
     MIN_ANALYSIS_TRACK_BATCH_SIZE,
@@ -917,7 +918,7 @@ def relocate_library(
 def analyze(
     db_path: Optional[Path] = typer.Option(None, "--db"),
     limit: Optional[int] = typer.Option(None, "--limit"),
-    models: str = typer.Option(",".join(ANALYSIS_MODEL_ORDER), "--models", help="Comma-separated analysis models: sonara,maest,mert,muq,clap."),
+    models: str = typer.Option(",".join(ML_ANALYSIS_MODEL_ORDER), "--models", help="Comma-separated ML models, or SONARA alone: maest,mert,muq,clap | sonara."),
     device: str = typer.Option(DEFAULT_ANALYSIS_DEVICE, "--device", help="Embedding device: auto, cpu, or cuda."),
     top_k: int = typer.Option(
         DEFAULT_ANALYSIS_TOP_K,
@@ -976,14 +977,18 @@ def analyze(
     ]
     if sonara_minimal and selected_sonara_features:
         raise typer.BadParameter("--sonara-minimal cannot be combined with individual --sonara-* feature flags")
-    sonara_features = (
-        []
-        if sonara_minimal
-        else selected_sonara_features or list(DEFAULT_SONARA_FEATURE_FAMILIES)
-    )
     try:
+        selected_models = _parse_analysis_models(models)
+        sonara_options_requested = sonara_minimal or bool(selected_sonara_features)
+        if "sonara" not in selected_models and sonara_options_requested:
+            raise ValueError("--sonara-* options require --models sonara")
+        sonara_features = (
+            []
+            if sonara_minimal or "sonara" not in selected_models
+            else selected_sonara_features or list(DEFAULT_SONARA_FEATURE_FAMILIES)
+        )
         config = build_analysis_job_config(
-            models=_parse_analysis_models(models),
+            models=selected_models,
             limit=limit,
             device=device,
             top_k=top_k,

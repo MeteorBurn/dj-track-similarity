@@ -19,31 +19,36 @@ The UI lists these choices:
 
 One job can include multiple families. Tracks that already have a selected result are skipped for that family.
 
-SONARA runs separately from the ML models and classifiers. The project FFmpeg decoder supplies one mono float32 file buffer at `22050 Hz` directly to SONARA's native Rust implementation. A SONARA job cannot include MAEST, MERT, MuQ, CLAP, or classifiers. SONARA BPM analysis uses the project range `70.0..180.0`. Tempo-aware workflows start with current
+SONARA runs separately from the ML models and classifiers. The project FFmpeg decoder supplies one mono float32 file buffer at `22050 Hz` directly to SONARA's native Rust analyzer. A SONARA job cannot include MAEST, MERT, MuQ, CLAP, or classifiers. SONARA BPM analysis uses the project range `70.0..180.0`. Tempo-aware workflows start with current
 signed SONARA evidence but do not trust it blindly. Below `0.45` confidence, the resolver checks
 SONARA candidates and the Mutagen BPM tag. A corroborated tag can become the working BPM.
 `grid_stability` can lower reliability, which moves the tempo score toward neutral. If you analyzed
 tracks before the current range was configured, select SONARA and run analysis again. The legacy
 signature does not match, so those tracks are queued automatically without a reset.
 
-The default SONARA v0.2.8 result also stores raw BPM, `bpm_confidence`, tempo candidates, and Camelot key. The metadata dialog shows the `0..1` BPM confidence beside saved provenance such as schema version, sample rate, hop length, analysis mode, requested features, and installed package version when available.
+The default SONARA v0.2.9 Core result also stores raw BPM, `bpm_confidence`, tempo candidates, Camelot key, compact structure/loudness data, vocalness v2, mood, and other lightweight values. The metadata dialog shows Core values beside saved provenance such as schema version, sample rate, hop length, analysis mode, requested features, and installed package version.
 
-## Full SONARA capture
+## Choose SONARA outputs
 
-SONARA offers eight additional feature families: structure, loudness, beat grid, key candidates,
-vocalness, mood, instrumentalness, and silence. UI, CLI, and API defaults request all eight automatically.
-Use CLI `--sonara-minimal`, individual family flags, or an explicit API profile only when a smaller profile is intentional. Changing the
-requested profile changes the deterministic analysis signature; the next SONARA job queues mismatched
-tracks automatically, so profile changes do not normally require a reset.
+When SONARA is selected, three checkboxes appear:
+
+- **Core** (default) writes lightweight scalar and fixed-vector results to the selected main database.
+- **Timeline** writes complete time arrays, events, and segments to the adjacent `*.timeline.sqlite` database.
+- **Representations** writes the SONARA embedding and fingerprint to the adjacent `*.representations.sqlite` database.
+
+You can run Core first and add Timeline or Representations later. One SONARA job still decodes each
+track once and requests the union of selected outputs from Rust. Each output has its own deterministic
+signature, so adding Timeline does not invalidate a current Core result.
 
 Mood and instrumentalness are stored and displayed but do not enter current similarity, SET,
 Hybrid, or classifier calculations. True peak and ReplayGain are stored for possible future
 loudness-management work rather than direct SONARA similarity scoring. Complete beat/onset
-positions, chord labels/events, tempo, energy, and loudness curves, downbeat arrays, and the SONARA
-embedding and fingerprint are saved out-of-band in `sonara_curves`; the metadata dialog loads the
-lazy payloads on demand and renders browser-side summaries without putting them on the hot search path.
-The lazy API response still contains the complete stored values. Time signature, its confidence,
-tempo variability, and embedding/fingerprint version fields remain lightweight metadata.
+positions, chord labels/events, tempo, energy and loudness curves, downbeat arrays, and structure
+segments are Timeline data. The SONARA embedding and fingerprint are Representations data.
+
+The metadata dialog displays all Core values. For Timeline and Representations it displays only
+`Data present` plus the exact stored field names. It never loads the heavy values just to open the
+dialog. The Timeline API remains available for future workflows that explicitly need the payload.
 
 ## Limit behavior
 
@@ -82,13 +87,13 @@ The square stop button requests cancellation. It does not kill Python mid-write.
 
 Reset is SQLite-only:
 
-- SONARA reset removes SONARA features, provenance, signature, curves, flags, and dependent main-library classifier scores. Labels and feedback remain intact.
+- SONARA reset removes Core features, Timeline rows, SONARA embedding/fingerprint rows, flags, and dependent main-library classifier scores. Labels and feedback remain intact.
 - MAEST reset removes MAEST metadata and MAEST embeddings.
 - MERT, MuQ, and CLAP reset delete embeddings for that key.
 - CLASSIFIERS reset deletes selected `track_classifier_scores` rows.
 
 Use reset when you intentionally want to delete stored results before a fresh run. Do not reset for a
-SONARA version/profile mismatch: normal analysis detects the signature mismatch and queues reanalysis.
+SONARA output/signature mismatch: normal analysis detects the mismatch and queues that output.
 
 For a complete existing-library procedure, including backups and classifier rebuilding, follow
-[Migrate and reanalyze SONARA v0.2.4](../workflows/migrate-sonara-v0-2-4.md).
+[Reanalyze with split SONARA storage](../workflows/reanalyze-sonara-split-storage.md).

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import sqlite3
 
-from .db_search_fts import create_track_search_fts
+from .db_search_fts import create_track_search_fts, rebuild_track_search_fts
+from .db_storage import ensure_sidecar_schemas
+from .metadata_payload import metadata_from_json, metadata_to_json, optional_float, string_or_none
 from .sonara_contract import SONARA_PROJECT_FEATURE_REVISION, feature_set_uses_sonara
 
 
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 SQLITE_BUSY_TIMEOUT_SECONDS = 30
 SONARA_CLASSIFIER_REVISION_SETTING_KEY = "classifier.sonara_feature_revision"
 
@@ -27,6 +29,30 @@ TRACK_EMBEDDING_KEY_FIELD = """
     FROM embeddings
     WHERE track_id = t.id
 ) AS embedding_keys_json
+"""
+TRACK_STORAGE_MANIFEST_FIELDS = """
+(
+    SELECT fields_json
+    FROM timeline.sonara_timeline
+    WHERE track_id = t.id
+) AS timeline_fields_json,
+(
+    SELECT json_group_array(field_name)
+    FROM (
+        SELECT
+            CASE embedding_key
+                WHEN 'sonara' THEN 'embedding'
+                ELSE embedding_key || '_embedding'
+            END AS field_name
+        FROM representations.embeddings
+        WHERE track_id = t.id
+        UNION ALL
+        SELECT fingerprint_key AS field_name
+        FROM representations.fingerprints
+        WHERE track_id = t.id
+        ORDER BY field_name
+    )
+) AS representation_fields_json
 """
 TRACK_CLASSIFIER_SCORES_FIELD = """
 (
@@ -53,6 +79,7 @@ TRACK_SELECT_FIELDS = f"""
 {TRACK_BASE_FIELDS}, t.metadata_json, e.model_name AS embedding_model, e.dim AS embedding_dim,
 {TRACK_ANALYSIS_FLAG_FIELDS},
 {TRACK_EMBEDDING_KEY_FIELD},
+{TRACK_STORAGE_MANIFEST_FIELDS},
 {TRACK_CLASSIFIER_SCORES_FIELD}
 """
 TRACK_SLIM_SELECT_FIELDS = f"""
@@ -79,21 +106,23 @@ def ensure_schema(connection: sqlite3.Connection) -> None:
     connection.execute("PRAGMA synchronous = NORMAL")
 
     tables = _user_tables(connection)
-    if tables and not {"tracks", "embeddings"}.issubset(tables):
+    if tables and not {"tracks", "library_settings"}.issubset(tables):
         raise RuntimeError(_migration_required_message())
 
     if not tables:
         _create_current_schema(connection)
+        ensure_sidecar_schemas(connection)
         _ensure_sonara_classifier_feature_revision(connection)
         return
 
-    if _schema_version(connection) == 4:
-        _migrate_v4_to_v5(connection)
+    if _schema_version(connection) == 5:
+        _migrate_v5_to_v6(connection)
 
     if _schema_version(connection) != CURRENT_SCHEMA_VERSION:
         raise RuntimeError(_migration_required_message())
     _validate_current_schema(connection)
     _create_current_indexes_and_triggers(connection)
+    ensure_sidecar_schemas(connection)
     _ensure_sonara_classifier_feature_revision(connection)
 
 
@@ -124,7 +153,7 @@ def _create_current_schema(connection: sqlite3.Connection) -> None:
 
         CREATE TABLE embeddings (
             track_id INTEGER NOT NULL,
-            embedding_key TEXT NOT NULL DEFAULT 'mert',
+            embedding_key TEXT NOT NULL,
             model_name TEXT NOT NULL,
             dim INTEGER NOT NULL,
             vector BLOB NOT NULL,
@@ -156,13 +185,6 @@ def _create_current_schema(connection: sqlite3.Connection) -> None:
         CREATE TABLE track_likes (
             track_id INTEGER PRIMARY KEY,
             liked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE sonara_curves (
-            track_id INTEGER PRIMARY KEY,
-            curves_json TEXT NOT NULL CHECK(json_valid(curves_json)),
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
         );
 
@@ -246,13 +268,6 @@ def _create_current_indexes_and_triggers(connection: sqlite3.Connection) -> None
         CREATE TABLE IF NOT EXISTS track_likes (
             track_id INTEGER PRIMARY KEY,
             liked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
-        );
-
-        CREATE TABLE IF NOT EXISTS sonara_curves (
-            track_id INTEGER PRIMARY KEY,
-            curves_json TEXT NOT NULL CHECK(json_valid(curves_json)),
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
         );
 
@@ -357,22 +372,69 @@ def _create_evaluation_schema(connection: sqlite3.Connection) -> None:
     )
 
 
-def _migrate_v4_to_v5(connection: sqlite3.Connection) -> None:
-    track_columns = _columns(connection, "tracks")
-    if "has_muq_embedding" not in track_columns:
-        connection.execute("ALTER TABLE tracks ADD COLUMN has_muq_embedding INTEGER NOT NULL DEFAULT 0")
+def _migrate_v5_to_v6(connection: sqlite3.Connection) -> None:
+    """Move SONARA 0.2.9 optional outputs to sidecars and invalidate only old SONARA data.
+
+    MAEST, MERT, MuQ, and CLAP embeddings are hot application data used by search and remain in the
+    Core database. Their flags and MAEST metadata must survive this SONARA-specific migration.
+    """
+
+    sonara_keys = {
+        "sonara_features",
+        "sonara_features_file",
+        "sonara_model",
+        "sonara_provenance",
+        "sonara_analysis_signature",
+    }
+    rows = connection.execute("SELECT id, metadata_json FROM tracks").fetchall()
+    for row in rows:
+        metadata = metadata_from_json(row["metadata_json"])
+        for key in sonara_keys:
+            metadata.pop(key, None)
         connection.execute(
             """
             UPDATE tracks
-            SET has_muq_embedding = 1
-            WHERE EXISTS (
-                SELECT 1
-                FROM embeddings
-                WHERE embeddings.track_id = tracks.id
-                  AND embeddings.embedding_key = 'muq'
-            )
-            """
+            SET bpm = ?,
+                musical_key = ?,
+                energy = ?,
+                duration = ?,
+                has_sonara_analysis = 0,
+                metadata_json = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                optional_float(metadata.get("bpm")),
+                string_or_none(metadata.get("key")) or string_or_none(metadata.get("initialkey")),
+                optional_float(metadata.get("energy")),
+                optional_float(metadata.get("duration")),
+                metadata_to_json(metadata),
+                int(row["id"]),
+            ),
         )
+    for embedding_key, flag_column in (
+        ("maest", "has_maest_embedding"),
+        ("mert", "has_mert_embedding"),
+        ("muq", "has_muq_embedding"),
+        ("clap", "has_clap_embedding"),
+    ):
+        connection.execute(
+            f"""
+            UPDATE tracks
+            SET {flag_column} = EXISTS (
+                SELECT 1
+                FROM embeddings e
+                WHERE e.track_id = tracks.id AND e.embedding_key = ?
+            )
+            """,
+            (embedding_key,),
+        )
+    connection.execute("DROP TABLE IF EXISTS sonara_curves")
+    connection.execute(
+        "DELETE FROM library_settings WHERE key = ?",
+        (SONARA_CLASSIFIER_REVISION_SETTING_KEY,),
+    )
+    rebuild_track_search_fts(connection)
     connection.execute(f"PRAGMA user_version = {CURRENT_SCHEMA_VERSION}")
 
 
@@ -444,6 +506,8 @@ def _validate_current_schema(connection: sqlite3.Connection) -> None:
     if not required_settings_columns.issubset(settings_columns):
         raise RuntimeError(_migration_required_message())
     if "track_search_fts" not in tables:
+        raise RuntimeError(_migration_required_message())
+    if "sonara_curves" in tables:
         raise RuntimeError(_migration_required_message())
     _validate_evaluation_schema(connection)
 

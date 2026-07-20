@@ -20,10 +20,9 @@ from .ann_index import (
     verify_persistent_index,
 )
 from .analysis_config import (
-    ANALYSIS_MODEL_ORDER,
     DEFAULT_ANALYSIS_DEVICE,
     DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
-    DEFAULT_SONARA_FEATURE_FAMILIES,
+    DEFAULT_SONARA_OUTPUTS,
     DEFAULT_ANALYSIS_TOP_K,
     DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
     MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
@@ -942,51 +941,16 @@ def analyze(
         help="MERT/CLAP/MAEST model inference batch size.",
     ),
     diagnostics: bool = typer.Option(False, "--diagnostics", help="Write decoder fallback and batch timing diagnostics to the file log."),
-    sonara_minimal: bool = typer.Option(
-        False,
-        "--sonara-minimal",
-        help="Use plain SONARA playlist output instead of the default full archival profile.",
+    sonara_outputs: str = typer.Option(
+        ",".join(DEFAULT_SONARA_OUTPUTS),
+        "--sonara-outputs",
+        help="Comma-separated SONARA storage outputs: core,timeline,representations.",
     ),
-    sonara_structure: bool = typer.Option(False, "--sonara-structure", help="SONARA explicit subset: structure and energy-curve data."),
-    sonara_loudness: bool = typer.Option(False, "--sonara-loudness", help="SONARA explicit subset: detailed loudness data."),
-    sonara_beatgrid: bool = typer.Option(False, "--sonara-beatgrid", help="SONARA explicit subset: downbeats and beat-grid data."),
-    sonara_key_candidates: bool = typer.Option(False, "--sonara-key-candidates", help="SONARA explicit subset: top-3 key candidates."),
-    sonara_vocalness: bool = typer.Option(False, "--sonara-vocalness", help="SONARA explicit subset: vocal-presence heuristic (0-1)."),
-    sonara_mood: bool = typer.Option(False, "--sonara-mood", help="SONARA explicit subset: four heuristic mood affinities (0-1)."),
-    sonara_instrumentalness: bool = typer.Option(
-        False,
-        "--sonara-instrumentalness",
-        help="SONARA explicit subset: instrumentalness heuristic (0-1).",
-    ),
-    sonara_silence: bool = typer.Option(False, "--sonara-silence", help="SONARA explicit subset: leading/trailing silence offsets."),
 ) -> None:
     set_analysis_diagnostics_enabled(diagnostics)
-    selected_sonara_features = [
-        family
-        for family, enabled in (
-            ("structure", sonara_structure),
-            ("loudness", sonara_loudness),
-            ("beatgrid", sonara_beatgrid),
-            ("key_candidates", sonara_key_candidates),
-            ("vocalness", sonara_vocalness),
-            ("mood", sonara_mood),
-            ("instrumentalness", sonara_instrumentalness),
-            ("silence", sonara_silence),
-        )
-        if enabled
-    ]
-    if sonara_minimal and selected_sonara_features:
-        raise typer.BadParameter("--sonara-minimal cannot be combined with individual --sonara-* feature flags")
     try:
         selected_models = _parse_analysis_models(models)
-        sonara_options_requested = sonara_minimal or bool(selected_sonara_features)
-        if "sonara" not in selected_models and sonara_options_requested:
-            raise ValueError("--sonara-* options require --models sonara")
-        sonara_features = (
-            []
-            if sonara_minimal or "sonara" not in selected_models
-            else selected_sonara_features or list(DEFAULT_SONARA_FEATURE_FAMILIES)
-        )
+        selected_sonara_outputs = [item.strip() for item in sonara_outputs.split(",") if item.strip()]
         config = build_analysis_job_config(
             models=selected_models,
             limit=limit,
@@ -994,7 +958,7 @@ def analyze(
             top_k=top_k,
             track_batch_size=track_batch_size,
             inference_batch_size=inference_batch_size,
-            sonara_features=sonara_features,
+            sonara_outputs=(selected_sonara_outputs if "sonara" in selected_models else None),
         )
     except ValueError as error:
         raise typer.BadParameter(str(error)) from error
@@ -1006,7 +970,7 @@ def analyze(
         top_k=config.top_k,
         track_batch_size=config.track_batch_size,
         inference_batch_size=config.inference_batch_size,
-        sonara_features=list(config.sonara_features),
+        sonara_outputs=list(config.sonara_outputs),
     )
     status = _run_cli_job_with_progress(manager, job_id, label=",".join(config.models))
     typer.echo(

@@ -139,8 +139,8 @@ depending on what that profile's labels mean.
 SONARA-dependent training accepts only tracks with one current, identical analysis
 signature. Training artifacts and promoted manifest version `2` retain that signature.
 Prediction, promotion, and main-app scoring reject a missing or mismatched signature,
-so a model trained on the older danceability, acousticness, or vocalness semantics cannot
-silently score v0.2.4 rows. Missing opt-in fields are incompatible data, not numeric zeroes.
+so a model trained on older danceability, acousticness, or vocalness semantics cannot silently score
+current schema-v6 Core rows. Missing required Core fields are incompatible data, not numeric zeroes.
 Embedding-only feature sets do not require a SONARA signature.
 
 After the SONARA feature revision changes, retrain and promote the affected profiles.

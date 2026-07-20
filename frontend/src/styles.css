@@ -1116,6 +1116,53 @@ h2 {
   width: 100%;
 }
 
+.sonara-output-options {
+  background: color-mix(in srgb, var(--surface-muted) 72%, transparent);
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  display: grid;
+  gap: 7px;
+  margin: 0 0 10px;
+  padding: 8px 10px 10px;
+  width: 100%;
+}
+
+.sonara-output-options legend {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 760;
+  padding: 0 4px;
+  text-transform: uppercase;
+}
+
+.sonara-output-options label {
+  align-items: flex-start;
+  cursor: pointer;
+  display: grid;
+  gap: 7px;
+  grid-template-columns: 16px minmax(0, 1fr);
+}
+
+.sonara-output-options input {
+  margin: 2px 0 0;
+}
+
+.sonara-output-options label span {
+  display: grid;
+  gap: 1px;
+}
+
+.sonara-output-options label b {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.sonara-output-options label small {
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 14px;
+}
+
 .analysis-models-heading {
   border-top: 1px solid var(--border-soft);
   color: var(--text);
@@ -3209,7 +3256,8 @@ button.metadata-copy-path-button:hover:not(:disabled) {
 }
 
 .genre-block,
-.classifier-score-block {
+.classifier-score-block,
+.sonara-storage-block {
   border-top: 1px solid var(--border-muted);
   display: flex;
   flex: 0 0 auto;
@@ -3296,8 +3344,33 @@ button.metadata-copy-path-button:hover:not(:disabled) {
 .genre-block > strong,
 .classifier-score-block > strong,
 .mutagen-block > strong,
-.sonara-block > strong {
+.sonara-block > strong,
+.sonara-storage-block > strong {
   font-size: 13px;
+}
+
+.sonara-storage-present {
+  align-items: center;
+  color: var(--accent);
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 700;
+  gap: 5px;
+}
+
+.sonara-storage-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.sonara-storage-fields code {
+  background: var(--surface-muted);
+  border: 1px solid var(--border-soft);
+  border-radius: 5px;
+  color: var(--text-muted);
+  font-size: 10px;
+  padding: 3px 6px;
 }
 
 .genre-block-title {

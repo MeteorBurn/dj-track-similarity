@@ -58,21 +58,23 @@ In **1. Database and analysis**:
 
 The UI creates a job and polls progress. It also shows the current model/path and keeps a process log. The stop button requests cancellation.
 
-When SONARA is selected, UI, CLI, and API defaults request all eight supported extra families. An
-explicit API empty list or CLI `--sonara-minimal` requests plain playlist mode. The full profile archives complete beat, onset,
-chord, tempo, energy, loudness, downbeat, embedding, and fingerprint data outside the hot metadata row.
+When SONARA is selected, Core is checked by default. Timeline and Representations appear as optional
+checkboxes. Select all three when you want complete beat/onset/chord/curve data plus SONARA embedding
+and fingerprint. All selected outputs still share one FFmpeg decode and one Rust analysis call.
 
 ## Already analyzed tracks
 
-Analysis jobs target missing results for the selected families. SONARA also targets a row when its deterministic signature does not match the requested current profile, so an upgrade or profile change is reanalyzed without a manual reset. Other complete families are skipped. Use the per-family reset buttons only when you intentionally want to delete stored results and rerun.
+Analysis jobs target missing results for the selected families. SONARA checks Core, Timeline, and
+Representations signatures independently, so adding Timeline later does not replace Core. Other
+complete families are skipped. Use reset only when you intentionally want to delete stored results.
 
 For an existing analyzed database, use the ordered
-[SONARA v0.2.4 migration workflow](../workflows/migrate-sonara-v0-2-4.md) before rebuilding dependent
+[split SONARA storage workflow](../workflows/reanalyze-sonara-split-storage.md) before rebuilding dependent
 classifiers.
 
 ## Reset boundaries
 
-- Reset SONARA removes SONARA metadata, provenance, signature, curves, flags, and dependent classifier scores, then restores working BPM/key/energy/duration from remaining tags when possible. Labels and feedback remain intact.
+- Reset SONARA removes Core metadata, Timeline rows, SONARA embedding/fingerprint rows, flags, and dependent classifier scores, then restores working BPM/key/energy/duration from remaining tags when possible. Labels and feedback remain intact.
 - Reset MAEST removes MAEST metadata and MAEST embeddings.
 - Reset MERT, MuQ, or CLAP deletes embeddings for that key.
 - Reset CLASSIFIERS deletes selected classifier scores only.

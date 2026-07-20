@@ -10,6 +10,7 @@ from typing import Any
 
 import numpy as np
 
+from .analysis_config import DEFAULT_SONARA_OUTPUTS, normalize_sonara_outputs
 from .audio_loader import DecodedAudio, load_audio_mono
 from .database import LibraryDatabase
 from .models import Track
@@ -25,183 +26,67 @@ from .sonara_contract import (
 
 SONARA_MODEL_NAME = "sonara-playlist-lab"
 
-# sonara 2.0 `features=[...]` REPLACES the mode preset instead of extending it: passing only an
-# opt-in family drops the base playlist output (key, energy, chords, etc.). So when any opt-in family
-# is requested we must pass the full playlist-equivalent feature list PLUS the family names. This
-# list reproduces the plain playlist output exactly (verified against the real library: 0 lost,
-# 0 extra keys). When no family is requested we pass no `features` at all (pure playlist = pre-2.0).
-SONARA_PLAYLIST_FEATURE_REQUESTS = (
+# Each output owns an independent, deterministic request profile. A combined job uses the union of
+# these names, but persisted signatures remain per output so adding Timeline later never invalidates
+# an already-current Core result.
+SONARA_REQUEST_ORDER = (
     "bpm", "beats", "onsets", "rms", "dynamic_range", "centroid", "zcr",
     "onset_density", "bandwidth", "rolloff", "flatness", "contrast", "mfcc",
     "chroma", "chords", "dissonance", "energy", "danceability", "key",
-    "valence", "acousticness", "tempo_curve", "time_signature", "embedding",
-    "fingerprint",
+    "valence", "acousticness", "tempo_curve", "time_signature", "beatgrid",
+    "structure", "embedding", "fingerprint", "loudness", "silence",
+    "key_candidates", "vocalness", "mood", "instrumentalness",
 )
-
-# SONARA 2.0 opt-in feature families -> the `features=[...]` names sonara.analyze_* expects.
-# Requesting a family adds its playlist output; the plain playlist mode (empty families) is the
-# pre-2.0 behavior. Family names match analysis_config.SONARA_FEATURE_FAMILIES.
-SONARA_FEATURE_REQUESTS = {
-    "structure": ("structure",),
-    "loudness": ("loudness",),
-    "beatgrid": ("beatgrid",),
-    "key_candidates": ("key_candidates",),
-    "vocalness": ("vocalness",),
-    "mood": ("mood",),
-    "instrumentalness": ("instrumentalness",),
-    "silence": ("silence",),
+SONARA_OUTPUT_FEATURE_REQUESTS = {
+    "core": (
+        "bpm", "beats", "rms", "dynamic_range", "centroid", "zcr",
+        "onset_density", "bandwidth", "rolloff", "flatness", "contrast", "mfcc",
+        "chroma", "chords", "dissonance", "energy", "danceability", "key",
+        "valence", "acousticness", "tempo_curve", "time_signature", "beatgrid",
+        "structure", "loudness", "silence", "key_candidates", "vocalness", "mood",
+        "instrumentalness",
+    ),
+    "timeline": ("beats", "onsets", "chords", "tempo_curve", "beatgrid", "structure", "loudness"),
+    "representations": ("embedding", "fingerprint"),
 }
 
-# Light opt-in fields stored inside sonara_features JSON (hot search path). Grouped per family so a
-# family that was not requested contributes nothing.
-SONARA_OPTIN_LIGHT_KEYS = {
-    "structure": ("energy_level", "intro_end_sec", "outro_start_sec", "segments", "energy_curve_hop_sec"),
-    "loudness": ("true_peak_db", "replaygain_db", "loudness_momentary_max_db", "loudness_range_lu"),
-    "beatgrid": ("grid_offset_sec", "grid_stability"),
-    "key_candidates": ("key_candidates",),
-    "vocalness": ("vocalness",),
-    "mood": ("mood_happy", "mood_aggressive", "mood_relaxed", "mood_sad"),
-    "instrumentalness": ("instrumentalness",),
-    "silence": ("leading_silence_sec", "trailing_silence_sec"),
-}
-
-# Heavy per-family curve/array fields stored out-of-band in the sonara_curves table (UI-only, never
-# read by the hot search path). Not part of sonara_features JSON.
-SONARA_OPTIN_CURVE_KEYS = {
-    "structure": ("energy_curve",),
-    "loudness": ("loudness_curve",),
-    "beatgrid": ("downbeats",),
-}
-
-# Playlist mode already computes these sequences, so retaining them adds no analysis work. Keep
-# their complete values out of the track metadata row: beats/onsets can be long, while chord events
-# are structured data that may become useful for cueing, phrase analysis, or future transitions.
-SONARA_OUT_OF_BAND_KEYS = (
-    "beats",
-    "onset_frames",
-    "chord_sequence",
-    "chord_events",
-    "tempo_curve",
-    "embedding",
-    "fingerprint",
+SONARA_CORE_KEYS = (
+    "bpm", "bpm_raw", "bpm_confidence", "bpm_candidates", "onset_density", "n_beats",
+    "rms_mean", "rms_max", "loudness_lufs", "dynamic_range_db", "spectral_centroid_mean",
+    "zero_crossing_rate", "duration_sec", "energy", "danceability", "valence", "acousticness",
+    "key", "key_camelot", "key_confidence", "key_candidates", "predominant_chord",
+    "chord_change_rate", "dissonance", "spectral_bandwidth_mean", "spectral_rolloff_mean",
+    "spectral_flatness_mean", "spectral_contrast_mean", "mfcc_mean", "chroma_mean",
+    "tempo_variability", "time_signature", "time_signature_confidence", "energy_level",
+    "intro_end_sec", "outro_start_sec", "energy_curve_hop_sec", "true_peak_db", "replaygain_db",
+    "loudness_momentary_max_db", "loudness_range_lu", "grid_offset_sec", "grid_stability",
+    "vocalness", "mood_happy", "mood_aggressive", "mood_relaxed", "mood_sad",
+    "instrumentalness", "leading_silence_sec", "trailing_silence_sec",
+)
+SONARA_TIMELINE_KEYS = (
+    "beats", "onset_frames", "chord_sequence", "chord_events", "tempo_curve", "downbeats",
+    "energy_curve", "segments", "loudness_curve",
 )
 
-# Small companion fields for the extended rhythm and archival sequences above. They remain data
-# only: none are added to the current similarity dimensions or Rhythm Lab classifier profiles.
-SONARA_ARCHIVAL_LIGHT_KEYS = (
-    "tempo_variability",
-    "time_signature",
-    "time_signature_confidence",
-    "embedding_version",
-    "fingerprint_version",
-)
 
-# Default playlist fields added since SONARA 2.0 that arrive without any opt-in request and are
-# cheap to keep in the hot path. key_camelot is sonara's own analysis output (not a project-side
-# Camelot derivation); bpm_confidence is SONARA's trust signal for the working BPM.
-SONARA_DEFAULT_EXTRA_KEYS = ("bpm_raw", "bpm_confidence", "bpm_candidates", "key_camelot")
+def _feature_names_for_outputs(outputs: Sequence[str] | None) -> list[str]:
+    selected = normalize_sonara_outputs(DEFAULT_SONARA_OUTPUTS if outputs is None else outputs)
+    requested = {
+        name
+        for output in selected
+        for name in SONARA_OUTPUT_FEATURE_REQUESTS[output]
+    }
+    return [name for name in SONARA_REQUEST_ORDER if name in requested]
 
 
-PLAYLIST_FEATURE_GROUPS = (
-    (
-        "Core features",
-        (
-            "bpm",
-            "beats",
-            "onset_frames",
-            "onset_density",
-            "n_beats",
-            "rms_mean",
-            "rms_max",
-            "loudness_lufs",
-            "dynamic_range_db",
-            "spectral_centroid_mean",
-            "zero_crossing_rate",
-            "duration_sec",
-        ),
-    ),
-    (
-        "Perceptual features (0.0 - 1.0)",
-        (
-            "energy",
-            "danceability",
-            "valence",
-            "acousticness",
-        ),
-    ),
-    (
-        "Musical key",
-        (
-            "key",
-            "key_confidence",
-        ),
-    ),
-    (
-        "Tonal analysis",
-        (
-            "predominant_chord",
-            "chord_change_rate",
-            "dissonance",
-        ),
-    ),
-    (
-        "Spectral features",
-        (
-            "spectral_bandwidth_mean",
-            "spectral_rolloff_mean",
-            "spectral_flatness_mean",
-            "spectral_contrast_mean",
-            "mfcc_mean",
-            "chroma_mean",
-        ),
-    ),
-)
-
-PLAYLIST_FEATURE_KEYS = tuple(key for _group, keys in PLAYLIST_FEATURE_GROUPS for key in keys)
-
-
-def _feature_names_for_families(families: Sequence[str] | None) -> list[str]:
-    """Map requested opt-in families to the sonara `features=[...]` request list. Returns [] when no
-    family is requested so sonara runs the plain playlist mode (pre-2.0 behavior). When any family is
-    requested we must include the full playlist feature set, because sonara's `features=[...]`
-    REPLACES the mode preset rather than extending it."""
-    if not families:
-        return []
-    requested: list[str] = list(SONARA_PLAYLIST_FEATURE_REQUESTS)
-    for family in families:
-        for name in SONARA_FEATURE_REQUESTS.get(family, ()):
-            if name not in requested:
-                requested.append(name)
-    return requested
-
-
-def sonara_analysis_signature_for_families(families: Sequence[str] | None) -> dict[str, object]:
-    """Return the exact current signature expected for an analysis profile."""
-    return expected_sonara_analysis_signature(_feature_names_for_families(families))
-
-
-def _split_optin_analysis(
-    analysis: dict[str, object],
-    families: Sequence[str] | None,
-) -> tuple[dict[str, object], dict[str, object]]:
-    """Split requested opt-in output into light fields (stored in sonara_features JSON) and heavy
-    curve/array fields (stored in the sonara_curves table)."""
-    light: dict[str, object] = {}
-    curves: dict[str, object] = {}
-    if not families:
-        return light, curves
-    for family in families:
-        for key in SONARA_OPTIN_LIGHT_KEYS.get(family, ()):
-            if key in analysis:
-                light[key] = _feature_payload(analysis[key])
-        for key in SONARA_OPTIN_CURVE_KEYS.get(family, ()):
-            if key in analysis:
-                curves[key] = _curve_payload(analysis[key])
-                if key == "energy_curve":
-                    # Keep the complete curve out of the hot row, but retain its tiny statistical
-                    # summary so transition diagnostics can use structure without loading arrays.
-                    light["energy_curve_summary"] = _feature_payload(analysis[key])
-    return light, curves
+def sonara_analysis_signatures_for_outputs(
+    outputs: Sequence[str] | None,
+) -> dict[str, dict[str, object]]:
+    selected = normalize_sonara_outputs(DEFAULT_SONARA_OUTPUTS if outputs is None else outputs)
+    return {
+        output: expected_sonara_analysis_signature(SONARA_OUTPUT_FEATURE_REQUESTS[output])
+        for output in selected
+    }
 
 
 @dataclass(frozen=True)
@@ -216,13 +101,13 @@ def analyze_and_store_sonara_features(
     track: Track,
     *,
     sonara_module: Any | None = None,
-    feature_families: Sequence[str] | None = None,
+    outputs: Sequence[str] | None = None,
 ) -> SonaraFeatureResult:
     sonara = sonara_module or _import_sonara()
     started = time.perf_counter()
-    analysis = _analyze_file_or_signal(sonara, track.path, feature_families=feature_families)
+    analysis = _analyze_file_or_signal(sonara, track.path, outputs=outputs)
     elapsed = time.perf_counter() - started
-    _store_sonara_analysis(db, track, analysis, feature_families=feature_families)
+    _store_sonara_analysis(db, track, analysis, outputs=outputs)
     return SonaraFeatureResult(track.id, track.path, elapsed)
 
 
@@ -232,12 +117,12 @@ def analyze_and_store_sonara_features_from_audio(
     decoded: DecodedAudio,
     *,
     sonara_module: Any | None = None,
-    feature_families: Sequence[str] | None = None,
+    outputs: Sequence[str] | None = None,
 ) -> SonaraFeatureResult:
     analysis, elapsed = analyze_sonara_features_from_audio(
-        decoded, sonara_module=sonara_module, feature_families=feature_families
+        decoded, sonara_module=sonara_module, outputs=outputs
     )
-    _store_sonara_analysis(db, track, analysis, feature_families=feature_families)
+    _store_sonara_analysis(db, track, analysis, outputs=outputs)
     return SonaraFeatureResult(track.id, track.path, elapsed)
 
 
@@ -245,7 +130,7 @@ def analyze_sonara_features_from_audio(
     decoded: DecodedAudio,
     *,
     sonara_module: Any | None = None,
-    feature_families: Sequence[str] | None = None,
+    outputs: Sequence[str] | None = None,
 ) -> tuple[dict[str, object], float]:
     sonara = sonara_module or _import_sonara()
     started = time.perf_counter()
@@ -262,7 +147,7 @@ def analyze_sonara_features_from_audio(
             mode=SONARA_ANALYSIS_MODE,
             bpm_min=SONARA_BPM_MIN,
             bpm_max=SONARA_BPM_MAX,
-            **_feature_kwargs(feature_families),
+            **_analysis_kwargs(outputs),
         )
     )
     _analysis_with_package_provenance(analysis, sonara)
@@ -270,10 +155,12 @@ def analyze_sonara_features_from_audio(
     return analysis, elapsed
 
 
-def _feature_kwargs(feature_families: Sequence[str] | None) -> dict[str, object]:
-    """Build the sonara `features=[...]` kwarg. Empty families -> no kwarg (plain playlist mode)."""
-    names = _feature_names_for_families(feature_families)
-    return {"features": names} if names else {}
+def _analysis_kwargs(outputs: Sequence[str] | None) -> dict[str, object]:
+    selected = normalize_sonara_outputs(DEFAULT_SONARA_OUTPUTS if outputs is None else outputs)
+    kwargs: dict[str, object] = {"features": _feature_names_for_outputs(selected)}
+    if "core" in selected:
+        kwargs["vocalness_model"] = "bundled"
+    return kwargs
 
 
 def _store_sonara_analysis(
@@ -281,40 +168,67 @@ def _store_sonara_analysis(
     track: Track,
     analysis: dict[str, object],
     *,
-    feature_families: Sequence[str] | None = None,
+    outputs: Sequence[str] | None = None,
 ) -> None:
+    selected = normalize_sonara_outputs(DEFAULT_SONARA_OUTPUTS if outputs is None else outputs)
+    provenance = _sonara_provenance(analysis)
     features: dict[str, object] = {}
-    for key in PLAYLIST_FEATURE_KEYS:
-        if key in analysis:
-            features[key] = _feature_payload(analysis[key])
+    if "core" in selected:
+        for key in SONARA_CORE_KEYS:
+            if key in analysis and analysis[key] is not None:
+                features[key] = _feature_payload(analysis[key])
+        if analysis.get("energy_curve") is not None:
+            features["energy_curve_summary"] = _feature_payload(analysis["energy_curve"])
+        if not features:
+            raise RuntimeError("SONARA Core output did not contain any core fields")
 
-    # Default playlist extras arrive without any opt-in request and are cheap enough to keep in the
-    # hot path. bpm_confidence is data only here; confidence-aware scoring is handled separately.
-    for key in SONARA_DEFAULT_EXTRA_KEYS:
-        if key in analysis:
-            features[key] = _feature_payload(analysis[key])
-    for key in SONARA_ARCHIVAL_LIGHT_KEYS:
-        if key in analysis:
-            features[key] = _feature_payload(analysis[key])
+    timeline = {
+        key: _curve_payload(analysis[key])
+        for key in SONARA_TIMELINE_KEYS
+        if "timeline" in selected and key in analysis and analysis[key] is not None
+    }
+    if "timeline" in selected and not timeline:
+        raise RuntimeError("SONARA Timeline output did not contain any timeline fields")
 
-    light, curves = _split_optin_analysis(analysis, feature_families)
-    for key in SONARA_OUT_OF_BAND_KEYS:
-        if key in analysis:
-            curves[key] = _curve_payload(analysis[key])
-    features.update(light)
+    embedding_value = analysis.get("embedding") if "representations" in selected else None
+    fingerprint_value = analysis.get("fingerprint") if "representations" in selected else None
+    if "representations" in selected:
+        if embedding_value is None or fingerprint_value is None:
+            raise RuntimeError("SONARA Representations output requires both embedding and fingerprint")
+        embedding_array = np.asarray(embedding_value, dtype=np.float32).reshape(-1)
+        if not embedding_array.size or not np.isfinite(embedding_array).all():
+            raise RuntimeError("SONARA embedding is empty or contains non-finite values")
 
-    db.save_sonara_features(
-        track.id,
-        features,
-        bpm=_optional_float(analysis.get("bpm")),
-        musical_key=_sonara_musical_key(analysis),
-        energy=_optional_float(analysis.get("energy")),
-        duration=_optional_float(analysis.get("duration_sec")),
-        model_name=SONARA_MODEL_NAME,
-        provenance=_sonara_provenance(analysis),
-        analysis_signature=_sonara_analysis_signature(analysis, feature_families),
-        curves=curves,
-    )
+    if "core" in selected:
+        db.save_sonara_features(
+            track.id,
+            features,
+            bpm=_optional_float(analysis.get("bpm")),
+            musical_key=_sonara_musical_key(analysis),
+            energy=_optional_float(analysis.get("energy")),
+            duration=_optional_float(analysis.get("duration_sec")),
+            model_name=SONARA_MODEL_NAME,
+            provenance=provenance,
+            analysis_signature=_sonara_analysis_signature(analysis, "core"),
+        )
+    if "timeline" in selected:
+        db.save_sonara_timeline(
+            track.id,
+            timeline,
+            provenance=provenance,
+            analysis_signature=_sonara_analysis_signature(analysis, "timeline"),
+        )
+    if "representations" in selected:
+        db.save_sonara_representations(
+            track.id,
+            embedding=embedding_array,
+            fingerprint=_curve_payload(fingerprint_value),
+            embedding_version=_optional_string(analysis.get("embedding_version")),
+            fingerprint_version=_optional_string(analysis.get("fingerprint_version")),
+            model_name=SONARA_MODEL_NAME,
+            provenance=provenance,
+            analysis_signature=_sonara_analysis_signature(analysis, "representations"),
+        )
 
 
 def _import_sonara():
@@ -329,9 +243,9 @@ def _analyze_file_or_signal(
     sonara: Any,
     path: str | Path,
     *,
-    feature_families: Sequence[str] | None = None,
+    outputs: Sequence[str] | None = None,
 ) -> dict[str, object]:
-    feature_kwargs = _feature_kwargs(feature_families)
+    analysis_kwargs = _analysis_kwargs(outputs)
     try:
         analysis = dict(
             sonara.analyze_file(
@@ -340,7 +254,7 @@ def _analyze_file_or_signal(
                 mode=SONARA_ANALYSIS_MODE,
                 bpm_min=SONARA_BPM_MIN,
                 bpm_max=SONARA_BPM_MAX,
-                **feature_kwargs,
+                **analysis_kwargs,
             )
         )
         return _analysis_with_package_provenance(analysis, sonara)
@@ -355,7 +269,7 @@ def _analyze_file_or_signal(
                 mode=SONARA_ANALYSIS_MODE,
                 bpm_min=SONARA_BPM_MIN,
                 bpm_max=SONARA_BPM_MAX,
-                **feature_kwargs,
+                **analysis_kwargs,
             )
         )
         return _analysis_with_package_provenance(analysis, sonara)
@@ -369,7 +283,14 @@ def _load_wav_fallback(path: str | Path, sonara: Any) -> tuple[np.ndarray, str]:
 
 
 def _feature_payload(value: object) -> dict[str, object]:
-    serialized = _serialize_value(value, include_full_value=False)
+    # Core keeps compact vectors such as Contrast (7), MFCC (13), and Chroma (12) in full.
+    # Only genuinely long numeric sequences are reduced to descriptors in the hot database.
+    include_full_value = True
+    if isinstance(value, np.ndarray):
+        include_full_value = int(np.asarray(value).size) <= 64
+    elif _is_numeric_sequence(value):
+        include_full_value = len(value) <= 64
+    serialized = _serialize_value(value, include_full_value=include_full_value)
     payload = {
         "value": serialized["value"],
         "type": serialized["type"],
@@ -381,7 +302,7 @@ def _feature_payload(value: object) -> dict[str, object]:
 
 
 def _curve_payload(value: object) -> dict[str, object]:
-    """Serialize a heavy curve/sequence field WITH every value, for the sonara_curves table. Unlike
+    """Serialize a heavy curve/sequence field with every value for a sidecar database. Unlike
     _feature_payload (which strips long sequences to a summary for the hot path) and _serialize_value
     (which truncates numeric sequences over 64 elements even when include_full_value is set), this
     keeps the FULL structure, because these payloads are stored out-of-band and loaded on demand."""
@@ -544,10 +465,10 @@ def _sonara_provenance(analysis: dict[str, object]) -> dict[str, object] | None:
 
 def _sonara_analysis_signature(
     analysis: dict[str, object],
-    feature_families: Sequence[str] | None,
+    output: str,
 ) -> dict[str, object]:
     provenance = _sonara_provenance(analysis)
     return build_sonara_analysis_signature(
-        requested_features=_feature_names_for_families(feature_families),
+        requested_features=SONARA_OUTPUT_FEATURE_REQUESTS[output],
         provenance=provenance,
     )

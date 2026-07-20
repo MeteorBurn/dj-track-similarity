@@ -67,7 +67,7 @@ def test_evaluation_repository_records_sessions_results_feedback_and_calibration
             (calibration_run_id,),
         ).fetchone()
 
-    assert version == CURRENT_SCHEMA_VERSION == 5
+    assert version == CURRENT_SCHEMA_VERSION == 6
     assert json.loads(session["seed_track_ids_json"]) == [seed_id]
     assert json.loads(session["request_json"]) == {"limit": 5, "query": "Seed"}
     assert event["track_id"] == candidate_id

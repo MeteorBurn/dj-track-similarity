@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 
 from .metadata_payload import metadata_from_json
 from .models import AnalysisCandidate
@@ -19,16 +19,47 @@ def clean_analysis_models(models: Iterable[str]) -> list[str]:
     return selected
 
 
-def missing_analysis_ids_sql(model: str, limit_sql: str, *, sonara_signature_id: str | None = None) -> str:
+def missing_analysis_ids_sql(
+    model: str,
+    limit_sql: str,
+    *,
+    sonara_signature_ids: Mapping[str, str] | None = None,
+) -> str:
     if model == "sonara":
-        where_sql = "t.has_sonara_analysis = 0"
-        if sonara_signature_id is not None:
-            where_sql = (
+        signature_ids = dict(sonara_signature_ids or {})
+        conditions: list[str] = []
+        if "core" in signature_ids:
+            conditions.append(
                 "(t.has_sonara_analysis = 0 "
                 "OR sonara_analysis_is_current(t.metadata_json) != 1 "
                 "OR json_extract(t.metadata_json, '$.sonara_analysis_signature.signature_id') IS NULL "
                 "OR json_extract(t.metadata_json, '$.sonara_analysis_signature.signature_id') != ?)"
             )
+        if "timeline" in signature_ids:
+            conditions.append(
+                "NOT EXISTS ("
+                "SELECT 1 FROM timeline.sonara_timeline st "
+                "WHERE st.track_id = t.id AND st.analysis_signature_id = ?"
+                ")"
+            )
+        if "representations" in signature_ids:
+            conditions.extend(
+                (
+                    "NOT EXISTS ("
+                    "SELECT 1 FROM representations.embeddings se "
+                    "WHERE se.track_id = t.id AND se.embedding_key = 'sonara' "
+                    "AND se.analysis_signature_id = ?"
+                    ")",
+                    "NOT EXISTS ("
+                    "SELECT 1 FROM representations.fingerprints sf "
+                    "WHERE sf.track_id = t.id AND sf.fingerprint_key = 'fingerprint' "
+                    "AND sf.analysis_signature_id = ?"
+                    ")",
+                )
+            )
+        if not conditions:
+            raise ValueError("SONARA candidate query requires at least one output signature")
+        where_sql = f"({' OR '.join(conditions)})"
     elif model in {"maest", "mert", "muq", "clap"}:
         where_sql = f"t.has_{model}_embedding = 0"
     else:
@@ -46,11 +77,20 @@ def missing_analysis_ids_params(
     model: str,
     limit_params: tuple[int, ...],
     *,
-    sonara_signature_id: str | None = None,
+    sonara_signature_ids: Mapping[str, str] | None = None,
 ) -> tuple[object, ...]:
-    signature_params: tuple[object, ...] = (
-        (sonara_signature_id,) if model == "sonara" and sonara_signature_id is not None else ()
-    )
+    signature_params: tuple[object, ...] = ()
+    if model == "sonara":
+        signature_ids = dict(sonara_signature_ids or {})
+        values: list[str] = []
+        for output in ("core", "timeline", "representations"):
+            signature_id = signature_ids.get(output)
+            if signature_id is None:
+                continue
+            values.append(signature_id)
+            if output == "representations":
+                values.append(signature_id)
+        signature_params = tuple(values)
     return (*signature_params, *limit_params)
 
 
@@ -80,6 +120,7 @@ def row_to_analysis_candidate(
     selected: Iterable[str],
     *,
     expected_sonara_signature: dict[str, object] | None = None,
+    force_missing_sonara: bool = False,
 ) -> AnalysisCandidate:
     has_sonara = bool(row["has_sonara"])
     if has_sonara and expected_sonara_signature is not None:
@@ -92,7 +133,11 @@ def row_to_analysis_candidate(
         for model in ("sonara", "maest", "mert", "muq", "clap")
         if (has_sonara if model == "sonara" else bool(row[f"has_{model}"]))
     )
-    missing = tuple(model for model in selected if model not in analyses)
+    missing = tuple(
+        model
+        for model in selected
+        if model not in analyses or (model == "sonara" and force_missing_sonara)
+    )
     return AnalysisCandidate(
         id=int(row["id"]),
         path=str(row["path"]),

@@ -72,34 +72,21 @@ dj-sim doctor
 | `--track-batch-size` | `1..64` decoded tracks per job batch |
 | `--inference-batch-size` | `1..128` model samples per forward pass |
 | `--diagnostics` | file-log decoder and batch timing diagnostics |
-| `--sonara-minimal` | intentionally request plain playlist output instead of the default full profile |
-| `--sonara-structure` | explicit subset: energy curve, segments, intro/outro, energy level |
-| `--sonara-loudness` | explicit subset: true peak, ReplayGain, loudness curve, momentary max, LRA |
-| `--sonara-beatgrid` | explicit subset: downbeats, grid offset, grid stability |
-| `--sonara-key-candidates` | explicit subset: top-3 key candidates with Camelot codes |
-| `--sonara-vocalness` | explicit subset: vocal-presence heuristic (0-1) |
-| `--sonara-mood` | explicit subset: happy, aggressive, relaxed, and sad heuristic affinities (0-1) |
-| `--sonara-instrumentalness` | explicit subset: instrumentalness heuristic (0-1) |
-| `--sonara-silence` | explicit subset: leading/trailing silence offsets |
+| `--sonara-outputs` | comma-separated `core`, `timeline`, `representations`; default `core` |
 
-Plain `analyze` uses all eight families so scripted reanalysis cannot silently downgrade archived
-data. `--sonara-minimal` requests the base playlist profile; one or more individual family flags
-select an explicit subset. Light fields are stored in SONARA metadata. Complete sequences (`beats`,
-`onset_frames`, chord labels/events, `tempo_curve`, `energy_curve`, `loudness_curve`, `downbeats`),
-plus the SONARA embedding and fingerprint, are stored in the separate `sonara_curves` table and
-loaded only for the metadata dialog. Mood and instrumentalness are retained for future workflows but are
-not current similarity or classifier inputs. True peak and ReplayGain are stored for possible
-non-similarity loudness workflows rather than direct SONARA similarity scoring.
+Plain SONARA analysis writes Core only. Use
+`--sonara-outputs core,timeline,representations` for all three stores, or select only the missing
+optional output when extending an existing analysis. Core is stored in the selected main database;
+Timeline uses the adjacent `*.timeline.sqlite`; embeddings and fingerprints use
+`*.representations.sqlite`. These two representation values are SONARA outputs; the searchable
+MAEST/MERT/MuQ/CLAP embeddings remain in Core. The metadata dialog reads Core values and only field-name manifests for
+the two side databases.
 
-The exact CLI profile is part of the SONARA analysis signature. Rerunning with a different current
-profile automatically targets mismatched rows. A manual SONARA reset is not normally required.
+Each output's exact request profile is part of its SONARA analysis signature. Rerunning with a new
+selection targets only missing or mismatched outputs. A manual SONARA reset is not normally required.
 
-`--sonara-minimal` cannot be combined with an individual `--sonara-*` family flag. A newly saved
-profile replaces the track's previous SONARA feature object and replaces or removes its curves row;
-subset analysis does not merge with a previous full result.
-
-For an existing database, follow
-[Migrate and reanalyze SONARA v0.2.4](../workflows/migrate-sonara-v0-2-4.md).
+For a schema v5 database, follow
+[Reanalyze with split SONARA storage](../workflows/reanalyze-sonara-split-storage.md).
 
 ## Text search options
 

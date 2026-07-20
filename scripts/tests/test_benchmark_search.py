@@ -9,6 +9,8 @@ import sys
 
 import pytest
 
+from dj_track_similarity.db_storage import sidecar_database_paths
+
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "benchmark_search.py"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -139,8 +141,13 @@ def test_benchmark_search_keep_db_preserves_synthetic_database(tmp_path: Path) -
     with sqlite3.connect(keep_db_path) as connection:
         schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
         classifier_scores = connection.execute("SELECT COUNT(*) FROM track_classifier_scores").fetchone()[0]
-    assert schema_version == 4
+    assert schema_version == 6
     assert classifier_scores == 40
+    sidecars = sidecar_database_paths(keep_db_path)
+    assert sidecars.timeline.exists()
+    assert sidecars.representations.exists()
+    with sqlite3.connect(sidecars.representations) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0] == 40
 
 
 @pytest.mark.parametrize(

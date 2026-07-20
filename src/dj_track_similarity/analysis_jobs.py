@@ -37,15 +37,16 @@ from .analysis_config import (
     ANALYSIS_MODEL_ORDER,
     DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
     DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
+    DEFAULT_SONARA_OUTPUTS,
     normalize_analysis_models,
-    normalize_sonara_features,
+    normalize_sonara_outputs,
 )
 from .database import LibraryDatabase
 from .job_runtime import JobStore, chunks
 from .logging_config import exception_summary, log_failure, log_job_event
 from .models import AnalysisCandidate, Track
 from .sonara_contract import sonara_analysis_is_compatible
-from .sonara_features import sonara_analysis_signature_for_families
+from .sonara_features import sonara_analysis_signatures_for_outputs
 
 
 LOGGER = logging.getLogger(__name__)
@@ -141,20 +142,24 @@ class AnalysisJobManager:
         device: str = "auto",
         top_k: int = 3,
         classifier_keys: Sequence[str] | None = None,
-        sonara_features: Sequence[str] | None = None,
+        sonara_outputs: Sequence[str] | None = None,
     ) -> str:
         selected_classifier_keys = self._clean_classifier_keys(classifier_keys)
         selected = _normalize_job_models(models, allow_empty=bool(selected_classifier_keys))
         if "sonara" in selected and selected_classifier_keys:
             raise ValueError("SONARA analysis must run alone and cannot be combined with classifiers")
-        if "sonara" not in selected and sonara_features:
-            raise ValueError("SONARA feature families can only be used with a SONARA-only analysis job")
-        selected_sonara_features = normalize_sonara_features(sonara_features)
+        if "sonara" not in selected and sonara_outputs:
+            raise ValueError("SONARA outputs can only be used with a SONARA-only analysis job")
+        selected_sonara_outputs = (
+            normalize_sonara_outputs(DEFAULT_SONARA_OUTPUTS if sonara_outputs is None else sonara_outputs)
+            if "sonara" in selected
+            else ()
+        )
         work = self._analysis_work(
             selected,
             selected_classifier_keys,
             limit=limit,
-            sonara_features=selected_sonara_features,
+            sonara_outputs=selected_sonara_outputs,
         )
         job_id = str(uuid.uuid4())
         effective_track_batch_size = max(1, int(track_batch_size if track_batch_size is not None else self.track_batch_size))
@@ -174,7 +179,7 @@ class AnalysisJobManager:
             track_batch_size=effective_track_batch_size,
             inference_batch_size=effective_inference_batch_size,
             top_k=max(1, int(top_k)),
-            sonara_features=list(selected_sonara_features),
+            sonara_outputs=list(selected_sonara_outputs),
         )
         self._store.add(
             job_id,
@@ -195,14 +200,17 @@ class AnalysisJobManager:
         classifier_keys: tuple[str, ...],
         *,
         limit: int | None,
-        sonara_features: tuple[str, ...],
+        sonara_outputs: tuple[str, ...],
     ) -> _AnalysisWork:
-        expected_sonara_signature = sonara_analysis_signature_for_families(sonara_features)
+        expected_sonara_signatures = sonara_analysis_signatures_for_outputs(
+            sonara_outputs or DEFAULT_SONARA_OUTPUTS
+        )
+        expected_core_signature = sonara_analysis_signatures_for_outputs(("core",))["core"]
         candidates_by_id: dict[int, AnalysisCandidate] = {}
         for candidate in self.db.list_analysis_candidates(
             selected,
             limit=limit,
-            expected_sonara_signature=expected_sonara_signature,
+            expected_sonara_signatures=(expected_sonara_signatures if "sonara" in selected else None),
         ):
             candidates_by_id[candidate.id] = candidate
 
@@ -212,7 +220,7 @@ class AnalysisJobManager:
                 classifier_targets.setdefault(track.id, []).append(classifier)
                 _ = candidates_by_id.setdefault(
                     track.id,
-                    _candidate_from_track(track, expected_sonara_signature=expected_sonara_signature),
+                    _candidate_from_track(track, expected_sonara_signature=expected_core_signature),
                 )
 
         effective_models = tuple(model for model in ANALYSIS_MODEL_ORDER if model in selected)
@@ -267,7 +275,7 @@ class AnalysisJobManager:
         device: str = "auto",
         top_k: int = 3,
         classifier_keys: Sequence[str] | None = None,
-        sonara_features: Sequence[str] | None = None,
+        sonara_outputs: Sequence[str] | None = None,
     ) -> AnalysisJobStatus:
         job_id = self.create_job(
             models=models,
@@ -277,7 +285,7 @@ class AnalysisJobManager:
             device=device,
             top_k=top_k,
             classifier_keys=classifier_keys,
-            sonara_features=sonara_features,
+            sonara_outputs=sonara_outputs,
         )
         thread = threading.Thread(target=self.run_job, args=(job_id,), daemon=True)
         thread.start()
@@ -293,7 +301,7 @@ class AnalysisJobManager:
         device: str = "auto",
         top_k: int = 3,
         classifier_keys: Sequence[str] | None = None,
-        sonara_features: Sequence[str] | None = None,
+        sonara_outputs: Sequence[str] | None = None,
     ) -> AnalysisJobStatus:
         job_id = self.create_job(
             models=models,
@@ -303,7 +311,7 @@ class AnalysisJobManager:
             device=device,
             top_k=top_k,
             classifier_keys=classifier_keys,
-            sonara_features=sonara_features,
+            sonara_outputs=sonara_outputs,
         )
         return self.run_job(job_id)
 
@@ -522,7 +530,7 @@ class AnalysisJobManager:
             except KeyError as error:
                 raise ValueError(f"No analysis runner configured for: {model}") from error
         return self._runner_factory(
-            model, status.device_requested, status.inference_batch_size, status.top_k, tuple(status.sonara_features)
+            model, status.device_requested, status.inference_batch_size, status.top_k, tuple(status.sonara_outputs)
         )
 
     def _run_model_batch(
@@ -679,7 +687,12 @@ def _audio_targets_for_candidate(
             )
             raise ValueError(message)
     required = set(selected)
-    return tuple(model for model in ANALYSIS_MODEL_ORDER if model in required and model not in analyses)
+    missing = set(candidate.missing_models)
+    return tuple(
+        model
+        for model in ANALYSIS_MODEL_ORDER
+        if model in required and (model not in analyses or model in missing)
+    )
 
 
 def _normalize_job_models(models: Sequence[str] | None, *, allow_empty: bool) -> tuple[str, ...]:

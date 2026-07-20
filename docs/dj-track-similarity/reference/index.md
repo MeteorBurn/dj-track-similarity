@@ -13,7 +13,7 @@ Reference pages are for exact names, ranges, and boundaries. Use the guide and w
 - [Database](./database.md): local SQLite state at a high level.
 - [Configuration](./configuration.md): paths, ports, environment variables, and generated artifacts.
 - [Analysis families](./analysis-families.md): what SONARA, MAEST, MERT, MuQ, CLAP, and classifiers write.
-- [SONARA v0.2.4 contract](./sonara-v0-2-4-contract.md): exact signature, storage, scoring, and confidence rules.
+- [SONARA v0.2.9 contract](./sonara-v0-2-9-contract.md): exact signature and split-storage rules, including scoring boundaries.
 - [Model citations and licenses](./model-citations.md): upstream sources, checkpoints, and license notes.
 - [UI controls](./ui-controls.md): common control ranges and defaults.
 

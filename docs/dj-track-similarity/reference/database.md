@@ -4,7 +4,16 @@
 > Goal: Explain the database as local state, not a full schema dump.
 > Type: reference
 
-The selected `.sqlite` file is the main local state store. It is not a cache you should delete casually if you care about analysis results, likes, feedback, or classifier scores.
+Selecting `library.sqlite` opens one catalog backed by three adjacent SQLite files:
+
+| Store | File | Contents |
+| --- | --- | --- |
+| Core | `library.sqlite` | tracks, tags, light SONARA values, MAEST/MERT/MuQ/CLAP embeddings, flags, likes, classifier/evaluation state, FTS |
+| Timeline | `library.timeline.sqlite` | complete SONARA arrays, time events, curves, and segments |
+| Representations | `library.representations.sqlite` | optional SONARA embedding and fingerprint only |
+
+All three carry the same generated catalog ID. The app refuses a side database copied from another
+catalog. Keep the files together when moving or backing up a library.
 
 ## Main library state
 
@@ -13,31 +22,37 @@ The database stores:
 - track paths, size, mtime, and selected metadata,
 - working BPM, key, energy, duration, artist, title, and album fields,
 - analysis presence flags for SONARA, MAEST, MERT, MuQ, and CLAP,
-- SONARA feature metadata, including default `bpm_confidence` and requested mood, instrumentalness, loudness, structure, beat-grid, key-candidate, vocalness, and silence fields,
+- one indexed Core `embeddings` table for the MAEST, MERT, MuQ, and CLAP float32 vectors used by search and ranking,
+- SONARA Core metadata, including `bpm_confidence`, mood, instrumentalness, loudness, compact structure, beat-grid, key-candidate, vocalness, silence, Contrast, MFCC, and Chroma fields,
 - `sonara_provenance`, including upstream analysis settings and the installed package version when available,
 - `sonara_analysis_signature`, the deterministic SONARA/schema/mode/sample-rate/BPM-range/requested-profile/project-revision compatibility contract,
-- embeddings in the `embeddings` table by `embedding_key`,
-- complete SONARA sequences (`beats`, `onset_frames`, chord labels/events, `tempo_curve`, `energy_curve`, `loudness_curve`, `downbeats`) plus the SONARA `embedding` and `fingerprint` in the out-of-band `sonara_curves` table, loaded only for UI display and never read by search or classifiers; beat/onset descriptors can also remain in hot metadata,
+- Timeline and Representations field-name manifests used by the metadata dialog,
 - liked tracks,
 - classifier scores by `classifier_key`,
 - FTS rows for library search,
 - library settings such as promoted score-profile data where used.
 
-The out-of-band rows preserve every returned sequence value without expanding the SONARA metadata read by search. Mood affinities and instrumentalness are also storage-only today. The project retains true peak and ReplayGain for possible loudness-management workflows, while direct SONARA similarity ignores both fields.
+The Timeline database preserves every returned sequence value. The Representations database stores
+only SONARA's optional 48-dimensional vector as a float32 BLOB and its fingerprint as a JSON payload.
+Regular track reads return only their field names, not the values. Mood affinities and
+instrumentalness are data-only today. The project
+retains true peak and ReplayGain for possible loudness-management workflows, while direct SONARA
+similarity ignores both fields.
 
-`GET /api/tracks/{track_id}/sonara-curves` loads the out-of-band payload only when the UI or another client requests it. Regular track rows and full metadata responses do not load the curve table.
+`GET /api/tracks/{track_id}/sonara-timeline` explicitly loads Timeline payload for a future workflow.
+The metadata dialog does not call it.
 
-The physical `has_sonara_analysis` flag is a fast storage marker and can remain `1` on a legacy
-row. Public analysis lists, search loaders, and library summary counts require a valid current
-contract. A current full, minimal, or subset signature can satisfy that broad current-contract
-check. Analysis scheduling requires an exact match with the requested profile.
+The physical `has_sonara_analysis` flag describes Core only. Timeline and Representations freshness
+comes from their own rows and signatures. Analysis scheduling checks the exact selected outputs.
 
 ## Schema migration
 
-Opening a schema v4 database migrates it to schema v5. The migration adds the
-`tracks.has_muq_embedding` flag and backfills it from existing `muq` rows in the
-`embeddings` table. Existing tracks, analysis data, likes, and feedback remain in the same
-database. The independent SONARA classifier revision check is described below.
+Opening a schema v5 main database migrates it to schema v6 and creates the two side databases. This
+is intentionally a fresh SONARA migration. It keeps the catalog and MAEST metadata together with the
+MAEST/MERT/MuQ/CLAP embeddings and their flags. Likes, feedback, evaluation rows, and embedding-only
+classifier scores also remain. The migration deletes old SONARA values and curves, resets only the
+SONARA Core flag. SONARA-dependent classifier scores become invalid. Schema v4 and older databases
+are rejected rather than adapted.
 
 The project also records the SONARA classifier feature revision in `library_settings`. On the first
 main-database open after this revision changes, stored scores are invalidated when `feature_set` is
@@ -48,8 +63,8 @@ predictions, Rhythm Lab labels, likes, pair feedback, and transition feedback ar
 model files are left in place for recovery, but SONARA-dependent manifests without the current
 analysis signature cannot be scored. Retraining and promotion are required.
 
-Do not confuse the version numbers: upstream SONARA analysis schema is `3`, the main SQLite schema
-is `5`, the project SONARA feature revision is `1`, and the promoted classifier manifest version is
+Do not confuse the version numbers: upstream SONARA analysis schema is `4`, the main SQLite schema
+is `6`, the project SONARA feature revision is `2`, and the promoted classifier manifest version is
 `2`.
 
 ## Evaluation and feedback state
@@ -64,11 +79,11 @@ Rhythm Lab uses its own labels database by default under `tools/rhythm-lab/data/
 
 - Scan, Refresh Tags, analysis, reset, clear, liked toggle, classifier scoring, feedback, and relocation apply write SQLite.
 - Relocation apply changes only stored paths.
-- Database clear deletes SQLite tracks, embeddings, and SONARA curves, then rebuilds track FTS state. It does not delete audio files.
-- Reset SONARA also deletes that family's `sonara_curves` rows and SONARA-dependent classifier scores.
+- Database clear deletes Core tracks and attached Timeline/Representations rows, then rebuilds track FTS state. It does not delete audio files.
+- Reset SONARA deletes Core metadata, Timeline rows, SONARA embedding/fingerprint rows, and SONARA-dependent classifier scores.
 - Reset SONARA removes its saved provenance and analysis signature together with its feature metadata and presence flag. It does not remove labels or feedback.
 - Audio Dedup apply removes SQLite rows only for tracks whose files were successfully deleted.
 
 ## Backup habit
 
-Before destructive SQLite maintenance on a real database, make a backup or work on a copy. The database maintenance script does this automatically.
+Before destructive SQLite maintenance on a real database, back up all three matching files or work on a copy. The database maintenance script does this automatically where supported.

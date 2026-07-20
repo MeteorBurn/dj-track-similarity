@@ -5,6 +5,7 @@ import threading
 from pathlib import Path
 
 from .db_schema import SQLITE_BUSY_TIMEOUT_SECONDS, ensure_schema
+from .db_storage import attach_sidecar_databases
 from .sonara_contract import sonara_analysis_json_is_current
 
 
@@ -27,7 +28,8 @@ def write_lock_for_path(path: str | Path) -> threading.RLock:
 
 
 def connect_database(path: str | Path) -> sqlite3.Connection:
-    connection = sqlite3.connect(resolve_database_path(path), timeout=SQLITE_BUSY_TIMEOUT_SECONDS)
+    resolved = resolve_database_path(path)
+    connection = sqlite3.connect(resolved, timeout=SQLITE_BUSY_TIMEOUT_SECONDS)
     connection.row_factory = sqlite3.Row
     connection.create_function(
         "sonara_analysis_is_current",
@@ -40,6 +42,7 @@ def connect_database(path: str | Path) -> sqlite3.Connection:
     connection.execute("PRAGMA synchronous = NORMAL")
     connection.execute("PRAGMA temp_store = MEMORY")
     connection.execute("PRAGMA cache_size = -32768")
+    attach_sidecar_databases(connection, resolved)
     return connection
 
 

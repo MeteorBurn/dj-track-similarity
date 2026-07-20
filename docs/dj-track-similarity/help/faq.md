@@ -27,11 +27,10 @@ dj-sim analyze --models maest,mert,muq,clap --db .\data\library.sqlite
 
 In the UI, set `Analyze limit` to `0`.
 
-## Do I reset SONARA when upgrading to v0.2.4?
+## Do I reset SONARA after the schema v6 migration?
 
-No. Run the default SONARA analysis again. Unsigned, legacy, and mismatched rows are queued by their
-signature. Reset only when you intentionally want to purge existing SONARA data first. See the
-[migration workflow](../workflows/migrate-sonara-v0-2-4.md).
+No. The v5-to-v6 migration already invalidates all old analysis. Run Core and any optional outputs
+you want. See the [split-storage workflow](../workflows/reanalyze-sonara-split-storage.md).
 
 ## Why did my SONARA classifier scores disappear?
 

@@ -8,6 +8,7 @@ import pytest
 
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db_schema import CURRENT_SCHEMA_VERSION
+from dj_track_similarity.db_storage import sidecar_database_paths
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "optimize_database.py"
@@ -42,7 +43,8 @@ def test_optimize_database_script_optimizes_current_schema_without_project_impor
 
     summary = module.optimize_database(db_path)
 
-    assert summary.backup_path.exists()
+    assert all(path.exists() for path in summary.backup_paths)
+    assert [item.role for item in summary.files] == ["core", "timeline", "representations"]
     assert summary.database_kind == "library"
     assert summary.integrity_before == "ok"
     assert summary.integrity_after == "ok"
@@ -50,17 +52,28 @@ def test_optimize_database_script_optimizes_current_schema_without_project_impor
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         track_indexes = {row[1] for row in connection.execute("PRAGMA index_list(tracks)").fetchall()}
-        embedding_indexes = {row[1] for row in connection.execute("PRAGMA index_list(embeddings)").fetchall()}
         classifier_indexes = {
             row[1] for row in connection.execute("PRAGMA index_list(track_classifier_scores)").fetchall()
         }
+        embedding_indexes = {row[1] for row in connection.execute("PRAGMA index_list(embeddings)").fetchall()}
         embedding_keys = [row[0] for row in connection.execute("SELECT embedding_key FROM embeddings ORDER BY embedding_key")]
         integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
+
+    sidecars = sidecar_database_paths(db_path)
+    with sqlite3.connect(sidecars.representations) as connection:
+        sonara_representation_keys = [
+            row[0] for row in connection.execute("SELECT embedding_key FROM embeddings ORDER BY embedding_key")
+        ]
+        representations_integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
+    with sqlite3.connect(sidecars.timeline) as connection:
+        timeline_tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        timeline_integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
 
     assert version == CURRENT_SCHEMA_VERSION
     assert "library_settings" in tables
     assert "track_classifier_scores" in tables
     assert embedding_keys == ["mert"]
+    assert sonara_representation_keys == []
     assert {
         "idx_tracks_sort_artist_title_path",
         "idx_tracks_syncopated_sort",
@@ -76,6 +89,9 @@ def test_optimize_database_script_optimizes_current_schema_without_project_impor
     assert "idx_embeddings_key_track" in embedding_indexes
     assert "idx_classifier_scores_lookup" in classifier_indexes
     assert integrity == "ok"
+    assert "sonara_timeline" in timeline_tables
+    assert representations_integrity == "ok"
+    assert timeline_integrity == "ok"
 
 
 def test_optimize_database_script_optimizes_rhythm_lab_database(tmp_path: Path) -> None:
@@ -128,7 +144,7 @@ def test_optimize_database_script_optimizes_rhythm_lab_database(tmp_path: Path) 
     assert integrity == "ok"
 
 
-def test_optimize_database_script_optimizes_supported_library_schema_without_migrating(tmp_path: Path) -> None:
+def test_optimize_database_script_rejects_removed_single_file_library_schema(tmp_path: Path) -> None:
     module = _load_script()
     db_path = tmp_path / "library.sqlite"
     with sqlite3.connect(db_path) as connection:
@@ -165,21 +181,10 @@ def test_optimize_database_script_optimizes_supported_library_schema_without_mig
             """
         )
 
-    summary = module.optimize_database(db_path)
+    with pytest.raises(RuntimeError, match="Unsupported SQLite database"):
+        module.optimize_database(db_path)
 
-    assert summary.database_kind == "library"
-    assert summary.backup_path.exists()
-    with sqlite3.connect(db_path) as connection:
-        tables = {
-            row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
-            )
-        }
-        version = connection.execute("PRAGMA user_version").fetchone()[0]
-
-    assert tables == {"tracks", "embeddings"}
-    assert version == 0
+    assert not list(tmp_path.glob("library.sqlite.bak-*"))
 
 
 def test_optimize_database_script_rejects_unknown_sqlite_database(tmp_path: Path) -> None:

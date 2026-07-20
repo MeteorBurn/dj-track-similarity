@@ -6,7 +6,7 @@ import pytest
 
 from dj_track_similarity.analysis_jobs import AnalysisJobManager
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature
+from dj_track_similarity.sonara_features import sonara_analysis_signatures_for_outputs
 
 
 def _track(db: LibraryDatabase, tmp_path: Path, name: str) -> int:
@@ -21,7 +21,7 @@ def _mark_analyzed(db: LibraryDatabase, track_id: int, model: str) -> None:
             track_id,
             {"bpm": {"value": 128.0}},
             model_name="fake-sonara",
-            analysis_signature=expected_sonara_analysis_signature([]),
+            analysis_signature=sonara_analysis_signatures_for_outputs(["core"])["core"],
         )
         return
     if model == "maest":
@@ -100,8 +100,8 @@ def test_analysis_job_rejects_mixing_sonara_with_ml_or_classifiers(tmp_path: Pat
     with pytest.raises(ValueError, match="cannot be combined with classifiers"):
         manager.run_sync(models=["sonara"], classifier_keys=["break_energy"], device="cpu")
 
-    with pytest.raises(ValueError, match="feature families can only"):
-        manager.run_sync(models=["mert"], sonara_features=["vocalness"], device="cpu")
+    with pytest.raises(ValueError, match="SONARA outputs can only"):
+        manager.run_sync(models=["mert"], sonara_outputs=["timeline"], device="cpu")
 
 
 def test_multi_model_job_selects_tracks_missing_selected_models_and_skips_existing(tmp_path: Path) -> None:
@@ -190,12 +190,12 @@ def test_multi_model_job_uses_lean_analysis_candidates(tmp_path: Path, monkeypat
     original_candidates = db.list_analysis_candidates
     calls: list[tuple[tuple[str, ...], int | None]] = []
 
-    def spy_candidates(models, *, limit=None, expected_sonara_signature=None):
+    def spy_candidates(models, *, limit=None, expected_sonara_signatures=None):
         calls.append((tuple(models), limit))
         return original_candidates(
             models,
             limit=limit,
-            expected_sonara_signature=expected_sonara_signature,
+            expected_sonara_signatures=expected_sonara_signatures,
         )
 
     monkeypatch.setattr(db, "list_analysis_candidates", spy_candidates)
@@ -489,7 +489,7 @@ def test_multi_model_runner_factory_loads_only_models_with_work(tmp_path: Path) 
     created: list[str] = []
     decoder = DecodeRecorder()
 
-    def runner_factory(model: str, device: str, inference_batch_size: int, top_k: int, sonara_features: tuple[str, ...] = ()):
+    def runner_factory(model: str, device: str, inference_batch_size: int, top_k: int, sonara_outputs: tuple[str, ...] = ()):
         created.append(model)
         if model == "mert":
             raise AssertionError("runner with no missing model work should not be initialized")
@@ -505,22 +505,22 @@ def test_multi_model_runner_factory_loads_only_models_with_work(tmp_path: Path) 
     assert status.model_progress["mert"].total == 0
 
 
-def test_multi_model_job_preserves_sonara_feature_families_for_runner(tmp_path: Path) -> None:
+def test_sonara_job_preserves_selected_outputs_for_runner(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     _track(db, tmp_path, "a-missing-sonara.wav")
     observed: list[tuple[str, ...]] = []
 
-    def runner_factory(model: str, device: str, inference_batch_size: int, top_k: int, sonara_features: tuple[str, ...] = ()):
-        observed.append(sonara_features)
+    def runner_factory(model: str, device: str, inference_batch_size: int, top_k: int, sonara_outputs: tuple[str, ...] = ()):
+        observed.append(sonara_outputs)
         return FakeModelRunner(model)
 
     manager = AnalysisJobManager(db, runner_factory=runner_factory, sonara_decode_audio=DecodeRecorder(), track_batch_size=1)
 
-    status = manager.run_sync(models=["sonara"], device="cpu", sonara_features=["vocalness"])
+    status = manager.run_sync(models=["sonara"], device="cpu", sonara_outputs=["timeline", "representations"])
 
     assert status.state == "completed"
-    assert status.sonara_features == ["vocalness"]
-    assert observed == [("vocalness",)]
+    assert status.sonara_outputs == ["timeline", "representations"]
+    assert observed == [("timeline", "representations")]
 
 
 def test_multi_model_runner_init_failure_marks_only_that_model_failed(tmp_path: Path) -> None:
@@ -528,7 +528,7 @@ def test_multi_model_runner_init_failure_marks_only_that_model_failed(tmp_path: 
     track_id = _track(db, tmp_path, "a-track.wav")
     decoder = DecodeRecorder()
 
-    def runner_factory(model: str, device: str, inference_batch_size: int, top_k: int, sonara_features: tuple[str, ...] = ()):
+    def runner_factory(model: str, device: str, inference_batch_size: int, top_k: int, sonara_outputs: tuple[str, ...] = ()):
         if model == "maest":
             raise RuntimeError("maest init failed")
         return FakeModelRunner(model)
@@ -558,7 +558,7 @@ def test_multi_model_track_batch_and_inference_batch_are_independent(tmp_path: P
     created: list[tuple[str, str, int, int]] = []
     runners: dict[str, FakeModelRunner] = {}
 
-    def runner_factory(model: str, device: str, inference_batch_size: int, top_k: int, sonara_features: tuple[str, ...] = ()):
+    def runner_factory(model: str, device: str, inference_batch_size: int, top_k: int, sonara_outputs: tuple[str, ...] = ()):
         created.append((model, device, inference_batch_size, top_k))
         runner = FakeModelRunner(model)
         runners[model] = runner

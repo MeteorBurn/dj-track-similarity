@@ -10,6 +10,7 @@ import numpy as np
 
 from dj_track_similarity.database import DEFAULT_EMBEDDING_KEY, LibraryDatabase
 from dj_track_similarity.db_schema import TRACK_SELECT_FIELDS, TRACK_SLIM_SELECT_FIELDS_WITH_VECTOR
+from dj_track_similarity.db_storage import sidecar_database_paths, validate_attached_storage_catalog
 from dj_track_similarity.metadata_payload import genres_from_metadata, metadata_from_json, optional_float
 from dj_track_similarity.models import Track
 from dj_track_similarity.sonara_contract import (
@@ -37,7 +38,7 @@ REQUIRED_EMBEDDING_COLUMNS = {"track_id", "embedding_key", "model_name", "dim", 
 
 
 class SourceDatabase:
-    """Read-only view over a main dj-track-similarity SQLite database."""
+    """Read-only view over one three-file dj-track-similarity catalog."""
 
     def __init__(self, path: str | Path) -> None:
         selected = Path(_clean_path_text(path)).expanduser()
@@ -48,12 +49,30 @@ class SourceDatabase:
         if not selected.is_file():
             raise ValueError("Source database path must be an existing file")
         self.path = selected.resolve(strict=True)
+        sidecars = sidecar_database_paths(self.path)
+        self.timeline_path = sidecars.timeline
+        self.representations_path = sidecars.representations
+        for label, sidecar_path in (
+            ("Timeline", self.timeline_path),
+            ("Representations", self.representations_path),
+        ):
+            if not sidecar_path.is_file():
+                raise FileNotFoundError(f"{label} database does not exist: {sidecar_path}")
         self._validate_schema()
 
     def connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(f"file:{self.path.as_posix()}?mode=ro", uri=True)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute(
+            "ATTACH DATABASE ? AS timeline",
+            (f"file:{self.timeline_path.as_posix()}?mode=ro",),
+        )
+        connection.execute(
+            "ATTACH DATABASE ? AS representations",
+            (f"file:{self.representations_path.as_posix()}?mode=ro",),
+        )
+        validate_attached_storage_catalog(connection)
         connection.execute("PRAGMA query_only = ON")
         connection.create_function(
             "sonara_analysis_is_current",
@@ -438,20 +457,29 @@ class SourceDatabase:
             }
             if "tracks" not in tables:
                 raise ValueError("Source database is missing tracks table")
-            if "embeddings" not in tables:
-                raise ValueError("Source database is missing embeddings table")
+            representation_tables = {
+                str(row["name"])
+                for row in connection.execute(
+                    "SELECT name FROM representations.sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+            if "embeddings" not in representation_tables:
+                raise ValueError("Representations database is missing embeddings table")
             track_columns = _columns(connection, "tracks")
-            embedding_columns = _columns(connection, "embeddings")
+            embedding_columns = _columns(connection, "embeddings", schema="representations")
             missing_track = sorted(REQUIRED_TRACK_COLUMNS - track_columns)
             missing_embedding = sorted(REQUIRED_EMBEDDING_COLUMNS - embedding_columns)
             if missing_track:
                 raise ValueError(f"Source tracks table is missing columns: {', '.join(missing_track)}")
             if missing_embedding:
-                raise ValueError(f"Source embeddings table is missing columns: {', '.join(missing_embedding)}")
+                raise ValueError(f"Representations embeddings table is missing columns: {', '.join(missing_embedding)}")
 
 
-def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
-    return {str(row["name"]) for row in connection.execute(f"PRAGMA table_info({table})").fetchall()}
+def _columns(connection: sqlite3.Connection, table: str, *, schema: str = "main") -> set[str]:
+    return {
+        str(row["name"])
+        for row in connection.execute(f"PRAGMA {schema}.table_info({table})").fetchall()
+    }
 
 
 def _clean_path_text(path: str | Path) -> str:

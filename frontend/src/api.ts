@@ -26,6 +26,8 @@ export type Track = {
   analyses?: string[] | null;
   embedding_model?: string | null;
   embedding_dim?: number | null;
+  timeline_fields?: string[] | null;
+  representation_fields?: string[] | null;
 };
 
 export type SonaraFeaturePayload = {
@@ -40,7 +42,7 @@ export type SonaraFeaturePayload = {
   fields?: Record<string, SonaraFeaturePayload>;
 };
 
-export type SonaraCurves = Record<string, SonaraFeaturePayload>;
+export type SonaraTimeline = Record<string, SonaraFeaturePayload>;
 
 export type SearchResult = {
   position?: number;
@@ -243,6 +245,7 @@ export type LibrarySummary = {
 };
 
 export type AnalysisModel = "sonara" | "maest" | "mert" | "muq" | "clap";
+export type SonaraOutput = "core" | "timeline" | "representations";
 
 export type SonaraSearchMode = "balanced" | "vibe" | "sound" | "dj_transition" | "custom";
 
@@ -325,6 +328,7 @@ export type AnalysisJobStatus = {
   track_batch_size?: number;
   inference_batch_size?: number;
   top_k?: number;
+  sonara_outputs?: SonaraOutput[];
 };
 
 export type PromotedClassifier = {

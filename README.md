@@ -105,7 +105,7 @@ This is not a commercial recommendation service and it is not a benchmark. It is
 
 The current application already supports the practical parts of that vision:
 
-- Scan local audio files into a SQLite database with Mutagen metadata.
+- Scan local audio files into a three-file SQLite catalog with Mutagen metadata.
 - Browse large libraries through a paginated web UI.
 - Show metadata, analysis coverage, likes, audio preview, and search/set state.
 - Run SONARA, MAEST, MERT, MuQ, and CLAP analysis jobs.
@@ -150,7 +150,7 @@ audio files -> scan tags -> SQLite library -> browse/search/export
 The app keeps evidence sources separate:
 
 - **File tags** come from Mutagen during scan and Refresh Tags.
-- **SONARA** stores audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy. It runs as a separate CPU/Rust analysis job: project FFmpeg decodes each file directly to mono float32 at 22050 Hz, then the SONARA Rust implementation analyzes that buffer. It cannot be selected in the same job as MAEST, MERT, MuQ, CLAP, or classifiers. Its default profile captures all eight supported extra families. SONARA BPM analysis uses the project range `70.0..180.0`.
+- **SONARA** stores audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy. It runs as a separate CPU/Rust analysis job: project FFmpeg decodes each file directly to mono float32 at 22050 Hz, then the native SONARA Rust analyzer reads that buffer. It cannot be selected in the same job as MAEST, MERT, MuQ, CLAP, or classifiers. **Core** is the default output; **Timeline** and **Representations** are optional checkboxes. SONARA BPM analysis uses the project range `70.0..180.0`.
 - **MAEST** stores genre labels and an audio embedding.
 - **MERT** stores an audio embedding for seed similarity.
 - **MuQ** stores a separate audio embedding. LAB Reference Compare can inspect MuQ neighbors for one seed track, but MuQ is not used by MERT/SONARA search, SET, Hybrid, Audio Dedup, or classifier scoring.
@@ -162,11 +162,11 @@ evidence. At low confidence, they also inspect SONARA candidates and the Mutagen
 `grid_stability` can weaken reliability. Unreliable tempo evidence moves toward a neutral score
 instead of earning a similarity bonus or becoming an automatic hard rejection.
 
-SONARA mood and instrumentalness values are retained for inspection and possible future audio workflows; they are not current similarity, SET, Hybrid, or classifier inputs. True peak and ReplayGain are also stored for future loudness-management work, not direct SONARA similarity scoring. Complete beat, onset, chord-event, tempo, energy, loudness, and downbeat sequences, plus the SONARA embedding and fingerprint, are kept out-of-band in SQLite so the hot search metadata remains small.
+SONARA mood and instrumentalness values are retained for inspection and possible future audio workflows; they are not current similarity, SET, Hybrid, or classifier inputs. True peak and ReplayGain are also stored for future loudness-management work, not direct SONARA similarity scoring. Complete beat, onset, chord-event, tempo, energy, loudness, and downbeat sequences live in an adjacent `*.timeline.sqlite` database. The hot MAEST/MERT/MuQ/CLAP embeddings stay in the selected Core database because search and ranking use them directly. Only the optional SONARA embedding and fingerprint live in `*.representations.sqlite`.
 
 Each SONARA result also retains analysis provenance, including the upstream schema and the installed package version when available. This makes later reanalysis and result audits easier to plan.
 
-A deterministic analysis signature also covers SONARA `0.2.8`, schema `3`, playlist mode, sample rate, BPM range, sorted feature profile, and project feature revision. Normal analysis treats a legacy or mismatched signature as missing instead of trusting only `has_sonara_analysis`.
+A deterministic signature is stored independently for each selected SONARA output. It covers SONARA `0.2.9`, schema `4`, playlist mode, sample rate, BPM range, output feature profile, and project feature revision `2`. A missing or mismatched output is scheduled without forcing already-current outputs to be recomputed.
 
 A file genre tag, a MAEST genre label, a CLAP text score, and an audio-to-audio duplicate score answer different questions. They can all help, but they should not be treated as one universal truth scale.
 
@@ -298,13 +298,14 @@ The base install is enough for scan, browse, UI serving, existing SQLite data, a
 python -m pip install -e ".[sonara,ml,dev]"
 ```
 
-On Windows x64, the `sonara` extra builds the pinned SONARA `v0.2.8` source distribution. Other
+On Windows x64, the `sonara` extra builds the pinned SONARA `v0.2.9` source distribution. Other
 platforms install the same package version from PyPI.
 
 Run a small first pass:
 
 ```powershell
 dj-sim analyze --models sonara --limit 25 --db ./data/library.sqlite
+dj-sim analyze --models sonara --sonara-outputs core,timeline,representations --limit 25 --db ./data/library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --limit 25 --db ./data/library.sqlite
 ```
 
@@ -316,7 +317,7 @@ Useful options from the current CLI and API are:
 - `--track-batch-size 1..64`
 - `--inference-batch-size 1..128`
 - `--diagnostics` to write decoder and batch timing details to the file log
-- the full SONARA archival profile by default; use `--sonara-minimal` for plain playlist output or individual `--sonara-*` flags for an explicit subset
+- `--sonara-outputs core,timeline,representations`; omission writes Core only
 
 MuQ uses the optional `ml` dependencies and official `OpenMuQ/MuQ-large-msd-iter` weights. The app feeds MuQ only 24 kHz `float32` audio and supports CPU or CUDA. CUDA is recommended for full-library runs. In this release, MuQ stores embeddings and analysis status. LAB Reference Compare can use those embeddings for per-model listening checks.
 
@@ -390,13 +391,13 @@ Start here:
 - [Install](docs/dj-track-similarity/getting-started/install.md)
 - [First library](docs/dj-track-similarity/getting-started/first-library.md)
 - [First analysis](docs/dj-track-similarity/getting-started/first-analysis.md)
-- [Migrate SONARA v0.2.4](docs/dj-track-similarity/workflows/migrate-sonara-v0-2-4.md)
+- [Reanalyze split SONARA storage](docs/dj-track-similarity/workflows/reanalyze-sonara-split-storage.md)
 - [Browse library](docs/dj-track-similarity/user-guide/browse-library.md)
 - [Search with seeds](docs/dj-track-similarity/user-guide/search-with-seeds.md)
 - [Smart Set Builder](docs/dj-track-similarity/user-guide/smart-set-builder.md)
 - [Text search](docs/dj-track-similarity/user-guide/text-search.md)
 - [Local-first safety](docs/dj-track-similarity/concepts/local-first-safety.md)
-- [SONARA v0.2.4 contract](docs/dj-track-similarity/reference/sonara-v0-2-4-contract.md)
+- [SONARA v0.2.9 contract](docs/dj-track-similarity/reference/sonara-v0-2-9-contract.md)
 - [Tools and scripts](docs/dj-track-similarity/tools-and-scripts/index.md)
 - [CLI reference](docs/dj-track-similarity/reference/cli.md)
 - [Model citations and licenses](docs/dj-track-similarity/reference/model-citations.md)

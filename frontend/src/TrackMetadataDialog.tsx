@@ -1,7 +1,6 @@
 import { Check, Copy, X } from "lucide-react";
-import { Fragment, useEffect, useState } from "react";
-import { api, Track } from "./api";
-import { readableSonaraCurves, type ReadableSonaraCurve } from "./sonaraDisplay";
+import { Fragment, useState } from "react";
+import { Track } from "./api";
 import { formatMaestGenreLabel, hasMaestSyncopatedRhythm, SYNCOPATED_RHYTHM_LABEL } from "./syncopatedRhythm";
 import { basename, displayTrack, trackHasAnalysis } from "./trackDisplay";
 
@@ -55,39 +54,18 @@ export function TrackMetadataDialog({
   const scores = track.genre_scores || {};
   const trackHasSyncopatedRhythm = hasMaestSyncopatedRhythm(track.metadata);
   const hasSonaraAnalysis = trackHasAnalysis(track, "sonara");
+  const timelineFields = track.timeline_fields || [];
+  const representationFields = track.representation_fields || [];
   const sonaraFeatureGroups = [
     ...readableSonaraFeatureGroups(track.metadata?.sonara_features),
     ...readableSonaraProvenanceGroups(track.metadata?.sonara_provenance),
     ...readableSonaraSignatureGroups(track.metadata?.sonara_analysis_signature)
   ];
-  const [sonaraCurves, setSonaraCurves] = useState<ReadableSonaraCurve[]>([]);
-  const [sonaraCurveStatus, setSonaraCurveStatus] = useState<"idle" | "loading" | "loaded" | "error">("idle");
-  const sonaraFeatureCount = sonaraFeatureGroups.reduce((total, group) => total + group.features.length, 0) + sonaraCurves.length;
+  const sonaraFeatureCount = sonaraFeatureGroups.reduce((total, group) => total + group.features.length, 0);
   const classifierScores = readableClassifierScores(track);
   const analysisBadges = readableAnalysisBadges(track);
   const primaryEntries = readablePrimaryTrackInfo(track);
   const metadataEntries = readableTrackTags(track.metadata);
-
-  useEffect(() => {
-    let active = true;
-    setSonaraCurves([]);
-    if (!hasSonaraAnalysis) {
-      setSonaraCurveStatus("loaded");
-      return () => { active = false; };
-    }
-    setSonaraCurveStatus("loading");
-    void api.sonaraCurves(track.id)
-      .then((curves) => {
-        if (!active) return;
-        setSonaraCurves(readableSonaraCurves(curves));
-        setSonaraCurveStatus("loaded");
-      })
-      .catch(() => {
-        if (!active) return;
-        setSonaraCurveStatus("error");
-      });
-    return () => { active = false; };
-  }, [hasSonaraAnalysis, track.id]);
 
   async function copyFilePath() {
     const copied = await copyTextToClipboard(track.path);
@@ -142,7 +120,7 @@ export function TrackMetadataDialog({
           </dl>
         </div>
         <div className="sonara-block">
-          <strong>SONARA features</strong>
+          <strong>SONARA · Core</strong>
           {sonaraFeatureCount || hasSonaraAnalysis ? (
             <div className="sonara-feature-groups">
               {sonaraFeatureGroups.map((group) => (
@@ -155,31 +133,13 @@ export function TrackMetadataDialog({
                   </dl>
                 </div>
               ))}
-              {hasSonaraAnalysis ? (
-                <div className="sonara-feature-group">
-                  <span className="sonara-feature-group-title">Curves</span>
-                  {sonaraCurves.length ? (
-                    <dl className="metadata-grid tag-grid sonara-feature-grid">
-                      {sonaraCurves.map((feature) => (
-                        <Fragment key={feature.key}><dt title={feature.description}>{feature.label}</dt><dd title={feature.description}>{feature.value}</dd></Fragment>
-                      ))}
-                    </dl>
-                  ) : (
-                    <span className="empty-genres">
-                      {sonaraCurveStatus === "error"
-                        ? "Stored curve data could not be loaded"
-                        : sonaraCurveStatus === "loaded"
-                          ? "No stored curve data"
-                          : "Loading stored curve summaries…"}
-                    </span>
-                  )}
-                </div>
-              ) : null}
             </div>
           ) : (
-            <span className="empty-genres">SONARA признаки ещё не извлечены</span>
+            <span className="empty-genres">Core данные ещё не рассчитаны</span>
           )}
         </div>
+        <StoragePresenceBlock title="Timeline" fields={timelineFields} emptyText="Timeline данные ещё не рассчитаны" />
+        <StoragePresenceBlock title="Representations" fields={representationFields} emptyText="Representations ещё не рассчитаны" />
         <div className="classifier-score-block">
           <strong>Classifier scores</strong>
           {classifierScores.length ? (
@@ -208,6 +168,32 @@ export function TrackMetadataDialog({
           )}
         </div>
       </section>
+    </div>
+  );
+}
+
+function StoragePresenceBlock({
+  title,
+  fields,
+  emptyText
+}: {
+  title: string;
+  fields: string[];
+  emptyText: string;
+}) {
+  return (
+    <div className="sonara-storage-block">
+      <strong>{title}</strong>
+      {fields.length ? (
+        <>
+          <span className="sonara-storage-present"><Check size={14} /> Данные присутствуют</span>
+          <div className="sonara-storage-fields">
+            {fields.map((field) => <code key={field}>{field}</code>)}
+          </div>
+        </>
+      ) : (
+        <span className="empty-genres">{emptyText}</span>
+      )}
     </div>
   );
 }
@@ -322,6 +308,7 @@ const sonaraFeatureLabels: Record<string, string> = {
   outro_start_sec: "Outro start",
   segments: "Structure segments",
   energy_curve_hop_sec: "Energy curve hop",
+  energy_curve_summary: "Energy curve summary",
   // SONARA 2.0 opt-in: loudness
   true_peak_db: "True peak",
   replaygain_db: "ReplayGain",
@@ -386,6 +373,7 @@ const sonaraFeatureDescriptions: Record<string, string> = {
   outro_start_sec: "Estimated start of the outro",
   segments: "Estimated within-track structure segments",
   energy_curve_hop_sec: "Time spacing between stored energy-curve values",
+  energy_curve_summary: "Compact min, max, mean, and standard-deviation summary of the energy curve",
   true_peak_db: "True peak level (dBTP, ITU-R BS.1770-4)",
   replaygain_db: "Suggested ReplayGain adjustment (dB)",
   loudness_momentary_max_db: "Maximum momentary loudness (LUFS)",
@@ -405,7 +393,7 @@ const sonaraFeatureDescriptions: Record<string, string> = {
 const sonaraPlaylistFeatureGroups = [
   {
     title: "Core",
-    keys: ["duration_sec", "bpm", "bpm_raw", "bpm_confidence", "bpm_candidates", "beats", "onset_frames", "onset_density", "n_beats", "spectral_centroid_mean", "zero_crossing_rate", "rms_mean", "rms_max", "loudness_lufs", "dynamic_range_db"]
+    keys: ["duration_sec", "bpm", "bpm_raw", "bpm_confidence", "bpm_candidates", "onset_density", "n_beats", "spectral_centroid_mean", "zero_crossing_rate", "rms_mean", "rms_max", "loudness_lufs", "dynamic_range_db"]
   },
   {
     title: "Perceptual",
@@ -425,7 +413,7 @@ const sonaraPlaylistFeatureGroups = [
   },
   {
     title: "Structure",
-    keys: ["intro_end_sec", "outro_start_sec", "segments", "energy_curve_hop_sec"]
+    keys: ["intro_end_sec", "outro_start_sec", "energy_curve_hop_sec", "energy_curve_summary"]
   },
   {
     title: "Beatgrid",
@@ -444,8 +432,8 @@ const sonaraPlaylistFeatureGroups = [
     keys: ["leading_silence_sec", "trailing_silence_sec"]
   },
   {
-    title: "Archive metadata",
-    keys: ["tempo_variability", "time_signature", "time_signature_confidence", "embedding_version", "fingerprint_version"]
+    title: "Rhythm metadata",
+    keys: ["tempo_variability", "time_signature", "time_signature_confidence"]
   }
 ] as const;
 
@@ -481,7 +469,11 @@ function readableSonaraFeatureGroups(raw: unknown) {
         .map((key) => {
           const payload = record[key];
           const featureRecord = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
-          if (!sonaraPlaylistFeatureKeys.has(key) || featureRecord.type === "unavailable" || featureRecord.value == null) return null;
+          if (
+            !sonaraPlaylistFeatureKeys.has(key)
+            || featureRecord.type === "unavailable"
+            || (featureRecord.value == null && featureRecord.summary == null)
+          ) return null;
           return {
             key,
             label: sonaraFeatureLabels[key] || formatFeatureLabel(key),
@@ -561,6 +553,8 @@ function formatSonaraValue(record: Record<string, unknown>, key?: string) {
   if (key === "key_candidates" && Array.isArray(value)) return formatKeyCandidates(value);
   if (record.type === "duration" && typeof value === "number") return formatPlayerDuration(value);
   if (record.type === "ndarray" || record.storage) {
+    const compactValues = compactNumericValues(value);
+    if (compactValues) return compactValues.map(formatNumber).join(", ");
     const shape = Array.isArray(record.shape) ? record.shape.join("x") : "";
     const summary = record.summary && typeof record.summary === "object" ? record.summary as Record<string, unknown> : null;
     const mean = typeof summary?.mean === "number" ? ` mean ${formatNumber(summary.mean)}` : "";
@@ -581,6 +575,19 @@ function formatSonaraValue(record: Record<string, unknown>, key?: string) {
   if (Array.isArray(value)) return `${value.length} values`;
   if (value == null) return "-";
   return String(value);
+}
+
+function compactNumericValues(value: unknown) {
+  const flattened: number[] = [];
+  function append(item: unknown): boolean {
+    if (typeof item === "number" && Number.isFinite(item)) {
+      flattened.push(item);
+      return flattened.length <= 64;
+    }
+    if (!Array.isArray(item)) return false;
+    return item.every(append);
+  }
+  return append(value) && flattened.length ? flattened : null;
 }
 
 function formatBpmCandidates(value: unknown[]) {

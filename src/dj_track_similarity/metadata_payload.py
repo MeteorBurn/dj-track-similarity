@@ -50,9 +50,20 @@ def metadata_from_json(metadata_json: object) -> dict[str, object]:
     return sanitized if isinstance(sanitized, dict) else {}
 
 
-def metadata_to_json(metadata: dict[str, object], *, sort_keys: bool = True) -> str:
+def metadata_to_json(metadata: object, *, sort_keys: bool = True) -> str:
     sanitized = json_safe_value(metadata)
     return json.dumps(sanitized, ensure_ascii=False, sort_keys=sort_keys, allow_nan=False)
+
+
+def string_list_from_json(value: object) -> list[str] | None:
+    try:
+        parsed = json.loads(str(value or "[]"))
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(parsed, list):
+        return None
+    values = [text for item in parsed if (text := string_or_none(item)) is not None]
+    return list(dict.fromkeys(values)) or None
 
 
 def json_safe_value(value: object) -> object:

@@ -10,7 +10,7 @@
 
 The app can create or update local artifacts:
 
-- SQLite databases such as `dj-track-similarity.sqlite` or a user-selected `.sqlite` file.
+- Three-file SQLite catalogs: a selected Core `.sqlite` file plus adjacent `.timeline.sqlite` and `.representations.sqlite` files.
 - Runtime logs under `logs/`.
 - Exported M3U and CSV files.
 - Audio Doctor and Audio Dedup JSON/XLSX/log reports.
@@ -29,11 +29,11 @@ These operations do not modify source audio files:
 | --- | --- |
 | Scan | SQLite track rows and metadata |
 | Refresh Tags | SQLite metadata for existing tracks |
-| Analysis | SQLite metadata, flags, embeddings, and scores |
+| Analysis | Core metadata/flags and searchable ML embeddings, optional SONARA Timeline/Representations values, and scores |
 | Search and SET | Usually no data writes, except evaluation rows when Hybrid feedback is recorded |
 | Browser preview | Temporary WAV only when transcoding is needed |
-| Reset | SQLite records only |
-| Database clear | SQLite records only |
+| Reset | records in the three matching SQLite files only |
+| Database clear | records in the three matching SQLite files only |
 | Relocation preview | no data writes |
 | Relocation apply | stored SQLite paths only |
 | Export | new M3U or CSV file |

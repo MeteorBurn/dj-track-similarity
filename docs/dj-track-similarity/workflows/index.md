@@ -12,7 +12,7 @@ Use workflows when you know the task already. Examples include set preparation, 
 - [Find compatible tracks](./find-compatible-tracks.md): one reference track to candidate list.
 - [Build crates](./build-crates.md): create listening pools and export them.
 - [Train a personal classifier](./train-personal-classifier.md): turn Rhythm Lab labels into a promoted score.
-- [Migrate SONARA v0.2.4](./migrate-sonara-v0-2-4.md): reanalyze an existing library and rebuild dependent classifiers.
+- [Reanalyze split SONARA storage](./reanalyze-sonara-split-storage.md): migrate schema v5 and rebuild current analysis.
 - [Maintain library](./maintain-library.md): refresh metadata, reports, duplicate checks, and safe repair.
 
 ## Working habit

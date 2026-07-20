@@ -13,6 +13,7 @@ import dj_track_similarity.media_preview as media_preview_module
 from dj_track_similarity.api import create_app
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature
+from dj_track_similarity.sonara_features import sonara_analysis_signatures_for_outputs
 
 
 def test_tracks_endpoint_returns_paginated_slim_items_and_total(tmp_path: Path) -> None:
@@ -47,7 +48,7 @@ def test_tracks_endpoints_return_empty_contract_for_new_database(tmp_path: Path)
     assert filtered_response.json() == {"items": [], "total": 0}
 
 
-def test_track_sonara_curves_endpoint_returns_lazy_out_of_band_data(tmp_path: Path) -> None:
+def test_track_sonara_timeline_endpoint_returns_lazy_sidecar_data(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
     with_curves_id = _add_track(db, tmp_path, "curves.wav", "Artist", "Curves", {})
@@ -58,34 +59,34 @@ def test_track_sonara_curves_endpoint_returns_lazy_out_of_band_data(tmp_path: Pa
         "loudness_curve": {"type": "list", "value": [-18.0, -12.0], "length": 2},
         "downbeats": {"type": "list", "value": [0, 4, 8], "length": 3},
     }
-    signature = expected_sonara_analysis_signature([])
-    db.save_sonara_features(
+    signature = sonara_analysis_signatures_for_outputs(["timeline"])["timeline"]
+    db.save_sonara_timeline(
         with_curves_id,
-        {},
+        curves,
+        provenance={"package_version": "0.2.9"},
         analysis_signature=signature,
-        curves=curves,
     )
-    db.save_sonara_features(
+    db.save_sonara_timeline(
         stale_curves_id,
-        {},
+        curves,
+        provenance={"package_version": "0.2.9"},
         analysis_signature=signature,
-        curves=curves,
     )
     with db.connect() as connection:
         connection.execute(
             """
-            UPDATE tracks
-            SET metadata_json = json_set(metadata_json, '$.sonara_analysis_signature.schema_version', 2)
-            WHERE id = ?
+            UPDATE timeline.sonara_timeline
+            SET analysis_signature_json = json_set(analysis_signature_json, '$.schema_version', 2)
+            WHERE track_id = ?
             """,
             (stale_curves_id,),
         )
     client = TestClient(create_app(db_path))
 
-    stored = client.get(f"/api/tracks/{with_curves_id}/sonara-curves")
-    empty = client.get(f"/api/tracks/{without_curves_id}/sonara-curves")
-    stale = client.get(f"/api/tracks/{stale_curves_id}/sonara-curves")
-    missing = client.get("/api/tracks/999999/sonara-curves")
+    stored = client.get(f"/api/tracks/{with_curves_id}/sonara-timeline")
+    empty = client.get(f"/api/tracks/{without_curves_id}/sonara-timeline")
+    stale = client.get(f"/api/tracks/{stale_curves_id}/sonara-timeline")
+    missing = client.get("/api/tracks/999999/sonara-timeline")
 
     assert stored.status_code == 200
     assert stored.json()["energy_curve"]["value"] == [0.1, 0.4, 0.8]
@@ -95,7 +96,7 @@ def test_track_sonara_curves_endpoint_returns_lazy_out_of_band_data(tmp_path: Pa
     assert empty.json() == {}
     assert stale.status_code == 200
     assert stale.json() == {}
-    assert db.load_sonara_curves(stale_curves_id) is None
+    assert db.load_sonara_timeline(stale_curves_id) is None
     assert missing.status_code == 404
 
 

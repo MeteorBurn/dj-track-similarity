@@ -42,9 +42,9 @@ Install only the extras you need:
 python -m pip install -e ".[sonara,ml,dev]"
 ```
 
-On Windows x64, the `sonara` extra installs the pinned SONARA `v0.2.4` wheel from the
-[MeteorBurn release](https://github.com/MeteorBurn/sonara/releases/tag/v0.2.4). Other
-platforms install the same package version from PyPI.
+The `sonara` extra installs pinned SONARA `v0.2.9`. On Windows x64, pip builds the pinned source
+distribution when a compatible wheel is unavailable. Other platforms install the same package
+version.
 
 Verify the runtime before reanalyzing an existing library:
 
@@ -52,8 +52,8 @@ Verify the runtime before reanalyzing an existing library:
 python -c "import sonara; print(sonara.__version__)"
 ```
 
-The command must print `0.2.4`. Existing analyzed databases should then follow the
-[SONARA migration workflow](../workflows/migrate-sonara-v0-2-4.md).
+The command must print `0.2.9`. Existing schema v5 databases should then follow the
+[split SONARA storage workflow](../workflows/reanalyze-sonara-split-storage.md).
 
 - `sonara`: SONARA feature extraction.
 - `ml`: PyTorch, Torchaudio, Torchvision, TorchCodec, nnaudio, Transformers, Hugging Face Hub, LAION CLAP, MAEST, and MuQ inference packages.

@@ -43,8 +43,8 @@ class SonaraModelRunner:
     model_name = "sonara-playlist-lab"
     device = "cpu"
 
-    def __init__(self, *, feature_families: tuple[str, ...] = ()) -> None:
-        self.feature_families: tuple[str, ...] = tuple(feature_families)
+    def __init__(self, *, outputs: tuple[str, ...] = ("core",)) -> None:
+        self.outputs: tuple[str, ...] = tuple(outputs)
 
     def analyze_batch(self, db: LibraryDatabase, items: Sequence[AnalysisBatchItem]) -> None:
         for item in items:
@@ -52,7 +52,7 @@ class SonaraModelRunner:
                 db,
                 item.track,
                 cast(DecodedAudio, item.decoded),
-                feature_families=self.feature_families,
+                outputs=self.outputs,
             )
 
 
@@ -135,10 +135,10 @@ def default_model_runners(
     device: str,
     inference_batch_size: int,
     top_k: int,
-    sonara_features: tuple[str, ...] = (),
+    sonara_outputs: tuple[str, ...] = ("core",),
 ) -> AnalysisModelRunner:
     if model == "sonara":
-        return SonaraModelRunner(feature_families=sonara_features)
+        return SonaraModelRunner(outputs=sonara_outputs)
     if model == "maest":
         return MaestModelRunner(device=device, top_k=top_k, inference_batch_size=inference_batch_size)
     if model in {"mert", "muq", "clap"}:

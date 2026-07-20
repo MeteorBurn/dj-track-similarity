@@ -24,6 +24,7 @@ if str(SRC_DIR) not in sys.path:
 
 from dj_track_similarity.database import LibraryDatabase  # noqa: E402
 from dj_track_similarity.db_search_fts import rebuild_track_search_fts  # noqa: E402
+from dj_track_similarity.db_storage import sidecar_database_paths  # noqa: E402
 from dj_track_similarity.evaluation.score_profiles import DEFAULT_LIMITATIONS, PROFILE_KIND, WEIGHT_KIND, ScoreProfile  # noqa: E402
 from dj_track_similarity.evaluation.weighted_candidates import build_weighted_candidate_pool  # noqa: E402
 from dj_track_similarity.hybrid_search import build_hybrid_search_preview  # noqa: E402
@@ -514,14 +515,16 @@ def _kept_database_path(path: Path, track_count: int, *, multiple_counts: bool) 
 
 
 def _prepare_kept_database_path(path: Path) -> None:
-    if path.exists():
-        raise FileExistsError(f"Kept benchmark database already exists: {path}")
+    sidecars = sidecar_database_paths(path)
+    existing = [candidate for candidate in (path, sidecars.timeline, sidecars.representations) if candidate.exists()]
+    if existing:
+        raise FileExistsError(f"Kept benchmark database file already exists: {existing[0]}")
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> BenchmarkConfig:
     parser = argparse.ArgumentParser(
-        description="Create a synthetic v4 SQLite library and benchmark vector search operations.",
+        description="Create a synthetic v6 three-file SQLite library and benchmark vector search operations.",
     )
     parser.add_argument("--output", required=True, type=Path, help="Path to write the JSON benchmark report.")
     parser.add_argument(

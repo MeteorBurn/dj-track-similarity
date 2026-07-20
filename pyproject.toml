@@ -22,8 +22,7 @@ ann = [
   "hnswlib>=0.8",
 ]
 sonara = [
-  "sonara @ https://github.com/kkollsga/sonara/releases/download/v0.2.8/sonara-0.2.8.tar.gz#sha256=3243c9356631c2b3b6b555108ac1ddc1188caab00fef001d1ff48cef55cbea90 ; sys_platform == 'win32'",
-  "sonara==0.2.8 ; sys_platform != 'win32'",
+  "sonara==0.2.9",
 ]
 ml = [
   "torch==2.11.0",

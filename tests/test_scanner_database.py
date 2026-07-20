@@ -12,6 +12,7 @@ from dj_track_similarity.db_schema import CURRENT_SCHEMA_VERSION
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.scanner import read_audio_metadata, scan_library
 from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature
+from dj_track_similarity.sonara_features import sonara_analysis_signatures_for_outputs
 
 
 def test_database_uses_wal_and_busy_timeout_for_concurrent_jobs(tmp_path: Path) -> None:
@@ -37,7 +38,10 @@ def test_new_database_uses_current_schema_version_and_indexes(tmp_path: Path) ->
         tables = {row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
         track_columns = {row["name"] for row in connection.execute("PRAGMA table_info(tracks)").fetchall()}
         track_indexes = {row["name"] for row in connection.execute("PRAGMA index_list(tracks)").fetchall()}
-        embedding_indexes = {row["name"] for row in connection.execute("PRAGMA index_list(embeddings)").fetchall()}
+        embedding_indexes = {
+            row["name"]
+            for row in connection.execute("PRAGMA index_list(embeddings)").fetchall()
+        }
 
     assert version == CURRENT_SCHEMA_VERSION
     assert "library_settings" in tables
@@ -70,9 +74,13 @@ def test_new_database_uses_current_schema_version_and_indexes(tmp_path: Path) ->
         "idx_tracks_maest_missing_sort",
     }.intersection(track_indexes)
     assert "idx_embeddings_key_track" in embedding_indexes
+    assert db.timeline_path == tmp_path / "library.timeline.sqlite"
+    assert db.representations_path == tmp_path / "library.representations.sqlite"
+    assert db.timeline_path.is_file()
+    assert db.representations_path.is_file()
 
 
-def test_existing_v4_database_without_muq_flag_is_migrated(tmp_path: Path) -> None:
+def test_existing_v4_database_is_rejected_instead_of_adapted(tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     with sqlite3.connect(db_path) as connection:
         connection.executescript(
@@ -170,16 +178,136 @@ def test_existing_v4_database_without_muq_flag_is_migrated(tmp_path: Path) -> No
             """
         )
 
-    LibraryDatabase(db_path)
+    with pytest.raises(RuntimeError, match="schema is not current"):
+        LibraryDatabase(db_path)
 
     with sqlite3.connect(db_path) as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         track_columns = {row[1] for row in connection.execute("PRAGMA table_info(tracks)").fetchall()}
-        flags = connection.execute("SELECT path, has_muq_embedding FROM tracks ORDER BY id").fetchall()
+        paths = connection.execute("SELECT path FROM tracks ORDER BY id").fetchall()
+
+    assert version == 4
+    assert "has_muq_embedding" not in track_columns
+    assert paths == [("muq.wav",), ("mert.wav",)]
+
+
+def test_v5_migration_preserves_ml_data_and_invalidates_only_old_sonara_analysis(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    track_id = db.upsert_track(
+        path=tmp_path / "track.wav",
+        size=10,
+        mtime=1,
+        metadata={"title": "Track", "bpm": 120, "initialkey": "A minor", "duration": 90},
+    )
+    with sqlite3.connect(db_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE sonara_curves (
+                track_id INTEGER PRIMARY KEY,
+                payload_json TEXT NOT NULL
+            );
+            """
+        )
+        connection.executemany(
+            """
+            INSERT INTO embeddings (track_id, embedding_key, model_name, dim, vector)
+            VALUES (?, ?, ?, 1, ?)
+            """,
+            [
+                (track_id, embedding_key, f"{embedding_key}-old", np.asarray([1.0], dtype=np.float32).tobytes())
+                for embedding_key in ("maest", "mert", "muq", "clap")
+            ],
+        )
+        connection.execute(
+            "INSERT INTO sonara_curves (track_id, payload_json) VALUES (?, '{}')",
+            (track_id,),
+        )
+        connection.execute(
+            """
+            UPDATE tracks
+            SET bpm = 128,
+                musical_key = 'F major',
+                energy = 0.8,
+                duration = 100,
+                has_sonara_analysis = 1,
+                has_maest_embedding = 1,
+                has_mert_embedding = 1,
+                has_muq_embedding = 1,
+                has_clap_embedding = 1,
+                metadata_json = json_set(
+                    metadata_json,
+                    '$.sonara_features', json('{"bpm":{"value":128}}'),
+                    '$.sonara_model', 'old-sonara',
+                    '$.maest_genres', json('[{"label":"Techno","score":0.9}]')
+                )
+            WHERE id = ?
+            """,
+            (track_id,),
+        )
+        connection.execute(
+            """
+            INSERT INTO track_classifier_scores (
+                track_id, classifier, score, label, confidence, probabilities_json, feature_set, model_id
+            ) VALUES (?, 'old', 0.9, 'high', 0.9, '{}', 'combined', 'old-model')
+            """,
+            (track_id,),
+        )
+        connection.execute(
+            """
+            INSERT INTO track_classifier_scores (
+                track_id, classifier, score, label, confidence, probabilities_json, feature_set, model_id
+            ) VALUES (?, 'vector-only', 0.8, 'high', 0.8, '{}', 'mert+clap', 'vector-model')
+            """,
+            (track_id,),
+        )
+        connection.execute("PRAGMA user_version = 5")
+
+    migrated = LibraryDatabase(db_path)
+    track = migrated.get_track(track_id)
+    with migrated.connect() as connection:
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        main_tables = {
+            row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        flags = connection.execute(
+            """
+            SELECT has_sonara_analysis, has_maest_embedding, has_mert_embedding,
+                   has_muq_embedding, has_clap_embedding
+            FROM tracks WHERE id = ?
+            """,
+            (track_id,),
+        ).fetchone()
+        score_rows = connection.execute(
+            "SELECT classifier, feature_set FROM track_classifier_scores ORDER BY classifier"
+        ).fetchall()
+        embedding_keys = [
+            row[0]
+            for row in connection.execute(
+                "SELECT embedding_key FROM embeddings WHERE track_id = ? ORDER BY embedding_key",
+                (track_id,),
+            ).fetchall()
+        ]
+        sonara_representation_count = connection.execute(
+            "SELECT COUNT(*) FROM representations.embeddings WHERE track_id = ?",
+            (track_id,),
+        ).fetchone()[0]
 
     assert version == CURRENT_SCHEMA_VERSION
-    assert "has_muq_embedding" in track_columns
-    assert flags == [("muq.wav", 1), ("mert.wav", 0)]
+    assert "embeddings" in main_tables
+    assert "sonara_curves" not in main_tables
+    assert tuple(flags) == (0, 1, 1, 1, 1)
+    assert [tuple(row) for row in score_rows] == [("vector-only", "mert+clap")]
+    assert embedding_keys == ["clap", "maest", "mert", "muq"]
+    assert sonara_representation_count == 0
+    assert track.bpm == 120
+    assert track.musical_key == "A minor"
+    assert track.energy is None
+    assert track.duration == 90
+    assert "sonara_features" not in track.metadata
+    assert track.metadata["maest_genres"] == [{"label": "Techno", "score": 0.9}]
+    assert migrated.timeline_path.is_file()
+    assert migrated.representations_path.is_file()
 
 
 def test_track_search_fts_mode_is_explicit_token_search(tmp_path: Path) -> None:
@@ -436,8 +564,26 @@ def test_database_stores_multiple_embedding_spaces_per_track(tmp_path: Path) -> 
     assert clap_matrix.shape == (1, 3)
 
     track = db.get_track(track_id)
+    with db.connect() as connection:
+        main_keys = [
+            row["embedding_key"]
+            for row in connection.execute("SELECT embedding_key FROM embeddings ORDER BY embedding_key").fetchall()
+        ]
+        sonara_representation_count = connection.execute(
+            "SELECT COUNT(*) FROM representations.embeddings"
+        ).fetchone()[0]
+        with pytest.raises(sqlite3.IntegrityError):
+            connection.execute(
+                """
+                INSERT INTO representations.embeddings (track_id, embedding_key, model_name, dim, vector)
+                VALUES (?, 'mert', 'wrong-store', 1, ?)
+                """,
+                (track_id, np.asarray([1.0], dtype=np.float32).tobytes()),
+            )
 
     assert track.analyses == ["mert", "muq", "clap"]
+    assert main_keys == ["clap", "mert", "muq"]
+    assert sonara_representation_count == 0
 
 
 def test_database_keeps_embedding_matrix_cache_when_unembedded_track_changes(tmp_path: Path) -> None:
@@ -534,10 +680,21 @@ def test_database_lists_lean_analysis_candidates_with_missing_models(tmp_path: P
     complete = db.upsert_track(path=tmp_path / "c-complete.wav", size=10, mtime=1, metadata={"title": "C"})
     missing_unselected = db.upsert_track(path=tmp_path / "d-missing-clap.wav", size=10, mtime=1, metadata={"title": "D"})
 
-    db.save_sonara_features(missing_mert, {"bpm": {"value": 128.0}}, model_name="sonara")
+    core_signature = sonara_analysis_signatures_for_outputs(["core"])["core"]
+    db.save_sonara_features(
+        missing_mert,
+        {"bpm": {"value": 128.0}},
+        model_name="sonara",
+        analysis_signature=core_signature,
+    )
     db.save_embedding(missing_sonara, np.asarray([1.0, 0.0], dtype=np.float32), "mert", embedding_key="mert")
     for track_id in (complete, missing_unselected):
-        db.save_sonara_features(track_id, {"bpm": {"value": 128.0}}, model_name="sonara")
+        db.save_sonara_features(
+            track_id,
+            {"bpm": {"value": 128.0}},
+            model_name="sonara",
+            analysis_signature=core_signature,
+        )
         db.save_embedding(track_id, np.asarray([1.0, 0.0], dtype=np.float32), "mert", embedding_key="mert")
 
     candidates = db.list_analysis_candidates(["sonara", "mert"], limit=10)

@@ -6,7 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .analysis_config import (
     ANALYSIS_DEVICE_PATTERN,
-    ANALYSIS_MODEL_ORDER,
     DEFAULT_ANALYSIS_DEVICE,
     DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
     ML_ANALYSIS_MODEL_ORDER,
@@ -83,7 +82,7 @@ class AnalysisJobRequest(BaseModel):
         ge=MIN_ANALYSIS_INFERENCE_BATCH_SIZE,
         le=MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
     )
-    sonara_features: list[str] | None = None
+    sonara_outputs: list[str] | None = None
 
 
 class AudioDedupJobRequest(BaseModel):

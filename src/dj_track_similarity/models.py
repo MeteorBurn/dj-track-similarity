@@ -24,6 +24,8 @@ class Track:
     analyses: list[str] | None = None
     embedding_model: str | None = None
     embedding_dim: int | None = None
+    timeline_fields: list[str] | None = None
+    representation_fields: list[str] | None = None
 
 
 @dataclass(frozen=True)

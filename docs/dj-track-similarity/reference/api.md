@@ -28,18 +28,17 @@ The API is local and unauthenticated by design. Bind the server carefully. Use `
 | `GET` | `/api/tracks` | paginated lightweight track rows |
 | `POST` | `/api/tracks/filtered` | full filtered list for UI set actions |
 | `GET` | `/api/tracks/{track_id}` | full metadata row |
-| `GET` | `/api/tracks/{track_id}/sonara-curves` | lazy out-of-band SONARA curves and sequences |
+| `GET` | `/api/tracks/{track_id}/sonara-timeline` | explicit Timeline payload read |
 | `POST` | `/api/tracks/{track_id}/liked` | toggle local liked state |
 | `GET` | `/media/{track_id}` | stream preview audio |
 
 Track list query ranges include `limit=1..500`, `offset>=0`, `search_mode=like|fts`, and `preset=all|syncopated`.
 
-The SONARA curves endpoint returns complete stored `beats`, `onset_frames`, `chord_sequence`,
-`chord_events`, `tempo_curve`, `energy_curve`, `loudness_curve`, `downbeats`, `embedding`, and
-`fingerprint` payloads when available. It returns `{}` when no out-of-band row exists or when the
-track's saved SONARA signature is stale or unsigned. It returns `404` for an unknown track. Clients
-should request it only when displaying archived details; list, search, SET, and classifier paths do
-not load these values.
+The Timeline endpoint returns complete stored `beats`, `onset_frames`, `chord_sequence`,
+`chord_events`, `tempo_curve`, `energy_curve`, `segments`, `loudness_curve`, and `downbeats` payloads
+when available. It returns `{}` when no Timeline row exists or its signature is stale, and `404` for
+an unknown track. Regular track rows expose only `timeline_fields` and `representation_fields` name
+lists. The metadata dialog uses those manifests and does not request heavy values.
 
 Each field is a serialized payload rather than a raw top-level array. The response shape is:
 
@@ -66,12 +65,15 @@ Each field is a serialized payload rather than a raw top-level array. The respon
 | `POST` | `/api/classifiers/{classifier_key}/analyze` | score one classifier |
 | `POST` | `/api/classifiers/reset` | delete selected classifier scores |
 
-Analysis payload fields include `models`, `classifier_keys`, `limit`, `device`, `top_k`, `track_batch_size`, `inference_batch_size`, and the `sonara_features` profile. Omitting `sonara_features` requests all eight supported families: `structure`, `loudness`, `beatgrid`, `key_candidates`, `vocalness`, `mood`, `instrumentalness`, and `silence`. An explicit empty list requests plain playlist mode. Any other list is an intentional subset. SONARA scheduling compares that exact profile's current deterministic signature rather than relying on the presence flag alone, so a mismatch is queued for reanalysis without a reset.
+Analysis payload fields include `models`, `classifier_keys`, `limit`, `device`, `top_k`,
+`track_batch_size`, `inference_batch_size`, and `sonara_outputs`. Allowed SONARA outputs are `core`,
+`timeline`, and `representations`; omission defaults to `["core"]`. At least one is required for a
+SONARA job. SONARA runs alone, and its scheduler compares the independent signature for every
+selected output.
 
-`GET /api/library/summary` counts any valid current SONARA contract, including current full, minimal,
-or subset profiles. Analysis scheduling instead compares the exact requested profile. Check the job
-counts and sample signatures when confirming that a full-profile migration is complete; the summary
-alone cannot prove exact-profile coverage.
+`GET /api/library/summary` reports current Core coverage. Timeline and Representations presence is
+reported per track through the manifest fields; analysis scheduling is the authoritative exact-output
+coverage check.
 
 A SONARA reset response can include `classifier_scores_deleted`. These are only scores whose stored feature set depends on SONARA; labels, feedback, and embedding-only scores are not deleted.
 

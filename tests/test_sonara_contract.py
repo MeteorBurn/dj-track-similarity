@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import sqlite3
-
-import pytest
 
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db_schema import SONARA_CLASSIFIER_REVISION_SETTING_KEY
@@ -16,12 +13,13 @@ from dj_track_similarity.sonara_contract import (
     sonara_analysis_signature_errors,
     sonara_analysis_signatures_match,
 )
+from dj_track_similarity.sonara_features import sonara_analysis_signatures_for_outputs
 
 
 def test_analysis_signature_is_deterministic_and_sorts_requested_profile() -> None:
     provenance = {
-        "package_version": "0.2.8",
-        "schema_version": 3,
+        "package_version": "0.2.9",
+        "schema_version": 4,
         "mode": "playlist",
         "sample_rate": 22_050,
     }
@@ -38,7 +36,7 @@ def test_analysis_signature_is_deterministic_and_sorts_requested_profile() -> No
     assert first == second
     assert first["requested_features"] == ["bpm", "structure", "vocalness"]
     assert first["bpm_range"] == [70, 180]
-    assert first["project_feature_revision"] == 1
+    assert first["project_feature_revision"] == 2
     assert str(first["signature_id"]).startswith("sha256:")
     assert sonara_analysis_signature_errors(first) == ()
 
@@ -64,7 +62,7 @@ def test_sonara_feature_set_detection_covers_variants_and_combined() -> None:
 def test_profile_signature_mismatch_makes_sonara_analysis_candidate_stale(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_id = _track(db, tmp_path, "track.wav")
-    base_signature = expected_sonara_analysis_signature([])
+    base_signature = sonara_analysis_signatures_for_outputs(["core"])["core"]
     full_signature = expected_sonara_analysis_signature(["structure", "vocalness"])
     db.save_sonara_features(
         track_id,
@@ -74,11 +72,11 @@ def test_profile_signature_mismatch_makes_sonara_analysis_candidate_stale(tmp_pa
 
     assert db.list_analysis_candidates(
         ["sonara"],
-        expected_sonara_signature=base_signature,
+        expected_sonara_signatures={"core": base_signature},
     ) == []
     stale = db.list_analysis_candidates(
         ["sonara"],
-        expected_sonara_signature=full_signature,
+        expected_sonara_signatures={"core": full_signature},
     )
 
     assert [(candidate.id, candidate.missing_models, candidate.analyses) for candidate in stale] == [
@@ -90,7 +88,7 @@ def test_scheduler_rejects_tampered_or_featureless_rows_even_with_expected_signa
     db = LibraryDatabase(tmp_path / "library.sqlite")
     tampered_id = _track(db, tmp_path, "tampered.wav")
     featureless_id = _track(db, tmp_path, "featureless.wav")
-    signature = expected_sonara_analysis_signature([])
+    signature = sonara_analysis_signatures_for_outputs(["core"])["core"]
     for track_id in (tampered_id, featureless_id):
         db.save_sonara_features(track_id, {"bpm": {"value": 128.0}}, analysis_signature=signature)
     with db.connect() as connection:
@@ -111,7 +109,7 @@ def test_scheduler_rejects_tampered_or_featureless_rows_even_with_expected_signa
             (featureless_id,),
         )
 
-    stale = db.list_analysis_candidates(["sonara"], expected_sonara_signature=signature)
+    stale = db.list_analysis_candidates(["sonara"], expected_sonara_signatures={"core": signature})
 
     assert [(candidate.id, candidate.missing_models, candidate.analyses) for candidate in stale] == [
         (featureless_id, ("sonara",), ()),
@@ -123,7 +121,7 @@ def test_sonara_hot_rows_include_current_signature_and_exclude_stale_revision(tm
     db = LibraryDatabase(tmp_path / "library.sqlite")
     current_id = _track(db, tmp_path, "current.wav")
     stale_id = _track(db, tmp_path, "stale.wav")
-    current_signature = expected_sonara_analysis_signature([])
+    current_signature = sonara_analysis_signatures_for_outputs(["core"])["core"]
     stale_signature = {**current_signature, "project_feature_revision": 0}
     stale_signature["signature_id"] = sonara_analysis_signature_id(stale_signature)
     db.save_sonara_features(
@@ -143,65 +141,44 @@ def test_sonara_hot_rows_include_current_signature_and_exclude_stale_revision(tm
     assert feature_rows == [{"bpm": {"value": 128.0}}]
 
 
-def test_save_sonara_features_replaces_and_deletes_curves_with_the_feature_update(tmp_path: Path) -> None:
+def test_core_and_timeline_outputs_are_persisted_and_replaced_independently(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     track_id = _track(db, tmp_path, "track.wav")
-    signature = expected_sonara_analysis_signature([])
+    core_signature = sonara_analysis_signatures_for_outputs(["core"])["core"]
+    timeline_signature = sonara_analysis_signatures_for_outputs(["timeline"])["timeline"]
     db.save_sonara_features(
         track_id,
         {"bpm": {"value": 128.0}},
-        analysis_signature=signature,
-        curves={"energy_curve": {"value": [0.1, 0.2]}},
+        analysis_signature=core_signature,
+    )
+    db.save_sonara_timeline(
+        track_id,
+        {"energy_curve": {"value": [0.1, 0.2]}},
+        provenance={"package_version": "0.2.9"},
+        analysis_signature=timeline_signature,
     )
 
     db.save_sonara_features(
         track_id,
         {"bpm": {"value": 129.0}},
-        analysis_signature=signature,
-        curves={"energy_curve": {"value": [0.3]}, "downbeats": {"value": [1.0]}},
+        analysis_signature=core_signature,
     )
 
     assert db.get_track(track_id).metadata["sonara_features"] == {"bpm": {"value": 129.0}}
-    assert db.load_sonara_curves(track_id) == {
-        "energy_curve": {"value": [0.3]},
-        "downbeats": {"value": [1.0]},
-    }
+    assert db.load_sonara_timeline(track_id) == {"energy_curve": {"value": [0.1, 0.2]}}
 
-    with db.connect() as connection:
-        connection.execute(
-            """
-            CREATE TRIGGER fail_sonara_curve_update
-            BEFORE UPDATE ON sonara_curves
-            BEGIN
-                SELECT RAISE(ABORT, 'curve update failed');
-            END
-            """
-        )
-    with pytest.raises(sqlite3.IntegrityError, match="curve update failed"):
-        db.save_sonara_features(
-            track_id,
-            {"bpm": {"value": 999.0}},
-            analysis_signature=signature,
-            curves={"energy_curve": {"value": [9.9]}},
-        )
-
-    assert db.get_track(track_id).metadata["sonara_features"] == {"bpm": {"value": 129.0}}
-    assert db.load_sonara_curves(track_id) == {
-        "energy_curve": {"value": [0.3]},
-        "downbeats": {"value": [1.0]},
-    }
-    with db.connect() as connection:
-        connection.execute("DROP TRIGGER fail_sonara_curve_update")
-
-    db.save_sonara_features(
+    db.save_sonara_timeline(
         track_id,
-        {"bpm": {"value": 130.0}},
-        analysis_signature=signature,
-        curves={},
+        {"energy_curve": {"value": [0.3]}, "downbeats": {"value": [1.0]}},
+        provenance=None,
+        analysis_signature=timeline_signature,
     )
 
-    assert db.get_track(track_id).metadata["sonara_features"] == {"bpm": {"value": 130.0}}
-    assert db.load_sonara_curves(track_id) is None
+    assert db.get_track(track_id).metadata["sonara_features"] == {"bpm": {"value": 129.0}}
+    assert db.load_sonara_timeline(track_id) == {
+        "energy_curve": {"value": [0.3]},
+        "downbeats": {"value": [1.0]},
+    }
 
 
 def test_sonara_reanalysis_invalidates_only_dependent_track_scores(tmp_path: Path) -> None:
@@ -262,7 +239,7 @@ def test_database_revision_migration_invalidates_old_scores_once_without_feedbac
             "SELECT value FROM library_settings WHERE key = ?",
             (SONARA_CLASSIFIER_REVISION_SETTING_KEY,),
         ).fetchone()[0]
-    assert revision == "1"
+    assert revision == "2"
 
 
 def _track(db: LibraryDatabase, tmp_path: Path, name: str) -> int:

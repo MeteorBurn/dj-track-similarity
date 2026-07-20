@@ -4,7 +4,7 @@
 > Goal: Run the maintenance script with backup and integrity checks.
 > Type: guide
 
-The optimization script supports the main library database and the Rhythm Lab labels database. It refuses unknown SQLite layouts.
+The optimization script supports a current three-file library catalog and the standalone Rhythm Lab labels database. It refuses unknown or removed single-file library layouts.
 
 ## Command
 
@@ -18,17 +18,20 @@ The script:
 
 1. resolves the database path,
 2. checks that the file exists,
-3. runs `PRAGMA integrity_check`,
-4. detects a supported database kind,
-5. creates a SQLite backup beside the database,
-6. runs WAL, `VACUUM`, `ANALYZE`, `PRAGMA optimize`, and WAL checkpoint maintenance,
-7. runs `PRAGMA integrity_check` again,
-8. prints database kind, backup path, integrity results, and size before/after.
+3. detects a supported database kind,
+4. for a library, verifies the matching catalog ID and schemas of Core, Timeline, and Representations,
+5. runs `PRAGMA integrity_check` on every selected file,
+6. creates a SQLite backup beside every selected file,
+7. runs WAL, `VACUUM`, `ANALYZE`, `PRAGMA optimize`, and WAL checkpoint maintenance on each file,
+8. runs `PRAGMA integrity_check` again,
+9. prints the database kind, every database/backup path, integrity results, and total size before/after.
 
 Backups are named like:
 
 ```text
 library.sqlite.bak-YYYYMMDD-HHMMSS
+library.timeline.sqlite.bak-YYYYMMDD-HHMMSS
+library.representations.sqlite.bak-YYYYMMDD-HHMMSS
 ```
 
 ## Safety

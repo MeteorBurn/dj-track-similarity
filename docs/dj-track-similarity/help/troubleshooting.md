@@ -50,10 +50,9 @@ Verify the installed package:
 python -c "import sonara; print(sonara.__version__)"
 ```
 
-Use one consistent profile. The default full profile, `--sonara-minimal`, and every subset have
-different signatures. A newly saved profile replaces the previous SONARA fields and curves instead
-of merging with them. Do not reset for a normal version or profile migration; follow
-[Migrate and reanalyze SONARA v0.2.4](../workflows/migrate-sonara-v0-2-4.md).
+Each Core, Timeline, and Representations output has its own signature. Missing optional output rows
+do not invalidate Core. Schema v6 intentionally invalidates old analysis results; follow
+[Reanalyze with split SONARA storage](../workflows/reanalyze-sonara-split-storage.md).
 
 ## SONARA looks present but search or SET treats it as missing
 
@@ -61,11 +60,11 @@ The fast `has_sonara_analysis` flag can remain set on a legacy row. Search, SET,
 lists, and the library summary require a valid current contract. Reanalyze the track and inspect its
 provenance and signature in the metadata dialog.
 
-## SONARA curves return an empty object
+## Timeline returns an empty object
 
-`GET /api/tracks/{track_id}/sonara-curves` returns `{}` when no lazy row exists and when a saved row
-belongs to stale or unsigned SONARA metadata. Reanalyze with the intended profile. Do not copy old
-curves under a new signature.
+`GET /api/tracks/{track_id}/sonara-timeline` returns `{}` when the Timeline checkbox was not analyzed
+or its signature is stale. Because the metadata dialog shows only the field-name manifest, it does
+not call this endpoint. Select Timeline and run SONARA again.
 
 ## A classifier reports an incompatible SONARA signature
 

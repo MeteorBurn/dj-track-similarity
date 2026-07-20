@@ -8,8 +8,8 @@
 
 1. **Scan** after adding new files. Scan updates SQLite rows for changed file stats and reads tags.
 2. **Refresh Tags** after editing tags externally. It rereads selected Mutagen tags for existing tracks.
-3. **Analyze missing data** only for the families you need.
-4. **Reset selectively** when you intentionally want one analysis family recomputed.
+3. **Analyze missing data** only for the models and SONARA output blocks you need.
+4. **Reset selectively** when you intentionally want one analysis model recomputed.
 5. **Export** review crates and sets rather than editing audio files.
 
 ## Moving a library
@@ -34,7 +34,7 @@ Use Audio Doctor in dry-run mode before repair. Use Audio Dedup in report mode b
 
 ## Database maintenance
 
-Run database optimization only on a local SQLite file you control. The script creates a backup and runs integrity checks before and after maintenance.
+Run database optimization only on a local SQLite catalog you control. For a library, the script validates and backs up Core, Timeline, and Representations, then runs integrity checks before and after maintenance on all three.
 
 ```powershell
 python scripts\optimize_database.py --db .\data\library.sqlite

@@ -23,7 +23,12 @@ from .db_schema import MAEST_HAS_GENRES_SQL, TRACK_SELECT_FIELDS, TRACK_SLIM_SEL
 from .db_search_fts import rebuild_track_search_fts, upsert_track_search_fts
 from .metadata_payload import clean_maest_genre_label, metadata_from_json, metadata_to_json, optional_float, string_or_none
 from .models import AnalysisCandidate, Track
-from .sonara_contract import SONARA_ANALYSIS_SIGNATURE_KEY, feature_set_uses_sonara, sonara_analysis_is_current
+from .sonara_contract import (
+    SONARA_ANALYSIS_SIGNATURE_KEY,
+    feature_set_uses_sonara,
+    sonara_analysis_signature_errors,
+    sonara_analysis_is_current,
+)
 
 
 EMBEDDING_PRESENCE_FLAG_COLUMNS = {
@@ -60,31 +65,36 @@ class AnalysisRepository:
         models: Iterable[str],
         *,
         limit: int | None = None,
-        expected_sonara_signature: dict[str, object] | None = None,
+        expected_sonara_signatures: dict[str, dict[str, object]] | None = None,
     ) -> list[AnalysisCandidate]:
         selected = clean_analysis_models(models)
         if not selected:
             return []
-        candidate_ids: dict[int, None] = {}
+        if "sonara" in selected and not expected_sonara_signatures:
+            from .sonara_features import sonara_analysis_signatures_for_outputs
+
+            expected_sonara_signatures = sonara_analysis_signatures_for_outputs(("core",))
+        candidate_ids: dict[int, set[str]] = {}
         per_model_limit = limit if limit is not None else None
         limit_sql, limit_params = _limit_sql(per_model_limit)
-        sonara_signature_id = (
-            str(expected_sonara_signature.get("signature_id"))
-            if expected_sonara_signature is not None and expected_sonara_signature.get("signature_id")
-            else None
-        )
+        sonara_signature_ids = {
+            output: str(signature["signature_id"])
+            for output, signature in (expected_sonara_signatures or {}).items()
+            if signature.get("signature_id")
+        }
+        expected_core_signature = (expected_sonara_signatures or {}).get("core")
         with self.connect() as connection:
             for model in selected:
                 rows = connection.execute(
-                    missing_analysis_ids_sql(model, limit_sql, sonara_signature_id=sonara_signature_id),
+                    missing_analysis_ids_sql(model, limit_sql, sonara_signature_ids=sonara_signature_ids),
                     missing_analysis_ids_params(
                         model,
                         limit_params,
-                        sonara_signature_id=sonara_signature_id,
+                        sonara_signature_ids=sonara_signature_ids,
                     ),
                 ).fetchall()
                 for row in rows:
-                    candidate_ids[int(row["id"])] = None
+                    candidate_ids.setdefault(int(row["id"]), set()).add(model)
             if not candidate_ids:
                 return []
             candidates: list[AnalysisCandidate] = []
@@ -98,7 +108,8 @@ class AnalysisRepository:
                     row_to_analysis_candidate(
                         row,
                         selected,
-                        expected_sonara_signature=expected_sonara_signature,
+                        expected_sonara_signature=expected_core_signature,
+                        force_missing_sonara="sonara" in candidate_ids[int(row["id"])],
                     )
                     for row in rows
                 )
@@ -208,7 +219,6 @@ class AnalysisRepository:
         model_name: str = "sonara",
         provenance: dict[str, object] | None = None,
         analysis_signature: dict[str, object] | None = None,
-        curves: dict[str, object] | None = None,
     ) -> None:
         with self._write_lock, self.connect() as connection:
             metadata = self._metadata_for_track_update(connection, track_id)
@@ -244,61 +254,149 @@ class AnalysisRepository:
                 ),
             )
             upsert_track_search_fts(connection, track_id)
-            if curves is not None:
-                if curves:
-                    connection.execute(
-                        """
-                        INSERT INTO sonara_curves (track_id, curves_json, updated_at)
-                        VALUES (?, ?, CURRENT_TIMESTAMP)
-                        ON CONFLICT(track_id) DO UPDATE SET
-                            curves_json = excluded.curves_json,
-                            updated_at = CURRENT_TIMESTAMP
-                        """,
-                        (int(track_id), metadata_to_json(curves, sort_keys=False)),
-                    )
-                else:
-                    connection.execute("DELETE FROM sonara_curves WHERE track_id = ?", (int(track_id),))
             embedding_keys = _embedding_keys_for_track(connection, track_id)
             _delete_sonara_dependent_classifier_scores(connection, track_id=track_id)
         self._invalidate_embedding_cache_keys(embedding_keys)
         self._invalidate_sonara_feature_cache()
 
-    def save_sonara_curves(self, track_id: int, curves: dict[str, object]) -> None:
-        """Store complete SONARA curves and sequences out of the hot search path.
-
-        This includes optional energy/loudness/downbeat arrays and playlist sequences such as beat,
-        onset, and chord events. This lazy data must never be read by load_sonara_feature_rows.
-        """
-        curves_json = metadata_to_json(curves, sort_keys=False)
+    def save_sonara_timeline(
+        self,
+        track_id: int,
+        timeline: dict[str, object],
+        *,
+        provenance: dict[str, object] | None,
+        analysis_signature: dict[str, object],
+    ) -> None:
+        fields = sorted(timeline)
+        if not fields:
+            raise ValueError("SONARA Timeline output did not contain any timeline fields")
+        signature_id = str(analysis_signature.get("signature_id") or "").strip()
+        if not signature_id:
+            raise ValueError("SONARA Timeline analysis signature is missing signature_id")
         with self._write_lock, self.connect() as connection:
             connection.execute(
                 """
-                INSERT INTO sonara_curves (track_id, curves_json, updated_at)
-                VALUES (?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO timeline.sonara_timeline (
+                    track_id, fields_json, payload_json, analysis_signature_id,
+                    analysis_signature_json, provenance_json, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(track_id) DO UPDATE SET
-                    curves_json = excluded.curves_json,
+                    fields_json = excluded.fields_json,
+                    payload_json = excluded.payload_json,
+                    analysis_signature_id = excluded.analysis_signature_id,
+                    analysis_signature_json = excluded.analysis_signature_json,
+                    provenance_json = excluded.provenance_json,
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (int(track_id), curves_json),
+                (
+                    int(track_id),
+                    metadata_to_json(fields, sort_keys=False),
+                    metadata_to_json(timeline, sort_keys=False),
+                    signature_id,
+                    metadata_to_json(analysis_signature, sort_keys=False),
+                    metadata_to_json(provenance or {}, sort_keys=False),
+                ),
             )
+        self._invalidate_embedding_cache()
 
-    def load_sonara_curves(self, track_id: int) -> dict[str, object] | None:
+    def load_sonara_timeline(self, track_id: int) -> dict[str, object] | None:
         with self.connect() as connection:
             row = connection.execute(
                 """
-                SELECT c.curves_json, t.metadata_json
-                FROM sonara_curves c
-                JOIN tracks t ON t.id = c.track_id
-                WHERE c.track_id = ?
+                SELECT payload_json, analysis_signature_json
+                FROM timeline.sonara_timeline
+                WHERE track_id = ?
                 """,
                 (int(track_id),),
             ).fetchone()
         if row is None:
             return None
-        if not sonara_analysis_is_current(metadata_from_json(row["metadata_json"])):
+        signature = metadata_from_json(row["analysis_signature_json"])
+        if sonara_analysis_signature_errors(signature):
             return None
-        curves = metadata_from_json(row["curves_json"])
-        return curves if isinstance(curves, dict) else None
+        timeline = metadata_from_json(row["payload_json"])
+        return timeline if isinstance(timeline, dict) else None
+
+    def save_sonara_representations(
+        self,
+        track_id: int,
+        *,
+        embedding: np.ndarray,
+        fingerprint: dict[str, object],
+        embedding_version: str | None,
+        fingerprint_version: str | None,
+        model_name: str,
+        provenance: dict[str, object] | None,
+        analysis_signature: dict[str, object],
+    ) -> None:
+        vector = np.asarray(embedding, dtype=np.float32).reshape(-1)
+        if not vector.size or not np.isfinite(vector).all():
+            raise ValueError("SONARA embedding must be a non-empty finite vector")
+        signature_id = str(analysis_signature.get("signature_id") or "").strip()
+        if not signature_id:
+            raise ValueError("SONARA Representations analysis signature is missing signature_id")
+        embedding_metadata = {
+            "version": embedding_version,
+            "dtype": "float32",
+            "provenance": provenance or {},
+            "analysis_signature": analysis_signature,
+        }
+        fingerprint_metadata = {
+            "provenance": provenance or {},
+            "analysis_signature": analysis_signature,
+        }
+        with self._write_lock, self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO representations.embeddings (
+                    track_id, embedding_key, model_name, dim, vector, normalization,
+                    analysis_signature_id, metadata_json, updated_at
+                )
+                VALUES (?, 'sonara', ?, ?, ?, 'none', ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(track_id, embedding_key) DO UPDATE SET
+                    model_name = excluded.model_name,
+                    dim = excluded.dim,
+                    vector = excluded.vector,
+                    normalization = excluded.normalization,
+                    analysis_signature_id = excluded.analysis_signature_id,
+                    metadata_json = excluded.metadata_json,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (
+                    int(track_id),
+                    model_name,
+                    int(vector.size),
+                    vector.tobytes(),
+                    signature_id,
+                    metadata_to_json(embedding_metadata, sort_keys=False),
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO representations.fingerprints (
+                    track_id, fingerprint_key, model_name, version, payload_json,
+                    analysis_signature_id, metadata_json, updated_at
+                )
+                VALUES (?, 'fingerprint', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(track_id, fingerprint_key) DO UPDATE SET
+                    model_name = excluded.model_name,
+                    version = excluded.version,
+                    payload_json = excluded.payload_json,
+                    analysis_signature_id = excluded.analysis_signature_id,
+                    metadata_json = excluded.metadata_json,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (
+                    int(track_id),
+                    model_name,
+                    fingerprint_version,
+                    metadata_to_json(fingerprint, sort_keys=False),
+                    signature_id,
+                    metadata_to_json(fingerprint_metadata, sort_keys=False),
+                ),
+            )
+        self._invalidate_embedding_cache()
 
     def reset_analysis(self, adapter: str) -> dict[str, object]:
         adapter = adapter.strip().lower()
@@ -328,7 +426,9 @@ class AnalysisRepository:
                 "embeddings_deleted": int(connection.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0]),
             }
             connection.execute("DELETE FROM embeddings")
-            connection.execute("DELETE FROM sonara_curves")
+            connection.execute("DELETE FROM representations.embeddings")
+            connection.execute("DELETE FROM representations.fingerprints")
+            connection.execute("DELETE FROM timeline.sonara_timeline")
             connection.execute("DELETE FROM tracks")
             rebuild_track_search_fts(connection)
         self._invalidate_embedding_cache()
@@ -510,15 +610,24 @@ class AnalysisRepository:
                 embedding_keys_to_invalidate.update(_embedding_keys_for_track(connection, int(row["id"])))
                 updated += 1
             connection.execute("UPDATE tracks SET has_sonara_analysis = 0 WHERE has_sonara_analysis != 0")
-            connection.execute("DELETE FROM sonara_curves")
+            timeline_deleted = connection.execute("DELETE FROM timeline.sonara_timeline").rowcount
+            sonara_embeddings_deleted = connection.execute(
+                "DELETE FROM representations.embeddings WHERE embedding_key = 'sonara'"
+            ).rowcount
+            fingerprints_deleted = connection.execute(
+                "DELETE FROM representations.fingerprints WHERE fingerprint_key = 'fingerprint'"
+            ).rowcount
             classifier_scores_deleted = _delete_sonara_dependent_classifier_scores(connection)
-        if updated or classifier_scores_deleted:
+        if updated or timeline_deleted or sonara_embeddings_deleted or fingerprints_deleted or classifier_scores_deleted:
+            embedding_keys_to_invalidate.add("sonara")
             self._invalidate_embedding_cache_keys(embedding_keys_to_invalidate)
             self._invalidate_sonara_feature_cache()
         return {
             "adapter": "sonara",
             "tracks_updated": updated,
-            "embeddings_deleted": 0,
+            "embeddings_deleted": sonara_embeddings_deleted,
+            "timeline_deleted": timeline_deleted,
+            "fingerprints_deleted": fingerprints_deleted,
             "classifier_scores_deleted": classifier_scores_deleted,
         }
 
@@ -595,11 +704,12 @@ class AnalysisRepository:
         return result
 
     def embedding_vector(self, track_id: int, embedding_key: str = DEFAULT_EMBEDDING_KEY) -> np.ndarray | None:
+        source_table = "representations.embeddings" if embedding_key == "sonara" else "embeddings"
         with self.connect() as connection:
             row = connection.execute(
-                """
+                f"""
                 SELECT vector
-                FROM embeddings
+                FROM {source_table}
                 WHERE track_id = ? AND embedding_key = ?
                 """,
                 (int(track_id), embedding_key),

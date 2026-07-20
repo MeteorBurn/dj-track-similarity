@@ -121,19 +121,19 @@ test("filtered tracks client sends defaulted domain payloads for library view co
   });
 });
 
-test("SONARA curves client fetches out-of-band data for one track", async () => {
+test("SONARA timeline client fetches sidecar data for one track", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options) => {
     calls.push({ path, options });
     return jsonResponse({ energy_curve: { type: "list", length: 3, value: [0.1, 0.4, 0.8] } });
   });
 
-  const curves = await api.sonaraCurves(42);
+  const timeline = await api.sonaraTimeline(42);
 
-  assert.equal(calls[0].path, "/api/tracks/42/sonara-curves");
+  assert.equal(calls[0].path, "/api/tracks/42/sonara-timeline");
   assert.equal(calls[0].options.headers["Content-Type"], "application/json");
   assert.equal(calls[0].options.method, undefined);
-  assert.equal(curves.energy_curve.length, 3);
+  assert.equal(timeline.energy_curve.length, 3);
 });
 
 test("analysis job client preserves unified job defaults for model and classifier runs", async () => {
@@ -143,27 +143,39 @@ test("analysis job client preserves unified job defaults for model and classifie
     return jsonResponse({ job_id: "job-1", state: "queued", errors: [], events: [] });
   });
 
-  await api.analysisJobStart({ models: ["sonara", "clap"], limit: null, device: "auto" });
+  await api.analysisJobStart({ models: ["maest", "clap"], limit: null, device: "auto" });
 
   assert.equal(calls[0].path, "/api/analysis/jobs");
   assert.deepEqual(JSON.parse(calls[0].options.body), {
-    models: ["sonara", "clap"],
+    models: ["maest", "clap"],
     classifier_keys: [],
     limit: null,
     device: "auto",
     top_k: 3,
     track_batch_size: 4,
     inference_batch_size: 24,
-    sonara_features: [
-      "structure",
-      "loudness",
-      "beatgrid",
-      "key_candidates",
-      "vocalness",
-      "mood",
-      "instrumentalness",
-      "silence"
-    ]
+    sonara_outputs: []
+  });
+});
+
+test("analysis job client defaults a SONARA-only request to Core storage", async () => {
+  const calls = [];
+  const { api } = loadApiModule(async (path, options) => {
+    calls.push({ path, options });
+    return jsonResponse({ job_id: "job-sonara", state: "queued", total: 0, processed: 0, analyzed: 0, failed: 0, errors: [], events: [], cancel_requested: false, workers: 4, device_requested: "auto" });
+  });
+
+  await api.analysisJobStart({ models: ["sonara"] });
+
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    models: ["sonara"],
+    classifier_keys: [],
+    limit: null,
+    device: "auto",
+    top_k: 3,
+    track_batch_size: 4,
+    inference_batch_size: 24,
+    sonara_outputs: ["core"]
   });
 });
 

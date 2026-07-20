@@ -486,8 +486,7 @@ rhythm-lab = [
     { name = "scikit-learn", version = "1.9.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
 ]
 sonara = [
-    { name = "sonara", version = "0.2.8", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'win32'" },
-    { name = "sonara", version = "0.2.8", source = { url = "https://github.com/kkollsga/sonara/releases/download/v0.2.8/sonara-0.2.8.tar.gz" }, marker = "sys_platform == 'win32'" },
+    { name = "sonara" },
 ]
 
 [package.metadata]
@@ -506,8 +505,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8" },
     { name = "scikit-learn", marker = "extra == 'rhythm-lab'", specifier = ">=1.4" },
-    { name = "sonara", marker = "sys_platform == 'win32' and extra == 'sonara'", url = "https://github.com/kkollsga/sonara/releases/download/v0.2.8/sonara-0.2.8.tar.gz" },
-    { name = "sonara", marker = "sys_platform != 'win32' and extra == 'sonara'", specifier = "==0.2.8" },
+    { name = "sonara", marker = "extra == 'sonara'", specifier = "==0.2.9" },
     { name = "torch", marker = "extra == 'ml'", specifier = "==2.11.0" },
     { name = "torchaudio", marker = "extra == 'ml'", specifier = "==2.11.0" },
     { name = "torchcodec", marker = "extra == 'ml'", specifier = "==0.13.0" },
@@ -2477,34 +2475,18 @@ wheels = [
 
 [[package]]
 name = "sonara"
-version = "0.2.8"
+version = "0.2.9"
 source = { registry = "https://pypi.org/simple" }
-resolution-markers = [
-    "python_full_version >= '3.14' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version == '3.13.*' and sys_platform == 'emscripten'",
-    "python_full_version == '3.13.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version >= '3.11' and python_full_version < '3.13' and sys_platform == 'emscripten'",
-    "python_full_version >= '3.11' and python_full_version < '3.13' and sys_platform != 'emscripten' and sys_platform != 'win32'",
-    "python_full_version < '3.11' and sys_platform != 'win32'",
+dependencies = [
+    { name = "numpy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5e/39/ea8126712198a606f041efd7edaa05d0aaf6035508d14b6355f569fd8a67/sonara-0.2.8.tar.gz", hash = "sha256:3243c9356631c2b3b6b555108ac1ddc1188caab00fef001d1ff48cef55cbea90", size = 340721, upload-time = "2026-07-20T10:44:40.3Z" }
-
-[[package]]
-name = "sonara"
-version = "0.2.8"
-source = { url = "https://github.com/kkollsga/sonara/releases/download/v0.2.8/sonara-0.2.8.tar.gz" }
-resolution-markers = [
-    "python_full_version >= '3.14' and platform_machine != 'AMD64' and sys_platform == 'win32'",
-    "python_full_version >= '3.14' and platform_machine == 'AMD64' and sys_platform == 'win32'",
-    "python_full_version == '3.13.*' and platform_machine != 'AMD64' and sys_platform == 'win32'",
-    "python_full_version == '3.13.*' and platform_machine == 'AMD64' and sys_platform == 'win32'",
-    "python_full_version >= '3.11' and python_full_version < '3.13' and platform_machine != 'AMD64' and sys_platform == 'win32'",
-    "python_full_version >= '3.11' and python_full_version < '3.13' and platform_machine == 'AMD64' and sys_platform == 'win32'",
-    "python_full_version < '3.11' and platform_machine != 'AMD64' and sys_platform == 'win32'",
-    "python_full_version < '3.11' and platform_machine == 'AMD64' and sys_platform == 'win32'",
+sdist = { url = "https://files.pythonhosted.org/packages/bc/f8/862aa76db6db988bcfcfc5f01919eb7a7bcdc91f967e1e34a6668c8558b0/sonara-0.2.9.tar.gz", hash = "sha256:bec6e9d8c79985741d3e078c6c202a9dcc3d8df2204d8db101325fd025fe8e82", size = 345114, upload-time = "2026-07-20T20:05:31.47Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6f/7d/9895615977c3b8779f71a8bbf0bb9b8c1b5e5959fb8fbe94a3d48fbeb022/sonara-0.2.9-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:4d8e46a4b779eb481549efbbd79b5384d996db5d8f9e147e98dc9f90ef82de31", size = 1787672, upload-time = "2026-07-20T20:05:25.386Z" },
+    { url = "https://files.pythonhosted.org/packages/61/41/94c548aa0520b5a357293d7bcb9c93307cd06f20cb01ba9e05be5f3d5b0d/sonara-0.2.9-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:fa770bb4d465d6afcf2b09f836727982d3f5ebbb27072f556d4eccffd593ca7b", size = 1562570, upload-time = "2026-07-20T20:05:27.129Z" },
+    { url = "https://files.pythonhosted.org/packages/73/af/020564fb85468983aba56e5b2721be5a0e95e5d5620632d8d6022537749d/sonara-0.2.9-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:e27df126b0f9a92c8f7c4cab904ea00237b014026dc65ae9c30f11aff74bbad4", size = 1855939, upload-time = "2026-07-20T20:05:28.451Z" },
+    { url = "https://files.pythonhosted.org/packages/ee/01/b14b45e483141cab93a4423c9bd5d108715c73c444eef07a5b0977b4d33b/sonara-0.2.9-cp39-abi3-win_amd64.whl", hash = "sha256:93b6f5d62fdf47d47613b34d51ebd9c8ce76fc1a5ee76afb43bb1fdb5778d4ce", size = 1729255, upload-time = "2026-07-20T20:05:30.029Z" },
 ]
-sdist = { hash = "sha256:3243c9356631c2b3b6b555108ac1ddc1188caab00fef001d1ff48cef55cbea90" }
 
 [[package]]
 name = "soundfile"

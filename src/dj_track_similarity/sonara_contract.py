@@ -7,13 +7,13 @@ from collections.abc import Mapping, Sequence
 
 
 SONARA_ANALYSIS_SIGNATURE_KEY = "sonara_analysis_signature"
-SONARA_EXPECTED_VERSION = "0.2.8"
-SONARA_EXPECTED_SCHEMA_VERSION = 3
+SONARA_EXPECTED_VERSION = "0.2.9"
+SONARA_EXPECTED_SCHEMA_VERSION = 4
 SONARA_ANALYSIS_MODE = "playlist"
 SONARA_SAMPLE_RATE = 22_050
 SONARA_BPM_MIN = 70
 SONARA_BPM_MAX = 180
-SONARA_PROJECT_FEATURE_REVISION = 1
+SONARA_PROJECT_FEATURE_REVISION = 2
 
 _SIGNATURE_FIELDS = (
     "sonara_version",
@@ -44,7 +44,9 @@ def build_sonara_analysis_signature(
     mode = _optional_text(source.get("mode")) or SONARA_ANALYSIS_MODE
     sample_rate = _optional_int(source.get("sample_rate"))
     provenance_features = source.get("requested_features")
-    effective_features = provenance_features if isinstance(provenance_features, (list, tuple)) else requested_features
+    effective_features = requested_features
+    if effective_features is None and isinstance(provenance_features, (list, tuple)):
+        effective_features = provenance_features
     payload: dict[str, object] = {
         "sonara_version": version,
         "schema_version": schema_version,

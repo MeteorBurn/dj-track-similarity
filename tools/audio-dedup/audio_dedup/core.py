@@ -14,6 +14,8 @@ import zipfile
 
 import numpy as np
 
+from dj_track_similarity.db_storage import sidecar_database_paths, validate_attached_storage_catalog
+
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 TOOL_ROOT = SCRIPT_DIR.parent
@@ -346,7 +348,7 @@ def load_tracks(db_path: Path, *, root: Path, path_contains: list[str]) -> list[
         raise FileNotFoundError(f"Database does not exist: {selected}")
     root_text = normalize_path_text(root)
     contains = [item.casefold() for item in path_contains if item.strip()]
-    connection = _connect_readonly(selected)
+    connection = _connect_readonly(selected, attach_representations=True)
     try:
         rows = connection.execute(
             """
@@ -1366,9 +1368,19 @@ def apply_duplicate_deletions(
     skipped: list[str] = []
     failed: list[str] = []
     candidates = safe_delete_candidates(payload)
+    sidecars = sidecar_database_paths(selected_db)
+    for label, sidecar_path in (
+        ("Timeline", sidecars.timeline),
+        ("Representations", sidecars.representations),
+    ):
+        if not sidecar_path.is_file():
+            raise FileNotFoundError(f"{label} database does not exist: {sidecar_path}")
     connection = sqlite3.connect(selected_db)
     try:
         connection.execute("PRAGMA busy_timeout = 30000")
+        connection.execute("ATTACH DATABASE ? AS timeline", (str(sidecars.timeline),))
+        connection.execute("ATTACH DATABASE ? AS representations", (str(sidecars.representations),))
+        validate_attached_storage_catalog(connection)
         for candidate in candidates:
             track_id = int(candidate["track_id"])
             path_text = str(candidate["path"])
@@ -1409,6 +1421,9 @@ def apply_duplicate_deletions(
 
 
 def _delete_track_from_database(connection: sqlite3.Connection, track_id: int) -> None:
+    connection.execute("DELETE FROM timeline.sonara_timeline WHERE track_id = ?", (track_id,))
+    connection.execute("DELETE FROM representations.embeddings WHERE track_id = ?", (track_id,))
+    connection.execute("DELETE FROM representations.fingerprints WHERE track_id = ?", (track_id,))
     table_names = [
         str(row[0])
         for row in connection.execute(
@@ -1646,9 +1661,19 @@ def _candidate_reason_lines(
     return lines
 
 
-def _connect_readonly(path: Path) -> sqlite3.Connection:
+def _connect_readonly(path: Path, *, attach_representations: bool = False) -> sqlite3.Connection:
     connection = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
+    if attach_representations:
+        representations_path = sidecar_database_paths(path).representations
+        if not representations_path.is_file():
+            connection.close()
+            raise FileNotFoundError(f"Representations database does not exist: {representations_path}")
+        connection.execute(
+            "ATTACH DATABASE ? AS representations",
+            (f"file:{representations_path.as_posix()}?mode=ro",),
+        )
+        validate_attached_storage_catalog(connection, aliases=("representations",))
     connection.execute("PRAGMA query_only = ON")
     return connection
 

@@ -194,7 +194,7 @@ def test_sonara_prediction_revision_invalidates_only_dependent_predictions_and_p
             "SELECT value FROM rhythm_lab_settings WHERE key = ?",
             (SONARA_PREDICTION_REVISION_SETTING_KEY,),
         ).fetchone()[0]
-    assert revision == "1"
+        assert revision == "2"
 
 
 def test_existing_break_energy_profile_remains_normal_profile(tmp_path: Path) -> None:

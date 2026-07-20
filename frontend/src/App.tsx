@@ -1,7 +1,7 @@
 import type { MouseEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { CopyX, FlaskConical, Moon, Power, RefreshCcw, ScrollText, Square, Sun, Wrench } from "lucide-react";
-import { AnalysisJobStatus, AnalysisModel, api, AudioDedupJobPayload, AudioDedupJobStatus, AudioDoctorJobPayload, AudioDoctorJobStatus, GenreTagJobStatus, PromotedClassifier, RhythmLabLaunchResult, ScanStats, SetBuilderGeneratePayload, Track } from "./api";
+import { AnalysisJobStatus, AnalysisModel, api, AudioDedupJobPayload, AudioDedupJobStatus, AudioDoctorJobPayload, AudioDoctorJobStatus, GenreTagJobStatus, PromotedClassifier, RhythmLabLaunchResult, ScanStats, SetBuilderGeneratePayload, SonaraOutput, Track } from "./api";
 import { analysisSelectionOrder, defaultAnalysisSelections, isAudioAnalysisModel, type AnalysisSelection } from "./analysisSelection";
 import { AudioDedupDialog } from "./AudioDedupDialog";
 import { AudioDoctorDialog } from "./AudioDoctorDialog";
@@ -129,6 +129,7 @@ export function App() {
   const [analysisInferenceBatchSize, setAnalysisInferenceBatchSize] = useState(24);
   const [analysisDevice, setAnalysisDevice] = useState<DeviceMode>("auto");
   const [selectedAnalysisModels, setSelectedAnalysisModels] = useState<AnalysisSelection[]>(defaultAnalysisSelections);
+  const [sonaraOutputs, setSonaraOutputs] = useState<SonaraOutput[]>(["core"]);
   const [notice, setNotice] = useState<Notice>(defaultNotice);
   const [logFrameOpen, setLogFrameOpen] = useState(false);
   const [audioDedupOpen, setAudioDedupOpen] = useState(false);
@@ -431,6 +432,16 @@ export function App() {
     });
   }
 
+  function toggleSonaraOutput(output: SonaraOutput) {
+    const order: SonaraOutput[] = ["core", "timeline", "representations"];
+    setSonaraOutputs((current) => {
+      const next = current.includes(output)
+        ? current.filter((item) => item !== output)
+        : [...current, output];
+      return order.filter((item) => next.includes(item));
+    });
+  }
+
   async function addVisibleTracksToPlaylist() {
     if (!databasePath || libraryLoading) return;
     setBusy(true);
@@ -668,6 +679,10 @@ export function App() {
       setNotice({ kind: "error", text: "SONARA запускается отдельно от ML-моделей и CLASSIFIERS" });
       return;
     }
+    if (includeSonara && !sonaraOutputs.length) {
+      setNotice({ kind: "error", text: "Выберите хотя бы один SONARA-блок: Core, Timeline или Representations" });
+      return;
+    }
     const limit = analysisLimit > 0 ? analysisLimit : undefined;
     const models = [...requestedAudioModels];
     const labels = models.map((model) => model.toUpperCase()).join(", ");
@@ -675,7 +690,9 @@ export function App() {
       ? compatibleClassifiers.map((classifier) => classifier.classifier_key)
       : [];
     const classifierTail = classifierKeys.length ? " · CLASSIFIERS в этом же job" : "";
-    const execution = includeSonara ? "CPU · ffmpeg 22050 Hz" : `${analysisDevice.toUpperCase()} · tracks ${analysisTrackBatchSize} · inference ${analysisInferenceBatchSize}`;
+    const execution = includeSonara
+      ? `CPU · ffmpeg 22050 Hz · ${sonaraOutputs.join("+")}`
+      : `${analysisDevice.toUpperCase()} · tracks ${analysisTrackBatchSize} · inference ${analysisInferenceBatchSize}`;
     const detail = `${labels}${classifierTail} · ${execution} · ${limit ? `limit ${limit}` : "вся библиотека"}`;
     appendActivity("info", "Анализ выбранных моделей запущен", detail);
     if (includeClassifiers && compatibleClassifiers.length < classifiers.length) {
@@ -696,9 +713,7 @@ export function App() {
         top_k: 3,
         track_batch_size: analysisTrackBatchSize,
         inference_batch_size: analysisInferenceBatchSize,
-        sonara_features: models.includes("sonara")
-            ? ["structure", "loudness", "beatgrid", "key_candidates", "vocalness", "mood", "instrumentalness", "silence"]
-            : []
+        sonara_outputs: models.includes("sonara") ? sonaraOutputs : []
       }),
       (job) => {
         setAnalysisJob(job);
@@ -1189,6 +1204,8 @@ export function App() {
           analysisCounts={analysisModelCounts}
           selectedAnalysisModels={selectedAnalysisModels}
           onToggleAnalysisModel={toggleAnalysisModel}
+          sonaraOutputs={sonaraOutputs}
+          onToggleSonaraOutput={toggleSonaraOutput}
           onAnalyzeSelected={() => void handleAnalyzeSelected()}
           onResetAnalysis={(adapter) => requestConfirmation({
             title: `Сбросить ${adapter.toUpperCase()}?`,

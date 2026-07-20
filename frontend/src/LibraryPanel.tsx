@@ -1,5 +1,5 @@
 import { Cpu, Database, FolderOpen, Minus, Play, Plus, RefreshCcw, Save, Trash2 } from "lucide-react";
-import { AnalysisModel } from "./api";
+import { AnalysisModel, SonaraOutput } from "./api";
 import { analysisSelectionOrder, type AnalysisSelection } from "./analysisSelection";
 
 type DeviceMode = "auto" | "cpu" | "cuda";
@@ -76,6 +76,8 @@ export function LibraryPanel({
   analysisCounts,
   selectedAnalysisModels,
   onToggleAnalysisModel,
+  sonaraOutputs,
+  onToggleSonaraOutput,
   onAnalyzeSelected,
   onResetAnalysis,
   onResetClassifiers
@@ -114,6 +116,8 @@ export function LibraryPanel({
   analysisCounts: Record<AnalysisSelection, number>;
   selectedAnalysisModels: AnalysisSelection[];
   onToggleAnalysisModel: (model: AnalysisSelection) => void;
+  sonaraOutputs: SonaraOutput[];
+  onToggleSonaraOutput: (output: SonaraOutput) => void;
   onAnalyzeSelected: () => void;
   onResetAnalysis: (adapter: AnalysisModel) => void;
   onResetClassifiers: () => void;
@@ -216,6 +220,23 @@ export function LibraryPanel({
           );
         })}
       </div>
+      {selectedAnalysisModels.includes("sonara") ? (
+        <fieldset className="sonara-output-options" disabled={busy || stageRunning}>
+          <legend>SONARA data</legend>
+          <label title="Лёгкие скалярные признаки и короткие агрегированные векторы в основной базе.">
+            <input type="checkbox" checked={sonaraOutputs.includes("core")} onChange={() => onToggleSonaraOutput("core")} />
+            <span><b>Core</b><small>Основная база · лёгкие признаки</small></span>
+          </label>
+          <label title="Полные временные ряды, события и сегменты в соседней Timeline-базе.">
+            <input type="checkbox" checked={sonaraOutputs.includes("timeline")} onChange={() => onToggleSonaraOutput("timeline")} />
+            <span><b>Timeline</b><small>Массивы и данные по времени трека</small></span>
+          </label>
+          <label title="SONARA embedding и fingerprint в соседней Representations-базе.">
+            <input type="checkbox" checked={sonaraOutputs.includes("representations")} onChange={() => onToggleSonaraOutput("representations")} />
+            <span><b>Representations</b><small>Embedding и fingerprint</small></span>
+          </label>
+        </fieldset>
+      ) : null}
       <label className="analysis-limit" title={helpText.analyzeLimit}>
         Analyze limit
         <input type="number" min={0} max={100000} value={analysisLimit} title={helpText.analyzeLimit} onChange={(event) => onAnalysisLimitChange(Number(event.target.value))} />

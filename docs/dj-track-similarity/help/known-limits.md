@@ -26,7 +26,7 @@ The library summary counts any signed SONARA profile that matches the current ve
 sample rate, BPM range, and project revision. It does not prove that every row has the exact full
 profile. Check analysis jobs and sample signatures when validating a migration. The project full
 profile means all supported adapter audio families; it does not request SONARA tags or its genre
-model. See the [SONARA v0.2.4 project contract](../reference/sonara-v0-2-4-contract.md).
+model. See the [SONARA v0.2.9 project contract](../reference/sonara-v0-2-9-contract.md).
 
 ## Browser preview depends on files still existing
 

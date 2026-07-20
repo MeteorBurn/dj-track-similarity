@@ -10,6 +10,8 @@ import zipfile
 import numpy as np
 import pytest
 
+from dj_track_similarity.db_storage import sidecar_database_paths
+
 
 def _load_dedup_module():
     path = Path(__file__).resolve().parents[2] / "tools" / "audio-dedup" / "audio_dedup" / "core.py"
@@ -40,14 +42,68 @@ def _create_library_db(path: Path) -> None:
                 metadata_json TEXT NOT NULL DEFAULT '{}'
             );
 
+            CREATE TABLE library_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             CREATE TABLE embeddings (
                 track_id INTEGER NOT NULL,
                 embedding_key TEXT NOT NULL,
                 model_name TEXT NOT NULL,
                 dim INTEGER NOT NULL,
                 vector BLOB NOT NULL,
+                PRIMARY KEY(track_id, embedding_key),
+                FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
+            );
+            INSERT INTO library_settings(key, value) VALUES ('storage.catalog_id', 'test-catalog');
+            """
+        )
+
+    sidecars = sidecar_database_paths(path)
+    with sqlite3.connect(sidecars.timeline) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE sonara_timeline (
+                track_id INTEGER PRIMARY KEY,
+                fields_json TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                analysis_signature_id TEXT NOT NULL,
+                analysis_signature_json TEXT NOT NULL,
+                provenance_json TEXT NOT NULL DEFAULT '{}'
+            );
+
+            CREATE TABLE storage_metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            INSERT INTO storage_metadata(key, value) VALUES ('storage.catalog_id', 'test-catalog');
+            """
+        )
+    with sqlite3.connect(sidecars.representations) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE embeddings (
+                track_id INTEGER NOT NULL,
+                embedding_key TEXT NOT NULL CHECK(embedding_key = 'sonara'),
+                model_name TEXT NOT NULL,
+                dim INTEGER NOT NULL,
+                vector BLOB NOT NULL,
                 PRIMARY KEY(track_id, embedding_key)
             );
+
+            CREATE TABLE fingerprints (
+                track_id INTEGER NOT NULL,
+                fingerprint_key TEXT NOT NULL CHECK(fingerprint_key = 'fingerprint'),
+                model_name TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                PRIMARY KEY(track_id, fingerprint_key)
+            );
+
+            CREATE TABLE storage_metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            INSERT INTO storage_metadata(key, value) VALUES ('storage.catalog_id', 'test-catalog');
             """
         )
 
@@ -131,6 +187,7 @@ def _insert_track(
                 json.dumps(metadata),
             ),
         )
+    with sqlite3.connect(db_path) as connection:
         for key, values in (vectors or {}).items():
             vector = np.asarray(values, dtype=np.float32)
             vector = vector / np.linalg.norm(vector)
@@ -703,6 +760,32 @@ def test_apply_duplicate_deletions_removes_only_safe_temp_files_and_database_row
     vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
     _insert_track(db_path, track_id=1, path=str(keeper_path), size=20_000_000, mtime=100, vectors=vectors)
     _insert_track(db_path, track_id=2, path=str(duplicate_path), size=8_000_000, mtime=200, vectors=vectors)
+    sidecars = sidecar_database_paths(db_path)
+    with sqlite3.connect(sidecars.timeline) as connection:
+        connection.execute(
+            """
+            INSERT INTO sonara_timeline (
+                track_id, fields_json, payload_json, analysis_signature_id,
+                analysis_signature_json, provenance_json
+            ) VALUES (?, ?, '{}', 'test', '{}', '{}')
+            """,
+            (2, '["tempo_curve"]'),
+        )
+    with sqlite3.connect(sidecars.representations) as connection:
+        vector = np.asarray([1.0, 0.0], dtype=np.float32)
+        connection.execute(
+            """
+            INSERT INTO embeddings(track_id, embedding_key, model_name, dim, vector)
+            VALUES (2, 'sonara', 'sonara-test', 2, ?)
+            """,
+            (vector.tobytes(),),
+        )
+        connection.execute(
+            """
+            INSERT INTO fingerprints(track_id, fingerprint_key, model_name, payload_json)
+            VALUES (2, 'fingerprint', 'sonara-test', '{}')
+            """
+        )
     result = dedup.run_report(
         db_path=db_path,
         root=audio_dir,
@@ -719,10 +802,17 @@ def test_apply_duplicate_deletions_removes_only_safe_temp_files_and_database_row
     assert not duplicate_path.exists()
     assert apply_result.deleted_track_ids == (2,)
     connection = sqlite3.connect(db_path)
+    timeline = sqlite3.connect(sidecars.timeline)
+    representations = sqlite3.connect(sidecars.representations)
     try:
         assert connection.execute("SELECT id FROM tracks ORDER BY id").fetchall() == [(1,)]
         assert connection.execute("SELECT track_id FROM embeddings ORDER BY track_id").fetchall() == [(1,), (1,)]
+        assert timeline.execute("SELECT track_id FROM sonara_timeline").fetchall() == []
+        assert representations.execute("SELECT track_id FROM embeddings ORDER BY track_id").fetchall() == []
+        assert representations.execute("SELECT track_id FROM fingerprints").fetchall() == []
     finally:
+        representations.close()
+        timeline.close()
         connection.close()
 
 

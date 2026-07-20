@@ -4,7 +4,7 @@
 > Goal: Understand scan, Refresh Tags, browsing, and database selection.
 > Type: tutorial
 
-A library is a local SQLite database. It stores paths, file stats, selected Mutagen metadata, analysis flags, embeddings, liked tracks, feedback rows, and optional classifier scores.
+A library is one local catalog backed by three adjacent SQLite files. The selected Core file stores paths, tags, light SONARA values, MAEST/MERT/MuQ/CLAP embeddings, flags, likes, feedback, and optional classifier scores. SONARA Timeline arrays go to `*.timeline.sqlite`. The optional SONARA embedding and fingerprint go to `*.representations.sqlite`. The app creates and links both side databases automatically.
 
 ## Choose or create a database
 
@@ -28,7 +28,7 @@ dj-sim scan D:\Music --db .\data\library.sqlite
 
 UI:
 
-1. Choose the SQLite database.
+1. Choose the Core SQLite database. The app opens its matching Timeline and Representations files automatically.
 2. Enter or pick the music root.
 3. Set **Scan workers**.
 4. Click **Load tracks into database**.
@@ -49,7 +49,7 @@ If a tag cannot be read, scan still creates a minimal metadata row with the file
 
 ## What scan writes
 
-Scan writes SQLite only. It upserts tracks by path and updates rows when file size or modification time changes. It does not write audio tags.
+Scan writes the Core SQLite file only. It upserts tracks by path and updates rows when file size or modification time changes. It does not write audio tags.
 
 The UI scan job shows progress, events, current path, counts, and cancellation state. The CLI prints added, updated, unchanged, and skipped counts.
 

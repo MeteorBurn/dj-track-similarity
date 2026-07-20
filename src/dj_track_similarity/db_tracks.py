@@ -25,6 +25,7 @@ from .metadata_payload import (
     metadata_from_json,
     metadata_to_json,
     optional_float,
+    string_list_from_json,
     string_or_none,
 )
 from .models import Track
@@ -562,4 +563,14 @@ class TrackRepository:
             analyses=analyses,
             embedding_model=row["embedding_model"] if "embedding_model" in row.keys() else None,
             embedding_dim=row["embedding_dim"] if "embedding_dim" in row.keys() else None,
+            timeline_fields=(
+                string_list_from_json(row["timeline_fields_json"])
+                if "timeline_fields_json" in row_keys
+                else None
+            ),
+            representation_fields=(
+                string_list_from_json(row["representation_fields_json"])
+                if "representation_fields_json" in row_keys
+                else None
+            ),
         )

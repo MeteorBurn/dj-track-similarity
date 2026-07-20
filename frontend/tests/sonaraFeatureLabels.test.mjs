@@ -194,7 +194,7 @@ test("metadata dialog keeps SONARA core duration before BPM and formats BPM with
   const coreGroup = source.match(/title:\s*"Core",[\s\S]*?keys:\s*\[([^\]]+)\]/)?.[1] || "";
 
   assert.ok(coreGroup.indexOf('"duration_sec"') < coreGroup.indexOf('"bpm"'));
-  assert.ok(coreGroup.indexOf('"bpm"') < coreGroup.indexOf('"beats"'));
+  assert.doesNotMatch(coreGroup, /"beats"|"onset_frames"/);
   assert.match(source, /if \(\(key === "bpm" \|\| key === "bpm_raw"\) && typeof value === "number"\) return value\.toFixed\(2\);/);
 });
 
@@ -219,30 +219,29 @@ test("metadata dialog keeps new SONARA heuristics as data-only feature groups", 
   assert.match(source, /mood_sad:\s*"Heuristic v1 affinity for a sad mood/);
 });
 
-test("metadata dialog groups archival SONARA rhythm and identity metadata as data only", () => {
+test("metadata dialog keeps light rhythm metadata in Core and identity data in Representations", () => {
   const source = readFileSync(dialogPath, "utf8");
 
   assert.match(
     source,
-    /title:\s*"Archive metadata",\s*keys:\s*\["tempo_variability", "time_signature", "time_signature_confidence", "embedding_version", "fingerprint_version"\]/
+    /title:\s*"Rhythm metadata",\s*keys:\s*\["tempo_variability", "time_signature", "time_signature_confidence"\]/
   );
   assert.match(source, /tempo_variability:\s*"Within-track tempo variation retained as archival data/);
   assert.match(source, /time_signature_confidence:\s*"Confidence in the detected time signature/);
-  assert.match(source, /embedding_version:\s*"SONARA version identifier for the stored archival audio embedding"/);
-  assert.match(source, /fingerprint_version:\s*"SONARA version identifier for the stored archival audio fingerprint"/);
+  assert.match(source, /StoragePresenceBlock title="Representations" fields=\{representationFields\}/);
 });
 
-test("main analysis requests mood and instrumentalness for future data use", () => {
+test("main analysis submits the selected SONARA storage outputs", () => {
   const source = readFileSync(appPath, "utf8");
 
-  assert.match(source, /sonara_features:\s*models\.includes\("sonara"\)[\s\S]*?\["structure", "loudness", "beatgrid", "key_candidates", "vocalness", "mood", "instrumentalness", "silence"\][\s\S]*?: \[\]/);
+  assert.match(source, /sonara_outputs:\s*models\.includes\("sonara"\) \? sonaraOutputs : \[\]/);
 });
 
 test("metadata dialog displays loudness and light structure data with domain units", () => {
   const source = readFileSync(dialogPath, "utf8");
 
   assert.match(source, /keys:\s*\["true_peak_db", "replaygain_db", "loudness_momentary_max_db", "loudness_range_lu"\]/);
-  assert.match(source, /keys:\s*\["intro_end_sec", "outro_start_sec", "segments", "energy_curve_hop_sec"\]/);
+  assert.match(source, /keys:\s*\["intro_end_sec", "outro_start_sec", "energy_curve_hop_sec", "energy_curve_summary"\]/);
   assert.match(source, /key === "true_peak_db"\) return `\$\{value\.toFixed\(2\)\} dBTP`/);
   assert.match(source, /key === "loudness_momentary_max_db"\) return `\$\{value\.toFixed\(2\)\} LUFS`/);
   assert.match(source, /"intro_end_sec"/);
@@ -250,16 +249,13 @@ test("metadata dialog displays loudness and light structure data with domain uni
   assert.match(source, /"energy_curve_hop_sec"/);
 });
 
-test("metadata dialog lazy-loads stored SONARA curves and renders summaries only", () => {
+test("metadata dialog does not load Timeline values and lists manifest names only", () => {
   const source = readFileSync(dialogPath, "utf8");
 
-  assert.match(source, /api\.sonaraCurves\(track\.id\)/);
-  assert.match(source, /readableSonaraCurves\(curves\)/);
-  assert.match(source, /setSonaraCurveStatus\("loading"\)/);
-  assert.match(source, /Stored curve data could not be loaded/);
-  assert.match(source, /No stored curve data/);
-  assert.match(source, /Loading stored curve summaries…/);
-  assert.doesNotMatch(source, /JSON\.stringify\(sonaraCurves\)/);
+  assert.match(source, /const timelineFields = track\.timeline_fields \|\| \[\];/);
+  assert.match(source, /fields\.map\(\(field\) => <code key=\{field\}>\{field\}<\/code>\)/);
+  assert.doesNotMatch(source, /api\.sonaraTimeline\(track\.id\)/);
+  assert.doesNotMatch(source, /JSON\.stringify\(timeline/);
 });
 
 test("metadata dialog shows SONARA analysis provenance outside score controls", () => {

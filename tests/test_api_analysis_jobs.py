@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 import dj_track_similarity.api as api
 import dj_track_similarity.api_state as api_state
-from dj_track_similarity.analysis_config import DEFAULT_SONARA_FEATURE_FAMILIES
+from dj_track_similarity.analysis_config import DEFAULT_SONARA_OUTPUTS
 from dj_track_similarity.database import LibraryDatabase
 
 
@@ -24,7 +24,7 @@ class SynchronousAnalysisManager:
         track_batch_size=4,
         inference_batch_size=24,
         classifier_keys=None,
-        sonara_features=None,
+        sonara_outputs=None,
     ):
         type(self).last_request = {
             "models": models,
@@ -34,7 +34,7 @@ class SynchronousAnalysisManager:
             "track_batch_size": track_batch_size,
             "inference_batch_size": inference_batch_size,
             "classifier_keys": classifier_keys,
-            "sonara_features": sonara_features,
+            "sonara_outputs": sonara_outputs,
         }
         return _status(
             models or ["maest", "mert", "muq", "clap"],
@@ -117,7 +117,7 @@ def test_api_starts_selected_multi_model_analysis_job(monkeypatch, tmp_path: Pat
             "track_batch_size": 5,
             "inference_batch_size": 18,
             "classifier_keys": ["break_energy"],
-            "sonara_features": [],
+            "sonara_outputs": [],
         },
     )
 
@@ -138,7 +138,7 @@ def test_api_starts_selected_multi_model_analysis_job(monkeypatch, tmp_path: Pat
         "track_batch_size": 5,
         "inference_batch_size": 18,
         "classifier_keys": ["break_energy"],
-        "sonara_features": [],
+        "sonara_outputs": [],
     }
 
 
@@ -161,7 +161,34 @@ def test_api_allows_classifier_only_unified_analysis_job(monkeypatch, tmp_path: 
     assert response.status_code == 200
     assert SynchronousAnalysisManager.last_request["models"] == []
     assert SynchronousAnalysisManager.last_request["classifier_keys"] == ["break_energy"]
-    assert SynchronousAnalysisManager.last_request["sonara_features"] == []
+    assert SynchronousAnalysisManager.last_request["sonara_outputs"] == []
+
+
+def test_api_passes_selected_sonara_storage_outputs(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    LibraryDatabase(db_path)
+    monkeypatch.setattr(api_state, "AnalysisJobManager", SynchronousAnalysisManager)
+    client = TestClient(api.create_app(db_path))
+
+    response = client.post(
+        "/api/analysis/jobs",
+        json={"models": ["sonara"], "sonara_outputs": ["timeline", "representations"]},
+    )
+
+    assert response.status_code == 200
+    assert SynchronousAnalysisManager.last_request["sonara_outputs"] == ["timeline", "representations"]
+
+
+def test_api_defaults_sonara_storage_to_core(monkeypatch, tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    LibraryDatabase(db_path)
+    monkeypatch.setattr(api_state, "AnalysisJobManager", SynchronousAnalysisManager)
+    client = TestClient(api.create_app(db_path))
+
+    response = client.post("/api/analysis/jobs", json={"models": ["sonara"]})
+
+    assert response.status_code == 200
+    assert SynchronousAnalysisManager.last_request["sonara_outputs"] == list(DEFAULT_SONARA_OUTPUTS)
 
 
 def test_api_rejects_classifier_analysis_when_required_inputs_are_missing(monkeypatch, tmp_path: Path) -> None:
@@ -200,7 +227,7 @@ def test_api_defaults_analysis_to_ml_models_only(monkeypatch, tmp_path: Path) ->
     assert SynchronousAnalysisManager.last_request["track_batch_size"] == 4
     assert SynchronousAnalysisManager.last_request["inference_batch_size"] == 24
     assert SynchronousAnalysisManager.last_request["classifier_keys"] == []
-    assert SynchronousAnalysisManager.last_request["sonara_features"] == []
+    assert SynchronousAnalysisManager.last_request["sonara_outputs"] == []
 
 
 def test_api_exposes_analysis_job_lookup_latest_and_cancel_contract(monkeypatch, tmp_path: Path) -> None:

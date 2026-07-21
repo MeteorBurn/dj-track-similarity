@@ -40,7 +40,7 @@ def test_api_rejects_classifier_scoring_inside_audio_job(tmp_path: Path) -> None
     assert response.status_code == 422
 
 
-def test_api_defaults_sonara_to_core_and_native_batch_64(tmp_path: Path) -> None:
+def test_api_defaults_sonara_to_core_and_native_batch_8(tmp_path: Path) -> None:
     response = _client(tmp_path).post(
         "/api/analysis/jobs",
         json={"models": ["sonara"], "limit": 0},
@@ -48,7 +48,7 @@ def test_api_defaults_sonara_to_core_and_native_batch_64(tmp_path: Path) -> None
     assert response.status_code == 200
     payload = response.json()
     assert payload["sonara_outputs"] == ["core"]
-    assert payload["sonara_batch_size"] == 64
+    assert payload["sonara_batch_size"] == 8
 
 
 def test_api_passes_explicit_sonara_outputs_and_batch_size(tmp_path: Path) -> None:
@@ -58,13 +58,13 @@ def test_api_passes_explicit_sonara_outputs_and_batch_size(tmp_path: Path) -> No
             "models": ["sonara"],
             "limit": 0,
             "sonara_outputs": ["timeline", "representations"],
-            "sonara_batch_size": 17,
+            "sonara_batch_size": 12,
         },
     )
     assert response.status_code == 200
     payload = response.json()
     assert payload["sonara_outputs"] == ["timeline", "representations"]
-    assert payload["sonara_batch_size"] == 17
+    assert payload["sonara_batch_size"] == 12
 
 
 def test_api_defaults_audio_job_to_ml_models_only(tmp_path: Path) -> None:
@@ -122,6 +122,21 @@ def test_api_pipeline_preserves_fixed_stage_order(tmp_path: Path) -> None:
     )
     assert response.status_code == 200
     assert response.json()["order"] == ["ml", "classifiers"]
+
+
+def test_api_pipeline_accepts_sonara_core_without_ml_models(tmp_path: Path) -> None:
+    response = _client(tmp_path).post(
+        "/api/analysis/pipelines",
+        json={
+            "stages": ["sonara"],
+            "limit": 0,
+            "sonara": {"outputs": ["core"], "batch_size": 8},
+            "ml": {"models": []},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["order"] == ["sonara"]
 
 
 def test_api_sonara_preflight_blocks_old_contract_until_reset(tmp_path: Path) -> None:

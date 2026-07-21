@@ -104,20 +104,36 @@ def register_analysis_routes(
     @app.post("/api/analysis/pipelines")
     def analyze_pipeline(request: AnalysisPipelineRequest):
         try:
-            sonara_config = build_analysis_job_config(
-                models=["sonara"],
-                sonara_outputs=request.sonara.outputs,
-                sonara_batch_size=request.sonara.batch_size,
-            )
-            ml_config = build_analysis_job_config(
-                models=request.ml.models,
-                device=request.ml.device,
-                top_k=request.ml.top_k,
-                track_batch_size=request.ml.track_batch_size,
-                inference_batch_size=request.ml.inference_batch_size,
-            )
-            if "sonara" in ml_config.models:
-                raise ValueError("The ML pipeline stage accepts only MAEST, MERT, MuQ, and CLAP")
+            sonara_settings: dict[str, object] = {}
+            if "sonara" in request.stages:
+                sonara_config = build_analysis_job_config(
+                    models=["sonara"],
+                    sonara_outputs=request.sonara.outputs,
+                    sonara_batch_size=request.sonara.batch_size,
+                )
+                sonara_settings = {
+                    "outputs": list(sonara_config.sonara_outputs),
+                    "batch_size": sonara_config.sonara_batch_size,
+                }
+
+            ml_settings: dict[str, object] = {}
+            if "ml" in request.stages:
+                ml_config = build_analysis_job_config(
+                    models=request.ml.models,
+                    device=request.ml.device,
+                    top_k=request.ml.top_k,
+                    track_batch_size=request.ml.track_batch_size,
+                    inference_batch_size=request.ml.inference_batch_size,
+                )
+                if "sonara" in ml_config.models:
+                    raise ValueError("The ML pipeline stage accepts only MAEST, MERT, MuQ, and CLAP")
+                ml_settings = {
+                    "models": list(ml_config.models),
+                    "device": ml_config.device,
+                    "top_k": ml_config.top_k,
+                    "track_batch_size": ml_config.track_batch_size,
+                    "inference_batch_size": ml_config.inference_batch_size,
+                }
             classifier_keys = (
                 _validated_classifier_keys(
                     request.classifiers.classifier_keys,
@@ -130,14 +146,8 @@ def register_analysis_routes(
             return state.require_analysis_pipeline_jobs().start(
                 stages=list(request.stages),
                 limit=request.limit,
-                sonara={"outputs": list(sonara_config.sonara_outputs), "batch_size": sonara_config.sonara_batch_size},
-                ml={
-                    "models": list(ml_config.models),
-                    "device": ml_config.device,
-                    "top_k": ml_config.top_k,
-                    "track_batch_size": ml_config.track_batch_size,
-                    "inference_batch_size": ml_config.inference_batch_size,
-                },
+                sonara=sonara_settings,
+                ml=ml_settings,
                 classifiers={"classifier_keys": classifier_keys},
             )
         except ValueError as error:

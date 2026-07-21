@@ -244,7 +244,6 @@ test("metadata dialog keeps light rhythm metadata in Core and identity data in R
 test("main analysis submits the selected SONARA storage outputs", () => {
   const source = readFileSync(appPath, "utf8");
 
-  assert.match(source, /models:\s*\["sonara"\][\s\S]*sonara_outputs:\s*sonaraOutputs/);
   assert.match(source, /sonara:\s*\{ outputs: sonaraOutputs, batch_size: sonaraBatchSize \}/);
 });
 

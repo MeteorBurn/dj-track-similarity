@@ -43,10 +43,12 @@ test("track API contract exposes both sidecar field manifests", () => {
 test("analysis panel exposes independent SONARA storage checkboxes", () => {
   const source = readFileSync(libraryPanelPath, "utf8");
 
-  assert.match(source, /\["core", "timeline", "representations"\]/);
-  assert.match(source, /checked=\{sonaraOutputs\.includes\(output\)\}/);
-  assert.match(source, /По умолчанию/);
-  assert.match(source, /Явный opt-in/);
+  assert.match(source, /checked=\{sonaraOutputs\.includes\("core"\)\}/);
+  assert.match(source, /checked=\{sonaraOutputs\.includes\("timeline"\)\}/);
+  assert.match(source, /checked=\{sonaraOutputs\.includes\("representations"\)\}/);
+  assert.match(source, /Основные признаки/);
+  assert.match(source, /События и кривые/);
+  assert.match(source, /Embedding и fingerprint/);
   assert.match(source, /native batch/);
 });
 

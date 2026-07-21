@@ -24,8 +24,8 @@ class _FakeStatus:
     current_model = None
     model_progress = {}
     device = "cpu"
-    track_batch_size = 4
-    inference_batch_size = 24
+    track_batch_size = 8
+    inference_batch_size = 16
     top_k = 3
     avg_seconds_per_track = 0.5
 
@@ -38,6 +38,8 @@ class _FakeAnalysisManager:
 
     def create_job(self, **_kwargs):
         type(self).last_kwargs = _kwargs
+        if "models" in _kwargs:
+            self.status.models = list(_kwargs["models"])
         if "track_batch_size" in _kwargs:
             self.status.track_batch_size = _kwargs["track_batch_size"]
         if "inference_batch_size" in _kwargs:
@@ -155,6 +157,7 @@ def test_analyze_cli_prints_live_progress_for_default_models(monkeypatch, tmp_pa
     assert "eta=" in result.output
     assert "state=completed" in result.output
     assert "models=maest,mert,muq,clap" in result.output
+    assert "sonara_batch_size" not in result.output
     assert _FakeAnalysisManager.last_kwargs["sonara_outputs"] == []
 
 
@@ -177,6 +180,10 @@ def test_analyze_cli_accepts_selected_sonara_outputs(monkeypatch, tmp_path):
 
     assert result.exit_code == 0
     assert _FakeAnalysisManager.last_kwargs["sonara_outputs"] == ["timeline", "representations"]
+    assert "sonara_outputs=timeline,representations sonara_batch_size=8" in result.output
+    assert "device=" not in result.output
+    assert "track_batch_size=" not in result.output
+    assert "inference_batch_size=" not in result.output
     assert DEFAULT_SONARA_OUTPUTS == ("core",)
 
 
@@ -192,8 +199,8 @@ def test_analyze_cli_accepts_selected_models_and_diagnostics_flag(monkeypatch, t
     assert result.exit_code == 0
     assert "Starting maest,mert analysis" in result.output
     assert _FakeAnalysisManager.last_kwargs["models"] == ["maest", "mert"]
-    assert _FakeAnalysisManager.last_kwargs["track_batch_size"] == 4
-    assert _FakeAnalysisManager.last_kwargs["inference_batch_size"] == 24
+    assert _FakeAnalysisManager.last_kwargs["track_batch_size"] == 8
+    assert _FakeAnalysisManager.last_kwargs["inference_batch_size"] == 16
 
 
 def test_analyze_cli_accepts_separate_track_and_inference_batch_sizes(monkeypatch, tmp_path):

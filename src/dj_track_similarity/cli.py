@@ -992,13 +992,21 @@ def analyze(
     except (FileNotFoundError, RuntimeError, ValueError) as error:
         typer.secho(str(error), err=True, fg=typer.colors.RED)
         raise typer.Exit(1) from error
-    typer.echo(
+    result_summary = (
         f"state={status.state} total={status.total} processed={status.processed} "
-        f"analyzed={status.analyzed} failed={status.failed} models={','.join(status.models)} "
-        f"device={status.device} top_k={status.top_k} "
-        f"track_batch_size={status.track_batch_size} inference_batch_size={status.inference_batch_size}"
-        f" sonara_batch_size={config.sonara_batch_size}"
+        f"analyzed={status.analyzed} failed={status.failed} models={','.join(status.models)}"
     )
+    if config.models == ("sonara",):
+        result_summary += (
+            f" sonara_outputs={','.join(config.sonara_outputs)}"
+            f" sonara_batch_size={config.sonara_batch_size}"
+        )
+    else:
+        result_summary += (
+            f" device={status.device} top_k={status.top_k}"
+            f" track_batch_size={status.track_batch_size} inference_batch_size={status.inference_batch_size}"
+        )
+    typer.echo(result_summary)
 
 
 @app.command("analyze-classifiers")

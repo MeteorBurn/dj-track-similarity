@@ -16,11 +16,14 @@
 
 | Control | Range or values | Notes |
 | --- | --- | --- |
-| Model checkboxes | SONARA, MAEST, MERT, MUQ, CLAP, CLASSIFIERS | selected families in one job |
+| Stage blocks | SONARA, ML MODELS, CLASSIFIERS | independent manual runs or selected pipeline |
 | Analyze limit | `0..100000` in UI | `0` means whole library |
 | Device | AUTO, CPU, CUDA | for MAEST/MERT/MuQ/CLAP adapters |
+| SONARA outputs | Core, Timeline, Representations | Core is default; other outputs are opt-in |
+| SONARA native batch | `1..128` | path batch for `analyze_batch`; default `64` |
 | Track batch size | `1..64` | decoded tracks held per job batch |
 | Inference batch size | `1..128` | model samples per forward pass |
+| Run selected pipeline | selected stages | fixed SONARA, ML, CLASSIFIERS order |
 | Reset | one family | SQLite-only reset |
 
 ## Search

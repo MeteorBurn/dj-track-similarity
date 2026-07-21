@@ -36,13 +36,14 @@ Files whose names start with `._` are skipped.
 
 The selected families may already be complete for all tracks, or the database may not be the one you scanned. Reset only if you intentionally want to recompute.
 
-For classifiers, confirm required SONARA, MAEST, and MERT data exist or select missing families in the same job.
+For classifiers, inspect the promoted manifest and the ready/not-ready counts. Run the missing SONARA
+or ML stage first, then rerun the separate CLASSIFIERS job.
 
-## SONARA is queued again after an update
+## SONARA is blocked after an update
 
-This is expected when the stored signature differs in package version, upstream schema, analysis
-mode, sample rate, BPM range, requested features, or project feature revision. Normal analysis
-treats the row as missing even if its physical presence flag is still set.
+The native decode migration intentionally blocks when any stored output has an older decoder or
+execution contract. Back up the main and side databases together, then use the explicit SONARA
+reset. Old and new SONARA results are never adapted or mixed.
 
 Verify the installed package:
 
@@ -50,8 +51,8 @@ Verify the installed package:
 python -c "import sonara; print(sonara.__version__)"
 ```
 
-Each Core, Timeline, and Representations output has its own signature. Missing optional output rows
-do not invalidate Core. Schema v6 intentionally invalidates old analysis results; follow
+Each Core, Timeline, and Representations output has its own signature. After reset, missing current
+optional output rows do not invalidate Core and can resume normally. Follow
 [Reanalyze with split SONARA storage](../workflows/reanalyze-sonara-split-storage.md).
 
 ## SONARA looks present but search or SET treats it as missing

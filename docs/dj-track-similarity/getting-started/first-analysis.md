@@ -4,7 +4,7 @@
 > Goal: Choose analysis families safely and understand what each unlocks.
 > Type: tutorial
 
-Analysis jobs decode audio and write SQLite results. They do not rewrite source audio files.
+Analysis jobs read audio or stored analysis values and write SQLite results. They do not rewrite source audio files.
 
 ## Analysis families
 
@@ -17,7 +17,8 @@ Analysis jobs decode audio and write SQLite results. They do not rewrite source 
 | CLAP | CLAP audio embedding | text search, SET, Hybrid, Audio Dedup evidence |
 | CLASSIFIERS | `track_classifier_scores` rows | CLASS filters, SET bias, Hybrid diagnostics |
 
-Classifier scoring needs existing or same-job SONARA, MAEST, and MERT data.
+Classifier scoring is a separate stage. Each promoted manifest defines its exact SONARA and
+MAEST/MERT/CLAP requirements. Incomplete tracks are counted as not ready rather than failed.
 
 ## CLI analysis
 
@@ -26,6 +27,8 @@ Install optional analysis dependencies first. Then run:
 ```powershell
 dj-sim analyze --models sonara --limit 25 --db .\data\library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --limit 25 --db .\data\library.sqlite
+dj-sim analyze-classifiers --db .\data\library.sqlite
+dj-sim analyze-pipeline --stages sonara,ml,classifiers --db .\data\library.sqlite
 ```
 
 Useful options:
@@ -40,6 +43,7 @@ dj-sim analyze --models maest,mert,muq,clap --device auto --top-k 3 --track-batc
 - `--top-k` stores `1..10` MAEST genre labels per track.
 - `--track-batch-size` is `1..64` decoded tracks per job batch.
 - `--inference-batch-size` is `1..128` model samples per forward pass for MAEST, MERT, MuQ, and CLAP.
+- `--sonara-batch-size` is `1..128` paths per native SONARA batch. The default is `64`.
 - `--diagnostics` writes decoder fallback and batch timing details to the file log.
 
 MuQ requires the optional `ml` dependencies and downloads the official `OpenMuQ/MuQ-large-msd-iter` weights. The app gives MuQ only 24 kHz `float32` audio. CPU and CUDA are supported, with CUDA recommended for full libraries. MuQ stores embeddings for LAB Reference Compare, but it does not feed SET or Hybrid.
@@ -48,21 +52,19 @@ In the CLI, omit `--limit` for the whole library.
 
 ## UI analysis
 
-In **1. Database and analysis**:
+In **1. Database and analysis**, use the three stage blocks:
 
-1. Select the model checkboxes.
-2. Choose `AUTO`, `CPU`, or `CUDA`.
+1. Configure and run **SONARA**, **ML MODELS**, or **CLASSIFIERS** independently.
+2. Choose `AUTO`, `CPU`, or `CUDA` for ML.
 3. Set **Analyze limit**. `0` means the whole library.
-4. Adjust **Track batch size** and **Inference batch size** only when memory or throughput needs it.
-5. Click **Analyze**.
+4. Use **Run selected pipeline** to queue selected stages in fixed SONARA, ML, CLASSIFIERS order.
 
 The UI creates a job and polls progress. It also shows the current model/path and keeps a process log. The stop button requests cancellation.
 
-When SONARA is selected, Core is checked by default. Timeline and Representations appear as optional
-checkboxes. Select all three when you want complete beat/onset/chord/curve data plus SONARA embedding
-and fingerprint. All selected outputs still share one FFmpeg decode and one Rust analysis call.
-The FFmpeg path forms mono audio with the arithmetic mean of all source channels so correlated
-stereo material does not receive the default equal-power 3 dB lift.
+Core is checked by default. Timeline and Representations are optional. SONARA receives paths in
+native batches and decodes them through its Symphonia path inside `sonara.analyze_batch()`. It does
+not call the project's FFmpeg loader and has no `analyze_signal` or per-file decode fallback. ML
+models continue to share the project's FFmpeg decode.
 
 ## Already analyzed tracks
 
@@ -70,9 +72,9 @@ Analysis jobs target missing results for the selected families. SONARA checks Co
 Representations signatures independently, so adding Timeline later does not replace Core. Other
 complete families are skipped. Use reset only when you intentionally want to delete stored results.
 
-For an existing analyzed database, use the ordered
-[split SONARA storage workflow](../workflows/reanalyze-sonara-split-storage.md) before rebuilding dependent
-classifiers.
+For an existing analyzed database, a native SONARA preflight blocks old-contract rows. Back up and
+use the explicit SONARA reset before following the ordered
+[split SONARA storage workflow](../workflows/reanalyze-sonara-split-storage.md).
 
 ## Reset boundaries
 

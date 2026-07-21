@@ -53,6 +53,19 @@ Score one promoted classifier:
 dj-sim analyze-classifier live_instrumentation --db .\data\library.sqlite
 ```
 
+Score selected or all compatible promoted classifiers:
+
+```powershell
+dj-sim analyze-classifiers --classifiers live_instrumentation,voice_presence --db .\data\library.sqlite
+dj-sim analyze-classifiers --db .\data\library.sqlite
+```
+
+Run a fixed-order pipeline:
+
+```powershell
+dj-sim analyze-pipeline --stages sonara,ml,classifiers --db .\data\library.sqlite
+```
+
 Runtime diagnostic:
 
 ```powershell
@@ -73,6 +86,7 @@ dj-sim doctor
 | `--inference-batch-size` | `1..128` model samples per forward pass |
 | `--diagnostics` | file-log decoder and batch timing diagnostics |
 | `--sonara-outputs` | comma-separated `core`, `timeline`, `representations`; default `core` |
+| `--sonara-batch-size` | `1..128` native path batch; default `64` |
 
 Plain SONARA analysis writes Core only. Use
 `--sonara-outputs core,timeline,representations` for all three stores, or select only the missing
@@ -82,8 +96,13 @@ Timeline uses the adjacent `*.timeline.sqlite`; embeddings and fingerprints use
 MAEST/MERT/MuQ/CLAP embeddings remain in Core. The metadata dialog reads Core values and only field-name manifests for
 the two side databases.
 
-Each output's exact request profile is part of its SONARA analysis signature. Rerunning with a new
-selection targets only missing or mismatched outputs. A manual SONARA reset is not normally required.
+Each output's exact request profile and native decoder/execution path are part of its SONARA analysis
+signature. Old-contract rows block the first native job until the database is backed up and SONARA
+is explicitly reset. Current partial native coverage can then resume by output signature.
+
+`analyze-classifiers` forms a separate database-only job. An omitted `--classifiers` list means all
+scoring-compatible promoted artifacts. `analyze-pipeline` accepts the same stage-specific settings
+and always executes selected stages as SONARA, ML, CLASSIFIERS; `--ml-models` cannot contain SONARA.
 
 For a schema v5 database, follow
 [Reanalyze with split SONARA storage](../workflows/reanalyze-sonara-split-storage.md).

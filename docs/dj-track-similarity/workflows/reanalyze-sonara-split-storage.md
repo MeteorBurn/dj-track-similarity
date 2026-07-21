@@ -26,7 +26,14 @@ embedding-only classifier scores, tracks, file tags, likes, feedback, and evalua
 Databases older than schema v5 are not adapted; scan the audio library into a fresh current database
 instead.
 
-## 3. Analyze SONARA
+## 3. Reset the old SONARA contract explicitly
+
+If any Core, Timeline, or Representations rows use an earlier project contract, the native preflight
+blocks the job. After the backup, use the existing SONARA reset, which removes all three SONARA
+stores and SONARA-dependent classifier scores without modifying audio, labels, feedback, or ML-only
+embeddings. Old and new SONARA data are not adapted or mixed.
+
+## 4. Analyze SONARA
 
 Use the UI checkboxes or CLI. Core only is the default:
 
@@ -46,7 +53,11 @@ You can add optional outputs later:
 dj-sim analyze --models sonara --sonara-outputs timeline,representations --db C:\db\library.sqlite
 ```
 
-## 4. Analyze missing ML models separately
+The default native batch size is `64`. Use `--sonara-batch-size 1..128` when needed. Complete the
+full Core pass before retraining SONARA-dependent classifiers. Timeline and Representations require
+their own full pass only when explicitly selected.
+
+## 5. Analyze missing ML models separately
 
 ```powershell
 dj-sim analyze --models maest,mert,muq,clap --db C:\db\library.sqlite
@@ -55,7 +66,19 @@ dj-sim analyze --models maest,mert,muq,clap --db C:\db\library.sqlite
 SONARA cannot be combined with those models or with classifiers in the same job.
 The migration does not require these models to be rerun when their existing embeddings are present.
 
-## 5. Verify in metadata
+## 6. Retrain, promote, and score classifiers separately
+
+Retrain and promote every SONARA-dependent classifier only after required Core and ML coverage is
+complete. Then run:
+
+```powershell
+dj-sim analyze-classifiers --db C:\db\library.sqlite
+```
+
+The job scores only tracks with each manifest's complete current input set. Tracks that become ready
+later are picked up by a repeated classifier job.
+
+## 7. Verify in metadata
 
 Open a track's metadata dialog:
 
@@ -63,5 +86,7 @@ Open a track's metadata dialog:
 - Timeline should say data is present and list its stored field names.
 - Representations should say data is present and list the SONARA `embedding` and `fingerprint`.
 
-Retrain and promote SONARA-dependent classifiers only after the required Core and ML coverage is
-complete.
+Verify classifier readiness and blockers in the CLASSIFIERS block, then confirm expected score
+coverage. Use a 100-file native pilot after backup/reset. Do not continue to the full Core run until
+the pilot completes without failures under native signatures and SQLite returns a successful
+integrity check.

@@ -17,9 +17,14 @@ The UI lists these choices:
 - **CLAP**: audio embedding for text search and audio-to-audio comparison.
 - **CLASSIFIERS**: promoted classifier scores, if compatible profiles are available.
 
-One job can include multiple families. Tracks that already have a selected result are skipped for that family.
+The UI separates analysis into stage blocks with individual manual run buttons. The SONARA, ML
+MODELS, and CLASSIFIERS blocks can also be submitted as one selected pipeline. All stages use one
+sequential in-memory queue.
 
-SONARA runs separately from the ML models and classifiers. The project FFmpeg decoder supplies one mono float32 file buffer at `22050 Hz` directly to SONARA's native Rust analyzer. A SONARA job cannot include MAEST, MERT, MuQ, CLAP, or classifiers. SONARA BPM analysis uses the project range `70.0..180.0`. Tempo-aware workflows start with current
+SONARA runs separately from the ML models and classifiers. It passes path batches to
+`sonara.analyze_batch()`, whose Symphonia path owns decoding. There is no project FFmpeg,
+`DecodedAudio`, `analyze_signal`, or per-file fallback in the SONARA job. SONARA BPM analysis uses
+the project range `70.0..180.0`. Tempo-aware workflows start with current
 signed SONARA evidence but do not trust it blindly. Below `0.45` confidence, the resolver checks
 SONARA candidates and the Mutagen BPM tag. A corroborated tag can become the working BPM.
 `grid_stability` can lower reliability, which moves the tempo score toward neutral. If you analyzed
@@ -36,8 +41,8 @@ When SONARA is selected, three checkboxes appear:
 - **Timeline** writes complete time arrays, events, and segments to the adjacent `*.timeline.sqlite` database.
 - **Representations** writes the SONARA embedding and fingerprint to the adjacent `*.representations.sqlite` database.
 
-You can run Core first and add Timeline or Representations later. One SONARA job still decodes each
-track once and requests the union of selected outputs from Rust. Each output has its own deterministic
+You can run Core first and add Timeline or Representations later. One native batch requests the
+union of selected outputs from Rust. Each output has its own deterministic
 signature, so adding Timeline does not invalidate a current Core result.
 
 Mood and instrumentalness are stored and displayed but do not enter current similarity, SET,
@@ -66,6 +71,7 @@ SONARA runs as a CPU runner. MAEST, MERT, MuQ, and CLAP use the selected device 
 
 ## Batch controls
 
+- **SONARA native batch**: `1..128` paths; default `64`. Cancellation takes effect between returned batches.
 - **Track batch size**: `1..64`, decoded tracks held and processed together.
 - **Inference batch size**: `1..128`, MAEST/MERT/MuQ/CLAP model samples per forward pass.
 
@@ -81,7 +87,18 @@ The UI polls the current job and shows:
 - per-model progress,
 - event log and errors.
 
-The square stop button requests cancellation. It does not kill Python mid-write. The job checks the cancellation flag between work units.
+The square stop button requests cancellation. It does not kill Python mid-write. A SONARA chunk is
+persisted only after the native batch returns, and cancellation is checked before the next chunk.
+
+## Pipeline and classifier readiness
+
+The selected pipeline always runs SONARA, then ML, then CLASSIFIERS, regardless of selection order.
+Per-file errors remain visible but do not stop later stages; fatal initialization errors and
+cancellation stop the parent and cancel stages that have not started.
+
+CLASSIFIERS never decode audio. The block shows ready/not-ready counts and manifest blockers. Its
+total counts classifier-track pairs that are ready and have a missing score or a score from another
+model ID. Rerun the stage later to pick up tracks that became ready after more SONARA or ML coverage.
 
 ## Reset buttons
 
@@ -92,8 +109,9 @@ Reset is SQLite-only:
 - MERT, MuQ, and CLAP reset delete embeddings for that key.
 - CLASSIFIERS reset deletes selected `track_classifier_scores` rows.
 
-Use reset when you intentionally want to delete stored results before a fresh run. Do not reset for a
-SONARA output/signature mismatch: normal analysis detects the mismatch and queues that output.
+Before the first native SONARA job, old-contract data is a blocker. Back up the database and use the
+explicit SONARA reset; the application does not adapt, mix, or automatically delete those rows.
+Afterward, current partial output coverage can resume normally by signature.
 
 For a complete existing-library procedure, including backups and classifier rebuilding, follow
 [Reanalyze with split SONARA storage](../workflows/reanalyze-sonara-split-storage.md).

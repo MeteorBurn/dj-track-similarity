@@ -27,13 +27,19 @@ Missing classifier scores do not pass a positive minimum filter. In SET and Hybr
 
 The play button on a classifier row resets and rescans that one classifier key. The UI calls the reset path first, then starts `/api/classifiers/{classifier_key}/analyze`.
 
-Classifier scoring is database-only. It reads existing SONARA, MAEST, and MERT inputs and writes `track_classifier_scores`. It does not decode audio unless the same analysis job also needs missing model data.
+Classifier scoring is database-only. It reads exactly the SONARA and MAEST/MERT/CLAP inputs declared
+by the promoted manifest and writes `track_classifier_scores`. It never decodes audio and never runs
+inside a SONARA or ML job.
 
 Scoring is blocked when the promoted artifact, manifest, and track do not share the same current SONARA signature. Retrain and promote legacy SONARA profiles after reanalysis. Labels and feedback remain available.
 
-## CLASSIFIERS in analysis jobs
+## CLASSIFIERS analysis stage
 
-The left panel has a **CLASSIFIERS** checkbox. When selected, the analysis job can score all promoted classifiers that have missing rows. If required SONARA, MAEST, or MERT inputs are missing, select those models in the same job or analyze them first.
+The left panel has an independent **CLASSIFIERS** block. Its manual action scores the selected
+compatible profiles. The pipeline action runs it after selected SONARA and ML stages. The UI shows
+manifest-specific ready/not-ready counts and blockers. Missing inputs exclude a track before the job
+total is formed and do not create a partial score. Empty aggregate selection means all compatible
+promoted classifiers.
 
 ## SET and Hybrid
 

@@ -142,20 +142,20 @@ The current project should be understood as a local-first foundation for that id
 ```text
 audio files -> scan tags -> SQLite library -> browse/search/export
       |                         ^
-      +---- analysis jobs -------+
-      |
-      +---- Rhythm Lab labels -> promoted classifiers -> CLASS/SET/Hybrid scores
+      +---- SONARA native -------+
+      +---- FFmpeg -> ML --------+
+      +---- stored inputs -> classifiers -> CLASS/SET/Hybrid scores
 ```
 
 The app keeps evidence sources separate:
 
 - **File tags** come from Mutagen during scan and Refresh Tags.
-- **SONARA** stores audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy. It runs as a separate CPU/Rust analysis job: project FFmpeg decodes each file directly to mono float32 at 22050 Hz using the arithmetic mean of all source channels, then the native SONARA Rust analyzer reads that buffer. It cannot be selected in the same job as MAEST, MERT, MuQ, CLAP, or classifiers. **Core** is the default output; **Timeline** and **Representations** are optional checkboxes. SONARA BPM analysis uses the project range `70.0..180.0`.
+- **SONARA** stores audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy. Its standalone CPU/Rust job passes file paths to `sonara.analyze_batch()`, so SONARA/Symphonia owns decoding. There is no FFmpeg or signal-analysis fallback. **Core** is the default output; **Timeline** and **Representations** are explicit opt-ins. SONARA BPM analysis uses the project range `70.0..180.0`.
 - **MAEST** stores genre labels and an audio embedding.
 - **MERT** stores an audio embedding for seed similarity.
 - **MuQ** stores a separate audio embedding. LAB Reference Compare can inspect MuQ neighbors for one seed track, but MuQ is not used by MERT/SONARA search, SET, Hybrid, Audio Dedup, or classifier scoring.
 - **CLAP** stores an audio embedding for text-to-audio search and audio-to-audio comparison.
-- **Rhythm Lab classifiers** store optional local scores under a classifier key.
+- **Rhythm Lab classifiers** run as a separate database-only stage and store optional local scores under a classifier key. Each promoted manifest decides which current SONARA and ML inputs are required.
 
 Tempo-aware search, transition diagnostics, and SET ordering use current signed SONARA tempo
 evidence. At low confidence, they also inspect SONARA candidates and the Mutagen BPM tag, while
@@ -166,7 +166,7 @@ SONARA mood and instrumentalness values are retained for inspection and possible
 
 Each SONARA result also retains analysis provenance, including the upstream schema and the installed package version when available. This makes later reanalysis and result audits easier to plan.
 
-A deterministic signature is stored independently for each selected SONARA output. It covers SONARA `0.2.9`, schema `4`, playlist mode, sample rate, BPM range, output feature profile, and project feature revision `3`. Revision `3` records the arithmetic channel-mean decode contract. Earlier equal-power mono results are stale. A missing or mismatched output is scheduled without forcing already-current outputs to be recomputed.
+A deterministic signature is stored independently for each selected SONARA output. It covers SONARA `0.2.9`, schema `4`, playlist mode, sample rate, BPM range, output feature profile, project feature revision `4`, `decoder_backend="sonara-symphonia"`, and `execution_path="analyze_batch"`. A database containing an older SONARA contract is blocked before analysis until it is backed up and explicitly reset. Old and new results are never mixed.
 
 A file genre tag, a MAEST genre label, a CLAP text score, and an audio-to-audio duplicate score answer different questions. They can all help, but they should not be treated as one universal truth scale.
 
@@ -228,7 +228,7 @@ The normal loop is:
 4. Run classifier scoring in the main library database.
 5. Use CLASS, SET, or Hybrid preview with the promoted scores.
 
-Classifier scoring is database-only. It reads existing SONARA features plus stored MERT and MAEST embeddings, then writes scores for the selected classifier key. It does not decode or retag source audio.
+Classifier scoring is database-only. It reads exactly the SONARA and MAEST/MERT/CLAP inputs named by each promoted manifest, then writes scores for the selected classifier key. It does not decode or retag source audio. Tracks without the complete manifest input set are reported as not ready and are not runtime failures.
 
 SONARA-dependent classifier artifacts must be retrained and promoted with the current analysis signature. Manifest version `2` and each track must match exactly before scoring. Missing opt-in values are skipped rather than imputed as `0.0`. A SONARA reset or feature-revision migration invalidates dependent main-library scores. The same feature-revision guard removes dependent Rhythm Lab predictions. Labels and feedback are preserved, and stale artifacts remain blocked until retrained and promoted.
 
@@ -239,6 +239,7 @@ python tools/rhythm-lab/rhythm_lab_cli.py serve --source ./data/library.sqlite -
 python tools/rhythm-lab/rhythm_lab_cli.py train --profile live_instrumentation --source ./data/library.sqlite --labels tools/rhythm-lab/data/rhythm_lab.sqlite
 python tools/rhythm-lab/rhythm_lab_cli.py promote --profile live_instrumentation --labels tools/rhythm-lab/data/rhythm_lab.sqlite
 dj-sim analyze-classifier live_instrumentation --db ./data/library.sqlite
+dj-sim analyze-classifiers --db ./data/library.sqlite
 ```
 
 See [Rhythm Lab](docs/dj-track-similarity/tools-and-scripts/rhythm-lab.md), [Train a personal classifier](docs/dj-track-similarity/workflows/train-personal-classifier.md), and [CLASS tab](docs/dj-track-similarity/user-guide/class-tab.md).
@@ -307,17 +308,25 @@ Run a small first pass:
 dj-sim analyze --models sonara --limit 25 --db ./data/library.sqlite
 dj-sim analyze --models sonara --sonara-outputs core,timeline,representations --limit 25 --db ./data/library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --limit 25 --db ./data/library.sqlite
+dj-sim analyze-classifiers --db ./data/library.sqlite
+dj-sim analyze-pipeline --stages sonara,ml,classifiers --db ./data/library.sqlite
 ```
 
 Useful options from the current CLI and API are:
 
 - `--models sonara` for the standalone CPU/Rust job, or `--models maest,mert,muq,clap` for ML analysis
+- `--sonara-batch-size 1..128`; default `64`, independent from ML batching
 - `--device auto|cpu|cuda`
 - `--top-k 1..10` for MAEST labels
 - `--track-batch-size 1..64`
 - `--inference-batch-size 1..128`
 - `--diagnostics` to write decoder and batch timing details to the file log
 - `--sonara-outputs core,timeline,representations`; omission writes Core only
+
+The UI and API expose the same three independent stages. Manual launches and pipeline stages share
+one in-memory queue, so only one SONARA, ML, or CLASSIFIERS stage runs at a time. The pipeline fixes
+the order to SONARA, then ML, then CLASSIFIERS. Per-file failures are retained in job status and do
+not stop the next stage. A fatal initialization error or cancellation does.
 
 MuQ uses the optional `ml` dependencies and official `OpenMuQ/MuQ-large-msd-iter` weights. The app feeds MuQ only 24 kHz `float32` audio and supports CPU or CUDA. CUDA is recommended for full-library runs. In this release, MuQ stores embeddings and analysis status. LAB Reference Compare can use those embeddings for per-model listening checks.
 

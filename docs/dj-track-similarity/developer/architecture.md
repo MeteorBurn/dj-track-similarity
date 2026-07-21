@@ -11,8 +11,13 @@ flowchart LR
     CLI[Typer CLI] --> DB[LibraryDatabase]
     API[FastAPI backend] --> DB
     UI[React frontend] --> API
-    Audio[Audio files] --> Scan[Scanner and analysis jobs]
-    Scan --> DB
+    Audio[Audio files] --> Sonara[SONARA / Symphonia]
+    Audio --> FFmpeg[FFmpeg shared ML decode]
+    Sonara --> Queue[Sequential analysis queue]
+    FFmpeg --> Queue
+    Queue --> DB
+    DB --> Classifiers[Manifest-ready classifier stage]
+    Classifiers --> Queue
     DB --> Search[Search and SET builders]
     Lab[Rhythm Lab] --> DB
 ```
@@ -21,11 +26,13 @@ flowchart LR
 
 - `database.py`, `db_schema.py`, `db_storage.py`, and `db_analysis*.py` cover the Core and attached sidecar schemas. These modules also handle analysis persistence, signature queries, caches, resets, and clear.
 - `scanner.py`: supported audio discovery and Mutagen metadata reads.
-- `analysis_jobs.py` and `sonara_features.py`: cancellable multi-model jobs and SONARA capture/storage.
+- `analysis_queue.py`: one sequential worker shared by manual and pipeline analysis stages.
+- `analysis_jobs.py` and `sonara_features.py`: separate ML jobs and native batched SONARA capture/storage.
+- `analysis_pipeline.py`: fixed SONARA, ML, CLASSIFIERS parent/child orchestration.
 - `sonara_contract.py`: version, schema, profile, signature, and current-analysis compatibility.
 - `tempo_resolution.py` and `track_resolution.py`: confidence-aware BPM and Camelot/key resolution.
 - `search.py`, `sonara_similarity*.py`, `set_builder.py`, and `transition_diagnostics.py`: search, SET ordering, and transition-risk logic.
-- `classifier_manifest.py` and `classifier_scoring.py`: promoted artifact validation and database-only scoring.
+- `classifier_manifest.py`, `classifier_scoring.py`, and `classifier_jobs.py`: promoted artifact validation, manifest-specific readiness, aggregate progress, and database-only scoring.
 - `api_routes_*.py`: FastAPI route groups.
 - `frontend/src/`: API mirror and UI panels.
 

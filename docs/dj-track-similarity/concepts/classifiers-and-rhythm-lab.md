@@ -45,7 +45,14 @@ The main app discovers promoted profiles from those manifests. Manifest version 
 
 ## Scoring
 
-Promoted classifier scoring is database-only. It reads existing SONARA, MERT, and MAEST inputs and writes `track_classifier_scores` for one `classifier_key` at a time.
+Promoted classifier scoring is database-only. Each manifest identifies the exact current SONARA and
+MERT/MAEST/CLAP inputs it needs. The aggregate job writes `track_classifier_scores` for every
+selected compatible classifier-track pair without reading audio.
+
+Readiness is computed before the job total. Missing manifest inputs make a track not ready, not
+failed. Existing scores are candidates again when their stored `model_id` differs from the current
+promoted manifest. Incompatible promoted artifacts remain visible with a retrain/promote blocker and
+are never executed.
 
 Adding or promoting one classifier does not delete scores for other classifier keys. After retraining the same classifier key, reset that classifier's old scores before rescoring. Reanalyzing a track with SONARA invalidates that track's SONARA-dependent scores. A full SONARA reset invalidates all such scores but preserves labels and feedback.
 

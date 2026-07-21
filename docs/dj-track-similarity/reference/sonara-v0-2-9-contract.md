@@ -10,17 +10,18 @@
 | --- | --- |
 | SONARA package | `0.2.9` |
 | Upstream result schema | `4` |
-| Project feature revision | `3` |
+| Project feature revision | `4` |
 | Mode | `playlist` |
-| Sample rate | `22050 Hz` mono `float32`, arithmetic mean of all source channels |
+| Decoder backend | `sonara-symphonia` |
+| Execution path | `analyze_batch` |
+| Requested sample rate | `22050 Hz` |
 | BPM range | `70..180` |
 | Core vocalness model | bundled `sonara-vocalness-v2` |
 
-The project FFmpeg decoder uses a normalized `pan` mix so each source channel contributes exactly
-`1 / channel_count`; unlike FFmpeg's default equal-power stereo downmix, correlated material is not
-raised by about 3 dB. It produces one decoded buffer per track. A SONARA-only job passes that
-buffer directly to `sonara.analyze_signal`; Python orchestrates the job and persistence but does not
-decode the file a second time.
+The SONARA job passes ordered path chunks directly to `sonara.analyze_batch()`. SONARA's Symphonia
+path owns file decoding. The production job does not call the project's FFmpeg loader,
+`DecodedAudio`, `analyze_signal`, or `analyze_file`, and it has no fallback to those paths. ML,
+preview, and other non-SONARA functions retain their existing FFmpeg dependency.
 
 ## Independent outputs
 
@@ -46,7 +47,9 @@ Every output signature hashes these fields:
   "sample_rate": 22050,
   "bpm_range": [70, 180],
   "requested_features": ["output-specific", "sorted", "feature", "names"],
-  "project_feature_revision": 3,
+  "project_feature_revision": 4,
+  "decoder_backend": "sonara-symphonia",
+  "execution_path": "analyze_batch",
   "signature_id": "sha256:..."
 }
 ```
@@ -70,8 +73,11 @@ scores that do not depend on SONARA. It clears old SONARA features and curves an
 SONARA-dependent classifier scores. Schema v4 and older databases are rejected. Reanalyze SONARA
 tracks with the current contract.
 
-Project feature revision `3` also invalidates revision `2` rows produced with FFmpeg's equal-power
-mono matrix. Reanalysis replaces those rows without resetting the database or touching source audio.
+Project feature revision `4` invalidates every earlier project decode contract. Before the first
+native job, any old Core, Timeline, or Representations signature is a blocker. The application never
+adapts, mixes, or automatically deletes old results. Back up the catalog before the explicit SONARA
+reset, then reanalyze. Reset also removes SONARA-dependent classifier scores while preserving
+labels, feedback, and ML-only results.
 
 ## Scoring boundary
 

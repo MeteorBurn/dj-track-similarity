@@ -27,6 +27,9 @@
 - Rhythm Lab opens the main SQLite DB mostly read-only; labels, predictions, checkpoints, and artifacts stay under `tools/rhythm-lab/`. The explicit liked-track toggle is the narrow source-DB write path.
 - Promoted classifier scoring is database-only, scoped by `classifier_key`, and writes only that classifier's `track_classifier_scores`. Do not recompute or delete other classifier scores.
 - Keep CLAP text-search scores separate from audio-to-audio CLAP signals used by SET/Hybrid/Audio Dedup. MuQ is stored for future workflows and is not a current search/SET/classifier input unless a future task explicitly changes that contract.
+- Any SONARA update requires a complete SONARA reanalysis. This includes a package/version/build update and any change to the decoder, execution path, analysis mode, sample rate, BPM range, requested features, bundled model, schema, provenance, signature, or project feature revision. Never preserve compatibility by comparing, adapting, translating, or mixing results from the old and new SONARA contracts.
+- Before writing results under a new SONARA contract, back up the real database and clear/invalidate all prior SONARA Core, Timeline, Representations, and SONARA-derived classifier data so SET, Hybrid, search, diagnostics, LAB, and classifiers cannot consume a mixed population. Then run a full-library SONARA reanalysis from a clean SONARA state; do not treat a pilot or partial refresh as migration completion.
+- After the full SONARA reanalysis, retrain, re-promote, and re-score every classifier whose feature set uses SONARA. MERT-, MAEST-, MuQ-, or CLAP-only analysis and models remain independent unless their own contract changed.
 
 ## Development Workflow
 

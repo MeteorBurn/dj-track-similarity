@@ -6,12 +6,12 @@
 
 | Family | Reads | Writes | Unlocks |
 | --- | --- | --- | --- |
-| SONARA | decoded audio | SONARA metadata, working BPM/key/energy/duration, `has_sonara_analysis` | SONARA search, SET, Hybrid, classifier input |
-| MAEST | decoded audio | genre labels, syncopated rhythm data, MAEST embedding, `has_maest_embedding` | genre display, genre tag apply, SET, Hybrid, Audio Dedup signal |
-| MERT | decoded audio | MERT embedding, `has_mert_embedding` | MERT seed search, SET, Hybrid, Audio Dedup signal, classifier input |
-| MuQ | decoded audio, resampled to 24 kHz `float32` | MuQ embedding, `has_muq_embedding` | LAB Reference Compare evidence |
-| CLAP | decoded audio | CLAP audio embedding, `has_clap_embedding` | CLAP text search, SET, Hybrid, Audio Dedup signal |
-| CLASSIFIERS | existing SONARA, MERT, MAEST data | `track_classifier_scores` | CLASS filters, SET preferences, Hybrid diagnostics |
+| SONARA | file paths decoded natively by SONARA/Symphonia | SONARA metadata, working BPM/key/energy/duration, `has_sonara_analysis` | SONARA search, SET, Hybrid, classifier input |
+| MAEST | shared FFmpeg-decoded audio | genre labels, syncopated rhythm data, MAEST embedding, `has_maest_embedding` | genre display, genre tag apply, SET, Hybrid, Audio Dedup signal |
+| MERT | shared FFmpeg-decoded audio | MERT embedding, `has_mert_embedding` | MERT seed search, SET, Hybrid, Audio Dedup signal, classifier input |
+| MuQ | shared FFmpeg decode, resampled to 24 kHz `float32` | MuQ embedding, `has_muq_embedding` | LAB Reference Compare evidence |
+| CLAP | shared FFmpeg-decoded audio | CLAP audio embedding, `has_clap_embedding` | CLAP text search, SET, Hybrid, Audio Dedup signal |
+| CLASSIFIERS | exact stored inputs from each promoted manifest | `track_classifier_scores` | CLASS filters, SET preferences, Hybrid diagnostics |
 
 ## Device behavior
 
@@ -23,7 +23,7 @@ SONARA uses its CPU runner. MAEST, MERT, MuQ, and CLAP use model adapters with t
 
 ## SONARA BPM range
 
-SONARA analysis calls pass `bpm_min=70.0` and `bpm_max=180.0`. SONARA folds estimated tempos by octaves into that range before the project stores the working BPM field. SONARA is scheduled only as a standalone CPU job. FFmpeg decodes each file to mono float32 at `22050 Hz` before the buffer enters the native Rust analyzer.
+SONARA analysis calls pass `bpm_min=70.0` and `bpm_max=180.0`. SONARA folds estimated tempos by octaves into that range before the project stores the working BPM field. SONARA is scheduled only as a standalone CPU job. The job passes paths to `sonara.analyze_batch()` with `sr=22050`. SONARA/Symphonia owns decoding and no FFmpeg or signal-analysis fallback is used.
 
 Tempo-aware search, transition diagnostics, and SET ordering resolve current signed SONARA evidence
 first. Below `0.45` confidence, they retain ranked SONARA candidates and check the Mutagen BPM tag.
@@ -36,7 +36,10 @@ as same, relative, adjacent, or clash. `key_confidence` is not a similarity dime
 analyzed key only pulls the harmonic result toward neutral. Legacy transition-risk v1 keeps its
 original key behavior so recorded evaluations remain reproducible.
 
-Only SONARA rows with the requested current analysis signature are skipped by normal analysis jobs. A legacy row, another feature profile, or a row from another SONARA/schema/project revision is treated as missing and is analyzed again.
+Only SONARA rows with the requested current analysis signature are skipped by normal analysis jobs.
+Before any native job, the presence of an older decoder/execution contract blocks analysis and
+requires an explicit backup and SONARA reset. Once the database contains only the native contract,
+missing current outputs can resume normally.
 
 ## SONARA output blocks
 
@@ -53,7 +56,7 @@ and Representations can be added during the first analysis or computed later wit
 
 The track metadata also stores `sonara_provenance` separately from feature values. It preserves the provenance fields returned by SONARA, such as schema version, sample rate, hop length, mode, and requested features, and adds the installed SONARA package version when the package exposes it. The metadata dialog displays this information for result audits and reanalysis decisions. Reset SONARA removes the provenance with the feature data.
 
-Each output has a separate compatibility signature. Its deterministic digest covers SONARA `0.2.9`, upstream schema `4`, playlist mode, sample rate `22050`, BPM range `70..180`, the output's sorted feature profile, and project feature revision `3`. Core keeps its full signature in track metadata. Side rows keep their own signature and digest.
+Each output has a separate compatibility signature. Its deterministic digest covers SONARA `0.2.9`, upstream schema `4`, playlist mode, sample rate `22050`, BPM range `70..180`, the output's sorted feature profile, project feature revision `4`, `decoder_backend="sonara-symphonia"`, and `execution_path="analyze_batch"`. Core keeps its full signature in track metadata. Side rows keep their own signature and digest.
 
 The project model label `sonara-playlist-lab` is informational and is not a freshness check. The
 signature contains expanded, sorted upstream feature names rather than only the three project output
@@ -62,8 +65,9 @@ names. Hop length remains in provenance, not in the signature. See the
 
 The browser presents three checkboxes. The API uses `sonara_outputs`, and the CLI uses
 `--sonara-outputs core,timeline,representations`. A combined request sends the union of required
-upstream features to one Rust call after one FFmpeg decode, then splits the result by store. Core
-explicitly selects the bundled SONARA vocalness v2 model.
+upstream features to one native path batch, then splits the result by store. Core explicitly selects
+the bundled SONARA vocalness v2 model. `sonara_batch_size` is independent from ML batching, accepts
+`1..128`, and defaults to `64`.
 
 The adapter does not request upstream file-tag passthrough or a SONARA genre model. Mutagen remains
 the project's file-tag source, so SONARA `tags.original_year` is not stored in this analysis family.
@@ -107,8 +111,10 @@ upserts that side output. Unselected current outputs remain intact.
 
 ## Classifier requirement
 
-Classifier jobs need current SONARA Core, MAEST, and MERT data. SONARA cannot share an analysis job
-with GPU models or classifiers, so run missing Core separately before scoring classifiers.
+Classifier jobs use the exact inputs named by each promoted manifest: current SONARA Core when
+required, plus only the MERT, MAEST, and/or CLAP embeddings named by its features or
+`required_inputs`. SONARA cannot share an audio job with GPU models, and classifier scoring is a
+third database-only job, so run missing stages before scoring.
 
 SONARA-dependent classifier artifacts also carry the exact training-analysis signature in manifest version `2`. Promotion and runtime scoring reject missing, stale, or mismatched signatures. A track must match the artifact signature and contain every requested SONARA classifier value; an absent opt-in such as `vocalness` is skipped instead of becoming `0.0`.
 

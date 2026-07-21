@@ -62,14 +62,27 @@ Each field is a serialized payload rather than a raw top-level array. The respon
 | `POST` | `/api/analysis/jobs/{job_id}/cancel` | request cancellation |
 | `POST` | `/api/analysis/reset` | reset one family |
 | `GET` | `/api/classifiers` | promoted classifier profiles |
+| `POST` | `/api/classifiers/analyze` | score selected classifiers; empty list means all compatible |
 | `POST` | `/api/classifiers/{classifier_key}/analyze` | score one classifier |
 | `POST` | `/api/classifiers/reset` | delete selected classifier scores |
+| `POST` | `/api/analysis/pipelines` | queue selected stages in fixed order |
+| `GET` | `/api/analysis/pipelines/latest` | latest parent pipeline status |
+| `GET` | `/api/analysis/pipelines/{job_id}` | parent and child-stage status |
+| `POST` | `/api/analysis/pipelines/{job_id}/cancel` | cancel current and pending stages |
 
-Analysis payload fields include `models`, `classifier_keys`, `limit`, `device`, `top_k`,
-`track_batch_size`, `inference_batch_size`, and `sonara_outputs`. Allowed SONARA outputs are `core`,
+Audio analysis payload fields include `models`, `limit`, `device`, `top_k`, `track_batch_size`,
+`inference_batch_size`, `sonara_outputs`, and `sonara_batch_size`. `classifier_keys` is not accepted.
+Allowed SONARA outputs are `core`,
 `timeline`, and `representations`; omission defaults to `["core"]`. At least one is required for a
 SONARA job. SONARA runs alone, and its scheduler compares the independent signature for every
-selected output.
+selected output. It passes paths to native `analyze_batch`; ML models continue to use shared FFmpeg
+decode. Old SONARA contracts return `409` until an explicit backup/reset is performed.
+
+The aggregate classifier payload is `{ "classifier_keys": [], "limit": null }`. Readiness is
+manifest-specific, totals count ready classifier-track pairs, and not-ready tracks are excluded
+rather than failed. A pipeline payload selects `sonara`, `ml`, and/or `classifiers` plus one shared
+limit and nested stage settings. Execution order is always SONARA, ML, CLASSIFIERS. All manual and
+pipeline stages share one sequential application queue.
 
 `GET /api/library/summary` reports current Core coverage. Timeline and Representations presence is
 reported per track through the manifest fields; analysis scheduling is the authoritative exact-output

@@ -54,15 +54,15 @@ Useful options:
 
 ```powershell
 dj-sim analyze --models sonara --db .\data\library.sqlite
-dj-sim analyze --models maest,mert,muq,clap --device auto --top-k 3 --track-batch-size 4 --inference-batch-size 24 --db .\data\library.sqlite
+dj-sim analyze --models maest,mert,muq,clap --device auto --top-k 3 --track-batch-size 8 --inference-batch-size 16 --db .\data\library.sqlite
 ```
 
 - `--models` accepts `sonara`, `maest`, `mert`, `muq`, and `clap` as a comma-separated list.
 - `--device` accepts `auto`, `cpu`, or `cuda`.
 - `--top-k` stores `1..10` MAEST genre labels per track.
-- `--track-batch-size` is `1..64` decoded tracks per job batch.
-- `--inference-batch-size` is `1..128` model samples per forward pass for MAEST, MERT, MuQ, and CLAP.
-- `--sonara-batch-size` is `1..128` paths per native SONARA batch. The default is `64`.
+- `--track-batch-size` is `1..64` decoded tracks per job batch. The default is `8`.
+- `--inference-batch-size` is `1..128` model samples per forward pass for MAEST, MERT, MuQ, and CLAP. The default is `16`.
+- `--sonara-batch-size` is `1..16` paths per native SONARA batch. The default is `8`.
 - `--diagnostics` writes decoder fallback and batch timing details to the file log.
 
 MuQ requires the optional `ml` dependencies and downloads the official `OpenMuQ/MuQ-large-msd-iter` weights. The app gives MuQ only 24 kHz `float32` audio. CPU and CUDA are supported, with CUDA recommended for full libraries. MuQ stores embeddings for LAB Reference Compare, but it does not feed SET or Hybrid.
@@ -71,19 +71,23 @@ In the CLI, omit `--limit` for the whole library.
 
 ## UI analysis
 
-In **1. Database and analysis**, use the three stage blocks:
+In **1. Database and analysis**, use the compact model list:
 
-1. Configure and run **SONARA**, **ML MODELS**, or **CLASSIFIERS** independently.
+1. Keep the default **SONARA** + **Core** or select one or more models from the ML group. For standalone classifier scoring, select **CLASSIFIERS**. Use **FULL** only to include every stage. A normal selection change keeps one analysis family active.
 2. Choose `AUTO`, `CPU`, or `CUDA` for ML.
 3. Set **Analyze limit**. `0` means the whole library.
-4. Use **Run selected pipeline** to queue selected stages in fixed SONARA, ML, CLASSIFIERS order.
+4. Use the single **Analyze** button to queue exactly the checked models in fixed SONARA, ML, CLASSIFIERS order.
 
-The UI creates a job and polls progress. It also shows the current model/path and keeps a process log. The stop button requests cancellation.
+The UI creates a job and polls progress. It also shows the current model/path and keeps a process
+log. Each stage logs only its own selected settings. The stop button requests cancellation.
 
 Core is checked by default. Timeline and Representations are optional. SONARA receives paths in
 native batches and decodes them through its Symphonia path inside `sonara.analyze_batch()`. It does
 not call the project's FFmpeg loader and has no `analyze_signal` or per-file decode fallback. ML
 models continue to share the project's FFmpeg decode.
+
+The SONARA batch value controls concurrent full-file native reads, not ML inference. Keep the
+default for a library on one HDD unless a measured pilot supports a larger value.
 
 ## Already analyzed tracks
 

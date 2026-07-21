@@ -56,8 +56,9 @@ Scoring is blocked when the promoted artifact, manifest, and track do not share 
 
 ## CLASSIFIERS analysis stage
 
-The left panel has an independent **CLASSIFIERS** block. Its manual action scores the selected
-compatible profiles. The pipeline action runs it after selected SONARA and ML stages. The UI shows
+The left panel includes a standalone **CLASSIFIERS** checkbox. Selecting it clears SONARA and ML
+selections; **FULL** is the explicit way to combine all stages in one ordered pipeline. The single
+**Analyze** action scores compatible profiles. The UI shows
 manifest-specific ready/not-ready counts and blockers. Missing inputs exclude a track before the job
 total is formed and do not create a partial score. Empty aggregate selection means all compatible
 promoted classifiers.

@@ -51,7 +51,7 @@ UI:
 
 1. Choose the Core SQLite database. The app opens its matching Timeline and Representations files automatically.
 2. Enter or pick the music root.
-3. Set **Scan workers**.
+3. Set **Scan workers**. The current measured default is `8`.
 4. Click **Load tracks into database**.
 
 Scan supports these extensions:

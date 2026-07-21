@@ -38,9 +38,11 @@ The UI lists these choices:
   SET and Hybrid.
 - **CLASSIFIERS** apply promoted personal profiles after the inputs declared by each profile exist.
 
-The UI separates analysis into stage blocks with individual manual run buttons. The SONARA, ML
-MODELS, and CLASSIFIERS blocks can also be submitted as one selected pipeline. All stages use one
-sequential in-memory queue.
+The compact analysis block has one **Analyze** button. SONARA with Core is selected when the page
+opens. SONARA, the ML-model group, and CLASSIFIERS are separate analysis families: selecting one
+clears selections from the other families, while multiple ML models can remain selected together.
+Use **FULL** to explicitly select every stage at once. Analyze submits exactly the checked models,
+and the checkboxes remain unchanged after the job starts. All stages use one sequential in-memory queue.
 
 ## Technical details: SONARA results
 
@@ -94,11 +96,14 @@ SONARA runs as a CPU runner. MAEST, MERT, MuQ, and CLAP use the selected device 
 
 ## Batch controls
 
-- **SONARA native batch**: `1..128` paths; default `64`. Cancellation takes effect between returned batches.
-- **Track batch size**: `1..64`, decoded tracks held and processed together.
-- **Inference batch size**: `1..128`, MAEST/MERT/MuQ/CLAP model samples per forward pass.
+- **SONARA native batch**: `1..16` paths; default `8`. Cancellation takes effect between returned batches.
+- **Track batch size**: `1..64`, decoded tracks held and processed together. The measured default is `8`.
+- **Inference batch size**: `1..128`, MAEST/MERT/MuQ/CLAP model samples per forward pass. The measured RTX 3090 default is `16`.
 
-Lower these if memory is tight. Increase only after a small test batch works.
+The SONARA value controls concurrent full-file native reads, not model inference. Keep the default
+for a library on one HDD. Increase it only after a measured pilot shows that the storage device can
+sustain the extra parallel reads. SONARA-only jobs process candidates in path order so adjacent
+batches retain filesystem locality instead of jumping between artist-sorted folders.
 
 ## Progress and logs
 
@@ -110,12 +115,24 @@ The UI polls the current job and shows:
 - per-model progress,
 - event log and errors.
 
+The queued message also reflects only the active stage. SONARA lists its selected outputs and
+SONARA batch. ML lists its selected models, Device, Track batch, and Inference batch. CLASSIFIERS
+lists its selected profile count and does not show ML settings.
+
+Initial database and track loading runs independently from classifier readiness counts, so a
+classifier artifact check cannot hold the main library table behind it.
+
+Each completed SONARA batch adds separate `analyze`, `prepare`, and `store` durations to the event
+log, along with native-read MiB/s. Selected Core, Timeline, and Representations results are committed
+through one SQLite transaction per batch. A per-track savepoint prevents a failed sidecar write from
+leaving that track partially updated while allowing other tracks in the batch to commit.
+
 The square stop button requests cancellation. It does not kill Python mid-write. A SONARA chunk is
 persisted only after the native batch returns, and cancellation is checked before the next chunk.
 
 ## Pipeline and classifier readiness
 
-The selected pipeline always runs SONARA, then ML, then CLASSIFIERS, regardless of selection order.
+The Analyze pipeline always runs SONARA, then ML, then CLASSIFIERS, regardless of selection order.
 Per-file errors remain visible but do not stop later stages; fatal initialization errors and
 cancellation stop the parent and cancel stages that have not started.
 

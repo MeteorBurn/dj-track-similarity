@@ -56,7 +56,9 @@ and Representations can be added during the first analysis or computed later wit
 
 The track metadata also stores `sonara_provenance` separately from feature values. It preserves the provenance fields returned by SONARA, such as schema version, sample rate, hop length, mode, and requested features, and adds the installed SONARA package version when the package exposes it. The metadata dialog displays this information for result audits and reanalysis decisions. Reset SONARA removes the provenance with the feature data.
 
-Each output has a separate compatibility signature. Its deterministic digest covers SONARA `0.2.9`, upstream schema `4`, playlist mode, sample rate `22050`, BPM range `70..180`, the output's sorted feature profile, project feature revision `4`, `decoder_backend="sonara-symphonia"`, and `execution_path="analyze_batch"`. Core keeps its full signature in track metadata. Side rows keep their own signature and digest.
+Each output has a separate compatibility signature. Its deterministic digest covers SONARA `0.2.9`, upstream schema `4`, playlist mode, sample rate `22050`, BPM range `70..180`, the output's sorted feature profile, project feature revision `5`, `decoder_backend="sonara-symphonia"`, and `execution_path="analyze_batch"`. Core keeps its full signature in track metadata. Side rows keep their own signature and digest.
+
+Core deliberately does not request SONARA's Full-only `time_signature` metrogram. It was not used by search, SET, Hybrid, or classifier inputs, while real-library results had no usable confidence and the calculation more than doubled Core compute time. Beatgrid uses SONARA's normal 4/4 fallback instead of consuming an untrusted meter estimate.
 
 The project model label `sonara-playlist-lab` is informational and is not a freshness check. The
 signature contains expanded, sorted upstream feature names rather than only the three project output
@@ -67,7 +69,8 @@ The browser presents three checkboxes. The API uses `sonara_outputs`, and the CL
 `--sonara-outputs core,timeline,representations`. A combined request sends the union of required
 upstream features to one native path batch, then splits the result by store. Core explicitly selects
 the bundled SONARA vocalness v2 model. `sonara_batch_size` is independent from ML batching, accepts
-`1..128`, and defaults to `64`.
+`1..16`, and defaults to `8`. It bounds concurrent full-file reads as well as native analysis, which
+avoids excessive seek contention on a library stored on one HDD.
 
 The adapter does not request upstream file-tag passthrough or a SONARA genre model. Mutagen remains
 the project's file-tag source, so SONARA `tags.original_year` is not stored in this analysis family.
@@ -99,8 +102,8 @@ The SONARA `embedding`, `fingerprint`, and tempo curve are data-only today. MERT
 | Setting | Range | Default |
 | --- | ---: | ---: |
 | `top_k` | `1..10` | `3` |
-| `track_batch_size` | `1..64` | `4` |
-| `inference_batch_size` | `1..128` | `24` |
+| `track_batch_size` | `1..64` | `8` |
+| `inference_batch_size` | `1..128` | `16` |
 
 ## Missing-result behavior
 

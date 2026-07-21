@@ -10,21 +10,26 @@
 | --- | --- | --- |
 | Database path | `.sqlite` path | existing or new local database |
 | Music root | existing folder | scan source |
-| Scan workers | `1..64` API, UI usually caps near CPU half up to 8 | metadata scan and Refresh Tags |
+| Scan workers | `1..64` API, UI caps near CPU half up to 8 | default `8` for the measured library drive; metadata scan and Refresh Tags |
 
 ## Analysis
 
 | Control | Range or values | Notes |
 | --- | --- | --- |
-| Stage blocks | SONARA, ML MODELS, CLASSIFIERS | independent manual runs or selected pipeline |
+| Model checkboxes | SONARA, MAEST, MERT, MuQ, CLAP, CLASSIFIERS | SONARA + Core is the default; SONARA, the ML group, and the standalone CLASSIFIERS stage are mutually exclusive unless FULL is used |
+| FULL | on/off | selects every model and the complete SONARA-to-ML-to-CLASSIFIERS pipeline |
 | Analyze limit | `0..100000` in UI | `0` means whole library |
 | Device | AUTO, CPU, CUDA | for MAEST/MERT/MuQ/CLAP adapters |
 | SONARA outputs | Core, Timeline, Representations | Core is default; other outputs are opt-in |
-| SONARA native batch | `1..128` | path batch for `analyze_batch`; default `64` |
-| Track batch size | `1..64` | decoded tracks held per job batch |
-| Inference batch size | `1..128` | model samples per forward pass |
-| Run selected pipeline | selected stages | fixed SONARA, ML, CLASSIFIERS order |
+| SONARA native batch | `1..16` | concurrent full-file paths for `analyze_batch`; default `8` |
+| Track batch size | `1..64` | decoded tracks held per job batch; measured default `8` |
+| Inference batch size | `1..128` | model samples per forward pass; measured RTX 3090 default `16` |
+| Analyze | selected models | the only run button; fixed SONARA, ML, CLASSIFIERS stage order |
 | Reset | one family | SQLite-only reset |
+
+The process log keeps settings scoped to the active stage. SONARA shows its selected outputs and
+native batch. ML shows its selected models, Device, Track batch, and Inference batch. CLASSIFIERS
+shows its profile count without ML device or batching values.
 
 ## Search
 

@@ -166,7 +166,7 @@ SONARA mood and instrumentalness values are retained for inspection and possible
 
 Each SONARA result also retains analysis provenance, including the upstream schema and the installed package version when available. This makes later reanalysis and result audits easier to plan.
 
-A deterministic signature is stored independently for each selected SONARA output. It covers SONARA `0.2.9`, schema `4`, playlist mode, sample rate, BPM range, output feature profile, project feature revision `4`, `decoder_backend="sonara-symphonia"`, and `execution_path="analyze_batch"`. A database containing an older SONARA contract is blocked before analysis until it is backed up and explicitly reset. Old and new results are never mixed.
+A deterministic signature is stored independently for each selected SONARA output. It covers SONARA `0.2.9`, schema `4`, playlist mode, sample rate, BPM range, output feature profile, project feature revision `5`, `decoder_backend="sonara-symphonia"`, and `execution_path="analyze_batch"`. A database containing an older SONARA contract is blocked before analysis until it is backed up and explicitly reset. Old and new results are never mixed.
 
 A file genre tag, a MAEST genre label, a CLAP text score, and an audio-to-audio duplicate score answer different questions. They can all help, but they should not be treated as one universal truth scale.
 
@@ -315,18 +315,27 @@ dj-sim analyze-pipeline --stages sonara,ml,classifiers --db ./data/library.sqlit
 Useful options from the current CLI and API are:
 
 - `--models sonara` for the standalone CPU/Rust job, or `--models maest,mert,muq,clap` for ML analysis
-- `--sonara-batch-size 1..128`; default `64`, independent from ML batching
+- `--sonara-batch-size 1..16`; default `8`, independent from ML batching
 - `--device auto|cpu|cuda`
 - `--top-k 1..10` for MAEST labels
-- `--track-batch-size 1..64`
-- `--inference-batch-size 1..128`
+- `--track-batch-size 1..64`; default `8`
+- `--inference-batch-size 1..128`; default `16`
 - `--diagnostics` to write decoder and batch timing details to the file log
 - `--sonara-outputs core,timeline,representations`; omission writes Core only
 
-The UI and API expose the same three independent stages. Manual launches and pipeline stages share
-one in-memory queue, so only one SONARA, ML, or CLASSIFIERS stage runs at a time. The pipeline fixes
+The UI exposes one checkbox-driven **Analyze** action. The API also exposes the individual stages.
+UI and API pipeline stages share one in-memory queue, so only one SONARA, ML, or CLASSIFIERS stage runs at a time. The pipeline fixes
 the order to SONARA, then ML, then CLASSIFIERS. Per-file failures are retained in job status and do
 not stop the next stage. A fatal initialization error or cancellation does.
+
+The SONARA control limits concurrent native file analysis, including full-file reads, rather than
+neural-network inference. Each returned batch writes its selected Core, Timeline, and
+Representations results through one SQLite transaction with a per-track savepoint. The process log
+reports separate native analysis, result preparation, and database storage times plus source MiB/s.
+SONARA-only jobs traverse candidates in path order to keep adjacent HDD reads in the same folders.
+Queued-stage messages contain only settings used by that stage. SONARA reports its outputs and
+native batch, ML reports its models, device, Track batch, and Inference batch, and CLASSIFIERS
+reports the selected profile count.
 
 MuQ uses the optional `ml` dependencies and official `OpenMuQ/MuQ-large-msd-iter` weights. The app feeds MuQ only 24 kHz `float32` audio and supports CPU or CUDA. CUDA is recommended for full-library runs. In this release, MuQ stores embeddings and analysis status. LAB Reference Compare can use those embeddings for per-model listening checks.
 

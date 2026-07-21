@@ -11,7 +11,7 @@ from .audio_loader import DecodedAudio
 from .database import LibraryDatabase
 from .embedding import ClapEmbeddingAdapter, MertEmbeddingAdapter, MuqEmbeddingAdapter
 from .genres import MaestGenreAdapter
-from .sonara_features import analyze_and_store_sonara_batch
+from .sonara_features import SonaraBatchMetrics, analyze_and_store_sonara_batch
 
 
 class AnalysisModelRunner(Protocol):
@@ -46,15 +46,21 @@ class SonaraModelRunner:
     def __init__(self, *, outputs: tuple[str, ...] = ("core",)) -> None:
         self.outputs: tuple[str, ...] = tuple(outputs)
         self.progress: Callable[[int, int], None] | None = None
+        self.last_metrics: SonaraBatchMetrics | None = None
 
     def analyze_batch(self, db: LibraryDatabase, items: Sequence[AnalysisBatchItem]) -> Sequence[Exception | None]:
+        self.last_metrics = None
         results = analyze_and_store_sonara_batch(
             db,
             [item.track for item in items],
             outputs=self.outputs,
             progress=self.progress,
+            metrics=self._capture_metrics,
         )
         return [result.error for result in results]
+
+    def _capture_metrics(self, metrics: SonaraBatchMetrics) -> None:
+        self.last_metrics = metrics
 
 
 class MaestModelRunner:

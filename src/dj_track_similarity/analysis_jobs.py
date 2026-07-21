@@ -47,7 +47,7 @@ from .database import LibraryDatabase
 from .job_runtime import JobStore, chunks
 from .logging_config import exception_summary, log_failure, log_job_event
 from .models import Track
-from .sonara_features import sonara_analysis_signatures_for_outputs
+from .sonara_features import SonaraBatchMetrics, sonara_analysis_signatures_for_outputs
 
 
 LOGGER = logging.getLogger(__name__)
@@ -167,7 +167,16 @@ class AnalysisJobManager:
                 track_outcomes=initial_track_outcomes(tracks, targets_by_track),
             ),
         )
-        self._append_event(job_id, "info", "Analysis queued")
+        if selected == ("sonara",):
+            output_names = ", ".join(output.title() for output in outputs)
+            settings_message = f"SONARA queued · outputs {output_names} · batch {effective_sonara_batch}"
+        else:
+            model_names = ", ".join(model.upper() for model in selected)
+            settings_message = (
+                f"ML queued · models {model_names} · Device {device.upper()} · "
+                f"Track batch {effective_track_batch} · Inference batch {effective_inference_batch}"
+            )
+        self._append_event(job_id, "info", settings_message)
         return job_id
 
     def validate_sonara_preflight(self) -> None:
@@ -327,6 +336,18 @@ class AnalysisJobManager:
             return True
 
         if model == "sonara":
+            metrics = getattr(runner, "last_metrics", None)
+            if isinstance(metrics, SonaraBatchMetrics):
+                source_mib = metrics.source_bytes / (1024 * 1024)
+                throughput = source_mib / metrics.analyze_seconds if metrics.analyze_seconds > 0 else 0.0
+                self._append_event(
+                    job_id,
+                    "info",
+                    f"SONARA batch: {metrics.track_count} tracks · "
+                    f"analyze {metrics.analyze_seconds:.2f}s ({throughput:.1f} MiB/s) · "
+                    f"prepare {metrics.prepare_seconds:.2f}s · store {metrics.store_seconds:.2f}s",
+                    model=model,
+                )
             if results is None or len(results) != len(items):
                 self._fail_stage(job_id, "SONARA native batch returned an invalid result count", model=model)
                 return False

@@ -6,7 +6,7 @@ import pytest
 
 from dj_track_similarity.analysis_jobs import AnalysisJobManager
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.sonara_features import sonara_analysis_signatures_for_outputs
+from dj_track_similarity.sonara_features import SonaraBatchMetrics, sonara_analysis_signatures_for_outputs
 
 
 def _track(db: LibraryDatabase, tmp_path: Path, name: str) -> int:
@@ -155,29 +155,31 @@ def test_native_sonara_uses_own_batch_size_and_never_calls_ffmpeg_decoder(tmp_pa
     assert status.state == "completed"
     assert status.sonara_batch_size == 2
     assert status.workers == 2
+    assert status.events[0].message == "SONARA queued · outputs Core · batch 2"
+    assert "Inference batch" not in status.events[0].message
     assert runner.calls == [["a.wav", "b.wav"], ["c.wav", "d.wav"], ["e.wav"]]
     assert decoder.calls == []
 
 
-def test_native_sonara_default_chunks_paths_at_64(tmp_path: Path) -> None:
+def test_native_sonara_default_chunks_paths_at_8(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    for index in range(65):
+    for index in range(9):
         _track(db, tmp_path, f"track-{index:02d}.wav")
     runner = FakeModelRunner("sonara")
 
     status = AnalysisJobManager(db, model_runners={"sonara": runner}).run_sync(models=["sonara"])
 
     assert status.state == "completed"
-    assert [len(batch) for batch in runner.calls] == [64, 1]
+    assert [len(batch) for batch in runner.calls] == [8, 1]
 
 
-def test_native_sonara_rejects_batch_size_above_128(tmp_path: Path) -> None:
+def test_native_sonara_rejects_batch_size_above_16(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     _track(db, tmp_path, "one.wav")
 
-    with pytest.raises(ValueError, match="sonara_batch_size must be between 1 and 128"):
+    with pytest.raises(ValueError, match="sonara_batch_size must be between 1 and 16"):
         AnalysisJobManager(db, model_runners={"sonara": FakeModelRunner("sonara")}).create_job(
-            models=["sonara"], sonara_batch_size=129
+            models=["sonara"], sonara_batch_size=17
         )
 
 
@@ -188,13 +190,39 @@ def test_native_sonara_failure_result_is_per_file_without_retry(tmp_path: Path) 
     runner = FakeModelRunner("sonara", fail_names={"b-bad.wav"})
 
     status = AnalysisJobManager(db, model_runners={"sonara": runner}).run_sync(
-        models=["sonara"], sonara_batch_size=64
+        models=["sonara"], sonara_batch_size=16
     )
 
     assert status.state == "completed"
     assert (status.analyzed, status.failed) == (1, 1)
     assert runner.calls == [["a-good.wav", "b-bad.wav"]]
     assert status.errors[0].model == "sonara"
+
+
+def test_native_sonara_emits_analysis_prepare_and_store_timings(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    _track(db, tmp_path, "one.wav")
+
+    class TimedRunner(FakeModelRunner):
+        last_metrics = None
+
+        def analyze_batch(self, db, items):
+            results = super().analyze_batch(db, items)
+            self.last_metrics = SonaraBatchMetrics(
+                track_count=len(items),
+                source_bytes=8 * 1024 * 1024,
+                analyze_seconds=2.5,
+                prepare_seconds=0.1,
+                store_seconds=0.25,
+            )
+            return results
+
+    status = AnalysisJobManager(db, model_runners={"sonara": TimedRunner("sonara")}).run_sync(
+        models=["sonara"]
+    )
+
+    messages = [event.message for event in status.events]
+    assert "SONARA batch: 1 tracks · analyze 2.50s (3.2 MiB/s) · prepare 0.10s · store 0.25s" in messages
 
 
 def test_native_sonara_cancel_is_observed_between_chunks(tmp_path: Path) -> None:
@@ -239,5 +267,7 @@ def test_track_and_inference_batch_settings_are_independent_for_ml(tmp_path: Pat
     )
 
     assert (status.track_batch_size, status.inference_batch_size) == (2, 9)
+    assert status.events[0].message == "ML queued · models MERT · Device CPU · Track batch 2 · Inference batch 9"
+    assert "SONARA batch" not in status.events[0].message
     assert created == [("mert", "cpu", 9, 5)]
     assert runners["mert"].calls == [["a.wav", "b.wav"], ["c.wav"]]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
@@ -21,6 +22,12 @@ from .sonara_contract import (
     build_sonara_analysis_signature,
     expected_sonara_analysis_signature,
 )
+from .sonara_storage import (
+    SonaraAnalysisStorage,
+    SonaraCoreStorage,
+    SonaraRepresentationsStorage,
+    SonaraTimelineStorage,
+)
 
 
 SONARA_MODEL_NAME = "sonara-playlist-lab"
@@ -32,16 +39,19 @@ SONARA_REQUEST_ORDER = (
     "bpm", "beats", "onsets", "rms", "dynamic_range", "centroid", "zcr",
     "onset_density", "bandwidth", "rolloff", "flatness", "contrast", "mfcc",
     "chroma", "chords", "dissonance", "energy", "danceability", "key",
-    "valence", "acousticness", "tempo_curve", "time_signature", "beatgrid",
+    "valence", "acousticness", "tempo_curve", "beatgrid",
     "structure", "embedding", "fingerprint", "loudness", "silence",
     "key_candidates", "vocalness", "mood", "instrumentalness",
 )
 SONARA_OUTPUT_FEATURE_REQUESTS = {
+    # SONARA marks time_signature as Full-only. Its metrogram more than doubled Core compute time
+    # on the real library while every sampled confidence was unusable; Beatgrid's 4/4 fallback is
+    # both faster and more trustworthy for this DJ-library profile.
     "core": (
         "bpm", "beats", "rms", "dynamic_range", "centroid", "zcr",
         "onset_density", "bandwidth", "rolloff", "flatness", "contrast", "mfcc",
         "chroma", "chords", "dissonance", "energy", "danceability", "key",
-        "valence", "acousticness", "tempo_curve", "time_signature", "beatgrid",
+        "valence", "acousticness", "tempo_curve", "beatgrid",
         "structure", "loudness", "silence", "key_candidates", "vocalness", "mood",
         "instrumentalness",
     ),
@@ -56,7 +66,7 @@ SONARA_CORE_KEYS = (
     "key", "key_camelot", "key_confidence", "key_candidates", "predominant_chord",
     "chord_change_rate", "dissonance", "spectral_bandwidth_mean", "spectral_rolloff_mean",
     "spectral_flatness_mean", "spectral_contrast_mean", "mfcc_mean", "chroma_mean",
-    "tempo_variability", "time_signature", "time_signature_confidence", "energy_level",
+    "tempo_variability", "energy_level",
     "intro_end_sec", "outro_start_sec", "energy_curve_hop_sec", "true_peak_db", "replaygain_db",
     "loudness_momentary_max_db", "loudness_range_lu", "grid_offset_sec", "grid_stability",
     "vocalness", "mood_happy", "mood_aggressive", "mood_relaxed", "mood_sad",
@@ -94,6 +104,15 @@ class SonaraBatchTrackResult:
     error: Exception | None = None
 
 
+@dataclass(frozen=True)
+class SonaraBatchMetrics:
+    track_count: int
+    source_bytes: int
+    analyze_seconds: float
+    prepare_seconds: float
+    store_seconds: float
+
+
 def analyze_and_store_sonara_batch(
     db: LibraryDatabase,
     tracks: Sequence[Track],
@@ -101,6 +120,7 @@ def analyze_and_store_sonara_batch(
     sonara_module: Any | None = None,
     outputs: Sequence[str] | None = None,
     progress: Callable[[int, int], None] | None = None,
+    metrics: Callable[[SonaraBatchMetrics], None] | None = None,
 ) -> list[SonaraBatchTrackResult]:
     """Analyze one native SONARA batch and persist successful results in input order."""
 
@@ -108,6 +128,7 @@ def analyze_and_store_sonara_batch(
         return []
     sonara = sonara_module or _import_sonara()
     selected = normalize_sonara_outputs(DEFAULT_SONARA_OUTPUTS if outputs is None else outputs)
+    analyze_started = time.perf_counter()
     raw_results = sonara.analyze_batch(
         [track.path for track in tracks],
         sr=SONARA_SAMPLE_RATE,
@@ -117,10 +138,12 @@ def analyze_and_store_sonara_batch(
         progress=progress,
         **_analysis_kwargs(selected),
     )
+    analyze_seconds = time.perf_counter() - analyze_started
     if len(raw_results) != len(tracks):
         raise RuntimeError("SONARA batch result count does not match track count")
 
-    prepared: list[tuple[Track, dict[str, object]] | Exception] = []
+    prepare_started = time.perf_counter()
+    prepared: list[SonaraAnalysisStorage | Exception] = []
     for track, raw_result in zip(tracks, raw_results):
         analysis = dict(raw_result)
         if bool(getattr(raw_result, "failed", False)) or analysis.get("error") is not None:
@@ -128,20 +151,33 @@ def analyze_and_store_sonara_batch(
             prepared.append(RuntimeError(f"SONARA {kind} failure: {analysis.get('error') or 'unknown error'}"))
             continue
         _analysis_with_package_provenance(analysis, sonara, native_batch=True)
-        prepared.append((track, analysis))
+        try:
+            prepared.append(_prepare_sonara_analysis(track, analysis, outputs=selected))
+        except Exception as error:
+            prepared.append(error)
+    prepare_seconds = time.perf_counter() - prepare_started
+
+    pending_writes = [item for item in prepared if isinstance(item, SonaraAnalysisStorage)]
+    store_started = time.perf_counter()
+    write_errors = iter(db.save_sonara_analysis_batch(pending_writes))
+    store_seconds = time.perf_counter() - store_started
 
     stored: list[SonaraBatchTrackResult] = []
     for track, prepared_result in zip(tracks, prepared):
         if isinstance(prepared_result, Exception):
             stored.append(SonaraBatchTrackResult(track=track, error=prepared_result))
             continue
-        _, analysis = prepared_result
-        try:
-            _store_sonara_analysis(db, track, analysis, outputs=selected)
-        except Exception as error:
-            stored.append(SonaraBatchTrackResult(track=track, error=error))
-        else:
-            stored.append(SonaraBatchTrackResult(track=track))
+        stored.append(SonaraBatchTrackResult(track=track, error=next(write_errors)))
+    if metrics is not None:
+        metrics(
+            SonaraBatchMetrics(
+                track_count=len(tracks),
+                source_bytes=sum(max(0, int(track.size)) for track in tracks),
+                analyze_seconds=analyze_seconds,
+                prepare_seconds=prepare_seconds,
+                store_seconds=store_seconds,
+            )
+        )
     return stored
 
 
@@ -153,13 +189,12 @@ def _analysis_kwargs(outputs: Sequence[str] | None) -> dict[str, object]:
     return kwargs
 
 
-def _store_sonara_analysis(
-    db: LibraryDatabase,
+def _prepare_sonara_analysis(
     track: Track,
     analysis: dict[str, object],
     *,
     outputs: Sequence[str] | None = None,
-) -> None:
+) -> SonaraAnalysisStorage:
     selected = normalize_sonara_outputs(DEFAULT_SONARA_OUTPUTS if outputs is None else outputs)
     provenance = _sonara_provenance(analysis)
     features: dict[str, object] = {}
@@ -189,10 +224,9 @@ def _store_sonara_analysis(
         if not embedding_array.size or not np.isfinite(embedding_array).all():
             raise RuntimeError("SONARA embedding is empty or contains non-finite values")
 
-    if "core" in selected:
-        db.save_sonara_features(
-            track.id,
-            features,
+    core_storage = (
+        SonaraCoreStorage(
+            features=features,
             bpm=_optional_float(analysis.get("bpm")),
             musical_key=_sonara_musical_key(analysis),
             energy=_optional_float(analysis.get("energy")),
@@ -201,16 +235,20 @@ def _store_sonara_analysis(
             provenance=provenance,
             analysis_signature=_sonara_analysis_signature(analysis, "core"),
         )
-    if "timeline" in selected:
-        db.save_sonara_timeline(
-            track.id,
-            timeline,
+        if "core" in selected
+        else None
+    )
+    timeline_storage = (
+        SonaraTimelineStorage(
+            timeline=timeline,
             provenance=provenance,
             analysis_signature=_sonara_analysis_signature(analysis, "timeline"),
         )
-    if "representations" in selected:
-        db.save_sonara_representations(
-            track.id,
+        if "timeline" in selected
+        else None
+    )
+    representations_storage = (
+        SonaraRepresentationsStorage(
             embedding=embedding_array,
             fingerprint=_curve_payload(fingerprint_value),
             embedding_version=_optional_string(analysis.get("embedding_version")),
@@ -219,6 +257,15 @@ def _store_sonara_analysis(
             provenance=provenance,
             analysis_signature=_sonara_analysis_signature(analysis, "representations"),
         )
+        if "representations" in selected
+        else None
+    )
+    return SonaraAnalysisStorage(
+        track_id=track.id,
+        core=core_storage,
+        timeline=timeline_storage,
+        representations=representations_storage,
+    )
 
 
 def _import_sonara():

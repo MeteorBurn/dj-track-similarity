@@ -64,6 +64,7 @@ def test_default_native_analysis_writes_only_core_with_current_signature(tmp_pat
     call = FullFakeSonara.calls[-1]
     assert "vocalness" in call["features"]
     assert "embedding" not in call["features"]
+    assert "time_signature" not in call["features"]
     assert call["vocalness_model"] == "bundled"
     stored = db.get_track(track.id)
     assert stored.analyses == ["sonara"]
@@ -71,7 +72,7 @@ def test_default_native_analysis_writes_only_core_with_current_signature(tmp_pat
     assert db.load_sonara_timeline(track.id) is None
     assert db.embedding_vector(track.id, "sonara") is None
     signature = stored.metadata[SONARA_ANALYSIS_SIGNATURE_KEY]
-    assert signature["project_feature_revision"] == 4
+    assert signature["project_feature_revision"] == 5
     assert signature["decoder_backend"] == "sonara-symphonia"
     assert signature["execution_path"] == "analyze_batch"
     assert sonara_analysis_signature_errors(signature) == ()

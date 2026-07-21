@@ -327,8 +327,23 @@ export type AnalysisJobStatus = {
   workers: number;
   track_batch_size?: number;
   inference_batch_size?: number;
+  sonara_batch_size?: number;
   top_k?: number;
   sonara_outputs?: SonaraOutput[];
+  readiness?: Record<string, { candidates: number; ready: number; not_ready: number; selected: number }>;
+  blockers?: Record<string, string[]>;
+  not_ready?: number;
+};
+
+export type AnalysisPipelineStatus = {
+  job_id: string;
+  state: "queued" | "running" | "completed" | "cancelled" | "failed";
+  order: Array<"sonara" | "ml" | "classifiers">;
+  stages: Record<string, { name: string; state: string; child_job_id?: string | null; error?: string | null }>;
+  current_stage?: string | null;
+  started_at?: number | null;
+  finished_at?: number | null;
+  cancel_requested: boolean;
 };
 
 export type PromotedClassifier = {
@@ -353,6 +368,10 @@ export type PromotedClassifier = {
   calibration?: Record<string, unknown>;
   has_calibrated_probability?: boolean;
   required_inputs?: string[];
+  ready?: number;
+  not_ready?: number;
+  candidate_count?: number;
+  readiness_blockers?: string[];
   hybrid_signal?: HybridClassifierSignal | null;
   hybrid_signal_source?: string | null;
 };

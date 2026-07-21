@@ -28,8 +28,9 @@ test("analysis runtime label hides active classifier key behind CLASSIFIERS", ()
   const source = readFileSync(jobUiPath, "utf8");
   const runtimeBlock = source.match(/function analysisRuntimeLabel[\s\S]*?function AnalysisProcessStatus/)?.[0] || "";
 
-  assert.match(runtimeBlock, /classifierKeySet\.has\(job\.current_model\)/);
-  assert.match(runtimeBlock, /now CLASSIFIERS/);
+  assert.match(runtimeBlock, /job\.classifier_keys\?\.length/);
+  assert.match(runtimeBlock, /return `CLASSIFIERS/);
+  assert.doesNotMatch(runtimeBlock, /job\.current_model.*CLASSIFIERS/);
 });
 
 test("stage indicator prioritizes running destructive helper jobs and cancelled states", () => {

@@ -1,7 +1,7 @@
 import type { MouseEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { CopyX, FlaskConical, Moon, Power, RefreshCcw, ScrollText, Square, Sun, Wrench } from "lucide-react";
-import { AnalysisJobStatus, AnalysisModel, api, AudioDedupJobPayload, AudioDedupJobStatus, AudioDoctorJobPayload, AudioDoctorJobStatus, GenreTagJobStatus, PromotedClassifier, RhythmLabLaunchResult, ScanStats, SetBuilderGeneratePayload, SonaraOutput, Track } from "./api";
+import { AnalysisJobStatus, AnalysisModel, AnalysisPipelineStatus, api, AudioDedupJobPayload, AudioDedupJobStatus, AudioDoctorJobPayload, AudioDoctorJobStatus, GenreTagJobStatus, PromotedClassifier, RhythmLabLaunchResult, ScanStats, SetBuilderGeneratePayload, SonaraOutput, Track } from "./api";
 import { analysisSelectionOrder, defaultAnalysisSelections, isAudioAnalysisModel, type AnalysisSelection } from "./analysisSelection";
 import { AudioDedupDialog } from "./AudioDedupDialog";
 import { AudioDoctorDialog } from "./AudioDoctorDialog";
@@ -118,6 +118,7 @@ export function App() {
   const [classifiers, setClassifiers] = useState<PromotedClassifier[]>([]);
   const [musicRoot, setMusicRoot] = useState("");
   const [analysisJob, setAnalysisJob] = useState<AnalysisJobStatus | null>(null);
+  const [analysisPipelineJob, setAnalysisPipelineJob] = useState<AnalysisPipelineStatus | null>(null);
   const [audioDedupJob, setAudioDedupJob] = useState<AudioDedupJobStatus | null>(null);
   const [audioDoctorJob, setAudioDoctorJob] = useState<AudioDoctorJobStatus | null>(null);
   const [scanJob, setScanJob] = useState<ScanStats | null>(null);
@@ -127,6 +128,7 @@ export function App() {
   const [scanWorkers, setScanWorkers] = useState(4);
   const [analysisTrackBatchSize, setAnalysisTrackBatchSize] = useState(4);
   const [analysisInferenceBatchSize, setAnalysisInferenceBatchSize] = useState(24);
+  const [sonaraBatchSize, setSonaraBatchSize] = useState(64);
   const [analysisDevice, setAnalysisDevice] = useState<DeviceMode>("auto");
   const [selectedAnalysisModels, setSelectedAnalysisModels] = useState<AnalysisSelection[]>(defaultAnalysisSelections);
   const [sonaraOutputs, setSonaraOutputs] = useState<SonaraOutput[]>(["core"]);
@@ -161,7 +163,10 @@ export function App() {
   });
 
   const scanRunning = Boolean(scanJob?.state && ["queued", "running"].includes(scanJob.state));
-  const analysisRunning = Boolean(analysisJob && ["queued", "running"].includes(analysisJob.state));
+  const analysisRunning = Boolean(
+    (analysisJob && ["queued", "running"].includes(analysisJob.state))
+    || (analysisPipelineJob && ["queued", "running"].includes(analysisPipelineJob.state))
+  );
   const genreTagRunning = Boolean(genreTagJob && ["queued", "running"].includes(genreTagJob.state));
   const audioDedupRunning = Boolean(audioDedupJob && ["queued", "running"].includes(audioDedupJob.state));
   const audioDoctorRunning = Boolean(audioDoctorJob && ["queued", "running"].includes(audioDoctorJob.state));
@@ -245,6 +250,19 @@ export function App() {
     }, 1500);
     return () => window.clearInterval(timer);
   }, [analysisJob?.job_id, analysisJob?.state]);
+
+  useEffect(() => {
+    if (!analysisPipelineJob || !["queued", "running"].includes(analysisPipelineJob.state)) return;
+    const timer = window.setInterval(() => {
+      void api.analysisPipeline(analysisPipelineJob.job_id).then((job) => {
+        setAnalysisPipelineJob(job);
+        if (["completed", "cancelled", "failed"].includes(job.state)) void refreshLibrary();
+      }).catch((error) => {
+        setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
+      });
+    }, 1500);
+    return () => window.clearInterval(timer);
+  }, [analysisPipelineJob?.job_id, analysisPipelineJob?.state]);
 
   useEffect(() => {
     if (!genreTagJob || !["queued", "running"].includes(genreTagJob.state)) return;
@@ -350,6 +368,12 @@ export function App() {
           if (["queued", "running"].includes(job.state)) setProcessLogKind("analysis");
         }
       }).catch(() => undefined),
+      api.latestAnalysisPipeline().then((job) => {
+        if (job) setAnalysisPipelineJob(job);
+      }).catch(() => undefined),
+      api.latestAggregateClassifierJob().then((job) => {
+        if (job) setAnalysisJob((current) => (current && ["queued", "running"].includes(current.state) ? current : job));
+      }).catch(() => undefined),
       ...promotedClassifiers.map((classifier) =>
         api.latestClassifierJob(classifier.classifier_key).then((job) => {
           if (job) {
@@ -421,13 +445,9 @@ export function App() {
 
   function toggleAnalysisModel(model: AnalysisSelection) {
     setSelectedAnalysisModels((current) => {
-      if (model === "sonara") {
-        return current.includes("sonara") ? [] : ["sonara"];
-      }
-      const withoutSonara = current.filter((item) => item !== "sonara");
-      const next: AnalysisSelection[] = withoutSonara.includes(model)
-        ? withoutSonara.filter((item) => item !== model)
-        : [...withoutSonara, model];
+      const next: AnalysisSelection[] = current.includes(model)
+        ? current.filter((item) => item !== model)
+        : [...current, model];
       return analysisModelOrder.filter((item) => next.includes(item));
     });
   }
@@ -662,21 +682,92 @@ export function App() {
     );
   }
 
-  async function handleAnalyzeSelected() {
-    const requestedAudioModels = selectedAnalysisModels.filter(isAudioAnalysisModel);
-    const includeClassifiers = selectedAnalysisModels.includes("classifiers");
-    const includeSonara = requestedAudioModels.includes("sonara");
-    const compatibleClassifiers = classifiers.filter((classifier) => classifier.is_scoring_compatible !== false);
-    if (!requestedAudioModels.length && !includeClassifiers) {
-      setNotice({ kind: "error", text: "Выберите хотя бы одну модель анализа" });
+  function compatibleClassifierKeys() {
+    return classifiers
+      .filter((classifier) => classifier.is_scoring_compatible !== false)
+      .map((classifier) => classifier.classifier_key);
+  }
+
+  async function handleAnalyzeSonara() {
+    if (!sonaraOutputs.length) {
+      setNotice({ kind: "error", text: "Выберите хотя бы один SONARA-блок: Core, Timeline или Representations" });
       return;
     }
-    if (!requestedAudioModels.length && includeClassifiers && !compatibleClassifiers.length) {
+    const limit = analysisLimit > 0 ? analysisLimit : undefined;
+    setProcessLogKind("analysis");
+    setAnalysisJob(null);
+    await run(
+      () => api.analysisJobStart({
+        models: ["sonara"], limit: limit ?? null, sonara_outputs: sonaraOutputs, sonara_batch_size: sonaraBatchSize
+      }),
+      (job) => {
+        setAnalysisJob(job);
+        appendActivity("ok", "SONARA job создан", `${job.total} треков · SONARA/Symphonia · native batch ${sonaraBatchSize}`);
+        return `SONARA: ${job.total} треков`;
+      }
+    );
+  }
+
+  async function handleAnalyzeMl() {
+    const models = selectedAnalysisModels.filter(
+      (model): model is AnalysisModel => isAudioAnalysisModel(model) && model !== "sonara"
+    );
+    if (!models.length) {
+      setNotice({ kind: "error", text: "Выберите хотя бы одну ML-модель" });
+      return;
+    }
+    const limit = analysisLimit > 0 ? analysisLimit : undefined;
+    setProcessLogKind("analysis");
+    setAnalysisJob(null);
+    await run(
+      () => api.analysisJobStart({
+        models, limit: limit ?? null, device: analysisDevice, top_k: 3,
+        track_batch_size: analysisTrackBatchSize, inference_batch_size: analysisInferenceBatchSize
+      }),
+      (job) => {
+        setAnalysisJob(job);
+        appendActivity("ok", "ML job создан", `${job.total} треков · ${models.map((model) => model.toUpperCase()).join(", ")}`);
+        return `ML: ${job.total} треков`;
+      }
+    );
+  }
+
+  async function handleAnalyzeClassifiers() {
+    const keys = compatibleClassifierKeys();
+    if (!keys.length) {
       setNotice({ kind: "error", text: "Нет совместимых promoted classifiers: сначала переобучите и promote модели" });
       return;
     }
-    if (includeSonara && (requestedAudioModels.length !== 1 || includeClassifiers)) {
-      setNotice({ kind: "error", text: "SONARA запускается отдельно от ML-моделей и CLASSIFIERS" });
+    const limit = analysisLimit > 0 ? analysisLimit : undefined;
+    setProcessLogKind("analysis");
+    setAnalysisJob(null);
+    await run(
+      () => api.analyzeClassifiers(keys, limit),
+      (job) => {
+        setAnalysisJob(job);
+        appendActivity("ok", "CLASSIFIERS job создан", `${job.total} classifier × track пар · not ready ${job.not_ready || 0}`);
+        return `CLASSIFIERS: ${job.total} пар`;
+      }
+    );
+  }
+
+  async function handleAnalyzeSelected() {
+    const mlModels = selectedAnalysisModels.filter(
+      (model): model is AnalysisModel => isAudioAnalysisModel(model) && model !== "sonara"
+    );
+    const includeSonara = selectedAnalysisModels.includes("sonara");
+    const includeClassifiers = selectedAnalysisModels.includes("classifiers");
+    const stages: Array<"sonara" | "ml" | "classifiers"> = [];
+    if (includeSonara) stages.push("sonara");
+    if (mlModels.length) stages.push("ml");
+    if (includeClassifiers) stages.push("classifiers");
+    if (!stages.length) {
+      setNotice({ kind: "error", text: "Выберите хотя бы одну стадию анализа" });
+      return;
+    }
+    const classifierKeys = compatibleClassifierKeys();
+    if (includeClassifiers && !classifierKeys.length) {
+      setNotice({ kind: "error", text: "Нет совместимых promoted classifiers: сначала переобучите и promote модели" });
       return;
     }
     if (includeSonara && !sonaraOutputs.length) {
@@ -684,44 +775,22 @@ export function App() {
       return;
     }
     const limit = analysisLimit > 0 ? analysisLimit : undefined;
-    const models = [...requestedAudioModels];
-    const labels = models.map((model) => model.toUpperCase()).join(", ");
-    const classifierKeys = includeClassifiers
-      ? compatibleClassifiers.map((classifier) => classifier.classifier_key)
-      : [];
-    const classifierTail = classifierKeys.length ? " · CLASSIFIERS в этом же job" : "";
-    const execution = includeSonara
-      ? `CPU · ffmpeg 22050 Hz · ${sonaraOutputs.join("+")}`
-      : `${analysisDevice.toUpperCase()} · tracks ${analysisTrackBatchSize} · inference ${analysisInferenceBatchSize}`;
-    const detail = `${labels}${classifierTail} · ${execution} · ${limit ? `limit ${limit}` : "вся библиотека"}`;
-    appendActivity("info", "Анализ выбранных моделей запущен", detail);
-    if (includeClassifiers && compatibleClassifiers.length < classifiers.length) {
-      appendActivity(
-        "warn",
-        "Несовместимые CLASSIFIERS пропущены",
-        `${classifiers.length - compatibleClassifiers.length} artifact(s) требуют переобучения под текущую SONARA signature`
-      );
-    }
-    setProcessLogKind("analysis");
-    setAnalysisJob(null);
+    setAnalysisPipelineJob(null);
     await run(
-      () => api.analysisJobStart({
-        models,
-        classifier_keys: classifierKeys,
+      () => api.analysisPipelineStart({
+        stages,
         limit: limit ?? null,
-        device: analysisDevice,
-        top_k: 3,
-        track_batch_size: analysisTrackBatchSize,
-        inference_batch_size: analysisInferenceBatchSize,
-        sonara_outputs: models.includes("sonara") ? sonaraOutputs : []
+        sonara: { outputs: sonaraOutputs, batch_size: sonaraBatchSize },
+        ml: {
+          models: mlModels, device: analysisDevice, top_k: 3,
+          track_batch_size: analysisTrackBatchSize, inference_batch_size: analysisInferenceBatchSize
+        },
+        classifiers: { classifier_keys: classifierKeys }
       }),
       (job) => {
-        setAnalysisJob(job);
-        if (includeClassifiers && !classifiers.length) {
-          appendActivity("warn", "CLASSIFIERS не запущены", "Нет promoted classifier models");
-        }
-        appendActivity("ok", "Analysis job создан", `${job.job_id.slice(0, 8)} · ${job.total} треков · tracks ${job.track_batch_size} · inference ${job.inference_batch_size}`);
-        return `Analysis job ${job.job_id.slice(0, 8)}: ${job.total} треков`;
+        setAnalysisPipelineJob(job);
+        appendActivity("ok", "Pipeline создан", `${job.job_id.slice(0, 8)} · ${job.order.join(" → ")}`);
+        return `Pipeline ${job.job_id.slice(0, 8)}: ${job.order.join(" → ")}`;
       }
     );
   }
@@ -844,6 +913,17 @@ export function App() {
   }
 
   async function handleCancelAnalyze() {
+    if (analysisPipelineJob && ["queued", "running"].includes(analysisPipelineJob.state)) {
+      await run(
+        () => api.cancelAnalysisPipeline(analysisPipelineJob.job_id),
+        (job) => {
+          setAnalysisPipelineJob(job);
+          appendActivity("warn", "Pipeline cancel requested", job.job_id.slice(0, 8));
+          return `Cancel requested: ${job.job_id.slice(0, 8)}`;
+        }
+      );
+      return;
+    }
     if (!analysisJob) return;
     await run(
       () => cancelAnalysisJob(analysisJob),
@@ -1191,6 +1271,11 @@ export function App() {
           maxAnalysisInferenceBatchSize={maxAnalysisInferenceBatchSize}
           adjustAnalysisInferenceBatchSize={adjustAnalysisInferenceBatchSize}
           onAnalysisInferenceBatchSizeChange={setAnalysisInferenceBatchSize}
+          sonaraBatchSize={sonaraBatchSize}
+          onSonaraBatchSizeChange={setSonaraBatchSize}
+          classifiers={classifiers}
+          analysisJob={analysisJob}
+          pipelineJob={analysisPipelineJob}
           helpText={helpText}
           onChooseFolder={() => void handleChooseFolder()}
           onScan={() => void handleScan()}
@@ -1206,6 +1291,9 @@ export function App() {
           onToggleAnalysisModel={toggleAnalysisModel}
           sonaraOutputs={sonaraOutputs}
           onToggleSonaraOutput={toggleSonaraOutput}
+          onAnalyzeSonara={() => void handleAnalyzeSonara()}
+          onAnalyzeMl={() => void handleAnalyzeMl()}
+          onAnalyzeClassifiers={() => void handleAnalyzeClassifiers()}
           onAnalyzeSelected={() => void handleAnalyzeSelected()}
           onResetAnalysis={(adapter) => requestConfirmation({
             title: `Сбросить ${adapter.toUpperCase()}?`,

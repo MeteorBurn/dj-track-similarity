@@ -143,11 +143,13 @@ function isPerClassifierAnalysisEvent(message: string) {
 
 export function analysisJobRequest(job: AnalysisJobStatus) {
   if (job.adapter_name === "multi" || job.models?.length) return api.analysisJob(job.job_id);
+  if (job.adapter_name === "classifiers") return api.aggregateClassifierJob(job.job_id);
   return api.classifierJob(job.adapter_name, job.job_id);
 }
 
 export function cancelAnalysisJob(job: AnalysisJobStatus) {
   if (job.adapter_name === "multi" || job.models?.length) return api.cancelAnalysisJob(job.job_id);
+  if (job.adapter_name === "classifiers") return api.cancelAggregateClassifierJob(job.job_id);
   return api.cancelClassifierJob(job.adapter_name, job.job_id);
 }
 
@@ -235,16 +237,13 @@ export function stageIndicatorLabel(
 }
 
 function analysisRuntimeLabel(job: AnalysisJobStatus) {
+  if (job.classifier_keys?.length) {
+    return `CLASSIFIERS · ${job.device || `${job.device_requested} pending`}`;
+  }
   if (job.adapter_name === "multi" || job.models?.length) {
     const audioModels = job.models?.map((model) => model.toUpperCase()).join(", ");
-    const classifierModels = job.classifier_keys?.length ? "CLASSIFIERS" : undefined;
-    const models = audioModels || classifierModels || "selected models";
-    const classifierKeySet = new Set(job.classifier_keys || []);
-    const current = job.current_model
-      ? classifierKeySet.has(job.current_model)
-        ? "now CLASSIFIERS"
-        : `now ${job.current_model.toUpperCase()}`
-      : models;
+    const models = audioModels || "selected models";
+    const current = job.current_model ? `now ${job.current_model.toUpperCase()}` : models;
     return `${current} · ${job.device || `${job.device_requested} pending`}`;
   }
   const model = job.model_name || job.adapter_name;

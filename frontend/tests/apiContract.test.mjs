@@ -136,7 +136,7 @@ test("SONARA timeline client fetches sidecar data for one track", async () => {
   assert.equal(timeline.energy_curve.length, 3);
 });
 
-test("analysis job client preserves unified job defaults for model and classifier runs", async () => {
+test("analysis job client preserves ML defaults without classifier scoring", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options) => {
     calls.push({ path, options });
@@ -148,12 +148,12 @@ test("analysis job client preserves unified job defaults for model and classifie
   assert.equal(calls[0].path, "/api/analysis/jobs");
   assert.deepEqual(JSON.parse(calls[0].options.body), {
     models: ["maest", "clap"],
-    classifier_keys: [],
     limit: null,
     device: "auto",
     top_k: 3,
     track_batch_size: 4,
     inference_batch_size: 24,
+    sonara_batch_size: 64,
     sonara_outputs: []
   });
 });
@@ -169,12 +169,12 @@ test("analysis job client defaults a SONARA-only request to Core storage", async
 
   assert.deepEqual(JSON.parse(calls[0].options.body), {
     models: ["sonara"],
-    classifier_keys: [],
     limit: null,
     device: "auto",
     top_k: 3,
     track_batch_size: 4,
     inference_batch_size: 24,
+    sonara_batch_size: 64,
     sonara_outputs: ["core"]
   });
 });

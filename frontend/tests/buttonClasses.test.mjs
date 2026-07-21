@@ -140,7 +140,7 @@ test("scan action row keeps icon controls on the standard button grid", () => {
   assert.doesNotMatch(styles, /\.scan-action-row\s+\.icon-button\s*{[\s\S]*?width:\s*42px/);
 });
 
-test("analysis controls use model checkboxes and one selected-run button", () => {
+test("analysis controls expose three manual stages and one selected pipeline button", () => {
   const source = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
 
   assert.match(source, /analysis-model-checkbox/);
@@ -150,20 +150,19 @@ test("analysis controls use model checkboxes and one selected-run button", () =>
   assert.match(source, /analysis-model-count/);
   assert.match(source, /analysis-model-check/);
   assert.match(source, /analyze-selected-button/);
-  assert.match(source, />\s*Analyze\s*<\/button>/);
+  assert.match(source, /Run SONARA/);
+  assert.match(source, /Run ML/);
+  assert.match(source, /Run CLASSIFIERS/);
+  assert.match(source, /Run selected pipeline/);
   assert.match(source, /classifiers/);
   assert.match(source, /CLASSIFIERS/);
-  assert.match(source, /classifiersAnalyze/);
-  assert.match(source, /Отдельный CPU\/Rust-анализ с собственным decode в 22050 Гц\./);
-  assert.match(source, /Помогает понять жанровый характер трека\./);
-  assert.match(source, /Ищет похожее звучание от выбранного seed-трека\./);
-  assert.match(source, /Сохраняет дополнительный слой аудио-признаков\./);
-  assert.match(source, /Связывает текстовое описание с аудио-звучанием\./);
-  assert.match(source, /Применяет локальные профили к трекам\./);
-  assert.doesNotMatch(source, /Analyze selected/);
+  assert.match(source, /SONARA\/Symphonia · native batch/);
+  assert.match(source, /общий FFmpeg decode/);
+  assert.match(source, /Отдельный job без чтения аудио/);
   assert.match(source, /selectedAnalysisModels/);
-  assert.doesNotMatch(source, /onSonaraAnalyze/);
-  assert.doesNotMatch(source, /onGenreAnalyze/);
+  assert.match(source, /onAnalyzeSonara/);
+  assert.match(source, /onAnalyzeMl/);
+  assert.match(source, /onAnalyzeClassifiers/);
   assert.doesNotMatch(source, /onAnalyze: \(adapter/);
 
   const modelRowBlock = source.match(/<div className="analysis-model-row"[\s\S]*?<\/div>/)?.[0] || "";
@@ -252,17 +251,17 @@ test("class tab exposes per-classifier missing-score analysis controls", () => {
   assert.match(searchSource, /No promoted classifier profiles found/);
   assert.match(searchSource, /models\/classifiers\/<profile>\//);
   assert.match(appSource, /selectedAnalysisModels\.includes\("classifiers"\)/);
-  assert.match(appSource, /classifierKeys\s*=\s*includeClassifiers/);
-  assert.match(appSource, /classifier_keys:\s*classifierKeys/);
+  assert.match(appSource, /compatibleClassifierKeys/);
+  assert.match(appSource, /api\.analyzeClassifiers/);
+  assert.match(appSource, /analysisPipelineStart/);
   assert.match(appSource, /useState<AnalysisSelection\[]>\(defaultAnalysisSelections\)/);
   assert.match(appSource, /is_scoring_compatible !== false/);
-  assert.doesNotMatch(appSource, /startClassifierJobs/);
   assert.match(appSource, /api\.analyzeClassifier/);
   assert.doesNotMatch(appSource, /classifierRequiredModels/);
   assert.doesNotMatch(appSource, /setPendingClassifierAfterAnalysis/);
   assert.match(selectionSource, /analysisSelectionOrder[\s\S]*"classifiers"/);
   assert.match(appSource, /analysisSelectionOrder/);
-  assert.match(librarySource, /analysisSelectionOrder/);
+  assert.match(librarySource, /mlAnalysisModelOrder/);
   assert.equal(librarySource.includes("classifier" + "Available"), false);
 });
 

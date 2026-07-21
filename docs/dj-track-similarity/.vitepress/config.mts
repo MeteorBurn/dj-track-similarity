@@ -10,6 +10,14 @@ const englishNav = [
   { text: "Reference", link: "/reference/" }
 ];
 
+const russianNav = [
+  { text: "Главная", link: "/ru/" },
+  { text: "Карта документации", link: "/ru/project-guide.html" },
+  { text: "Первые шаги", link: "/ru/getting-started/quickstart.html" },
+  { text: "Руководство", link: "/ru/user-guide/" },
+  { text: "Справочник", link: "/ru/reference/" }
+];
+
 const englishSidebar: SidebarSection[] = [
   { text: "Start", items: [{ text: "Home", link: "/" }, { text: "Project guide", link: "/project-guide.html" }] },
   { text: "Getting started", items: [{ text: "Overview", link: "/getting-started/" }, { text: "Quickstart", link: "/getting-started/quickstart.html" }, { text: "Install", link: "/getting-started/install.html" }, { text: "First library", link: "/getting-started/first-library.html" }, { text: "First analysis", link: "/getting-started/first-analysis.html" }] },
@@ -22,14 +30,112 @@ const englishSidebar: SidebarSection[] = [
   { text: "Help", items: [{ text: "Overview", link: "/help/" }, { text: "Troubleshooting", link: "/help/troubleshooting.html" }, { text: "FAQ", link: "/help/faq.html" }, { text: "Known limits", link: "/help/known-limits.html" }] }
 ];
 
+const russianSectionLabels: Record<string, string> = {
+  Start: "Начало",
+  "Getting started": "Первые шаги",
+  "User guide": "Руководство пользователя",
+  Workflows: "Сценарии",
+  Concepts: "Основные понятия",
+  "Tools and scripts": "Инструменты и скрипты",
+  Reference: "Справочник",
+  Developer: "Разработчику",
+  Help: "Помощь"
+};
+
+const russianItemLabels: Record<string, string> = {
+  Home: "Главная",
+  "Project guide": "Карта документации",
+  Overview: "Обзор",
+  Quickstart: "Быстрый старт",
+  Install: "Установка",
+  "First library": "Первая библиотека",
+  "First analysis": "Первый анализ",
+  "Browse library": "Просмотр библиотеки",
+  "Analyze library": "Анализ библиотеки",
+  "Search with seeds": "Поиск по опорным трекам",
+  "Smart Set Builder": "Smart Set Builder",
+  "Text search": "Текстовый поиск",
+  "CLASS tab": "Вкладка CLASS",
+  "Export playlists": "Экспорт плейлистов",
+  "Tags and audio writes": "Теги и запись в аудиофайлы",
+  "Prepare a set": "Подготовка сета",
+  "Find compatible tracks": "Поиск совместимых треков",
+  "Build crates": "Создание подборок",
+  "Train classifier": "Обучение классификатора",
+  "Reanalyze split SONARA storage": "Повторный анализ SONARA",
+  "Maintain library": "Обслуживание библиотеки",
+  "Project idea": "Идея проекта",
+  "Local-first safety": "Локальная работа и безопасность",
+  "Features, embeddings, tags": "Признаки, эмбеддинги и теги",
+  "Similarity scores": "Оценки сходства",
+  "SET routing": "Построение маршрута SET",
+  "Classifiers and Rhythm Lab": "Классификаторы и Rhythm Lab",
+  "Rhythm Lab": "Rhythm Lab",
+  "Audio Dedup": "Audio Dedup",
+  "Audio Doctor": "Audio Doctor",
+  "Persistent ANN indexes": "Постоянные индексы ANN",
+  "Optimize database": "Оптимизация базы данных",
+  CLI: "CLI",
+  API: "API",
+  Database: "База данных",
+  Configuration: "Конфигурация",
+  "Analysis families": "Семейства анализа",
+  "SONARA v0.2.9 contract": "Контракт SONARA v0.2.9",
+  "Model citations": "Модели и лицензии",
+  "UI controls": "Элементы интерфейса",
+  Architecture: "Архитектура",
+  Development: "Разработка",
+  Testing: "Тестирование",
+  "Release checklist": "Проверка релиза",
+  Troubleshooting: "Решение проблем",
+  FAQ: "Частые вопросы",
+  "Known limits": "Известные ограничения"
+};
+
+function russianLink(link: string): string {
+  return link === "/" ? "/ru/" : `/ru${link}`;
+}
+
+const russianSidebar: SidebarSection[] = englishSidebar.map((section) => ({
+  text: russianSectionLabels[section.text] ?? section.text,
+  items: section.items.map((item) => ({
+    text: russianItemLabels[item.text] ?? item.text,
+    link: russianLink(item.link)
+  }))
+}));
+
+const localSearch = {
+  provider: "local" as const,
+  options: {
+    locales: {
+      ru: {
+        translations: {
+          button: {
+            buttonText: "Поиск",
+            buttonAriaLabel: "Поиск по документации"
+          },
+          modal: {
+            displayDetails: "Показать подробный список",
+            resetButtonTitle: "Сбросить поиск",
+            backButtonTitle: "Закрыть поиск",
+            noResultsText: "Ничего не найдено по запросу",
+            footer: {
+              selectText: "выбрать",
+              navigateText: "перейти",
+              closeText: "закрыть"
+            }
+          }
+        }
+      }
+    }
+  }
+};
+
 const commonTheme = {
   siteTitle: "DJ Track Similarity Docs",
   logo: { light: "/logo-light.svg", dark: "/logo-dark.svg", alt: "DJ Track Similarity" },
   socialLinks: [{ icon: "github", link: "https://github.com/MeteorBurn/dj-track-similarity" }],
-  search: { provider: "local" },
-  outline: { level: [2, 3], label: "On this page" },
-  docFooter: { prev: "Previous", next: "Next" },
-  footer: { message: "Local-first DJ library analysis documentation.", copyright: "Public personal utility documentation." }
+  search: localSearch
 };
 
 export default defineConfig({
@@ -42,5 +148,67 @@ export default defineConfig({
   cleanUrls: false,
   appearance: true,
   lastUpdated: true,
-  themeConfig: { ...commonTheme, nav: englishNav, sidebar: englishSidebar }
+  themeConfig: {
+    ...commonTheme,
+    nav: englishNav,
+    sidebar: englishSidebar,
+    outline: { level: [2, 3], label: "On this page" },
+    docFooter: { prev: "Previous", next: "Next" },
+    footer: {
+      message: "Local-first DJ library analysis documentation.",
+      copyright: "Public personal utility documentation."
+    }
+  },
+  locales: {
+    root: {
+      label: "English",
+      lang: "en-US",
+      title: "dj-track-similarity",
+      description: "Human-oriented documentation for local DJ track similarity workflows.",
+      themeConfig: {
+        ...commonTheme,
+        nav: englishNav,
+        sidebar: englishSidebar,
+        outline: { level: [2, 3], label: "On this page" },
+        docFooter: { prev: "Previous", next: "Next" },
+        footer: {
+          message: "Local-first DJ library analysis documentation.",
+          copyright: "Public personal utility documentation."
+        }
+      }
+    },
+    ru: {
+      label: "Русский",
+      lang: "ru-RU",
+      link: "/ru/",
+      title: "dj-track-similarity",
+      description: "Практическая документация по локальному анализу музыкальной библиотеки для диджея.",
+      themeConfig: {
+        ...commonTheme,
+        siteTitle: "Документация DJ Track Similarity",
+        nav: russianNav,
+        sidebar: russianSidebar,
+        outline: { level: [2, 3], label: "На этой странице" },
+        docFooter: { prev: "Назад", next: "Далее" },
+        lastUpdated: { text: "Обновлено" },
+        darkModeSwitchLabel: "Оформление",
+        lightModeSwitchTitle: "Включить светлую тему",
+        darkModeSwitchTitle: "Включить тёмную тему",
+        sidebarMenuLabel: "Меню",
+        returnToTopLabel: "Наверх",
+        langMenuLabel: "Язык",
+        skipToContentLabel: "Перейти к содержанию",
+        notFound: {
+          title: "СТРАНИЦА НЕ НАЙДЕНА",
+          quote: "Такого адреса в документации нет.",
+          linkLabel: "перейти на главную",
+          linkText: "На главную"
+        },
+        footer: {
+          message: "Документация локального инструмента анализа музыкальной библиотеки.",
+          copyright: "Публичная документация личного проекта."
+        }
+      }
+    }
+  }
 });

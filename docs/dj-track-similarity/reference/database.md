@@ -64,8 +64,8 @@ model files are left in place for recovery, but SONARA-dependent manifests witho
 analysis signature cannot be scored. Retraining and promotion are required.
 
 Do not confuse the version numbers: upstream SONARA analysis schema is `4`, the main SQLite schema
-is `6`, the project SONARA feature revision is `4`, and the promoted classifier manifest version is
-`2`. Revision `4` also signs `decoder_backend="sonara-symphonia"` and
+is `6`, the project SONARA feature revision is `5`, and the promoted classifier manifest version is
+`2`. Revision `5` also signs `decoder_backend="sonara-symphonia"` and
 `execution_path="analyze_batch"`.
 
 ## Evaluation and feedback state

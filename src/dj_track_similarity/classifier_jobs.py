@@ -175,7 +175,7 @@ class ClassifierJobManager:
             status,
             payload=_ClassifierPayload(tracks_by_classifier=tracks_by_classifier, requirements=requirements),
         )
-        self._append_event(job_id, "info", "CLASSIFIERS queued")
+        self._append_event(job_id, "info", f"CLASSIFIERS queued · profiles {len(keys)}")
         return job_id
 
     def readiness(self, classifiers: Sequence[str]) -> dict[str, dict[str, int | list[str]]]:

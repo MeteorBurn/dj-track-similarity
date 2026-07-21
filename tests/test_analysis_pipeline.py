@@ -34,7 +34,7 @@ def test_pipeline_uses_fixed_order_and_continues_after_completed_per_file_failur
     job_id = manager.create_job(
         stages=["classifiers", "ml", "sonara"],
         limit=10,
-        sonara={"outputs": ["core"], "batch_size": 64},
+        sonara={"outputs": ["core"], "batch_size": 16},
         ml={"models": ["mert"]},
         classifiers={"classifier_keys": ["demo"]},
     )

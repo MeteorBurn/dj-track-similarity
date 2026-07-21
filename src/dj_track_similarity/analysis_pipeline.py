@@ -5,6 +5,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import cast
 
+from .analysis_config import DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE, DEFAULT_ANALYSIS_TRACK_BATCH_SIZE
 from .analysis_jobs import AnalysisJobManager
 from .analysis_queue import AnalysisStageQueue
 from .classifier_jobs import ClassifierJobManager
@@ -139,8 +140,8 @@ class AnalysisPipelineManager:
                 limit=payload.limit,
                 device=str(payload.ml.get("device") or "auto"),
                 top_k=int(payload.ml.get("top_k") or 3),
-                track_batch_size=int(payload.ml.get("track_batch_size") or 4),
-                inference_batch_size=int(payload.ml.get("inference_batch_size") or 24),
+                track_batch_size=int(payload.ml.get("track_batch_size") or DEFAULT_ANALYSIS_TRACK_BATCH_SIZE),
+                inference_batch_size=int(payload.ml.get("inference_batch_size") or DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE),
             )
             self._set_stage(parent_job_id, stage, state="running", child_job_id=job_id)
             if self.get(parent_job_id).cancel_requested:

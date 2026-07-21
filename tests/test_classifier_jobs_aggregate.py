@@ -92,6 +92,7 @@ def test_manifest_specific_readiness_filters_before_aggregate_total(tmp_path: Pa
 
     assert queued.total == 5
     assert queued.not_ready == 7
+    assert queued.events[0].message == "CLASSIFIERS queued · profiles 3"
     assert queued.readiness["sonara_only"] == {"candidates": 4, "ready": 2, "not_ready": 2, "selected": 2}
     assert queued.readiness["combined"] == {"candidates": 4, "ready": 1, "not_ready": 3, "selected": 1}
 
@@ -182,3 +183,33 @@ def test_missing_manifest_sonara_field_is_not_ready_before_job_total(tmp_path: P
 
     assert status.total == status.processed == status.failed == 0
     assert status.not_ready == 1
+
+
+def test_classifier_readiness_counts_in_one_query_without_materializing_tracks(tmp_path: Path) -> None:
+    class CountingDatabase(LibraryDatabase):
+        connect_calls = 0
+
+        def connect(self):
+            self.connect_calls += 1
+            return super().connect()
+
+        def list_classifier_candidates(self, *args, **kwargs):
+            raise AssertionError("readiness must not materialize candidate tracks")
+
+    db = CountingDatabase(tmp_path / "library.sqlite")
+    ready_id = _track(db, tmp_path, "ready.wav")
+    _track(db, tmp_path, "not-ready.wav")
+    _sonara(db, ready_id)
+    requirement = _requirement("sonara_only", ("sonara",))
+    db.connect_calls = 0
+
+    counts = db.classifier_candidate_readiness(
+        "sonara_only",
+        model_id=requirement.model_id,
+        required_inputs=requirement.required_inputs,
+        sonara_signature=requirement.sonara_analysis_signature,
+        feature_names=requirement.feature_names,
+    )
+
+    assert counts == {"candidates": 2, "ready": 1, "not_ready": 1}
+    assert db.connect_calls == 1

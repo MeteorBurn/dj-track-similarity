@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from typing import Iterable, Mapping
 
 import numpy as np
@@ -28,6 +29,12 @@ from .sonara_contract import (
     feature_set_uses_sonara,
     sonara_analysis_signature_errors,
     sonara_analysis_is_current,
+)
+from .sonara_storage import (
+    SonaraAnalysisStorage,
+    SonaraCoreStorage,
+    SonaraRepresentationsStorage,
+    SonaraTimelineStorage,
 )
 
 
@@ -61,6 +68,36 @@ def _classifier_ready_sql(
     for source in ("mert", "maest", "clap"):
         if source in required:
             conditions.append(f"t.has_{source}_embedding = 1")
+    return (" AND ".join(f"({condition})" for condition in conditions) or "1 = 1", tuple(params))
+
+
+def _classifier_sonara_feature_ready_sql(
+    feature_names: Iterable[str],
+) -> tuple[str, tuple[object, ...]]:
+    conditions: list[str] = []
+    params: list[object] = []
+    for name in feature_names:
+        text = str(name)
+        if not text.startswith("sonara:"):
+            continue
+        key = text.partition(":")[2]
+        field, separator, index_text = key.rpartition(":")
+        indexed = bool(separator and index_text.isdigit())
+        field_name = field if indexed else key
+        escaped_field = field_name.replace("\\", "\\\\").replace('"', '\\"')
+        base_path = f'$.sonara_features."{escaped_field}"'
+        if indexed:
+            index = int(index_text)
+            payload_path = f"{base_path}.value[{index}]"
+            legacy_path = f"{base_path}[{index}]"
+        else:
+            payload_path = f"{base_path}.value"
+            legacy_path = base_path
+        conditions.append(
+            "COALESCE(json_type(t.metadata_json, ?), json_type(t.metadata_json, ?)) "
+            "IN ('integer', 'real', 'true', 'false')"
+        )
+        params.extend((payload_path, legacy_path))
     return (" AND ".join(f"({condition})" for condition in conditions) or "1 = 1", tuple(params))
 
 
@@ -163,7 +200,10 @@ class AnalysisRepository:
                     )
                     for row in rows
                 )
-        candidates.sort(key=lambda candidate: (candidate.artist or "", candidate.title or "", candidate.path))
+        if selected == ["sonara"]:
+            candidates.sort(key=lambda candidate: candidate.path)
+        else:
+            candidates.sort(key=lambda candidate: (candidate.artist or "", candidate.title or "", candidate.path))
         if limit is not None:
             return candidates[: max(0, int(limit))]
         return candidates
@@ -197,27 +237,35 @@ class AnalysisRepository:
     ) -> dict[str, int]:
         required = tuple(required_inputs)
         names = tuple(str(name) for name in feature_names)
+        ready_sql, ready_params = _classifier_ready_sql(required, sonara_signature)
+        feature_sql, feature_params = _classifier_sonara_feature_ready_sql(names)
         with self.connect() as connection:
             row = connection.execute(
-                """
-                SELECT COUNT(*) AS candidates
-                FROM tracks t
-                LEFT JOIN track_classifier_scores s
-                  ON s.track_id = t.id AND s.classifier = ?
-                WHERE s.track_id IS NULL OR s.model_id != ?
+                f"""
+                WITH candidate_tracks AS (
+                    SELECT t.*
+                    FROM tracks t
+                    LEFT JOIN track_classifier_scores s
+                      ON s.track_id = t.id AND s.classifier = ?
+                    WHERE s.track_id IS NULL OR s.model_id != ?
+                )
+                SELECT
+                    COUNT(*) AS candidates,
+                    COALESCE(
+                        SUM(CASE WHEN ({ready_sql}) AND ({feature_sql}) THEN 1 ELSE 0 END),
+                        0
+                    ) AS ready
+                FROM candidate_tracks t
                 """,
-                (classifier.strip(), str(model_id)),
+                (
+                    classifier.strip(),
+                    str(model_id),
+                    *ready_params,
+                    *feature_params,
+                ),
             ).fetchone()
         candidates = int(row["candidates"] or 0)
-        ready = len(
-            self.list_classifier_candidates(
-                classifier,
-                model_id=model_id,
-                required_inputs=required,
-                sonara_signature=sonara_signature,
-                feature_names=names,
-            )
-        )
+        ready = int(row["ready"] or 0)
         return {"candidates": candidates, "ready": ready, "not_ready": candidates - ready}
 
     def list_classifier_candidates(
@@ -339,44 +387,25 @@ class AnalysisRepository:
         provenance: dict[str, object] | None = None,
         analysis_signature: dict[str, object] | None = None,
     ) -> None:
-        with self._write_lock, self.connect() as connection:
-            metadata = self._metadata_for_track_update(connection, track_id)
-            metadata["sonara_features"] = features
-            metadata["sonara_model"] = model_name
-            if provenance is not None:
-                metadata["sonara_provenance"] = provenance
-            else:
-                metadata.pop("sonara_provenance", None)
-            if analysis_signature is not None:
-                metadata[SONARA_ANALYSIS_SIGNATURE_KEY] = analysis_signature
-            else:
-                metadata.pop(SONARA_ANALYSIS_SIGNATURE_KEY, None)
-            connection.execute(
-                """
-                UPDATE tracks
-                SET bpm = COALESCE(?, bpm),
-                    musical_key = COALESCE(?, musical_key),
-                    energy = COALESCE(?, energy),
-                    duration = COALESCE(?, duration),
-                    has_sonara_analysis = 1,
-                    metadata_json = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-                """,
-                (
-                    optional_float(bpm),
-                    musical_key,
-                    optional_float(energy),
-                    optional_float(duration),
-                    metadata_to_json(metadata, sort_keys=False),
-                    track_id,
-                ),
-            )
-            upsert_track_search_fts(connection, track_id)
-            embedding_keys = _embedding_keys_for_track(connection, track_id)
-            _delete_sonara_dependent_classifier_scores(connection, track_id=track_id)
-        self._invalidate_embedding_cache_keys(embedding_keys)
-        self._invalidate_sonara_feature_cache()
+        error = self.save_sonara_analysis_batch(
+            [
+                SonaraAnalysisStorage(
+                    track_id=track_id,
+                    core=SonaraCoreStorage(
+                        features=features,
+                        bpm=bpm,
+                        musical_key=musical_key,
+                        energy=energy,
+                        duration=duration,
+                        model_name=model_name,
+                        provenance=provenance,
+                        analysis_signature=analysis_signature,
+                    ),
+                )
+            ]
+        )[0]
+        if error is not None:
+            raise error
 
     def save_sonara_timeline(
         self,
@@ -386,38 +415,20 @@ class AnalysisRepository:
         provenance: dict[str, object] | None,
         analysis_signature: dict[str, object],
     ) -> None:
-        fields = sorted(timeline)
-        if not fields:
-            raise ValueError("SONARA Timeline output did not contain any timeline fields")
-        signature_id = str(analysis_signature.get("signature_id") or "").strip()
-        if not signature_id:
-            raise ValueError("SONARA Timeline analysis signature is missing signature_id")
-        with self._write_lock, self.connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO timeline.sonara_timeline (
-                    track_id, fields_json, payload_json, analysis_signature_id,
-                    analysis_signature_json, provenance_json, updated_at
+        error = self.save_sonara_analysis_batch(
+            [
+                SonaraAnalysisStorage(
+                    track_id=track_id,
+                    timeline=SonaraTimelineStorage(
+                        timeline=timeline,
+                        provenance=provenance,
+                        analysis_signature=analysis_signature,
+                    ),
                 )
-                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT(track_id) DO UPDATE SET
-                    fields_json = excluded.fields_json,
-                    payload_json = excluded.payload_json,
-                    analysis_signature_id = excluded.analysis_signature_id,
-                    analysis_signature_json = excluded.analysis_signature_json,
-                    provenance_json = excluded.provenance_json,
-                    updated_at = CURRENT_TIMESTAMP
-                """,
-                (
-                    int(track_id),
-                    metadata_to_json(fields, sort_keys=False),
-                    metadata_to_json(timeline, sort_keys=False),
-                    signature_id,
-                    metadata_to_json(analysis_signature, sort_keys=False),
-                    metadata_to_json(provenance or {}, sort_keys=False),
-                ),
-            )
-        self._invalidate_embedding_cache()
+            ]
+        )[0]
+        if error is not None:
+            raise error
 
     def load_sonara_timeline(self, track_id: int) -> dict[str, object] | None:
         with self.connect() as connection:
@@ -449,73 +460,231 @@ class AnalysisRepository:
         provenance: dict[str, object] | None,
         analysis_signature: dict[str, object],
     ) -> None:
-        vector = np.asarray(embedding, dtype=np.float32).reshape(-1)
+        error = self.save_sonara_analysis_batch(
+            [
+                SonaraAnalysisStorage(
+                    track_id=track_id,
+                    representations=SonaraRepresentationsStorage(
+                        embedding=embedding,
+                        fingerprint=fingerprint,
+                        embedding_version=embedding_version,
+                        fingerprint_version=fingerprint_version,
+                        model_name=model_name,
+                        provenance=provenance,
+                        analysis_signature=analysis_signature,
+                    ),
+                )
+            ]
+        )[0]
+        if error is not None:
+            raise error
+
+    def save_sonara_analysis_batch(
+        self,
+        analyses: Iterable[SonaraAnalysisStorage],
+    ) -> list[Exception | None]:
+        """Persist a native SONARA batch in one transaction with per-track rollback."""
+
+        pending = list(analyses)
+        if not pending:
+            return []
+        errors: list[Exception | None] = []
+        embedding_keys_to_invalidate: set[str] = set()
+        invalidate_all_embeddings = False
+        invalidate_sonara_features = False
+        with self._write_lock, self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            for index, analysis in enumerate(pending):
+                savepoint = f"sonara_batch_item_{index}"
+                connection.execute(f"SAVEPOINT {savepoint}")
+                item_embedding_keys: tuple[str, ...] = ()
+                try:
+                    if analysis.core is not None:
+                        item_embedding_keys = self._save_sonara_core(
+                            connection,
+                            analysis.track_id,
+                            analysis.core,
+                        )
+                    if analysis.timeline is not None:
+                        self._save_sonara_timeline(connection, analysis.track_id, analysis.timeline)
+                    if analysis.representations is not None:
+                        self._save_sonara_representations(
+                            connection,
+                            analysis.track_id,
+                            analysis.representations,
+                        )
+                except Exception as error:
+                    connection.execute(f"ROLLBACK TO {savepoint}")
+                    connection.execute(f"RELEASE {savepoint}")
+                    errors.append(error)
+                    continue
+                connection.execute(f"RELEASE {savepoint}")
+                errors.append(None)
+                embedding_keys_to_invalidate.update(item_embedding_keys)
+                invalidate_sonara_features = invalidate_sonara_features or analysis.core is not None
+                invalidate_all_embeddings = invalidate_all_embeddings or (
+                    analysis.timeline is not None or analysis.representations is not None
+                )
+
+        if invalidate_all_embeddings:
+            self._invalidate_embedding_cache()
+        else:
+            self._invalidate_embedding_cache_keys(embedding_keys_to_invalidate)
+        if invalidate_sonara_features:
+            self._invalidate_sonara_feature_cache()
+        return errors
+
+    def _save_sonara_core(
+        self,
+        connection: sqlite3.Connection,
+        track_id: int,
+        core: SonaraCoreStorage,
+    ) -> tuple[str, ...]:
+        metadata = self._metadata_for_track_update(connection, track_id)
+        metadata["sonara_features"] = core.features
+        metadata["sonara_model"] = core.model_name
+        if core.provenance is not None:
+            metadata["sonara_provenance"] = core.provenance
+        else:
+            metadata.pop("sonara_provenance", None)
+        if core.analysis_signature is not None:
+            metadata[SONARA_ANALYSIS_SIGNATURE_KEY] = core.analysis_signature
+        else:
+            metadata.pop(SONARA_ANALYSIS_SIGNATURE_KEY, None)
+        connection.execute(
+            """
+            UPDATE tracks
+            SET bpm = COALESCE(?, bpm),
+                musical_key = COALESCE(?, musical_key),
+                energy = COALESCE(?, energy),
+                duration = COALESCE(?, duration),
+                has_sonara_analysis = 1,
+                metadata_json = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (
+                optional_float(core.bpm),
+                core.musical_key,
+                optional_float(core.energy),
+                optional_float(core.duration),
+                metadata_to_json(metadata, sort_keys=False),
+                track_id,
+            ),
+        )
+        upsert_track_search_fts(connection, track_id)
+        embedding_keys = tuple(_embedding_keys_for_track(connection, track_id))
+        _delete_sonara_dependent_classifier_scores(connection, track_id=track_id)
+        return embedding_keys
+
+    @staticmethod
+    def _save_sonara_timeline(
+        connection: sqlite3.Connection,
+        track_id: int,
+        timeline: SonaraTimelineStorage,
+    ) -> None:
+        fields = sorted(timeline.timeline)
+        if not fields:
+            raise ValueError("SONARA Timeline output did not contain any timeline fields")
+        signature_id = str(timeline.analysis_signature.get("signature_id") or "").strip()
+        if not signature_id:
+            raise ValueError("SONARA Timeline analysis signature is missing signature_id")
+        connection.execute(
+            """
+            INSERT INTO timeline.sonara_timeline (
+                track_id, fields_json, payload_json, analysis_signature_id,
+                analysis_signature_json, provenance_json, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(track_id) DO UPDATE SET
+                fields_json = excluded.fields_json,
+                payload_json = excluded.payload_json,
+                analysis_signature_id = excluded.analysis_signature_id,
+                analysis_signature_json = excluded.analysis_signature_json,
+                provenance_json = excluded.provenance_json,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                int(track_id),
+                metadata_to_json(fields, sort_keys=False),
+                metadata_to_json(timeline.timeline, sort_keys=False),
+                signature_id,
+                metadata_to_json(timeline.analysis_signature, sort_keys=False),
+                metadata_to_json(timeline.provenance or {}, sort_keys=False),
+            ),
+        )
+
+    @staticmethod
+    def _save_sonara_representations(
+        connection: sqlite3.Connection,
+        track_id: int,
+        representations: SonaraRepresentationsStorage,
+    ) -> None:
+        vector = np.asarray(representations.embedding, dtype=np.float32).reshape(-1)
         if not vector.size or not np.isfinite(vector).all():
             raise ValueError("SONARA embedding must be a non-empty finite vector")
-        signature_id = str(analysis_signature.get("signature_id") or "").strip()
+        signature_id = str(representations.analysis_signature.get("signature_id") or "").strip()
         if not signature_id:
             raise ValueError("SONARA Representations analysis signature is missing signature_id")
         embedding_metadata = {
-            "version": embedding_version,
+            "version": representations.embedding_version,
             "dtype": "float32",
-            "provenance": provenance or {},
-            "analysis_signature": analysis_signature,
+            "provenance": representations.provenance or {},
+            "analysis_signature": representations.analysis_signature,
         }
         fingerprint_metadata = {
-            "provenance": provenance or {},
-            "analysis_signature": analysis_signature,
+            "provenance": representations.provenance or {},
+            "analysis_signature": representations.analysis_signature,
         }
-        with self._write_lock, self.connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO representations.embeddings (
-                    track_id, embedding_key, model_name, dim, vector, normalization,
-                    analysis_signature_id, metadata_json, updated_at
-                )
-                VALUES (?, 'sonara', ?, ?, ?, 'none', ?, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT(track_id, embedding_key) DO UPDATE SET
-                    model_name = excluded.model_name,
-                    dim = excluded.dim,
-                    vector = excluded.vector,
-                    normalization = excluded.normalization,
-                    analysis_signature_id = excluded.analysis_signature_id,
-                    metadata_json = excluded.metadata_json,
-                    updated_at = CURRENT_TIMESTAMP
-                """,
-                (
-                    int(track_id),
-                    model_name,
-                    int(vector.size),
-                    vector.tobytes(),
-                    signature_id,
-                    metadata_to_json(embedding_metadata, sort_keys=False),
-                ),
+        connection.execute(
+            """
+            INSERT INTO representations.embeddings (
+                track_id, embedding_key, model_name, dim, vector, normalization,
+                analysis_signature_id, metadata_json, updated_at
             )
-            connection.execute(
-                """
-                INSERT INTO representations.fingerprints (
-                    track_id, fingerprint_key, model_name, version, payload_json,
-                    analysis_signature_id, metadata_json, updated_at
-                )
-                VALUES (?, 'fingerprint', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT(track_id, fingerprint_key) DO UPDATE SET
-                    model_name = excluded.model_name,
-                    version = excluded.version,
-                    payload_json = excluded.payload_json,
-                    analysis_signature_id = excluded.analysis_signature_id,
-                    metadata_json = excluded.metadata_json,
-                    updated_at = CURRENT_TIMESTAMP
-                """,
-                (
-                    int(track_id),
-                    model_name,
-                    fingerprint_version,
-                    metadata_to_json(fingerprint, sort_keys=False),
-                    signature_id,
-                    metadata_to_json(fingerprint_metadata, sort_keys=False),
-                ),
+            VALUES (?, 'sonara', ?, ?, ?, 'none', ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(track_id, embedding_key) DO UPDATE SET
+                model_name = excluded.model_name,
+                dim = excluded.dim,
+                vector = excluded.vector,
+                normalization = excluded.normalization,
+                analysis_signature_id = excluded.analysis_signature_id,
+                metadata_json = excluded.metadata_json,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                int(track_id),
+                representations.model_name,
+                int(vector.size),
+                vector.tobytes(),
+                signature_id,
+                metadata_to_json(embedding_metadata, sort_keys=False),
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO representations.fingerprints (
+                track_id, fingerprint_key, model_name, version, payload_json,
+                analysis_signature_id, metadata_json, updated_at
             )
-        self._invalidate_embedding_cache()
+            VALUES (?, 'fingerprint', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(track_id, fingerprint_key) DO UPDATE SET
+                model_name = excluded.model_name,
+                version = excluded.version,
+                payload_json = excluded.payload_json,
+                analysis_signature_id = excluded.analysis_signature_id,
+                metadata_json = excluded.metadata_json,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                int(track_id),
+                representations.model_name,
+                representations.fingerprint_version,
+                metadata_to_json(representations.fingerprint, sort_keys=False),
+                signature_id,
+                metadata_to_json(fingerprint_metadata, sort_keys=False),
+            ),
+        )
 
     def reset_analysis(self, adapter: str) -> dict[str, object]:
         adapter = adapter.strip().lower()

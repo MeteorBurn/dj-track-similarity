@@ -4,7 +4,7 @@ import numpy as np
 
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.sonara_contract import SONARA_ANALYSIS_SIGNATURE_KEY
-from dj_track_similarity.sonara_features import analyze_and_store_sonara_batch
+from dj_track_similarity.sonara_features import SonaraBatchMetrics, analyze_and_store_sonara_batch
 
 
 class FakeTrackAnalysis(dict):
@@ -41,6 +41,14 @@ class FakeSonara:
                 },
             ))
         return results
+
+
+class CountingDatabase(LibraryDatabase):
+    connect_calls = 0
+
+    def connect(self):
+        self.connect_calls += 1
+        return super().connect()
 
 
 def _track(db: LibraryDatabase, tmp_path: Path, name: str):
@@ -84,3 +92,60 @@ def test_native_batch_passes_exact_contract_and_maps_results_by_input_order(tmp_
     assert db.load_sonara_timeline(tracks[0].id) is not None
     assert db.embedding_vector(tracks[0].id, "sonara") is not None
     assert db.get_track(tracks[1].id).metadata.get("sonara_features") is None
+
+
+def test_native_batch_uses_one_transaction_and_rolls_back_only_failed_track(tmp_path: Path) -> None:
+    db = CountingDatabase(tmp_path / "library.sqlite")
+    first, second = [_track(db, tmp_path, name) for name in ("first.wav", "second.wav")]
+    with db.connect() as connection:
+        connection.execute(
+            f"""
+            CREATE TRIGGER timeline.reject_second_track
+            BEFORE INSERT ON sonara_timeline
+            WHEN NEW.track_id = {second.id}
+            BEGIN
+                SELECT RAISE(ABORT, 'forced timeline failure');
+            END
+            """
+        )
+    db.connect_calls = 0
+
+    results = analyze_and_store_sonara_batch(
+        db,
+        [first, second],
+        sonara_module=FakeSonara,
+        outputs=["core", "timeline", "representations"],
+    )
+
+    assert db.connect_calls == 1
+    assert results[0].error is None
+    assert "forced timeline failure" in str(results[1].error)
+    assert db.get_track(first.id).metadata.get("sonara_features") is not None
+    assert db.load_sonara_timeline(first.id) is not None
+    assert db.embedding_vector(first.id, "sonara") is not None
+    assert db.get_track(second.id).metadata.get("sonara_features") is None
+    assert db.load_sonara_timeline(second.id) is None
+    assert db.embedding_vector(second.id, "sonara") is None
+
+
+def test_native_batch_reports_separate_analysis_prepare_and_store_timings(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    tracks = [_track(db, tmp_path, name) for name in ("first.wav", "second.wav")]
+    observed: list[SonaraBatchMetrics] = []
+
+    results = analyze_and_store_sonara_batch(
+        db,
+        tracks,
+        sonara_module=FakeSonara,
+        outputs=["core"],
+        metrics=observed.append,
+    )
+
+    assert all(result.error is None for result in results)
+    assert len(observed) == 1
+    measurement = observed[0]
+    assert measurement.track_count == 2
+    assert measurement.source_bytes == sum(track.size for track in tracks)
+    assert measurement.analyze_seconds >= 0
+    assert measurement.prepare_seconds >= 0
+    assert measurement.store_seconds >= 0

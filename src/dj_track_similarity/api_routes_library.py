@@ -10,6 +10,7 @@ from .api_route_utils import query_classifier_min_scores, valid_classifier_min_s
 from .api_schemas import FilteredTracksRequest, RelocateLibraryRequest, ScanRequest, TagRefreshRequest, TrackLikedRequest
 from .api_state import AppDatabaseState
 from .media_preview import AudioPreviewError, requires_browser_preview_transcode, transcoded_wav_file_response
+from .sonara_features import sonara_analysis_signatures_for_outputs
 
 
 def register_library_routes(
@@ -19,6 +20,10 @@ def register_library_routes(
     ffmpeg_path: str,
     promoted_classifiers: Callable[[], list[dict[str, object]]],
 ) -> None:
+    sonara_core_signature_id = str(
+        sonara_analysis_signatures_for_outputs(("core",))["core"]["signature_id"]
+    )
+
     @app.post("/api/library/scan")
     def scan(request: ScanRequest):
         try:
@@ -123,7 +128,10 @@ def register_library_routes(
             for classifier in promoted_classifiers()
             if bool(classifier.get("is_scoring_compatible", True))
         ]
-        return state.require_db().library_summary(classifier_keys=classifier_keys)
+        return state.require_db().library_summary(
+            classifier_keys=classifier_keys,
+            sonara_signature_id=sonara_core_signature_id,
+        )
 
     @app.get("/media/{track_id}")
     def media(track_id: int):

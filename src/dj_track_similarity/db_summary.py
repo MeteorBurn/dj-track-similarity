@@ -2,21 +2,44 @@ from __future__ import annotations
 
 from typing import Iterable
 
+
 class SummaryRepository:
-    def library_summary(self, classifier_keys: Iterable[str] | None = None) -> dict[str, int]:
+    def library_summary(
+        self,
+        classifier_keys: Iterable[str] | None = None,
+        *,
+        sonara_signature_id: str | None = None,
+    ) -> dict[str, int]:
         cleaned_classifier_keys = sorted({key.strip() for key in (classifier_keys or []) if key.strip()})
         with self.connect() as connection:
             tracks = int(connection.execute("SELECT COUNT(*) FROM tracks").fetchone()[0])
-            sonara = int(
-                connection.execute(
-                    """
-                    SELECT COUNT(*)
-                    FROM tracks INDEXED BY idx_tracks_present_sonara_flag
-                    WHERE has_sonara_analysis = 1
-                      AND sonara_analysis_is_current(metadata_json) = 1
-                    """
-                ).fetchone()[0]
-            )
+            if sonara_signature_id:
+                sonara = int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*)
+                        FROM tracks INDEXED BY idx_tracks_present_sonara_flag
+                        WHERE has_sonara_analysis = 1
+                          AND json_type(metadata_json, '$.sonara_features') = 'object'
+                          AND json_extract(
+                              metadata_json,
+                              '$.sonara_analysis_signature.signature_id'
+                          ) = ?
+                        """,
+                        (sonara_signature_id,),
+                    ).fetchone()[0]
+                )
+            else:
+                sonara = int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*)
+                        FROM tracks INDEXED BY idx_tracks_present_sonara_flag
+                        WHERE has_sonara_analysis = 1
+                          AND sonara_analysis_is_current(metadata_json) = 1
+                        """
+                    ).fetchone()[0]
+                )
             maest = int(
                 connection.execute(
                     """

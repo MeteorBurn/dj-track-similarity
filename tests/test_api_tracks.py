@@ -544,7 +544,7 @@ def test_library_summary_counts_tracks_and_analysis_families(tmp_path: Path) -> 
         {"energy": 0.7},
         energy=0.7,
         model_name="sonara-test",
-        analysis_signature=expected_sonara_analysis_signature([]),
+        analysis_signature=sonara_analysis_signatures_for_outputs(["core"])["core"],
     )
     db.save_genres(maest_id, [{"label": "Breakbeat", "score": 0.9}], model_name="maest-test")
     db.save_embedding(maest_id, np.asarray([0.0, 1.0], dtype=np.float32), model_name="maest-test", embedding_key="maest")
@@ -571,6 +571,41 @@ def test_library_summary_and_track_status_ignore_unsigned_sonara(tmp_path: Path)
 
     assert summary["sonara"] == 0
     assert track["analyses"] is None
+
+
+def test_library_summary_can_count_one_sonara_profile_without_full_metadata_validation(tmp_path: Path) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    current_id = _add_track(db, tmp_path, "current-sonara.wav", "Artist", "Current", {})
+    other_id = _add_track(db, tmp_path, "other-sonara.wav", "Artist", "Other", {})
+    current_signature = expected_sonara_analysis_signature(["bpm"])
+    other_signature = expected_sonara_analysis_signature(["bpm", "structure"])
+    db.save_sonara_features(
+        current_id,
+        {"bpm": {"value": 128.0}},
+        analysis_signature=current_signature,
+    )
+    db.save_sonara_features(
+        other_id,
+        {"bpm": {"value": 129.0}},
+        analysis_signature=other_signature,
+    )
+
+    class NoFullMetadataValidationDatabase(LibraryDatabase):
+        def connect(self):
+            connection = super().connect()
+
+            def fail_if_called(_metadata_json):
+                raise AssertionError("summary fast path must not parse full SONARA metadata")
+
+            connection.create_function("sonara_analysis_is_current", 1, fail_if_called)
+            return connection
+
+    summary = NoFullMetadataValidationDatabase(db_path).library_summary(
+        sonara_signature_id=str(current_signature["signature_id"]),
+    )
+
+    assert summary["sonara"] == 1
 
 
 def test_library_summary_counts_tracks_with_complete_promoted_classifier_scores(monkeypatch, tmp_path: Path) -> None:

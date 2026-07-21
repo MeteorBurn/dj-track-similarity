@@ -64,11 +64,12 @@ def missing_analysis_ids_sql(
         where_sql = f"t.has_{model}_embedding = 0"
     else:
         raise ValueError(f"Unknown analysis model: {model}")
+    order_sql = "t.path" if model == "sonara" else "COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path"
     return f"""
         SELECT t.id
         FROM tracks t
         WHERE {where_sql}
-        ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
+        ORDER BY {order_sql}
         {limit_sql}
         """
 

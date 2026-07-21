@@ -4,7 +4,24 @@
 > Goal: Explain SET controls, requirements, Hybrid preview, and safety boundaries.
 > Type: guide
 
-The **SET** tab calls `/api/set-builder/generate` and returns an ordered preview. It does not add anything to the current set until you click **Add preview**.
+SET helps after search has found too many plausible tracks but you still need a musical direction
+and an order to review. You provide anchors or let the app choose them, then describe the desired
+closeness, diversity, energy shape, and optional tempo or classifier direction.
+
+The result is an ordered listening draft. It is useful for discovering a possible route through
+the library and for spotting gaps, repetitions, or abrupt changes. It is not a finished performance
+plan, cue-point generator, or guarantee that adjacent tracks will mix.
+
+## What happens when you generate
+
+1. SET limits the pool to tracks with the required analysis.
+2. It finds candidates connected to the anchors across several audio signals.
+3. It balances those candidates against your mode, diversity, energy, tempo, artist, and optional
+   classifier controls.
+4. It returns an ordered preview with coverage information.
+5. Nothing enters the current set until you click **Add preview**.
+
+The **SET** tab calls `/api/set-builder/generate` to create this preview.
 
 ## Requirements
 
@@ -29,6 +46,10 @@ The response includes total-track and eligible-track counts, plus missing counts
 - **Weird adjacent - odd**: allows less obvious adjacent material while keeping a link to anchors.
 - **Balanced set - flow**: balances similarity, diversity, transition compatibility, energy curve, and artist limits.
 - **Discovery - wide**: broadens the search for novelty while keeping candidates connected to anchors.
+
+Choose the mode by what you want to hear in the result. Close is useful for a coherent crate,
+Balanced is a general first draft, and the wider modes are for discovering less obvious links that
+need more listening review.
 
 ## Size and diversity
 

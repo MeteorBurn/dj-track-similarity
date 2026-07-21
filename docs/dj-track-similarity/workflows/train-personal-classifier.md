@@ -4,7 +4,38 @@
 > Goal: Move from review labels to a promoted classifier score.
 > Type: workflow
 
-Rhythm Lab is the classifier workspace. It uses the main SQLite library as source context and keeps labels, predictions, queues, and checkpoints in its own labels database.
+Train a classifier when you repeatedly sort tracks by a personal concept that metadata and one-off
+searches do not express well. You define the concept and provide examples. Rhythm Lab learns a
+local boundary from those labels, and the main app can later score compatible tracks against it.
+
+A binary profile could separate "vocal-forward" from "mostly instrumental" tracks. Another profile
+could focus on the presence or absence of a kind of live instrumentation. You define these profiles.
+A new Rhythm Lab database does not contain them automatically.
+
+## When this is worth doing
+
+Use a classifier when:
+
+- the same judgment matters across many searches or sets,
+- reliable tags do not already answer it,
+- you can label clear positive and negative or multiclass examples,
+- you are willing to review mistakes and ambiguous tracks.
+
+Use MERT, SONARA, or CLAP instead when the question is temporary or you only need one shortlist.
+Training adds maintenance: a weak or narrow label set produces a weak or narrow score.
+
+## What the finished workflow produces
+
+```text
+your labels -> trained candidate -> promoted profile -> per-track scores -> CLASS / SET / Hybrid
+```
+
+The final score is not a tag written into the audio and not an objective truth. It is a reusable
+ranking signal for one profile. The score can filter the library and steer SET toward or away from
+the concept. A promoted manifest may also expose it as diagnostic evidence in Hybrid.
+
+Rhythm Lab is the classifier workspace. It uses the main SQLite library as source context and keeps
+labels, predictions, queues, and checkpoints in its own labels database.
 
 ## 1. Prepare source analysis
 
@@ -40,7 +71,10 @@ http://127.0.0.1:8777/
 - Binary profiles use one positive and one negative training label.
 - Multiclass profiles use class labels, and one track can hold only one current class label for the active profile.
 
-Use review labels and queues to keep borderline tracks visible without turning them into training labels too early.
+Choose labels that answer one clear question. For a binary profile, positive should mean "this is the
+concept" and negative should mean "this is not the concept." Avoid assigning a clean label while you
+are unsure about a track. Use review labels and queues to keep borderline tracks visible without
+turning them into training labels too early.
 
 ## 4. Train
 
@@ -58,6 +92,9 @@ the API or CLI only when you intentionally want calibration and have enough
 labels for the calibration gate. UI promotion ignores calibrated artifacts
 while calibration is hidden, so an older uncalibrated winner is safer than an
 automatically generated calibrated finalist.
+
+After training, listen to high-scoring, low-scoring, and borderline candidates. Useful mistakes
+often reveal that the concept or the label set needs refinement before promotion.
 
 ## 5. Benchmark variants
 

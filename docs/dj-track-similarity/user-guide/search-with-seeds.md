@@ -4,7 +4,23 @@
 > Goal: Use MERT, SONARA, and Reference Compare search without confusing their scores.
 > Type: guide
 
-Seed search starts from tracks you select in the library. Use one seed for a close neighborhood or several seeds for a blended target.
+Seed search is useful when a real track communicates your intention better than tags or words. The
+app compares stored analysis around that reference and returns candidates to audition. It does not
+claim that the candidates will mix or belong in the same genre.
+
+Use one seed for a focused neighborhood or several seeds for a blended target. The result is a
+ranked listening list, not an automatic crate.
+
+## Choose the kind of neighborhood
+
+| Use | When it helps | What you can change |
+| --- | --- | --- |
+| MERT | You want a broad learned audio neighborhood with few decisions | Similarity threshold and result limit |
+| SONARA | You know which audible qualities should stay close or move | Feature mode, mixer weights, and directional modifiers |
+| LAB | You want to hear how separate model families disagree | Model columns, result limit, and listening verdicts |
+
+MERT is the quicker question: "what is near these tracks in this model's audio space?" SONARA is
+the more explicit question: "what is near them according to the qualities I care about now?"
 
 ## Choose seeds
 
@@ -70,7 +86,9 @@ Verdicts are stored as local pair feedback with a `reference_compare:<model>` so
 
 ## Review results
 
-Result rows support preview, likes, metadata, seed actions, and current-set actions. Treat the score as a ranking hint. A candidate with a lower score can still be the better mix.
+Result rows support preview, likes, metadata, seed actions, and current-set actions. Your useful
+output is the handful of candidates that survive listening. Treat the score as a ranking hint. A
+candidate with a lower score can still be the better mix.
 
 ## When results are empty
 

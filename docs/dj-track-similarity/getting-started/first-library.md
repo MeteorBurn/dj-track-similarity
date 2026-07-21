@@ -4,7 +4,28 @@
 > Goal: Understand scan, Refresh Tags, browsing, and database selection.
 > Type: tutorial
 
-A library is one local catalog backed by three adjacent SQLite files. The selected Core file stores paths, tags, light SONARA values, MAEST/MERT/MuQ/CLAP embeddings, flags, likes, feedback, and optional classifier scores. SONARA Timeline arrays go to `*.timeline.sqlite`. The optional SONARA embedding and fingerprint go to `*.representations.sqlite`. The app creates and links both side databases automatically.
+A library is the app's private map of your music collection. It lets you search one catalog even
+when the files are spread across folders and their tags are incomplete. Your audio stays in its
+original location.
+
+## What you get after a scan
+
+- one browsable list of supported audio files,
+- searchable artist, title, album, genre, path, and other available tags,
+- stable track rows that later analysis can attach results to,
+- scan counts that show what was added, updated, unchanged, or skipped.
+
+Scanning does not make sound-based search available by itself. It creates the catalog first; the
+next step, [analysis](./first-analysis.md), adds audio evidence for similarity search, text search,
+and SET previews.
+
+## How the catalog is stored
+
+One library uses three adjacent SQLite files. The selected Core file stores paths, tags, light
+SONARA values, MAEST/MERT/MuQ/CLAP embeddings, flags, likes, feedback, and optional classifier
+scores. SONARA Timeline arrays go to `*.timeline.sqlite`. The optional SONARA embedding and
+fingerprint go to `*.representations.sqlite`. The app creates and links both side databases
+automatically.
 
 ## Choose or create a database
 

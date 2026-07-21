@@ -4,7 +4,12 @@
 > Goal: Prevent score-scale mistakes.
 > Type: concept
 
-Scores are ranking signals. They are useful inside the workflow that produced them. They are not universal music quality or mix probability.
+Scores answer "which candidates should I inspect first under these settings?" They can tell you that
+one candidate ranked ahead of another inside the same search. They cannot judge musical quality or
+promise that a transition will work. Scores from different tabs also have no shared scale.
+
+The practical output of a score is an audition order. Listen from the top, keep useful exceptions,
+and stop when you have enough candidates.
 
 ## MERT seed search
 

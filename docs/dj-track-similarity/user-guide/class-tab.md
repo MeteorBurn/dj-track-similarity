@@ -4,9 +4,30 @@
 > Goal: Filter, rescore, and use classifier scores without confusing them with analysis families.
 > Type: guide
 
-The CLASS tab reads promoted local profiles from `models/classifiers/*/model.json`. A profile is useful in the main UI only when the manifest is valid and compatible with scoring.
+Use a classifier when you keep making the same personal judgment and ordinary tags do not capture
+it. Examples include a profile you define for vocal-forward versus mostly instrumental tracks, or
+for a specific kind of live instrumentation. Rhythm Lab learns from your labeled examples; the
+main app then stores a reusable score for the rest of the compatible library.
 
-## What a promoted classifier is
+This score does not discover an objective fact about music. It reflects a local boundary learned
+from one profile and its labels. Use it to reduce review work, then listen to borderline and
+important tracks.
+
+For a one-off sound idea, use seed or text search instead. A classifier is most useful when the same
+question will return across many sessions.
+
+## What you get in the main app
+
+1. You create and label a profile in Rhythm Lab.
+2. Training produces candidate artifacts that you review and promote.
+3. The main app scores compatible tracks for that promoted profile.
+4. The CLASS tab can filter by the stored score.
+5. SET can prefer, avoid, raise, or lower the concept through a preview.
+
+The CLASS tab reads promoted local profiles. A profile appears only when its manifest is valid and
+compatible with current scoring inputs.
+
+## How a promoted classifier is stored
 
 A promoted classifier consists of:
 

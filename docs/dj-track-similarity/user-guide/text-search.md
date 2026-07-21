@@ -4,7 +4,22 @@
 > Goal: Write useful CLAP prompts and read the score scale correctly.
 > Type: guide
 
-The **CLAP** tab calls `/api/search/text`. It embeds text and compares the text vector against stored CLAP audio embeddings. Run CLAP analysis before using it.
+Use text search when you can hear an idea in your head but do not have a good reference track. A
+prompt such as "broken drums with metallic synth hits" gives the app an audible direction. Metadata
+filters serve a different purpose.
+
+The result is a ranked shortlist to audition. It can reveal tracks with incomplete genre tags, but
+it does not prove that every word in the prompt is present. Rewording the prompt changes the
+question and often changes the useful part of the list.
+
+The **CLAP** tab calls `/api/search/text`. It embeds text and compares the text vector against stored
+CLAP audio embeddings. Run CLAP analysis before using it.
+
+## When to choose another search
+
+- Use MERT when one existing track already captures the direction.
+- Use SONARA when you want explicit control over rhythm, timbre, dynamics, harmony, or tempo.
+- Use library filters when the property is already reliable metadata, such as artist or label.
 
 ## Before searching
 

@@ -4,7 +4,17 @@
 > Goal: Explain the main data types and score surfaces without turning this into developer docs.
 > Type: concept index
 
-The app combines file metadata, audio features, embeddings, and optional local classifier scores. Read them as local ranking and filtering signals.
+The app combines file metadata, audio features, embeddings, and optional local classifier scores.
+Each source answers a different kind of question. Read them as local ranking and filtering signals,
+not as one universal measure of musical truth.
+
+## Start with the confusion you have
+
+- "Why does this project exist?" Read [Project idea](./project-idea.md).
+- "Which analysis should I run?" Read [Features, embeddings, and tags](./features-embeddings-tags.md).
+- "Why do scores differ between tabs?" Read [Similarity scores](./similarity-scores.md).
+- "How did SET choose this order?" Read [SET routing](./smart-set-builder-routing.md).
+- "Why would I train anything myself?" Read [Classifiers and Rhythm Lab](./classifiers-and-rhythm-lab.md).
 
 ## Pages
 

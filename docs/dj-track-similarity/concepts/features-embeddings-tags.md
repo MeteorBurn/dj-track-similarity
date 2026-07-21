@@ -4,7 +4,25 @@
 > Goal: Explain each evidence source and what it should be used for.
 > Type: concept
 
-The UI shows several kinds of information. They are stored together in SQLite, but they come from different sources.
+The UI shows several kinds of information. They are stored together in SQLite, but they come from
+different sources and help with different decisions.
+
+## Start with the question
+
+| Question | Useful evidence | What appears in the app |
+| --- | --- | --- |
+| What does the file already say about itself? | File tags | Searchable artist, title, album, genre, BPM, key, and other metadata |
+| Which tracks share a learned audio neighborhood? | MERT | Seed-search rankings |
+| Which tracks align on audible rhythm, sound, dynamics, harmony, or tempo? | SONARA | Feature search and transition evidence |
+| Which tracks fit a written sound description? | CLAP | Text-search rankings |
+| What genre-like and audio evidence does another model add? | MAEST | Display labels plus SET and Hybrid support |
+| How does one more model rank this seed? | MuQ | A separate LAB Reference Compare column |
+| How strongly does a track match my own labeled idea? | Classifier score | CLASS filters and optional SET or Hybrid controls |
+
+An embedding is a compact model representation used for comparison. You do not need to interpret
+its individual numbers. Features have direct names and can often explain which audible quality
+affected a result. File tags are metadata read from the file or written through an explicit tag
+workflow.
 
 ## File tags
 

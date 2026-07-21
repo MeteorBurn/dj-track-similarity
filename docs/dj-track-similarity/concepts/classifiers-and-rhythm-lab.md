@@ -4,7 +4,35 @@
 > Goal: Explain labels, training, promotion, and how scores appear in the main app.
 > Type: concept
 
-Rhythm Lab is the companion tool for local labels, training, prediction review, and promotion. Promoted classifiers become optional signals in the main UI.
+Most analysis models arrive with their own general audio representation. A personal classifier asks
+a different question: "can the app reuse a distinction that I make repeatedly?"
+
+One possible profile separates vocal-forward tracks from mostly instrumental tracks. Another could
+focus on whether live instrumentation is present. The definition and examples come from your
+library. New databases begin without profiles, and the resulting score reflects your labels.
+
+## Why train one
+
+A classifier is useful when a concept:
+
+- matters repeatedly across your library,
+- is not captured reliably by existing tags,
+- is specific enough that you can label consistent examples,
+- should become a filter or a gentle preference rather than a one-time search.
+
+If you only need a list for one session, seed search or CLAP text search is usually less work.
+
+## From examples to a useful control
+
+```text
+label examples -> train -> review predictions -> promote -> score library -> filter or steer
+```
+
+Promotion does not make the model silently choose music for you. It makes one reviewed profile
+available as a score in the main app. Missing and borderline cases still need listening.
+
+Rhythm Lab is the companion tool for local labels, training, prediction review, and promotion.
+Promoted classifiers become optional signals in the main UI.
 
 ## Profiles
 

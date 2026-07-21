@@ -4,7 +4,11 @@
 > Goal: Move from seed tracks to export without treating the preview as final truth.
 > Type: workflow
 
-This workflow uses the main UI.
+Use this workflow when you have a few tracks that define a direction but do not yet have a useful
+route between them. The result is an editable sequence of candidates: enough structure to begin
+rehearsing or crate preparation, without pretending the order is final.
+
+This workflow uses the main UI. Expect to remove, replace, and reorder tracks after listening.
 
 ## 1. Start with a scanned and analyzed library
 
@@ -37,7 +41,9 @@ Click **Generate**. Review the coverage counts and preview order.
 
 ## 4. Check alternatives
 
-Use MERT for close seed neighbors. Use SONARA when you want to steer feature groups. Use CLAP when you can describe a sound in words. Use Hybrid preview when you want weighted source support and diagnostic detail.
+Use MERT for a broad seed neighborhood. Use SONARA when you want to steer audible feature groups.
+Use CLAP when you can describe a missing sound in words. Use Hybrid preview when you want to see
+which model sources support a candidate and where transition risk may need attention.
 
 ## 5. Listen
 

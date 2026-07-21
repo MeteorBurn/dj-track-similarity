@@ -4,9 +4,28 @@
 > Goal: Choose analysis families safely and understand what each unlocks.
 > Type: tutorial
 
-Analysis jobs read audio or stored analysis values and write SQLite results. They do not rewrite source audio files.
+Scanning tells the app what files you own. Analysis gives it several limited ways to compare how
+those files sound. The useful result is not a new audio file: it is local evidence that unlocks
+shortlists, filters, and ordered previews.
 
-## Analysis families
+Analysis jobs read audio or stored analysis values and write SQLite results. They do not rewrite
+source audio files.
+
+## Choose by the result you want
+
+| You want to | Run | What you get |
+| --- | --- | --- |
+| Start from a track and find a broad audio neighborhood | MERT | Ranked seed-search candidates |
+| Steer by rhythm, texture, dynamics, harmony, or tempo | SONARA | Explainable feature search and transition evidence |
+| Describe a desired sound in words | CLAP | Text-search candidates |
+| Generate SET or compare several model views | SONARA, MAEST, MERT, CLAP | Feature-complete candidates for SET and Hybrid |
+| Compare another model's neighbors in LAB | MuQ | A separate MuQ result column in Reference Compare |
+| Reuse your own labeled concept | CLASSIFIERS | Stored scores for CLASS filters and optional SET or Hybrid controls |
+
+For a first experiment, analyze 25 familiar tracks. Try the resulting searches before choosing
+which families deserve a full-library run.
+
+## What each family stores and unlocks
 
 | Family | Writes | Unlocks |
 | --- | --- | --- |

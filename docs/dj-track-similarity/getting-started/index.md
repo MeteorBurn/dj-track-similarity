@@ -4,14 +4,27 @@
 > Goal: Move from checkout to a searchable, analyzed SQLite database.
 > Type: tutorial index
 
-The shortest useful path is: install, scan, serve the UI, analyze a small batch, search, then decide by ear.
+The first useful result is not a fully automatic DJ set. It is a searchable map of your own music
+and a short list of candidates you would probably not find by browsing folders alone.
+
+The shortest path is: install, scan, open the UI, analyze a small batch, search, then decide by ear.
+Your audio stays where it is. Scan and analysis add information to local SQLite databases; they do
+not reorganize or rewrite the source files.
+
+## What each step gives you
+
+1. **Scan** turns a folder tree into a library you can browse and filter.
+2. **Analysis** adds the evidence needed for sound-based search and set previews.
+3. **Search** reduces a large library to a listening shortlist.
+4. **SET or crate building** turns useful candidates into an editable working list.
+5. **Export** creates an M3U or CSV file for the next part of your workflow.
 
 ## Pages
 
 - [Quickstart](./quickstart.md): the shortest path through scan, serve, and first analysis.
 - [Install](./install.md): prerequisites, package extras, FFmpeg, frontend, and docs build notes.
 - [First library](./first-library.md): how scanning works and what the database stores.
-- [First analysis](./first-analysis.md): model choices, device options, limits, and UI behavior.
+- [First analysis](./first-analysis.md): choose analysis by the result you want, then configure limits and devices.
 
 ## What you need first
 

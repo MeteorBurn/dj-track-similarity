@@ -4,7 +4,21 @@
 > Goal: Provide task recipes that point to the right UI and tool pages.
 > Type: workflow index
 
-Use workflows when you know the task already. Examples include set preparation, compatible-track search, crate building, classifier training, and library maintenance.
+Use workflows when you know the outcome you want but do not yet know which model or screen can
+produce it.
+
+## Choose an outcome
+
+| Outcome | Workflow |
+| --- | --- |
+| A possible running order around a few anchors | [Prepare a set](./prepare-a-set.md) |
+| A short list around one reference track | [Find compatible tracks](./find-compatible-tracks.md) |
+| A broader pool to audition later | [Build crates](./build-crates.md) |
+| A reusable score for your own recurring concept | [Train a personal classifier](./train-personal-classifier.md) |
+| A safe routine for keeping the catalog current | [Maintain library](./maintain-library.md) |
+
+Each result is still material for review. The app narrows and organizes the collection; listening
+decides what survives.
 
 ## Pages
 

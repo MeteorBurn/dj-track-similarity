@@ -4,6 +4,13 @@
 > Goal: Create useful review lists from filters, seeds, and text prompts.
 > Type: workflow
 
+A crate is useful when you want to collect possibilities before deciding on an order. It can hold a
+sound family or a warmup direction. Difficult-to-name textures and tracks that deserve another
+listening pass also fit here.
+
+The result is a reviewed pool, broader than a set. Revisit it later or play it outside the app. It
+can also feed a later selection pass.
+
 ## Recipe
 
 1. Scan and analyze enough of the library for the search surface you need.

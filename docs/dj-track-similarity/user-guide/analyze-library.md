@@ -4,22 +4,45 @@
 > Goal: Explain model selection, job progress, and reset behavior.
 > Type: guide
 
-Use the analysis area after scanning tracks. Analysis reads audio and writes SQLite results. It does not modify source audio files.
+Use the analysis area after scanning tracks. A scan can find titles and tags, but it cannot answer
+questions such as "what sounds near this track?" or "what fits this energy direction?" Analysis
+creates the local evidence needed to answer those questions.
+
+You usually analyze a track once per model contract, then reuse the stored result across searches.
+Analysis reads audio and writes SQLite results. It does not modify source audio files.
+
+## Choose a useful first outcome
+
+| First outcome | Select |
+| --- | --- |
+| Find tracks near a familiar reference | MERT |
+| Search with audible feature controls | SONARA |
+| Search by a written sound description | CLAP |
+| Build complete SET and Hybrid previews | SONARA, MAEST, MERT, and CLAP |
+| Compare separate model neighborhoods in LAB | Add MuQ |
+| Apply a concept you trained in Rhythm Lab | CLASSIFIERS after its required inputs |
+
+Start with a small limit and familiar tracks. The aim is to learn which result surface helps your
+collection before committing to a long full-library run.
 
 ## Pick models
 
 The UI lists these choices:
 
-- **SONARA**: audio features and working BPM/key/energy/duration data.
-- **MAEST**: genre label output plus syncopated-rhythm metadata and the MAEST embedding.
-- **MERT**: audio embedding for seed similarity.
-- **MuQ**: 24 kHz `float32` audio embedding used by LAB Reference Compare.
-- **CLAP**: audio embedding for text search and audio-to-audio comparison.
-- **CLASSIFIERS**: promoted classifier scores, if compatible profiles are available.
+- **SONARA** lets you ask a more explainable question about rhythm, sound, dynamics, harmony, and
+  tempo. It also supplies transition and energy evidence for SET.
+- **MAEST** adds genre-like labels and another audio comparison view used by SET and Hybrid.
+- **MERT** supplies the broad "find tracks near this track" audio neighborhood.
+- **MuQ** adds a separate comparison column in LAB Reference Compare.
+- **CLAP** connects written descriptions to audio and also supplies audio comparison evidence to
+  SET and Hybrid.
+- **CLASSIFIERS** apply promoted personal profiles after the inputs declared by each profile exist.
 
 The UI separates analysis into stage blocks with individual manual run buttons. The SONARA, ML
 MODELS, and CLASSIFIERS blocks can also be submitted as one selected pipeline. All stages use one
 sequential in-memory queue.
+
+## Technical details: SONARA results
 
 SONARA runs separately from the ML models and classifiers. It passes path batches to
 `sonara.analyze_batch()`, whose Symphonia path owns decoding. There is no project FFmpeg,

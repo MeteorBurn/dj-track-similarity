@@ -1,10 +1,10 @@
 <div class="dts-hero">
   <div class="dts-hero-copy">
-    <p class="dts-kicker">Local crate intelligence</p>
+    <p class="dts-kicker">Rediscover music on your machine</p>
     <h1>Find the next track without giving up your library</h1>
     <p class="dts-hero-lead">
-      <code>dj-track-similarity</code> is a local-first DJ library workbench. Scanned tags,
-      analysis signals, search results, and set previews stay on your machine.
+      Turn a large local collection into a searchable library. Start from a track or a written
+      idea, then shape useful candidates into crates and set previews.
     </p>
     <div class="dts-hero-actions">
       <a class="dts-button dts-button-brand" href="./getting-started/quickstart.html">Start the quickstart</a>
@@ -33,6 +33,15 @@ The larger idea is DJ set dramaturgy. A set is not just a list of compatible tra
 
 This is a personal enthusiast project first. It does not claim expert ML or music-information-retrieval authority, and model output should be read as local ranking evidence, not truth. [Read the project idea](./concepts/project-idea.md).
 
+## What you can do with it
+
+<div class="dts-status-grid">
+  <div><strong>Rediscover nearby tracks</strong><p>Start from a familiar track and audition a ranked neighborhood from your own collection.</p></div>
+  <div><strong>Search for a sound</strong><p>Describe rhythm, texture, instruments, space, or energy when you do not have a reference track.</p></div>
+  <div><strong>Draft a musical route</strong><p>Turn a few anchors into an editable sequence with a chosen energy, diversity, and tempo direction.</p></div>
+  <div><strong>Reuse your own criteria</strong><p>Label a recurring personal concept and make it available as a library filter or gentle SET preference.</p></div>
+</div>
+
 <div class="dts-signal-board">
   <div class="dts-signal-copy">
     <p class="dts-kicker">Normal path</p>
@@ -43,10 +52,10 @@ This is a personal enthusiast project first. It does not claim expert ML or musi
     </p>
   </div>
   <ol class="dts-signal-chain">
-    <li><span class="dts-step">01</span><strong>Scan</strong><span>Read file tags into SQLite.</span></li>
-    <li><span class="dts-step">02</span><strong>Analyze</strong><span>Store SONARA, MAEST, MERT, MuQ, and CLAP signals.</span></li>
-    <li><span class="dts-step">03</span><strong>Search</strong><span>Use seeds, prompts, classifiers, and SET previews.</span></li>
-    <li><span class="dts-step">04</span><strong>Export</strong><span>Write M3U or CSV after listening.</span></li>
+    <li><span class="dts-step">01</span><strong>Scan</strong><span>Make the folder browsable without moving audio.</span></li>
+    <li><span class="dts-step">02</span><strong>Analyze</strong><span>Prepare the sound comparisons needed for your task.</span></li>
+    <li><span class="dts-step">03</span><strong>Search</strong><span>Turn tracks, words, or personal criteria into shortlists.</span></li>
+    <li><span class="dts-step">04</span><strong>Export</strong><span>Take the reviewed list into the next part of your workflow.</span></li>
   </ol>
 </div>
 
@@ -79,7 +88,7 @@ Relocation apply is SQLite-only. It updates stored `tracks.path` values and does
 - [Quickstart](./getting-started/quickstart.md): scan, serve the UI, analyze a first batch.
 - [Install](./getting-started/install.md): prerequisites, optional ML dependencies, frontend and docs builds.
 - [First library](./getting-started/first-library.md): build the SQLite library and understand scan behavior.
-- [First analysis](./getting-started/first-analysis.md): choose SONARA, MAEST, MERT, MuQ, CLAP, and classifier jobs.
+- [First analysis](./getting-started/first-analysis.md): choose analysis by the result you want.
 - [Reanalyze split SONARA storage](./workflows/reanalyze-sonara-split-storage.md): migrate schema v5 and rebuild current analysis.
 - [User guide](./user-guide/index.md): daily UI work.
 - [Workflows](./workflows/index.md): DJ task recipes.

@@ -4,7 +4,25 @@
 > Goal: Pick the right page for setup, daily UI use, maintenance, or reference.
 > Type: explanation
 
-Use this guide as the table of contents for real work. The docs describe the current code surface: `dj-sim`, the FastAPI routes under `/api`, the React UI, and the helper tools under `tools/` and `scripts/`.
+DJ Track Similarity helps you explore a local music collection when folders, tags, and memory are
+not enough. Start from a track you already know, a sound you can describe, or a rough set idea. The
+app turns that starting point into a smaller list worth listening to.
+
+It does not decide which tracks are good or guarantee that two tracks will mix. Its job is to reduce
+the search space, show why a candidate appeared, and leave the musical decision to you.
+
+## What you can get from it
+
+| Your situation | Start with | Result |
+| --- | --- | --- |
+| You remember one useful track | MERT or SONARA seed search | A ranked list of nearby candidates to preview |
+| You can describe the sound, but not name a track | CLAP text search | A shortlist matched to an audible description |
+| You have a few anchors for a set | Smart Set Builder | An editable ordered preview with an energy and tempo direction |
+| You want a broad pool for later listening | Filters, seeds, or text search | A crate that you can export as CSV or M3U |
+| You repeatedly judge tracks by a personal idea | Rhythm Lab classifier | A reusable per-track score for filtering and gentle SET or Hybrid steering |
+
+Use this guide to choose the shortest route from your current idea to one of those results. Exact
+CLI, API, storage, and model contracts remain available in the reference section.
 
 ## If you are new
 
@@ -12,7 +30,8 @@ Use this guide as the table of contents for real work. The docs describe the cur
 2. Run [Quickstart](./getting-started/quickstart.md).
 3. Build a database with [First library](./getting-started/first-library.md).
 4. Add model data with [First analysis](./getting-started/first-analysis.md).
-5. Learn the UI through [Browse library](./user-guide/browse-library.md) and [Search with seed tracks](./user-guide/search-with-seeds.md).
+5. Make a first shortlist with [Search with seed tracks](./user-guide/search-with-seeds.md) or [Text search](./user-guide/text-search.md).
+6. Preview the results by ear before building a crate or set.
 
 ## If you want to prepare music
 

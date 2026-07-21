@@ -4,6 +4,13 @@
 > Goal: Use seed and feature search with clear fallback steps.
 > Type: workflow
 
+Here, "compatible" means worth auditioning next to the reference under the search question you
+choose. It does not mean guaranteed harmonic, rhythmic, or stylistic compatibility.
+
+The useful result is a manageable list of alternatives and adjacent ideas. Export the list as a
+crate, or reuse useful tracks as new seeds. Put the strongest candidates into a SET preview when you
+need an order.
+
 ## Steps
 
 1. Search the library for the reference track.
@@ -28,4 +35,5 @@ reliability moves the score toward neutral rather than creating a bonus or autom
 
 ## Output
 
-For a reusable list, export CSV. For a player or DJ app, export M3U and verify the paths work on the target machine.
+Keep a small result in the current set while you compare by ear. For a reusable review list, export
+CSV. For a player or DJ app, export M3U and verify that the paths work on the target machine.

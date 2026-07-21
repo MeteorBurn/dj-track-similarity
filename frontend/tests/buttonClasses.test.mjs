@@ -140,8 +140,11 @@ test("scan action row keeps icon controls on the standard button grid", () => {
   assert.doesNotMatch(styles, /\.scan-action-row\s+\.icon-button\s*{[\s\S]*?width:\s*42px/);
 });
 
-test("analysis controls expose three manual stages and one selected pipeline button", () => {
+test("analysis controls expose one checkbox-driven Analyze action", () => {
   const source = readFileSync(join(srcDir, "LibraryPanel.tsx"), "utf8");
+  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+  const selectionSource = readFileSync(join(srcDir, "analysisSelection.ts"), "utf8");
+  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
 
   assert.match(source, /analysis-model-checkbox/);
   assert.match(source, /analysis-model-name/);
@@ -150,20 +153,37 @@ test("analysis controls expose three manual stages and one selected pipeline but
   assert.match(source, /analysis-model-count/);
   assert.match(source, /analysis-model-check/);
   assert.match(source, /analyze-selected-button/);
-  assert.match(source, /Run SONARA/);
-  assert.match(source, /Run ML/);
-  assert.match(source, /Run CLASSIFIERS/);
-  assert.match(source, /Run selected pipeline/);
+  assert.match(source, />Analyze<\/button>/);
+  assert.match(source, /analysis-full-check/);
+  assert.match(source, />\s*FULL\s*<\/label>/);
   assert.match(source, /classifiers/);
   assert.match(source, /CLASSIFIERS/);
-  assert.match(source, /SONARA\/Symphonia · native batch/);
-  assert.match(source, /общий FFmpeg decode/);
-  assert.match(source, /Отдельный job без чтения аудио/);
+  assert.match(source, /Считает темп, тональность, ритм, динамику, тембр и структуру трека/);
+  assert.match(source, /Помогает понять жанровый характер трека/);
+  assert.match(source, /Ищет похожее звучание от выбранного seed-трека/);
+  assert.match(source, /Связывает текстовое описание с аудио-звучанием/);
+  assert.match(source, /max=\{16\}/);
+  assert.match(source, /sonaraBatchSize >= 16/);
+  assert.match(source, /className="worker-control analysis-limit"/);
+  assert.match(source, /analysis-limit-decrement-button/);
+  assert.match(source, /analysis-limit-increment-button/);
+  assert.match(source, /analysisLimit >= 100000/);
+  assert.doesNotMatch(source, /FFmpeg decode/);
+  assert.match(source, /Отдельный анализ по локальным профилям/);
+  assert.match(source, /ready \{readyClassifiers\}/);
   assert.match(source, /selectedAnalysisModels/);
-  assert.match(source, /onAnalyzeSonara/);
-  assert.match(source, /onAnalyzeMl/);
-  assert.match(source, /onAnalyzeClassifiers/);
-  assert.doesNotMatch(source, /onAnalyze: \(adapter/);
+  assert.doesNotMatch(source, /Run SONARA|Run ML|Run CLASSIFIERS|Run selected pipeline/);
+  assert.doesNotMatch(source, /onAnalyzeSonara|onAnalyzeMl|onAnalyzeClassifiers/);
+  assert.match(selectionSource, /defaultAnalysisSelections: AnalysisSelection\[\] = \["sonara"\]/);
+  assert.match(appSource, /if \(current\.length === 1 && current\.includes\(model\)\) return current/);
+  assert.match(appSource, /if \(model === "sonara" \|\| model === "classifiers"\) \{[\s\S]*?return \[model\]/);
+  assert.match(appSource, /current\.filter\(\(item\) => item !== "sonara" && item !== "classifiers"\)/);
+  assert.match(appSource, /function toggleAllAnalysisModels\(\)[\s\S]*?analysisSelectionOrder\.length[\s\S]*?setSelectedAnalysisModels\(\["sonara"\]\)[\s\S]*?setSonaraOutputs\(\["core"\]\)[\s\S]*?\[\.\.\.analysisSelectionOrder\]/);
+  assert.match(appSource, /const childJobId = currentStage \? job\.stages\[currentStage\]\?\.child_job_id : null/);
+  assert.match(appSource, /currentStage === "classifiers"[\s\S]*?api\.aggregateClassifierJob\(childJobId\)[\s\S]*?api\.analysisJob\(childJobId\)/);
+  assert.match(appSource, /SONARA · \$\{outputs\} · SONARA batch \$\{sonaraBatchSize\}/);
+  assert.match(appSource, /Track batch \$\{analysisTrackBatchSize\} · Inference batch \$\{analysisInferenceBatchSize\}/);
+  assert.match(appSource, /CLASSIFIERS · profiles \$\{classifierKeys\.length\}/);
 
   const modelRowBlock = source.match(/<div className="analysis-model-row"[\s\S]*?<\/div>/)?.[0] || "";
   const modelCheckIndex = modelRowBlock.indexOf("analysis-model-check");
@@ -172,8 +192,13 @@ test("analysis controls expose three manual stages and one selected pipeline but
   const modelDescriptionIndex = modelRowBlock.indexOf("analysis-model-description");
   const modelCountIndex = modelRowBlock.indexOf("analysis-model-count");
   const resetButtonIndex = modelRowBlock.indexOf("analysis-reset-button");
-  const batchSizeIndex = source.indexOf("Embedding batch size");
+  const batchSizeIndex = source.indexOf("Inference batch");
   const analyzeSelectedIndex = source.indexOf("analyze-selected-button");
+  const sonaraRowIndex = source.indexOf('{modelRow("sonara")}');
+  const sonaraDataIndex = source.indexOf('className="sonara-output-options"');
+  const sonaraBatchIndex = source.indexOf("SONARA batch");
+  const mlRowsIndex = source.indexOf("mlAnalysisModelOrder.map(modelRow)");
+  const mlSettingsIndex = source.indexOf('className="analysis-settings-grid ml-analysis-settings"');
   const clapIndex = source.indexOf('"clap"');
   const classifiersIndex = source.indexOf('"classifiers"');
 
@@ -189,6 +214,18 @@ test("analysis controls expose three manual stages and one selected pipeline but
   assert.ok(modelNameIndex < modelCountIndex);
   assert.ok(modelCountIndex < resetButtonIndex);
   assert.doesNotMatch(modelRowBlock, /<label\b[\s\S]*analysis-model-check/);
+  assert.ok(sonaraRowIndex < sonaraDataIndex);
+  assert.ok(sonaraDataIndex < sonaraBatchIndex);
+  assert.ok(sonaraBatchIndex < mlRowsIndex);
+  assert.ok(mlRowsIndex < mlSettingsIndex);
+  assert.match(source, /analysis-family-card sonara-analysis-block/);
+  assert.match(source, /analysis-family-card models-analysis-block/);
+  assert.match(source, /analysis-family-card classifiers-analysis-card/);
+  assert.doesNotMatch(source, /mlModelsSelected/);
+  assert.match(source, /classifiersSelected/);
+  assert.doesNotMatch(styles, /\.analysis-family-card\.selected/);
+  assert.doesNotMatch(styles, /\.analysis-limit\s*\{[^}]*display:\s*flex/);
+  assert.match(styles, /\.ml-analysis-settings \.analysis-device\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;/);
   assert.ok(batchSizeIndex < analyzeSelectedIndex);
   assert.ok(clapIndex < classifiersIndex);
 });
@@ -252,7 +289,6 @@ test("class tab exposes per-classifier missing-score analysis controls", () => {
   assert.match(searchSource, /models\/classifiers\/<profile>\//);
   assert.match(appSource, /selectedAnalysisModels\.includes\("classifiers"\)/);
   assert.match(appSource, /compatibleClassifierKeys/);
-  assert.match(appSource, /api\.analyzeClassifiers/);
   assert.match(appSource, /analysisPipelineStart/);
   assert.match(appSource, /useState<AnalysisSelection\[]>\(defaultAnalysisSelections\)/);
   assert.match(appSource, /is_scoring_compatible !== false/);
@@ -284,14 +320,53 @@ test("per-classifier analyze button validates that classifier before reset and s
   assert.doesNotMatch(handler, /analysisLimit/);
 });
 
-test("analysis controls default to four decoded tracks per batch", () => {
+test("initial database load does not wait for classifier readiness before library tracks", () => {
+  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+  const handler = appSource.match(/async function initializeDatabase[\s\S]*?async function loadLatestJobs/)?.[0] || "";
+
+  const currentIndex = handler.indexOf("const current = await api.currentDatabase()");
+  const classifierRequestIndex = handler.indexOf("const promotedClassifiersRequest = api.classifiers()");
+  const refreshIndex = handler.indexOf("await refreshLibrary(0, true)");
+  const classifierAwaitIndex = handler.indexOf("const promotedClassifiers = await promotedClassifiersRequest");
+
+  assert.notEqual(currentIndex, -1);
+  assert.notEqual(classifierRequestIndex, -1);
+  assert.notEqual(refreshIndex, -1);
+  assert.notEqual(classifierAwaitIndex, -1);
+  assert.ok(currentIndex < classifierRequestIndex);
+  assert.ok(classifierRequestIndex < refreshIndex);
+  assert.ok(refreshIndex < classifierAwaitIndex);
+});
+
+test("explicit database refresh suppresses the duplicate dependency-effect refresh", () => {
+  const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+  const effect = appSource.match(/useEffect\(\(\) => \{[\s\S]*?\}, \[query, searchMode, libraryPreset, likedOnly, classifierMinScores, databasePath\]\);/)?.[0] || "";
+  const initialize = appSource.match(/async function initializeDatabase[\s\S]*?async function loadLatestJobs/)?.[0] || "";
+  const choose = appSource.match(/async function handleChooseDatabase[\s\S]*?async function handleChooseOutputFolder/)?.[0] || "";
+
+  assert.match(appSource, /const suppressNextLibraryRefresh = useRef\(false\)/);
+  assert.match(effect, /if \(suppressNextLibraryRefresh\.current\) \{[\s\S]*?suppressNextLibraryRefresh\.current = false;[\s\S]*?return;/);
+  assert.match(initialize, /suppressNextLibraryRefresh\.current = true;[\s\S]*?setDatabasePath\(current\.path\);[\s\S]*?await refreshLibrary\(0, true\)/);
+  assert.match(choose, /suppressNextLibraryRefresh\.current = true;[\s\S]*?setDatabasePath\(value\.path\);[\s\S]*?await refreshLibrary\(0, true\)/);
+});
+
+test("analysis and scan controls use the measured machine defaults", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
   const apiSource = readFileSync(join(srcDir, "apiClient.ts"), "utf8");
   const schemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "analysis_config.py"), "utf8");
+  const apiSchemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "api_schemas.py"), "utf8");
 
-  assert.match(appSource, /analysisTrackBatchSize,\s*setAnalysisTrackBatchSize\]\s*=\s*useState\(4\)/);
-  assert.match(apiSource, /track_batch_size:\s*payload\.track_batch_size\s*\?\?\s*4/);
-  assert.match(schemaSource, /DEFAULT_ANALYSIS_TRACK_BATCH_SIZE\s*=\s*4/);
+  assert.match(appSource, /scanWorkers,\s*setScanWorkers\]\s*=\s*useState\(8\)/);
+  assert.match(appSource, /analysisTrackBatchSize,\s*setAnalysisTrackBatchSize\]\s*=\s*useState\(8\)/);
+  assert.match(appSource, /analysisInferenceBatchSize,\s*setAnalysisInferenceBatchSize\]\s*=\s*useState\(16\)/);
+  assert.match(appSource, /sonaraBatchSize,\s*setSonaraBatchSize\]\s*=\s*useState\(8\)/);
+  assert.match(apiSource, /track_batch_size:\s*payload\.track_batch_size\s*\?\?\s*8/);
+  assert.match(apiSource, /inference_batch_size:\s*payload\.inference_batch_size\s*\?\?\s*16/);
+  assert.match(schemaSource, /DEFAULT_ANALYSIS_TRACK_BATCH_SIZE\s*=\s*8/);
+  assert.match(schemaSource, /DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE\s*=\s*16/);
+  assert.match(schemaSource, /DEFAULT_SONARA_BATCH_SIZE\s*=\s*8/);
+  assert.match(apiSchemaSource, /class ScanRequest[\s\S]*?workers:\s*int\s*=\s*Field\(default=8/);
+  assert.match(apiSchemaSource, /class TagRefreshRequest[\s\S]*?workers:\s*int\s*=\s*Field\(default=8/);
 });
 
 test("analysis model reset buttons fit inside a full-width row", () => {

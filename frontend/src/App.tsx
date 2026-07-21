@@ -1,5 +1,5 @@
 import type { MouseEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CopyX, FlaskConical, Moon, Power, RefreshCcw, ScrollText, Square, Sun, Wrench } from "lucide-react";
 import { AnalysisJobStatus, AnalysisModel, AnalysisPipelineStatus, api, AudioDedupJobPayload, AudioDedupJobStatus, AudioDoctorJobPayload, AudioDoctorJobStatus, GenreTagJobStatus, PromotedClassifier, RhythmLabLaunchResult, ScanStats, SetBuilderGeneratePayload, SonaraOutput, Track } from "./api";
 import { analysisSelectionOrder, defaultAnalysisSelections, isAudioAnalysisModel, type AnalysisSelection } from "./analysisSelection";
@@ -52,6 +52,7 @@ function openRhythmLabWindow(result: RhythmLabLaunchResult, pendingWindow: Windo
 export function App() {
   const tooltip = useGlobalTooltip();
   const [databasePath, setDatabasePath] = useState<string | null>(null);
+  const suppressNextLibraryRefresh = useRef(false);
   const { activityLog, appendActivity } = useActivityLog();
   const {
     libraryTotal,
@@ -125,10 +126,10 @@ export function App() {
   const [genreTagJob, setGenreTagJob] = useState<GenreTagJobStatus | null>(null);
   const [processLogKind, setProcessLogKind] = useState<"scan" | "analysis" | "genre_tags" | "audio_dedup" | "audio_doctor">("scan");
   const [analysisLimit, setAnalysisLimit] = useState(0);
-  const [scanWorkers, setScanWorkers] = useState(4);
-  const [analysisTrackBatchSize, setAnalysisTrackBatchSize] = useState(4);
-  const [analysisInferenceBatchSize, setAnalysisInferenceBatchSize] = useState(24);
-  const [sonaraBatchSize, setSonaraBatchSize] = useState(64);
+  const [scanWorkers, setScanWorkers] = useState(8);
+  const [analysisTrackBatchSize, setAnalysisTrackBatchSize] = useState(8);
+  const [analysisInferenceBatchSize, setAnalysisInferenceBatchSize] = useState(16);
+  const [sonaraBatchSize, setSonaraBatchSize] = useState(8);
   const [analysisDevice, setAnalysisDevice] = useState<DeviceMode>("auto");
   const [selectedAnalysisModels, setSelectedAnalysisModels] = useState<AnalysisSelection[]>(defaultAnalysisSelections);
   const [sonaraOutputs, setSonaraOutputs] = useState<SonaraOutput[]>(["core"]);
@@ -208,6 +209,10 @@ export function App() {
 
   useEffect(() => {
     if (!databasePath) return;
+    if (suppressNextLibraryRefresh.current) {
+      suppressNextLibraryRefresh.current = false;
+      return;
+    }
     const timer = window.setTimeout(() => {
       void refreshLibrary(0);
     }, 250);
@@ -256,6 +261,16 @@ export function App() {
     const timer = window.setInterval(() => {
       void api.analysisPipeline(analysisPipelineJob.job_id).then((job) => {
         setAnalysisPipelineJob(job);
+        const currentStage = job.current_stage;
+        const childJobId = currentStage ? job.stages[currentStage]?.child_job_id : null;
+        if (childJobId) {
+          const childJobRequest = currentStage === "classifiers"
+            ? api.aggregateClassifierJob(childJobId)
+            : api.analysisJob(childJobId);
+          void childJobRequest.then(setAnalysisJob).catch((error) => {
+            setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
+          });
+        }
         if (["completed", "cancelled", "failed"].includes(job.state)) void refreshLibrary();
       }).catch((error) => {
         setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
@@ -331,13 +346,8 @@ export function App() {
 
   async function initializeDatabase() {
     try {
-      const promotedClassifiers = await api.classifiers();
-      setClassifiers(promotedClassifiers);
-      setClassifierMinScores((current) => {
-        const keys = new Set(promotedClassifiers.map((classifier) => classifier.classifier_key));
-        return Object.fromEntries(Object.entries(current).filter(([key]) => keys.has(key)));
-      });
       const current = await api.currentDatabase();
+      if (current.path !== databasePath) suppressNextLibraryRefresh.current = true;
       setDatabasePath(current.path);
       setMusicRoot(current.music_root || "");
       if (!current.selected) {
@@ -345,7 +355,14 @@ export function App() {
         setNotice({ kind: "idle", text: "Выберите SQLite базу данных" });
         return;
       }
+      const promotedClassifiersRequest = api.classifiers();
       await refreshLibrary(0, true);
+      const promotedClassifiers = await promotedClassifiersRequest;
+      setClassifiers(promotedClassifiers);
+      setClassifierMinScores((current) => {
+        const keys = new Set(promotedClassifiers.map((classifier) => classifier.classifier_key));
+        return Object.fromEntries(Object.entries(current).filter(([key]) => keys.has(key)));
+      });
       await loadLatestJobs(promotedClassifiers);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -444,12 +461,28 @@ export function App() {
   }
 
   function toggleAnalysisModel(model: AnalysisSelection) {
+    if (model === "sonara" && !sonaraOutputs.length) setSonaraOutputs(["core"]);
     setSelectedAnalysisModels((current) => {
-      const next: AnalysisSelection[] = current.includes(model)
-        ? current.filter((item) => item !== model)
-        : [...current, model];
+      if (current.length === 1 && current.includes(model)) return current;
+      if (model === "sonara" || model === "classifiers") {
+        return [model];
+      }
+      const mlSelections = current.filter((item) => item !== "sonara" && item !== "classifiers");
+      const next: AnalysisSelection[] = mlSelections.includes(model)
+        ? mlSelections.filter((item) => item !== model)
+        : [...mlSelections, model];
       return analysisModelOrder.filter((item) => next.includes(item));
     });
+  }
+
+  function toggleAllAnalysisModels() {
+    if (selectedAnalysisModels.length === analysisSelectionOrder.length) {
+      setSelectedAnalysisModels(["sonara"]);
+      setSonaraOutputs(["core"]);
+      return;
+    }
+    setSelectedAnalysisModels([...analysisSelectionOrder]);
+    if (!sonaraOutputs.length) setSonaraOutputs(["core"]);
   }
 
   function toggleSonaraOutput(output: SonaraOutput) {
@@ -622,6 +655,7 @@ export function App() {
         setNotice({ kind: "idle", text: "Выбор базы отменен" });
         return;
       }
+      if (value.path !== databasePath) suppressNextLibraryRefresh.current = true;
       setDatabasePath(value.path);
       resetDatabaseScopedState();
       setMusicRoot(value.music_root || "");
@@ -688,69 +722,6 @@ export function App() {
       .map((classifier) => classifier.classifier_key);
   }
 
-  async function handleAnalyzeSonara() {
-    if (!sonaraOutputs.length) {
-      setNotice({ kind: "error", text: "Выберите хотя бы один SONARA-блок: Core, Timeline или Representations" });
-      return;
-    }
-    const limit = analysisLimit > 0 ? analysisLimit : undefined;
-    setProcessLogKind("analysis");
-    setAnalysisJob(null);
-    await run(
-      () => api.analysisJobStart({
-        models: ["sonara"], limit: limit ?? null, sonara_outputs: sonaraOutputs, sonara_batch_size: sonaraBatchSize
-      }),
-      (job) => {
-        setAnalysisJob(job);
-        appendActivity("ok", "SONARA job создан", `${job.total} треков · SONARA/Symphonia · native batch ${sonaraBatchSize}`);
-        return `SONARA: ${job.total} треков`;
-      }
-    );
-  }
-
-  async function handleAnalyzeMl() {
-    const models = selectedAnalysisModels.filter(
-      (model): model is AnalysisModel => isAudioAnalysisModel(model) && model !== "sonara"
-    );
-    if (!models.length) {
-      setNotice({ kind: "error", text: "Выберите хотя бы одну ML-модель" });
-      return;
-    }
-    const limit = analysisLimit > 0 ? analysisLimit : undefined;
-    setProcessLogKind("analysis");
-    setAnalysisJob(null);
-    await run(
-      () => api.analysisJobStart({
-        models, limit: limit ?? null, device: analysisDevice, top_k: 3,
-        track_batch_size: analysisTrackBatchSize, inference_batch_size: analysisInferenceBatchSize
-      }),
-      (job) => {
-        setAnalysisJob(job);
-        appendActivity("ok", "ML job создан", `${job.total} треков · ${models.map((model) => model.toUpperCase()).join(", ")}`);
-        return `ML: ${job.total} треков`;
-      }
-    );
-  }
-
-  async function handleAnalyzeClassifiers() {
-    const keys = compatibleClassifierKeys();
-    if (!keys.length) {
-      setNotice({ kind: "error", text: "Нет совместимых promoted classifiers: сначала переобучите и promote модели" });
-      return;
-    }
-    const limit = analysisLimit > 0 ? analysisLimit : undefined;
-    setProcessLogKind("analysis");
-    setAnalysisJob(null);
-    await run(
-      () => api.analyzeClassifiers(keys, limit),
-      (job) => {
-        setAnalysisJob(job);
-        appendActivity("ok", "CLASSIFIERS job создан", `${job.total} classifier × track пар · not ready ${job.not_ready || 0}`);
-        return `CLASSIFIERS: ${job.total} пар`;
-      }
-    );
-  }
-
   async function handleAnalyzeSelected() {
     const mlModels = selectedAnalysisModels.filter(
       (model): model is AnalysisModel => isAudioAnalysisModel(model) && model !== "sonara"
@@ -775,6 +746,21 @@ export function App() {
       return;
     }
     const limit = analysisLimit > 0 ? analysisLimit : undefined;
+    const settings: string[] = [];
+    if (includeSonara) {
+      const outputs = sonaraOutputs.map((output) => output[0].toUpperCase() + output.slice(1)).join(", ");
+      settings.push(`SONARA · ${outputs} · SONARA batch ${sonaraBatchSize}`);
+    }
+    if (mlModels.length) {
+      settings.push(
+        `ML · ${mlModels.map((model) => model.toUpperCase()).join(", ")} · Device ${analysisDevice.toUpperCase()} · `
+        + `Track batch ${analysisTrackBatchSize} · Inference batch ${analysisInferenceBatchSize}`
+      );
+    }
+    if (includeClassifiers) settings.push(`CLASSIFIERS · profiles ${classifierKeys.length}`);
+    settings.push(`Analyze limit ${limit ?? "all"}`);
+    setProcessLogKind("analysis");
+    setAnalysisJob(null);
     setAnalysisPipelineJob(null);
     await run(
       () => api.analysisPipelineStart({
@@ -789,8 +775,8 @@ export function App() {
       }),
       (job) => {
         setAnalysisPipelineJob(job);
-        appendActivity("ok", "Pipeline создан", `${job.job_id.slice(0, 8)} · ${job.order.join(" → ")}`);
-        return `Pipeline ${job.job_id.slice(0, 8)}: ${job.order.join(" → ")}`;
+        appendActivity("ok", "Анализ поставлен в очередь", settings.join(" | "));
+        return `Анализ: ${job.order.join(" → ")}`;
       }
     );
   }
@@ -1289,11 +1275,9 @@ export function App() {
           analysisCounts={analysisModelCounts}
           selectedAnalysisModels={selectedAnalysisModels}
           onToggleAnalysisModel={toggleAnalysisModel}
+          onToggleAllAnalysisModels={toggleAllAnalysisModels}
           sonaraOutputs={sonaraOutputs}
           onToggleSonaraOutput={toggleSonaraOutput}
-          onAnalyzeSonara={() => void handleAnalyzeSonara()}
-          onAnalyzeMl={() => void handleAnalyzeMl()}
-          onAnalyzeClassifiers={() => void handleAnalyzeClassifiers()}
           onAnalyzeSelected={() => void handleAnalyzeSelected()}
           onResetAnalysis={(adapter) => requestConfirmation({
             title: `Сбросить ${adapter.toUpperCase()}?`,

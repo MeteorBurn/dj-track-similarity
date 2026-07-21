@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
@@ -58,6 +59,52 @@ def promoted_classifiers(root: str | Path | None = None) -> list[dict[str, objec
         )
         classifiers.append(_promoted_classifier_payload(summary, model_path_exists=model_path.exists()))
     return classifiers
+
+
+@dataclass(frozen=True)
+class ClassifierRequirements:
+    classifier_key: str
+    model_path: Path
+    model_id: str
+    feature_set: str
+    feature_names: tuple[str, ...]
+    required_inputs: tuple[str, ...]
+    sonara_analysis_signature: dict[str, object] | None
+
+
+def load_classifier_requirements(
+    classifier: str,
+    *,
+    model_path: str | Path | None = None,
+) -> ClassifierRequirements:
+    path = Path(model_path) if model_path is not None else default_classifier_model_path(classifier)
+    manifest = _scoring_manifest(path, classifier=classifier, require_default_manifest=model_path is None)
+    payload = _load_payload(path)
+    _validate_payload_against_manifest(payload, manifest, classifier)
+    feature_names = tuple(str(name) for name in payload.get("feature_names", []))
+    if not feature_names:
+        raise ValueError(f"{classifier} model artifact does not contain feature_names")
+    feature_set = str(payload.get("feature_set") or "combined")
+    required = set(manifest.required_inputs if manifest is not None else ())
+    for source in ("sonara", "mert", "maest", "clap"):
+        if any(name.startswith(f"{source}:") for name in feature_names):
+            required.add(source)
+    if feature_set_uses_sonara(feature_set):
+        required.add("sonara")
+    ordered_inputs = tuple(source for source in ("sonara", "mert", "maest", "clap") if source in required)
+    signature = dict(manifest.sonara_analysis_signature) if manifest and manifest.sonara_analysis_signature else None
+    if "sonara" in ordered_inputs and signature is None:
+        raise ValueError(f"{classifier} uses SONARA inputs but has no compatible SONARA analysis signature")
+    model_id = manifest.model_id if manifest is not None and manifest.model_id else str(path)
+    return ClassifierRequirements(
+        classifier_key=classifier,
+        model_path=path,
+        model_id=model_id,
+        feature_set=feature_set,
+        feature_names=feature_names,
+        required_inputs=ordered_inputs,
+        sonara_analysis_signature=signature,
+    )
 
 
 def analyze_classifier(

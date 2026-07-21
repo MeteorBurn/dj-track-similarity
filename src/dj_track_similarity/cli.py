@@ -25,20 +25,26 @@ from .analysis_config import (
     DEFAULT_SONARA_OUTPUTS,
     DEFAULT_ANALYSIS_TOP_K,
     DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
+    DEFAULT_SONARA_BATCH_SIZE,
     MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
     MAX_ANALYSIS_TOP_K,
     MAX_ANALYSIS_TRACK_BATCH_SIZE,
+    MAX_SONARA_BATCH_SIZE,
     ML_ANALYSIS_MODEL_ORDER,
     MIN_ANALYSIS_INFERENCE_BATCH_SIZE,
     MIN_ANALYSIS_TOP_K,
     MIN_ANALYSIS_TRACK_BATCH_SIZE,
+    MIN_SONARA_BATCH_SIZE,
     build_analysis_job_config,
     normalize_analysis_device,
     parse_analysis_models_text,
 )
 from .analysis_jobs import AnalysisJobManager
+from .analysis_pipeline import AnalysisPipelineManager
+from .analysis_queue import AnalysisStageQueue
+from .classifier_jobs import ClassifierJobManager
 from .classifier_production import build_classifier_calibration_report, normalize_label_suggestion_mode, suggest_classifier_labels
-from .classifier_scoring import analyze_classifier as run_classifier_analysis
+from .classifier_scoring import analyze_classifier as run_classifier_analysis, promoted_classifiers
 from .database import LibraryDatabase
 from .db_evaluation import PROMOTED_SCORE_PROFILE_SETTING_KEY
 from .db_schema import CURRENT_SCHEMA_VERSION
@@ -946,6 +952,13 @@ def analyze(
         "--sonara-outputs",
         help="Comma-separated SONARA storage outputs: core,timeline,representations.",
     ),
+    sonara_batch_size: int = typer.Option(
+        DEFAULT_SONARA_BATCH_SIZE,
+        "--sonara-batch-size",
+        min=MIN_SONARA_BATCH_SIZE,
+        max=MAX_SONARA_BATCH_SIZE,
+        help="Native SONARA/Symphonia file batch size; independent from ML batching.",
+    ),
 ) -> None:
     set_analysis_diagnostics_enabled(diagnostics)
     try:
@@ -958,26 +971,125 @@ def analyze(
             top_k=top_k,
             track_batch_size=track_batch_size,
             inference_batch_size=inference_batch_size,
+            sonara_batch_size=sonara_batch_size,
             sonara_outputs=(selected_sonara_outputs if "sonara" in selected_models else None),
         )
     except ValueError as error:
         raise typer.BadParameter(str(error)) from error
     manager = AnalysisJobManager(_db(db_path))
-    job_id = manager.create_job(
-        models=list(config.models),
-        limit=config.limit,
-        device=config.device,
-        top_k=config.top_k,
-        track_batch_size=config.track_batch_size,
-        inference_batch_size=config.inference_batch_size,
-        sonara_outputs=list(config.sonara_outputs),
-    )
-    status = _run_cli_job_with_progress(manager, job_id, label=",".join(config.models))
+    try:
+        job_id = manager.create_job(
+            models=list(config.models),
+            limit=config.limit,
+            device=config.device,
+            top_k=config.top_k,
+            track_batch_size=config.track_batch_size,
+            inference_batch_size=config.inference_batch_size,
+            sonara_batch_size=config.sonara_batch_size,
+            sonara_outputs=list(config.sonara_outputs),
+        )
+        status = _run_cli_job_with_progress(manager, job_id, label=",".join(config.models))
+    except (FileNotFoundError, RuntimeError, ValueError) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
     typer.echo(
         f"state={status.state} total={status.total} processed={status.processed} "
         f"analyzed={status.analyzed} failed={status.failed} models={','.join(status.models)} "
         f"device={status.device} top_k={status.top_k} "
         f"track_batch_size={status.track_batch_size} inference_batch_size={status.inference_batch_size}"
+        f" sonara_batch_size={config.sonara_batch_size}"
+    )
+
+
+@app.command("analyze-classifiers")
+def analyze_classifiers(
+    classifiers: str = typer.Option("", "--classifiers", help="Comma-separated promoted classifier keys; empty means all compatible artifacts."),
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+    limit: Optional[int] = typer.Option(None, "--limit"),
+) -> None:
+    db = _db(db_path)
+    keys = [item.strip() for item in classifiers.split(",") if item.strip()]
+    if not keys:
+        keys = [
+            str(item["classifier_key"])
+            for item in promoted_classifiers()
+            if bool(item.get("is_scoring_compatible", True))
+        ]
+    manager = ClassifierJobManager(db)
+    try:
+        job_id = manager.create_job(classifiers=keys, limit=limit)
+        status = _run_cli_job_with_progress(manager, job_id, label="classifiers")
+    except (FileNotFoundError, RuntimeError, ValueError) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+    typer.echo(
+        f"state={status.state} pairs={status.total} processed={status.processed} "
+        f"scored={status.analyzed} failed={status.failed} not_ready={status.not_ready} "
+        f"classifiers={','.join(status.classifier_keys)}"
+    )
+
+
+@app.command("analyze-pipeline")
+def analyze_pipeline(
+    stages: str = typer.Option("sonara,ml,classifiers", "--stages", help="Selected stages; execution order is always sonara,ml,classifiers."),
+    ml_models: str = typer.Option(",".join(ML_ANALYSIS_MODEL_ORDER), "--ml-models"),
+    classifiers: str = typer.Option("", "--classifiers", help="Comma-separated promoted classifier keys; empty means all compatible artifacts."),
+    db_path: Optional[Path] = typer.Option(None, "--db"),
+    limit: Optional[int] = typer.Option(None, "--limit"),
+    device: str = typer.Option(DEFAULT_ANALYSIS_DEVICE, "--device"),
+    track_batch_size: int = typer.Option(DEFAULT_ANALYSIS_TRACK_BATCH_SIZE, "--track-batch-size", min=1, max=MAX_ANALYSIS_TRACK_BATCH_SIZE),
+    inference_batch_size: int = typer.Option(DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE, "--inference-batch-size", min=1, max=MAX_ANALYSIS_INFERENCE_BATCH_SIZE),
+    sonara_outputs: str = typer.Option(",".join(DEFAULT_SONARA_OUTPUTS), "--sonara-outputs"),
+    sonara_batch_size: int = typer.Option(DEFAULT_SONARA_BATCH_SIZE, "--sonara-batch-size", min=1, max=MAX_SONARA_BATCH_SIZE),
+) -> None:
+    selected_stages = [item.strip().lower() for item in stages.split(",") if item.strip()]
+    selected_ml_models = list(parse_analysis_models_text(ml_models))
+    if "sonara" in selected_ml_models:
+        typer.secho(
+            "SONARA is a separate pipeline stage; remove it from --ml-models and select the sonara stage instead.",
+            err=True,
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(1)
+    classifier_keys = [item.strip() for item in classifiers.split(",") if item.strip()]
+    if "classifiers" in selected_stages and not classifier_keys:
+        classifier_keys = [
+            str(item["classifier_key"])
+            for item in promoted_classifiers()
+            if bool(item.get("is_scoring_compatible", True))
+        ]
+    db = _db(db_path)
+    stage_queue = AnalysisStageQueue()
+    audio_manager = AnalysisJobManager(db, stage_queue=stage_queue)
+    classifier_manager = ClassifierJobManager(db, stage_queue=stage_queue)
+    manager = AnalysisPipelineManager(audio_manager, classifier_manager, stage_queue)
+    try:
+        job_id = manager.create_job(
+            stages=selected_stages,
+            limit=limit,
+            sonara={
+                "outputs": [item.strip() for item in sonara_outputs.split(",") if item.strip()],
+                "batch_size": sonara_batch_size,
+            },
+            ml={
+                "models": selected_ml_models,
+                "device": normalize_analysis_device(device),
+                "track_batch_size": track_batch_size,
+                "inference_batch_size": inference_batch_size,
+                "top_k": DEFAULT_ANALYSIS_TOP_K,
+            },
+            classifiers={"classifier_keys": classifier_keys},
+        )
+        status = manager.run_job(job_id)
+    except (FileNotFoundError, RuntimeError, ValueError) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+    typer.echo(
+        f"state={status.state} order={','.join(status.order)} "
+        + " ".join(
+            f"{stage}={status.stages[stage].state}:{status.stages[stage].child_job_id or '-'}"
+            for stage in status.order
+        )
     )
 
 

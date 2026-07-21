@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Iterable, Mapping
 
 import numpy as np
 
@@ -37,6 +37,56 @@ EMBEDDING_PRESENCE_FLAG_COLUMNS = {
     "muq": "has_muq_embedding",
     "clap": "has_clap_embedding",
 }
+
+
+def _classifier_ready_sql(
+    required_inputs: Iterable[str],
+    sonara_signature: dict[str, object] | None,
+) -> tuple[str, tuple[object, ...]]:
+    required = {str(value).strip().lower() for value in required_inputs}
+    unknown = required - {"sonara", "mert", "maest", "clap"}
+    if unknown:
+        raise ValueError(f"Unsupported classifier inputs: {', '.join(sorted(unknown))}")
+    conditions: list[str] = []
+    params: list[object] = []
+    if "sonara" in required:
+        signature_id = str((sonara_signature or {}).get("signature_id") or "")
+        if not signature_id:
+            raise ValueError("SONARA classifier readiness requires an analysis signature")
+        conditions.append(
+            "t.has_sonara_analysis = 1 AND "
+            "COALESCE(json_extract(t.metadata_json, '$.sonara_analysis_signature.signature_id'), '') = ?"
+        )
+        params.append(signature_id)
+    for source in ("mert", "maest", "clap"):
+        if source in required:
+            conditions.append(f"t.has_{source}_embedding = 1")
+    return (" AND ".join(f"({condition})" for condition in conditions) or "1 = 1", tuple(params))
+
+
+def _classifier_sonara_features_are_present(track: Track, feature_names: Iterable[str]) -> bool:
+    metadata = track.metadata if isinstance(track.metadata, Mapping) else {}
+    features = metadata.get("sonara_features")
+    sonara_names = tuple(name for name in feature_names if str(name).startswith("sonara:"))
+    if not sonara_names:
+        return True
+    if not isinstance(features, Mapping):
+        return False
+    for name in sonara_names:
+        key = str(name).partition(":")[2]
+        field, separator, index_text = key.rpartition(":")
+        raw = features.get(field if separator and index_text.isdigit() else key)
+        if isinstance(raw, Mapping):
+            raw = raw.get("value")
+        if separator and index_text.isdigit():
+            if not isinstance(raw, (list, tuple)):
+                return False
+            index = int(index_text)
+            if index >= len(raw) or optional_float(raw[index]) is None:
+                return False
+        elif optional_float(raw) is None:
+            return False
+    return True
 
 
 def _delete_sonara_dependent_classifier_scores(connection, *, track_id: int | None = None) -> int:
@@ -135,6 +185,75 @@ class AnalysisRepository:
                 (classifier.strip(), DEFAULT_EMBEDDING_KEY, *params),
             ).fetchall()
         return [self._row_to_track(row, include_metadata=True) for row in rows]
+
+    def classifier_candidate_readiness(
+        self,
+        classifier: str,
+        *,
+        model_id: str,
+        required_inputs: Iterable[str],
+        sonara_signature: dict[str, object] | None = None,
+        feature_names: Iterable[str] = (),
+    ) -> dict[str, int]:
+        required = tuple(required_inputs)
+        names = tuple(str(name) for name in feature_names)
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS candidates
+                FROM tracks t
+                LEFT JOIN track_classifier_scores s
+                  ON s.track_id = t.id AND s.classifier = ?
+                WHERE s.track_id IS NULL OR s.model_id != ?
+                """,
+                (classifier.strip(), str(model_id)),
+            ).fetchone()
+        candidates = int(row["candidates"] or 0)
+        ready = len(
+            self.list_classifier_candidates(
+                classifier,
+                model_id=model_id,
+                required_inputs=required,
+                sonara_signature=sonara_signature,
+                feature_names=names,
+            )
+        )
+        return {"candidates": candidates, "ready": ready, "not_ready": candidates - ready}
+
+    def list_classifier_candidates(
+        self,
+        classifier: str,
+        *,
+        model_id: str,
+        required_inputs: Iterable[str],
+        sonara_signature: dict[str, object] | None = None,
+        feature_names: Iterable[str] = (),
+        limit: int | None = None,
+    ) -> list[Track]:
+        ready_sql, ready_params = _classifier_ready_sql(required_inputs, sonara_signature)
+        with self.connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT {TRACK_SELECT_FIELDS}
+                FROM tracks t
+                LEFT JOIN track_classifier_scores s
+                  ON s.track_id = t.id AND s.classifier = ?
+                LEFT JOIN embeddings e ON e.track_id = t.id AND e.embedding_key = ?
+                WHERE (s.track_id IS NULL OR s.model_id != ?)
+                  AND {ready_sql}
+                ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
+                """,
+                (classifier.strip(), DEFAULT_EMBEDDING_KEY, str(model_id), *ready_params),
+            ).fetchall()
+        tracks = [
+            track
+            for row in rows
+            if _classifier_sonara_features_are_present(
+                track := self._row_to_track(row, include_metadata=True),
+                feature_names,
+            )
+        ]
+        return tracks if limit is None else tracks[: max(0, int(limit))]
 
     def list_tracks_with_maest_genres(self) -> list[Track]:
         with self.connect() as connection:
@@ -418,6 +537,60 @@ class AnalysisRepository:
         if adapter == "sonara":
             return self._reset_sonara_analysis()
         raise ValueError(f"Unsupported analysis adapter reset: {adapter}")
+
+    def sonara_migration_blockers(
+        self,
+        expected_signatures: dict[str, dict[str, object]],
+    ) -> dict[str, int]:
+        """Count persisted SONARA rows that belong to a different analysis contract."""
+
+        signature_ids = {
+            output: str(signature.get("signature_id") or "")
+            for output, signature in expected_signatures.items()
+        }
+        with self.connect() as connection:
+            core_id = signature_ids.get("core", "")
+            timeline_id = signature_ids.get("timeline", "")
+            representations_id = signature_ids.get("representations", "")
+            core = int(
+                connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM tracks
+                    WHERE json_type(metadata_json, '$.sonara_features') IS NOT NULL
+                      AND COALESCE(json_extract(metadata_json, '$.sonara_analysis_signature.signature_id'), '') != ?
+                    """,
+                    (core_id,),
+                ).fetchone()[0]
+            )
+            timeline = int(
+                connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM timeline.sonara_timeline
+                    WHERE COALESCE(analysis_signature_id, '') != ?
+                    """,
+                    (timeline_id,),
+                ).fetchone()[0]
+            )
+            representations = int(
+                connection.execute(
+                    """
+                    SELECT
+                        (SELECT COUNT(*) FROM representations.embeddings
+                         WHERE embedding_key = 'sonara' AND COALESCE(analysis_signature_id, '') != ?)
+                      + (SELECT COUNT(*) FROM representations.fingerprints
+                         WHERE fingerprint_key = 'fingerprint' AND COALESCE(analysis_signature_id, '') != ?)
+                    """,
+                    (representations_id, representations_id),
+                ).fetchone()[0]
+            )
+        return {
+            "core": core,
+            "timeline": timeline,
+            "representations": representations,
+            "total": core + timeline + representations,
+        }
 
     def clear_library(self) -> dict[str, int]:
         with self._write_lock, self.connect() as connection:

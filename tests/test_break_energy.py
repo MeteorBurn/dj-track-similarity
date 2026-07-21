@@ -9,6 +9,7 @@ import pytest
 
 from dj_track_similarity.classifier_jobs import ClassifierJobManager
 from dj_track_similarity.classifier_scoring import (
+    ClassifierRequirements,
     ClassifierScorer,
     _embedding_vectors,
     analyze_classifier,
@@ -36,6 +37,18 @@ class AlmostCertainModel:
 
     def predict(self, matrix):
         return np.asarray(["broken"] * matrix.shape[0])
+
+
+def _job_requirements(root: Path, classifier: str) -> ClassifierRequirements:
+    return ClassifierRequirements(
+        classifier_key=classifier,
+        model_path=root / classifier / "model.joblib",
+        model_id="model.joblib",
+        feature_set="test",
+        feature_names=(),
+        required_inputs=(),
+        sonara_analysis_signature=None,
+    )
 
 
 def test_analyze_classifier_scores_feature_complete_tracks_and_skips_missing_features(tmp_path: Path) -> None:
@@ -299,7 +312,7 @@ def test_classifier_filter_page_uses_score_lookup_index(tmp_path: Path, monkeypa
 def test_classifier_jobs_are_scoped_by_classifier_key(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     _track(db, tmp_path, "one.wav")
-    manager = ClassifierJobManager(db)
+    manager = ClassifierJobManager(db, requirements_loader=lambda key: _job_requirements(tmp_path, key))
 
     break_job = manager.create_job(classifier="break_energy")
     live_job = manager.create_job(classifier="live_instrumentation")
@@ -328,7 +341,7 @@ def test_classifier_job_total_counts_only_missing_classifier_scores(tmp_path: Pa
         feature_set="combined",
         model_id="model.joblib",
     )
-    manager = ClassifierJobManager(db)
+    manager = ClassifierJobManager(db, requirements_loader=lambda key: _job_requirements(tmp_path, key))
 
     job_id = manager.create_job(classifier="break_energy")
 

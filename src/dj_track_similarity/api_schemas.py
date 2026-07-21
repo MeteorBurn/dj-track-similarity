@@ -11,12 +11,15 @@ from .analysis_config import (
     ML_ANALYSIS_MODEL_ORDER,
     DEFAULT_ANALYSIS_TOP_K,
     DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
+    DEFAULT_SONARA_BATCH_SIZE,
     MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
     MAX_ANALYSIS_TOP_K,
     MAX_ANALYSIS_TRACK_BATCH_SIZE,
+    MAX_SONARA_BATCH_SIZE,
     MIN_ANALYSIS_INFERENCE_BATCH_SIZE,
     MIN_ANALYSIS_TOP_K,
     MIN_ANALYSIS_TRACK_BATCH_SIZE,
+    MIN_SONARA_BATCH_SIZE,
 )
 
 
@@ -69,7 +72,6 @@ class AnalysisJobRequest(BaseModel):
 
     limit: int | None = None
     models: list[str] = Field(default_factory=lambda: list(ML_ANALYSIS_MODEL_ORDER))
-    classifier_keys: list[str] = Field(default_factory=list)
     device: str = Field(default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN)
     top_k: int = Field(default=DEFAULT_ANALYSIS_TOP_K, ge=MIN_ANALYSIS_TOP_K, le=MAX_ANALYSIS_TOP_K)
     track_batch_size: int = Field(
@@ -81,6 +83,11 @@ class AnalysisJobRequest(BaseModel):
         default=DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
         ge=MIN_ANALYSIS_INFERENCE_BATCH_SIZE,
         le=MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
+    )
+    sonara_batch_size: int = Field(
+        default=DEFAULT_SONARA_BATCH_SIZE,
+        ge=MIN_SONARA_BATCH_SIZE,
+        le=MAX_SONARA_BATCH_SIZE,
     )
     sonara_outputs: list[str] | None = None
 
@@ -118,6 +125,46 @@ class AudioDoctorJobRequest(BaseModel):
 
 class ClassifierAnalyzeRequest(BaseModel):
     limit: int | None = None
+
+
+class ClassifiersAnalyzeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    classifier_keys: list[str] = Field(default_factory=list)
+    limit: int | None = None
+
+
+class SonaraPipelineSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    outputs: list[str] = Field(default_factory=lambda: ["core"])
+    batch_size: int = Field(default=DEFAULT_SONARA_BATCH_SIZE, ge=MIN_SONARA_BATCH_SIZE, le=MAX_SONARA_BATCH_SIZE)
+
+
+class MlPipelineSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    models: list[str] = Field(default_factory=lambda: list(ML_ANALYSIS_MODEL_ORDER))
+    device: str = Field(default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN)
+    top_k: int = Field(default=DEFAULT_ANALYSIS_TOP_K, ge=MIN_ANALYSIS_TOP_K, le=MAX_ANALYSIS_TOP_K)
+    track_batch_size: int = Field(default=DEFAULT_ANALYSIS_TRACK_BATCH_SIZE, ge=MIN_ANALYSIS_TRACK_BATCH_SIZE, le=MAX_ANALYSIS_TRACK_BATCH_SIZE)
+    inference_batch_size: int = Field(default=DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE, ge=MIN_ANALYSIS_INFERENCE_BATCH_SIZE, le=MAX_ANALYSIS_INFERENCE_BATCH_SIZE)
+
+
+class ClassifierPipelineSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    classifier_keys: list[str] = Field(default_factory=list)
+
+
+class AnalysisPipelineRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stages: list[Literal["sonara", "ml", "classifiers"]]
+    limit: int | None = None
+    sonara: SonaraPipelineSettings = Field(default_factory=SonaraPipelineSettings)
+    ml: MlPipelineSettings = Field(default_factory=MlPipelineSettings)
+    classifiers: ClassifierPipelineSettings = Field(default_factory=ClassifierPipelineSettings)
 
 
 class ClassifierResetRequest(BaseModel):

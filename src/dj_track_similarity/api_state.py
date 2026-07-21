@@ -4,6 +4,8 @@ import threading
 from pathlib import Path
 
 from .analysis_jobs import AnalysisJobManager
+from .analysis_pipeline import AnalysisPipelineManager
+from .analysis_queue import AnalysisStageQueue
 from .audio_dedup_jobs import AudioDedupJobManager
 from .audio_doctor_jobs import AudioDoctorJobManager
 from .classifier_jobs import ClassifierJobManager
@@ -29,6 +31,8 @@ class AppDatabaseState:
         self.db_path: Path | None = None
         self.db: LibraryDatabase | None = None
         self.analysis_jobs: AnalysisJobManager | None = None
+        self.analysis_pipeline_jobs: AnalysisPipelineManager | None = None
+        self.analysis_queue: AnalysisStageQueue | None = None
         self.audio_dedup_jobs: AudioDedupJobManager | None = None
         self.audio_doctor_jobs: AudioDoctorJobManager | None = None
         self.classifier_jobs: ClassifierJobManager | None = None
@@ -59,10 +63,16 @@ class AppDatabaseState:
             db = LibraryDatabase(selected)
             self.db_path = db.path
             self.db = db
-            self.analysis_jobs = AnalysisJobManager(db)
+            self.analysis_queue = AnalysisStageQueue()
+            self.analysis_jobs = AnalysisJobManager(db, stage_queue=self.analysis_queue)
             self.audio_dedup_jobs = AudioDedupJobManager(db)
             self.audio_doctor_jobs = AudioDoctorJobManager(db)
-            self.classifier_jobs = ClassifierJobManager(db)
+            self.classifier_jobs = ClassifierJobManager(db, stage_queue=self.analysis_queue)
+            self.analysis_pipeline_jobs = AnalysisPipelineManager(
+                self.analysis_jobs,
+                self.classifier_jobs,
+                self.analysis_queue,
+            )
             self.scan_jobs = ScanJobManager(db)
             self.genre_tag_jobs = GenreTagJobManager(db)
             return self.current()
@@ -81,6 +91,11 @@ class AppDatabaseState:
         self.require_db()
         assert self.classifier_jobs is not None
         return self.classifier_jobs
+
+    def require_analysis_pipeline_jobs(self) -> AnalysisPipelineManager:
+        self.require_db()
+        assert self.analysis_pipeline_jobs is not None
+        return self.analysis_pipeline_jobs
 
     def require_audio_dedup_jobs(self) -> AudioDedupJobManager:
         self.require_db()
@@ -105,6 +120,7 @@ class AppDatabaseState:
     def _has_active_jobs(self) -> bool:
         managers = [
             self.analysis_jobs,
+            self.analysis_pipeline_jobs,
             self.audio_dedup_jobs,
             self.audio_doctor_jobs,
             self.classifier_jobs,

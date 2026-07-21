@@ -61,6 +61,8 @@ The UI creates a job and polls progress. It also shows the current model/path an
 When SONARA is selected, Core is checked by default. Timeline and Representations appear as optional
 checkboxes. Select all three when you want complete beat/onset/chord/curve data plus SONARA embedding
 and fingerprint. All selected outputs still share one FFmpeg decode and one Rust analysis call.
+The FFmpeg path forms mono audio with the arithmetic mean of all source channels so correlated
+stereo material does not receive the default equal-power 3 dB lift.
 
 ## Already analyzed tracks
 

@@ -317,7 +317,7 @@ const sonaraFeatureLabels: Record<string, string> = {
   // SONARA 2.0 opt-in: beatgrid
   grid_offset_sec: "Grid offset",
   grid_stability: "Grid stability",
-  // SONARA opt-in: voice heuristics
+  // SONARA opt-in: bundled voice model
   vocalness: "Vocalness",
   instrumentalness: "Instrumentalness",
   // SONARA opt-in: mood heuristics
@@ -336,7 +336,7 @@ const sonaraFeatureDescriptions: Record<string, string> = {
   bpm_candidates: "Ranked tempo candidates as BPM and confidence-score pairs",
   bpm_confidence: "Tempo detection confidence (0.0 - 1.0)",
   tempo_variability: "Within-track tempo variation retained as archival data for future rhythm features",
-  time_signature: "Detected musical meter retained as archival data for future rhythm features",
+  time_signature: "Detected musical meter; shown as Unknown when confidence is zero",
   time_signature_confidence: "Confidence in the detected time signature (0.0 - 1.0)",
   embedding_version: "SONARA version identifier for the stored archival audio embedding",
   fingerprint_version: "SONARA version identifier for the stored archival audio fingerprint",
@@ -380,8 +380,8 @@ const sonaraFeatureDescriptions: Record<string, string> = {
   loudness_range_lu: "Loudness range (LU)",
   grid_offset_sec: "Beat-grid offset from the first sample",
   grid_stability: "Beat-grid stability (0 = drifting, 1 = steady)",
-  vocalness: "Heuristic v2 vocal presence estimate (0 = instrumental, 1 = vocal)",
-  instrumentalness: "Heuristic v2 instrumental estimate (1 - vocalness)",
+  vocalness: "Bundled SONARA vocal model score P(vocal) (0 = instrumental, 1 = vocal)",
+  instrumentalness: "Bundled SONARA instrumental score (1 - P(vocal))",
   mood_happy: "Heuristic v1 affinity for a happy mood (0.0 - 1.0; not a classifier)",
   mood_aggressive: "Heuristic v1 affinity for an aggressive mood (0.0 - 1.0; not a classifier)",
   mood_relaxed: "Heuristic v1 affinity for a relaxed mood (0.0 - 1.0; not a classifier)",
@@ -445,6 +445,7 @@ const sonaraProvenanceFields = [
   { key: "mode", label: "Mode", description: "SONARA analysis mode" },
   { key: "sample_rate", label: "Sample rate", description: "Effective sample rate after resampling" },
   { key: "hop_length", label: "Hop length", description: "Main analysis hop length in samples" },
+  { key: "vocalness_model_id", label: "Vocal model", description: "Bundled SONARA vocal classifier used for vocalness and instrumentalness" },
   { key: "requested_features", label: "Requested features", description: "Exact SONARA feature request used for this analysis" }
 ] as const;
 
@@ -462,6 +463,7 @@ const sonaraSignatureFields = [
 function readableSonaraFeatureGroups(raw: unknown) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
   const record = raw as Record<string, unknown>;
+  const timeSignatureConfidence = sonaraNumericPayloadValue(record.time_signature_confidence);
   return sonaraPlaylistFeatureGroups
     .map((group) => ({
       title: group.title,
@@ -477,13 +479,22 @@ function readableSonaraFeatureGroups(raw: unknown) {
           return {
             key,
             label: sonaraFeatureLabels[key] || formatFeatureLabel(key),
-            value: formatSonaraValue(featureRecord, key),
+            value: key === "time_signature" && timeSignatureConfidence === 0
+              ? "Unknown"
+              : formatSonaraValue(featureRecord, key),
             description: sonaraFeatureDescriptions[key] || ""
           };
         })
         .filter((feature) => feature != null)
     }))
     .filter((group) => group.features.length);
+}
+
+function sonaraNumericPayloadValue(payload: unknown) {
+  if (typeof payload === "number") return payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
+  const value = (payload as Record<string, unknown>).value;
+  return typeof value === "number" ? value : undefined;
 }
 
 function readableSonaraProvenanceGroups(raw: unknown) {

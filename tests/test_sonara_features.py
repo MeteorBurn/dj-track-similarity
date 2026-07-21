@@ -476,7 +476,7 @@ def test_default_analysis_writes_only_core_output(tmp_path: Path) -> None:
     assert signature["sonara_version"] == "0.2.9"
     assert signature["schema_version"] == 4
     assert signature["bpm_range"] == [70, 180]
-    assert signature["project_feature_revision"] == 2
+    assert signature["project_feature_revision"] == 3
     assert "embedding" not in signature["requested_features"]
     assert sonara_analysis_signature_errors(signature) == ()
     assert db.load_sonara_timeline(track_id) is None

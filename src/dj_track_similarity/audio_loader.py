@@ -17,6 +17,13 @@ from .logging_config import analysis_diagnostics_enabled
 LOGGER = logging.getLogger(__name__)
 INVALID_AUDIO_STREAM_MESSAGE = "Invalid audio stream: ffmpeg could not decode audio"
 SONARA_DECODE_SAMPLE_RATE = 22_050
+# FFmpeg's default stereo -> mono matrix uses equal-power coefficients and can
+# raise correlated stereo material by about 3 dB. The pan filter's ``<`` form
+# renormalizes the active input terms, so every present channel contributes
+# exactly 1 / channel_count. FFmpeg ignores cN terms that are absent from the
+# input, which keeps one deterministic expression valid for mono through its
+# 64-channel maximum.
+FFMPEG_ARITHMETIC_MONO_FILTER = "pan=mono|c0<" + "+".join(f"c{index}" for index in range(64))
 
 
 @dataclass(frozen=True)
@@ -135,6 +142,8 @@ def _load_with_ffmpeg(path: Path, *, target_sample_rate: int | None = None) -> t
         "-vn",
         "-sn",
         "-dn",
+        "-af",
+        FFMPEG_ARITHMETIC_MONO_FILTER,
         "-f",
         "f32le",
         "-acodec",
@@ -156,7 +165,11 @@ def _load_with_ffmpeg(path: Path, *, target_sample_rate: int | None = None) -> t
     if usable <= 0:
         raise RuntimeError(_invalid_audio_stream_message("ffmpeg produced an incomplete float32 audio buffer"))
     audio = np.frombuffer(result.stdout[:usable], dtype=np.float32)
-    detail = "ffmpeg decode" if target_sample_rate is None else f"ffmpeg decode @ {sample_rate} Hz"
+    detail = (
+        "ffmpeg decode (arithmetic channel mean)"
+        if target_sample_rate is None
+        else f"ffmpeg decode @ {sample_rate} Hz (arithmetic channel mean)"
+    )
     return audio.astype(np.float32, copy=False), sample_rate, detail
 
 

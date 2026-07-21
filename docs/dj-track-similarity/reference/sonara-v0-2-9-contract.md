@@ -10,13 +10,15 @@
 | --- | --- |
 | SONARA package | `0.2.9` |
 | Upstream result schema | `4` |
-| Project feature revision | `2` |
+| Project feature revision | `3` |
 | Mode | `playlist` |
-| Sample rate | `22050 Hz` mono `float32` |
+| Sample rate | `22050 Hz` mono `float32`, arithmetic mean of all source channels |
 | BPM range | `70..180` |
 | Core vocalness model | bundled `sonara-vocalness-v2` |
 
-The project FFmpeg decoder produces one decoded buffer per track. A SONARA-only job passes that
+The project FFmpeg decoder uses a normalized `pan` mix so each source channel contributes exactly
+`1 / channel_count`; unlike FFmpeg's default equal-power stereo downmix, correlated material is not
+raised by about 3 dB. It produces one decoded buffer per track. A SONARA-only job passes that
 buffer directly to `sonara.analyze_signal`; Python orchestrates the job and persistence but does not
 decode the file a second time.
 
@@ -44,7 +46,7 @@ Every output signature hashes these fields:
   "sample_rate": 22050,
   "bpm_range": [70, 180],
   "requested_features": ["output-specific", "sorted", "feature", "names"],
-  "project_feature_revision": 2,
+  "project_feature_revision": 3,
   "signature_id": "sha256:..."
 }
 ```
@@ -67,6 +69,9 @@ MAEST metadata, MAEST/MERT/MuQ/CLAP embeddings, likes, feedback, evaluation rows
 scores that do not depend on SONARA. It clears old SONARA features and curves and invalidates only
 SONARA-dependent classifier scores. Schema v4 and older databases are rejected. Reanalyze SONARA
 tracks with the current contract.
+
+Project feature revision `3` also invalidates revision `2` rows produced with FFmpeg's equal-power
+mono matrix. Reanalysis replaces those rows without resetting the database or touching source audio.
 
 ## Scoring boundary
 

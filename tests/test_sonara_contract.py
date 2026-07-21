@@ -36,7 +36,7 @@ def test_analysis_signature_is_deterministic_and_sorts_requested_profile() -> No
     assert first == second
     assert first["requested_features"] == ["bpm", "structure", "vocalness"]
     assert first["bpm_range"] == [70, 180]
-    assert first["project_feature_revision"] == 2
+    assert first["project_feature_revision"] == 3
     assert str(first["signature_id"]).startswith("sha256:")
     assert sonara_analysis_signature_errors(first) == ()
 
@@ -239,7 +239,7 @@ def test_database_revision_migration_invalidates_old_scores_once_without_feedbac
             "SELECT value FROM library_settings WHERE key = ?",
             (SONARA_CLASSIFIER_REVISION_SETTING_KEY,),
         ).fetchone()[0]
-    assert revision == "2"
+    assert revision == "3"
 
 
 def _track(db: LibraryDatabase, tmp_path: Path, name: str) -> int:

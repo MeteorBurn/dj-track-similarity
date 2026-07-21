@@ -150,7 +150,7 @@ audio files -> scan tags -> SQLite library -> browse/search/export
 The app keeps evidence sources separate:
 
 - **File tags** come from Mutagen during scan and Refresh Tags.
-- **SONARA** stores audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy. It runs as a separate CPU/Rust analysis job: project FFmpeg decodes each file directly to mono float32 at 22050 Hz, then the native SONARA Rust analyzer reads that buffer. It cannot be selected in the same job as MAEST, MERT, MuQ, CLAP, or classifiers. **Core** is the default output; **Timeline** and **Representations** are optional checkboxes. SONARA BPM analysis uses the project range `70.0..180.0`.
+- **SONARA** stores audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy. It runs as a separate CPU/Rust analysis job: project FFmpeg decodes each file directly to mono float32 at 22050 Hz using the arithmetic mean of all source channels, then the native SONARA Rust analyzer reads that buffer. It cannot be selected in the same job as MAEST, MERT, MuQ, CLAP, or classifiers. **Core** is the default output; **Timeline** and **Representations** are optional checkboxes. SONARA BPM analysis uses the project range `70.0..180.0`.
 - **MAEST** stores genre labels and an audio embedding.
 - **MERT** stores an audio embedding for seed similarity.
 - **MuQ** stores a separate audio embedding. LAB Reference Compare can inspect MuQ neighbors for one seed track, but MuQ is not used by MERT/SONARA search, SET, Hybrid, Audio Dedup, or classifier scoring.
@@ -166,7 +166,7 @@ SONARA mood and instrumentalness values are retained for inspection and possible
 
 Each SONARA result also retains analysis provenance, including the upstream schema and the installed package version when available. This makes later reanalysis and result audits easier to plan.
 
-A deterministic signature is stored independently for each selected SONARA output. It covers SONARA `0.2.9`, schema `4`, playlist mode, sample rate, BPM range, output feature profile, and project feature revision `2`. A missing or mismatched output is scheduled without forcing already-current outputs to be recomputed.
+A deterministic signature is stored independently for each selected SONARA output. It covers SONARA `0.2.9`, schema `4`, playlist mode, sample rate, BPM range, output feature profile, and project feature revision `3`. Revision `3` records the arithmetic channel-mean decode contract. Earlier equal-power mono results are stale. A missing or mismatched output is scheduled without forcing already-current outputs to be recomputed.
 
 A file genre tag, a MAEST genre label, a CLAP text score, and an audio-to-audio duplicate score answer different questions. They can all help, but they should not be treated as one universal truth scale.
 

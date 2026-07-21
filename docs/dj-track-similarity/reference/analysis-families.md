@@ -53,7 +53,7 @@ and Representations can be added during the first analysis or computed later wit
 
 The track metadata also stores `sonara_provenance` separately from feature values. It preserves the provenance fields returned by SONARA, such as schema version, sample rate, hop length, mode, and requested features, and adds the installed SONARA package version when the package exposes it. The metadata dialog displays this information for result audits and reanalysis decisions. Reset SONARA removes the provenance with the feature data.
 
-Each output has a separate compatibility signature. Its deterministic digest covers SONARA `0.2.9`, upstream schema `4`, playlist mode, sample rate `22050`, BPM range `70..180`, the output's sorted feature profile, and project feature revision `2`. Core keeps its full signature in track metadata. Side rows keep their own signature and digest.
+Each output has a separate compatibility signature. Its deterministic digest covers SONARA `0.2.9`, upstream schema `4`, playlist mode, sample rate `22050`, BPM range `70..180`, the output's sorted feature profile, and project feature revision `3`. Core keeps its full signature in track metadata. Side rows keep their own signature and digest.
 
 The project model label `sonara-playlist-lab` is informational and is not a freshness check. The
 signature contains expanded, sorted upstream feature names rather than only the three project output

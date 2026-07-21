@@ -207,16 +207,26 @@ test("metadata dialog shows analysis availability badges", () => {
   assert.match(source, /CLASSIFIERS/);
 });
 
-test("metadata dialog keeps new SONARA heuristics as data-only feature groups", () => {
+test("metadata dialog describes the bundled SONARA vocal model", () => {
   const source = readFileSync(dialogPath, "utf8");
 
   assert.match(source, /title:\s*"Voice",\s*keys:\s*\["vocalness", "instrumentalness"\]/);
   assert.match(source, /title:\s*"Mood",\s*keys:\s*\["mood_happy", "mood_aggressive", "mood_relaxed", "mood_sad"\]/);
-  assert.match(source, /instrumentalness:\s*"Heuristic v2 instrumental estimate \(1 - vocalness\)"/);
+  assert.match(source, /vocalness:\s*"Bundled SONARA vocal model score P\(vocal\)/);
+  assert.match(source, /instrumentalness:\s*"Bundled SONARA instrumental score \(1 - P\(vocal\)\)"/);
+  assert.match(source, /key:\s*"vocalness_model_id", label:\s*"Vocal model"/);
   assert.match(source, /mood_happy:\s*"Heuristic v1 affinity for a happy mood/);
   assert.match(source, /mood_aggressive:\s*"Heuristic v1 affinity for an aggressive mood/);
   assert.match(source, /mood_relaxed:\s*"Heuristic v1 affinity for a relaxed mood/);
   assert.match(source, /mood_sad:\s*"Heuristic v1 affinity for a sad mood/);
+});
+
+test("metadata dialog hides a zero-confidence time-signature guess", () => {
+  const source = readFileSync(dialogPath, "utf8");
+
+  assert.match(source, /const timeSignatureConfidence = sonaraNumericPayloadValue\(record\.time_signature_confidence\);/);
+  assert.match(source, /key === "time_signature" && timeSignatureConfidence === 0\s*\? "Unknown"/);
+  assert.match(source, /time_signature:\s*"Detected musical meter; shown as Unknown when confidence is zero"/);
 });
 
 test("metadata dialog keeps light rhythm metadata in Core and identity data in Representations", () => {

@@ -1,6 +1,7 @@
 from pathlib import Path
 import inspect
 import logging
+import shutil
 import subprocess
 from types import SimpleNamespace
 import wave
@@ -39,6 +40,17 @@ def _write_mono_pcm_wav(path: Path, *, sample_rate: int = 44_100) -> bytes:
         audio.setframerate(sample_rate)
         audio.writeframes(samples.tobytes())
     return samples.tobytes()
+
+
+def _write_identical_stereo_pcm_wav(path: Path, *, sample_rate: int = 44_100) -> np.ndarray:
+    mono = np.array([0, 8192, 16384, 24576, 29490, -29490, -16384, -8192], dtype="<i2")
+    samples = np.column_stack((mono, mono))
+    with wave.open(str(path), "wb") as audio:
+        audio.setnchannels(2)
+        audio.setsampwidth(2)
+        audio.setframerate(sample_rate)
+        audio.writeframes(samples.tobytes())
+    return mono.astype(np.float32) / 32768.0
 
 
 def _make_malformed_wave(path: Path) -> None:
@@ -133,7 +145,22 @@ def test_load_sonara_decoded_audio_uses_ffmpeg_at_22050_hz(monkeypatch, tmp_path
     assert result.sample_rate == 22_050
     assert np.allclose(result.audio, decoded)
     assert commands[0][commands[0].index("-ar") + 1] == "22050"
+    assert commands[0][commands[0].index("-af") + 1] == audio_loader.FFMPEG_ARITHMETIC_MONO_FILTER
     assert "ffmpeg decode @ 22050 Hz" in result.detail
+    assert "arithmetic channel mean" in result.detail
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is required for the integration check")
+def test_ffmpeg_decode_uses_arithmetic_mean_for_correlated_stereo(tmp_path: Path) -> None:
+    audio_path = tmp_path / "correlated-stereo.wav"
+    expected = _write_identical_stereo_pcm_wav(audio_path)
+
+    result = load_decoded_audio(audio_path)
+
+    assert result.sample_rate == 44_100
+    assert result.audio.shape == expected.shape
+    assert np.allclose(result.audio, expected, atol=1e-6)
+    assert float(np.max(np.abs(result.audio))) < 1.0
 
 
 def test_load_decoded_audio_uses_native_backend_for_mono_wav(monkeypatch, tmp_path: Path) -> None:
@@ -183,6 +210,7 @@ def test_ffmpeg_decode_pins_first_audio_stream_and_disables_non_audio(monkeypatc
     assert "-vn" in command
     assert "-sn" in command
     assert "-dn" in command
+    assert command[command.index("-af") + 1] == audio_loader.FFMPEG_ARITHMETIC_MONO_FILTER
     assert "-ar" not in command
 
 

@@ -1117,13 +1117,13 @@ h2 {
 }
 
 .sonara-output-options {
-  background: color-mix(in srgb, var(--surface-muted) 72%, transparent);
-  border: 1px solid var(--border-soft);
-  border-radius: 7px;
+  border: 0;
+  border-top: 1px solid var(--border-soft);
   display: grid;
-  gap: 7px;
-  margin: 0 0 10px;
-  padding: 8px 10px 10px;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  padding: 9px 2px 8px;
   width: 100%;
 }
 
@@ -1136,7 +1136,7 @@ h2 {
 }
 
 .sonara-output-options label {
-  align-items: flex-start;
+  align-items: center;
   cursor: pointer;
   display: grid;
   gap: 7px;
@@ -1163,6 +1163,83 @@ h2 {
   line-height: 14px;
 }
 
+.analysis-settings-grid {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 8px;
+}
+
+.analysis-settings-grid .worker-control,
+.analysis-settings-grid .analysis-device {
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+.ml-analysis-settings .analysis-device {
+  grid-column: 1 / -1;
+}
+
+.analysis-family-card {
+  background: color-mix(in srgb, var(--surface-muted) 72%, transparent);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  padding: 8px;
+}
+
+.analysis-family-card .analysis-model-name {
+  align-content: center;
+  display: grid;
+  gap: 2px;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 44px;
+}
+
+.analysis-family-card .analysis-model-description {
+  line-height: 12px;
+  text-align: left;
+  white-space: normal;
+}
+
+.analysis-family-title {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+  margin: 0 2px 7px;
+}
+
+.analysis-family-title strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.analysis-family-title small {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.sonara-analysis-block .analysis-actions {
+  margin-bottom: 6px;
+}
+
+.sonara-analysis-settings {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.models-analysis-block .analysis-actions {
+  margin-bottom: 6px;
+}
+
+.classifiers-analysis-card .analysis-actions {
+  margin-bottom: 0;
+}
+
+.classifiers-analysis-card .analysis-muted {
+  display: block;
+  margin-top: 7px;
+}
+
 .analysis-models-heading {
   border-top: 1px solid var(--border-soft);
   color: var(--text);
@@ -1182,6 +1259,31 @@ h2 {
   color: var(--text-muted);
   font-size: 11px;
   line-height: 15px;
+}
+
+.analysis-models-heading-with-full {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+}
+
+.analysis-models-heading-with-full small {
+  grid-column: 1 / -1;
+}
+
+.analysis-full-check {
+  align-items: center;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  font-size: 11px;
+  font-weight: 760;
+  gap: 5px;
+}
+
+.analysis-full-check input {
+  height: 14px;
+  margin: 0;
+  width: 14px;
 }
 
 .analysis-model-row {
@@ -1715,15 +1817,6 @@ h2 {
   margin-top: 0;
   min-height: 0;
   width: 100%;
-}
-
-.analysis-limit {
-  color: var(--text-muted);
-  display: flex;
-  flex-direction: column;
-  font-size: 12px;
-  gap: 4px;
-  margin-bottom: 8px;
 }
 
 .analysis-limit small,

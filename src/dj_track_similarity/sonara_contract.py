@@ -13,7 +13,9 @@ SONARA_ANALYSIS_MODE = "playlist"
 SONARA_SAMPLE_RATE = 22_050
 SONARA_BPM_MIN = 70
 SONARA_BPM_MAX = 180
-SONARA_PROJECT_FEATURE_REVISION = 3
+SONARA_PROJECT_FEATURE_REVISION = 4
+SONARA_DECODER_BACKEND = "sonara-symphonia"
+SONARA_EXECUTION_PATH = "analyze_batch"
 
 _SIGNATURE_FIELDS = (
     "sonara_version",
@@ -23,6 +25,8 @@ _SIGNATURE_FIELDS = (
     "bpm_range",
     "requested_features",
     "project_feature_revision",
+    "decoder_backend",
+    "execution_path",
 )
 
 
@@ -55,6 +59,8 @@ def build_sonara_analysis_signature(
         "bpm_range": [SONARA_BPM_MIN, SONARA_BPM_MAX],
         "requested_features": _sorted_feature_profile(effective_features),
         "project_feature_revision": SONARA_PROJECT_FEATURE_REVISION,
+        "decoder_backend": _optional_text(source.get("decoder_backend")) or "unknown",
+        "execution_path": _optional_text(source.get("execution_path")) or "unknown",
     }
     payload["signature_id"] = sonara_analysis_signature_id(payload)
     return payload
@@ -68,6 +74,8 @@ def expected_sonara_analysis_signature(requested_features: Sequence[str] | None)
             "schema_version": SONARA_EXPECTED_SCHEMA_VERSION,
             "mode": SONARA_ANALYSIS_MODE,
             "sample_rate": SONARA_SAMPLE_RATE,
+            "decoder_backend": SONARA_DECODER_BACKEND,
+            "execution_path": SONARA_EXECUTION_PATH,
         },
     )
 
@@ -93,6 +101,8 @@ def sonara_analysis_signature_errors(
     bpm_range = _number_pair(signature.get("bpm_range"))
     requested_features = signature.get("requested_features")
     project_revision = _optional_int(signature.get("project_feature_revision"))
+    decoder_backend = _optional_text(signature.get("decoder_backend"))
+    execution_path = _optional_text(signature.get("execution_path"))
     signature_id = _optional_text(signature.get("signature_id"))
 
     if version is None:
@@ -111,6 +121,10 @@ def sonara_analysis_signature_errors(
         errors.append("requested_features must be sorted and unique")
     if project_revision is None:
         errors.append("project_feature_revision is required")
+    if decoder_backend is None:
+        errors.append("decoder_backend is required")
+    if execution_path is None:
+        errors.append("execution_path is required")
     if signature_id is None:
         errors.append("signature_id is required")
     elif signature_id != sonara_analysis_signature_id(signature):
@@ -124,6 +138,8 @@ def sonara_analysis_signature_errors(
             "sample_rate": SONARA_SAMPLE_RATE,
             "bpm_range": (float(SONARA_BPM_MIN), float(SONARA_BPM_MAX)),
             "project_feature_revision": SONARA_PROJECT_FEATURE_REVISION,
+            "decoder_backend": SONARA_DECODER_BACKEND,
+            "execution_path": SONARA_EXECUTION_PATH,
         }
         actual_values = {
             "sonara_version": version,
@@ -132,6 +148,8 @@ def sonara_analysis_signature_errors(
             "sample_rate": sample_rate,
             "bpm_range": bpm_range,
             "project_feature_revision": project_revision,
+            "decoder_backend": decoder_backend,
+            "execution_path": execution_path,
         }
         for field, expected in expected_values.items():
             if actual_values[field] != expected:

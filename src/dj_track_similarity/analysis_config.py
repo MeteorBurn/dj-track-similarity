@@ -14,12 +14,15 @@ DEFAULT_ANALYSIS_DEVICE = "auto"
 DEFAULT_ANALYSIS_TOP_K = 3
 DEFAULT_ANALYSIS_TRACK_BATCH_SIZE = 4
 DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE = 24
+DEFAULT_SONARA_BATCH_SIZE = 64
 MIN_ANALYSIS_TOP_K = 1
 MAX_ANALYSIS_TOP_K = 10
 MIN_ANALYSIS_TRACK_BATCH_SIZE = 1
 MAX_ANALYSIS_TRACK_BATCH_SIZE = 64
 MIN_ANALYSIS_INFERENCE_BATCH_SIZE = 1
 MAX_ANALYSIS_INFERENCE_BATCH_SIZE = 128
+MIN_SONARA_BATCH_SIZE = 1
+MAX_SONARA_BATCH_SIZE = 128
 
 
 @dataclass(frozen=True)
@@ -30,6 +33,7 @@ class AnalysisJobConfig:
     top_k: int
     track_batch_size: int
     inference_batch_size: int
+    sonara_batch_size: int
     sonara_outputs: tuple[str, ...] = ()
 
 
@@ -82,6 +86,7 @@ def build_analysis_job_config(
     top_k: int = DEFAULT_ANALYSIS_TOP_K,
     track_batch_size: int = DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
     inference_batch_size: int = DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
+    sonara_batch_size: int = DEFAULT_SONARA_BATCH_SIZE,
     sonara_outputs: Sequence[str] | None = None,
     allow_empty_models: bool = False,
 ) -> AnalysisJobConfig:
@@ -109,6 +114,12 @@ def build_analysis_job_config(
             name="inference_batch_size",
             minimum=MIN_ANALYSIS_INFERENCE_BATCH_SIZE,
             maximum=MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
+        ),
+        sonara_batch_size=_int_in_range(
+            sonara_batch_size,
+            name="sonara_batch_size",
+            minimum=MIN_SONARA_BATCH_SIZE,
+            maximum=MAX_SONARA_BATCH_SIZE,
         ),
         sonara_outputs=normalized_sonara_outputs,
     )

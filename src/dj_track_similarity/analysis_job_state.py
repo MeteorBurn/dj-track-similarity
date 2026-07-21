@@ -3,7 +3,12 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
-from .analysis_config import ANALYSIS_MODEL_ORDER, DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE, DEFAULT_ANALYSIS_TRACK_BATCH_SIZE
+from .analysis_config import (
+    ANALYSIS_MODEL_ORDER,
+    DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
+    DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
+    DEFAULT_SONARA_BATCH_SIZE,
+)
 from .models import Track
 
 
@@ -48,7 +53,6 @@ class AnalysisJobStatus:
     adapter_name: str = "multi"
     embedding_key: str = "multi"
     models: list[str] = field(default_factory=lambda: list(ANALYSIS_MODEL_ORDER))
-    classifier_keys: list[str] = field(default_factory=list)
     current_model: str | None = None
     model_progress: dict[str, AnalysisModelProgress] = field(default_factory=dict)
     model_name: str | None = None
@@ -69,6 +73,7 @@ class AnalysisJobStatus:
     workers: int = DEFAULT_ANALYSIS_TRACK_BATCH_SIZE
     track_batch_size: int = DEFAULT_ANALYSIS_TRACK_BATCH_SIZE
     inference_batch_size: int = DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE
+    sonara_batch_size: int = DEFAULT_SONARA_BATCH_SIZE
     top_k: int = 3
     sonara_outputs: list[str] = field(default_factory=list)
 
@@ -146,7 +151,6 @@ def copy_analysis_status(status: AnalysisJobStatus) -> AnalysisJobStatus:
         adapter_name=status.adapter_name,
         embedding_key=status.embedding_key,
         models=list(status.models),
-        classifier_keys=list(status.classifier_keys),
         current_model=status.current_model,
         model_progress={
             model: AnalysisModelProgress(
@@ -176,6 +180,7 @@ def copy_analysis_status(status: AnalysisJobStatus) -> AnalysisJobStatus:
         workers=status.workers,
         track_batch_size=status.track_batch_size,
         inference_batch_size=status.inference_batch_size,
+        sonara_batch_size=status.sonara_batch_size,
         top_k=status.top_k,
         sonara_outputs=list(status.sonara_outputs),
     )

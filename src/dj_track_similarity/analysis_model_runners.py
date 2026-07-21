@@ -11,7 +11,7 @@ from .audio_loader import DecodedAudio
 from .database import LibraryDatabase
 from .embedding import ClapEmbeddingAdapter, MertEmbeddingAdapter, MuqEmbeddingAdapter
 from .genres import MaestGenreAdapter
-from .sonara_features import analyze_and_store_sonara_features_from_audio
+from .sonara_features import analyze_and_store_sonara_batch
 
 
 class AnalysisModelRunner(Protocol):
@@ -27,7 +27,7 @@ class AnalysisModelRunner(Protocol):
     def device(self) -> str | None:
         ...
 
-    def analyze_batch(self, db: LibraryDatabase, items: Sequence[AnalysisBatchItem]) -> None:
+    def analyze_batch(self, db: LibraryDatabase, items: Sequence[AnalysisBatchItem]) -> Sequence[Exception | None] | None:
         ...
 
 
@@ -45,15 +45,16 @@ class SonaraModelRunner:
 
     def __init__(self, *, outputs: tuple[str, ...] = ("core",)) -> None:
         self.outputs: tuple[str, ...] = tuple(outputs)
+        self.progress: Callable[[int, int], None] | None = None
 
-    def analyze_batch(self, db: LibraryDatabase, items: Sequence[AnalysisBatchItem]) -> None:
-        for item in items:
-            _ = analyze_and_store_sonara_features_from_audio(
-                db,
-                item.track,
-                cast(DecodedAudio, item.decoded),
-                outputs=self.outputs,
-            )
+    def analyze_batch(self, db: LibraryDatabase, items: Sequence[AnalysisBatchItem]) -> Sequence[Exception | None]:
+        results = analyze_and_store_sonara_batch(
+            db,
+            [item.track for item in items],
+            outputs=self.outputs,
+            progress=self.progress,
+        )
+        return [result.error for result in results]
 
 
 class MaestModelRunner:

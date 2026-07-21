@@ -14,7 +14,7 @@ DecodeAudio = Callable[[str | Path], DecodedAudio | object]
 @dataclass(frozen=True)
 class AnalysisBatchItem:
     track: Track
-    decoded: DecodedAudio | object
+    decoded: DecodedAudio | object | None
     models: tuple[str, ...]
 
 

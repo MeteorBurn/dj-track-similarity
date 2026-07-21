@@ -1,23 +1,22 @@
 from __future__ import annotations
 
 import math
-import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 
 from .analysis_config import DEFAULT_SONARA_OUTPUTS, normalize_sonara_outputs
-from .audio_loader import DecodedAudio, load_audio_mono
 from .database import LibraryDatabase
 from .models import Track
 from .sonara_contract import (
     SONARA_ANALYSIS_MODE,
     SONARA_BPM_MAX,
     SONARA_BPM_MIN,
+    SONARA_DECODER_BACKEND,
+    SONARA_EXECUTION_PATH,
     SONARA_SAMPLE_RATE,
     build_sonara_analysis_signature,
     expected_sonara_analysis_signature,
@@ -90,69 +89,60 @@ def sonara_analysis_signatures_for_outputs(
 
 
 @dataclass(frozen=True)
-class SonaraFeatureResult:
-    track_id: int
-    path: str
-    elapsed_seconds: float
+class SonaraBatchTrackResult:
+    track: Track
+    error: Exception | None = None
 
 
-def analyze_and_store_sonara_features(
+def analyze_and_store_sonara_batch(
     db: LibraryDatabase,
-    track: Track,
+    tracks: Sequence[Track],
     *,
     sonara_module: Any | None = None,
     outputs: Sequence[str] | None = None,
-) -> SonaraFeatureResult:
+    progress: Callable[[int, int], None] | None = None,
+) -> list[SonaraBatchTrackResult]:
+    """Analyze one native SONARA batch and persist successful results in input order."""
+
+    if not tracks:
+        return []
     sonara = sonara_module or _import_sonara()
-    started = time.perf_counter()
-    analysis = _analyze_file_or_signal(sonara, track.path, outputs=outputs)
-    elapsed = time.perf_counter() - started
-    _store_sonara_analysis(db, track, analysis, outputs=outputs)
-    return SonaraFeatureResult(track.id, track.path, elapsed)
-
-
-def analyze_and_store_sonara_features_from_audio(
-    db: LibraryDatabase,
-    track: Track,
-    decoded: DecodedAudio,
-    *,
-    sonara_module: Any | None = None,
-    outputs: Sequence[str] | None = None,
-) -> SonaraFeatureResult:
-    analysis, elapsed = analyze_sonara_features_from_audio(
-        decoded, sonara_module=sonara_module, outputs=outputs
+    selected = normalize_sonara_outputs(DEFAULT_SONARA_OUTPUTS if outputs is None else outputs)
+    raw_results = sonara.analyze_batch(
+        [track.path for track in tracks],
+        sr=SONARA_SAMPLE_RATE,
+        mode=SONARA_ANALYSIS_MODE,
+        bpm_min=SONARA_BPM_MIN,
+        bpm_max=SONARA_BPM_MAX,
+        progress=progress,
+        **_analysis_kwargs(selected),
     )
-    _store_sonara_analysis(db, track, analysis, outputs=outputs)
-    return SonaraFeatureResult(track.id, track.path, elapsed)
+    if len(raw_results) != len(tracks):
+        raise RuntimeError("SONARA batch result count does not match track count")
 
+    prepared: list[tuple[Track, dict[str, object]] | Exception] = []
+    for track, raw_result in zip(tracks, raw_results):
+        analysis = dict(raw_result)
+        if bool(getattr(raw_result, "failed", False)) or analysis.get("error") is not None:
+            kind = str(analysis.get("error_kind") or "analysis")
+            prepared.append(RuntimeError(f"SONARA {kind} failure: {analysis.get('error') or 'unknown error'}"))
+            continue
+        _analysis_with_package_provenance(analysis, sonara, native_batch=True)
+        prepared.append((track, analysis))
 
-def analyze_sonara_features_from_audio(
-    decoded: DecodedAudio,
-    *,
-    sonara_module: Any | None = None,
-    outputs: Sequence[str] | None = None,
-) -> tuple[dict[str, object], float]:
-    sonara = sonara_module or _import_sonara()
-    started = time.perf_counter()
-    audio = np.asarray(decoded.audio, dtype=np.float32)
-    if decoded.sample_rate != SONARA_SAMPLE_RATE:
-        resample = getattr(sonara, "resample", None)
-        if not callable(resample):
-            raise RuntimeError("sonara shared-audio analysis requires sonara.resample for non-22050 Hz input")
-        audio = np.asarray(resample(audio, orig_sr=decoded.sample_rate, target_sr=SONARA_SAMPLE_RATE), dtype=np.float32)
-    analysis = dict(
-        sonara.analyze_signal(
-            audio,
-            sr=SONARA_SAMPLE_RATE,
-            mode=SONARA_ANALYSIS_MODE,
-            bpm_min=SONARA_BPM_MIN,
-            bpm_max=SONARA_BPM_MAX,
-            **_analysis_kwargs(outputs),
-        )
-    )
-    _analysis_with_package_provenance(analysis, sonara)
-    elapsed = time.perf_counter() - started
-    return analysis, elapsed
+    stored: list[SonaraBatchTrackResult] = []
+    for track, prepared_result in zip(tracks, prepared):
+        if isinstance(prepared_result, Exception):
+            stored.append(SonaraBatchTrackResult(track=track, error=prepared_result))
+            continue
+        _, analysis = prepared_result
+        try:
+            _store_sonara_analysis(db, track, analysis, outputs=selected)
+        except Exception as error:
+            stored.append(SonaraBatchTrackResult(track=track, error=error))
+        else:
+            stored.append(SonaraBatchTrackResult(track=track))
+    return stored
 
 
 def _analysis_kwargs(outputs: Sequence[str] | None) -> dict[str, object]:
@@ -237,49 +227,6 @@ def _import_sonara():
     except ImportError as error:
         raise RuntimeError("sonara is not installed. Install it with: python -m pip install -e \".[sonara,dev]\"") from error
     return sonara
-
-
-def _analyze_file_or_signal(
-    sonara: Any,
-    path: str | Path,
-    *,
-    outputs: Sequence[str] | None = None,
-) -> dict[str, object]:
-    analysis_kwargs = _analysis_kwargs(outputs)
-    try:
-        analysis = dict(
-            sonara.analyze_file(
-                str(path),
-                sr=SONARA_SAMPLE_RATE,
-                mode=SONARA_ANALYSIS_MODE,
-                bpm_min=SONARA_BPM_MIN,
-                bpm_max=SONARA_BPM_MAX,
-                **analysis_kwargs,
-            )
-        )
-        return _analysis_with_package_provenance(analysis, sonara)
-    except Exception:
-        if Path(path).suffix.lower() not in {".wav", ".wave"}:
-            raise
-        audio, _detail = _load_wav_fallback(path, sonara)
-        analysis = dict(
-            sonara.analyze_signal(
-                audio,
-                sr=SONARA_SAMPLE_RATE,
-                mode=SONARA_ANALYSIS_MODE,
-                bpm_min=SONARA_BPM_MIN,
-                bpm_max=SONARA_BPM_MAX,
-                **analysis_kwargs,
-            )
-        )
-        return _analysis_with_package_provenance(analysis, sonara)
-
-
-def _load_wav_fallback(path: str | Path, sonara: Any) -> tuple[np.ndarray, str]:
-    audio, sr_native, detail = load_audio_mono(path)
-    if sr_native != SONARA_SAMPLE_RATE:
-        audio = sonara.resample(audio, orig_sr=sr_native, target_sr=SONARA_SAMPLE_RATE)
-    return audio, detail
 
 
 def _feature_payload(value: object) -> dict[str, object]:
@@ -440,7 +387,12 @@ def _sonara_musical_key(analysis: dict[str, object]) -> str | None:
     return None
 
 
-def _analysis_with_package_provenance(analysis: dict[str, object], sonara: Any) -> dict[str, object]:
+def _analysis_with_package_provenance(
+    analysis: dict[str, object],
+    sonara: Any,
+    *,
+    native_batch: bool = False,
+) -> dict[str, object]:
     raw_provenance = analysis.get("provenance")
     provenance = dict(raw_provenance) if isinstance(raw_provenance, dict) else {}
     package_version = _optional_string(getattr(sonara, "__version__", None))
@@ -451,6 +403,9 @@ def _analysis_with_package_provenance(analysis: dict[str, object], sonara: Any) 
             package_version = None
     if package_version:
         provenance["package_version"] = package_version
+    if native_batch:
+        provenance["decoder_backend"] = SONARA_DECODER_BACKEND
+        provenance["execution_path"] = SONARA_EXECUTION_PATH
     if provenance:
         analysis["provenance"] = provenance
     return analysis

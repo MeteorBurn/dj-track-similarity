@@ -50,11 +50,11 @@ ClassifierRiskWeight = Annotated[float, Field(ge=0.0, le=1.0)]
 
 class ScanRequest(BaseModel):
     root: str
-    workers: int = Field(default=1, ge=1, le=64)
+    workers: int = Field(default=8, ge=1, le=64)
 
 
 class TagRefreshRequest(BaseModel):
-    workers: int = Field(default=1, ge=1, le=64)
+    workers: int = Field(default=8, ge=1, le=64)
 
 
 class RelocateLibraryRequest(BaseModel):

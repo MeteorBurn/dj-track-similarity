@@ -84,6 +84,7 @@ def test_build_analysis_job_config_rejects_invalid_sonara_outputs() -> None:
         ({"top_k": 0}, "top_k must be between 1 and 10"),
         ({"track_batch_size": 65}, "track_batch_size must be between 1 and 64"),
         ({"inference_batch_size": 0}, "inference_batch_size must be between 1 and 128"),
+        ({"sonara_batch_size": 17}, "sonara_batch_size must be between 1 and 16"),
     ],
 )
 def test_build_analysis_job_config_rejects_values_outside_shared_ranges(kwargs: dict[str, int], message: str) -> None:

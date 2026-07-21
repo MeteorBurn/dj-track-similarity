@@ -237,8 +237,11 @@ export function stageIndicatorLabel(
 }
 
 function analysisRuntimeLabel(job: AnalysisJobStatus) {
-  if (job.classifier_keys?.length) {
-    return `CLASSIFIERS · ${job.device || `${job.device_requested} pending`}`;
+  if (job.adapter_name === "classifiers" || job.classifier_keys?.length) {
+    return "CLASSIFIERS";
+  }
+  if (job.adapter_name === "sonara" || (job.models?.length === 1 && job.models[0] === "sonara")) {
+    return "SONARA";
   }
   if (job.adapter_name === "multi" || job.models?.length) {
     const audioModels = job.models?.map((model) => model.toUpperCase()).join(", ");
@@ -257,6 +260,9 @@ function AnalysisProcessStatus({ job }: { job: AnalysisJobStatus | null }) {
   const percent = job.total ? Math.round((job.processed / job.total) * 100) : 100;
   const running = ["queued", "running"].includes(job.state);
   const etaSeconds = running && job.avg_seconds_per_track ? Math.max(0, (job.total - job.processed) * job.avg_seconds_per_track) : null;
+  const classifierJob = job.adapter_name === "classifiers" || Boolean(job.classifier_keys?.length);
+  const sonaraJob = job.adapter_name === "sonara" || (job.models?.length === 1 && job.models[0] === "sonara");
+  const sonaraOutputs = job.sonara_outputs?.map((output) => output[0].toUpperCase() + output.slice(1)).join(", ");
   return (
     <div className="process-box">
       <div className="process-head">
@@ -269,8 +275,11 @@ function AnalysisProcessStatus({ job }: { job: AnalysisJobStatus | null }) {
         <span>ok {job.analyzed}</span>
         <span>fail {job.failed}</span>
         {job.skipped ? <span>skip {job.skipped}</span> : null}
-        <span>tracks {job.track_batch_size || job.workers || 1}</span>
-        {job.inference_batch_size ? <span>infer {job.inference_batch_size}</span> : null}
+        {sonaraJob ? <span>SONARA batch {job.sonara_batch_size || job.workers || 1}</span> : null}
+        {sonaraJob && sonaraOutputs ? <span>{sonaraOutputs}</span> : null}
+        {!sonaraJob && !classifierJob ? <span>Track batch {job.track_batch_size || job.workers || 1}</span> : null}
+        {!sonaraJob && !classifierJob && job.inference_batch_size ? <span>Inference batch {job.inference_batch_size}</span> : null}
+        {classifierJob ? <span>profiles {job.classifier_keys?.length || 0}</span> : null}
         <span>{percent}%</span>
       </div>
       {job.avg_seconds_per_track != null && <span className="analysis-muted">{job.avg_seconds_per_track.toFixed(2)} s/track{etaSeconds ? ` · ETA ${formatEta(etaSeconds)}` : ""}</span>}

@@ -252,21 +252,28 @@ const analysisApi = {
       method: "POST",
       body: JSON.stringify({ adapter })
     }),
-  analysisJobStart: (payload: AnalysisJobStartPayload = {}) =>
-    request<AnalysisJobStatus>("/api/analysis/jobs", {
+  analysisJobStart: (payload: AnalysisJobStartPayload = {}) => {
+    const sonaraOnly = payload.models?.length === 1 && payload.models[0] === "sonara";
+    const body = sonaraOnly
+      ? {
+          models: payload.models,
+          limit: payload.limit ?? null,
+          sonara_batch_size: payload.sonara_batch_size ?? 8,
+          sonara_outputs: payload.sonara_outputs ?? [...DEFAULT_SONARA_OUTPUTS]
+        }
+      : {
+          models: payload.models,
+          limit: payload.limit ?? null,
+          device: payload.device ?? "auto",
+          top_k: payload.top_k ?? 3,
+          track_batch_size: payload.track_batch_size ?? 8,
+          inference_batch_size: payload.inference_batch_size ?? 16
+        };
+    return request<AnalysisJobStatus>("/api/analysis/jobs", {
       method: "POST",
-      body: JSON.stringify({
-        models: payload.models,
-        limit: payload.limit ?? null,
-        device: payload.device ?? "auto",
-        top_k: payload.top_k ?? 3,
-        track_batch_size: payload.track_batch_size ?? 4,
-        inference_batch_size: payload.inference_batch_size ?? 24,
-        sonara_batch_size: payload.sonara_batch_size ?? 64,
-        sonara_outputs: payload.sonara_outputs
-          ?? (payload.models?.includes("sonara") ? [...DEFAULT_SONARA_OUTPUTS] : [])
-      })
-    }),
+      body: JSON.stringify(body)
+    });
+  },
   analysisJob: (jobId: string) => request<AnalysisJobStatus>(`/api/analysis/jobs/${jobId}`),
   latestAnalysisJob: () => request<AnalysisJobStatus | null>("/api/analysis/jobs/latest"),
   cancelAnalysisJob: (jobId: string) =>

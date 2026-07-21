@@ -151,10 +151,8 @@ test("analysis job client preserves ML defaults without classifier scoring", asy
     limit: null,
     device: "auto",
     top_k: 3,
-    track_batch_size: 4,
-    inference_batch_size: 24,
-    sonara_batch_size: 64,
-    sonara_outputs: []
+    track_batch_size: 8,
+    inference_batch_size: 16
   });
 });
 
@@ -170,11 +168,7 @@ test("analysis job client defaults a SONARA-only request to Core storage", async
   assert.deepEqual(JSON.parse(calls[0].options.body), {
     models: ["sonara"],
     limit: null,
-    device: "auto",
-    top_k: 3,
-    track_batch_size: 4,
-    inference_batch_size: 24,
-    sonara_batch_size: 64,
+    sonara_batch_size: 8,
     sonara_outputs: ["core"]
   });
 });

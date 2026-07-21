@@ -70,8 +70,9 @@ Each field is a serialized payload rather than a raw top-level array. The respon
 | `GET` | `/api/analysis/pipelines/{job_id}` | parent and child-stage status |
 | `POST` | `/api/analysis/pipelines/{job_id}/cancel` | cancel current and pending stages |
 
-Audio analysis payload fields include `models`, `limit`, `device`, `top_k`, `track_batch_size`,
-`inference_batch_size`, `sonara_outputs`, and `sonara_batch_size`. `classifier_keys` is not accepted.
+Audio analysis payload fields include `models` and `limit`. ML requests add `device`, `top_k`,
+`track_batch_size`, and `inference_batch_size`. SONARA requests add `sonara_outputs` and
+`sonara_batch_size`. `classifier_keys` is not accepted.
 Allowed SONARA outputs are `core`,
 `timeline`, and `representations`; omission defaults to `["core"]`. At least one is required for a
 SONARA job. SONARA runs alone, and its scheduler compares the independent signature for every

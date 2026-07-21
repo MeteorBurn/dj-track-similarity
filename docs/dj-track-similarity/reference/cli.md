@@ -82,11 +82,11 @@ dj-sim doctor
 | `--limit` | optional integer; omit for whole library |
 | `--device` | `auto`, `cpu`, `cuda` |
 | `--top-k` | `1..10` MAEST labels |
-| `--track-batch-size` | `1..64` decoded tracks per job batch |
-| `--inference-batch-size` | `1..128` model samples per forward pass |
+| `--track-batch-size` | `1..64` decoded tracks per job batch; default `8` |
+| `--inference-batch-size` | `1..128` model samples per forward pass; default `16` |
 | `--diagnostics` | file-log decoder and batch timing diagnostics |
 | `--sonara-outputs` | comma-separated `core`, `timeline`, `representations`; default `core` |
-| `--sonara-batch-size` | `1..128` native path batch; default `64` |
+| `--sonara-batch-size` | `1..16` concurrent native paths; default `8` |
 
 Plain SONARA analysis writes Core only. Use
 `--sonara-outputs core,timeline,representations` for all three stores, or select only the missing

@@ -53,7 +53,7 @@ You can add optional outputs later:
 dj-sim analyze --models sonara --sonara-outputs timeline,representations --db C:\db\library.sqlite
 ```
 
-The default native batch size is `64`. Use `--sonara-batch-size 1..128` when needed. Complete the
+The default native batch size is `8`. Use `--sonara-batch-size 1..16` when needed. Complete the
 full Core pass before retraining SONARA-dependent classifiers. Timeline and Representations require
 their own full pass only when explicitly selected.
 

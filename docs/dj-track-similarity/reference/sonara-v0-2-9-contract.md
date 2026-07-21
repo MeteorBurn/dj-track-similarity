@@ -10,7 +10,7 @@
 | --- | --- |
 | SONARA package | `0.2.9` |
 | Upstream result schema | `4` |
-| Project feature revision | `4` |
+| Project feature revision | `5` |
 | Mode | `playlist` |
 | Decoder backend | `sonara-symphonia` |
 | Execution path | `analyze_batch` |
@@ -27,6 +27,8 @@ preview, and other non-SONARA functions retain their existing FFmpeg dependency.
 
 - **Core** requests the complete lightweight feature profile and stores scalar or compact fixed-vector
   results in the main database. Contrast, MFCC, and Chroma retain all 7, 13, and 12 components.
+  The Full-only `time_signature` metrogram is excluded: it is not a production ranking or classifier
+  input, and Beatgrid uses SONARA's 4/4 fallback rather than a zero-confidence meter estimate.
 - **Timeline** stores complete beats, onsets, chord sequence/events, tempo and energy curves,
   downbeats, structure segments, and loudness curve in `*.timeline.sqlite`.
 - **Representations** stores the SONARA 48-dimensional embedding and fingerprint in
@@ -47,7 +49,7 @@ Every output signature hashes these fields:
   "sample_rate": 22050,
   "bpm_range": [70, 180],
   "requested_features": ["output-specific", "sorted", "feature", "names"],
-  "project_feature_revision": 4,
+  "project_feature_revision": 5,
   "decoder_backend": "sonara-symphonia",
   "execution_path": "analyze_batch",
   "signature_id": "sha256:..."
@@ -73,7 +75,7 @@ scores that do not depend on SONARA. It clears old SONARA features and curves an
 SONARA-dependent classifier scores. Schema v4 and older databases are rejected. Reanalyze SONARA
 tracks with the current contract.
 
-Project feature revision `4` invalidates every earlier project decode contract. Before the first
+Project feature revision `5` invalidates every earlier project decode or feature contract. Before the first
 native job, any old Core, Timeline, or Representations signature is a blocker. The application never
 adapts, mixes, or automatically deletes old results. Back up the catalog before the explicit SONARA
 reset, then reanalyze. Reset also removes SONARA-dependent classifier scores while preserving

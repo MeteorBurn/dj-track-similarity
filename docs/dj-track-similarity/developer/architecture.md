@@ -27,7 +27,8 @@ flowchart LR
 - `database.py`, `db_schema.py`, `db_storage.py`, and `db_analysis*.py` cover the Core and attached sidecar schemas. These modules also handle analysis persistence, signature queries, caches, resets, and clear.
 - `scanner.py`: supported audio discovery and Mutagen metadata reads.
 - `analysis_queue.py`: one sequential worker shared by manual and pipeline analysis stages.
-- `analysis_jobs.py` and `sonara_features.py`: separate ML jobs and native batched SONARA capture/storage.
+- `analysis_jobs.py` and `sonara_features.py`: separate ML jobs, native batched SONARA capture, and
+  phase timing. A SONARA batch is persisted in one transaction with a savepoint per track.
 - `analysis_pipeline.py`: fixed SONARA, ML, CLASSIFIERS parent/child orchestration.
 - `sonara_contract.py`: version, schema, profile, signature, and current-analysis compatibility.
 - `tempo_resolution.py` and `track_resolution.py`: confidence-aware BPM and Camelot/key resolution.

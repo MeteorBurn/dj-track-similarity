@@ -737,6 +737,23 @@ def test_database_lists_analysis_candidates_with_one_read_connection(tmp_path: P
     assert db.connect_calls == 1
 
 
+def test_database_lists_sonara_only_candidates_in_path_order_before_limit(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    created = [
+        (tmp_path / "z-folder" / "track.wav", "A Artist"),
+        (tmp_path / "a-folder" / "track.wav", "Z Artist"),
+        (tmp_path / "m-folder" / "track.wav", "M Artist"),
+    ]
+    stored_paths = []
+    for path, artist in created:
+        track_id = db.upsert_track(path=path, size=10, mtime=1, metadata={"artist": artist, "title": "Track"})
+        stored_paths.append(db.get_track(track_id).path)
+
+    candidates = db.list_analysis_candidates(["sonara"], limit=2)
+
+    assert [candidate.path for candidate in candidates] == sorted(stored_paths)[:2]
+
+
 @pytest.mark.parametrize(
     ("model", "index_name"),
     [

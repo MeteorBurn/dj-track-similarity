@@ -69,7 +69,7 @@ class ScanJobManager:
         job_id = str(uuid.uuid4())
         status = ScanJobStatus(job_id=job_id, state="queued", root=str(root_path), total=len(paths), workers=max(1, workers))
         self._store.add(job_id, status, payload=ScanJobPayload(paths=paths))
-        self._append_event(job_id, "info", "Scan queued", path=str(root_path))
+        self._append_event(job_id, "info", f"Scan queued · workers {status.workers}", path=str(root_path))
         return job_id
 
     def start(self, root: str | Path, *, workers: int = 1) -> ScanJobStatus:
@@ -89,7 +89,7 @@ class ScanJobManager:
         job_id = str(uuid.uuid4())
         status = ScanJobStatus(job_id=job_id, state="queued", root="metadata refresh", total=len(paths), workers=max(1, workers))
         self._store.add(job_id, status, payload=ScanJobPayload(paths=paths, track_ids=track_ids))
-        self._append_event(job_id, "info", "Tag refresh queued")
+        self._append_event(job_id, "info", f"Tag refresh queued · workers {status.workers}")
         return job_id
 
     def start_tag_refresh(self, *, workers: int = 1) -> ScanJobStatus:

@@ -4,7 +4,7 @@
 
 - `dj-track-similarity` is a local-first, enthusiast DJ-library workbench. Keep claims modest: model outputs are ranking signals for listening-led shortlisting, not objective truth or finished automatic DJ generation.
 - Prefer executable sources over prose: `pyproject.toml`, `frontend/package.json`, `docs/dj-track-similarity/package.json`, tests, schemas, routes, and current source beat README/docs when they disagree.
-- User-facing docs are English. The maintained public surface is `README.md` plus `docs/dj-track-similarity/`; the docs entrypoint is `docs/dj-track-similarity/project-guide.md`.
+- English is the source language for user-facing docs, with a maintained Russian mirror under `docs/dj-track-similarity/ru/`. The maintained public surface is `README.md` plus `docs/dj-track-similarity/`; the English entrypoint is `docs/dj-track-similarity/project-guide.md` and the Russian entrypoint is `docs/dj-track-similarity/ru/project-guide.md`.
 - For manual checks against the real library, use `C:\db\abstracted.sqlite` unless the user gives another DB. Never use the real library in automated tests.
 
 ## High-Value Map
@@ -37,6 +37,7 @@
 - Keep Python compatible with `>=3.10`. Project install/test metadata is in `pyproject.toml`; frontend scripts are in `frontend/package.json`; docs scripts are in `docs/dj-track-similarity/package.json`.
 - If changing FastAPI request/response contracts, update backend schemas/routes and `frontend/src/api.ts` together.
 - If changing scan/analysis jobs, audio decoding, tags, search, SET, classifier scoring, relocation, UI workflows, helper tools, safety rules, setup, commands, or verification behavior, update focused tests and the relevant `README.md`/`docs/dj-track-similarity/` pages in the same pass. If no docs change is needed, say why in the final response.
+- When an English VitePress page changes, update its matching Russian page in `docs/dj-track-similarity/ru/`. Keep commands, code fences, links, API/schema names, and other technical identifiers aligned; `npm run check:locales` enforces mirror coverage and technical parity.
 - README examples should use `python ...` or `dj-sim ...`, not hard-coded `\.venv\Scripts\python.exe`; tool README files may show local helper invocations.
 - Do not commit generated/local state: `*.sqlite`, `*.log`, `__pycache__/`, `.pytest_cache/`, virtualenvs, `frontend/node_modules/`, `frontend/dist`, `docs/dj-track-similarity/site/`, runtime logs, helper reports/backups, Rhythm Lab data/artifacts, or promoted classifier model files unless explicitly requested.
 

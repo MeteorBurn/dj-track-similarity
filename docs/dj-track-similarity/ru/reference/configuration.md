@@ -1,6 +1,6 @@
 # Справочник конфигурации
 
-> Для кого: Для тех, кто настраивает пути, порты, сборки и каталоги создаваемых данных.
+> Для кого: Пользователи, настраивающие пути, порты, сборки и каталоги создаваемых данных.
 > Задача: Перечислить практические настройки текущего репозитория.
 > Тип: Справочник
 
@@ -20,7 +20,7 @@
 | Пример базы проекта | `.\data\library.sqlite` |
 | Локальная ручная база Windows | `C:\db\abstracted.sqlite` |
 | Журналы выполнения | `logs/` |
-| Отчёты, состояние и копии Audio Doctor | `tools/audio-doctor/data/` |
+| Отчёты, состояние и резервные копии Audio Doctor | `tools/audio-doctor/data/` |
 | Отчёты Audio Dedup | `tools/audio-dedup/data/reports/` |
 | Метки Rhythm Lab | `tools/rhythm-lab/data/rhythm_lab.sqlite` |
 | Артефакты Rhythm Lab | `tools/rhythm-lab/artifacts/` |
@@ -38,7 +38,7 @@
 
 | Сервис | По умолчанию |
 | --- | ---: |
-| Основной бэкенд и интерфейс | `8765` |
+| Основное приложение и интерфейс | `8765` |
 | Сервер разработки Vite | `5173` |
 | Rhythm Lab | `8777` |
 
@@ -84,5 +84,5 @@ npm run vale:sync
 npm run check
 ```
 
-Если `docs/dj-track-similarity/site/` отсутствует, маршрут `/docs/` показывает понятное сообщение
-`Documentation is not built`.
+Маршрут `/docs/` показывает понятное сообщение «Documentation is not built», если каталог
+`docs/dj-track-similarity/site/` отсутствует.

@@ -403,6 +403,9 @@ SQLite databases, logs, reports, generated indexes, and promoted classifier arti
 
 Start here:
 
+Documentation languages: [English](docs/dj-track-similarity/project-guide.md) ·
+[Русский](docs/dj-track-similarity/ru/project-guide.md)
+
 - [Project guide](docs/dj-track-similarity/project-guide.md)
 - [Project idea](docs/dj-track-similarity/concepts/project-idea.md)
 - [Quickstart](docs/dj-track-similarity/getting-started/quickstart.md)

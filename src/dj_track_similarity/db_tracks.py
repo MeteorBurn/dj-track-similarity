@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from contextlib import nullcontext as _nullcontext
+import json
+import os
 import sqlite3
 import threading
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TypedDict
 
@@ -185,6 +189,57 @@ class TrackRepository:
         if row is None:
             raise RuntimeError(f"Failed to upsert track: {normalized}")
         return int(row["id"])
+
+    def clear_track_analysis(self, track_id: int) -> None:
+        """Delete all analysis data for a track whose file content has changed.
+
+        Removes embeddings, classifier scores, and SONARA metadata, and resets
+        all analysis presence flags. Preserves human decisions: track_likes,
+        track_pair_feedback, and transition_feedback are never touched.
+        """
+        _SONARA_METADATA_KEYS = (
+            "sonara_features",
+            "sonara_features_file",
+            "sonara_model",
+            "sonara_provenance",
+            "sonara_analysis_signature",
+        )
+        _MAEST_METADATA_KEYS = (
+            "maest_genres",
+            "maest_model",
+            "maest_syncopated_rhythm",
+        )
+        _ALL_ANALYSIS_METADATA_KEYS = _SONARA_METADATA_KEYS + _MAEST_METADATA_KEYS
+        with self._write_lock, self.connect() as connection:
+            # Collect embedding keys before deletion for cache invalidation
+            embedding_keys = _embedding_keys_for_track(connection, track_id)
+            # Delete embeddings (mert, clap, muq, maest, etc.)
+            connection.execute("DELETE FROM embeddings WHERE track_id = ?", (track_id,))
+            # Delete classifier scores
+            connection.execute("DELETE FROM track_classifier_scores WHERE track_id = ?", (track_id,))
+            # Clear analysis metadata from metadata_json
+            row = connection.execute("SELECT metadata_json FROM tracks WHERE id = ?", (track_id,)).fetchone()
+            if row is not None:
+                metadata = metadata_from_json(row["metadata_json"])
+                for key in _ALL_ANALYSIS_METADATA_KEYS:
+                    metadata.pop(key, None)
+                connection.execute(
+                    """
+                    UPDATE tracks
+                    SET has_sonara_analysis = 0,
+                        has_maest_embedding = 0,
+                        has_mert_embedding = 0,
+                        has_muq_embedding = 0,
+                        has_clap_embedding = 0,
+                        metadata_json = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (metadata_to_json(metadata), track_id),
+                )
+                upsert_track_search_fts(connection, track_id)
+        self._invalidate_embedding_cache_keys(embedding_keys)
+        self._invalidate_sonara_feature_cache()
 
     def list_tracks(
         self,
@@ -574,3 +629,177 @@ class TrackRepository:
                 else None
             ),
         )
+
+
+# ---------------------------------------------------------------------------
+# v7 write path — standalone functions (no TrackRepository dependency)
+# ---------------------------------------------------------------------------
+
+def upsert_track_v7(
+    connection: sqlite3.Connection,
+    *,
+    file_path: str | Path,
+    file_size_bytes: int,
+    file_modified_ns: int,
+    audio_format: str | None = None,
+    audio_codec: str | None = None,
+    sample_rate_hz: int | None = None,
+    channel_count: int | None = None,
+    bit_rate_bps: int | None = None,
+    audio_duration_seconds: float | None = None,
+    # file_tags fields
+    title: str | None = None,
+    artist: str | None = None,
+    album: str | None = None,
+    tag_bpm: float | None = None,
+    tag_key: str | None = None,
+    comment: str | None = None,
+    year: int | None = None,
+    label: str | None = None,
+    catalog_number: str | None = None,
+    country: str | None = None,
+    isrc: str | None = None,
+    track_number: str | None = None,
+    disc_number: str | None = None,
+    genres_json: str = "[]",
+) -> int:
+    """Insert or update a track in a v7 schema database.
+
+    Writes to both ``tracks`` and ``file_tags`` in a single transaction.
+
+    - New tracks: ``content_generation = 1``, fresh ``track_uuid``.
+    - Existing tracks where ``file_size_bytes`` or ``file_modified_ns`` changed:
+      ``content_generation`` is incremented and all analysis rows (sonara,
+      maest_scores, classifier_scores) are deleted (BUG-C3 fix).
+    - Existing tracks with identical file stats: only ``last_scanned_at`` and
+      tag columns are refreshed; ``content_generation`` is unchanged.
+
+    Returns the ``track_id`` (INTEGER PRIMARY KEY) of the upserted row.
+    """
+    normalized = Path(file_path).as_posix()
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+    existing = connection.execute(
+        "SELECT track_id, file_size_bytes, file_modified_ns, content_generation FROM tracks WHERE file_path = ?",
+        (normalized,),
+    ).fetchone()
+
+    if existing is None:
+        # New track
+        track_uuid = uuid.uuid4().hex
+        connection.execute(
+            """
+            INSERT INTO tracks (
+                track_uuid, file_path,
+                file_size_bytes, file_modified_ns,
+                audio_format, audio_codec,
+                sample_rate_hz, channel_count, bit_rate_bps,
+                audio_duration_seconds,
+                content_generation,
+                last_scanned_at,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+            """,
+            (
+                track_uuid, normalized,
+                int(file_size_bytes), int(file_modified_ns),
+                audio_format, audio_codec,
+                sample_rate_hz, channel_count, bit_rate_bps,
+                audio_duration_seconds,
+                now, now, now,
+            ),
+        )
+        track_id = connection.execute(
+            "SELECT track_id FROM tracks WHERE file_path = ?", (normalized,)
+        ).fetchone()["track_id"]
+        connection.execute(
+            """
+            INSERT INTO file_tags (
+                track_id, title, artist, album,
+                tag_bpm, tag_key, comment, year,
+                label, catalog_number, country, isrc,
+                track_number, disc_number, genres_json, tags_read_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                track_id, title, artist, album,
+                tag_bpm, tag_key, comment, year,
+                label, catalog_number, country, isrc,
+                track_number, disc_number, genres_json, now,
+            ),
+        )
+    else:
+        track_id = int(existing["track_id"])
+        old_size = int(existing["file_size_bytes"])
+        old_mtime_ns = int(existing["file_modified_ns"])
+        old_gen = int(existing["content_generation"])
+        content_changed = (int(file_size_bytes) != old_size) or (int(file_modified_ns) != old_mtime_ns)
+        new_gen = old_gen + 1 if content_changed else old_gen
+
+        connection.execute(
+            """
+            UPDATE tracks SET
+                file_size_bytes    = ?,
+                file_modified_ns   = ?,
+                audio_format       = ?,
+                audio_codec        = ?,
+                sample_rate_hz     = ?,
+                channel_count      = ?,
+                bit_rate_bps       = ?,
+                audio_duration_seconds = ?,
+                content_generation = ?,
+                last_scanned_at    = ?,
+                updated_at         = ?
+            WHERE track_id = ?
+            """,
+            (
+                int(file_size_bytes), int(file_modified_ns),
+                audio_format, audio_codec,
+                sample_rate_hz, channel_count, bit_rate_bps,
+                audio_duration_seconds,
+                new_gen, now, now,
+                track_id,
+            ),
+        )
+
+        if content_changed:
+            # BUG-C3: delete stale analysis rows when file content changes
+            connection.execute("DELETE FROM sonara WHERE track_id = ?", (track_id,))
+            connection.execute("DELETE FROM maest_scores WHERE track_id = ?", (track_id,))
+            connection.execute("DELETE FROM classifier_scores WHERE track_id = ?", (track_id,))
+
+        connection.execute(
+            """
+            INSERT INTO file_tags (
+                track_id, title, artist, album,
+                tag_bpm, tag_key, comment, year,
+                label, catalog_number, country, isrc,
+                track_number, disc_number, genres_json, tags_read_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(track_id) DO UPDATE SET
+                title          = excluded.title,
+                artist         = excluded.artist,
+                album          = excluded.album,
+                tag_bpm        = excluded.tag_bpm,
+                tag_key        = excluded.tag_key,
+                comment        = excluded.comment,
+                year           = excluded.year,
+                label          = excluded.label,
+                catalog_number = excluded.catalog_number,
+                country        = excluded.country,
+                isrc           = excluded.isrc,
+                track_number   = excluded.track_number,
+                disc_number    = excluded.disc_number,
+                genres_json    = excluded.genres_json,
+                tags_read_at   = excluded.tags_read_at
+            """,
+            (
+                track_id, title, artist, album,
+                tag_bpm, tag_key, comment, year,
+                label, catalog_number, country, isrc,
+                track_number, disc_number, genres_json, now,
+            ),
+        )
+
+    connection.commit()
+    return track_id

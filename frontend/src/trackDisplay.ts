@@ -1,8 +1,9 @@
-import { Track } from "./api";
+import { Track, TrackDetailV7 } from "./api";
 
-export function displayTrack(track: Track) {
+export function displayTrack(track: Track | TrackDetailV7) {
   if (track.artist && track.title) return `${track.artist} - ${track.title}`;
-  return track.title || basename(track.path) || track.path;
+  const path = "file_path" in track ? track.file_path : track.path;
+  return track.title || basename(path) || path;
 }
 
 export function trackCountLabel(count: number) {
@@ -14,7 +15,11 @@ export function trackCountLabel(count: number) {
   return "треков";
 }
 
-export function trackHasAnalysis(track: Track, adapter: "sonara" | "maest" | "mert" | "muq" | "clap") {
+export function trackHasAnalysis(track: Track | TrackDetailV7, adapter: "sonara" | "maest" | "mert" | "muq" | "clap") {
+  if ("analysis_coverage" in track) {
+    if (adapter === "sonara") return !!track.analysis_coverage.sonara_core;
+    return !!track.analysis_coverage[adapter];
+  }
   const analyses = new Set(track.analyses || []);
   if (track.metadata?.sonara_features) analyses.add("sonara");
   if (track.embedding_model) analyses.add("mert");

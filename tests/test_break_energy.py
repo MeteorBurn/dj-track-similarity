@@ -100,7 +100,8 @@ def test_analyze_classifier_scores_non_combined_clap_feature_set(tmp_path: Path)
     assert db.classifier_score(missing_id, "break_energy") is None
 
 
-def test_analyze_classifier_skips_tracks_with_existing_classifier_score(tmp_path: Path) -> None:
+def test_analyze_classifier_rescores_tracks_with_stale_model_id(tmp_path: Path) -> None:
+    """Stale scores (wrong model_id) are deleted and re-scored — BUG-C6 fix."""
     db = LibraryDatabase(tmp_path / "library.sqlite")
     existing_id = _complete_track(db, tmp_path, "existing.wav")
     missing_id = _complete_track(db, tmp_path, "missing.wav")
@@ -118,8 +119,11 @@ def test_analyze_classifier_skips_tracks_with_existing_classifier_score(tmp_path
 
     result = analyze_classifier(db, classifier="break_energy", model_path=model_path)
 
-    assert result["scored"] == 1
-    assert db.classifier_score(existing_id, "break_energy")["score"] == 0.42
+    # Both tracks are scored: existing_id had a stale model_id so it was deleted
+    # and re-scored; missing_id had no score at all.
+    assert result["scored"] == 2
+    # existing_id now has the new model's score (0.87), not the stale 0.42
+    assert db.classifier_score(existing_id, "break_energy")["score"] == 0.87
     assert db.classifier_score(missing_id, "break_energy")["score"] == 0.87
 
 

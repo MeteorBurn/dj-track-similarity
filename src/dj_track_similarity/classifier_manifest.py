@@ -9,7 +9,7 @@ from typing import Any, Mapping
 from .sonara_contract import sonara_analysis_signature_errors
 
 CLASSIFIER_MANIFEST_VERSION = 2
-CLASSIFIER_SUPPORTED_MANIFEST_VERSIONS = (1, CLASSIFIER_MANIFEST_VERSION)
+CLASSIFIER_SUPPORTED_MANIFEST_VERSIONS = (CLASSIFIER_MANIFEST_VERSION,)
 CLASSIFIER_REQUIRED_INPUTS = ("sonara", "mert", "maest")
 CLASSIFIER_SUPPORTED_INPUTS = ("sonara", "mert", "maest", "clap")
 CLASSIFIER_FEATURE_SOURCE_ALIASES = {"sonara2": "sonara", "sonara2vocal": "sonara"}
@@ -65,6 +65,12 @@ LEGACY_HYBRID_SIGNALS: dict[str, dict[str, object]] = {
         "missing_score_policy": "neutral",
     },
 }
+
+
+class ManifestVersionError(ValueError):
+    """Signal that a classifier artifact requires re-training and re-promotion."""
+
+    status: str = "unsupported"
 
 
 @dataclass(frozen=True)
@@ -182,7 +188,17 @@ def load_classifier_manifest_summary(
         return _invalid_manifest(clean_key, clean_model_path, clean_metadata_path, artifact_prefix, f"model.json could not be read: {error}")
     if not isinstance(payload, Mapping):
         return _invalid_manifest(clean_key, clean_model_path, clean_metadata_path, artifact_prefix, "model.json must contain a JSON object")
-    return _parse_manifest_payload(payload, clean_key, clean_model_path, clean_metadata_path, artifact_prefix)
+    try:
+        return _parse_manifest_payload(payload, clean_key, clean_model_path, clean_metadata_path, artifact_prefix)
+    except ManifestVersionError as error:
+        return ClassifierManifestSummary(
+            classifier_key=clean_key,
+            metadata_path=clean_metadata_path,
+            model_path=clean_model_path,
+            status="unsupported",
+            errors=(str(error),),
+            artifact_prefix=artifact_prefix,
+        )
 
 
 def require_scoring_compatible_manifest(
@@ -302,8 +318,10 @@ def _parse_manifest_payload(
     hybrid_signal = _hybrid_signal(payload.get("hybrid_signal"), errors, warnings)
     sonara_analysis_signature: dict[str, Any] | None = None
 
-    if manifest_version is None:
-        warnings.append("model.json has no manifest_version; treating it as a legacy-compatible production manifest")
+    if manifest_version is None or manifest_version == 1:
+        raise ManifestVersionError(
+            "Manifest version 1 is no longer supported. Re-train and re-promote the classifier in Rhythm Lab."
+        )
     elif manifest_version not in CLASSIFIER_SUPPORTED_MANIFEST_VERSIONS:
         errors.append(f"model.json manifest_version {manifest_version!r} is not supported")
     elif manifest_version < CLASSIFIER_MANIFEST_VERSION:

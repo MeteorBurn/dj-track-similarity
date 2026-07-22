@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import signal
 import socket
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -322,3 +323,29 @@ def _tail_text(path: Path, limit: int = 1200) -> str:
     except OSError:
         return ""
     return data[-limit:].decode("utf-8", errors="replace").strip()
+
+
+# ---------------------------------------------------------------------------
+# v7 catalog binding helpers
+# ---------------------------------------------------------------------------
+
+
+def read_v7_catalog_uuid(core_conn: sqlite3.Connection) -> str:
+    """Read the catalog_uuid from a v7 Core database.
+
+    Args:
+        core_conn: An open :class:`sqlite3.Connection` to a v7 Core database.
+
+    Returns:
+        The ``catalog_uuid`` string from the singleton ``library_catalog`` row.
+
+    Raises:
+        ValueError: If the ``library_catalog`` table does not contain exactly
+            one row (empty catalog or unexpected multi-row state).
+    """
+    rows = core_conn.execute("SELECT catalog_uuid FROM library_catalog").fetchall()
+    if len(rows) != 1:
+        raise ValueError(
+            f"Expected exactly one row in library_catalog, got {len(rows)}"
+        )
+    return str(rows[0][0])

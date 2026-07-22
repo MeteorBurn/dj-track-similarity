@@ -11,6 +11,8 @@ from .sonara_contract import SONARA_PROJECT_FEATURE_REVISION, feature_set_uses_s
 CURRENT_SCHEMA_VERSION = 6
 SQLITE_BUSY_TIMEOUT_SECONDS = 30
 SONARA_CLASSIFIER_REVISION_SETTING_KEY = "classifier.sonara_feature_revision"
+SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY = "sonara.active_release_hash"
+SONARA_CLASSIFIER_RELEASE_HASH_SETTING_KEY = "classifier.sonara_release_hash"
 
 TRACK_BASE_FIELDS = """
 t.id, t.path, t.size, t.mtime, t.artist, t.title, t.album, t.bpm, t.musical_key, t.energy, t.duration,
@@ -439,11 +441,51 @@ def _migrate_v5_to_v6(connection: sqlite3.Connection) -> None:
 
 
 def _ensure_sonara_classifier_feature_revision(connection: sqlite3.Connection) -> None:
-    row = connection.execute(
+    """Invalidate SONARA-dependent classifier scores when the feature revision or
+    the SONARA release hash has changed since scores were last validated.
+
+    Two independent gating signals are checked:
+
+    1. **Feature revision** (existing check): ``SONARA_PROJECT_FEATURE_REVISION``
+       must match the value stored under ``SONARA_CLASSIFIER_REVISION_SETTING_KEY``.
+
+    2. **Release hash** (BUG-C2 fix): when ``SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY``
+       is present in ``library_settings``, it must match the value stored under
+       ``SONARA_CLASSIFIER_RELEASE_HASH_SETTING_KEY``.  A mismatch means a SONARA
+       package/decoder/contract change occurred without a feature-revision bump,
+       leaving scores computed against the old release active.
+
+    Either mismatch triggers deletion of all SONARA-dependent
+    ``track_classifier_scores`` rows.  Non-SONARA scores are never touched.
+    After deletion both sentinel values are updated so the next open is a no-op.
+    """
+    revision_row = connection.execute(
         "SELECT value FROM library_settings WHERE key = ?",
         (SONARA_CLASSIFIER_REVISION_SETTING_KEY,),
     ).fetchone()
-    if row is not None and str(row["value"]) == str(SONARA_PROJECT_FEATURE_REVISION):
+    revision_ok = revision_row is not None and str(revision_row["value"]) == str(SONARA_PROJECT_FEATURE_REVISION)
+
+    # Release-hash gate: compare the active SONARA release hash against the hash
+    # that was recorded when classifier scores were last validated.
+    active_hash_row = connection.execute(
+        "SELECT value FROM library_settings WHERE key = ?",
+        (SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY,),
+    ).fetchone()
+    active_hash = str(active_hash_row["value"]) if active_hash_row is not None else None
+
+    hash_ok: bool
+    if active_hash is None:
+        # No active hash recorded — hash gate is not applicable; rely on revision only.
+        hash_ok = True
+    else:
+        scored_hash_row = connection.execute(
+            "SELECT value FROM library_settings WHERE key = ?",
+            (SONARA_CLASSIFIER_RELEASE_HASH_SETTING_KEY,),
+        ).fetchone()
+        scored_hash = str(scored_hash_row["value"]) if scored_hash_row is not None else None
+        hash_ok = scored_hash == active_hash
+
+    if revision_ok and hash_ok:
         return
 
     score_rows = connection.execute(
@@ -459,6 +501,8 @@ def _ensure_sonara_classifier_feature_revision(connection: sqlite3.Connection) -
             "DELETE FROM track_classifier_scores WHERE track_id = ? AND classifier = ?",
             stale_scores,
         )
+
+    # Update the feature-revision sentinel.
     connection.execute(
         """
         INSERT INTO library_settings (key, value, updated_at)
@@ -469,6 +513,19 @@ def _ensure_sonara_classifier_feature_revision(connection: sqlite3.Connection) -
         """,
         (SONARA_CLASSIFIER_REVISION_SETTING_KEY, str(SONARA_PROJECT_FEATURE_REVISION)),
     )
+
+    # Update the release-hash sentinel so the next open is a no-op.
+    if active_hash is not None:
+        connection.execute(
+            """
+            INSERT INTO library_settings (key, value, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (SONARA_CLASSIFIER_RELEASE_HASH_SETTING_KEY, active_hash),
+        )
 
 
 def _validate_current_schema(connection: sqlite3.Connection) -> None:

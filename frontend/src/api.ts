@@ -30,6 +30,153 @@ export type Track = {
   representation_fields?: string[] | null;
 };
 
+export interface FileTechnicalV7 {
+    file_size_bytes: number;
+    file_modified_ns: number;
+    audio_format: string | null;
+    audio_codec: string | null;
+    sample_rate_hz: number | null;
+    channel_count: number | null;
+    bit_rate_bps: number | null;
+    audio_duration_seconds: number | null;
+    last_scanned_at: string;
+    missing_since: string | null;
+}
+
+export interface FileTagsV7 {
+    title: string | null;
+    artist: string | null;
+    album: string | null;
+    tag_bpm: number | null;
+    tag_key: string | null;
+    comment: string | null;
+    year: number | null;
+    label: string | null;
+    catalog_number: string | null;
+    country: string | null;
+    isrc: string | null;
+    track_number: string | null;
+    disc_number: string | null;
+    genres: string[];
+    tags_read_at: string;
+}
+
+export interface SonaraCoreV7 {
+    detected_bpm: number | null;
+    raw_bpm: number | null;
+    bpm_confidence: number | null;
+    onset_density_per_second: number | null;
+    beat_count: number | null;
+    tempo_variability: number | null;
+    beat_grid_offset_seconds: number | null;
+    beat_grid_stability: number | null;
+    bpm_candidates: Record<string, unknown>[];
+    detected_key_name: string | null;
+    detected_key_camelot: string | null;
+    key_confidence: number | null;
+    predominant_chord: string | null;
+    chord_changes_per_second: number | null;
+    key_candidates: Record<string, unknown>[];
+    energy_score: number | null;
+    energy_level: number | null;
+    danceability_score: number | null;
+    valence_score: number | null;
+    acousticness_score: number | null;
+    dissonance_score: number | null;
+    spectral_centroid_hz: number | null;
+    spectral_bandwidth_hz: number | null;
+    spectral_rolloff_hz: number | null;
+    spectral_flatness: number | null;
+    zero_crossing_rate: number | null;
+    rms_mean: number | null;
+    rms_max: number | null;
+    integrated_loudness_lufs: number | null;
+    dynamic_range_db: number | null;
+    true_peak_dbtp: number | null;
+    replay_gain_db: number | null;
+    max_momentary_loudness_lufs: number | null;
+    loudness_range_lu: number | null;
+    analyzed_duration_seconds: number | null;
+    intro_end_seconds: number | null;
+    outro_start_seconds: number | null;
+    leading_silence_seconds: number | null;
+    trailing_silence_seconds: number | null;
+    energy_curve_hop_seconds: number | null;
+    energy_curve_sample_count: number | null;
+    energy_curve_min: number | null;
+    energy_curve_max: number | null;
+    energy_curve_mean: number | null;
+    energy_curve_stddev: number | null;
+    vocal_probability: number | null;
+    mood_happy_score: number | null;
+    mood_aggressive_score: number | null;
+    mood_relaxed_score: number | null;
+    mood_sad_score: number | null;
+    vector_summaries: Record<string, unknown>[];
+    analyzed_at: string;
+}
+
+export interface MaestV7 {
+    syncopated_rhythm: boolean | null;
+    genres: Array<{ rank: number; genre_name: string; score: number }>;
+    analyzed_at: string;
+}
+
+export interface EmbeddingV7Summary {
+    analysis_family: string;
+    model_name: string;
+    model_version: string | null;
+    dim: number;
+    normalization: string;
+    analyzed_at: string;
+}
+
+export interface ClassifierScoreV7Detail {
+    classifier_key: string;
+    score: number;
+    predicted_class: string;
+    score_bucket: string;
+    confidence: number;
+    probabilities: Record<string, number>;
+    feature_set: string;
+    model_id: string;
+    analyzed_at: string;
+}
+
+export interface TrackSummaryV7 {
+    track_id: number;
+    file_path: string;
+    title: string | null;
+    artist: string | null;
+    album: string | null;
+    tag_bpm: number | null;
+    tag_key: string | null;
+    audio_duration_seconds: number | null;
+    liked: boolean;
+    analysis_coverage: { [family: string]: boolean };
+    classifier_scores: Array<{
+        classifier_key: string;
+        score: number;
+        predicted_class: string;
+        score_bucket: 'low' | 'medium' | 'high' | string;
+        confidence: number;
+    }>;
+}
+
+export interface TrackDetailV7 extends TrackSummaryV7 {
+    file: FileTechnicalV7;
+    file_tags: FileTagsV7 | null;
+    sonara_core: SonaraCoreV7 | null;
+    maest: MaestV7 | null;
+    embeddings: EmbeddingV7Summary[];
+    classifier_scores_detail: ClassifierScoreV7Detail[];
+    optional_outputs: {
+        timeline_fields: string[];
+        sonara_embedding_available: boolean;
+        audio_fingerprint_available: boolean;
+    };
+}
+
 export type SonaraFeaturePayload = {
   value?: unknown;
   type?: string;

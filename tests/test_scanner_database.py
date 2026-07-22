@@ -1036,6 +1036,82 @@ def test_database_does_not_enrich_existing_sonara_key_with_camelot_on_read(tmp_p
     assert "camelot_key" not in track.metadata["sonara_features"]
 
 
+def test_file_change_clears_analysis(tmp_path: Path) -> None:
+    """BUG-C3: when size/mtime changes during scan, analysis rows must be deleted."""
+    music_root = tmp_path / "music"
+    music_root.mkdir()
+    audio_path = music_root / "track.wav"
+    audio_path.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
+
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    scan_library(db, music_root)
+    track_id = db.get_track_by_path(audio_path).id
+
+    # Add analysis data: embedding, classifier score, sonara features
+    db.save_embedding(track_id, np.asarray([1.0, 0.0], dtype=np.float32), "mert-test", embedding_key="mert")
+    db.save_embedding(track_id, np.asarray([0.0, 1.0], dtype=np.float32), "clap-test", embedding_key="clap")
+    db.save_classifier_score(
+        track_id,
+        classifier="test-classifier",
+        score=0.9,
+        label="high",
+        confidence=0.9,
+        probabilities={"high": 0.9, "low": 0.1},
+        feature_set="mert",
+        model_id="test-model",
+    )
+    db.save_sonara_features(
+        track_id,
+        {"bpm": {"value": 128}},
+        bpm=128,
+        musical_key="F major",
+        energy=0.8,
+        duration=100,
+        model_name="sonara",
+        analysis_signature=expected_sonara_analysis_signature([]),
+    )
+    # Add a like — must be preserved
+    db.set_track_liked(track_id, True)
+
+    # Verify analysis is present before the file change
+    with db.connect() as connection:
+        emb_count_before = connection.execute(
+            "SELECT COUNT(*) FROM embeddings WHERE track_id = ?", (track_id,)
+        ).fetchone()[0]
+        cls_count_before = connection.execute(
+            "SELECT COUNT(*) FROM track_classifier_scores WHERE track_id = ?", (track_id,)
+        ).fetchone()[0]
+    assert emb_count_before == 2
+    assert cls_count_before == 1
+
+    # Simulate file content change: write different bytes (changes size and mtime)
+    audio_path.write_bytes(b"RIFF\x00\x00\x00\x00WAVE" + b"\x00" * 100)
+
+    # Re-scan — scanner must detect size/mtime change and clear analysis
+    scan_library(db, music_root)
+
+    track = db.get_track(track_id)
+    with db.connect() as connection:
+        emb_count_after = connection.execute(
+            "SELECT COUNT(*) FROM embeddings WHERE track_id = ?", (track_id,)
+        ).fetchone()[0]
+        cls_count_after = connection.execute(
+            "SELECT COUNT(*) FROM track_classifier_scores WHERE track_id = ?", (track_id,)
+        ).fetchone()[0]
+        like_count = connection.execute(
+            "SELECT COUNT(*) FROM track_likes WHERE track_id = ?", (track_id,)
+        ).fetchone()[0]
+
+    # Analysis must be cleared
+    assert emb_count_after == 0, "embeddings must be deleted when file changes"
+    assert cls_count_after == 0, "classifier scores must be deleted when file changes"
+    assert "sonara_features" not in track.metadata, "sonara features must be cleared when file changes"
+    assert track.metadata.get("has_sonara_analysis") != 1
+    # Human decisions must be preserved
+    assert like_count == 1, "track_likes must be preserved when file changes"
+    assert track.liked is True
+
+
 def test_refresh_track_file_metadata_preserves_analysis_outputs(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
     audio_path = tmp_path / "track.wav"

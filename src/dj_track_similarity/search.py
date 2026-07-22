@@ -293,3 +293,99 @@ def _key_compatible(track: Track, seeds: list[Track]) -> bool:
     if not seed_keys:
         return True
     return any(camelot_compatible(track_key, seed_key) for seed_key in seed_keys)
+
+
+# ---------------------------------------------------------------------------
+# v7 read-path adapter — embedding search from sidecar tables (Todo 21)
+# ---------------------------------------------------------------------------
+
+def search_v7(
+    family: str,
+    seed_track_ids: list[int],
+    artifacts_conn: "sqlite3.Connection",
+    core_contracts_conn: "sqlite3.Connection",
+    expected_contract_hash: str,
+    limit: int = 50,
+) -> list[tuple[int, float]]:
+    """Search the v7 ``<family>_embeddings`` sidecar table by cosine similarity.
+
+    Reads embeddings for all tracks from the sidecar, averages the seed vectors
+    into a normalised centroid, then ranks every non-seed track by cosine
+    similarity against that centroid.
+
+    Args:
+        family: Embedding family name, e.g. ``'mert'``, ``'clap'``, ``'maest'``.
+        seed_track_ids: One or more track IDs to use as the query centroid.
+        artifacts_conn: Open connection to the artifacts sidecar database.
+        core_contracts_conn: Open connection to the Core database (for contract
+            validation via :func:`read_valid_embedding`).
+        expected_contract_hash: Contract hash computed from the currently
+            running adapter — rows with a different hash are silently skipped.
+        limit: Maximum number of results to return (default 50).
+
+    Returns:
+        A list of ``(track_id, cosine_similarity)`` tuples sorted by similarity
+        descending, excluding the seed tracks themselves.  Orphan or invalid
+        sidecar rows are silently ignored (Todo 10 pattern).
+    """
+    import sqlite3 as _sqlite3
+
+    from .db_artifacts import read_valid_embedding
+
+    if not seed_track_ids:
+        raise ValueError("At least one seed track ID is required")
+
+    table = f"{family}_embeddings"
+
+    # Fetch all track_ids from the sidecar table
+    try:
+        all_rows = artifacts_conn.execute(
+            f"SELECT track_id FROM {table}",  # noqa: S608
+        ).fetchall()
+    except _sqlite3.OperationalError:
+        return []
+
+    all_track_ids: list[int] = [int(row[0]) for row in all_rows]
+    if not all_track_ids:
+        return []
+
+    seed_set = set(seed_track_ids)
+
+    # Read and validate all embeddings
+    track_vectors: dict[int, FloatArray] = {}
+    for track_id in all_track_ids:
+        vec = read_valid_embedding(
+            family,
+            track_id,
+            artifacts_conn,
+            expected_contract_hash,
+            core_contracts_conn,
+        )
+        if vec is not None:
+            track_vectors[track_id] = vec
+
+    if not track_vectors:
+        return []
+
+    # Build normalised centroid from seed vectors
+    seed_vecs = [track_vectors[tid] for tid in seed_track_ids if tid in track_vectors]
+    if not seed_vecs:
+        raise ValueError(f"No valid embeddings found for seed tracks: {seed_track_ids}")
+
+    centroid = np.mean(np.vstack(seed_vecs), axis=0).astype(np.float32)
+    centroid = _normalize(centroid)
+
+    # Score all non-seed tracks
+    results: list[tuple[int, float]] = []
+    for track_id, vec in track_vectors.items():
+        if track_id in seed_set:
+            continue
+        norm = float(np.linalg.norm(vec))
+        if norm == 0:
+            continue
+        unit_vec = (vec / norm).astype(np.float32)
+        score = float(np.dot(centroid, unit_vec))
+        results.append((track_id, score))
+
+    results.sort(key=lambda item: item[1], reverse=True)
+    return results[:limit]

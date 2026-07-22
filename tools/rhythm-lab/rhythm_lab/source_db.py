@@ -742,3 +742,85 @@ def _sonara_bpm_from_metadata(metadata: dict[str, object]) -> float | None:
     if isinstance(value, dict):
         value = value.get("value")
     return optional_float(value)
+
+
+# ---------------------------------------------------------------------------
+# v7 read path — do NOT modify the v6 read path above
+# ---------------------------------------------------------------------------
+
+
+def iter_v7_labelable_tracks(
+    core_conn: sqlite3.Connection,
+    catalog_uuid: str,
+) -> "Iterator[dict]":
+    """Yield one dict per track in a v7 Core database that has SONARA analysis.
+
+    Only tracks that have a row in the ``sonara`` table are yielded — these are
+    candidates for Rhythm Lab labeling.  Tracks without SONARA analysis are
+    silently skipped.
+
+    The ``catalog_uuid`` argument is verified against ``library_catalog`` before
+    any rows are yielded.  A :class:`ValueError` is raised immediately on
+    mismatch so callers cannot accidentally mix catalogs.
+
+    Each yielded dict contains:
+        ``track_id``, ``track_uuid``, ``content_generation``, ``file_path``,
+        ``artist``, ``title``, ``album``, ``tag_bpm``, ``tag_key``.
+
+    Args:
+        core_conn: An open :class:`sqlite3.Connection` to a v7 Core database.
+        catalog_uuid: The expected catalog UUID — must match the singleton row
+            in ``library_catalog``.
+
+    Yields:
+        Plain dicts, one per SONARA-analysed track.
+
+    Raises:
+        ValueError: If ``catalog_uuid`` does not match the stored catalog UUID,
+            or if ``library_catalog`` has no rows.
+    """
+    from collections.abc import Iterator  # local import to avoid top-level cycle
+
+    catalog_rows = core_conn.execute(
+        "SELECT catalog_uuid FROM library_catalog"
+    ).fetchall()
+    if not catalog_rows:
+        raise ValueError("library_catalog is empty — not a valid v7 Core database")
+    stored_uuid = str(catalog_rows[0][0])
+    if stored_uuid != catalog_uuid:
+        raise ValueError(
+            f"catalog_uuid mismatch: expected {catalog_uuid!r}, "
+            f"got {stored_uuid!r}"
+        )
+
+    rows = core_conn.execute(
+        """
+        SELECT
+            t.track_id,
+            t.track_uuid,
+            t.content_generation,
+            t.file_path,
+            ft.artist,
+            ft.title,
+            ft.album,
+            ft.tag_bpm,
+            ft.tag_key
+        FROM tracks t
+        JOIN sonara s ON s.track_id = t.track_id
+        LEFT JOIN file_tags ft ON ft.track_id = t.track_id
+        ORDER BY COALESCE(ft.artist, ''), COALESCE(ft.title, ''), t.file_path
+        """
+    ).fetchall()
+
+    for row in rows:
+        yield {
+            "track_id": int(row[0]),
+            "track_uuid": str(row[1]),
+            "content_generation": int(row[2]),
+            "file_path": str(row[3]),
+            "artist": row[4],
+            "title": row[5],
+            "album": row[6],
+            "tag_bpm": float(row[7]) if row[7] is not None else None,
+            "tag_key": row[8],
+        }

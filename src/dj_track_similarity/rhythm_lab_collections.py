@@ -285,3 +285,47 @@ def _unique_track_ids(track_ids: list[int] | tuple[int, ...]) -> list[int]:
         seen.add(clean)
         result.append(clean)
     return result
+
+
+# ---------------------------------------------------------------------------
+# v7 track resolution helpers
+# ---------------------------------------------------------------------------
+
+
+def resolve_v7_track_by_uuid(
+    core_conn: sqlite3.Connection,
+    track_uuid: str,
+    expected_content_generation: int,
+) -> dict | None:
+    """Look up a track in a v7 Core database by UUID and content generation.
+
+    Returns a dict with ``{track_id, track_uuid, file_path, content_generation}``
+    when the track exists **and** its ``content_generation`` matches
+    *expected_content_generation*.  Returns ``None`` when the track is not
+    found or when the generation does not match (stale label — do not
+    auto-delete).
+
+    Args:
+        core_conn: An open :class:`sqlite3.Connection` to a v7 Core database.
+        track_uuid: The UUID of the track to look up.
+        expected_content_generation: The content generation the caller expects.
+
+    Returns:
+        A plain dict or ``None``.
+    """
+    row = core_conn.execute(
+        "SELECT track_id, track_uuid, file_path, content_generation "
+        "FROM tracks WHERE track_uuid = ?",
+        (track_uuid,),
+    ).fetchone()
+    if row is None:
+        return None
+    actual_generation = int(row[3])
+    if actual_generation != int(expected_content_generation):
+        return None
+    return {
+        "track_id": int(row[0]),
+        "track_uuid": str(row[1]),
+        "file_path": str(row[2]),
+        "content_generation": actual_generation,
+    }

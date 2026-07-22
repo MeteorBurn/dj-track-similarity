@@ -117,6 +117,7 @@ The current application already supports the practical parts of that vision:
 - Read promoted Rhythm Lab classifier scores for CLASS filtering, SET biasing, and Hybrid diagnostics.
 - Export the current set as M3U or CSV.
 - Run report-first helper tools for Audio Doctor, Audio Dedup, database optimization, and optional ANN sidecar indexes.
+- Migrate v6 libraries to v7 via `dj-sim migrate-schema-v7`.
 
 ## 🚧 The long-term direction
 
@@ -162,7 +163,7 @@ evidence. At low confidence, they also inspect SONARA candidates and the Mutagen
 `grid_stability` can weaken reliability. Unreliable tempo evidence moves toward a neutral score
 instead of earning a similarity bonus or becoming an automatic hard rejection.
 
-SONARA mood and instrumentalness values are retained for inspection and possible future audio workflows; they are not current similarity, SET, Hybrid, or classifier inputs. True peak and ReplayGain are also stored for future loudness-management work, not direct SONARA similarity scoring. Complete beat, onset, chord-event, tempo, energy, loudness, and downbeat sequences live in an adjacent `*.timeline.sqlite` database. The hot MAEST/MERT/MuQ/CLAP embeddings stay in the selected Core database because search and ranking use them directly. Only the optional SONARA embedding and fingerprint live in `*.representations.sqlite`.
+SONARA mood and instrumentalness values are retained for inspection and possible future audio workflows; they are not current similarity, SET, Hybrid, or classifier inputs. True peak and ReplayGain are also stored for future loudness-management work, not direct SONARA similarity scoring. Complete beat, onset, chord-event, tempo, energy, loudness, and downbeat sequences live in the `sonara_timeline` table in the `library.artifacts.sqlite` sidecar. The hot MAEST/MERT/MuQ/CLAP embeddings also live in the Artifacts sidecar in dedicated tables.
 
 Each SONARA result also retains analysis provenance, including the upstream schema and the installed package version when available. This makes later reanalysis and result audits easier to plan.
 

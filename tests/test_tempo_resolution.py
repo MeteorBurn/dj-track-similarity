@@ -89,8 +89,9 @@ def test_old_sonara_analysis_without_confidence_is_neutral_not_trusted() -> None
     assert confidence_aware_tempo_score(stale, current) == pytest.approx(0.5)
 
 
-def test_old_sonara_analysis_uses_independent_tag_fallback() -> None:
-    stale = resolve_tempo_evidence(
+def test_sonara_bpm_with_null_confidence_stays_neutral_not_tag_fallback() -> None:
+    """BUG-R3 regression: NULL bpm_confidence must NOT promote tag BPM with reliability=1.0."""
+    evidence = resolve_tempo_evidence(
         {
             "bpm": 155.0,
             "metadata": {
@@ -100,10 +101,30 @@ def test_old_sonara_analysis_uses_independent_tag_fallback() -> None:
         }
     )
 
-    assert stale.bpm == 128.0
-    assert stale.alternatives == (128.0,)
-    assert stale.source == "legacy_tag_fallback"
-    assert stale.reliability == 1.0
+    # SONARA BPM is kept; tag BPM is NOT used as scoring input
+    assert evidence.bpm == 155.0
+    assert evidence.source == "sonara_low_confidence"
+    assert evidence.reliability == 0.0
+
+
+def test_null_confidence_yields_neutral() -> None:
+    """BUG-R3: SONARA BPM present but bpm_confidence=None → reliability=0.0, score=0.5."""
+    evidence = resolve_tempo_evidence(
+        {
+            "metadata": {
+                "bpm": [128.0],
+                "sonara_features": {
+                    "bpm": {"value": 126.0},
+                    # bpm_confidence intentionally absent → None
+                },
+            },
+        }
+    )
+    reference = _evidence(128.0, 1.0)
+
+    assert evidence.reliability == 0.0, f"expected reliability=0.0, got {evidence.reliability}"
+    score = confidence_aware_tempo_score(evidence, reference)
+    assert score == pytest.approx(0.5), f"expected neutral score=0.5, got {score}"
 
 
 def test_tag_only_tempo_preserves_measured_matching_behavior() -> None:

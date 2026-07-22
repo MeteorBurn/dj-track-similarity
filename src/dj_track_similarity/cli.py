@@ -1177,6 +1177,122 @@ def text_search(
         typer.echo(f"{result.score:.3f}\t{result.track.id}\t{result.track.path}")
 
 
+@app.command("prepare-sonara-release")
+def prepare_sonara_release(
+    db_path: Path = typer.Option(..., "--db", help="Path to the Core SQLite database."),
+    backup_dir: Path = typer.Option(..., "--backup-dir", help="Directory to write backups into (must exist and be writable)."),
+    sonara_outputs: str = typer.Option(
+        "core,timeline,embedding,fingerprint",
+        "--sonara-outputs",
+        help="Comma-separated SONARA output kinds: core,timeline,embedding,fingerprint.",
+    ),
+    new_release_hash: str = typer.Option(
+        ...,
+        "--new-release-hash",
+        help="The release hash that will become active after preparation (e.g. sha256:<hex>).",
+    ),
+    confirm: str = typer.Option(..., "--confirm", help=f'Must be exactly "PREPARE SONARA RELEASE".'),
+) -> None:
+    """Safely clear all SONARA-derived data before activating a new SONARA release.
+
+    Executes the ordered 7-step prepare protocol with crash-resume support.
+    """
+    from .prepare_sonara_release import (
+        LockHeldError,
+        PrepareSonaraReleaseError,
+        prepare_sonara_release as _prepare,
+        validate_backup_dir,
+        validate_confirm,
+        validate_sonara_outputs,
+    )
+
+    try:
+        validate_confirm(confirm)
+    except ValueError as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+
+    try:
+        validate_backup_dir(backup_dir)
+    except ValueError as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+
+    outputs = [item.strip() for item in sonara_outputs.split(",") if item.strip()]
+    try:
+        validate_sonara_outputs(outputs)
+    except ValueError as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+
+    configure_logging()
+    try:
+        receipt = _prepare(
+            db_path=db_path,
+            backup_dir=backup_dir,
+            sonara_outputs=outputs,
+            new_release_hash=new_release_hash,
+        )
+    except LockHeldError as error:
+        typer.secho(f"SONARA_RELEASE_PREPARATION_REQUIRED: {error}", err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+    except (PrepareSonaraReleaseError, ValueError, RuntimeError) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+
+    typer.echo(
+        f"status=ok step={receipt['step']} "
+        f"new_release_hash={receipt['new_release_hash']} "
+        f"finalized_at={receipt['finalized_at']}"
+    )
+
+
+@app.command("migrate-schema-v7")
+def migrate_schema_v7(
+    source_db: Path = typer.Argument(..., help="Path to the v6 source database (opened read-only)."),
+    destination: Path = typer.Option(..., "--destination", help="Path for the new v7 Core database (must not exist)."),
+    rhythm_lab_labels: Optional[Path] = typer.Option(None, "--rhythm-lab-labels", help="Optional path to v6 Rhythm Lab labels database."),
+    rhythm_lab_destination: Optional[Path] = typer.Option(None, "--rhythm-lab-destination", help="Optional destination for migrated Rhythm Lab database."),
+    report_json: Optional[Path] = typer.Option(None, "--report", help="Optional path to write the migration report JSON."),
+) -> None:
+    """Migrate a v6 SQLite library database to v7 (side-by-side).
+
+    Opens the source read-only via SQLite URI mode=ro. Never mutates source files.
+    Writes a recovery manifest before any rename. Publishes Core LAST.
+    SONARA data is discarded per policy — run full SONARA reanalysis after migration.
+    """
+    from .migrate_v7 import MigrationError, migrate_v7
+
+    configure_logging()
+    try:
+        report = migrate_v7(
+            source=source_db,
+            destination=destination,
+            rhythm_lab_labels=rhythm_lab_labels,
+            rhythm_lab_destination=rhythm_lab_destination,
+            report_path=report_json,
+        )
+    except MigrationError as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+    except (FileNotFoundError, RuntimeError, ValueError, OSError) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
+
+    typer.echo(
+        f"status=ok "
+        f"tracks={report['tracks_migrated']} "
+        f"maest_scores={report['maest_scores_migrated']} "
+        f"embeddings={report['embeddings_migrated']} "
+        f"classifier_scores={report['classifier_scores_migrated']} "
+        f"discarded_fingerprints={report['discarded_v6_fingerprints']} "
+        f"mixed_contracts={report['mixed_legacy_contracts']}"
+    )
+    if report.get("warnings"):
+        for w in report["warnings"]:
+            typer.secho(f"warning: {w}", err=True, fg=typer.colors.YELLOW)
+
+
 @app.command()
 def serve(
     host: str = typer.Option("127.0.0.1", "--host"),

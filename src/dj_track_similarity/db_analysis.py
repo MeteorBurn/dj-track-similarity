@@ -854,6 +854,30 @@ class AnalysisRepository:
             deleted = cursor.rowcount
         return {"classifiers": cleaned, "scores_deleted": deleted}
 
+    def delete_stale_classifier_scores(
+        self,
+        classifier: str,
+        *,
+        current_model_id: str,
+        current_feature_set: str,
+    ) -> int:
+        """Delete score rows for *classifier* whose model_id or feature_set no longer matches.
+
+        Only rows for the given classifier key are touched; other classifiers are
+        never affected.  Returns the number of rows deleted.
+        """
+        key = classifier.strip()
+        with self._write_lock, self.connect() as connection:
+            cursor = connection.execute(
+                """
+                DELETE FROM track_classifier_scores
+                WHERE classifier = ?
+                  AND (model_id != ? OR feature_set != ?)
+                """,
+                (key, str(current_model_id), str(current_feature_set)),
+            )
+            return cursor.rowcount
+
     def _reset_metadata_analysis(self, adapter: str, keys: tuple[str, ...]) -> dict[str, object]:
         updated = 0
         embedding_keys_to_invalidate: set[str] = set()
@@ -1059,3 +1083,613 @@ class AnalysisRepository:
         if row is None:
             return None
         return np.frombuffer(row["vector"], dtype=np.float32).copy()
+
+
+# ---------------------------------------------------------------------------
+# v7 schema helpers — standalone functions, no dependency on LibraryDatabase
+# ---------------------------------------------------------------------------
+
+import hashlib
+import json
+import struct
+
+
+def upsert_sonara_contract_v7(
+    connection: sqlite3.Connection,
+    model_name: str,
+    model_version: str,
+    release_hash: str,
+) -> str:
+    """Compute the SONARA Core contract hash, insert into ``contracts`` if new.
+
+    Returns the ``contract_hash`` string (``"sha256:<hex>"``).
+    """
+    from datetime import datetime, timezone
+
+    payload: dict[str, object] = {
+        "analysis_family": "sonara",
+        "output_kind": "core",
+        "model_name": model_name,
+        "model_version": model_version,
+        "sonara_package_version": "0.2.9",
+        "upstream_schema_version": 4,
+        "analysis_mode": "playlist",
+        "sample_rate_hz": 22050,
+        "bpm_min": 70,
+        "bpm_max": 180,
+        "project_feature_revision": 5,
+        "decoder_backend": "sonara-symphonia",
+        "execution_path": "analyze_batch",
+        "release_hash": release_hash,
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    contract_hash = "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    existing = connection.execute(
+        "SELECT contract_hash FROM contracts WHERE contract_hash = ?",
+        (contract_hash,),
+    ).fetchone()
+    if existing is None:
+        now = datetime.now(timezone.utc).isoformat()
+        connection.execute(
+            """
+            INSERT INTO contracts (
+                contract_hash, analysis_family, output_kind,
+                model_name, model_version, release_hash,
+                canonical_payload_json, created_at
+            ) VALUES (?, 'sonara', 'core', ?, ?, ?, ?, ?)
+            """,
+            (contract_hash, model_name, model_version, release_hash, canonical, now),
+        )
+
+    return contract_hash
+
+
+def upsert_maest_contract_v7(
+    connection: sqlite3.Connection,
+    model_name: str,
+    model_version: str,
+    dim: int | None,
+    output_kind: str,
+) -> str:
+    """Compute a MAEST contract hash and INSERT OR IGNORE into ``contracts``.
+
+    ``output_kind`` must be ``'analysis'`` (for scores) or ``'embedding'``.
+    ``dim`` is required for ``output_kind='embedding'`` and should be ``None``
+    for ``output_kind='analysis'``.
+
+    Returns the ``contract_hash`` string (``"sha256:<hex>"``).
+    """
+    from datetime import datetime, timezone
+
+    payload: dict[str, object] = {
+        "analysis_family": "maest",
+        "output_kind": output_kind,
+        "model_name": model_name,
+        "model_version": model_version,
+        "dim": dim,
+        "encoding": "float32-le" if output_kind == "embedding" else None,
+        "normalization": "none" if output_kind == "embedding" else None,
+        "release_hash": None,
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    contract_hash = "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    existing = connection.execute(
+        "SELECT contract_hash FROM contracts WHERE contract_hash = ?",
+        (contract_hash,),
+    ).fetchone()
+    if existing is None:
+        now = datetime.now(timezone.utc).isoformat()
+        connection.execute(
+            """
+            INSERT INTO contracts (
+                contract_hash, analysis_family, output_kind,
+                model_name, model_version, release_hash,
+                canonical_payload_json, created_at
+            ) VALUES (?, 'maest', ?, ?, ?, NULL, ?, ?)
+            """,
+            (contract_hash, output_kind, model_name, model_version, canonical, now),
+        )
+
+    return contract_hash
+
+
+def save_maest_scores_v7(
+    connection: sqlite3.Connection,
+    track_id: int,
+    content_generation: int,
+    contract_hash: str,
+    syncopated_rhythm: int | None,
+    genres_json: str,
+    analyzed_at: str,
+) -> None:
+    """Write one MAEST scores row to the v7 Core ``maest_scores`` table.
+
+    ``genres_json`` must be a valid JSON array string, e.g.::
+
+        '[{"rank": 1, "genre_name": "techno", "score": 0.85}]'
+
+    ``syncopated_rhythm`` must be 0, 1, or None.
+
+    This function does NOT accept an embedding parameter — MAEST embeddings
+    are stored in the artifacts sidecar via ``save_maest_embedding_v7()``.
+    """
+    import json as _json
+
+    # Validate genres_json is a JSON array
+    try:
+        parsed = _json.loads(genres_json)
+    except _json.JSONDecodeError as exc:
+        raise ValueError(f"save_maest_scores_v7: genres_json is not valid JSON: {exc}") from exc
+    if not isinstance(parsed, list):
+        raise ValueError(
+            f"save_maest_scores_v7: genres_json must be a JSON array, got {type(parsed).__name__}"
+        )
+
+    with connection:
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO maest_scores (
+                track_id, content_generation, contract_hash,
+                syncopated_rhythm, genres_json, analyzed_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                int(track_id),
+                int(content_generation),
+                contract_hash,
+                syncopated_rhythm,
+                genres_json,
+                analyzed_at,
+            ),
+        )
+
+
+def save_maest_embedding_v7(
+    artifacts_connection: sqlite3.Connection,
+    track_id: int,
+    track_uuid: str,
+    content_generation: int,
+    contract_hash: str,
+    embedding: "object",
+    normalization: str,
+    analyzed_at: str,
+) -> None:
+    """Write one MAEST embedding row to the artifacts sidecar ``maest_embeddings`` table.
+
+    ``embedding`` may be a numpy array or any sequence of floats; it is packed
+    to little-endian float32 bytes (``<f4``).
+
+    ``normalization`` must be ``'none'`` or ``'l2'``; raises ``ValueError``
+    otherwise.
+
+    This function writes to the **artifacts sidecar**, NOT to the Core DB.
+    """
+    import numpy as np
+
+    if normalization not in ("none", "l2"):
+        raise ValueError(
+            f"save_maest_embedding_v7: normalization must be 'none' or 'l2', got {normalization!r}"
+        )
+
+    arr = np.asarray(embedding, dtype="<f4")
+    if arr.ndim != 1:
+        raise ValueError(
+            f"save_maest_embedding_v7: embedding must be 1-D, got shape {arr.shape}"
+        )
+    dim = int(arr.shape[0])
+    if dim <= 0:
+        raise ValueError(
+            f"save_maest_embedding_v7: embedding must have at least 1 element, got {dim}"
+        )
+    embedding_blob = arr.tobytes()
+
+    with artifacts_connection:
+        artifacts_connection.execute(
+            """
+            INSERT OR REPLACE INTO maest_embeddings (
+                track_id, track_uuid, content_generation, contract_hash,
+                dim, normalization, embedding_blob, analyzed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                int(track_id),
+                track_uuid,
+                int(content_generation),
+                contract_hash,
+                dim,
+                normalization,
+                embedding_blob,
+                analyzed_at,
+            ),
+        )
+
+
+def save_sonara_row_v7(
+    connection: sqlite3.Connection,
+    track_id: int,
+    content_generation: int,
+    contract_hash: str,
+    sonara_output: dict[str, object],
+    analyzed_at: str,
+) -> None:
+    """Write one SONARA Core row to the v7 ``sonara`` table.
+
+    ``sonara_output`` is a flat dict whose keys match the column names defined
+    in ``db_schema_v7.py``.  The three timbre BLOBs are required:
+
+    - ``mfcc_mean_blob``: 13 float32 values → 52 bytes
+    - ``chroma_mean_blob``: 12 float32 values → 48 bytes
+    - ``spectral_contrast_mean_blob``: 7 float32 values → 28 bytes
+
+    Each BLOB may be supplied as ``bytes`` (already packed) or as a sequence of
+    floats (packed here with ``struct.pack('<Nf', ...)``.
+
+    Raises ``ValueError`` if any BLOB is missing or has the wrong byte length.
+    """
+
+    def _require_blob(key: str, expected_floats: int) -> bytes:
+        raw = sonara_output.get(key)
+        expected_bytes = expected_floats * 4
+        if raw is None:
+            raise ValueError(
+                f"save_sonara_row_v7: '{key}' is required but was None"
+            )
+        if isinstance(raw, (bytes, bytearray, memoryview)):
+            blob = bytes(raw)
+        else:
+            # Treat as a sequence of floats and pack
+            try:
+                values = list(raw)  # type: ignore[arg-type]
+            except TypeError:
+                raise ValueError(
+                    f"save_sonara_row_v7: '{key}' must be bytes or a sequence of floats"
+                )
+            if len(values) != expected_floats:
+                raise ValueError(
+                    f"save_sonara_row_v7: '{key}' must have {expected_floats} values, "
+                    f"got {len(values)}"
+                )
+            blob = struct.pack(f"<{expected_floats}f", *values)
+        if len(blob) != expected_bytes:
+            raise ValueError(
+                f"save_sonara_row_v7: '{key}' must be {expected_bytes} bytes, "
+                f"got {len(blob)}"
+            )
+        return blob
+
+    mfcc_blob = _require_blob("mfcc_mean_blob", 13)
+    chroma_blob = _require_blob("chroma_mean_blob", 12)
+    contrast_blob = _require_blob("spectral_contrast_mean_blob", 7)
+
+    def _g(key: str) -> object:
+        return sonara_output.get(key)
+
+    connection.execute(
+        """
+        INSERT OR REPLACE INTO sonara (
+            track_id, content_generation, contract_hash,
+            -- Rhythm
+            detected_bpm, raw_bpm, bpm_confidence,
+            onset_density_per_second, beat_count, tempo_variability,
+            beat_grid_offset_seconds, beat_grid_stability, bpm_candidates_json,
+            -- Tonal
+            detected_key_name, detected_key_camelot, key_confidence,
+            predominant_chord, chord_changes_per_second, key_candidates_json,
+            -- Perceptual
+            energy_score, energy_level, danceability_score,
+            valence_score, acousticness_score, dissonance_score,
+            -- Spectral
+            spectral_centroid_hz, spectral_bandwidth_hz, spectral_rolloff_hz,
+            spectral_flatness, zero_crossing_rate,
+            -- Loudness
+            rms_mean, rms_max, integrated_loudness_lufs,
+            dynamic_range_db, true_peak_dbtp, replay_gain_db,
+            max_momentary_loudness_lufs, loudness_range_lu,
+            -- Structure
+            analyzed_duration_seconds, intro_end_seconds, outro_start_seconds,
+            leading_silence_seconds, trailing_silence_seconds,
+            -- Energy curve
+            energy_curve_hop_seconds, energy_curve_sample_count,
+            energy_curve_min, energy_curve_max, energy_curve_mean, energy_curve_stddev,
+            -- Voice / Mood
+            vocal_probability, mood_happy_score, mood_aggressive_score,
+            mood_relaxed_score, mood_sad_score,
+            -- BLOBs
+            mfcc_mean_blob, chroma_mean_blob, spectral_contrast_mean_blob,
+            -- Provenance
+            analyzed_at
+        ) VALUES (
+            ?, ?, ?,
+            ?, ?, ?,
+            ?, ?, ?,
+            ?, ?, ?,
+            ?, ?, ?,
+            ?, ?, ?,
+            ?, ?, ?,
+            ?, ?, ?,
+            ?, ?, ?,
+            ?, ?,
+            ?, ?, ?,
+            ?, ?, ?,
+            ?, ?,
+            ?, ?, ?,
+            ?, ?,
+            ?, ?,
+            ?, ?, ?, ?,
+            ?, ?, ?,
+            ?, ?,
+            ?, ?, ?,
+            ?
+        )
+        """,
+        (
+            int(track_id), int(content_generation), contract_hash,
+            # Rhythm
+            _g("detected_bpm"), _g("raw_bpm"), _g("bpm_confidence"),
+            _g("onset_density_per_second"), _g("beat_count"), _g("tempo_variability"),
+            _g("beat_grid_offset_seconds"), _g("beat_grid_stability"),
+            _g("bpm_candidates_json"),
+            # Tonal
+            _g("detected_key_name"), _g("detected_key_camelot"), _g("key_confidence"),
+            _g("predominant_chord"), _g("chord_changes_per_second"),
+            _g("key_candidates_json"),
+            # Perceptual
+            _g("energy_score"), _g("energy_level"), _g("danceability_score"),
+            _g("valence_score"), _g("acousticness_score"), _g("dissonance_score"),
+            # Spectral
+            _g("spectral_centroid_hz"), _g("spectral_bandwidth_hz"), _g("spectral_rolloff_hz"),
+            _g("spectral_flatness"), _g("zero_crossing_rate"),
+            # Loudness
+            _g("rms_mean"), _g("rms_max"), _g("integrated_loudness_lufs"),
+            _g("dynamic_range_db"), _g("true_peak_dbtp"), _g("replay_gain_db"),
+            _g("max_momentary_loudness_lufs"), _g("loudness_range_lu"),
+            # Structure
+            _g("analyzed_duration_seconds"), _g("intro_end_seconds"), _g("outro_start_seconds"),
+            _g("leading_silence_seconds"), _g("trailing_silence_seconds"),
+            # Energy curve
+            _g("energy_curve_hop_seconds"), _g("energy_curve_sample_count"),
+            _g("energy_curve_min"), _g("energy_curve_max"),
+            _g("energy_curve_mean"), _g("energy_curve_stddev"),
+            # Voice / Mood
+            _g("vocal_probability"), _g("mood_happy_score"), _g("mood_aggressive_score"),
+            _g("mood_relaxed_score"), _g("mood_sad_score"),
+            # BLOBs
+            mfcc_blob, chroma_blob, contrast_blob,
+            # Provenance
+            analyzed_at,
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# v7 ML embedding contract + sidecar writers — MERT / MuQ / CLAP (Todo 18)
+# ---------------------------------------------------------------------------
+
+_ML_EMBEDDING_FAMILIES = frozenset({"mert", "muq", "clap"})
+
+
+def upsert_ml_embedding_contract_v7(
+    connection: sqlite3.Connection,
+    family: str,
+    model_name: str,
+    model_version: str,
+    dim: int,
+    normalization: str,
+) -> str:
+    """Compute an ML embedding contract hash and INSERT OR IGNORE into ``contracts``.
+
+    ``family`` must be one of ``'mert'``, ``'muq'``, or ``'clap'``; raises
+    ``ValueError`` otherwise.
+
+    ``normalization`` must be ``'none'`` or ``'l2'``; raises ``ValueError``
+    otherwise.
+
+    Returns the ``contract_hash`` string (``"sha256:<hex>"``).
+    """
+    from datetime import datetime, timezone
+
+    if family not in _ML_EMBEDDING_FAMILIES:
+        raise ValueError(
+            f"upsert_ml_embedding_contract_v7: family must be one of "
+            f"{sorted(_ML_EMBEDDING_FAMILIES)}, got {family!r}"
+        )
+    if normalization not in ("none", "l2"):
+        raise ValueError(
+            f"upsert_ml_embedding_contract_v7: normalization must be 'none' or 'l2', "
+            f"got {normalization!r}"
+        )
+
+    payload: dict[str, object] = {
+        "analysis_family": family,
+        "output_kind": "embedding",
+        "model_name": model_name,
+        "model_version": model_version,
+        "dim": dim,
+        "encoding": "float32-le",
+        "normalization": normalization,
+        "release_hash": None,
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    contract_hash = "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    existing = connection.execute(
+        "SELECT contract_hash FROM contracts WHERE contract_hash = ?",
+        (contract_hash,),
+    ).fetchone()
+    if existing is None:
+        now = datetime.now(timezone.utc).isoformat()
+        connection.execute(
+            """
+            INSERT INTO contracts (
+                contract_hash, analysis_family, output_kind,
+                model_name, model_version, release_hash,
+                canonical_payload_json, created_at
+            ) VALUES (?, ?, 'embedding', ?, ?, NULL, ?, ?)
+            """,
+            (contract_hash, family, model_name, model_version, canonical, now),
+        )
+
+    return contract_hash
+
+
+def _save_ml_embedding_v7(
+    artifacts_connection: sqlite3.Connection,
+    table_name: str,
+    track_id: int,
+    track_uuid: str,
+    content_generation: int,
+    contract_hash: str,
+    embedding: "object",
+    normalization: str,
+    analyzed_at: str,
+) -> None:
+    """Internal helper: write one ML embedding row to *table_name* in the artifacts sidecar.
+
+    ``table_name`` must be one of ``mert_embeddings``, ``muq_embeddings``, or
+    ``clap_embeddings``.
+
+    ``embedding`` may be a numpy array or any sequence of floats; it is packed
+    to little-endian float32 bytes (``<f4``).
+
+    ``normalization`` must be ``'none'`` or ``'l2'``; raises ``ValueError``
+    otherwise.
+    """
+    import numpy as np
+
+    if normalization not in ("none", "l2"):
+        raise ValueError(
+            f"_save_ml_embedding_v7: normalization must be 'none' or 'l2', got {normalization!r}"
+        )
+
+    arr = np.asarray(embedding, dtype="<f4")
+    if arr.ndim != 1:
+        raise ValueError(
+            f"_save_ml_embedding_v7: embedding must be 1-D, got shape {arr.shape}"
+        )
+    dim = int(arr.shape[0])
+    if dim <= 0:
+        raise ValueError(
+            f"_save_ml_embedding_v7: embedding must have at least 1 element, got {dim}"
+        )
+    embedding_blob = arr.tobytes()
+
+    with artifacts_connection:
+        artifacts_connection.execute(
+            f"""
+            INSERT OR REPLACE INTO {table_name} (
+                track_id, track_uuid, content_generation, contract_hash,
+                dim, normalization, embedding_blob, analyzed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,  # noqa: S608
+            (
+                int(track_id),
+                track_uuid,
+                int(content_generation),
+                contract_hash,
+                dim,
+                normalization,
+                embedding_blob,
+                analyzed_at,
+            ),
+        )
+
+
+def save_mert_embedding_v7(
+    artifacts_connection: sqlite3.Connection,
+    track_id: int,
+    track_uuid: str,
+    content_generation: int,
+    contract_hash: str,
+    embedding: "object",
+    normalization: str,
+    analyzed_at: str,
+) -> None:
+    """Write one MERT embedding row to the artifacts sidecar ``mert_embeddings`` table.
+
+    ``embedding`` may be a numpy array or any sequence of floats; it is packed
+    to little-endian float32 bytes (``<f4``).
+
+    ``normalization`` must be ``'none'`` or ``'l2'``; raises ``ValueError``
+    otherwise.
+
+    This function writes to the **artifacts sidecar**, NOT to the Core DB.
+    """
+    _save_ml_embedding_v7(
+        artifacts_connection,
+        "mert_embeddings",
+        track_id,
+        track_uuid,
+        content_generation,
+        contract_hash,
+        embedding,
+        normalization,
+        analyzed_at,
+    )
+
+
+def save_muq_embedding_v7(
+    artifacts_connection: sqlite3.Connection,
+    track_id: int,
+    track_uuid: str,
+    content_generation: int,
+    contract_hash: str,
+    embedding: "object",
+    normalization: str,
+    analyzed_at: str,
+) -> None:
+    """Write one MuQ embedding row to the artifacts sidecar ``muq_embeddings`` table.
+
+    ``embedding`` may be a numpy array or any sequence of floats; it is packed
+    to little-endian float32 bytes (``<f4``).
+
+    ``normalization`` must be ``'none'`` or ``'l2'``; raises ``ValueError``
+    otherwise.
+
+    This function writes to the **artifacts sidecar**, NOT to the Core DB.
+    """
+    _save_ml_embedding_v7(
+        artifacts_connection,
+        "muq_embeddings",
+        track_id,
+        track_uuid,
+        content_generation,
+        contract_hash,
+        embedding,
+        normalization,
+        analyzed_at,
+    )
+
+
+def save_clap_embedding_v7(
+    artifacts_connection: sqlite3.Connection,
+    track_id: int,
+    track_uuid: str,
+    content_generation: int,
+    contract_hash: str,
+    embedding: "object",
+    normalization: str,
+    analyzed_at: str,
+) -> None:
+    """Write one CLAP embedding row to the artifacts sidecar ``clap_embeddings`` table.
+
+    ``embedding`` may be a numpy array or any sequence of floats; it is packed
+    to little-endian float32 bytes (``<f4``).
+
+    ``normalization`` must be ``'none'`` or ``'l2'``; raises ``ValueError``
+    otherwise.
+
+    This function writes to the **artifacts sidecar**, NOT to the Core DB.
+    """
+    _save_ml_embedding_v7(
+        artifacts_connection,
+        "clap_embeddings",
+        track_id,
+        track_uuid,
+        content_generation,
+        contract_hash,
+        embedding,
+        normalization,
+        analyzed_at,
+    )

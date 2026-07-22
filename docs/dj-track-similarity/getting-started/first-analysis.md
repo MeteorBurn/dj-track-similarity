@@ -29,7 +29,7 @@ which families deserve a full-library run.
 
 | Family | Writes | Unlocks |
 | --- | --- | --- |
-| SONARA | signed metadata, provenance, curves, and `has_sonara_analysis` | feature search, confidence-aware tempo, Camelot resolution, SET ordering, transition diagnostics, classifier inputs |
+| SONARA | signed metadata, provenance, and Artifacts sidecar rows | feature search, confidence-aware tempo, Camelot resolution, SET ordering, transition diagnostics, classifier inputs |
 | MAEST | genre labels, syncopated rhythm data, MAEST embedding | genre display, genre tag apply, SET and Hybrid MAEST source |
 | MERT | MERT embedding | seed search, SET, Hybrid, Audio Dedup evidence |
 | MuQ | MuQ embedding | LAB Reference Compare evidence; no MERT/SONARA search, SET, or Hybrid integration |
@@ -91,17 +91,16 @@ default for a library on one HDD unless a measured pilot supports a larger value
 
 ## Already analyzed tracks
 
-Analysis jobs target missing results for the selected families. SONARA checks Core, Timeline, and
-Representations signatures independently, so adding Timeline later does not replace Core. Other
+Analysis jobs target missing results for the selected families. SONARA checks Core and Artifacts signatures independently, so adding Timeline later does not replace Core. Other
 complete families are skipped. Use reset only when you intentionally want to delete stored results.
 
 For an existing analyzed database, a native SONARA preflight blocks old-contract rows. Back up and
-use the explicit SONARA reset before following the ordered
+use the explicit SONARA prepare command before following the ordered
 [split SONARA storage workflow](../workflows/reanalyze-sonara-split-storage.md).
 
 ## Reset boundaries
 
-- Reset SONARA removes Core metadata, Timeline rows, SONARA embedding/fingerprint rows, flags, and dependent classifier scores, then restores working BPM/key/energy/duration from remaining tags when possible. Labels and feedback remain intact.
+- Reset SONARA removes Core metadata, Artifacts rows (timeline, embedding, fingerprint), and dependent classifier scores, then restores working BPM/key/energy/duration from remaining tags when possible. Labels and feedback remain intact.
 - Reset MAEST removes MAEST metadata and MAEST embeddings.
 - Reset MERT, MuQ, or CLAP deletes embeddings for that key.
 - Reset CLASSIFIERS deletes selected classifier scores only.

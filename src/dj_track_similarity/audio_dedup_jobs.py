@@ -5,10 +5,12 @@ import importlib.util
 import json
 import logging
 from pathlib import Path
+import sqlite3
 import sys
 import threading
 import time
 import uuid
+from collections.abc import Iterator
 from types import ModuleType
 from typing import Any
 
@@ -348,3 +350,64 @@ def _load_audio_dedup_core() -> ModuleType:
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module
+
+
+# ---------------------------------------------------------------------------
+# v7 artifacts sidecar — sonara_fingerprints read helpers
+# ---------------------------------------------------------------------------
+
+
+def read_v7_fingerprint(artifacts_conn: sqlite3.Connection, track_id: int) -> bytes | None:
+    """Read a fingerprint blob from the v7 ``sonara_fingerprints`` table.
+
+    Args:
+        artifacts_conn: Open read-only (or read-write) connection to the
+            artifacts sidecar database (``library.artifacts.sqlite``).
+        track_id: Primary key of the track to look up.
+
+    Returns:
+        The raw ``fingerprint_blob`` bytes on success, or ``None`` when no
+        row exists for *track_id*.  The blob is packed little-endian uint32
+        words; callers that need numpy arrays should use
+        ``numpy.frombuffer(blob, dtype="<u4")``.
+    """
+    cur = artifacts_conn.execute(
+        "SELECT fingerprint_blob FROM sonara_fingerprints WHERE track_id = ?",
+        (track_id,),
+    )
+    row = cur.fetchone()
+    if row is None:
+        return None
+    return bytes(row[0])
+
+
+def list_v7_fingerprint_pairs(
+    artifacts_conn: sqlite3.Connection,
+    contract_hash: str,
+) -> Iterator[tuple[int, bytes]]:
+    """Yield ``(track_id, fingerprint_blob)`` for every row matching *contract_hash*.
+
+    Iterates the ``sonara_fingerprints`` table in the v7 artifacts sidecar,
+    filtering by ``contract_hash``.  Rows are yielded in ascending
+    ``track_id`` order (index-backed).
+
+    Args:
+        artifacts_conn: Open connection to the artifacts sidecar database.
+        contract_hash: The contract hash string to filter on (e.g.
+            ``"sha256:<hexdigest>"``).
+
+    Yields:
+        ``(track_id, fingerprint_blob)`` tuples.  The blob is packed
+        little-endian uint32 words.
+    """
+    cur = artifacts_conn.execute(
+        """
+        SELECT track_id, fingerprint_blob
+        FROM sonara_fingerprints
+        WHERE contract_hash = ?
+        ORDER BY track_id
+        """,
+        (contract_hash,),
+    )
+    for row in cur:
+        yield int(row[0]), bytes(row[1])

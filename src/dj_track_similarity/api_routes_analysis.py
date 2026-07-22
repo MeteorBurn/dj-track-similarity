@@ -12,6 +12,7 @@ from .api_schemas import (
     ClassifierAnalyzeRequest,
     ClassifierResetRequest,
     ClassifiersAnalyzeRequest,
+    PrepareSonaraReleaseRequest,
 )
 from .api_state import AppDatabaseState
 from .classifier_production import build_classifier_calibration_report, normalize_label_suggestion_mode, suggest_classifier_labels
@@ -259,6 +260,53 @@ def register_analysis_routes(
             return state.require_analysis_jobs().cancel(job_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.post("/api/analysis/sonara/releases/prepare")
+    def prepare_sonara_release(request: PrepareSonaraReleaseRequest):
+        from pathlib import Path
+
+        from .prepare_sonara_release import (
+            LockHeldError,
+            PrepareSonaraReleaseError,
+            prepare_sonara_release as _prepare,
+            validate_backup_dir,
+            validate_confirm,
+            validate_sonara_outputs,
+        )
+
+        try:
+            validate_confirm(request.confirm)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+        backup_dir = Path(request.backup_dir)
+        try:
+            validate_backup_dir(backup_dir)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+        try:
+            validate_sonara_outputs(request.sonara_outputs)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+        db_path = Path(request.db)
+        try:
+            receipt = _prepare(
+                db_path=db_path,
+                backup_dir=backup_dir,
+                sonara_outputs=request.sonara_outputs,
+                new_release_hash=request.new_release_hash,
+            )
+        except LockHeldError as error:
+            raise HTTPException(
+                status_code=409,
+                detail=f"SONARA_RELEASE_PREPARATION_REQUIRED: {error}",
+            ) from error
+        except (PrepareSonaraReleaseError, ValueError, RuntimeError) as error:
+            raise HTTPException(status_code=500, detail=str(error)) from error
+
+        return receipt
 
 
 def _validated_classifier_keys(

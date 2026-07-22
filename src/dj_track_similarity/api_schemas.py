@@ -338,7 +338,7 @@ class SetBuilderGenerateRequest(BaseModel):
     bpm_target: float | None = Field(default=None, ge=20.0, le=300.0)
     classifier_preferences: dict[str, Annotated[float, Field(ge=-1.0, le=1.0)]] = Field(default_factory=dict)
     classifier_flows: dict[str, Literal["flat", "rise", "fall"]] = Field(default_factory=dict)
-    random_seed: int | None = None
+    random_seed: int = 0
 
 
 class FilteredTracksRequest(BaseModel):
@@ -447,3 +447,196 @@ class EvaluationWeightedCandidatesRunRequest(BaseModel):
         if has_profile == has_weights:
             raise ValueError("Provide exactly one of profile or weights")
         return self
+
+
+class PrepareSonaraReleaseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    db: str
+    backup_dir: str
+    sonara_outputs: list[str] = Field(default_factory=lambda: ["core", "timeline", "embedding", "fingerprint"])
+    new_release_hash: str
+    confirm: str
+
+
+# ---------------------------------------------------------------------------
+# v7 API models — TrackSummaryV7 / TrackDetailV7
+# These are NEW models for the v7 schema. v6 models above are NOT modified.
+# ---------------------------------------------------------------------------
+
+
+class FileTechnicalV7(BaseModel):
+    """File-level technical facts from the v7 ``tracks`` table."""
+
+    file_size_bytes: int
+    file_modified_ns: int
+    audio_format: str | None
+    audio_codec: str | None
+    sample_rate_hz: int | None
+    channel_count: int | None
+    bit_rate_bps: int | None
+    audio_duration_seconds: float | None
+    last_scanned_at: str
+    missing_since: str | None
+
+
+class FileTagsV7Model(BaseModel):
+    """Mutagen tag fields from the v7 ``file_tags`` table."""
+
+    title: str | None
+    artist: str | None
+    album: str | None
+    tag_bpm: float | None
+    tag_key: str | None
+    comment: str | None
+    year: int | None
+    label: str | None
+    catalog_number: str | None
+    country: str | None
+    isrc: str | None
+    track_number: str | None
+    disc_number: str | None
+    genres: list[str]  # decoded from genres_json
+    tags_read_at: str
+
+
+class SonaraCoreV7Model(BaseModel):
+    """SONARA Core scalars from the v7 ``sonara`` table. No raw BLOB bytes."""
+
+    # Rhythm
+    detected_bpm: float | None
+    raw_bpm: float | None
+    bpm_confidence: float | None
+    onset_density_per_second: float | None
+    beat_count: int | None
+    tempo_variability: float | None
+    beat_grid_offset_seconds: float | None
+    beat_grid_stability: float | None
+    bpm_candidates: list[dict]  # decoded from bpm_candidates_json
+    # Tonal
+    detected_key_name: str | None
+    detected_key_camelot: str | None
+    key_confidence: float | None
+    predominant_chord: str | None
+    chord_changes_per_second: float | None
+    key_candidates: list[dict]  # decoded from key_candidates_json
+    # Perceptual
+    energy_score: float | None
+    energy_level: int | None
+    danceability_score: float | None
+    valence_score: float | None
+    acousticness_score: float | None
+    dissonance_score: float | None
+    # Spectral
+    spectral_centroid_hz: float | None
+    spectral_bandwidth_hz: float | None
+    spectral_rolloff_hz: float | None
+    spectral_flatness: float | None
+    zero_crossing_rate: float | None
+    # Loudness
+    rms_mean: float | None
+    rms_max: float | None
+    integrated_loudness_lufs: float | None
+    dynamic_range_db: float | None
+    true_peak_dbtp: float | None
+    replay_gain_db: float | None
+    max_momentary_loudness_lufs: float | None
+    loudness_range_lu: float | None
+    # Structure
+    analyzed_duration_seconds: float | None
+    intro_end_seconds: float | None
+    outro_start_seconds: float | None
+    leading_silence_seconds: float | None
+    trailing_silence_seconds: float | None
+    # Energy curve summary
+    energy_curve_hop_seconds: float | None
+    energy_curve_sample_count: int | None
+    energy_curve_min: float | None
+    energy_curve_max: float | None
+    energy_curve_mean: float | None
+    energy_curve_stddev: float | None
+    # Voice / Mood
+    vocal_probability: float | None
+    mood_happy_score: float | None
+    mood_aggressive_score: float | None
+    mood_relaxed_score: float | None
+    mood_sad_score: float | None
+    # Timbre vector summaries (dim only — no raw bytes)
+    vector_summaries: list[dict]  # [{vector_type, dim}]
+    # Provenance
+    analyzed_at: str
+
+
+class MaestV7Model(BaseModel):
+    """MAEST scores from the v7 ``maest_scores`` table."""
+
+    syncopated_rhythm: bool | None
+    genres: list[dict]  # [{rank, genre_name, score}] decoded from genres_json
+    analyzed_at: str
+
+
+class EmbeddingV7Summary(BaseModel):
+    """Summary of one embedding row — no raw bytes."""
+
+    analysis_family: str
+    model_name: str
+    model_version: str | None
+    dim: int
+    normalization: str
+    analyzed_at: str
+
+
+class ClassifierScoreV7Detail(BaseModel):
+    """Full classifier score detail from the v7 ``classifier_scores`` table."""
+
+    classifier_key: str
+    score: float
+    predicted_class: str
+    score_bucket: str
+    confidence: float
+    probabilities: dict[str, float]  # decoded from probabilities_json
+    feature_set: str
+    model_id: str
+    analyzed_at: str
+
+
+class TrackSummaryV7(BaseModel):
+    """v7 track summary — no metadata_json, no has_* flags, no raw embeddings."""
+
+    track_id: int
+    file_path: str
+    # Identity tags (nullable — from file_tags if present)
+    title: str | None
+    artist: str | None
+    album: str | None
+    tag_bpm: float | None
+    tag_key: str | None
+    audio_duration_seconds: float | None
+    liked: bool
+    analysis_coverage: dict[str, bool]  # keys: sonara_core, timeline, sonara_embedding, fingerprint, maest, mert, muq, clap
+    classifier_scores: list[dict]  # [{classifier_key, score, predicted_class, score_bucket, confidence}]
+
+
+class TrackDetailV7(BaseModel):
+    """v7 track detail — extends TrackSummaryV7 with full sub-models."""
+
+    # Summary fields (duplicated for a flat top-level shape)
+    track_id: int
+    file_path: str
+    title: str | None
+    artist: str | None
+    album: str | None
+    tag_bpm: float | None
+    tag_key: str | None
+    audio_duration_seconds: float | None
+    liked: bool
+    analysis_coverage: dict[str, bool]
+    classifier_scores: list[dict]
+    # Detail sub-models
+    file: FileTechnicalV7
+    file_tags: FileTagsV7Model | None
+    sonara_core: SonaraCoreV7Model | None
+    maest: MaestV7Model | None
+    embeddings: list[EmbeddingV7Summary]
+    classifier_scores_detail: list[ClassifierScoreV7Detail]
+    optional_outputs: dict  # {timeline_fields: list[str], sonara_embedding_available: bool, audio_fingerprint_available: bool}

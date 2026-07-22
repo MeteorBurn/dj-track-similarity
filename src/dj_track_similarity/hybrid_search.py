@@ -1062,3 +1062,68 @@ def _normalized_response_score(raw_score: float, max_score: float) -> float:
 def _tie_token(random_seed: int, candidate_track_id: int) -> int:
     digest = hashlib.sha256(f"hybrid:{random_seed}:{candidate_track_id}".encode("utf-8")).digest()
     return int.from_bytes(digest[:8], "big")
+
+
+# ---------------------------------------------------------------------------
+# v7 read-path adapter — SONARA scalar reader from v7 Core DB (Todo 21)
+# ---------------------------------------------------------------------------
+
+def _read_v7_sonara_scalars(
+    core_conn: "Any",
+    track_id: int,
+) -> dict | None:
+    """Read SONARA scalar values needed for Hybrid transition-risk and SONARA
+    source contribution from the v7 ``sonara`` table.
+
+    Returns a dict with the following keys (all optional — absent when NULL):
+    - ``detected_bpm``, ``bpm_confidence``, ``beat_grid_stability``
+    - ``detected_key_name``, ``detected_key_camelot``, ``key_confidence``
+    - ``energy_score``, ``danceability_score``, ``valence_score``
+    - ``acousticness_score``, ``dissonance_score``
+    - ``onset_density_per_second``, ``dynamic_range_db``
+    - ``integrated_loudness_lufs``, ``rms_mean``
+    - ``intro_end_seconds``, ``outro_start_seconds``
+    - ``analyzed_duration_seconds``
+
+    Returns ``None`` when the v7 ``sonara`` table does not exist or no row
+    exists for *track_id*.  NULL column values are omitted from the dict.
+    """
+    import sqlite3 as _sqlite3
+
+    _SCALAR_COLS = (
+        "detected_bpm",
+        "bpm_confidence",
+        "beat_grid_stability",
+        "detected_key_name",
+        "detected_key_camelot",
+        "key_confidence",
+        "energy_score",
+        "danceability_score",
+        "valence_score",
+        "acousticness_score",
+        "dissonance_score",
+        "onset_density_per_second",
+        "dynamic_range_db",
+        "integrated_loudness_lufs",
+        "rms_mean",
+        "intro_end_seconds",
+        "outro_start_seconds",
+        "analyzed_duration_seconds",
+    )
+    col_list = ", ".join(_SCALAR_COLS)
+    try:
+        row = core_conn.execute(
+            f"SELECT {col_list} FROM sonara WHERE track_id = ?",  # noqa: S608
+            (track_id,),
+        ).fetchone()
+    except _sqlite3.OperationalError:
+        return None
+
+    if row is None:
+        return None
+
+    result: dict = {}
+    for col_name, value in zip(_SCALAR_COLS, row):
+        if value is not None:
+            result[col_name] = value
+    return result

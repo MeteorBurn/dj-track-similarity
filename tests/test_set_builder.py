@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.api_schemas import SetBuilderGenerateRequest
 import dj_track_similarity.set_builder as set_builder_module
 from dj_track_similarity.set_builder import SetBuilderConfig, SmartSetBuilder
 from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature, sonara_analysis_signature_id
@@ -255,6 +256,34 @@ def test_auto_mode_uses_random_seed_and_excludes_feature_incomplete_tracks(tmp_p
     assert incomplete_id not in [item["track"].id for item in first["items"]]
     assert set(first["seed_track_ids"]).issubset(ids)
     assert len(first["seed_track_ids"]) == 3
+
+
+def test_same_seed_same_order(tmp_path: Path) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    for index in range(1, 13):
+        _complete_track(
+            db,
+            tmp_path,
+            f"complete-{index}.wav",
+            metadata={"artist": f"Artist {index}", "title": f"Complete {index}"},
+            features=_features(energy=0.35 + index / 100, onset_density=0.25 + index / 100),
+            vectors={"mert": [1, index / 20], "maest": [1, index / 20], "clap": [1, index / 20]},
+        )
+
+    request = SetBuilderGenerateRequest(seed_mode="auto", auto_seed_count=3, limit=5)
+    assert request.random_seed == 0
+    config = SetBuilderConfig(
+        seed_mode=request.seed_mode,
+        auto_seed_count=request.auto_seed_count,
+        limit=request.limit,
+        random_seed=request.random_seed,
+    )
+    builder = SmartSetBuilder(db)
+
+    first = builder.generate(config)
+    second = builder.generate(config)
+
+    assert [item["track"].id for item in first["items"]] == [item["track"].id for item in second["items"]]
 
 
 def test_auto_mode_first_anchor_can_start_from_full_eligible_pool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1166,6 +1195,130 @@ def test_set_light_candidates_preserve_list_tags_for_camelot_resolution(tmp_path
     assert candidate.track.metadata["key"] == ["F# minor", "8A"]
     assert candidate.track.metadata["initialkey"] == ["G minor", "6A"]
     assert set_builder_module._track_key(candidate) == "8A"
+
+
+def test_blob_reader_changes_broad_score() -> None:
+    """BUG-R1: _read_sonara_short_vectors_v7 must decode BLOB columns and return
+    statistics that differ when the underlying vectors differ.
+
+    Verifies:
+    - Changing mfcc_mean_blob changes the 4 mfcc statistics.
+    - Changing chroma_mean_blob changes the 4 chroma statistics.
+    - Changing spectral_contrast_mean_blob changes the scalar mean.
+    - Identical BLOBs produce identical statistics.
+    - NOT NULL invariant: all 3 BLOBs must be present (v7 schema enforces this).
+    """
+    import sqlite3
+    from dj_track_similarity.db_schema_v7 import create_v7_schema
+    from dj_track_similarity.set_builder import _read_sonara_short_vectors_v7
+
+    def _make_blob(values: list[float]) -> bytes:
+        return np.array(values, dtype="<f4").tobytes()
+
+    # Canonical BLOBs — 13 / 12 / 7 float32 values.
+    mfcc_a = _make_blob([float(i) * 0.1 for i in range(13)])
+    mfcc_b = _make_blob([float(i) * 0.2 + 1.0 for i in range(13)])  # clearly different
+    chroma_a = _make_blob([0.5] * 12)
+    chroma_b = _make_blob([0.9] * 12)  # clearly different
+    sc_a = _make_blob([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0])
+    sc_b = _make_blob([7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0])  # same mean → use different values
+    sc_c = _make_blob([10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0])  # clearly different mean
+
+    conn = sqlite3.connect(":memory:")
+    create_v7_schema(conn)
+
+    # Insert minimal contract row required by FK.
+    conn.execute(
+        "INSERT INTO contracts (contract_hash, analysis_family, output_kind, model_name,"
+        " release_hash, canonical_payload_json, created_at) VALUES (?,?,?,?,?,?,?)",
+        ("hash-test", "sonara", "core", "sonara-test", "rel-test", "{}", "2024-01-01T00:00:00"),
+    )
+
+    def _insert_track(track_id: int, mfcc_blob: bytes, chroma_blob: bytes, sc_blob: bytes) -> None:
+        conn.execute(
+            "INSERT INTO tracks (track_id, track_uuid, file_path, file_size_bytes,"
+            " file_modified_ns, content_generation, last_scanned_at, created_at, updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?)",
+            (track_id, f"uuid-{track_id}", f"/music/track{track_id}.mp3", 1000,
+             1000000, 1, "2024-01-01T00:00:00", "2024-01-01T00:00:00", "2024-01-01T00:00:00"),
+        )
+        conn.execute(
+            "INSERT INTO sonara (track_id, content_generation, contract_hash,"
+            " mfcc_mean_blob, chroma_mean_blob, spectral_contrast_mean_blob, analyzed_at)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (track_id, 1, "hash-test", mfcc_blob, chroma_blob, sc_blob, "2024-01-01T00:00:00"),
+        )
+        conn.commit()
+
+    # Track 1: baseline (mfcc_a, chroma_a, sc_a)
+    _insert_track(1, mfcc_a, chroma_a, sc_a)
+    # Track 2: different mfcc only
+    _insert_track(2, mfcc_b, chroma_a, sc_a)
+    # Track 3: different chroma only
+    _insert_track(3, mfcc_a, chroma_b, sc_a)
+    # Track 4: different spectral_contrast only
+    _insert_track(4, mfcc_a, chroma_a, sc_c)
+    # Track 5: identical to track 1
+    _insert_track(5, mfcc_a, chroma_a, sc_a)
+
+    stats1 = _read_sonara_short_vectors_v7(1, conn)
+    stats2 = _read_sonara_short_vectors_v7(2, conn)
+    stats3 = _read_sonara_short_vectors_v7(3, conn)
+    stats4 = _read_sonara_short_vectors_v7(4, conn)
+    stats5 = _read_sonara_short_vectors_v7(5, conn)
+
+    # --- NOT NULL invariant: all 9 keys must be present for every track ---
+    expected_keys = {
+        "mfcc_mean.summary.min", "mfcc_mean.summary.max",
+        "mfcc_mean.summary.mean", "mfcc_mean.summary.std",
+        "chroma_mean.summary.min", "chroma_mean.summary.max",
+        "chroma_mean.summary.mean", "chroma_mean.summary.std",
+        "spectral_contrast_mean",
+    }
+    for track_id, stats in [(1, stats1), (2, stats2), (3, stats3), (4, stats4), (5, stats5)]:
+        assert stats.keys() == expected_keys, f"track {track_id}: missing keys {expected_keys - stats.keys()}"
+
+    # --- Changing mfcc_mean_blob changes all 4 mfcc statistics ---
+    for key in ("mfcc_mean.summary.min", "mfcc_mean.summary.max",
+                "mfcc_mean.summary.mean", "mfcc_mean.summary.std"):
+        assert stats1[key] != stats2[key], f"mfcc change not reflected in {key}"
+
+    # --- Changing chroma_mean_blob changes all 4 chroma statistics ---
+    for key in ("chroma_mean.summary.min", "chroma_mean.summary.max",
+                "chroma_mean.summary.mean", "chroma_mean.summary.std"):
+        assert stats1[key] != stats3[key], f"chroma change not reflected in {key}"
+
+    # --- Changing spectral_contrast_mean_blob changes the scalar mean ---
+    assert stats1["spectral_contrast_mean"] != stats4["spectral_contrast_mean"], \
+        "spectral_contrast change not reflected in scalar mean"
+
+    # --- Identical BLOBs → identical statistics ---
+    assert stats1 == stats5, "identical BLOBs must produce identical statistics"
+
+    # --- mfcc/chroma changes do NOT bleed into spectral_contrast ---
+    assert stats1["spectral_contrast_mean"] == stats2["spectral_contrast_mean"]
+    assert stats1["spectral_contrast_mean"] == stats3["spectral_contrast_mean"]
+
+    # --- spectral_contrast change does NOT bleed into mfcc/chroma ---
+    for key in ("mfcc_mean.summary.min", "mfcc_mean.summary.max",
+                "mfcc_mean.summary.mean", "mfcc_mean.summary.std",
+                "chroma_mean.summary.min", "chroma_mean.summary.max",
+                "chroma_mean.summary.mean", "chroma_mean.summary.std"):
+        assert stats1[key] == stats4[key], f"sc change bled into {key}"
+
+    # --- Graceful fallback: missing row returns empty dict ---
+    missing = _read_sonara_short_vectors_v7(999, conn)
+    assert missing == {}
+
+    # --- Graceful fallback: non-v7 DB (no sonara table) returns empty dict ---
+    plain_conn = sqlite3.connect(":memory:")
+    plain_conn.execute("CREATE TABLE tracks (id INTEGER PRIMARY KEY)")
+    plain_conn.commit()
+    no_table = _read_sonara_short_vectors_v7(1, plain_conn)
+    assert no_table == {}
+
+    conn.close()
+    plain_conn.close()
 
 
 def _track(db: LibraryDatabase, tmp_path: Path, filename: str, *, metadata: dict[str, object] | None = None) -> int:

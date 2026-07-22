@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -114,8 +115,24 @@ def analyze_classifier(
     model_path: str | Path | None = None,
     limit: int | None = None,
 ) -> dict[str, object]:
+    # ClassifierScorer.__init__ performs artifact SHA-256 verification (if the
+    # manifest records artifact_hash) before joblib.load() is called.  Any
+    # mismatch raises ValueError here, before any DB mutation.
     scorer = ClassifierScorer(db, classifier=classifier, model_path=model_path)
-    tracks = db.list_tracks_missing_classifier(classifier, limit=limit)
+
+    # Step 1: delete rows whose model_id or feature_set no longer matches the
+    # promoted artifact.  This must happen before the candidate query so that
+    # tracks with stale scores are included in the scoring pass.
+    db.delete_stale_classifier_scores(
+        scorer.classifier_key,
+        current_model_id=scorer.model_id,
+        current_feature_set=scorer.feature_set,
+    )
+
+    # Step 2: score every track that has no current-identity score row.
+    # After the deletion above, tracks that previously had a stale row are now
+    # included in this list.
+    tracks = db.list_tracks_missing_classifier(scorer.classifier_key, limit=limit)
 
     scored = 0
     skipped = 0
@@ -127,15 +144,15 @@ def analyze_classifier(
         scorer.save_score(track, result)
         scored += 1
 
-    result: dict[str, object] = {
+    out: dict[str, object] = {
         "classifier": scorer.classifier_key,
         "scored": scored,
         "skipped": skipped,
         "model": str(scorer.path),
     }
     if scorer.manifest_warnings:
-        result["warnings"] = list(scorer.manifest_warnings)
-    return result
+        out["warnings"] = list(scorer.manifest_warnings)
+    return out
 
 
 class ClassifierScorer:
@@ -151,7 +168,8 @@ class ClassifierScorer:
         self.path = Path(model_path) if model_path is not None else default_classifier_model_path(classifier)
         self.manifest = _scoring_manifest(self.path, classifier=classifier, require_default_manifest=model_path is None)
         self.manifest_warnings = tuple(self.manifest.warnings) if self.manifest is not None else ()
-        self.payload = _load_payload(self.path)
+        expected_hash = self.manifest.artifact_hash if self.manifest is not None else None
+        self.payload = _load_payload(self.path, expected_artifact_hash=expected_hash)
         artifact_classifier = str(self.payload.get("classifier_key") or classifier)
         if artifact_classifier != classifier:
             raise ValueError(f"Expected artifact for classifier {classifier!r}, got {artifact_classifier!r}")
@@ -173,6 +191,11 @@ class ClassifierScorer:
             raise ValueError(
                 f"{self.classifier_key} uses SONARA inputs but has no compatible SONARA analysis signature"
             )
+        self.model_id: str = (
+            self.manifest.model_id
+            if self.manifest is not None and self.manifest.model_id
+            else str(self.path)
+        )
         self.needs_mert = any(name.startswith("mert:") for name in self.feature_names)
         self.needs_maest = any(name.startswith("maest:") for name in self.feature_names)
         self.needs_clap = any(name.startswith("clap:") for name in self.feature_names)
@@ -231,9 +254,21 @@ class ClassifierScorer:
         )
 
 
-def _load_payload(path: Path) -> dict[str, object]:
+def _verify_artifact_sha256(path: Path, expected_hash: str) -> None:
+    """Raise ValueError if the artifact file's SHA-256 does not match *expected_hash*."""
+    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    if actual != expected_hash.lower().strip():
+        raise ValueError(
+            f"Classifier artifact SHA-256 mismatch for {path.name}: "
+            f"expected {expected_hash!r}, got {actual!r}"
+        )
+
+
+def _load_payload(path: Path, *, expected_artifact_hash: str | None = None) -> dict[str, object]:
     if not path.exists():
         raise FileNotFoundError(f"Classifier model not found: {path}")
+    if expected_artifact_hash:
+        _verify_artifact_sha256(path, expected_artifact_hash)
     try:
         import joblib
     except ImportError as error:  # pragma: no cover - dependency is installed in supported envs.
@@ -345,19 +380,28 @@ def _track_feature_row(
             vector = mert_vectors.get(track.id)
             if vector is None:
                 return None
-            values.append(_vector_value(vector, key))
+            val = _vector_value(vector, key)
+            if val is None:
+                return None
+            values.append(val)
             continue
         if source == "maest":
             vector = maest_vectors.get(track.id)
             if vector is None:
                 return None
-            values.append(_vector_value(vector, key))
+            val = _vector_value(vector, key)
+            if val is None:
+                return None
+            values.append(val)
             continue
         if source == "clap":
             vector = clap_vectors.get(track.id)
             if vector is None:
                 return None
-            values.append(_vector_value(vector, key))
+            val = _vector_value(vector, key)
+            if val is None:
+                return None
+            values.append(val)
             continue
         raise ValueError(f"Unsupported classifier feature: {name}")
     return np.asarray(values, dtype=np.float32)
@@ -377,10 +421,16 @@ def _sonara_feature_value(features: dict[str, object], key: str) -> float | None
     return float(number) if number is not None else None
 
 
-def _vector_value(vector: np.ndarray, index_text: str) -> float:
+def _vector_value(vector: np.ndarray, index_text: str) -> float | None:
+    """Return the vector element at *index_text*, or ``None`` if out of range.
+
+    BUG-C5 fix: previously returned 0.0 for out-of-range indices (silent
+    wrongness).  Now returns ``None`` so the caller can treat the track as
+    not-ready and skip it without writing a corrupted score row.
+    """
     index = int(index_text)
     if index < 0 or index >= int(vector.shape[0]):
-        return 0.0
+        return None
     return float(vector[index])
 
 
@@ -408,3 +458,132 @@ def _score_label(score: float) -> str:
     if score >= 0.5:
         return "medium"
     return "low"
+
+
+# ---------------------------------------------------------------------------
+# v7 write path (BUG-C1 + BUG-C6 complement)
+# ---------------------------------------------------------------------------
+
+def _score_bucket_from_score(score: float) -> str:
+    """Map a positive-label probability to a UI display bucket.
+
+    Thresholds (v7 contract):
+      score >= 0.7  → 'high'
+      score >= 0.3  → 'medium'
+      else          → 'low'
+    """
+    if score >= 0.7:
+        return "high"
+    if score >= 0.3:
+        return "medium"
+    return "low"
+
+
+def _argmax_with_tiebreak(
+    probabilities: dict[str, float],
+    manifest_label_order: list[str],
+) -> str:
+    """Return the label with the highest probability.
+
+    Tie-break rule: when two or more labels share the maximum probability,
+    prefer the label with the **lower index** in *manifest_label_order*.
+    Labels absent from *manifest_label_order* sort after all listed labels.
+    """
+    if not probabilities:
+        raise ValueError("probabilities must be non-empty")
+
+    max_prob = max(probabilities.values())
+
+    # Collect all labels that share the maximum probability, preserving
+    # manifest order for deterministic tie-breaking.
+    order_index: dict[str, int] = {label: i for i, label in enumerate(manifest_label_order)}
+    tied = [
+        label for label in probabilities
+        if probabilities[label] == max_prob
+    ]
+    # Sort by manifest position (unlisted labels go to the end)
+    tied.sort(key=lambda lbl: order_index.get(lbl, len(manifest_label_order)))
+    return tied[0]
+
+
+def save_classifier_score_v7(
+    connection: "sqlite3.Connection",
+    track_id: int,
+    classifier_key: str,
+    content_generation: int,
+    model_id: str,
+    feature_set: str,
+    feature_manifest_hash: str,
+    uses_sonara: int,
+    sonara_release_hash: "str | None",
+    positive_label: str,
+    probabilities: dict[str, float],
+    manifest_label_order: list[str],
+    analyzed_at: str,
+) -> None:
+    """Write one row to the v7 ``classifier_scores`` table atomically.
+
+    All derived values (``score``, ``confidence``, ``predicted_class``,
+    ``score_bucket``, ``probabilities_json``) are computed here from
+    *probabilities* so the caller cannot accidentally pass inconsistent values.
+
+    Args:
+        connection: An open :class:`sqlite3.Connection` to the v7 Core DB.
+        track_id: FK into ``tracks``.
+        classifier_key: Classifier identifier string.
+        content_generation: ``tracks.content_generation`` at scoring time.
+        model_id: Opaque model identity string from the manifest.
+        feature_set: Feature-set string from the manifest (e.g. ``'mert'``).
+        feature_manifest_hash: SHA-256 of the canonical manifest payload.
+        uses_sonara: ``1`` if SONARA inputs were used, ``0`` otherwise.
+        sonara_release_hash: SONARA release hash when ``uses_sonara=1``,
+            ``None`` when ``uses_sonara=0``.
+        positive_label: The label whose probability is the primary score.
+        probabilities: Mapping of label → probability (must sum to ~1.0).
+        manifest_label_order: Ordered label list from the manifest; used for
+            deterministic argmax tie-breaking.
+        analyzed_at: ISO-8601 timestamp string.
+
+    Raises:
+        KeyError: if *positive_label* is not in *probabilities*.
+        ValueError: if *probabilities* is empty.
+        sqlite3.IntegrityError: if the row violates a DB constraint.
+    """
+    import sqlite3 as _sqlite3  # local import to avoid top-level circular risk
+
+    score = float(probabilities[positive_label])
+    confidence = float(max(probabilities.values()))
+    predicted_class = _argmax_with_tiebreak(probabilities, manifest_label_order)
+    score_bucket = _score_bucket_from_score(score)
+    probabilities_json = json.dumps(
+        probabilities,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+
+    connection.execute(
+        """
+        INSERT OR REPLACE INTO classifier_scores (
+            track_id, classifier_key, content_generation,
+            model_id, feature_set, feature_manifest_hash,
+            uses_sonara, sonara_release_hash,
+            positive_label, predicted_class, score_bucket,
+            score, confidence, probabilities_json, analyzed_at
+        ) VALUES (
+            ?, ?, ?,
+            ?, ?, ?,
+            ?, ?,
+            ?, ?, ?,
+            ?, ?, ?, ?
+        )
+        """,
+        (
+            track_id, classifier_key, content_generation,
+            model_id, feature_set, feature_manifest_hash,
+            uses_sonara, sonara_release_hash,
+            positive_label, predicted_class, score_bucket,
+            score, confidence, probabilities_json, analyzed_at,
+        ),
+    )

@@ -1,37 +1,39 @@
 # Reanalyze SONARA with split storage
 
-> Audience: Users opening a schema v5 library with the current application.
-> Goal: Move to Core, Timeline, and Representations storage and rebuild analysis cleanly.
+> Audience: Users opening a schema v6 library with the current application.
+> Goal: Move to Core and Artifacts storage and rebuild analysis cleanly.
 > Type: workflow
 
 ## 1. Back up the catalog
 
 Stop the server and copy the main database plus any existing adjacent side databases. After analysis
-begins, copy all three files together because they form one catalog.
+begins, copy both files together because they form one catalog.
 
 ## 2. Open the main database
 
-Open the existing schema v5 `.sqlite` file with the current app. Migration to schema v6 runs once
+Open the existing schema v6 `.sqlite` file with the current app. Migration to schema v7 runs once
 and creates:
 
 ```text
 library.sqlite
-library.timeline.sqlite
-library.representations.sqlite
+library.artifacts.sqlite
 ```
 
 The migration deliberately clears old SONARA data and invalidates SONARA-dependent classifier
 scores. Existing MAEST/MERT/MuQ/CLAP embeddings, MAEST metadata, their analysis flags,
 embedding-only classifier scores, tracks, file tags, likes, feedback, and evaluation records remain.
-Databases older than schema v5 are not adapted; scan the audio library into a fresh current database
+Databases older than schema v6 are not adapted; scan the audio library into a fresh current database
 instead.
 
-## 3. Reset the old SONARA contract explicitly
+## 3. Prepare the SONARA release
 
-If any Core, Timeline, or Representations rows use an earlier project contract, the native preflight
-blocks the job. After the backup, use the existing SONARA reset, which removes all three SONARA
-stores and SONARA-dependent classifier scores without modifying audio, labels, feedback, or ML-only
-embeddings. Old and new SONARA data are not adapted or mixed.
+If you are moving to a new SONARA release or migrating from v6, use the explicit prepare command. This command backs up the database and clears old SONARA data before setting the active release hash.
+
+```powershell
+dj-sim prepare-sonara-release --db CORE --backup-dir DIR --sonara-outputs core,timeline,embedding,fingerprint --confirm "PREPARE SONARA RELEASE"
+```
+
+This protocol is not atomic across files. A crash between steps leaves the system in a recoverable state.
 
 ## 4. Analyze SONARA
 

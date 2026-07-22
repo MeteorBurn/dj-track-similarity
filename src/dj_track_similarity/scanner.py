@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import os
+import sqlite3
 from dataclasses import replace
 from pathlib import Path
 from typing import Iterable
@@ -7,6 +10,7 @@ from typing import Iterable
 from mutagen import File as MutagenFile
 
 from .database import LibraryDatabase
+from .db_tracks import upsert_track_v7
 from .metadata_payload import optional_float, string_or_none
 from .models import ScanStats
 
@@ -73,7 +77,7 @@ def scan_library(db: LibraryDatabase, root: str | Path) -> ScanStats:
             continue
 
         metadata = read_audio_metadata(path)
-        db.upsert_track(
+        track_id = db.upsert_track(
             path=path,
             size=size,
             mtime=mtime,
@@ -83,6 +87,7 @@ def scan_library(db: LibraryDatabase, root: str | Path) -> ScanStats:
             duration=optional_float(metadata.get("duration")),
         )
         if existing:
+            db.clear_track_analysis(track_id)
             stats = replace(stats, updated=stats.updated + 1)
         else:
             stats = replace(stats, added=stats.added + 1)
@@ -190,3 +195,112 @@ def _audio_codec(audio: object, info: object | None) -> str | None:
             if text:
                 return text
     return None
+
+
+# ---------------------------------------------------------------------------
+# v7 scan path — writes to v7 tracks + file_tags tables
+# ---------------------------------------------------------------------------
+
+def _read_genres_list(metadata: dict[str, object]) -> list[str]:
+    """Return an ordered list of genre strings from Mutagen metadata."""
+    raw = metadata.get("genre")
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return [str(g).strip() for g in raw if g]
+    text = str(raw).strip()
+    if not text:
+        return []
+    return [text]
+
+
+def scan_library_v7(root: str | Path, connection: sqlite3.Connection) -> ScanStats:
+    """Walk *root* for audio files and write each to a v7 schema database.
+
+    This is the v7-parallel scan path.  It does NOT touch the v6 ``tracks``
+    table; it writes only to the v7 ``tracks`` and ``file_tags`` tables via
+    :func:`upsert_track_v7`.
+
+    Args:
+        root:       Directory to scan recursively.
+        connection: Open :class:`sqlite3.Connection` to a v7 schema database.
+
+    Returns:
+        :class:`ScanStats` with ``added``, ``updated``, and ``unchanged`` counts.
+    """
+    root_path = Path(root)
+    if not root_path.exists():
+        raise FileNotFoundError(root_path)
+    if not root_path.is_dir():
+        raise NotADirectoryError(root_path)
+
+    stats = ScanStats()
+    for path in iter_audio_files(root_path):
+        stat = path.stat()
+        file_size_bytes = stat.st_size
+        file_modified_ns = stat.st_mtime_ns
+
+        # Check whether the file is already known and unchanged
+        existing = connection.execute(
+            "SELECT track_id, file_size_bytes, file_modified_ns FROM tracks WHERE file_path = ?",
+            (path.as_posix(),),
+        ).fetchone()
+        if (
+            existing is not None
+            and int(existing["file_size_bytes"]) == file_size_bytes
+            and int(existing["file_modified_ns"]) == file_modified_ns
+        ):
+            stats = replace(stats, unchanged=stats.unchanged + 1)
+            continue
+
+        metadata = read_audio_metadata(path)
+
+        # Build genres_json from the Mutagen genre field
+        genres = _read_genres_list(metadata)
+        genres_json = json.dumps(genres, ensure_ascii=False)
+
+        # Parse year safely
+        raw_year = metadata.get("year")
+        year: int | None = None
+        if raw_year is not None:
+            try:
+                year = int(str(raw_year)[:4])
+                if not (1 <= year <= 9999):
+                    year = None
+            except (ValueError, TypeError):
+                year = None
+
+        # Audio info from Mutagen
+        audio_format = string_or_none(metadata.get("audio_format"))
+        audio_codec = string_or_none(metadata.get("audio_codec"))
+
+        upsert_track_v7(
+            connection,
+            file_path=path,
+            file_size_bytes=file_size_bytes,
+            file_modified_ns=file_modified_ns,
+            audio_format=audio_format,
+            audio_codec=audio_codec,
+            audio_duration_seconds=optional_float(metadata.get("duration")),
+            title=string_or_none(metadata.get("title")) or path.stem,
+            artist=string_or_none(metadata.get("artist")),
+            album=string_or_none(metadata.get("album")),
+            tag_bpm=optional_float(metadata.get("bpm")),
+            tag_key=string_or_none(metadata.get("key") or metadata.get("initialkey")),
+            comment=string_or_none(metadata.get("comment")),
+            year=year,
+            label=string_or_none(metadata.get("label")),
+            catalog_number=string_or_none(metadata.get("catalog_number")),
+            country=string_or_none(metadata.get("country")),
+            isrc=string_or_none(metadata.get("isrc")),
+            track_number=string_or_none(metadata.get("track_number")),
+            disc_number=string_or_none(metadata.get("disc_number")),
+            genres_json=genres_json,
+        )
+
+        if existing is not None:
+            stats = replace(stats, updated=stats.updated + 1)
+        else:
+            stats = replace(stats, added=stats.added + 1)
+
+    return stats

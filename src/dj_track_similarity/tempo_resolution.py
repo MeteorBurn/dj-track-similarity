@@ -84,11 +84,10 @@ def resolve_tempo_evidence(
     alternatives = _ordered_unique_bpms((sonara_bpm, *candidate_bpms))
     selected_bpm = sonara_bpm
     source = "sonara_low_confidence"
-    if confidence is None and tag_bpm is not None:
-        selected_bpm = tag_bpm
-        alternatives = (tag_bpm,)
-        source = "legacy_tag_fallback"
-        reliability = 1.0
+    if confidence is None:
+        # NULL confidence → reliability stays 0.0 (set above); yield neutral score.
+        # Tag BPM is not used as a scoring input when confidence is missing.
+        pass
     elif tag_bpm is not None:
         sonara_options = (sonara_bpm, *candidate_bpms)
         if any(best_tempo_distance(tag_bpm, option) <= TAG_CANDIDATE_TOLERANCE_BPM for option in sonara_options):
@@ -292,3 +291,117 @@ def _clamp01(value: float) -> float:
     if not math.isfinite(value):
         return 0.0
     return min(1.0, max(0.0, float(value)))
+
+
+# ---------------------------------------------------------------------------
+# v7 read-path adapter — tempo evidence from v7 sonara row dict (Todo 21)
+# ---------------------------------------------------------------------------
+
+def resolve_tempo_evidence_v7(
+    sonara_row: dict[str, Any] | None,
+    tag_bpm: float | None,
+) -> TempoEvidence:
+    """Resolve tempo evidence from a v7 ``sonara`` table row dict.
+
+    Semantically equivalent to :func:`resolve_tempo_evidence` but consumes a
+    dict read directly from the v7 ``sonara`` typed columns instead of parsing
+    ``metadata_json``.
+
+    Expected keys in *sonara_row* (all optional):
+    - ``detected_bpm``     — primary SONARA BPM estimate
+    - ``raw_bpm``          — raw (unrounded) BPM before post-processing
+    - ``bpm_confidence``   — float in [0, 1] or NULL
+    - ``beat_grid_stability`` — float in [0, 1] or NULL
+    - ``bpm_candidates_json`` — JSON array string of ``[[bpm, weight], ...]``
+
+    BUG-R3 fix preserved: NULL ``bpm_confidence`` → ``reliability = 0.0`` →
+    neutral score 0.5 (same as the v6 path fix at lines 87-90).
+
+    Args:
+        sonara_row: Dict from the v7 ``sonara`` table, or ``None`` when no row
+            exists for the track.
+        tag_bpm: BPM from the file tag (Mutagen), or ``None``.
+
+    Returns:
+        A :class:`TempoEvidence` instance.
+    """
+    import json as _json
+
+    if sonara_row is None:
+        fallback = _valid_bpm(tag_bpm)
+        return TempoEvidence(
+            bpm=fallback,
+            alternatives=(fallback,) if fallback is not None else (),
+            confidence=None,
+            grid_stability=None,
+            reliability=1.0 if fallback is not None else 0.0,
+            source="tag" if fallback is not None else None,
+        )
+
+    sonara_bpm = _valid_bpm(sonara_row.get("detected_bpm"))
+    confidence = _unit_interval_or_none(sonara_row.get("bpm_confidence"))
+    grid_stability = _unit_interval_or_none(sonara_row.get("beat_grid_stability"))
+
+    # Parse bpm_candidates_json — stored as a JSON array string in v7
+    raw_candidates = sonara_row.get("bpm_candidates_json")
+    candidate_bpms: tuple[float, ...] = ()
+    if isinstance(raw_candidates, str):
+        try:
+            parsed = _json.loads(raw_candidates)
+        except (ValueError, TypeError):
+            parsed = None
+        candidate_bpms = _candidate_bpms(parsed)
+    elif raw_candidates is not None:
+        candidate_bpms = _candidate_bpms(raw_candidates)
+
+    clean_tag_bpm = _valid_bpm(tag_bpm)
+
+    if sonara_bpm is None:
+        fallback = clean_tag_bpm
+        return TempoEvidence(
+            bpm=fallback,
+            alternatives=(fallback,) if fallback is not None else (),
+            confidence=None,
+            grid_stability=None,
+            reliability=1.0 if fallback is not None else 0.0,
+            source="tag" if fallback is not None else None,
+        )
+
+    # BUG-R3 fix: NULL bpm_confidence → reliability = 0.0 → neutral 0.5
+    reliability = confidence if confidence is not None else 0.0
+    if grid_stability is not None:
+        reliability = math.sqrt(reliability * grid_stability)
+
+    low_confidence = confidence is None or confidence < LOW_BPM_CONFIDENCE
+    if not low_confidence:
+        return TempoEvidence(
+            bpm=sonara_bpm,
+            alternatives=(sonara_bpm,),
+            confidence=confidence,
+            grid_stability=grid_stability,
+            reliability=_clamp01(reliability),
+            source="sonara",
+        )
+
+    alternatives = _ordered_unique_bpms((sonara_bpm, *candidate_bpms))
+    selected_bpm = sonara_bpm
+    source = "sonara_low_confidence"
+    if confidence is None:
+        # NULL confidence → reliability stays 0.0; yield neutral score.
+        # Tag BPM is not used as a scoring input when confidence is missing.
+        pass
+    elif clean_tag_bpm is not None:
+        sonara_options = (sonara_bpm, *candidate_bpms)
+        if any(best_tempo_distance(clean_tag_bpm, option) <= TAG_CANDIDATE_TOLERANCE_BPM for option in sonara_options):
+            selected_bpm = clean_tag_bpm
+            source = "tag_confirmed_by_sonara_candidate"
+            alternatives = _ordered_unique_bpms((*alternatives, clean_tag_bpm))
+
+    return TempoEvidence(
+        bpm=selected_bpm,
+        alternatives=alternatives,
+        confidence=confidence,
+        grid_stability=grid_stability,
+        reliability=_clamp01(reliability),
+        source=source,
+    )

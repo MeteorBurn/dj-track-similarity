@@ -693,7 +693,8 @@ export function SearchPlaylistPanel({
       bpm_mode: setBpmMode,
       bpm_change: setBpmChange,
       classifier_preferences: compactSignedScoreMap(setClassifierPreferences),
-      classifier_flows: compactClassifierFlows(setClassifierFlows, setClassifierPreferences)
+      classifier_flows: compactClassifierFlows(setClassifierFlows, setClassifierPreferences),
+      random_seed: 0
     };
     if (setBpmMode !== "general") {
       if (bpmStart !== undefined) payload.bpm_start = bpmStart;

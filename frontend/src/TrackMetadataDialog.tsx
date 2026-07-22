@@ -1,6 +1,6 @@
 import { Check, Copy, X } from "lucide-react";
 import { Fragment, useState } from "react";
-import { Track } from "./api";
+import { Track, TrackDetailV7 } from "./api";
 import { formatMaestGenreLabel, hasMaestSyncopatedRhythm, SYNCOPATED_RHYTHM_LABEL } from "./syncopatedRhythm";
 import { basename, displayTrack, trackHasAnalysis } from "./trackDisplay";
 
@@ -8,35 +8,93 @@ const trackTagLabels: Record<string, string> = {
   genre: "Genre",
   bpm: "BPM",
   key: "Key",
-  comment: "Comment"
+  comment: "Comment",
+  year: "Year",
+  label: "Label",
+  catalog_number: "Catalog Number",
+  country: "Country",
+  isrc: "ISRC",
+  track_number: "Track Number",
+  disc_number: "Disc Number"
 };
 
 const trackTagOrder = [
   "genre",
   "bpm",
   "key",
-  "comment"
+  "comment",
+  "year",
+  "label",
+  "catalog_number",
+  "country",
+  "isrc",
+  "track_number",
+  "disc_number"
 ];
 
-function readablePrimaryTrackInfo(track: Track) {
-  const metadata = (track.metadata && typeof track.metadata === "object" && !Array.isArray(track.metadata)
-    ? track.metadata
-    : {}) as Record<string, unknown>;
-  const audioFormat = displayAudioFormat(metadata.audio_format, track.path);
-  const audioCodec = formatTagValue(metadata.audio_codec);
+function readablePrimaryTrackInfo(track: Track | TrackDetailV7) {
+  let audioFormatRaw: string | null | undefined;
+  let audioCodecRaw: string | null | undefined;
+  let duration: number | null | undefined;
+  let size: number | null | undefined;
+  let path: string;
+  let title: string;
+
+  if ("file" in track) {
+    audioFormatRaw = track.file.audio_format;
+    audioCodecRaw = track.file.audio_codec;
+    duration = track.file.audio_duration_seconds;
+    size = track.file.file_size_bytes;
+    path = track.file_path;
+    title = track.title || basename(path);
+  } else {
+    const metadata = (track.metadata && typeof track.metadata === "object" && !Array.isArray(track.metadata)
+      ? track.metadata
+      : {}) as Record<string, unknown>;
+    audioFormatRaw = metadata.audio_format as string;
+    audioCodecRaw = metadata.audio_codec as string;
+    duration = track.duration;
+    size = track.size;
+    path = track.path;
+    title = track.title || String(metadata.title || basename(path));
+  }
+
+  const audioFormat = displayAudioFormat(audioFormatRaw, path);
+  const audioCodec = formatTagValue(audioCodecRaw);
   const formatAndCodec = formatAudioFormat(audioFormat, audioCodec);
+
   return [
-    ["Title", track.title || String(metadata.title || basename(track.path))],
-    ["Audio Length", typeof track.duration === "number" ? formatPlayerDuration(track.duration) : "-"],
+    ["Title", title],
+    ["Audio Length", typeof duration === "number" ? formatPlayerDuration(duration) : "-"],
     ["Audio Format", formatAndCodec],
-    ["File Size", formatFileSizeMb(track.size)],
-    ["File Path", track.path]
+    ["File Size", formatFileSizeMb(size || 0)],
+    ["File Path", path]
   ] as const;
 }
 
-function readableTrackTags(raw: Track["metadata"]) {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
-  const record = raw as Record<string, unknown>;
+function readableTrackTags(track: Track | TrackDetailV7) {
+  const record: Record<string, unknown> = {};
+  if ("file_tags" in track) {
+    if (track.file_tags) {
+      record.genre = track.file_tags.genres?.join(", ");
+      record.bpm = track.file_tags.tag_bpm;
+      record.key = track.file_tags.tag_key;
+      record.comment = track.file_tags.comment;
+      record.year = track.file_tags.year;
+      record.label = track.file_tags.label;
+      record.catalog_number = track.file_tags.catalog_number;
+      record.country = track.file_tags.country;
+      record.isrc = track.file_tags.isrc;
+      record.track_number = track.file_tags.track_number;
+      record.disc_number = track.file_tags.disc_number;
+    }
+  } else {
+    const raw = track.metadata;
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      Object.assign(record, raw);
+    }
+  }
+
   return trackTagOrder
     .filter((key) => record[key] != null && record[key] !== "")
     .map((key) => [trackTagLabels[key] || key, record[key]] as const);
@@ -46,29 +104,53 @@ export function TrackMetadataDialog({
   track,
   onClose
 }: {
-  track: Track;
+  track: Track | TrackDetailV7;
   onClose: () => void;
 }) {
   const [filePathCopied, setFilePathCopied] = useState(false);
-  const genres = track.genres || [];
-  const scores = track.genre_scores || {};
-  const trackHasSyncopatedRhythm = hasMaestSyncopatedRhythm(track.metadata);
+  
+  let genres: string[] = [];
+  let scores: Record<string, number> = {};
+  if ("maest" in track) {
+    if (track.maest?.genres) {
+      genres = track.maest.genres.map(g => g.genre_name);
+      track.maest.genres.forEach(g => {
+        scores[g.genre_name] = g.score;
+      });
+    }
+  } else {
+    genres = track.genres || [];
+    scores = track.genre_scores || {};
+  }
+
+  const trackHasSyncopatedRhythmFlag = hasMaestSyncopatedRhythm(track);
   const hasSonaraAnalysis = trackHasAnalysis(track, "sonara");
-  const timelineFields = track.timeline_fields || [];
-  const representationFields = track.representation_fields || [];
-  const sonaraFeatureGroups = [
-    ...readableSonaraFeatureGroups(track.metadata?.sonara_features),
-    ...readableSonaraProvenanceGroups(track.metadata?.sonara_provenance),
-    ...readableSonaraSignatureGroups(track.metadata?.sonara_analysis_signature)
-  ];
+  
+  let timelineFields: string[] = [];
+  let sonaraEmbeddingAvailable = false;
+  let audioFingerprintAvailable = false;
+
+  if ("optional_outputs" in track) {
+    timelineFields = track.optional_outputs?.timeline_fields || [];
+    sonaraEmbeddingAvailable = !!track.optional_outputs?.sonara_embedding_available;
+    audioFingerprintAvailable = !!track.optional_outputs?.audio_fingerprint_available;
+  } else {
+    timelineFields = track.timeline_fields || [];
+    const representationFields = track.representation_fields || [];
+    sonaraEmbeddingAvailable = representationFields.includes("embedding");
+    audioFingerprintAvailable = representationFields.includes("fingerprint");
+  }
+
+  const sonaraFeatureGroups = readableSonaraFeatureGroups(track);
   const sonaraFeatureCount = sonaraFeatureGroups.reduce((total, group) => total + group.features.length, 0);
   const classifierScores = readableClassifierScores(track);
   const analysisBadges = readableAnalysisBadges(track);
   const primaryEntries = readablePrimaryTrackInfo(track);
-  const metadataEntries = readableTrackTags(track.metadata);
+  const metadataEntries = readableTrackTags(track);
+  const path = "file_path" in track ? track.file_path : track.path;
 
   async function copyFilePath() {
-    const copied = await copyTextToClipboard(track.path);
+    const copied = await copyTextToClipboard(path);
     if (!copied) return;
     setFilePathCopied(true);
     window.setTimeout(() => setFilePathCopied(false), 1400);
@@ -102,7 +184,7 @@ export function TrackMetadataDialog({
                     <button
                       className="icon-button metadata-copy-path-button"
                       title={filePathCopied ? "Copied" : "Copy file path"}
-                      aria-label={`Copy file path: ${track.path}`}
+                      aria-label={`Copy file path: ${path}`}
                       onClick={() => void copyFilePath()}
                       type="button"
                     >
@@ -139,7 +221,21 @@ export function TrackMetadataDialog({
           )}
         </div>
         <StoragePresenceBlock title="Timeline" fields={timelineFields} emptyText="Timeline данные ещё не рассчитаны" />
-        <StoragePresenceBlock title="Representations" fields={representationFields} emptyText="Representations ещё не рассчитаны" />
+        
+        <div className="sonara-storage-block">
+          <strong>SONARA optional outputs</strong>
+          <dl className="metadata-grid tag-grid sonara-feature-grid">
+            <Fragment key="sonara_embedding">
+              <dt>Similarity embedding</dt>
+              <dd>{sonaraEmbeddingAvailable ? <span className="sonara-storage-present"><Check size={14} /> Present</span> : "-"}</dd>
+            </Fragment>
+            <Fragment key="audio_fingerprint">
+              <dt>Audio fingerprint</dt>
+              <dd>{audioFingerprintAvailable ? <span className="sonara-storage-present"><Check size={14} /> Present</span> : "-"}</dd>
+            </Fragment>
+          </dl>
+        </div>
+
         <div className="classifier-score-block">
           <strong>Classifier scores</strong>
           {classifierScores.length ? (
@@ -161,7 +257,7 @@ export function TrackMetadataDialog({
               {genres.map((genre) => (
                 <span className="genre-pill" key={genre}>{formatMaestGenreLabel(genre)} <b>{formatConfidence(scores[genre])}</b></span>
               ))}
-              {trackHasSyncopatedRhythm ? <span className="genre-pill syncopated-rhythm-pill">{SYNCOPATED_RHYTHM_LABEL}</span> : null}
+              {trackHasSyncopatedRhythmFlag ? <span className="genre-pill syncopated-rhythm-pill">{SYNCOPATED_RHYTHM_LABEL}</span> : null}
             </div>
           ) : (
             <span className="empty-genres">Жанры ещё не извлечены</span>
@@ -224,24 +320,41 @@ async function copyTextToClipboard(text: string) {
   }
 }
 
-function readableClassifierScores(track: Track) {
+function readableClassifierScores(track: Track | TrackDetailV7) {
   const result: Array<{ key: string; label: string; value: string }> = [];
-  Object.entries(track.classifier_scores || {}).forEach(([key, score]) => {
-    result.push({
-      key,
-      label: readableClassifierName(key),
-      value: formatClassifierScore(score.score)
+  if ("classifier_scores_detail" in track) {
+    (track.classifier_scores_detail || []).forEach((score) => {
+      result.push({
+        key: score.classifier_key,
+        label: readableClassifierName(score.classifier_key),
+        value: `${score.predicted_class} (${score.score_bucket})`
+      });
     });
-  });
+  } else {
+    Object.entries(track.classifier_scores || {}).forEach(([key, score]) => {
+      result.push({
+        key,
+        label: readableClassifierName(key),
+        value: formatClassifierScore(score.score)
+      });
+    });
+  }
   return result;
 }
 
-function readableAnalysisBadges(track: Track) {
+function readableAnalysisBadges(track: Track | TrackDetailV7) {
   const badges: Array<{ key: string; label: string }> = (["sonara", "maest", "mert", "muq", "clap"] as const)
     .filter((model) => trackHasAnalysis(track, model))
     .map((model) => ({ key: model, label: model.toUpperCase() }));
-  if (track.classifier_scores && Object.keys(track.classifier_scores).length) {
-    badges.push({ key: "classifiers", label: "CLASSIFIERS" });
+  
+  if ("classifier_scores_detail" in track) {
+    if (track.classifier_scores_detail && track.classifier_scores_detail.length > 0) {
+      badges.push({ key: "classifiers", label: "CLASSIFIERS" });
+    }
+  } else {
+    if (track.classifier_scores && Object.keys(track.classifier_scores).length) {
+      badges.push({ key: "classifiers", label: "CLASSIFIERS" });
+    }
   }
   return badges;
 }
@@ -272,8 +385,6 @@ const sonaraFeatureLabels: Record<string, string> = {
   tempo_variability: "Tempo variability",
   time_signature: "Time signature",
   time_signature_confidence: "Time signature confidence",
-  embedding_version: "Embedding version",
-  fingerprint_version: "Fingerprint version",
   duration_sec: "Duration",
   key: "Key",
   key_camelot: "Camelot",
@@ -302,30 +413,24 @@ const sonaraFeatureLabels: Record<string, string> = {
   zero_crossing_rate: "ZCR",
   mfcc_mean: "MFCC",
   chroma_mean: "Chroma",
-  // SONARA 2.0 opt-in: structure
   energy_level: "Energy level",
   intro_end_sec: "Intro end",
   outro_start_sec: "Outro start",
   segments: "Structure segments",
   energy_curve_hop_sec: "Energy curve hop",
   energy_curve_summary: "Energy curve summary",
-  // SONARA 2.0 opt-in: loudness
   true_peak_db: "True peak",
   replaygain_db: "ReplayGain",
   loudness_momentary_max_db: "Momentary max",
   loudness_range_lu: "Loudness range",
-  // SONARA 2.0 opt-in: beatgrid
   grid_offset_sec: "Grid offset",
   grid_stability: "Grid stability",
-  // SONARA opt-in: bundled voice model
   vocalness: "Vocalness",
   instrumentalness: "Instrumentalness",
-  // SONARA opt-in: mood heuristics
   mood_happy: "Happy",
   mood_aggressive: "Aggressive",
   mood_relaxed: "Relaxed",
   mood_sad: "Sad",
-  // SONARA 2.0 opt-in: silence
   leading_silence_sec: "Leading silence",
   trailing_silence_sec: "Trailing silence",
 };
@@ -338,8 +443,6 @@ const sonaraFeatureDescriptions: Record<string, string> = {
   tempo_variability: "Within-track tempo variation retained as archival data for future rhythm features",
   time_signature: "Detected musical meter; shown as Unknown when confidence is zero",
   time_signature_confidence: "Confidence in the detected time signature (0.0 - 1.0)",
-  embedding_version: "SONARA version identifier for the stored archival audio embedding",
-  fingerprint_version: "SONARA version identifier for the stored archival audio fingerprint",
   beats: "Beat frame positions",
   onset_frames: "Onset positions",
   onset_density: "Onsets per second",
@@ -439,49 +542,110 @@ const sonaraPlaylistFeatureGroups = [
 
 const sonaraPlaylistFeatureKeys = new Set(sonaraPlaylistFeatureGroups.flatMap((group) => [...group.keys]));
 
-const sonaraProvenanceFields = [
-  { key: "package_version", label: "Package version", description: "Installed SONARA package version used for this analysis" },
-  { key: "schema_version", label: "Schema version", description: "SONARA analysis schema used for field meanings and units" },
-  { key: "mode", label: "Mode", description: "SONARA analysis mode" },
-  { key: "sample_rate", label: "Sample rate", description: "Effective sample rate after resampling" },
-  { key: "hop_length", label: "Hop length", description: "Main analysis hop length in samples" },
-  { key: "vocalness_model_id", label: "Vocal model", description: "Bundled SONARA vocal classifier used for vocalness and instrumentalness" },
-  { key: "requested_features", label: "Requested features", description: "Exact SONARA feature request used for this analysis" }
-] as const;
+function readableSonaraFeatureGroups(track: Track | TrackDetailV7) {
+  let record: Record<string, unknown> = {};
+  let timeSignatureConfidence: number | undefined;
 
-const sonaraSignatureFields = [
-  { key: "sonara_version", label: "SONARA version", description: "SONARA package version required by this compatibility contract" },
-  { key: "schema_version", label: "Contract schema", description: "Upstream field schema required by this compatibility contract" },
-  { key: "mode", label: "Contract mode", description: "Analysis mode required by this compatibility contract" },
-  { key: "sample_rate", label: "Contract sample rate", description: "Sample rate required by this compatibility contract" },
-  { key: "bpm_range", label: "BPM range", description: "Tempo search range used by the analysis" },
-  { key: "requested_features", label: "Feature profile", description: "Sorted feature request covered by the signature" },
-  { key: "project_feature_revision", label: "Project feature revision", description: "Project-side classifier feature contract revision" },
-  { key: "signature_id", label: "Signature ID", description: "Deterministic SHA-256 identifier for the complete analysis contract" }
-] as const;
+  if ("sonara_core" in track) {
+    if (!track.sonara_core) return [];
+    const core = track.sonara_core;
+    record = {
+      duration_sec: core.analyzed_duration_seconds,
+      bpm: core.detected_bpm,
+      bpm_raw: core.raw_bpm,
+      bpm_confidence: core.bpm_confidence,
+      bpm_candidates: core.bpm_candidates,
+      onset_density: core.onset_density_per_second,
+      n_beats: core.beat_count,
+      spectral_centroid_mean: core.spectral_centroid_hz,
+      zero_crossing_rate: core.zero_crossing_rate,
+      rms_mean: core.rms_mean,
+      rms_max: core.rms_max,
+      loudness_lufs: core.integrated_loudness_lufs,
+      dynamic_range_db: core.dynamic_range_db,
+      energy: core.energy_score,
+      energy_level: core.energy_level,
+      danceability: core.danceability_score,
+      valence: core.valence_score,
+      acousticness: core.acousticness_score,
+      key: core.detected_key_name,
+      key_camelot: core.detected_key_camelot,
+      key_confidence: core.key_confidence,
+      key_candidates: core.key_candidates,
+      predominant_chord: core.predominant_chord,
+      chord_change_rate: core.chord_changes_per_second,
+      dissonance: core.dissonance_score,
+      spectral_bandwidth_mean: core.spectral_bandwidth_hz,
+      spectral_rolloff_mean: core.spectral_rolloff_hz,
+      spectral_flatness_mean: core.spectral_flatness,
+      true_peak_db: core.true_peak_dbtp,
+      replaygain_db: core.replay_gain_db,
+      loudness_momentary_max_db: core.max_momentary_loudness_lufs,
+      loudness_range_lu: core.loudness_range_lu,
+      intro_end_sec: core.intro_end_seconds,
+      outro_start_sec: core.outro_start_seconds,
+      energy_curve_hop_sec: core.energy_curve_hop_seconds,
+      energy_curve_summary: core.energy_curve_sample_count != null ? {
+        min: core.energy_curve_min,
+        max: core.energy_curve_max,
+        mean: core.energy_curve_mean,
+        stddev: core.energy_curve_stddev
+      } : null,
+      grid_offset_sec: core.beat_grid_offset_seconds,
+      grid_stability: core.beat_grid_stability,
+      vocalness: core.vocal_probability,
+      instrumentalness: core.vocal_probability != null ? 1.0 - core.vocal_probability : null,
+      mood_happy: core.mood_happy_score,
+      mood_aggressive: core.mood_aggressive_score,
+      mood_relaxed: core.mood_relaxed_score,
+      mood_sad: core.mood_sad_score,
+      leading_silence_sec: core.leading_silence_seconds,
+      trailing_silence_sec: core.trailing_silence_seconds,
+      tempo_variability: core.tempo_variability,
+    };
+  } else {
+    const raw = track.metadata?.sonara_features;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+    record = raw as Record<string, unknown>;
+    timeSignatureConfidence = sonaraNumericPayloadValue(record.time_signature_confidence);
+  }
 
-function readableSonaraFeatureGroups(raw: unknown) {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
-  const record = raw as Record<string, unknown>;
-  const timeSignatureConfidence = sonaraNumericPayloadValue(record.time_signature_confidence);
   return sonaraPlaylistFeatureGroups
     .map((group) => ({
       title: group.title,
       features: group.keys
         .map((key) => {
-          const payload = record[key];
-          const featureRecord = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
-          if (
-            !sonaraPlaylistFeatureKeys.has(key)
-            || featureRecord.type === "unavailable"
-            || (featureRecord.value == null && featureRecord.summary == null)
-          ) return null;
+          let value: unknown;
+          let isUnavailable = false;
+          
+          if ("sonara_core" in track) {
+            value = record[key];
+            if (value == null) isUnavailable = true;
+          } else {
+            const payload = record[key];
+            const featureRecord = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
+            if (featureRecord.type === "unavailable" || (featureRecord.value == null && featureRecord.summary == null)) {
+              isUnavailable = true;
+            } else {
+              value = featureRecord;
+            }
+          }
+
+          if (!sonaraPlaylistFeatureKeys.has(key) || isUnavailable) return null;
+
+          let formattedValue = "-";
+          if ("sonara_core" in track) {
+            formattedValue = formatSonaraValueV7(value, key);
+          } else {
+            formattedValue = key === "time_signature" && timeSignatureConfidence === 0
+              ? "Unknown"
+              : formatSonaraValue(value as Record<string, unknown>, key);
+          }
+
           return {
             key,
             label: sonaraFeatureLabels[key] || formatFeatureLabel(key),
-            value: key === "time_signature" && timeSignatureConfidence === 0
-              ? "Unknown"
-              : formatSonaraValue(featureRecord, key),
+            value: formattedValue,
             description: sonaraFeatureDescriptions[key] || ""
           };
         })
@@ -495,48 +659,6 @@ function sonaraNumericPayloadValue(payload: unknown) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
   const value = (payload as Record<string, unknown>).value;
   return typeof value === "number" ? value : undefined;
-}
-
-function readableSonaraProvenanceGroups(raw: unknown) {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
-  const record = raw as Record<string, unknown>;
-  const features = sonaraProvenanceFields.flatMap((definition) => {
-    const stored = record[definition.key];
-    const value = stored && typeof stored === "object" && !Array.isArray(stored) && "value" in stored
-      ? (stored as Record<string, unknown>).value
-      : stored;
-    if (value == null) return [];
-    return [{
-      key: `provenance_${definition.key}`,
-      label: definition.label,
-      value: formatSonaraProvenanceValue(definition.key, value),
-      description: definition.description
-    }];
-  });
-  return features.length ? [{ title: "Provenance", features }] : [];
-}
-
-function readableSonaraSignatureGroups(raw: unknown) {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
-  const record = raw as Record<string, unknown>;
-  const features = sonaraSignatureFields.flatMap((definition) => {
-    const value = record[definition.key];
-    if (value == null) return [];
-    return [{
-      key: `signature_${definition.key}`,
-      label: definition.label,
-      value: formatSonaraProvenanceValue(definition.key, value),
-      description: definition.description
-    }];
-  });
-  return features.length ? [{ title: "Analysis signature", features }] : [];
-}
-
-function formatSonaraProvenanceValue(key: string, value: unknown) {
-  if (key === "sample_rate" && typeof value === "number") return `${formatNumber(value)} Hz`;
-  if (key === "hop_length" && typeof value === "number") return `${formatNumber(value)} samples`;
-  if (Array.isArray(value)) return value.map((item) => String(item)).join(", ");
-  return formatTagValue(value);
 }
 
 function formatFeatureLabel(key: string) {
@@ -555,6 +677,34 @@ const sonaraSecondKeys = new Set([
   "leading_silence_sec",
   "trailing_silence_sec"
 ]);
+
+function formatSonaraValueV7(value: unknown, key?: string) {
+  if ((key === "bpm" || key === "bpm_raw") && typeof value === "number") return value.toFixed(2);
+  if (key === "bpm_candidates" && Array.isArray(value)) return formatBpmCandidatesV7(value);
+  if (key === "key_candidates" && Array.isArray(value)) return formatKeyCandidatesV7(value);
+  if (key === "duration_sec" && typeof value === "number") return formatPlayerDuration(value);
+  
+  if (key === "energy_curve_summary" && value && typeof value === "object") {
+    const summary = value as Record<string, number>;
+    return `mean ${formatNumber(summary.mean)}`;
+  }
+
+  if (typeof value === "number") {
+    if (key === "onset_density") return `${formatNumber(value)}/sec`;
+    if (key === "chord_change_rate") return `${formatNumber(value)}/sec`;
+    if (key === "loudness_lufs") return `${value.toFixed(2)} LUFS`;
+    if (key === "dynamic_range_db") return `${value.toFixed(2)} dB`;
+    if (key === "loudness_range_lu") return `${value.toFixed(2)} LU`;
+    if (key === "true_peak_db") return `${value.toFixed(2)} dBTP`;
+    if (key === "replaygain_db") return `${value.toFixed(2)} dB`;
+    if (key === "loudness_momentary_max_db") return `${value.toFixed(2)} LUFS`;
+    if (key && sonaraSecondKeys.has(key)) return `${formatNumber(value)} s`;
+    return formatNumber(value);
+  }
+  if (Array.isArray(value)) return `${value.length} values`;
+  if (value == null) return "-";
+  return String(value);
+}
 
 function formatSonaraValue(record: Record<string, unknown>, key?: string) {
   const value = record.value;
@@ -610,9 +760,32 @@ function formatBpmCandidates(value: unknown[]) {
   return candidates.length ? candidates.join(", ") : `${value.length} values`;
 }
 
+function formatBpmCandidatesV7(value: unknown[]) {
+  const candidates = value.map((item) => {
+    if (!item || typeof item !== "object") return null;
+    const record = item as Record<string, unknown>;
+    if (typeof record.bpm !== "number") return null;
+    const bpm = record.bpm.toFixed(2);
+    return typeof record.score === "number" ? `${bpm} (${formatNumber(record.score)})` : bpm;
+  }).filter((candidate): candidate is string => candidate != null);
+  return candidates.length ? candidates.join(", ") : `${value.length} values`;
+}
+
 function formatKeyCandidates(value: unknown[]) {
   const codes = value
     .map((item) => (Array.isArray(item) ? item[1] ?? item[0] : item))
+    .filter((code): code is string | number => code != null)
+    .map((code) => String(code));
+  return codes.length ? codes.join(", ") : `${value.length} values`;
+}
+
+function formatKeyCandidatesV7(value: unknown[]) {
+  const codes = value
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const record = item as Record<string, unknown>;
+      return record.camelot || record.key;
+    })
     .filter((code): code is string | number => code != null)
     .map((code) => String(code));
   return codes.length ? codes.join(", ") : `${value.length} values`;

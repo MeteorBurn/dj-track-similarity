@@ -43,9 +43,10 @@ def test_promoted_classifiers_report_valid_and_invalid_manifest_status(tmp_path:
 
     assert payloads["break_energy"]["manifest_status"] == "valid"
     assert payloads["break_energy"]["is_scoring_compatible"] is True
-    assert payloads["bad_profile"]["manifest_status"] == "invalid"
+    # bad_profile has no manifest_version → ManifestVersionError → "unsupported"
+    assert payloads["bad_profile"]["manifest_status"] == "unsupported"
     assert payloads["bad_profile"]["is_scoring_compatible"] is False
-    assert "positive_label" in "; ".join(payloads["bad_profile"]["manifest_errors"])
+    assert payloads["bad_profile"]["manifest_errors"]
     assert payloads["legacy_profile"]["manifest_status"] == "legacy"
     assert payloads["legacy_profile"]["manifest_warnings"]
 

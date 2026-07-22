@@ -824,6 +824,86 @@ def _chunks(values: list[int], size: int):
         yield values[index : index + size]
 
 
+# ---------------------------------------------------------------------------
+# v7 BLOB reader — reads MFCC/chroma/spectral_contrast from typed BLOB columns
+# in the v7 `sonara` table.  Returns 9 statistics that map directly onto the
+# keys declared in SONARA_NUMERIC_FIELDS:
+#
+#   mfcc_mean.summary.min / .max / .mean / .std   (4 values, 13 float32 vector)
+#   chroma_mean.summary.min / .max / .mean / .std (4 values, 12 float32 vector)
+#   spectral_contrast_mean                        (1 value — scalar mean of 7 float32 vector)
+#
+# The v6 JSON path reader ($.sonara_features.<field>.summary.*) is kept intact
+# for backward compatibility; it will be removed in Todo 21.
+# ---------------------------------------------------------------------------
+
+_V7_BLOB_FIELDS = (
+    # (column_name, n_elements, stat_prefix_or_scalar_key)
+    ("mfcc_mean_blob", 13, "mfcc_mean"),
+    ("chroma_mean_blob", 12, "chroma_mean"),
+    ("spectral_contrast_mean_blob", 7, "spectral_contrast_mean"),
+)
+
+
+def _read_sonara_short_vectors_v7(
+    track_id: int,
+    connection: "sqlite3.Connection",
+) -> dict[str, float]:
+    """Read MFCC, chroma, and spectral_contrast BLOBs from the v7 ``sonara``
+    table and return the 9 statistics that feed into the SET broad score.
+
+    Returns an empty dict when the v7 ``sonara`` table does not exist or the
+    row is missing (graceful fallback to the v6 JSON path reader).
+
+    Decoding:
+    - ``mfcc_mean_blob``              → 13 × float32-le → min/max/mean/std
+    - ``chroma_mean_blob``            → 12 × float32-le → min/max/mean/std
+    - ``spectral_contrast_mean_blob`` →  7 × float32-le → scalar mean only
+
+    The returned keys match the entries in ``SONARA_NUMERIC_FIELDS``:
+    ``"mfcc_mean.summary.min"``, ``"mfcc_mean.summary.max"``,
+    ``"mfcc_mean.summary.mean"``, ``"mfcc_mean.summary.std"``,
+    ``"chroma_mean.summary.min"``, ``"chroma_mean.summary.max"``,
+    ``"chroma_mean.summary.mean"``, ``"chroma_mean.summary.std"``,
+    ``"spectral_contrast_mean"``.
+    """
+    import sqlite3 as _sqlite3
+
+    try:
+        row = connection.execute(
+            "SELECT mfcc_mean_blob, chroma_mean_blob, spectral_contrast_mean_blob"
+            " FROM sonara WHERE track_id = ?",
+            (track_id,),
+        ).fetchone()
+    except _sqlite3.OperationalError:
+        # v7 sonara table does not exist in this database — fall back silently.
+        return {}
+
+    if row is None:
+        return {}
+
+    result: dict[str, float] = {}
+
+    for col_index, (col_name, n_elements, prefix) in enumerate(_V7_BLOB_FIELDS):
+        blob: bytes | None = row[col_index]
+        if blob is None or len(blob) != n_elements * 4:
+            continue
+        vec = np.frombuffer(blob, dtype="<f4")
+        if not np.all(np.isfinite(vec)):
+            continue
+        if prefix == "spectral_contrast_mean":
+            # Scalar mean only — maps to the existing scalar key.
+            result[prefix] = float(np.mean(vec))
+        else:
+            # Four summary statistics — map to the .summary.* sub-keys.
+            result[f"{prefix}.summary.min"] = float(np.min(vec))
+            result[f"{prefix}.summary.max"] = float(np.max(vec))
+            result[f"{prefix}.summary.mean"] = float(np.mean(vec))
+            result[f"{prefix}.summary.std"] = float(np.std(vec))
+
+    return result
+
+
 def _json_path_plan(fields) -> tuple[tuple[str, ...], dict[str, slice]]:
     paths: list[str] = []
     slices: dict[str, slice] = {}
@@ -1863,3 +1943,85 @@ def _bounded_signed(value: float) -> float:
     if not np.isfinite(value):
         return 0.0
     return max(-1.0, min(1.0, float(value)))
+
+
+# ---------------------------------------------------------------------------
+# v7 read-path adapter — SONARA scalar hydration from v7 Core DB (Todo 21)
+# ---------------------------------------------------------------------------
+
+# Mapping from SONARA_NUMERIC_FIELDS keys → v7 sonara table column names.
+# Keys that come from BLOBs (mfcc_mean.*, chroma_mean.*, spectral_contrast_mean)
+# are handled separately by _read_sonara_short_vectors_v7().
+# Keys that have no direct v7 column equivalent (beats.summary.*, onset_frames.summary.*)
+# are omitted — they are not stored as typed scalars in v7.
+_V7_SCALAR_FIELD_MAP: dict[str, str] = {
+    "bpm": "detected_bpm",
+    "n_beats": "beat_count",
+    "onset_density": "onset_density_per_second",
+    "rms_mean": "rms_mean",
+    "rms_max": "rms_max",
+    "loudness_lufs": "integrated_loudness_lufs",
+    "dynamic_range_db": "dynamic_range_db",
+    "energy": "energy_score",
+    "danceability": "danceability_score",
+    "valence": "valence_score",
+    "acousticness": "acousticness_score",
+    "chord_change_rate": "chord_changes_per_second",
+    "dissonance": "dissonance_score",
+    "spectral_centroid_mean": "spectral_centroid_hz",
+    "spectral_bandwidth_mean": "spectral_bandwidth_hz",
+    "spectral_rolloff_mean": "spectral_rolloff_hz",
+    "spectral_flatness_mean": "spectral_flatness",
+    "zero_crossing_rate": "zero_crossing_rate",
+}
+
+
+def _hydrate_v7_sonara_values(
+    core_conn: "sqlite3.Connection",
+    track_id: int,
+) -> dict[str, float]:
+    """Read SONARA scalar fields and short-vector statistics from the v7 ``sonara`` table.
+
+    Combines:
+    - Typed scalar columns mapped via ``_V7_SCALAR_FIELD_MAP`` to the keys used
+      by ``SONARA_NUMERIC_FIELDS`` (and therefore the SET Builder scoring path).
+    - The 9 short-vector statistics from ``_read_sonara_short_vectors_v7()``
+      (mfcc_mean.summary.*, chroma_mean.summary.*, spectral_contrast_mean).
+
+    Returns an empty dict when the v7 ``sonara`` table does not exist or the
+    row is missing.  NULL scalar values are silently omitted.  The returned
+    dict is compatible with the existing SET Builder ``sonara_values`` path.
+    """
+    import sqlite3 as _sqlite3
+
+    v7_columns = list(_V7_SCALAR_FIELD_MAP.values())
+    col_list = ", ".join(v7_columns)
+    try:
+        row = core_conn.execute(
+            f"SELECT {col_list} FROM sonara WHERE track_id = ?",  # noqa: S608
+            (track_id,),
+        ).fetchone()
+    except _sqlite3.OperationalError:
+        return {}
+
+    if row is None:
+        return {}
+
+    result: dict[str, float] = {}
+    for field_key, col_name in _V7_SCALAR_FIELD_MAP.items():
+        col_index = v7_columns.index(col_name)
+        raw = row[col_index]
+        if raw is None:
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(value):
+            result[field_key] = value
+
+    # Merge in the 9 short-vector statistics (mfcc, chroma, spectral_contrast)
+    blob_stats = _read_sonara_short_vectors_v7(track_id, core_conn)
+    result.update(blob_stats)
+
+    return result

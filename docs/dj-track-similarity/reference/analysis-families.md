@@ -6,11 +6,11 @@
 
 | Family | Reads | Writes | Unlocks |
 | --- | --- | --- | --- |
-| SONARA | file paths decoded natively by SONARA/Symphonia | SONARA metadata, working BPM/key/energy/duration, `has_sonara_analysis` | SONARA search, SET, Hybrid, classifier input |
-| MAEST | shared FFmpeg-decoded audio | genre labels, syncopated rhythm data, MAEST embedding, `has_maest_embedding` | genre display, genre tag apply, SET, Hybrid, Audio Dedup signal |
-| MERT | shared FFmpeg-decoded audio | MERT embedding, `has_mert_embedding` | MERT seed search, SET, Hybrid, Audio Dedup signal, classifier input |
-| MuQ | shared FFmpeg decode, resampled to 24 kHz `float32` | MuQ embedding, `has_muq_embedding` | LAB Reference Compare evidence |
-| CLAP | shared FFmpeg-decoded audio | CLAP audio embedding, `has_clap_embedding` | CLAP text search, SET, Hybrid, Audio Dedup signal |
+| SONARA | file paths decoded natively by SONARA/Symphonia | SONARA metadata, working BPM/key/energy/duration | SONARA search, SET, Hybrid, classifier input |
+| MAEST | shared FFmpeg-decoded audio | genre labels, syncopated rhythm data, MAEST embedding | genre display, genre tag apply, SET, Hybrid, Audio Dedup signal |
+| MERT | shared FFmpeg-decoded audio | MERT embedding | MERT seed search, SET, Hybrid, Audio Dedup signal, classifier input |
+| MuQ | shared FFmpeg decode, resampled to 24 kHz `float32` | MuQ embedding | LAB Reference Compare evidence |
+| CLAP | shared FFmpeg-decoded audio | CLAP audio embedding | CLAP text search, SET, Hybrid, Audio Dedup signal |
 | CLASSIFIERS | exact stored inputs from each promoted manifest | `track_classifier_scores` | CLASS filters, SET preferences, Hybrid diagnostics |
 
 ## Device behavior
@@ -48,9 +48,9 @@ and Representations can be added during the first analysis or computed later wit
 
 | Output | Main contents | Physical store |
 | --- | --- | --- |
-| Core | BPM/key/confidence, loudness, dynamics, spectral and timbral values, Contrast (7), MFCC (13), Chroma (12), compact structure/beat-grid values, vocalness v2, mood, silence | selected main `.sqlite` |
-| Timeline | beats, onsets, chord sequence/events, tempo/energy/loudness curves, downbeats, structure segments | adjacent `*.timeline.sqlite` |
-| Representations | SONARA embedding and fingerprint | adjacent `*.representations.sqlite` |
+| Core | BPM/key/confidence, loudness, dynamics, spectral and timbral values, Contrast (7), MFCC (13), Chroma (12), compact structure/beat-grid values, vocalness v2, mood, silence | `sonara` table in Core |
+| Timeline | beats, onsets, chord sequence/events, tempo/energy/loudness curves, downbeats, structure segments | `sonara_timeline` in Artifacts |
+| Representations | SONARA embedding and fingerprint | `sonara_similarity_embeddings` and `sonara_fingerprints` in Artifacts |
 
 `bpm_confidence` is SONARA's `0..1` trust signal for the working BPM. `key_camelot` is SONARA's own Camelot code rather than a project-side derivation.
 
@@ -97,7 +97,30 @@ Storage does not imply scoring. `mood_*` and `instrumentalness` are retained for
 
 The SONARA `embedding`, `fingerprint`, and tempo curve are data-only today. MERT and CLAP remain the search embeddings, while Audio Dedup and the current similarity and classifier matrices ignore the SONARA representations.
 
+## Dedicated storage tables
+
+In v7, each analysis family stores its embeddings in a dedicated table in the Artifacts sidecar:
+
+- `maest_embeddings`
+- `mert_embeddings`
+- `muq_embeddings`
+- `clap_embeddings`
+- `sonara_similarity_embeddings`
+
+This replaces the generic `embeddings` table from v6.
+
+## Schema migration
+
+Migrating a v6 library to v7 is available via:
+
+```powershell
+dj-sim migrate-schema-v7 SOURCE_DB --destination DEST_DB [--rhythm-lab-labels SRC --rhythm-lab-destination DEST] [--report REPORT_JSON]
+```
+
+This command requires explicit user approval. SONARA data is discarded during migration and requires fresh reanalysis.
+
 ## Batch and label ranges
+
 
 | Setting | Range | Default |
 | --- | ---: | ---: |

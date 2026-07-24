@@ -505,7 +505,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8" },
     { name = "scikit-learn", marker = "extra == 'rhythm-lab'", specifier = ">=1.4" },
-    { name = "sonara", marker = "extra == 'sonara'", specifier = "==0.2.9" },
+    { name = "sonara", marker = "extra == 'sonara'", specifier = "==0.3.1" },
     { name = "torch", marker = "extra == 'ml'", specifier = "==2.11.0" },
     { name = "torchaudio", marker = "extra == 'ml'", specifier = "==2.11.0" },
     { name = "torchcodec", marker = "extra == 'ml'", specifier = "==0.13.0" },
@@ -2475,17 +2475,17 @@ wheels = [
 
 [[package]]
 name = "sonara"
-version = "0.2.9"
+version = "0.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bc/f8/862aa76db6db988bcfcfc5f01919eb7a7bcdc91f967e1e34a6668c8558b0/sonara-0.2.9.tar.gz", hash = "sha256:bec6e9d8c79985741d3e078c6c202a9dcc3d8df2204d8db101325fd025fe8e82", size = 345114, upload-time = "2026-07-20T20:05:31.47Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/01/94/e95d4bda10ec2e764bdff8808d15d97664f13899ca6a95889a134424961f/sonara-0.3.1.tar.gz", hash = "sha256:16996cb8bfb3a4fa68a095ce50776d8733e0752d504aae12e71f1deda01f4a68", size = 365313, upload-time = "2026-07-23T21:29:16.577Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6f/7d/9895615977c3b8779f71a8bbf0bb9b8c1b5e5959fb8fbe94a3d48fbeb022/sonara-0.2.9-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:4d8e46a4b779eb481549efbbd79b5384d996db5d8f9e147e98dc9f90ef82de31", size = 1787672, upload-time = "2026-07-20T20:05:25.386Z" },
-    { url = "https://files.pythonhosted.org/packages/61/41/94c548aa0520b5a357293d7bcb9c93307cd06f20cb01ba9e05be5f3d5b0d/sonara-0.2.9-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:fa770bb4d465d6afcf2b09f836727982d3f5ebbb27072f556d4eccffd593ca7b", size = 1562570, upload-time = "2026-07-20T20:05:27.129Z" },
-    { url = "https://files.pythonhosted.org/packages/73/af/020564fb85468983aba56e5b2721be5a0e95e5d5620632d8d6022537749d/sonara-0.2.9-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:e27df126b0f9a92c8f7c4cab904ea00237b014026dc65ae9c30f11aff74bbad4", size = 1855939, upload-time = "2026-07-20T20:05:28.451Z" },
-    { url = "https://files.pythonhosted.org/packages/ee/01/b14b45e483141cab93a4423c9bd5d108715c73c444eef07a5b0977b4d33b/sonara-0.2.9-cp39-abi3-win_amd64.whl", hash = "sha256:93b6f5d62fdf47d47613b34d51ebd9c8ce76fc1a5ee76afb43bb1fdb5778d4ce", size = 1729255, upload-time = "2026-07-20T20:05:30.029Z" },
+    { url = "https://files.pythonhosted.org/packages/8e/f8/e62771e178810fa5cdf7f3295e2a40eb72127b584b29b5e67de570478cab/sonara-0.3.1-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:3a95d0b3fa40c2b5bbd3dfeb07474990de5cdbe7ad24559d920ab2a08422f4cf", size = 1827922, upload-time = "2026-07-23T21:29:08.907Z" },
+    { url = "https://files.pythonhosted.org/packages/8d/db/592dfbd2c928e23ede4098f71d5c89a7f80842d1327fc2cf7fc7d4f34a12/sonara-0.3.1-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:baab58c3963d65e8ff02f67c6001f895419ee5120613728eb284277ad03e19ef", size = 1601807, upload-time = "2026-07-23T21:29:11.251Z" },
+    { url = "https://files.pythonhosted.org/packages/fa/1d/a9da3ead4079ee55e9a5f652600da3dd60aab8b79ee26ddaef047c8e2f84/sonara-0.3.1-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b3f67c25caa5a1be7341362afc3d0ed5f2294554369c95ee72a78c2d8344d276", size = 1898714, upload-time = "2026-07-23T21:29:12.912Z" },
+    { url = "https://files.pythonhosted.org/packages/74/b3/21f866386db2761f155ed6c498f3ae28b4714e62555a9a75b11fb11ed543/sonara-0.3.1-cp310-abi3-win_amd64.whl", hash = "sha256:b183194b240848a737943baf554cf6713927780d26368b5e36ca1be195a9ff81", size = 1769611, upload-time = "2026-07-23T21:29:14.885Z" },
 ]
 
 [[package]]

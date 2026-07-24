@@ -16,6 +16,7 @@ from dj_track_similarity.analysis_models import (
     SonaraWrite,
 )
 from dj_track_similarity.sonara_contract import (
+    SONARA_EXPECTED_SCHEMA_VERSION,
     SONARA_EXPECTED_VERSION,
     SONARA_OUTPUT_KINDS,
     sonara_requested_features,
@@ -125,7 +126,7 @@ def _raw_analysis(path: str, *, features: tuple[str, ...]) -> TrackAnalysis:
         beats=np.asarray([0, 22, 43], dtype=np.int64),
         n_beats=3,
         provenance={
-            "schema_version": 4,
+            "schema_version": SONARA_EXPECTED_SCHEMA_VERSION,
             "sample_rate": 22_050,
             "hop_length": 512,
             "mode": "playlist",

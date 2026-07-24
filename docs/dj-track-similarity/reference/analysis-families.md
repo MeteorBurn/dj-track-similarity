@@ -43,7 +43,7 @@ missing current outputs can resume normally.
 
 ## SONARA output kinds
 
-SONARA v0.2.9 has one immutable release identity derived from four output contracts: `core`,
+SONARA v0.3.1 has one immutable release identity derived from four output contracts: `core`,
 `timeline`, `embedding`, and `fingerprint`. A job can select which active contracts to materialize;
 `core` is the CLI and API default. Selecting another output later does not change the four-contract
 release identity or replace current `core` rows.
@@ -61,7 +61,7 @@ The contract registry stores canonical contract JSON plus contract and release h
 provenance is validated during ingestion, but the runtime does not promise to round-trip the raw
 analyzer provenance payload.
 
-Each output has a separate compatibility signature. Its deterministic digest covers SONARA `0.2.9`, upstream schema `4`, playlist mode, sample rate `22050`, BPM range `70..180`, the output's sorted feature profile, project feature revision `6`, `decoder_backend="sonara-symphonia"`, and `execution_path="analyze_batch"`.
+Each output has a separate compatibility signature. Its deterministic digest covers SONARA `0.3.1`, upstream schema `5`, playlist mode, sample rate `22050`, BPM range `70..180`, the output's sorted feature profile, project feature revision `6`, `decoder_backend="sonara-symphonia"`, and `execution_path="analyze_batch"`.
 
 Core deliberately does not request SONARA's Full-only `time_signature` metrogram. It was not used by search, SET, Hybrid, or classifier inputs, while real-library results had no usable confidence and the calculation more than doubled Core compute time. Beatgrid uses SONARA's normal 4/4 fallback instead of consuming an untrusted meter estimate.
 
@@ -69,7 +69,7 @@ The project model label `sonara-playlist` is informational and is not a freshnes
 signature contains expanded, sorted upstream feature names rather than only the four project output
 names. The analysis hop is part of the common parameters in every output contract and the
 family-wide release hash. See the
-[SONARA v0.2.9 project contract](./sonara-v0-2-9-contract.md) for the exact storage and signature rules.
+[SONARA v0.3.1 project contract](./sonara-v0-3-1-contract.md) for the exact storage and signature rules.
 
 The backend API uses `sonara_outputs`, and the CLI uses
 `--sonara-outputs core,timeline,embedding,fingerprint`. Every native batch requests the same

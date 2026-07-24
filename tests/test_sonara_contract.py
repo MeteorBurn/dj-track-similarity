@@ -87,16 +87,16 @@ def test_fake_runtime_has_golden_release_and_contract_hashes() -> None:
     contracts = sonara_runtime_contracts(FakeSonara)
 
     assert contracts.release_hash == (
-        "sha256:c8e479af204bc7a39d931f3719c4a720868b8859cbfdeff9f9bd4a0c5a86881e"
+        "sha256:5709b2939393a8f4f36f5cd7a23e9c692095f4580a6e9a089bff85bc6fe49169"
     )
     assert {
         identity.output_kind: identity.contract_hash
         for identity in contracts.identities
     } == {
-        "core": "sha256:549df36a051f8c96b07c795b4c15a0143693ee7e649677b8aef388ccd677dcd2",
-        "timeline": "sha256:055b14b5b9024bb039d1221ac461c90eb188ce8c9b810c2a91c78c37bc74f8e1",
-        "embedding": "sha256:b2fe36a33da0e7fb214f3d5b3d4f97a87f9c956b2fc58aa610ba02751ffc2e9a",
-        "fingerprint": "sha256:2f3803c483ade1676ece0ecd89ef078212a43ff9fbd7ad9b9f8d9ab5557a8155",
+        "core": "sha256:bd0b3d9b230115370e7e37fcce82dfc5d4bf0ba12a19930139cf09b9441e8c20",
+        "timeline": "sha256:93d06c335635e0240981f812fda90616ffcedf12769880c471f00a777d343c4d",
+        "embedding": "sha256:a608e023840237ae855b66f86afb0e43089c3c06ebb3a83f06c755023d2a8b67",
+        "fingerprint": "sha256:da1ccaee5339efe03b986f290600ea8f7cf1a2fee86c490eac863a5e104eb687",
     }
 
 
@@ -125,9 +125,9 @@ def test_release_hash_cannot_be_supplied_by_factory_caller() -> None:
 @pytest.mark.parametrize(
     ("field_name", "replacement"),
     [
-        ("package_version", "0.2.9+different-build"),
+        ("package_version", f"{SONARA_EXPECTED_VERSION}+different-build"),
         ("package_build_id", _BUILD_B),
-        ("schema_version", 5),
+        ("schema_version", SONARA_EXPECTED_SCHEMA_VERSION + 1),
         ("mode", "full"),
         ("sample_rate_hz", 44_100),
         ("bpm_min", 69),
@@ -225,6 +225,18 @@ def test_feature_order_does_not_create_a_spurious_release() -> None:
     assert reordered.release_hash == runtime.release_hash
 
 
+def test_native_analysis_request_excludes_opt_in_aggression() -> None:
+    runtime = resolve_sonara_runtime_identity(FakeSonara)
+    requested_features = sonara_requested_features(runtime=runtime)
+
+    assert "aggression" not in requested_features
+    assert all(
+        "aggression" not in output_features
+        for output_features in runtime.requested_features_by_output.values()
+    )
+    assert "mood" in requested_features
+
+
 def test_runtime_factory_rejects_unpinned_package_and_embedding_versions() -> None:
     class WrongPackage(FakeSonara):
         __version__ = "0.3.0"
@@ -232,7 +244,10 @@ def test_runtime_factory_rejects_unpinned_package_and_embedding_versions() -> No
     class WrongEmbedding(FakeSonara):
         SIMILARITY_VERSION = 3
 
-    with pytest.raises(SonaraRuntimeIdentityError, match="0.2.9 is required"):
+    with pytest.raises(
+        SonaraRuntimeIdentityError,
+        match=rf"{SONARA_EXPECTED_VERSION} is required",
+    ):
         resolve_sonara_runtime_identity(WrongPackage)
     with pytest.raises(SonaraRuntimeIdentityError, match="similarity version"):
         resolve_sonara_runtime_identity(WrongEmbedding)

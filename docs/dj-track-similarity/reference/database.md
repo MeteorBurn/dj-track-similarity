@@ -53,7 +53,7 @@ Normal track responses return small summaries and availability flags. The explic
 
 ## SONARA release state
 
-The current SONARA contract is package `0.2.9`, upstream schema `4`, playlist mode, sample rate
+The current SONARA contract is package `0.3.1`, upstream schema `5`, playlist mode, sample rate
 `22050`, BPM range `70..180`, and project feature revision `6`. It defines four independent output
 kinds: `core`, `timeline`, `embedding`, and `fingerprint`.
 

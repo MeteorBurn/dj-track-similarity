@@ -44,9 +44,8 @@ Install only the extras you need:
 python -m pip install -e ".[sonara,ml,dev]"
 ```
 
-The `sonara` extra installs pinned SONARA `v0.2.9`. On Windows x64, pip builds the pinned source
-distribution when a compatible wheel is unavailable. Other platforms install the same package
-version.
+The `sonara` extra installs pinned SONARA `v0.3.1`. PyPI publishes `cp310-abi3` wheels, including
+Windows x64, so supported Python 3.10+ environments do not need to build SONARA locally.
 
 Verify the runtime before analyzing a fresh library or preparing a new SONARA release:
 
@@ -54,7 +53,7 @@ Verify the runtime before analyzing a fresh library or preparing a new SONARA re
 python -c "import sonara; print(sonara.__version__)"
 ```
 
-The command must print `0.2.9`. The runtime creates fresh schema-v7 Core plus mandatory Artifacts
+The command must print `0.3.1`. The runtime creates fresh schema-v7 Core plus mandatory Artifacts
 bundles and rejects older schemas. There is no migration command. Follow
 [Prepare and rebuild a SONARA release](../workflows/reanalyze-sonara-split-storage.md).
 

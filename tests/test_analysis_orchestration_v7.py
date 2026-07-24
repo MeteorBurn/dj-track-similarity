@@ -31,6 +31,7 @@ from dj_track_similarity.audio_loader import DecodedAudio
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.embedding import MertEmbeddingAdapter
 from dj_track_similarity.genres import MaestGenreAdapter
+from dj_track_similarity.sonara_contract import SONARA_EXPECTED_VERSION
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
@@ -345,7 +346,7 @@ def _sonara_output(kind: str) -> AnalysisOutput:
             analysis_family="sonara",
             output_kind=kind,
             model_name="sonara-playlist",
-            model_version="0.2.9",
+            model_version=SONARA_EXPECTED_VERSION,
             release_hash=f"sha256:{'3' * 64}",
             dim=48 if embedding else None,
             encoding="float32-le" if embedding else None,

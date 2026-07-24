@@ -1,4 +1,4 @@
-# SONARA v0.2.9 project contract
+# SONARA v0.3.1 project contract
 
 > Audience: Maintainers validating stored SONARA results.
 > Goal: Define the exact decode, signature, output, and storage boundaries.
@@ -8,8 +8,8 @@
 
 | Setting | Value |
 | --- | --- |
-| SONARA package | `0.2.9` |
-| Upstream result schema | `4` |
+| SONARA package | `0.3.1` |
+| Upstream result schema | `5` |
 | Project feature revision | `6` |
 | Mode | `playlist` |
 | Decoder backend | `sonara-symphonia` |
@@ -23,6 +23,11 @@ The SONARA job passes ordered path chunks directly to `sonara.analyze_batch()`. 
 path owns file decoding. The production job does not call the project's FFmpeg loader,
 `DecodedAudio`, `analyze_signal`, or `analyze_file`, and it has no fallback to those paths. ML,
 preview, and other non-SONARA functions retain their FFmpeg dependency.
+
+SONARA 0.3.1 includes an opt-in `aggression` feature. This project does not request it, does not
+ingest its `aggression_*` outputs, and adds no aggression-specific database fields. The existing
+`mood_aggressive_score` remains part of SONARA's separately requested `mood` feature; it is not the
+new aggression model.
 
 ## Four independent outputs
 

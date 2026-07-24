@@ -48,7 +48,7 @@ General BPM mode uses tempo for transition compatibility. Low-to-high and high-t
 SET resolves current SONARA tempo evidence first. Below `0.45` confidence, ranked SONARA candidates
 and the Mutagen BPM tag can corroborate or replace the working estimate. Beat-grid stability weakens
 unreliable tempo evidence, and a low-reliability estimate cannot become a hard rejection by itself.
-See the [SONARA v0.2.9 project contract](../reference/sonara-v0-2-9-contract.md).
+See the [SONARA v0.3.1 project contract](../reference/sonara-v0-3-1-contract.md).
 
 ## Add preview is explicit
 

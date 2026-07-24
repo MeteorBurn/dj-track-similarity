@@ -52,6 +52,8 @@ from dj_track_similarity.prepare_sonara_release import (
     prepare_sonara_release,
 )
 from dj_track_similarity.sonara_contract import (
+    SONARA_EXPECTED_SCHEMA_VERSION,
+    SONARA_EXPECTED_VERSION,
     SONARA_PROJECT_FEATURE_REVISION,
     SONARA_CORE_REQUESTED_FEATURES,
     SONARA_EMBEDDING_REQUESTED_FEATURES,
@@ -903,9 +905,9 @@ def test_semantically_invalid_maest_analysis_surfaces_agree(
 
 def _sonara_contracts(build_digit: str = "5") -> SonaraContractSet:
     runtime = SonaraRuntimeIdentity(
-        package_version="0.2.9",
+        package_version=SONARA_EXPECTED_VERSION,
         package_build_id="sha256:" + build_digit * 64,
-        schema_version=4,
+        schema_version=SONARA_EXPECTED_SCHEMA_VERSION,
         mode="playlist",
         sample_rate_hz=22_050,
         bpm_min=70,
@@ -942,7 +944,7 @@ def _prepare_release(
         "_FakeSonara",
         (),
         {
-            "__version__": "0.2.9",
+            "__version__": SONARA_EXPECTED_VERSION,
             "SIMILARITY_VERSION": 2,
             "__sonara_build_id__": "sha256:" + build_digit * 64,
             "__sonara_vocalness_model_id__": "sonara-vocalness",

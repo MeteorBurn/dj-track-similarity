@@ -32,7 +32,7 @@ Verify SONARA separately:
 python -c "import sonara; print(sonara.__version__)"
 ```
 
-The expected package version is `0.2.9`.
+The expected package version is `0.3.1`.
 
 ## 3. Prepare the release
 
@@ -58,7 +58,7 @@ Start with familiar files:
 dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --limit 100 --db .\data\library.sqlite
 ```
 
-The current contract is SONARA `0.2.9`, upstream schema `4`, playlist mode, sample rate `22050`, BPM
+The current contract is SONARA `0.3.1`, upstream schema `5`, playlist mode, sample rate `22050`, BPM
 range `70..180`, and project feature revision `6`. The default native batch size is `8`;
 `--sonara-batch-size` accepts `1..16`.
 

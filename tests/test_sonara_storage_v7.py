@@ -14,6 +14,7 @@ from dj_track_similarity.analysis_models import (
     AnalysisTarget,
 )
 from dj_track_similarity.sonara_contract import (
+    SONARA_EXPECTED_SCHEMA_VERSION,
     SONARA_EXPECTED_VERSION,
     SONARA_UNIT_INTERVAL_CLAMP_FIELDS,
     SonaraContractSet,
@@ -129,7 +130,7 @@ def _analysis(
         "fingerprint": fingerprint,
         "fingerprint_version": 1,
         "provenance": {
-            "schema_version": 4,
+            "schema_version": SONARA_EXPECTED_SCHEMA_VERSION,
             "sample_rate": 22_050,
             "hop_length": 512,
             "mode": "playlist",
@@ -454,7 +455,7 @@ def test_provenance_package_version_is_optional_but_mismatch_is_rejected() -> No
     )
 
     provenance = dict(analysis["provenance"])
-    provenance["package_version"] = "0.2.9+different-build"
+    provenance["package_version"] = f"{SONARA_EXPECTED_VERSION}+different-build"
     analysis["provenance"] = provenance
     with pytest.raises(ValueError, match="package_version"):
         _prepare(analysis, contracts=contracts)

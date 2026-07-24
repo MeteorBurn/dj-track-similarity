@@ -67,7 +67,7 @@ CLI, API, storage, and model contracts remain available in the reference section
 - [CLI reference](./reference/cli.md) lists `dj-sim` commands and standalone tool commands.
 - [API reference](./reference/api.md) lists endpoint families and important payloads.
 - [Configuration reference](./reference/configuration.md) lists environment variables, ports, local artifacts, and build commands.
-- [SONARA v0.2.9 contract](./reference/sonara-v0-2-9-contract.md) defines four output contracts and the Core/Artifacts boundary.
+- [SONARA v0.3.1 contract](./reference/sonara-v0-3-1-contract.md) defines four output contracts and the Core/Artifacts boundary.
 - [UI controls reference](./reference/ui-controls.md) lists ranges and defaults for common controls.
 - [Model citations and licenses](./reference/model-citations.md) lists the current upstream model and SONARA sources.
 

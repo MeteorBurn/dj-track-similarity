@@ -24,6 +24,8 @@ from .analysis_contracts import FLOAT32_LE_ENCODING, ContractIdentity
 from .db_schema_v7 import ClassifierScoreV7, SonaraRowV7
 from .sonara_contract import (
     SONARA_ANALYSIS_HOP_SAMPLES,
+    SONARA_EXPECTED_SCHEMA_VERSION,
+    SONARA_EXPECTED_VERSION,
     SONARA_PROJECT_FEATURE_REVISION,
     SONARA_UNIT_INTERVAL_CLAMP_EPSILON,
     SONARA_UNIT_INTERVAL_CLAMP_FIELDS,
@@ -642,8 +644,10 @@ def validate_production_contract(contract: ContractIdentity) -> None:
             is None
         ):
             raise ValueError("SONARA release_hash must be a lowercase sha256 digest")
-        if parameters.get("package_version") != "0.2.9":
-            raise ValueError("SONARA package_version must be '0.2.9'")
+        if parameters.get("package_version") != SONARA_EXPECTED_VERSION:
+            raise ValueError(
+                f"SONARA package_version must be {SONARA_EXPECTED_VERSION!r}"
+            )
         if contract.model_name != "sonara-playlist":
             raise ValueError("SONARA model_name must be 'sonara-playlist'")
         if contract.model_version != parameters.get("package_version"):
@@ -658,8 +662,13 @@ def validate_production_contract(contract: ContractIdentity) -> None:
             )
         if contract.checkpoint_id != package_build_id:
             raise ValueError("SONARA checkpoint_id must equal package_build_id")
-        if _parameter_positive_int(parameters, "schema_version") != 4:
-            raise ValueError("SONARA schema_version must be 4")
+        if (
+            _parameter_positive_int(parameters, "schema_version")
+            != SONARA_EXPECTED_SCHEMA_VERSION
+        ):
+            raise ValueError(
+                f"SONARA schema_version must be {SONARA_EXPECTED_SCHEMA_VERSION}"
+            )
         if parameters.get("mode") != "playlist":
             raise ValueError("SONARA mode must be 'playlist'")
         if _parameter_positive_int(parameters, "sample_rate_hz") != 22_050:

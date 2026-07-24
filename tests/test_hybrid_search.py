@@ -26,6 +26,8 @@ from dj_track_similarity.library_models import (
 from dj_track_similarity.sonara_contract import (
     SONARA_CORE_REQUESTED_FEATURES,
     SONARA_EMBEDDING_REQUESTED_FEATURES,
+    SONARA_EXPECTED_SCHEMA_VERSION,
+    SONARA_EXPECTED_VERSION,
     SONARA_FINGERPRINT_REQUESTED_FEATURES,
     SONARA_PROJECT_FEATURE_REVISION,
     SONARA_TIMELINE_REQUESTED_FEATURES,
@@ -55,9 +57,9 @@ _RISK_BREAKDOWN_KEYS = {
 def _sonara_contracts() -> SonaraContractSet:
     return build_sonara_contracts(
         SonaraRuntimeIdentity(
-            package_version="0.2.9",
+            package_version=SONARA_EXPECTED_VERSION,
             package_build_id="sha256:" + "5" * 64,
-            schema_version=4,
+            schema_version=SONARA_EXPECTED_SCHEMA_VERSION,
             mode="playlist",
             sample_rate_hz=22_050,
             bpm_min=70,

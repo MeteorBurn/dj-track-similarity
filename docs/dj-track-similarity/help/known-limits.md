@@ -30,7 +30,7 @@ prepared four-contract set. A missing or stale output is not ready for that outp
 Because v7 is a greenfield schema rather than an in-place migration target, the workflow prepares
 and activates the loaded release's four contracts before reanalyzing from a clean SONARA state. This
 full project set does not request SONARA tags or its genre model. See the
-[SONARA v0.2.9 project contract](../reference/sonara-v0-2-9-contract.md).
+[SONARA v0.3.1 project contract](../reference/sonara-v0-3-1-contract.md).
 
 ## Browser preview depends on files still existing
 

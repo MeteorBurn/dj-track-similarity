@@ -183,7 +183,11 @@ The canonical contract registry records the exact SONARA output identity as cano
 contract and release hashes. Raw analyzer provenance is validated during ingestion but is not
 promised as a round-trip stored payload.
 
-A deterministic signature is stored independently for each selected SONARA output. It covers SONARA `0.2.9`, schema `4`, playlist mode, sample rate, BPM range, output feature profile, project feature revision `6`, `decoder_backend="sonara-symphonia"`, and `execution_path="analyze_batch"`. `dj-sim prepare-sonara-release` derives all four current contracts and verifies a Core plus Artifacts backup pair. It then activates the release before reanalysis. Old and new results are never mixed.
+A deterministic signature is stored independently for each selected SONARA output. It covers SONARA `0.3.1`, schema `5`, playlist mode, sample rate, BPM range, output feature profile, project feature revision `6`, `decoder_backend="sonara-symphonia"`, and `execution_path="analyze_batch"`. `dj-sim prepare-sonara-release` derives all four current contracts and verifies a Core plus Artifacts backup pair. It then activates the release before reanalysis. Old and new results are never mixed.
+
+SONARA 0.3.1 provides an opt-in `aggression` feature, but this project does not request or store it.
+The existing `mood_aggressive_score` still comes from the separate `mood` feature and is not the
+new aggression model.
 
 The current classifier runtime accepts manifest version `2`. The promoted artifacts currently
 checked into `models/classifiers/` still use manifest version `1`, so scoring is blocked until each
@@ -340,8 +344,8 @@ The current workspace `.venv` is not synchronized with that locked ML contract: 
 `transformers==5.13.0` and `huggingface-hub==1.22.0`. Adapter preflight fails closed until the
 environment is corrected.
 
-On Windows x64, the `sonara` extra builds the pinned SONARA `v0.2.9` source distribution. Other
-platforms install the same package version from PyPI.
+SONARA `v0.3.1` publishes `cp310-abi3` wheels, including Windows x64. The `sonara` extra installs
+that pinned package version from PyPI.
 
 Run a small first pass:
 
@@ -454,7 +458,7 @@ Documentation languages: [English](docs/dj-track-similarity/project-guide.md) ·
 - [Smart Set Builder](docs/dj-track-similarity/user-guide/smart-set-builder.md)
 - [Text search](docs/dj-track-similarity/user-guide/text-search.md)
 - [Local-first safety](docs/dj-track-similarity/concepts/local-first-safety.md)
-- [SONARA v0.2.9 contract](docs/dj-track-similarity/reference/sonara-v0-2-9-contract.md)
+- [SONARA v0.3.1 contract](docs/dj-track-similarity/reference/sonara-v0-3-1-contract.md)
 - [Tools and scripts](docs/dj-track-similarity/tools-and-scripts/index.md)
 - [CLI reference](docs/dj-track-similarity/reference/cli.md)
 - [Model citations and licenses](docs/dj-track-similarity/reference/model-citations.md)

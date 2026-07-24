@@ -81,7 +81,7 @@ The mixer weights are:
 
 Tempo confidence changes the strength of this evidence, not the similarity question. The exact
 neutralization and candidate rules are in the
-[SONARA v0.2.9 project contract](../reference/sonara-v0-2-9-contract.md).
+[SONARA v0.3.1 project contract](../reference/sonara-v0-3-1-contract.md).
 
 Modifiers bias the result direction relative to the seed context: energy, valence, acousticness, brightness, rhythm density, level range, loudness, and SONARA 2.0 vocalness. A modifier value of `0` does not pull in either direction.
 

@@ -22,7 +22,7 @@ ann = [
   "hnswlib>=0.8",
 ]
 sonara = [
-  "sonara==0.2.9",
+  "sonara==0.3.1",
 ]
 ml = [
   "torch==2.11.0",

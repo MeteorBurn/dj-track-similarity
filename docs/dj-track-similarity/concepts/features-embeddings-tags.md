@@ -56,9 +56,9 @@ SONARA tempo evidence first. Below `0.45` confidence, they also inspect ranked t
 the Mutagen BPM tag. Beat-grid stability can weaken reliability, and unreliable evidence moves
 toward a neutral score rather than creating similarity.
 
-SONARA v0.2.9 `core` also stores `bpm_confidence` beside raw BPM, tempo candidates, and Camelot key.
+SONARA v0.3.1 `core` also stores `bpm_confidence` beside raw BPM, tempo candidates, and Camelot key.
 The confidence value records how strongly SONARA supports its working BPM estimate. The canonical
-contract registry records schema `4`, package/build identity, requested features, and other runtime
+contract registry records schema `5`, package/build identity, requested features, and other runtime
 parameters as canonical JSON plus hashes. Raw analyzer provenance is validated but is not promised
 as a round-trip stored payload.
 
@@ -68,7 +68,7 @@ queued without invalidating current `core` data. The React frontend has not yet 
 payloads.
 
 The exact field and scoring boundaries are in the
-[SONARA v0.2.9 project contract](../reference/sonara-v0-2-9-contract.md).
+[SONARA v0.3.1 project contract](../reference/sonara-v0-3-1-contract.md).
 
 ## MAEST labels and embedding
 

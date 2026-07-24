@@ -25,6 +25,7 @@ from dj_track_similarity.evaluation.recorded_sessions import (
 )
 from dj_track_similarity.evaluation.seed_sampling import export_seed_sample
 from dj_track_similarity.library_models import AnalysisCoverage, TrackSummary
+from dj_track_similarity.sonara_contract import SONARA_EXPECTED_VERSION
 from dj_track_similarity.track_models import TrackIdentity
 
 
@@ -446,7 +447,7 @@ def _sonara_output() -> AnalysisOutput:
             analysis_family="sonara",
             output_kind="core",
             model_name="sonara-fixture",
-            model_version="0.2.9",
+            model_version=SONARA_EXPECTED_VERSION,
             release_hash="sha256:" + "4" * 64,
             checkpoint_id="sha256:" + "5" * 64,
             preprocessing="fixture-v1",

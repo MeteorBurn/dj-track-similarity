@@ -6,6 +6,11 @@ import { pathToFileURL } from "node:url";
 import test from "node:test";
 import ts from "typescript";
 
+const libraryStateSource = readFileSync(
+  new URL("../src/useLibraryState.ts", import.meta.url),
+  "utf8"
+);
+
 async function loadLibraryLoadingModule() {
   const source = readFileSync(new URL("../src/libraryLoading.ts", import.meta.url), "utf8");
   const output = ts.transpileModule(source, {
@@ -50,46 +55,13 @@ function track(trackId, generation = 1, catalogUuid = "catalog-a") {
   };
 }
 
-test("library exposes the exact 100, 500, 1000, and all load modes", async () => {
-  const {
-    firstLibraryChunk,
-    isPagedLibraryLoadSize,
-    libraryLoadSizes,
-    libraryLoadTarget
-  } = await loadLibraryLoadingModule();
+test("library uses one fixed 500-track page per API request", async () => {
+  const { libraryPageSize } = await loadLibraryLoadingModule();
 
-  assert.deepEqual(libraryLoadSizes, [100, 500, 1000, "all"]);
-  assert.equal(isPagedLibraryLoadSize(100), true);
-  assert.equal(isPagedLibraryLoadSize(500), true);
-  assert.equal(isPagedLibraryLoadSize(1000), false);
-  assert.equal(isPagedLibraryLoadSize("all"), false);
-  assert.deepEqual(firstLibraryChunk(100), { offset: 0, limit: 100 });
-  assert.deepEqual(firstLibraryChunk(500, 500), { offset: 500, limit: 500 });
-  assert.deepEqual(firstLibraryChunk(1000), { offset: 0, limit: 500 });
-  assert.deepEqual(firstLibraryChunk("all"), { offset: 0, limit: 500 });
-  assert.equal(libraryLoadTarget(5000, 1000), 1000);
-  assert.equal(libraryLoadTarget(5000, "all"), 5000);
-});
-
-test("1000 and all use sequential chunks no larger than 500", async () => {
-  const { libraryChunkPlan } = await loadLibraryLoadingModule();
-
-  assert.deepEqual(libraryChunkPlan(1430, 1000), [
-    { offset: 0, limit: 500 },
-    { offset: 500, limit: 500 }
-  ]);
-  assert.deepEqual(libraryChunkPlan(1201, "all"), [
-    { offset: 0, limit: 500 },
-    { offset: 500, limit: 500 },
-    { offset: 1000, limit: 201 }
-  ]);
-  assert.deepEqual(libraryChunkPlan(850, 500, 500), [
-    { offset: 500, limit: 350 }
-  ]);
-  assert.equal(
-    libraryChunkPlan(5000, "all").every((chunk) => chunk.limit <= 500),
-    true
-  );
+  assert.equal(libraryPageSize, 500);
+  assert.match(libraryStateSource, /limit:\s*libraryPageSize/);
+  assert.match(libraryStateSource, /offset:\s*effectiveOffset/);
+  assert.doesNotMatch(libraryStateSource, /LibraryLoadSize|libraryChunkPlan|loadSize/);
 });
 
 test("chunk aggregation is catalog-aware and replaces only same-identity newer generations", async () => {
@@ -139,7 +111,7 @@ test("new requests abort prior work and reject stale commits", async () => {
   assert.equal(coordinator.isCurrent(second), false);
 });
 
-test("request keys include catalog, filters, scores, load mode, and paged offset", async () => {
+test("request keys include catalog, filters, scores, and page offset", async () => {
   const { libraryRequestKey } = await loadLibraryLoadingModule();
   const common = {
     databaseKey: "catalog-a",
@@ -147,8 +119,7 @@ test("request keys include catalog, filters, scores, load mode, and paged offset
     searchMode: "fts",
     preset: "syncopated",
     liked: true,
-    classifierMinScores: { voice: 0.8, energy: 0.4 },
-    loadSize: 500
+    classifierMinScores: { voice: 0.8, energy: 0.4 }
   };
 
   const firstPage = libraryRequestKey({ ...common, offset: 0 });

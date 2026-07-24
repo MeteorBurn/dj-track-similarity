@@ -171,6 +171,7 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.doesNotMatch(source, /FFmpeg decode/);
   assert.match(source, /Отдельный анализ по локальным профилям/);
   assert.match(source, /ready \{readyClassifiers\}/);
+  assert.doesNotMatch(source, /visibleClassifierBlockers|className="analysis-muted" key=\{item\.key\}/);
   assert.match(source, /selectedAnalysisModels/);
   assert.doesNotMatch(source, /Run SONARA|Run ML|Run CLASSIFIERS|Run selected pipeline/);
   assert.doesNotMatch(source, /onAnalyzeSonara|onAnalyzeMl|onAnalyzeClassifiers/);
@@ -181,9 +182,10 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.match(appSource, /function toggleAllAnalysisModels\(\)[\s\S]*?analysisSelectionOrder\.length[\s\S]*?setSelectedAnalysisModels\(\["sonara"\]\)[\s\S]*?\[\.\.\.analysisSelectionOrder\]/);
   assert.match(appSource, /useState<SonaraOutput\[]>\(\["core"\]\)/);
   assert.match(appSource, /if \(output === "core"\) return/);
-  assert.match(source, /className="sonara-core-option"[\s\S]*?<input type="checkbox" checked disabled/);
-  assert.match(source, /className="sonara-optional-options"[\s\S]*?Timeline[\s\S]*?Embedding[\s\S]*?Fingerprint/);
-  assert.match(styles, /\.sonara-optional-options\s*{[\s\S]*?grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(source, /className="sonara-output-row"[\s\S]*?className="sonara-core-option"[\s\S]*?<input type="checkbox" checked disabled[\s\S]*?Timeline[\s\S]*?Embedding[\s\S]*?Fingerprint/);
+  assert.match(styles, /\.sonara-output-row\s*{[\s\S]*?display:\s*flex[\s\S]*?flex-wrap:\s*nowrap[\s\S]*?overflow-x:\s*auto/);
+  assert.match(styles, /\.sonara-output-options input\s*{[\s\S]*?height:\s*12px[\s\S]*?min-height:\s*0[\s\S]*?width:\s*12px/);
+  assert.match(styles, /\.sonara-output-options label span\s*{[\s\S]*?display:\s*block[\s\S]*?white-space:\s*nowrap/);
   assert.match(styles, /\.analysis-model-count\s*{[\s\S]*?align-self:\s*stretch[\s\S]*?height:\s*auto[\s\S]*?min-height:\s*44px/);
   assert.doesNotMatch(source, /Active SONARA release|Prepare release|sonaraAnalysisBlockedReason/);
   assert.match(appSource, /const childJobId = currentStage \? job\.stages\[currentStage\]\?\.child_job_id : null/);
@@ -268,7 +270,9 @@ test("ui class names describe responsibility instead of visual priority", () => 
   for (const className of staleClasses) {
     assert.doesNotMatch(styles, new RegExp(`\\.${className}(?=[\\s,{:.#])`));
   }
-  assert.match(styles, /\.library-summary\s*{/);
+  assert.match(styles, /\.library-summary-badge\s*{/);
+  assert.match(styles, /\.track-panel \.panel-title \.library-summary-total-badge\s*{/);
+  assert.doesNotMatch(styles, /\.library-summary\s*{/);
   assert.match(styles, /\.track-title-cell\s*{/);
   assert.match(styles, /\.search-filter-grid\s*{/);
   assert.match(styles, /\.analysis-models-heading\s*{/);
@@ -565,33 +569,27 @@ test("topbar keeps only rhythm lab launch control", () => {
 
 test("library controls keep pagination left and actions pinned right", () => {
   const source = readFileSync(join(srcDir, "TrackPanel.tsx"), "utf8");
-  const titleActions = source.match(/<div className="panel-title-actions track-panel-actions">([\s\S]*?)<\/div>/)?.[1] || "";
-  const controls = source.match(/<div className="library-view-controls">([\s\S]*?)<\/div>/)?.[1] || "";
+  const pagination = source.match(
+    /<div className="library-pagination-controls"[\s\S]*?<\/div>/
+  )?.[0] || "";
+  const prevIndex = pagination.indexOf("library-page-previous-button");
+  const nextIndex = pagination.indexOf("library-page-next-button");
+  const inputIndex = pagination.indexOf("library-page-index-input");
 
-  const rangeIndex = controls.indexOf("library-range-status");
-  const sortIndex = controls.indexOf("library-sort-direction-button");
-  const addIndex = controls.indexOf("add-visible-tracks-button");
-  const prevIndex = controls.indexOf("library-page-previous-button");
-  const nextIndex = controls.indexOf("library-page-next-button");
-  const inputIndex = controls.indexOf("library-page-index-input");
-  const statusIndex = controls.indexOf("library-page-number-status");
-
-  assert.equal(titleActions.indexOf("library-range-status"), -1);
-  assert.equal(titleActions.indexOf("library-sort-direction-button"), -1);
-  assert.equal(titleActions.indexOf("add-visible-tracks-button"), -1);
-  assert.notEqual(rangeIndex, -1);
-  assert.notEqual(sortIndex, -1);
-  assert.notEqual(addIndex, -1);
+  assert.doesNotMatch(source, /library-load-size-(control|button)/);
   assert.notEqual(prevIndex, -1);
   assert.notEqual(nextIndex, -1);
   assert.notEqual(inputIndex, -1);
-  assert.notEqual(statusIndex, -1);
+  assert.equal((pagination.match(/<button\b/g) || []).length, 2);
+  assert.equal((pagination.match(/<input\b/g) || []).length, 1);
+  assert.match(pagination, /library-page-number-status/);
+  assert.match(pagination, /library-range-status/);
   assert.ok(prevIndex < nextIndex);
   assert.ok(nextIndex < inputIndex);
-  assert.ok(inputIndex < statusIndex);
-  assert.ok(statusIndex < rangeIndex);
-  assert.ok(rangeIndex < sortIndex);
-  assert.ok(sortIndex < addIndex);
+  assert.ok(inputIndex < pagination.indexOf("library-page-number-status"));
+  assert.ok(pagination.indexOf("library-page-number-status") < pagination.indexOf("library-range-status"));
+  assert.ok(source.indexOf("library-pagination-controls") < source.indexOf("library-sort-direction-button"));
+  assert.ok(source.indexOf("library-sort-direction-button") < source.indexOf("add-visible-tracks-button"));
 });
 
 test("library search exposes an explicit LIKE and FTS segmented toggle", () => {
@@ -624,17 +622,19 @@ test("candidate result rows expose the shared liked toggle", () => {
   const rowsSource = readFileSync(join(srcDir, "TrackRows.tsx"), "utf8");
   const searchSource = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
+  const trackListSource = rowsSource.match(/export function TrackList[\s\S]*?\n}\n\nexport function ResultRow/)?.[0] || "";
   const resultRowSource = rowsSource.match(/export function ResultRow[\s\S]*?\n}\n\nfunction scoreBreakdownTitle/)?.[0] || "";
   const resultListSource = searchSource.match(/<div className="results-list">[\s\S]*?<\/div>\s*<\/section>/)?.[0] || "";
   const searchPanelSource = appSource.match(/<SearchPlaylistPanel[\s\S]*?\/>/)?.[0] || "";
 
+  assert.ok(trackListSource.indexOf("track-liked-button") < trackListSource.indexOf("track-metadata-button"));
   assert.match(resultRowSource, /onToggleLiked/);
   assert.match(resultRowSource, /track-liked-button/);
   assert.match(resultRowSource, /aria-pressed=\{track\.liked\}/);
-  assert.ok(resultRowSource.indexOf("<meter") < resultRowSource.indexOf("result-metadata-button"));
-  assert.ok(resultRowSource.indexOf("similarity-score") < resultRowSource.indexOf("result-metadata-button"));
-  assert.ok(resultRowSource.indexOf("result-metadata-button") < resultRowSource.indexOf("track-liked-button"));
-  assert.ok(resultRowSource.indexOf("track-liked-button") < resultRowSource.indexOf("result-seed-button"));
+  assert.ok(resultRowSource.indexOf("<meter") < resultRowSource.indexOf("track-liked-button"));
+  assert.ok(resultRowSource.indexOf("similarity-score") < resultRowSource.indexOf("track-liked-button"));
+  assert.ok(resultRowSource.indexOf("track-liked-button") < resultRowSource.indexOf("result-metadata-button"));
+  assert.ok(resultRowSource.indexOf("result-metadata-button") < resultRowSource.indexOf("result-seed-button"));
   assert.match(resultListSource, /onToggleLiked=\{toggleLiked\}/);
   assert.match(searchPanelSource, /toggleLiked=\{handleToggleTrackLiked\}/);
 });
@@ -647,39 +647,42 @@ test("library search mode active state highlights the active mode text", () => {
   assert.match(activeRule, /color:\s*var\(--accent-hover\);/);
 });
 
-test("library range status shows only filtered total in the controls row", () => {
+test("library pagination exposes page count and the current track range", () => {
   const source = readFileSync(join(srcDir, "TrackPanel.tsx"), "utf8");
-  const titleActions = source.match(/<div className="panel-title-actions track-panel-actions">([\s\S]*?)<\/div>/)?.[1] || "";
-  const controls = source.match(/<div className="library-view-controls">([\s\S]*?)<\/div>/)?.[1] || "";
-  const status = source.match(/<span className="library-range-status"[^>]*>([\s\S]*?)<\/span>/)?.[1] || "";
+  const pagination = source.match(
+    /<div className="library-pagination-controls"[\s\S]*?<\/div>/
+  )?.[0] || "";
 
-  assert.equal(titleActions.indexOf("library-range-status"), -1);
-  assert.notEqual(controls.indexOf("library-range-status"), -1);
-  assert.match(status, /\$\{total\}/);
-  assert.doesNotMatch(status, /pageStart|pageEnd|-/);
+  assert.match(pagination, />Prev<\/button>/);
+  assert.match(pagination, />Next<\/button>/);
+  assert.match(pagination, /className="library-page-index-input"/);
+  assert.match(pagination, /className="library-page-number-status"/);
+  assert.match(pagination, /\$\{currentPage\} \/ \$\{pageCount\}/);
+  assert.match(pagination, /className="library-range-status"/);
+  assert.match(pagination, /\$\{rangeStart\}–\$\{rangeEnd\}/);
+  assert.doesNotMatch(pagination, /\$\{rangeEnd\} \/ \$\{total\}/);
+  assert.doesNotMatch(source, /library-load-cancel-button/);
 });
 
-test("library controls share button height and text-only counters", () => {
+test("library pagination controls share height and keep actions pinned right", () => {
   const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
   const controlsRule = styles.match(/\.library-view-controls\s*{([\s\S]*?)}/)?.[1] || "";
-  const controlRule = styles.match(/\.library-view-controls \.library-page-previous-button,[\s\S]*?\.library-view-controls \.library-page-next-button\s*{([\s\S]*?)}/)?.[1] || "";
+  const paginationRule = styles.match(/\.library-pagination-controls\s*{([\s\S]*?)}/)?.[1] || "";
+  const controlRule = styles.match(/\.library-pagination-controls \.library-page-previous-button,[\s\S]*?\.library-pagination-controls \.library-page-next-button\s*{([\s\S]*?)}/)?.[1] || "";
   const inputRule = styles.match(/\.library-page-index-input\s*{([\s\S]*?)}/)?.[1] || "";
-  const pageRule = styles.match(/\.library-page-number-status\s*{([\s\S]*?)}/)?.[1] || "";
-  const rangeRule = styles.match(/\.library-range-status\s*{([\s\S]*?)}/)?.[1] || "";
+  const statusRule = styles.match(/\.library-page-number-status,\s*\.library-range-status\s*{([\s\S]*?)}/)?.[1] || "";
+  const sortRule = styles.match(/\.library-sort-direction-button\s*{([\s\S]*?)}/)?.[1] || "";
 
   assert.match(controlsRule, /gap:\s*6px/);
+  assert.match(paginationRule, /display:\s*inline-flex/);
+  assert.match(paginationRule, /gap:\s*6px/);
   assert.match(controlRule, /height:\s*34px/);
   assert.match(inputRule, /align-self:\s*start/);
   assert.match(inputRule, /height:\s*34px/);
-  assert.match(pageRule, /align-self:\s*start/);
-  assert.match(pageRule, /height:\s*34px/);
-  assert.match(rangeRule, /margin-left:\s*auto/);
-  assert.match(rangeRule, /height:\s*34px/);
-  assert.match(rangeRule, /color:\s*var\(--text-track\)/);
-  assert.doesNotMatch(pageRule, /min-width:\s*52px/);
-  assert.doesNotMatch(rangeRule, /border:/);
-  assert.doesNotMatch(rangeRule, /font-weight:/);
-  assert.doesNotMatch(rangeRule, /font-size:/);
+  assert.match(statusRule, /height:\s*34px/);
+  assert.match(statusRule, /font-variant-numeric:\s*tabular-nums/);
+  assert.match(sortRule, /margin-left:\s*auto/);
+  assert.doesNotMatch(styles, /\.library-(load-size|load-cancel)/);
 });
 
 test("library panel scrolls its own controls inside the fixed desktop workspace", () => {

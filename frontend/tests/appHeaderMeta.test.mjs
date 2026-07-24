@@ -4,22 +4,27 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const appPath = fileURLToPath(new URL("../src/App.tsx", import.meta.url));
+const trackPanelPath = fileURLToPath(new URL("../src/TrackPanel.tsx", import.meta.url));
 
-test("top header meta renders only total track count as a badge", () => {
-  const source = readFileSync(appPath, "utf8");
-  const summaryBlock = source.match(/<div className="library-summary"[^>]*>([\s\S]*?)<\/div>/)?.[1] || "";
+test("library panel title renders the total track count badge at its right edge", () => {
+  const appSource = readFileSync(appPath, "utf8");
+  const trackPanelSource = readFileSync(trackPanelPath, "utf8");
+  const styles = readFileSync(fileURLToPath(new URL("../src/styles.css", import.meta.url)), "utf8");
+  const titleBlock = trackPanelSource.match(
+    /<div className="panel-title">([\s\S]*?)<\/div>/
+  )?.[1] || "";
+  const titleBadgeRule = styles.match(
+    /\.track-panel \.panel-title \.library-summary-total-badge\s*{([\s\S]*?)}/
+  )?.[1] || "";
 
-  assert.match(summaryBlock, /librarySummary\.tracks/);
-  assert.equal((summaryBlock.match(/className="library-summary-badge/g) || []).length, 1);
-  assert.match(summaryBlock, /<span>tracks<\/span>/);
-  assert.match(summaryBlock, /<strong>\{librarySummary\.tracks\}<\/strong>/);
-  assert.doesNotMatch(summaryBlock, /librarySummary\.sonara/);
-  assert.doesNotMatch(summaryBlock, /librarySummary\.maest/);
-  assert.doesNotMatch(summaryBlock, /librarySummary\.mert/);
-  assert.doesNotMatch(summaryBlock, /librarySummary\.clap/);
-  assert.doesNotMatch(summaryBlock, /librarySummary\.classifiers/);
-  assert.doesNotMatch(summaryBlock, /librarySummary\.liked/);
-  assert.doesNotMatch(summaryBlock, /\|\s*liked/);
+  assert.doesNotMatch(appSource, /className="library-summary"/);
+  assert.match(appSource, /libraryTotalTracks=\{librarySummary\.tracks\}/);
+  assert.equal((titleBlock.match(/className="library-summary-badge library-summary-total-badge"/g) || []).length, 1);
+  assert.match(titleBlock, /<span>tracks<\/span>/);
+  assert.match(titleBlock, /<strong>\{libraryTotalTracks\}<\/strong>/);
+  assert.ok(titleBlock.indexOf("Библиотека и прослушивание") < titleBlock.indexOf("library-summary-total-badge"));
+  assert.match(titleBadgeRule, /margin-left:\s*auto/);
+  assert.match(titleBadgeRule, /flex:\s*0 0 auto/);
 });
 
 test("analysis model rows render summary counts near each model", () => {

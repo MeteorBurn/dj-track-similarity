@@ -91,9 +91,7 @@ export function App() {
     libraryTotal,
     libraryOffset,
     libraryLoading,
-    libraryProgress,
     libraryError,
-    libraryLoadSize,
     librarySummary,
     query,
     setQuery,
@@ -112,10 +110,8 @@ export function App() {
     refreshLibrary,
     refreshLibrarySummary,
     resetLibraryState,
-    cancelLibraryLoad,
     changeLibraryPage,
     jumpToLibraryPage,
-    setLibraryLoadSize,
     toggleLibraryPreset,
     toggleLikedOnly,
     toggleLibrarySortDirection,
@@ -318,7 +314,6 @@ export function App() {
     libraryPreset,
     likedOnly,
     classifierMinScores,
-    libraryLoadSize,
     databasePath,
     databaseCatalogUuid
   ]);
@@ -1377,9 +1372,6 @@ export function App() {
               DJ Track Similarity
             </a>
           </h1>
-          <div className="library-summary" aria-label="Library analysis summary">
-            <span className="library-summary-badge library-summary-total-badge"><span>tracks</span><strong>{librarySummary.tracks}</strong></span>
-          </div>
         </div>
         <div className="topbar-actions">
           <button
@@ -1530,16 +1522,11 @@ export function App() {
           onToggleLikedOnly={toggleLikedOnly}
           librarySortDirection={librarySortDirection}
           onToggleLibrarySortDirection={toggleLibrarySortDirection}
-          loadSize={libraryLoadSize}
-          onLoadSizeChange={setLibraryLoadSize}
-          loadProgress={libraryProgress}
           loadError={libraryError}
-          onCancelLoading={() => {
-            cancelLibraryLoad();
-          }}
           preview={preview}
           playingTrackId={playingTrackId}
           tracks={orderedTracks}
+          libraryTotalTracks={librarySummary.tracks}
           total={libraryTotal}
           offset={libraryOffset}
           loading={libraryLoading}

@@ -1,8 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
 import { Heart, Minus, Pause, Play, Plus, Search, Tags } from "lucide-react";
 import type { Track } from "./api";
 import { libraryTrackIdentityKey } from "./libraryLoading";
-import { shiftLibraryWindow, visibleLibraryWindow } from "./libraryWindow";
 import { displayTrack } from "./trackDisplay";
 
 type TrackActions = {
@@ -29,52 +27,9 @@ export function TrackList({
   seedSet: Set<number>;
   playlistSet: Set<number>;
 }) {
-  const [windowStart, setWindowStart] = useState(0);
-  const collectionKey = tracks.length
-    ? `${libraryTrackIdentityKey(tracks[0])}:${libraryTrackIdentityKey(tracks[tracks.length - 1])}:${tracks.length}`
-    : "empty";
-  const visibleWindow = useMemo(
-    () => visibleLibraryWindow(tracks, windowStart),
-    [tracks, windowStart]
-  );
-
-  useEffect(() => {
-    setWindowStart(0);
-  }, [collectionKey]);
-
   return (
-    <>
-      {tracks.length > visibleWindow.items.length ? (
-        <div className="track-window-controls" role="group" aria-label="Окно строк библиотеки">
-          <button
-            className="track-window-previous-button"
-            type="button"
-            title="Показать предыдущие строки из загруженного набора"
-            disabled={!visibleWindow.hasPrevious}
-            onClick={() => setWindowStart(
-              shiftLibraryWindow(tracks.length, visibleWindow.start, -1).start
-            )}
-          >
-            Предыдущие строки
-          </button>
-          <span className="track-window-status" aria-live="polite">
-            {visibleWindow.start + 1}–{visibleWindow.end} / {tracks.length}
-          </span>
-          <button
-            className="track-window-next-button"
-            type="button"
-            title="Показать следующие строки из загруженного набора"
-            disabled={!visibleWindow.hasNext}
-            onClick={() => setWindowStart(
-              shiftLibraryWindow(tracks.length, visibleWindow.start, 1).start
-            )}
-          >
-            Следующие строки
-          </button>
-        </div>
-      ) : null}
-      <div className="track-list">
-      {visibleWindow.items.map((track) => {
+    <div className="track-list">
+      {tracks.map((track) => {
         const trackPreviewActive = playingTrackId === track.track_id;
         return (
           <div className="track-row" key={libraryTrackIdentityKey(track)}>
@@ -84,7 +39,6 @@ export function TrackList({
             <div className="track-title-cell">
               <strong>{displayTrack(track)}</strong>
             </div>
-            <button className="icon-button track-metadata-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={() => onDetails(track)} type="button"><Tags size={15} /></button>
             {onToggleLiked && (
               <button
                 className={`icon-button track-liked-button ${track.liked ? "active intent-liked" : ""}`}
@@ -97,6 +51,7 @@ export function TrackList({
                 <Heart size={15} fill={track.liked ? "currentColor" : "none"} />
               </button>
             )}
+            <button className="icon-button track-metadata-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={() => onDetails(track)} type="button"><Tags size={15} /></button>
             <button className={`icon-button track-seed-button ${seedSet.has(track.track_id) ? "active" : ""}`} title="Seed" aria-label={`Seed ${displayTrack(track)}`} onClick={() => onSeed(track)} type="button"><Search size={15} /></button>
             <button
               className={`icon-button track-playlist-toggle-button ${playlistSet.has(track.track_id) ? "intent-remove active" : "intent-add"}`}
@@ -110,8 +65,7 @@ export function TrackList({
           </div>
         );
       })}
-      </div>
-    </>
+    </div>
   );
 }
 
@@ -182,7 +136,6 @@ export function ResultRow({
       </div>
       <meter min={0} max={1} value={Math.max(0, Math.min(1, score))} title={breakdownTitle} />
       <span className="similarity-score" title={breakdownTitle}>{score.toFixed(3)}</span>
-      <button className="icon-button result-metadata-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={(event) => { event.stopPropagation(); onDetails(track); }} type="button"><Tags size={15} /></button>
       {onToggleLiked && (
         <button
           className={`icon-button track-liked-button ${track.liked ? "active intent-liked" : ""}`}
@@ -195,6 +148,7 @@ export function ResultRow({
           <Heart size={15} fill={track.liked ? "currentColor" : "none"} />
         </button>
       )}
+      <button className="icon-button result-metadata-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={(event) => { event.stopPropagation(); onDetails(track); }} type="button"><Tags size={15} /></button>
       <button className={`icon-button result-seed-button ${isSeed ? "active" : ""}`} title="Seed" aria-label={`Seed ${displayTrack(track)}`} onClick={(event) => { event.stopPropagation(); onSeed(track); }} type="button"><Search size={15} /></button>
       <button
         className={`icon-button result-playlist-toggle-button ${inPlaylist ? "intent-remove active" : "intent-add"}`}

@@ -56,6 +56,41 @@ test("desktop workspace keeps library track and search panels equal width", () =
   assert.doesNotMatch(resultsRule, /max-height:\s*160px/);
 });
 
+test("set and export is a closed disclosure with 20-track pagination", () => {
+  const disclosure = panelSource.match(
+    /<details[\s\S]*?className="playlist-export-disclosure"[\s\S]*?<\/details>/
+  )?.[0] || "";
+  const openingTag = disclosure.match(/^<details[^>]*>/)?.[0] || "";
+  const summary = disclosure.match(
+    /<summary className="playlist-export-summary"[\s\S]*?<\/summary>/
+  )?.[0] || "";
+  const disclosureRule = cssRule(".playlist-export-disclosure");
+  const listRule = cssRule(".playlist-export-section .playlist-list");
+  const pageControlsRule = cssRule(".playlist-page-controls");
+
+  assert.doesNotMatch(openingTag, /\sopen(?:=|\s|>)/);
+  assert.match(panelSource, /const \[playlistExportOpen, setPlaylistExportOpen\] = useState\(false\)/);
+  assert.match(panelSource, /const playlistPageSize = 20/);
+  assert.match(openingTag, /onToggle=\{\(event\) =>/);
+  assert.match(disclosure, /setPlaylistExportOpen\(event\.currentTarget\.open\)/);
+  assert.match(summary, /Сет и экспорт/);
+  assert.match(summary, /panel-counter">\{playlist\.length\}/);
+  assert.ok(disclosure.indexOf("playlist-export-summary") < disclosure.indexOf("playlist-export-section"));
+  assert.match(disclosure, /\{playlistExportOpen \? \(/);
+  assert.match(disclosure, /playlistPageState\.items\.map\(\(track, index\)/);
+  assert.match(disclosure, /playlistPageState\.pageStart\}–\{playlistPageState\.pageEnd\} из \{playlistPageState\.total\}/);
+  assert.match(disclosure, /playlist-page-previous-button/);
+  assert.match(disclosure, /playlist-page-next-button/);
+  assert.doesNotMatch(panelSource, /playlistWindowStart|playlistVirtualHeight|playlist-list-virtualized/);
+  assert.match(disclosureRule, /flex:\s*0 0 auto/);
+  assert.match(listRule, /max-height:\s*min\(360px,\s*34vh\)/);
+  assert.match(listRule, /overflow-y:\s*auto/);
+  assert.match(listRule, /scrollbar-gutter:\s*stable/);
+  assert.match(pageControlsRule, /display:\s*flex/);
+  assert.match(styles, /\.playlist-export-summary-toggle::before\s*{[\s\S]*?content:\s*"Развернуть"/);
+  assert.match(styles, /\.playlist-export-disclosure\[open\] \.playlist-export-summary-toggle::before\s*{[\s\S]*?content:\s*"Свернуть"/);
+});
+
 test("candidate result rows reserve stable columns for all icon actions", () => {
   const resultRowRule = cssRule(".result-row");
   const resultMeterRule = cssRule(".result-row meter");
@@ -83,6 +118,26 @@ test("nested SET tabs are independently labelled and switching only updates tab 
   assert.match(panelSource, /id="set-workflow-panel-hybrid"[\s\S]*aria-labelledby="set-workflow-tab-hybrid"/);
   assert.match(panelSource, /onClick=\{\(\) => setActiveSetWorkflowTab\(tab\)\}/);
   assert.doesNotMatch(panelSource, /onClick=\{\(\) => \{[\s\S]*setActiveSetWorkflowTab\(tab\)[\s\S]*api\./);
+});
+
+test("SET source controls share the compact application checkbox and field treatment", () => {
+  const hiddenCheckboxRule = cssRule('.set-check-toggle input[type="checkbox"]');
+  const checkboxRule = cssRule(".set-control-checkbox");
+
+  assert.match(panelSource, /set-check-toggle set-custom-weights-toggle/);
+  assert.match(panelSource, /set-check-toggle hybrid-custom-weights-toggle/);
+  assert.match(panelSource, /set-check-toggle set-source-toggle/);
+  assert.match(panelSource, /set-check-toggle hybrid-source-toggle/);
+  assert.ok((panelSource.match(/className="set-control-checkbox"/g) || []).length >= 6);
+  assert.match(panelSource, /set-weight-control/);
+  assert.match(panelSource, /hybrid-weight-control/);
+  assert.match(hiddenCheckboxRule, /opacity:\s*0/);
+  assert.match(hiddenCheckboxRule, /min-height:\s*0/);
+  assert.match(hiddenCheckboxRule, /position:\s*absolute/);
+  assert.match(checkboxRule, /height:\s*15px/);
+  assert.match(checkboxRule, /width:\s*15px/);
+  assert.match(styles, /\.set-custom-weights-toggle\.active,\s*\.hybrid-custom-weights-toggle\.active\s*\{/);
+  assert.match(styles, /\.hybrid-source-row \.hybrid-source-toggle\.active\s*\{/);
 });
 
 test("narrow layout stacks SET and Hybrid source controls into one column", () => {

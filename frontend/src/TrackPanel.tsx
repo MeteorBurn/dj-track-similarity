@@ -1,13 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowDownUp, AudioWaveform, Heart, ListMusic, Plus, Search, X } from "lucide-react";
+import { ArrowDownUp, AudioWaveform, Heart, ListMusic, Plus, Search } from "lucide-react";
 import type { Track } from "./api";
-import {
-  isPagedLibraryLoadSize,
-  libraryLoadSizes,
-  libraryPageSizeForLoadSize,
-  type LibraryLoadProgress,
-  type LibraryLoadSize
-} from "./libraryLoading";
+import { libraryPageSize } from "./libraryLoading";
 import {
   likedTracksFilterTitle,
   libraryCurrentPageNumber,
@@ -33,14 +27,11 @@ export function TrackPanel({
   onToggleLikedOnly,
   librarySortDirection,
   onToggleLibrarySortDirection,
-  loadSize,
-  onLoadSizeChange,
-  loadProgress,
   loadError,
-  onCancelLoading,
   preview,
   playingTrackId,
   tracks,
+  libraryTotalTracks,
   total,
   offset,
   loading,
@@ -74,14 +65,11 @@ export function TrackPanel({
   onToggleLikedOnly: () => void;
   librarySortDirection: LibrarySortDirection;
   onToggleLibrarySortDirection: () => void;
-  loadSize: LibraryLoadSize;
-  onLoadSizeChange: (loadSize: LibraryLoadSize) => void;
-  loadProgress: LibraryLoadProgress | null;
   loadError: string | null;
-  onCancelLoading: () => void;
   preview: Track | null;
   playingTrackId: number | null;
   tracks: Track[];
+  libraryTotalTracks: number;
   total: number;
   offset: number;
   loading: boolean;
@@ -103,12 +91,8 @@ export function TrackPanel({
   onPreviewPaused: (trackId: number) => void;
   onDetails: (track: Track) => void;
 }) {
-  const pageSize = libraryPageSizeForLoadSize(loadSize);
-  const paged = isPagedLibraryLoadSize(loadSize);
-  const pageCount = pageSize == null ? 0 : libraryPageCount(total, pageSize);
-  const currentPage = pageSize == null
-    ? 0
-    : libraryCurrentPageNumber(total, offset, pageSize);
+  const pageCount = libraryPageCount(total, libraryPageSize);
+  const currentPage = libraryCurrentPageNumber(total, offset, libraryPageSize);
   const syncedPageInput = currentPage ? String(currentPage) : "";
   const [pageInput, setPageInput] = useState(syncedPageInput);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -117,7 +101,7 @@ export function TrackPanel({
     : "Добавить все отфильтрованные треки в сет. Уже добавленные треки будут пропущены.";
   const reverseSortActive = librarySortDirection === "reverse";
   const rangeStart = tracks.length ? offset + 1 : 0;
-  const rangeEnd = paged ? Math.min(total, offset + tracks.length) : tracks.length;
+  const rangeEnd = tracks.length ? Math.min(total, offset + tracks.length) : 0;
 
   useEffect(() => {
     setPageInput(syncedPageInput);
@@ -149,6 +133,14 @@ export function TrackPanel({
       <div className="panel-title">
         <ListMusic size={18} />
         <h2>2. Библиотека и прослушивание</h2>
+        <span
+          className="library-summary-badge library-summary-total-badge"
+          title="Общее количество треков в библиотеке"
+          aria-label={`Общее количество треков в библиотеке: ${libraryTotalTracks}`}
+        >
+          <span>tracks</span>
+          <strong>{libraryTotalTracks}</strong>
+        </span>
       </div>
       <div className="search-input">
         <Search size={16} />
@@ -184,22 +176,6 @@ export function TrackPanel({
           </button>
         </div>
       </div>
-      <div className="library-load-size-control" role="group" aria-label="Количество загружаемых треков">
-        <span>Загрузить</span>
-        {libraryLoadSizes.map((size) => (
-          <button
-            className={`library-load-size-button ${loadSize === size ? "active" : ""}`}
-            key={size}
-            type="button"
-            title={`Загрузить ${size === "all" ? "все треки" : `${size} треков`}`}
-            aria-pressed={loadSize === size}
-            disabled={!databaseSelected}
-            onClick={() => onLoadSizeChange(size)}
-          >
-            {size === "all" ? "Все" : size}
-          </button>
-        ))}
-      </div>
       <div className="library-view-controls">
         <button
           className={`icon-button library-preset-button ${libraryPreset === "syncopated" ? "active" : ""}`}
@@ -223,52 +199,43 @@ export function TrackPanel({
         >
           <Heart size={16} />
         </button>
-        {paged ? (
-          <>
-            <button className="library-page-previous-button" title="Предыдущая страница библиотеки" disabled={!canGoBack} onClick={onPreviousPage} type="button">Prev</button>
-            <button className="library-page-next-button" title="Следующая страница библиотеки" disabled={!canGoForward} onClick={onNextPage} type="button">Next</button>
-            <input
-              className="library-page-index-input"
-              type="number"
-              min={1}
-              max={Math.max(1, pageCount)}
-              value={pageInput}
-              placeholder="0"
-              title="Перейти к странице библиотеки. Введите номер страницы и нажмите Enter или уберите фокус."
-              aria-label="Номер страницы библиотеки"
-              disabled={loading || pageCount === 0}
-              onBlur={submitPageInput}
-              onChange={(event) => setPageInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  submitPageInput();
-                }
-              }}
-            />
-            <span className="library-page-number-status" title="Текущая страница / всего страниц">
-              {loading ? "..." : `${currentPage} / ${pageCount}`}
-            </span>
-          </>
-        ) : null}
-        <span className="library-range-status" title="Диапазон загруженных треков">
-          {loading && loadProgress
-            ? `Загружено ${loadProgress.loaded} из ${loadProgress.total || "…"}`
-            : loadProgress?.cancelled
-              ? `Остановлено ${loadProgress.loaded} из ${loadProgress.total}`
-              : `${rangeStart}–${rangeEnd} / ${total}`}
-        </span>
-        {loading ? (
-          <button
-            className="icon-button library-load-cancel-button"
-            title="Отменить загрузку библиотеки"
-            aria-label="Отменить загрузку библиотеки"
-            onClick={onCancelLoading}
-            type="button"
+        <div className="library-pagination-controls" role="group" aria-label="Пагинация библиотеки">
+          <button className="library-page-previous-button" title="Предыдущая страница библиотеки" disabled={!canGoBack} onClick={onPreviousPage} type="button">Prev</button>
+          <button className="library-page-next-button" title="Следующая страница библиотеки" disabled={!canGoForward} onClick={onNextPage} type="button">Next</button>
+          <input
+            className="library-page-index-input"
+            type="number"
+            min={1}
+            max={Math.max(1, pageCount)}
+            value={pageInput}
+            placeholder="0"
+            title={`Перейти к странице библиотеки от 1 до ${Math.max(1, pageCount)}. Введите номер и нажмите Enter или уберите фокус.`}
+            aria-label={`Номер страницы библиотеки, всего страниц: ${pageCount}`}
+            disabled={loading || pageCount === 0}
+            onBlur={submitPageInput}
+            onChange={(event) => setPageInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                submitPageInput();
+              }
+            }}
+          />
+          <span
+            className="library-page-number-status"
+            title="Текущая страница / всего страниц"
+            aria-live="polite"
           >
-            <X size={16} />
-          </button>
-        ) : null}
+            {loading ? "..." : `${currentPage} / ${pageCount}`}
+          </span>
+          <span
+            className="library-range-status"
+            title="Диапазон треков на текущей странице"
+            aria-live="polite"
+          >
+            {loading ? "..." : `${rangeStart}–${rangeEnd}`}
+          </span>
+        </div>
         <button
           className={`icon-button library-sort-direction-button ${reverseSortActive ? "active" : ""}`}
           title={reverseSortActive ? "Показать загруженные треки в прямом порядке" : "Показать загруженные треки в обратном порядке"}

@@ -10,17 +10,11 @@ import {
 import { api, type LibrarySummary, type Track } from "./api";
 import {
   createLibraryLoadCoordinator,
-  firstLibraryChunk,
-  isPagedLibraryLoadSize,
-  libraryChunkPlan,
-  libraryLoadTarget,
-  libraryPageSizeForLoadSize,
+  libraryPageSize,
   libraryRequestKey,
   libraryTrackIdentityKey,
   libraryTracksBelongToCatalog,
-  mergeLibraryTracks,
-  type LibraryLoadProgress,
-  type LibraryLoadSize
+  mergeLibraryTracks
 } from "./libraryLoading";
 import {
   libraryCurrentPageNumber,
@@ -46,7 +40,6 @@ export const emptyLibrarySummary: LibrarySummary = {
 
 type RefreshLibraryOptions = {
   databaseKey?: string | null;
-  loadSize?: LibraryLoadSize;
   refreshSummary?: boolean;
   selected?: boolean;
 };
@@ -70,7 +63,6 @@ export function useLibraryState({
   const [libraryTotal, setLibraryTotal] = useState(0);
   const [libraryOffset, setLibraryOffset] = useState(0);
   const [libraryLoading, setLibraryLoading] = useState(false);
-  const [libraryProgress, setLibraryProgress] = useState<LibraryLoadProgress | null>(null);
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [librarySummary, setLibrarySummary] = useState<LibrarySummary>(emptyLibrarySummary);
   const [queryState, setQueryState] = useState("");
@@ -79,7 +71,6 @@ export function useLibraryState({
   const [librarySortDirection, setLibrarySortDirection] = useState<LibrarySortDirection>("forward");
   const [likedOnly, setLikedOnly] = useState(false);
   const [classifierMinScoresState, setClassifierMinScoresState] = useState<Record<string, number>>({});
-  const [libraryLoadSize, setLibraryLoadSizeState] = useState<LibraryLoadSize>(100);
   const coordinatorRef = useRef(createLibraryLoadCoordinator());
   const summaryRequestIdRef = useRef(0);
   const databaseKeyRef = useRef(databaseKey);
@@ -91,17 +82,14 @@ export function useLibraryState({
     [tracks, librarySortDirection]
   );
   const hasTracks = librarySummary.tracks > 0;
-  const pageSize = libraryPageSizeForLoadSize(libraryLoadSize);
-  const canGoBack = pageSize != null && libraryOffset > 0 && !libraryLoading;
-  const canGoForward = pageSize != null
-    && libraryOffset + pageSize < libraryTotal
+  const canGoBack = libraryOffset > 0 && !libraryLoading;
+  const canGoForward = libraryOffset + libraryPageSize < libraryTotal
     && !libraryLoading;
 
   const cancelLibraryLoad = useCallback(() => {
     const cancelled = coordinatorRef.current.cancel();
     if (!cancelled) return false;
     setLibraryLoading(false);
-    setLibraryProgress((current) => current ? { ...current, cancelled: true } : current);
     return true;
   }, []);
 
@@ -114,7 +102,6 @@ export function useLibraryState({
     setTracks([]);
     setLibraryTotal(0);
     setLibraryOffset(0);
-    setLibraryProgress(null);
     setLibraryError(null);
   }
 
@@ -140,7 +127,6 @@ export function useLibraryState({
     setLibraryTotal(0);
     setLibraryOffset(0);
     setLibraryLoading(false);
-    setLibraryProgress(null);
     setLibraryError(null);
     setLibrarySummary(emptyLibrarySummary);
   }, [databaseKey, databaseSelected]);
@@ -172,15 +158,12 @@ export function useLibraryState({
   ) {
     const selected = options.selected ?? databaseSelected;
     const requestDatabaseKey = options.databaseKey ?? databaseKey;
-    const requestLoadSize = options.loadSize ?? libraryLoadSize;
     if (!selected || !requestDatabaseKey) {
       resetLibraryState();
       return;
     }
 
-    const effectiveOffset = isPagedLibraryLoadSize(requestLoadSize)
-      ? Math.max(0, Math.trunc(nextOffset))
-      : 0;
+    const effectiveOffset = Math.max(0, Math.trunc(nextOffset));
     const classifierMinScores = activeClassifierMinScores(classifierMinScoresState);
     const requestKey = libraryRequestKey({
       databaseKey: requestDatabaseKey,
@@ -189,7 +172,6 @@ export function useLibraryState({
       preset: libraryPreset,
       liked: likedOnly,
       classifierMinScores,
-      loadSize: requestLoadSize,
       offset: effectiveOffset
     });
     const ticket = coordinatorRef.current.start(requestKey);
@@ -197,13 +179,11 @@ export function useLibraryState({
       coordinatorRef.current.isCurrent(ticket)
       && databaseKeyRef.current === requestDatabaseKey
     );
-    const firstChunk = firstLibraryChunk(requestLoadSize, effectiveOffset);
     setTracks([]);
     setLibraryTotal(0);
     setLibraryOffset(effectiveOffset);
     setLibraryLoading(true);
     setLibraryError(null);
-    setLibraryProgress({ loaded: 0, total: 0, target: 0, cancelled: false });
 
     const summaryPromise = options.refreshSummary
       ? refreshLibrarySummary(selected, requestDatabaseKey).catch((error: unknown) => {
@@ -221,8 +201,8 @@ export function useLibraryState({
         preset: libraryPreset,
         liked: likedOnly,
         classifierMinScores,
-        limit: firstChunk.limit,
-        offset: firstChunk.offset,
+        limit: libraryPageSize,
+        offset: effectiveOffset,
         signal: ticket.signal
       });
       if (!requestIsCurrent()) return;
@@ -230,48 +210,9 @@ export function useLibraryState({
         throw new Error("Library response catalog identity does not match the selected database.");
       }
 
-      let loadedTracks = mergeLibraryTracks([], firstPage.items);
-      const target = libraryLoadTarget(firstPage.total, requestLoadSize, firstPage.offset);
-      setTracks(loadedTracks);
+      setTracks(mergeLibraryTracks([], firstPage.items));
       setLibraryTotal(firstPage.total);
-      setLibraryOffset(isPagedLibraryLoadSize(requestLoadSize) ? firstPage.offset : 0);
-      setLibraryProgress({
-        loaded: loadedTracks.length,
-        total: firstPage.total,
-        target,
-        cancelled: false
-      });
-
-      const remainingChunks = libraryChunkPlan(
-        firstPage.total,
-        requestLoadSize,
-        firstPage.offset
-      ).slice(1);
-      for (const chunk of remainingChunks) {
-        const page = await api.tracks({
-          query: queryState,
-          searchMode: searchModeState,
-          preset: libraryPreset,
-          liked: likedOnly,
-          classifierMinScores,
-          limit: chunk.limit,
-          offset: chunk.offset,
-          signal: ticket.signal
-        });
-        if (!requestIsCurrent()) return;
-        if (!libraryTracksBelongToCatalog(page.items, requestDatabaseKey)) {
-          throw new Error("Library response catalog identity does not match the selected database.");
-        }
-        loadedTracks = mergeLibraryTracks(loadedTracks, page.items);
-        setTracks(loadedTracks);
-        setLibraryProgress({
-          loaded: loadedTracks.length,
-          total: firstPage.total,
-          target,
-          cancelled: false
-        });
-        if (page.items.length < chunk.limit) break;
-      }
+      setLibraryOffset(firstPage.offset);
       await summaryPromise;
     } catch (error) {
       if (requestIsCurrent() && !isAbortError(error)) {
@@ -292,33 +233,23 @@ export function useLibraryState({
     setLibraryTotal(0);
     setLibraryOffset(0);
     setLibraryLoading(false);
-    setLibraryProgress(null);
     setLibraryError(null);
     setLibrarySummary(emptyLibrarySummary);
   }
 
   function changeLibraryPage(delta: number) {
-    if (pageSize == null) return;
-    const currentPage = libraryCurrentPageNumber(libraryTotal, libraryOffset, pageSize);
+    const currentPage = libraryCurrentPageNumber(libraryTotal, libraryOffset, libraryPageSize);
     const nextOffset = libraryPageOffsetForNumber(
       currentPage + delta,
       libraryTotal,
-      pageSize
+      libraryPageSize
     );
     void refreshLibrary(nextOffset);
   }
 
   function jumpToLibraryPage(pageNumber: number) {
-    if (pageSize == null) return;
-    const nextOffset = libraryPageOffsetForNumber(pageNumber, libraryTotal, pageSize);
+    const nextOffset = libraryPageOffsetForNumber(pageNumber, libraryTotal, libraryPageSize);
     void refreshLibrary(nextOffset);
-  }
-
-  function setLibraryLoadSize(loadSize: LibraryLoadSize) {
-    if (loadSize === libraryLoadSize) return;
-    cancelLibraryLoad();
-    clearVisibleLibraryResult();
-    setLibraryLoadSizeState(loadSize);
   }
 
   function toggleLibraryPreset(preset: LibraryPreset) {
@@ -378,9 +309,7 @@ export function useLibraryState({
     libraryOffset,
     setLibraryOffset,
     libraryLoading,
-    libraryProgress,
     libraryError,
-    libraryLoadSize,
     librarySummary,
     setLibrarySummary,
     query: queryState,
@@ -401,10 +330,8 @@ export function useLibraryState({
     refreshLibrary,
     refreshLibrarySummary,
     resetLibraryState,
-    cancelLibraryLoad,
     changeLibraryPage,
     jumpToLibraryPage,
-    setLibraryLoadSize,
     toggleLibraryPreset,
     toggleLikedOnly,
     toggleLibrarySortDirection,

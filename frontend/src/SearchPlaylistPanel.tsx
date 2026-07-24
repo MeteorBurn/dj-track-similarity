@@ -31,7 +31,7 @@ import { resetSetBuilderSliders, setBuilderDefaultDiversity, setBuilderDefaultFl
 import { ResultRow } from "./TrackRows";
 import { displayTrack } from "./trackDisplay";
 
-const playlistPageSize = 200;
+const playlistPageSize = 20;
 
 export type SearchFiltersState = {
   minSimilarity: number;
@@ -442,6 +442,7 @@ export function SearchPlaylistPanel({
   const [activeSearchTab, setActiveSearchTab] = useState<PrimarySearchTab>("sonara");
   const [activeSetWorkflowTab, setActiveSetWorkflowTab] = useState<SetWorkflowTab>("builder");
   const [setAdvancedControlsOpen, setSetAdvancedControlsOpen] = useState(false);
+  const [playlistExportOpen, setPlaylistExportOpen] = useState(false);
   const [playlistOffset, setPlaylistOffset] = useState(0);
   const [setSeedMode, setSetSeedMode] = useState<SetBuilderSeedMode>("manual");
   const [setBuilderMode, setSetBuilderMode] = useState<SetBuilderMode>("balanced_set");
@@ -1095,18 +1096,20 @@ export function SearchPlaylistPanel({
                         Backend defaults
                       </button>
                     </div>
-                    <label className="toggle set-custom-weights-toggle" title="When off, SET sends weights null so backend raw defaults remain authoritative.">
+                    <label className={`toggle set-check-toggle set-custom-weights-toggle${setUseCustomWeights ? " active" : ""}`} title="When off, SET sends weights null so backend raw defaults remain authoritative.">
                       <input type="checkbox" checked={setUseCustomWeights} onChange={(event) => setSetUseCustomWeights(event.target.checked)} />
-                      Custom raw weights
+                      <span className="set-control-checkbox" aria-hidden="true" />
+                      <span>Custom raw weights</span>
                     </label>
                     <div className="set-source-grid">
                       {setSourceOptions.map((source) => (
-                        <div className="set-source-row" key={source.key}>
-                          <label className="toggle set-source-toggle" title={source.title}>
+                        <div className={`set-source-row${setSources[source.key] ? " enabled" : ""}`} key={source.key}>
+                          <label className={`toggle set-check-toggle set-source-toggle${setSources[source.key] ? " active" : ""}`} title={source.title}>
                             <input type="checkbox" checked={setSources[source.key]} onChange={(event) => setSetSourceEnabled(source.key, event.target.checked)} />
-                            {source.label}
+                            <span className="set-control-checkbox" aria-hidden="true" />
+                            <span>{source.label}</span>
                           </label>
-                          <label className={setSources[source.key] && setUseCustomWeights ? "" : "disabled-filter"} title="Raw source weight; backend normalizes enabled evidence.">
+                          <label className={`set-weight-control${setSources[source.key] && setUseCustomWeights ? "" : " disabled-filter"}`} title="Raw source weight; backend normalizes enabled evidence.">
                             Raw weight
                             <input
                               type="number"
@@ -1121,9 +1124,9 @@ export function SearchPlaylistPanel({
                           </label>
                         </div>
                       ))}
-                      <div className="set-source-row">
+                      <div className="set-source-row enabled">
                         <span className="set-source-static-label" title="SONARA broad evidence is always the separate SET broad signal.">SONARA broad</span>
-                        <label className={setUseCustomWeights ? "" : "disabled-filter"} title="Raw SONARA broad weight; backend normalizes enabled evidence.">
+                        <label className={`set-weight-control${setUseCustomWeights ? "" : " disabled-filter"}`} title="Raw SONARA broad weight; backend normalizes enabled evidence.">
                           Raw weight
                           <input
                             type="number"
@@ -1250,23 +1253,25 @@ export function SearchPlaylistPanel({
               <p className="hybrid-preview-note">
                 Uses stored MERT, MAEST, MuQ, SONARA, and CLAP audio evidence. CLAP text prompts are not used here. Preview generation stays independent from Set Builder.
               </p>
-              <label className="toggle hybrid-custom-weights-toggle" title="When off, Hybrid sends weights null and displays the actual normalized weights returned by the backend.">
+              <label className={`toggle set-check-toggle hybrid-custom-weights-toggle${hybridUseCustomWeights ? " active" : ""}`} title="When off, Hybrid sends weights null and displays the actual normalized weights returned by the backend.">
                 <input type="checkbox" checked={hybridUseCustomWeights} onChange={(event) => setHybridUseCustomWeights(event.target.checked)} />
-                Custom weights
+                <span className="set-control-checkbox" aria-hidden="true" />
+                <span>Custom weights</span>
               </label>
               <div className="hybrid-source-grid">
                 {hybridSourceOptions.map((source) => (
-                  <div className="hybrid-source-row" key={source.key}>
-                    <label className="toggle hybrid-source-toggle" title={source.title}>
+                  <div className={`hybrid-source-row${hybridSources[source.key] ? " enabled" : ""}`} key={source.key}>
+                    <label className={`toggle set-check-toggle hybrid-source-toggle${hybridSources[source.key] ? " active" : ""}`} title={source.title}>
                       <input
                         type="checkbox"
                         checked={hybridSources[source.key]}
                         title={source.title}
                         onChange={(event) => setHybridSourceEnabled(source.key, event.target.checked)}
                       />
-                      {source.label}
+                      <span className="set-control-checkbox" aria-hidden="true" />
+                      <span>{source.label}</span>
                     </label>
-                    <label className={hybridSources[source.key] && hybridUseCustomWeights ? "" : "disabled-filter"} title={hybridWeightTitle}>
+                    <label className={`hybrid-weight-control${hybridSources[source.key] && hybridUseCustomWeights ? "" : " disabled-filter"}`} title={hybridWeightTitle}>
                       Weight
                       <input
                         type="number"
@@ -1284,29 +1289,34 @@ export function SearchPlaylistPanel({
                 ))}
               </div>
               <div className="hybrid-classifier-controls" title={hybridClassifierTitle}>
-                <label className="toggle hybrid-classifier-master" title={hybridClassifierTitle}>
+                <label className={`toggle set-check-toggle hybrid-classifier-master${hybridUseClassifierPreferences ? " active" : ""}`} title={hybridClassifierTitle}>
                   <input
                     type="checkbox"
                     checked={hybridUseClassifierPreferences}
                     title={hybridClassifierTitle}
                     onChange={(event) => setHybridUseClassifierPreferences(event.target.checked)}
                   />
-                  Use classifier preferences
+                  <span className="set-control-checkbox" aria-hidden="true" />
+                  <span>Use classifier preferences</span>
                 </label>
                 <div className="hybrid-classifier-toggle-grid">
                   {hybridClassifierOptions.length ? (
-                    hybridClassifierOptions.map((option) => (
-                      <label className="toggle hybrid-classifier-toggle" key={option.key} title={option.title}>
-                        <input
-                          type="checkbox"
-                          checked={hybridClassifierToggleEnabled(hybridClassifierToggles, option)}
-                          disabled={!hybridUseClassifierPreferences}
-                          title={option.title}
-                          onChange={(event) => setHybridClassifierToggle(option.key, event.target.checked)}
-                        />
-                        {option.label}
-                      </label>
-                    ))
+                    hybridClassifierOptions.map((option) => {
+                      const enabled = hybridClassifierToggleEnabled(hybridClassifierToggles, option);
+                      return (
+                        <label className={`toggle set-check-toggle hybrid-classifier-toggle${enabled ? " active" : ""}${hybridUseClassifierPreferences ? "" : " disabled-filter"}`} key={option.key} title={option.title}>
+                          <input
+                            type="checkbox"
+                            checked={enabled}
+                            disabled={!hybridUseClassifierPreferences}
+                            title={option.title}
+                            onChange={(event) => setHybridClassifierToggle(option.key, event.target.checked)}
+                          />
+                          <span className="set-control-checkbox" aria-hidden="true" />
+                          <span>{option.label}</span>
+                        </label>
+                      );
+                    })
                   ) : (
                     <span className="muted-inline">No Hybrid classifier signals</span>
                   )}
@@ -1607,61 +1617,73 @@ export function SearchPlaylistPanel({
           </div>
         ) : null}
       </section>
-      <section className="playlist-export-section">
-        <div className="panel-title">
-          <ListMusic size={18} />
-          <h2>Сет и экспорт</h2>
-          <span className="panel-counter">{playlist.length}</span>
-        </div>
-        <input value={playlistName} onChange={(event) => onPlaylistNameChange(event.target.value)} title={helpText.playlistName} />
-        <span className={`save-state ${playlist.length ? "dirty" : ""}`}>
-          {playlist.length ? "Экспорт сохранит текущий сет" : "Сет пуст"}
-        </span>
-        {playlist.length > playlistPageSize ? (
-          <div className="playlist-page-controls">
-            <span className="library-page-status">
-              {playlistPageState.pageStart}-{playlistPageState.pageEnd} из {playlistPageState.total}
+      <details
+        className="playlist-export-disclosure"
+        onToggle={(event) => {
+          setPlaylistExportOpen(event.currentTarget.open);
+        }}
+      >
+        <summary className="playlist-export-summary" title="Развернуть или свернуть текущий сет и экспорт">
+          <span className="playlist-export-summary-title">
+            <ListMusic size={18} />
+            <strong>Сет и экспорт</strong>
+            <span className="panel-counter">{playlist.length}</span>
+          </span>
+          <span className="playlist-export-summary-toggle" aria-hidden="true" />
+        </summary>
+        {playlistExportOpen ? (
+          <section className="playlist-export-section" aria-label="Сет и экспорт">
+            <input value={playlistName} onChange={(event) => onPlaylistNameChange(event.target.value)} title={helpText.playlistName} />
+            <span className={`save-state ${playlist.length ? "dirty" : ""}`}>
+              {playlist.length ? "Экспорт сохранит текущий сет" : "Сет пуст"}
             </span>
-            <button className="playlist-page-previous-button" title="Предыдущая страница сета" disabled={!playlistPageState.canGoBack} onClick={() => setPlaylistOffset((current) => Math.max(0, current - playlistPageSize))} type="button">Prev</button>
-            <button className="playlist-page-next-button" title="Следующая страница сета" disabled={!playlistPageState.canGoForward} onClick={() => setPlaylistOffset((current) => current + playlistPageSize)} type="button">Next</button>
-          </div>
-        ) : null}
-        <div className="playlist-list">
-          {playlist.length === 0 ? (
-            <div className="empty-state">
-              Сет пуст
-            </div>
-          ) : (
-            playlistPageState.items.map((track, index) => {
-              const trackPreviewActive = playingTrackId === track.track_id;
-              return (
-                <div className="playlist-row" key={track.track_id}>
-                  <span className="row-index">{playlistPageState.offset + index + 1}</span>
-                  <button className="icon-button playlist-preview-button" title={trackPreviewActive ? "Pause preview" : "Preview"} aria-label={`${trackPreviewActive ? "Pause" : "Preview"} ${displayTrack(track)}`} onClick={() => setPreview(track)} type="button">
-                    {trackPreviewActive ? <Pause size={15} /> : <Play size={15} />}
-                  </button>
-                  <div className="track-title-cell">
-                    <strong>{displayTrack(track)}</strong>
-                  </div>
-                  <button className="icon-button playlist-metadata-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={() => setMetadataTrack(track)} type="button"><Tags size={15} /></button>
-                  <button className="icon-button intent-remove playlist-remove-button" title="Убрать из сета" aria-label={`Убрать ${displayTrack(track)} из сета`} onClick={() => removeFromPlaylist(track.track_id)} type="button"><Trash2 size={15} /></button>
+            {playlist.length > playlistPageSize ? (
+              <div className="playlist-page-controls" aria-label="Пагинация сета">
+                <span className="library-page-status">
+                  {playlistPageState.pageStart}–{playlistPageState.pageEnd} из {playlistPageState.total}
+                </span>
+                <button className="playlist-page-previous-button" title="Предыдущая страница сета" disabled={!playlistPageState.canGoBack} onClick={() => setPlaylistOffset((current) => Math.max(0, current - playlistPageSize))} type="button">Prev</button>
+                <button className="playlist-page-next-button" title="Следующая страница сета" disabled={!playlistPageState.canGoForward} onClick={() => setPlaylistOffset((current) => current + playlistPageSize)} type="button">Next</button>
+              </div>
+            ) : null}
+            <div className="playlist-list">
+              {playlist.length === 0 ? (
+                <div className="empty-state">
+                  Сет пуст
                 </div>
-              );
-            })
-          )}
-        </div>
-        <div className="path-row output-row">
-          <input value={outputDir} onChange={(event) => onOutputDirChange(event.target.value)} placeholder="D:/Exports" title={helpText.outputDir} />
-          <button className="icon-button folder-picker export-folder-picker-button" title="Выбрать папку экспорта" aria-label="Выбрать папку экспорта" disabled={busy} onClick={onChooseOutputFolder} type="button">
-            <FolderOpen size={17} />
-          </button>
-        </div>
-        <div className="export-action-row">
-          <button className="save-collection-button" title="Сохранить текущий сет в Rhythm Lab Collection" disabled={busy || !playlist.length} onClick={handleSaveToCollection}><ListPlus size={16} />Collection</button>
-          <button className="export-m3u-button" title="Экспортировать текущий сет в M3U" disabled={busy || !playlist.length} onClick={() => handleExport("m3u")}><Download size={16} />M3U</button>
-          <button className="export-csv-button" title="Экспортировать текущий сет в CSV" disabled={busy || !playlist.length} onClick={() => handleExport("csv")}><Download size={16} />CSV</button>
-        </div>
-      </section>
+              ) : (
+                playlistPageState.items.map((track, index) => {
+                  const trackPreviewActive = playingTrackId === track.track_id;
+                  return (
+                    <div className="playlist-row" key={track.track_id}>
+                      <span className="row-index">{playlistPageState.offset + index + 1}</span>
+                      <button className="icon-button playlist-preview-button" title={trackPreviewActive ? "Pause preview" : "Preview"} aria-label={`${trackPreviewActive ? "Pause" : "Preview"} ${displayTrack(track)}`} onClick={() => setPreview(track)} type="button">
+                        {trackPreviewActive ? <Pause size={15} /> : <Play size={15} />}
+                      </button>
+                      <div className="track-title-cell">
+                        <strong>{displayTrack(track)}</strong>
+                      </div>
+                      <button className="icon-button playlist-metadata-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={() => setMetadataTrack(track)} type="button"><Tags size={15} /></button>
+                      <button className="icon-button intent-remove playlist-remove-button" title="Убрать из сета" aria-label={`Убрать ${displayTrack(track)} из сета`} onClick={() => removeFromPlaylist(track.track_id)} type="button"><Trash2 size={15} /></button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            <div className="path-row output-row">
+              <input value={outputDir} onChange={(event) => onOutputDirChange(event.target.value)} placeholder="D:/Exports" title={helpText.outputDir} />
+              <button className="icon-button folder-picker export-folder-picker-button" title="Выбрать папку экспорта" aria-label="Выбрать папку экспорта" disabled={busy} onClick={onChooseOutputFolder} type="button">
+                <FolderOpen size={17} />
+              </button>
+            </div>
+            <div className="export-action-row">
+              <button className="save-collection-button" title="Сохранить текущий сет в Rhythm Lab Collection" disabled={busy || !playlist.length} onClick={handleSaveToCollection}><ListPlus size={16} />Collection</button>
+              <button className="export-m3u-button" title="Экспортировать текущий сет в M3U" disabled={busy || !playlist.length} onClick={() => handleExport("m3u")}><Download size={16} />M3U</button>
+              <button className="export-csv-button" title="Экспортировать текущий сет в CSV" disabled={busy || !playlist.length} onClick={() => handleExport("csv")}><Download size={16} />CSV</button>
+            </div>
+          </section>
+        ) : null}
+      </details>
     </aside>
   );
 }

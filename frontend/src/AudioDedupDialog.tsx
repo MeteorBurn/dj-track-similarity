@@ -1,14 +1,143 @@
 import { useEffect, useMemo, useState } from "react";
 import { FileSpreadsheet, FolderOpen, Play, Square, X } from "lucide-react";
-import type { AudioDedupJobPayload, AudioDedupJobStatus, AudioDedupPreset } from "./api";
+import type {
+  AudioDedupJobPayload,
+  AudioDedupJobStatus,
+  AudioDedupPreset,
+  EmbeddingSource
+} from "./api";
 import { AudioDedupProcessStatus } from "./jobUi";
 import { basename } from "./trackDisplay";
+
+export const audioDedupSourceOrder: readonly EmbeddingSource[] = ["mert", "maest", "muq", "clap"];
+export const audioDedupDefaultWeights: Readonly<Record<EmbeddingSource, number>> = {
+  mert: 0.43,
+  maest: 0.32,
+  muq: 0.12,
+  clap: 0.04
+};
+
+const audioDedupSourceLabels: Record<EmbeddingSource, string> = {
+  mert: "MERT",
+  maest: "MAEST",
+  muq: "MuQ",
+  clap: "CLAP"
+};
+const legacySources: readonly EmbeddingSource[] = ["mert", "maest", "clap"];
+const applyDeleteConfirmation = "APPLY DELETE";
 
 const presets: Array<{ key: AudioDedupPreset; label: string; title: string }> = [
   { key: "safe", label: "Safe", title: "Conservative thresholds, lowest false-positive risk." },
   { key: "balanced", label: "Balanced", title: "Wider search scope with manual review still expected." },
   { key: "aggressive", label: "Aggressive", title: "Broadest matching; expect more manual review." }
 ];
+
+type AudioDedupWeightInputs = Record<EmbeddingSource, string>;
+
+type AudioDedupPayloadDraft = {
+  root: string;
+  pathContains: string[];
+  sources: EmbeddingSource[];
+  customWeights: boolean;
+  weightInputs: AudioDedupWeightInputs;
+  preset: AudioDedupPreset;
+  minScore: string;
+  minSimilarity: string;
+  limitGroups: string;
+  outDir: string;
+  apply: boolean;
+  confirmation: string;
+};
+
+export type AudioDedupPayloadBuildResult =
+  | { ok: true; payload: AudioDedupJobPayload }
+  | { ok: false; error: string };
+
+export function buildAudioDedupJobPayload(
+  draft: AudioDedupPayloadDraft
+): AudioDedupPayloadBuildResult {
+  const root = draft.root.trim();
+  if (!root) {
+    return { ok: false, error: "Укажите Root" };
+  }
+  if (
+    draft.sources.length === 0
+    || new Set(draft.sources).size !== draft.sources.length
+    || draft.sources.some((source) => !audioDedupSourceOrder.includes(source))
+  ) {
+    return { ok: false, error: "Выберите хотя бы один уникальный evidence source" };
+  }
+
+  const sources = audioDedupSourceOrder.filter((source) => draft.sources.includes(source));
+  const score = optionalNumber(draft.minScore);
+  const similarity = optionalNumber(draft.minSimilarity);
+  const limit = optionalInteger(draft.limitGroups);
+  if (score === "invalid" || similarity === "invalid" || limit === "invalid") {
+    return { ok: false, error: "Проверьте числовые поля" };
+  }
+
+  let customWeights: Partial<Record<EmbeddingSource, number>> | null = null;
+  if (draft.customWeights) {
+    customWeights = {};
+    for (const source of sources) {
+      const rawWeight = draft.weightInputs[source].trim();
+      const weight = Number(rawWeight);
+      if (!rawWeight || !Number.isFinite(weight) || weight < 0) {
+        return {
+          ok: false,
+          error: `Raw weight ${audioDedupSourceLabels[source]} должен быть конечным неотрицательным числом`
+        };
+      }
+      customWeights[source] = weight;
+    }
+    if (!sources.some((source) => (customWeights?.[source] ?? 0) > 0)) {
+      return { ok: false, error: "Хотя бы один raw weight должен быть больше нуля" };
+    }
+  }
+
+  const effectiveWeights: Partial<Record<EmbeddingSource, number>> = {};
+  for (const source of sources) {
+    effectiveWeights[source] = customWeights?.[source] ?? audioDedupDefaultWeights[source];
+  }
+  if (
+    draft.apply
+    && !isLegacyDeleteSafetyProfile(sources, effectiveWeights)
+    && (
+      !sources.includes("mert")
+      || !sources.includes("maest")
+      || (effectiveWeights.mert ?? 0) <= 0
+      || (effectiveWeights.maest ?? 0) <= 0
+    )
+  ) {
+    return {
+      ok: false,
+      error: "Non-legacy apply profile требует положительные MERT и MAEST weights; backend также проверит их независимое corroboration"
+    };
+  }
+  if (draft.apply && draft.confirmation !== applyDeleteConfirmation) {
+    return {
+      ok: false,
+      error: `Для apply mode нужно ввести "${applyDeleteConfirmation}"`
+    };
+  }
+
+  return {
+    ok: true,
+    payload: {
+      root,
+      path_contains: draft.pathContains,
+      sources,
+      weights: customWeights,
+      preset: draft.preset,
+      min_score: score,
+      min_similarity: similarity,
+      limit_groups: limit,
+      out_dir: draft.outDir.trim() || null,
+      apply: draft.apply,
+      confirmation: draft.apply ? draft.confirmation : null
+    }
+  };
+}
 
 export function AudioDedupDialog({
   databasePath,
@@ -36,6 +165,13 @@ export function AudioDedupDialog({
   const [minSimilarity, setMinSimilarity] = useState("");
   const [limitGroups, setLimitGroups] = useState("");
   const [outDir, setOutDir] = useState("");
+  const [enabledSources, setEnabledSources] = useState<EmbeddingSource[]>([
+    ...audioDedupSourceOrder
+  ]);
+  const [customWeights, setCustomWeights] = useState(false);
+  const [weightInputs, setWeightInputs] = useState<AudioDedupWeightInputs>(
+    defaultWeightInputs
+  );
   const [applyMode, setApplyMode] = useState(false);
   const [confirmation, setConfirmation] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
@@ -65,35 +201,53 @@ export function AudioDedupDialog({
     if (selected) setOutDir(selected);
   }
 
+  function setSourceEnabled(source: EmbeddingSource, enabled: boolean) {
+    setEnabledSources((current) => {
+      if (enabled) {
+        return audioDedupSourceOrder.filter(
+          (candidate) => candidate === source || current.includes(candidate)
+        );
+      }
+      return current.filter((candidate) => candidate !== source);
+    });
+    setLocalError(null);
+  }
+
+  function resetEvidenceProfile() {
+    setEnabledSources([...audioDedupSourceOrder]);
+    setWeightInputs(defaultWeightInputs());
+    setCustomWeights(false);
+    setLocalError(null);
+  }
+
+  function selectLegacyEvidenceProfile() {
+    setEnabledSources([...legacySources]);
+    setWeightInputs(defaultWeightInputs());
+    setCustomWeights(true);
+    setLocalError(null);
+  }
+
   async function start() {
-    const trimmedRoot = root.trim();
-    if (!trimmedRoot) {
-      setLocalError("Укажите Root");
-      return;
-    }
-    const score = optionalNumber(minScore);
-    const similarity = optionalNumber(minSimilarity);
-    const limit = optionalInteger(limitGroups);
-    if (score === "invalid" || similarity === "invalid" || limit === "invalid") {
-      setLocalError("Проверьте числовые поля");
-      return;
-    }
-    if (applyMode && confirmation.trim() !== "APPLY DELETE") {
-      setLocalError('Для apply mode нужно ввести "APPLY DELETE"');
+    const result = buildAudioDedupJobPayload({
+      root,
+      pathContains: pathContainsList,
+      sources: enabledSources,
+      customWeights,
+      weightInputs,
+      preset,
+      minScore,
+      minSimilarity,
+      limitGroups,
+      outDir,
+      apply: applyMode,
+      confirmation
+    });
+    if (!result.ok) {
+      setLocalError(result.error);
       return;
     }
     setLocalError(null);
-    await onStart({
-      root: trimmedRoot,
-      path_contains: pathContainsList,
-      preset,
-      min_score: score,
-      min_similarity: similarity,
-      limit_groups: limit,
-      out_dir: outDir.trim() || null,
-      apply: applyMode,
-      confirmation: applyMode ? confirmation.trim() : null
-    });
+    await onStart(result.payload);
   }
 
   return (
@@ -137,6 +291,89 @@ export function AudioDedupDialog({
               </div>
             </div>
 
+            <fieldset className="audio-dedup-source-controls" disabled={running}>
+              <legend>Embedding evidence</legend>
+              <div className="audio-dedup-source-grid">
+                {audioDedupSourceOrder.map((source) => {
+                  const enabled = enabledSources.includes(source);
+                  return (
+                    <div className={`audio-dedup-source-row ${enabled ? "enabled" : ""}`} key={source}>
+                      <label className="audio-dedup-source-toggle">
+                        <input
+                          type="checkbox"
+                          checked={enabled}
+                          onChange={(event) => setSourceEnabled(source, event.target.checked)}
+                          disabled={running || (enabled && enabledSources.length === 1)}
+                        />
+                        <span>{audioDedupSourceLabels[source]}</span>
+                      </label>
+                      {!enabled ? (
+                        <span className="audio-dedup-default-weight">disabled</span>
+                      ) : customWeights ? (
+                        <label className="audio-dedup-weight-field">
+                          <span>Raw weight</span>
+                          <input
+                            aria-label={`${audioDedupSourceLabels[source]} raw weight`}
+                            value={weightInputs[source]}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setWeightInputs((current) => ({ ...current, [source]: value }));
+                              setLocalError(null);
+                            }}
+                            inputMode="decimal"
+                            disabled={running}
+                          />
+                        </label>
+                      ) : (
+                        <span className="audio-dedup-default-weight">
+                          raw {audioDedupDefaultWeights[source]}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              <label className="audio-dedup-custom-weights">
+                <input
+                  type="checkbox"
+                  checked={customWeights}
+                  onChange={(event) => {
+                    setCustomWeights(event.target.checked);
+                    setLocalError(null);
+                  }}
+                  disabled={running}
+                />
+                <span>Custom raw weights</span>
+              </label>
+              <div className="audio-dedup-source-actions">
+                <button
+                  className="audio-dedup-reset-evidence-button"
+                  type="button"
+                  onClick={resetEvidenceProfile}
+                  disabled={running}
+                  title="Enable MERT, MAEST, MuQ and audio-to-audio CLAP with backend raw defaults."
+                >
+                  Reset defaults
+                </button>
+                <button
+                  className="audio-dedup-legacy-evidence-button"
+                  type="button"
+                  onClick={selectLegacyEvidenceProfile}
+                  disabled={running}
+                  title="Exact pre-MuQ opt-out: MERT 0.43, MAEST 0.32, CLAP 0.04."
+                >
+                  Pre-MuQ legacy
+                </button>
+              </div>
+              <p className="audio-dedup-evidence-note">
+                Score — это weighted ranking signal, не вероятность. Для каждой пары он
+                нормализуется только по доступным включённым evidence. CLAP здесь означает
+                сохранённый audio-to-audio embedding, а не CLAP text search. MuQ или CLAP
+                сами по себе никогда не разрешают удаление: non-legacy apply profile требует
+                положительные MERT и MAEST weights, а backend отдельно проверяет их corroboration.
+              </p>
+            </fieldset>
+
             <div className="audio-dedup-grid">
               <label className="audio-dedup-field">
                 <span>Min score</span>
@@ -144,7 +381,7 @@ export function AudioDedupDialog({
               </label>
               <label className="audio-dedup-field">
                 <span>Min similarity</span>
-                <input value={minSimilarity} onChange={(event) => setMinSimilarity(event.target.value)} inputMode="decimal" placeholder="preset" disabled={running} title="Optional audio-to-audio content gate over MERT/MAEST/CLAP embeddings, range 0..1; not the lower CLAP text-search score." />
+                <input value={minSimilarity} onChange={(event) => setMinSimilarity(event.target.value)} inputMode="decimal" placeholder="preset" disabled={running} title="Optional audio-to-audio content gate over enabled MERT/MAEST/MuQ/CLAP embeddings, range 0..1; not the lower CLAP text-search score." />
               </label>
               <label className="audio-dedup-field">
                 <span>Limit groups</span>
@@ -170,7 +407,7 @@ export function AudioDedupDialog({
             {applyMode ? (
               <label className="audio-dedup-field">
                 <span>Confirmation</span>
-                <input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} disabled={running} placeholder="APPLY DELETE" title="Required exact confirmation for destructive apply mode." />
+                <input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} disabled={running} placeholder={applyDeleteConfirmation} title="Required exact confirmation for destructive apply mode." />
               </label>
             ) : null}
 
@@ -190,6 +427,7 @@ export function AudioDedupDialog({
 
           <section className="audio-dedup-run" aria-label="Audio Dedup run status">
             <AudioDedupProcessStatus job={job} />
+            <AudioDedupEffectiveProfile job={job} />
             {completedWithReport ? (
               <div className="audio-dedup-report-ready">
                 <div>
@@ -206,6 +444,24 @@ export function AudioDedupDialog({
           </section>
         </div>
       </section>
+    </div>
+  );
+}
+
+function AudioDedupEffectiveProfile({ job }: { job: AudioDedupJobStatus | null }) {
+  if (!job) return null;
+  return (
+    <div className="audio-dedup-effective-profile" aria-label="Actual Audio Dedup sources and weights">
+      <strong>Фактический evidence profile</strong>
+      <span>
+        Sources: {job.sources.map((source) => audioDedupSourceLabels[source]).join(", ")}
+      </span>
+      <span>
+        Raw weights: {job.sources.map((source) => {
+          const weight = job.weights[source];
+          return `${audioDedupSourceLabels[source]}=${weight ?? "—"}`;
+        }).join(", ")}
+      </span>
     </div>
   );
 }
@@ -232,6 +488,26 @@ function AudioDedupEventLog({ job }: { job: AudioDedupJobStatus | null }) {
         )}
       </div>
     </div>
+  );
+}
+
+function defaultWeightInputs(): AudioDedupWeightInputs {
+  return {
+    mert: String(audioDedupDefaultWeights.mert),
+    maest: String(audioDedupDefaultWeights.maest),
+    muq: String(audioDedupDefaultWeights.muq),
+    clap: String(audioDedupDefaultWeights.clap)
+  };
+}
+
+function isLegacyDeleteSafetyProfile(
+  sources: EmbeddingSource[],
+  weights: Partial<Record<EmbeddingSource, number>>
+) {
+  return (
+    sources.length === legacySources.length
+    && legacySources.every((source) => sources.includes(source))
+    && legacySources.every((source) => weights[source] === audioDedupDefaultWeights[source])
   );
 }
 

@@ -128,7 +128,7 @@ export function AudioDoctorDialog({
             <div className="audio-doctor-field">
               <span>Source</span>
               <div className="audio-doctor-segmented">
-                <button className={`audio-doctor-source-button ${sourceMode === "db" ? "active" : ""}`} title="Purpose: read tracks.path from the selected SQLite database. Type: mode. Range: Selected DB or Folder." onClick={() => setSourceMode("db")} disabled={running} type="button">Selected DB</button>
+                <button className={`audio-doctor-source-button ${sourceMode === "db" ? "active" : ""}`} title="Purpose: read tracks.file_path from the selected SQLite database. Type: mode. Range: Selected DB or Folder." onClick={() => setSourceMode("db")} disabled={running} type="button">Selected DB</button>
                 <button className={`audio-doctor-source-button ${sourceMode === "folder" ? "active" : ""}`} title="Purpose: scan a filesystem folder recursively for supported audio files. Type: mode. Range: Selected DB or Folder." onClick={() => setSourceMode("folder")} disabled={running} type="button">Folder</button>
               </div>
             </div>

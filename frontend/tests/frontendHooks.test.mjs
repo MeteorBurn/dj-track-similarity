@@ -35,9 +35,19 @@ test("library hook sends search mode through paged and filtered track requests",
   assert.equal(existsSync(hookPath), true, "useLibraryState.ts exists");
   const source = readFileSync(hookPath, "utf8");
 
-  assert.match(source, /const \[searchMode, setSearchMode\]/);
+  assert.match(source, /const \[searchModeState, setSearchModeState\]/);
   assert.match(source, /api\.tracks\(\{[\s\S]*searchMode/);
   assert.match(source, /api\.filteredTracks\(\{[\s\S]*searchMode/);
+});
+
+test("library hook can adopt an explicit catalog scope before the database state rerender", () => {
+  const hookPath = join(srcDir, "useLibraryState.ts");
+  const source = readFileSync(hookPath, "utf8");
+  const adopter = source.match(/const adoptDatabaseScope[\s\S]*?\}, \[\]\);/)?.[0] || "";
+
+  assert.match(adopter, /databaseKeyRef\.current = nextDatabaseKey/);
+  assert.match(adopter, /previousDatabaseScopeRef\.current = nextDatabaseKey/);
+  assert.match(source, /canGoForward,\s*adoptDatabaseScope,\s*refreshLibrary/);
 });
 
 test("search playlist hook owns seed and playlist state", () => {

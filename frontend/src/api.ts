@@ -1,34 +1,56 @@
-export type Track = {
-  id: number;
-  path: string;
-  size: number;
-  mtime: number;
-  artist?: string | null;
-  title?: string | null;
-  album?: string | null;
-  bpm?: number | null;
-  musical_key?: string | null;
-  energy?: number | null;
-  duration?: number | null;
-  liked: boolean;
-  metadata?: Record<string, unknown> | null;
-  genres?: string[] | null;
-  genre_scores?: Record<string, number> | null;
-  classifier_scores?: Record<string, {
-    score: number;
-    label: string;
-    confidence: number;
-    probabilities?: Record<string, number>;
-    feature_set?: string;
-    model_id?: string;
-    analyzed_at?: string;
-  }> | null;
-  analyses?: string[] | null;
-  embedding_model?: string | null;
-  embedding_dim?: number | null;
-  timeline_fields?: string[] | null;
-  representation_fields?: string[] | null;
+export type EmbeddingSource = "mert" | "maest" | "muq" | "clap";
+export type EvaluationSource = EmbeddingSource | "sonara";
+export type HybridSearchSource = EvaluationSource;
+export type AnalysisModel = "sonara" | EmbeddingSource;
+export type SonaraOutput = "core" | "timeline" | "embedding" | "fingerprint";
+
+export type AnalysisCoverageV7 = {
+  sonara_core: boolean;
+  timeline: boolean;
+  sonara_embedding: boolean;
+  fingerprint: boolean;
+  maest_analysis: boolean;
+  maest_embedding: boolean;
+  mert: boolean;
+  muq: boolean;
+  clap: boolean;
 };
+
+export type ClassifierScoreV7Summary = {
+  classifier_key: string;
+  score: number;
+  predicted_class: string;
+  score_bucket: "low" | "medium" | "high";
+  confidence: number;
+};
+
+export type Track = {
+  track_id: number;
+  catalog_uuid: string;
+  track_uuid: string;
+  content_generation: number;
+  file_path: string;
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  tag_bpm: number | null;
+  tag_key: string | null;
+  audio_duration_seconds: number | null;
+  liked: boolean;
+  analysis_coverage: AnalysisCoverageV7;
+  classifier_scores: ClassifierScoreV7Summary[];
+};
+
+export type TrackMutationIdentity = {
+  catalog_uuid: string;
+  track_uuid: string;
+  expected_content_generation: number;
+};
+
+export type TrackIdentityV7 = Pick<
+  Track,
+  "track_id" | "catalog_uuid" | "track_uuid" | "content_generation"
+>;
 
 export interface FileTechnicalV7 {
     file_size_bytes: number;
@@ -112,7 +134,7 @@ export interface SonaraCoreV7 {
     mood_aggressive_score: number | null;
     mood_relaxed_score: number | null;
     mood_sad_score: number | null;
-    vector_summaries: Record<string, unknown>[];
+    vector_summaries: Array<{ vector_type: string; dim: number }>;
     analyzed_at: string;
 }
 
@@ -123,7 +145,7 @@ export interface MaestV7 {
 }
 
 export interface EmbeddingV7Summary {
-    analysis_family: string;
+    analysis_family: EmbeddingSource;
     model_name: string;
     model_version: string | null;
     dim: number;
@@ -135,33 +157,20 @@ export interface ClassifierScoreV7Detail {
     classifier_key: string;
     score: number;
     predicted_class: string;
-    score_bucket: string;
+    score_bucket: "low" | "medium" | "high";
     confidence: number;
     probabilities: Record<string, number>;
     feature_set: string;
+    feature_manifest_hash: string;
+    required_outputs_hash: string;
     model_id: string;
+    uses_sonara: boolean;
+    sonara_release_hash: string | null;
+    positive_label: string;
     analyzed_at: string;
 }
 
-export interface TrackSummaryV7 {
-    track_id: number;
-    file_path: string;
-    title: string | null;
-    artist: string | null;
-    album: string | null;
-    tag_bpm: number | null;
-    tag_key: string | null;
-    audio_duration_seconds: number | null;
-    liked: boolean;
-    analysis_coverage: { [family: string]: boolean };
-    classifier_scores: Array<{
-        classifier_key: string;
-        score: number;
-        predicted_class: string;
-        score_bucket: 'low' | 'medium' | 'high' | string;
-        confidence: number;
-    }>;
-}
+export type TrackSummaryV7 = Track;
 
 export interface TrackDetailV7 extends TrackSummaryV7 {
     file: FileTechnicalV7;
@@ -207,7 +216,15 @@ export type SearchResult = {
   };
 };
 
-export type HybridSearchSource = "mert" | "maest" | "sonara" | "clap";
+export type EmbeddingSearchPayload = {
+  analysis_family: EmbeddingSource;
+  seed_track_ids: number[];
+  limit: number;
+  min_similarity?: number | null;
+  epsilon?: number | null;
+  noise?: number;
+};
+
 export type ReferenceCompareModel = "clap" | "mert" | "muq" | "maest" | "sonara";
 export type ReferenceCompareVerdict = "mood" | "palette" | "instruments" | "groove" | "genre" | "transition" | "miss";
 export type ReferenceComparePayload = {
@@ -226,16 +243,21 @@ export type ReferenceCompareResponse = {
   groups: ReferenceCompareGroup[];
 };
 export type ReferenceCompareVerdictPayload = {
-  seed_track_id: number;
-  candidate_track_id: number;
+  seed: TrackIdentityV7;
+  candidate: TrackIdentityV7;
   model: ReferenceCompareModel;
   verdict: ReferenceCompareVerdict;
   notes?: string | null;
 };
-export type ReferenceCompareVerdictResult = ReferenceCompareVerdictPayload & {
+export type ReferenceCompareVerdictResult = {
   id: number;
+  seed_track_id: number;
+  candidate_track_id: number;
+  model: ReferenceCompareModel;
+  verdict: ReferenceCompareVerdict;
   source: string;
   rating: number;
+  notes?: string | null;
 };
 export type HybridMatchAxis = "groove" | "density" | "texture" | "mood" | "tonal" | "vocalness" | "energy_flow" | "novelty";
 export type HybridClassifierSignalRole = "preference_boost" | "preference_penalty" | "risk_penalty" | "context_modifier";
@@ -254,7 +276,7 @@ export type HybridClassifierSignal = {
 export type HybridSearchPayload = {
   seed_track_ids: number[];
   sources?: HybridSearchSource[];
-  weights?: Record<string, number> | null;
+  weights?: Partial<Record<HybridSearchSource, number>> | null;
   score_profile?: EvaluationScoreProfile | Record<string, unknown> | null;
   per_source?: number;
   limit?: number;
@@ -314,9 +336,9 @@ export type HybridSearchResult = {
   transition_risk_weight: number;
   raw_rrf_score: number;
   rank: number;
-  score_breakdown: Record<string, { rank: number; weight: number; contribution: number; score?: number }>;
+  score_breakdown: Partial<Record<HybridSearchSource, { rank: number; weight: number; contribution: number; score?: number }>>;
   risk_breakdown: Record<string, number | null>;
-  source_support: Record<string, {
+  source_support: Partial<Record<HybridSearchSource, {
     available: boolean;
     rank?: number | null;
     score?: number | null;
@@ -325,7 +347,7 @@ export type HybridSearchResult = {
     best_seed_track_id?: number | null;
     best_rank?: number | null;
     supporting_seed_track_ids?: number[];
-  }>;
+  }>>;
   classifier_support: Record<string, {
     available: boolean;
     score?: number | null;
@@ -357,11 +379,12 @@ export type HybridSearchResult = {
 export type HybridSearchResponse = {
   results: HybridSearchResult[];
   warnings: string[];
-  weights_used: Record<string, number>;
+  weights_used: Partial<Record<HybridSearchSource, number>>;
   sources: HybridSearchSource[];
   limitations: string[];
   diagnostics: Record<string, unknown>;
   session_id?: number | null;
+  source_contract_hashes: Partial<Record<HybridSearchSource, string>>;
 };
 
 export type TrackPage = {
@@ -372,8 +395,11 @@ export type TrackPage = {
 };
 
 export type GenreTagApplyResult = {
+  catalog_uuid: string;
   track_id: number;
-  path: string;
+  track_uuid: string;
+  content_generation: number;
+  file_path: string;
   tags: Record<string, string>;
   status: "applied" | "skipped" | "failed";
   message: string;
@@ -383,16 +409,14 @@ export type GenreTagApplyResult = {
 export type LibrarySummary = {
   tracks: number;
   sonara: number;
-  maest: number;
+  maest_analysis: number;
+  maest_embedding: number;
   mert: number;
   muq: number;
   clap: number;
   liked: number;
   classifiers: number;
 };
-
-export type AnalysisModel = "sonara" | "maest" | "mert" | "muq" | "clap";
-export type SonaraOutput = "core" | "timeline" | "representations";
 
 export type SonaraSearchMode = "balanced" | "vibe" | "sound" | "dj_transition" | "custom";
 
@@ -444,9 +468,9 @@ export type AnalysisJobStatus = {
   job_id: string;
   state: "queued" | "running" | "completed" | "cancelled" | "failed";
   adapter_name: string;
-  embedding_key: string;
   models?: AnalysisModel[];
   classifier_keys?: string[];
+  required_families?: string[];
   current_model?: string | null;
   model_progress?: Partial<Record<string, {
     total: number;
@@ -472,6 +496,7 @@ export type AnalysisJobStatus = {
   events: Array<{ timestamp: number; level: string; message: string; path?: string | null; track_id?: number | null; model?: string | null }>;
   cancel_requested: boolean;
   workers: number;
+  batch_size?: number;
   track_batch_size?: number;
   inference_batch_size?: number;
   sonara_batch_size?: number;
@@ -547,6 +572,8 @@ export type AudioDedupJobStatus = {
   state: "queued" | "running" | "completed" | "cancelled" | "failed";
   root: string;
   path_contains: string[];
+  sources: EmbeddingSource[];
+  weights: Partial<Record<EmbeddingSource, number>>;
   preset: AudioDedupPreset;
   min_score?: number | null;
   min_similarity?: number | null;
@@ -575,6 +602,8 @@ export type AudioDedupJobStatus = {
 export type AudioDedupJobPayload = {
   root: string;
   path_contains?: string[];
+  sources?: EmbeddingSource[];
+  weights?: Partial<Record<EmbeddingSource, number>> | null;
   preset?: AudioDedupPreset;
   min_score?: number | null;
   min_similarity?: number | null;
@@ -642,41 +671,53 @@ export type AudioDoctorJobPayload = {
 };
 
 export type AnalysisResetResult = {
-  adapter: string;
-  tracks_updated: number;
-  embeddings_deleted: number;
-  classifier_scores_deleted?: number;
+  core_rows_deleted: number;
+  artifact_rows_deleted: number;
+  classifier_rows_deleted: number;
 };
 
-export type ClassifierResetResult = {
-  classifiers: string[];
-  scores_deleted: number;
-};
+export type ClassifierResetResult = AnalysisResetResult;
 
 export type DatabaseClearResult = {
   tracks_deleted: number;
   embeddings_deleted: number;
+  artifacts_deleted: number;
+  evaluation_rows_deleted: number;
 };
 
 export type DatabaseSelection = {
   path: string | null;
+  artifacts_path: string | null;
+  evaluation_path: string | null;
+  catalog_uuid: string | null;
   selected: boolean;
-  music_root?: string | null;
+};
+
+export type RhythmLabSourceBinding = {
+  catalog_uuid: string;
+  database_path: string;
 };
 
 export type RhythmLabLaunchResult = {
   url: string;
   already_running: boolean;
-  managed?: boolean;
-  pid?: number;
-  source_db?: string | null;
+  managed: boolean;
+  pid?: number | null;
+  source: RhythmLabSourceBinding | null;
 };
 
 export type RhythmLabStatus = {
   url: string;
   running: boolean;
   managed: boolean;
-  stopped?: boolean;
+  source: RhythmLabSourceBinding | null;
+};
+
+export type RhythmLabStopResult = {
+  url: string;
+  running: boolean;
+  managed: boolean;
+  stopped: boolean;
 };
 
 export type ServerShutdownResult = {
@@ -698,17 +739,22 @@ export type SetBuilderGeneratePayload = {
   classifier_preferences?: Record<string, number>;
   classifier_flows?: Record<string, SetBuilderClassifierFlow>;
   random_seed?: number;
+  sources?: EmbeddingSource[];
+  weights?: Partial<Record<EmbeddingSource | "sonara_broad", number>> | null;
 };
 
 export type SetBuilderGenerateResult = {
   mode: SetBuilderMode;
   seed_mode: SetBuilderSeedMode;
   seed_track_ids: number[];
+  sources: EmbeddingSource[];
+  weights_used: Partial<Record<EmbeddingSource | "sonara_broad", number>>;
   coverage: {
     tracks: number;
     eligible_tracks: number;
     missing_mert: number;
     missing_maest: number;
+    missing_muq: number;
     missing_clap: number;
     missing_sonara: number;
   };
@@ -749,8 +795,8 @@ export type EvaluationScoreProfile = {
   name: string;
   profile_kind: "unsupervised_source_profile";
   weight_kind: "unsupervised_internal_profile";
-  sources: string[];
-  weights: Record<string, number>;
+  sources: EvaluationSource[];
+  weights: Partial<Record<EvaluationSource, number>>;
   created_at: string;
   source_report_summary: Record<string, unknown>;
   limitations: string[];
@@ -760,7 +806,7 @@ export type EvaluationScoreProfile = {
 export type EvaluationSourceProfilePayload = {
   seed_track_ids?: number[] | null;
   sample_count?: number;
-  sources?: string[];
+  sources?: EvaluationSource[];
   per_source?: number;
   top_k?: number[];
   random_seed?: number;
@@ -787,7 +833,7 @@ export type EvaluationWeightedCandidatesPayload = {
   name?: string | null;
   seed_track_ids?: number[] | null;
   sample_count?: number;
-  sources?: string[] | null;
+  sources?: EvaluationSource[] | null;
   per_source?: number;
   random_seed?: number;
   rrf_k?: number;
@@ -829,7 +875,7 @@ export type EvaluationWeightedCandidateRow = {
 export type EvaluationWeightedCandidatesResult = {
   score_profile: EvaluationScoreProfile;
   seed_track_ids: number[];
-  sources: string[];
+  sources: EvaluationSource[];
   per_source: number;
   random_seed: number;
   rrf_k: number;

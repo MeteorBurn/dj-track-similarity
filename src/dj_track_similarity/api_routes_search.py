@@ -177,6 +177,8 @@ def register_search_routes(
             )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
         return result.api_response(include_diagnostics=request.include_diagnostics)
 
 

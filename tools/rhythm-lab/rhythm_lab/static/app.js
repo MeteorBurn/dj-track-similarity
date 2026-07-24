@@ -53,6 +53,8 @@ let libraryRandomSeed = makeLibraryRandomSeed();
 let latestTrainingReadiness = null;
 let latestProfileSummary = null;
 let promoteFeatureSetEl = null;
+let trainingFeatureSetEl = null;
+let selectedTrainingFeatureSet = "combined";
 
 document.getElementById("load").addEventListener("click", () => loadActive({ reset: true }));
 document.getElementById("chooseSource").addEventListener("click", () => chooseSource().catch(showError));
@@ -149,6 +151,8 @@ async function setActiveProfile(profileKey, options = {}) {
   latestTrainingReadiness = null;
   latestProfileSummary = null;
   promoteFeatureSetEl = null;
+  trainingFeatureSetEl = null;
+  selectedTrainingFeatureSet = "combined";
   renderProfileControls();
   offset = 0;
   viewOffsets.library = 0;
@@ -163,6 +167,8 @@ function clearActiveProfile() {
   latestTrainingReadiness = null;
   latestProfileSummary = null;
   promoteFeatureSetEl = null;
+  trainingFeatureSetEl = null;
+  selectedTrainingFeatureSet = "combined";
   profileSelectEl.value = "";
   summaryCoverageEl.textContent = "";
   summaryLabelsEl.textContent = "";
@@ -422,8 +428,14 @@ function formatLabelCounts(labels) {
 }
 
 function renderSummary(data) {
+  const featureStates = data.feature_states || {};
   const coverage = [
     coverageBadge("Tracks", data.tracks || 0, "tracks"),
+    featureCoverageBadge("SONARA", data.sonara || 0, featureStates.sonara),
+    featureCoverageBadge("MERT", data.mert || 0, featureStates.mert),
+    featureCoverageBadge("MAEST", data.maest || 0, featureStates.maest),
+    featureCoverageBadge("CLAP", data.clap || 0, featureStates.clap),
+    featureCoverageBadge("MuQ", data.muq || 0, featureStates.muq),
     coverageBadge("Liked", data.liked || 0, "liked")
   ].join("");
   summaryCoverageEl.innerHTML = `
@@ -434,6 +446,12 @@ function renderSummary(data) {
     <span class="summary-group summary-labels" aria-label="Label counts">
       <span class="summary-group-title">Labels</span>${labelCountBadges(data.labels || {})}
     </span>`;
+}
+
+function featureCoverageBadge(label, value, state) {
+  const status = featureStateStatus(state);
+  const reason = featureStateReason(state) || `${label} contract is ${status}.`;
+  return `<span class="summary-badge coverage-feature feature-state-${escapeHtml(status)}" title="${escapeHtml(reason)}"><span>${escapeHtml(label)}</span><b>${escapeHtml(value)}</b><i>${escapeHtml(status)}</i></span>`;
 }
 
 function coverageBadge(label, value, key) {
@@ -462,10 +480,14 @@ function renderGuidance(summary) {
   const winner = readiness?.artifact_summary?.benchmark_winner;
   const selected = selectedPromotionOption(readiness);
   const lastRun = readiness?.last_trained_at ? formatHumanDate(readiness.last_trained_at) : "not trained yet";
+  const recipe = readiness?.feature_recipe;
+  const recipeState = recipe?.ready
+    ? `${recipe.feature_set} features current`
+    : recipeBlockingText(recipe);
   guidancePanelEl.innerHTML = `
     <div class="guidance-card"><b>${escapeHtml(activeProfile.name)}</b><span class="meta">${escapeHtml(profileSignalText())}</span></div>
     <div class="guidance-card"><b>Labels</b><span class="meta">${trainingCountText}</span></div>
-    <div class="guidance-card"><b>Training state</b><span class="meta">${readiness?.ready ? "Ready to train" : "Not ready yet"} · last ${escapeHtml(lastRun)}</span></div>
+    <div class="guidance-card"><b>Training state</b><span class="meta">${readiness?.ready ? "Ready to train" : "Not ready yet"} · ${escapeHtml(recipeState || "feature recipe unavailable")} · last ${escapeHtml(lastRun)}</span></div>
     <div class="guidance-card"><b>Benchmark</b><span class="meta">${winner ? `${escapeHtml(winner.feature_set)} · F1 ${formatMetricPercent(winner.macro_f1_mean)} · recall ${formatMetricPercent(winner.positive_recall_mean)}` : "No benchmark winner yet"}</span></div>
     <div class="guidance-card"><b>Production</b><span class="meta">${selected ? `Selected ${escapeHtml(selected.feature_set)} · F1 ${formatMetricPercent(selected.macro_f1_mean)}` : "No promotion variant yet"}</span></div>`;
 }
@@ -664,13 +686,17 @@ async function openCandidatesForReview() {
 
 async function trainRefresh() {
   if (trainingActionElement("trainRefresh")?.disabled) return;
-  if (!window.confirm(`Train a new ${activeProfile.name} model, then refresh candidates?`)) {
+  if (!window.confirm(`Train a new ${activeProfile.name} ${selectedTrainingFeatureSet} model, then refresh candidates?`)) {
     return;
   }
   setWorkflowBusy(true);
   refreshCandidatesStatusEl.textContent = "training model...";
   try {
-    const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/training/train-refresh`, { method: "POST" });
+    const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/training/train-refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ feature_set: selectedTrainingFeatureSet })
+    });
     const data = await parseRefreshResponse(response);
     refreshCandidatesStatusEl.textContent = `trained ${formatLabelCounts(data.training_counts)} · updated ${data.predicted} · skipped ${data.skipped}`;
     await switchView("candidates");
@@ -724,20 +750,25 @@ async function promoteClassifier() {
 }
 
 async function loadTrainingReadiness() {
-  const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/training/readiness`);
+  const params = new URLSearchParams({ feature_set: selectedTrainingFeatureSet });
+  const response = await fetch(`/api/profiles/${activeProfile.classifier_key}/training/readiness?${params}`);
   const data = await response.json();
   if (!response.ok) {
     setWorkflowBusy(true);
     return;
   }
   latestTrainingReadiness = data;
+  selectedTrainingFeatureSet = data.feature_recipe?.feature_set || selectedTrainingFeatureSet;
+  updateTrainingFeatureSetOptions(data);
   updatePromoteFeatureSetOptions(data);
   const hasModel = hasTrainedVariant(data);
   setTrainingActionDisabled("openLibrary", false, "Open Library to label tracks");
   setTrainingActionDisabled(
     "trainRefresh",
     !data.ready,
-    data.ready ? "Retrain from all current labels and refresh candidates" : `Need enough new labels. Added: ${formatLabelCounts(data.added)}.`
+    data.ready
+      ? `Train ${selectedTrainingFeatureSet} from all current labels and refresh candidates`
+      : readinessBlockedTitle(data)
   );
   setTrainingActionDisabled(
     "openCandidates",
@@ -749,7 +780,7 @@ async function loadTrainingReadiness() {
     !hasModel,
     hasModel ? "Run benchmark" : "Train the first model before benchmarking"
   );
-  const canPromote = Boolean((data.artifact_summary?.promotion_options || []).length || data.artifact_summary?.latest_combined);
+  const canPromote = canPromoteArtifact(data);
   setTrainingActionDisabled(
     "promoteClassifier",
     !canPromote,
@@ -770,6 +801,12 @@ async function loadTrainingView() {
     ${renderTrainingInformationMetrics(data)}`;
   promoteFeatureSetEl = document.getElementById("promoteFeatureSet");
   promoteFeatureSetEl?.addEventListener("change", () => loadTrainingReadiness().catch(showError));
+  trainingFeatureSetEl = document.getElementById("trainingFeatureSet");
+  trainingFeatureSetEl?.addEventListener("change", () => {
+    selectedTrainingFeatureSet = trainingFeatureSetEl.value || "combined";
+    loadTrainingView().catch(showError);
+  });
+  updateTrainingFeatureSetOptions(data);
   updatePromoteFeatureSetOptions(data);
 }
 
@@ -779,7 +816,10 @@ function renderTrainingWorkflow(data, planText) {
   const winner = data?.artifact_summary?.benchmark_winner;
   const optionMarkup = renderPromotionOptions(options);
   const hasModel = hasTrainedVariant(data);
-  const canPromote = Boolean(options.length || data?.artifact_summary?.latest_combined);
+  const canPromote = canPromoteArtifact(data);
+  const featureRecipe = data?.feature_recipe || {};
+  const featureOptions = renderTrainingFeatureOptions(data);
+  const trainingBlocked = readinessBlockedTitle(data);
   return `<div class="classifier-workflow-card">
     <div class="workflow-header">
       <div>
@@ -793,10 +833,15 @@ function renderTrainingWorkflow(data, planText) {
       <span>${escapeHtml(workflowRecommendation(data, selected))}</span>
     </div>
     <div class="workflow-variant-row">
+      <label class="workflow-variant-select">Training recipe
+        <select id="trainingFeatureSet">${featureOptions}</select>
+      </label>
       <label class="workflow-variant-select">Selected variant
-        <select id="promoteFeatureSet" ${options.length ? "" : "disabled"}>${optionMarkup}</select>
+        <select id="promoteFeatureSet" ${canPromote ? "" : "disabled"}>${optionMarkup}</select>
       </label>
       <div class="workflow-variant-facts">
+        ${trainingInfoLine("Required sources", (featureRecipe.required_sources || []).map(source => source.toUpperCase()).join(" + ") || "None")}
+        ${trainingInfoLine("Feature readiness", featureRecipe.ready ? "All required contracts are current" : recipeBlockingText(featureRecipe))}
         ${trainingInfoLine("Benchmark winner", winner ? `${winner.feature_set} · F1 ${formatMetricPercent(winner.macro_f1_mean)} · recall ${formatMetricPercent(winner.positive_recall_mean)}` : "No winner yet")}
         ${trainingInfoLine("Selected", selected ? `${selected.feature_set} · rank ${selected.rank ?? "-"} · F1 ${formatMetricPercent(selected.macro_f1_mean)}` : "No selected variant yet")}
       </div>
@@ -813,8 +858,8 @@ function renderTrainingWorkflow(data, planText) {
         number: 2,
         title: "Train model",
         status: data?.ready ? "ready" : "blocked",
-        body: `${planText} Retrain from all current labels, create a new artifact, then refresh candidates automatically.`,
-        action: workflowButton("trainRefresh", "train", "Train", "train-refresh", !data?.ready, data?.ready ? "Retrain model and refresh candidates" : `Need enough new labels. Added: ${formatLabelCounts(data?.added || {})}.`)
+        body: `${planText} Selected recipe: ${selectedTrainingFeatureSet}. Retrain from all current labels, create a new artifact, then refresh candidates automatically.`,
+        action: workflowButton("trainRefresh", "train", "Train", "train-refresh", !data?.ready, data?.ready ? `Train ${selectedTrainingFeatureSet} and refresh candidates` : trainingBlocked)
       })}
       ${renderWorkflowStep({
         number: 3,
@@ -827,14 +872,14 @@ function renderTrainingWorkflow(data, planText) {
         number: 4,
         title: "Benchmark variants",
         status: winner ? "done" : hasModel ? "ready" : "blocked",
-        body: winner ? `Current winner: ${winner.feature_set} · F1 ${formatMetricPercent(winner.macro_f1_mean)}.` : "Compare SONARA, MERT, MAEST, and CLAP feature-source combinations.",
+        body: winner ? `Current winner: ${winner.feature_set} · F1 ${formatMetricPercent(winner.macro_f1_mean)}.` : "Compare SONARA, MERT, MAEST, CLAP, and MuQ feature-source combinations.",
         action: workflowButton("runBenchmark", "benchmark", "Run benchmark", "run-benchmark", !hasModel, hasModel ? "Run benchmark" : "Train the first model before benchmarking")
       })}
       ${renderWorkflowStep({
         number: 5,
         title: "Promote model",
         status: canPromote ? "ready" : "blocked",
-        body: selected ? `Promote ${selected.feature_set} into models/classifiers, then reset and rescore this classifier in the main database.` : "No trained variant is available for promotion.",
+        body: selected ? `Promote ${selected.feature_set} into models/classifiers, then reset and rescore this classifier in the main database.` : "No current-contract trained variant is available for promotion.",
         action: workflowButton("promoteClassifier", "promote", "Promote", "promote-classifier", !canPromote, canPromote ? "Promote selected variant" : "Train a model before promoting")
       })}
     </div>
@@ -847,6 +892,11 @@ function hasTrainedVariant(data) {
     data?.artifact_summary?.latest_combined ||
     (data?.artifact_summary?.promotion_options || []).length
   );
+}
+
+function canPromoteArtifact(data) {
+  return (data?.artifact_summary?.promotion_options || [])
+    .some(row => row.source_contract_ready === true);
 }
 
 function renderWorkflowStep({ number, title, status, body, action }) {
@@ -878,7 +928,7 @@ function workflowRecommendation(data, selected) {
   if (!data?.model_artifact && !(data?.artifact_summary?.promotion_options || []).length) return "Train the first model for this profile.";
   if (!data?.artifact_summary?.benchmark_winner) return "Run benchmark to choose the strongest feature-source variant.";
   if (selected) return "Review the selected promotion variant, then promote it when the metrics look right.";
-  return "Choose a promotion variant before releasing the classifier.";
+  return "Retrain a variant against the current source contracts before promotion.";
 }
 
 function missingLabelText(data) {
@@ -906,34 +956,70 @@ function missingLabelText(data) {
   return hasMissing ? formatLabelCounts(missing) : "";
 }
 
+function renderTrainingFeatureOptions(data) {
+  const options = data?.available_feature_sets || ["combined"];
+  return options
+    .map(featureSet => `<option value="${escapeHtml(featureSet)}" ${featureSet === selectedTrainingFeatureSet ? "selected" : ""}>${escapeHtml(featureSet)}</option>`)
+    .join("");
+}
+
+function updateTrainingFeatureSetOptions(data) {
+  if (!trainingFeatureSetEl) return;
+  trainingFeatureSetEl.innerHTML = renderTrainingFeatureOptions(data);
+  trainingFeatureSetEl.value = selectedTrainingFeatureSet;
+}
+
+function recipeBlockingText(recipe) {
+  const blocking = recipe?.blocking || [];
+  if (!blocking.length) return "Feature recipe status is unavailable";
+  return blocking
+    .map(item => `${String(item.source || "").toUpperCase()}: ${item.reason || item.status || "not current"}`)
+    .join(" · ");
+}
+
+function readinessBlockedTitle(data) {
+  if (!data?.features_ready) return recipeBlockingText(data?.feature_recipe);
+  return `Need enough new labels. Added: ${formatLabelCounts(data?.added || {})}.`;
+}
+
 function updatePromoteFeatureSetOptions(data) {
   if (!promoteFeatureSetEl) return;
   const options = data?.artifact_summary?.promotion_options || [];
+  const readyOptions = options.filter(row => row.source_contract_ready === true);
   const selected = selectedPromotionOption(data);
   const previous = promoteFeatureSetEl.value;
   promoteFeatureSetEl.innerHTML = options.length
     ? renderPromotionOptions(options)
     : '<option value="">No trained model</option>';
-  const allowedValues = new Set(options.map(row => String(row.feature_set || "")));
+  const allowedValues = new Set(readyOptions.map(row => String(row.feature_set || "")));
   promoteFeatureSetEl.value = allowedValues.has(previous) ? previous : String(selected?.feature_set || "");
-  promoteFeatureSetEl.disabled = options.length === 0;
+  promoteFeatureSetEl.disabled = readyOptions.length === 0;
 }
 
 function selectedPromotionOption(data) {
   const options = data?.artifact_summary?.promotion_options || [];
+  const readyOptions = options.filter(row => row.source_contract_ready === true);
   const requested = promoteFeatureSetEl?.value;
-  return options.find(row => row.feature_set === requested) || data?.artifact_summary?.latest_promotable || options[0] || null;
+  return readyOptions.find(row => row.feature_set === requested)
+    || (data?.artifact_summary?.latest_promotable?.source_contract_ready === true
+      ? data.artifact_summary.latest_promotable
+      : null)
+    || readyOptions[0]
+    || null;
 }
 
 function renderPromotionOptions(options) {
   return options.length
-    ? options.map(row => `<option value="${escapeHtml(String(row.feature_set || ""))}">${escapeHtml(promotionOptionLabel(row))}</option>`).join("")
+    ? options.map(row => `<option value="${escapeHtml(String(row.feature_set || ""))}" ${row.source_contract_ready === true ? "" : "disabled"}>${escapeHtml(promotionOptionLabel(row))}</option>`).join("")
     : '<option value="">No trained model</option>';
 }
 
 function promotionOptionLabel(row) {
   const rank = row.rank ? `#${row.rank}` : "unranked";
-  return `${row.feature_set || "model"} · ${rank} · F1 ${formatMetricPercent(row.macro_f1_mean)} · ${formatHumanDate(row.created_at)}`;
+  const sourceState = row.source_contract_ready === true
+    ? "source contracts current"
+    : `blocked: ${row.source_contract_reason || "source contract mismatch"}`;
+  return `${row.feature_set || "model"} · ${rank} · F1 ${formatMetricPercent(row.macro_f1_mean)} · ${formatHumanDate(row.created_at)} · ${sourceState}`;
 }
 
 function renderTrainingInformationMetrics(data) {
@@ -1049,12 +1135,12 @@ function trackMarkup(track) {
     <div>
       <div class="track-main">
         <strong class="track-heading"><span class="track-title-main"><span class="track-number">#${track.rowNumber}</span>${escapeHtml(displayTrackTitle(track))}</span>${featuresIndicator(track)}</strong>
-        <div class="meta track-path">${escapeHtml(track.path)}</div>
+        <div class="meta track-path">${escapeHtml(track.file_path)}</div>
         <div class="meta feature-line">${trackStatusLine(track)}</div>
       </div>
       <div class="rhythm-media-block">
         <div class="meta genres-line"><span class="status-item"><b>GENRES</b></span><span class="genres">${(track.genres || []).map(escapeHtml).join(" · ")}</span>${badgeRow(track)}</div>
-        <audio controls preload="none" src="/media/${track.id}"></audio>
+        <audio controls preload="none" src="/media/${track.track_id}"></audio>
       </div>
     </div>
     <div class="actions">
@@ -1088,23 +1174,28 @@ function wireTrackRow(row, track) {
   const likeButton = row.querySelector('[data-action="like"]');
   if (likeButton) likeButton.addEventListener("click", () => toggleLike(track).catch(showError));
   row.querySelectorAll('[data-action="label"]').forEach(button => {
-    button.addEventListener("click", () => setLabel(track.id, button.dataset.label));
+    button.addEventListener("click", () => setLabel(track.track_id, button.dataset.label));
   });
   row.addEventListener("keydown", event => {
     const keys = { "0": "" };
     activeProfile.labels.forEach((label, index) => {
       if (index < 9) keys[String(index + 1)] = label.key;
     });
-    if (keys[event.key] !== undefined) setLabel(track.id, keys[event.key]);
+    if (keys[event.key] !== undefined) setLabel(track.track_id, keys[event.key]);
   });
   wireAudioPreview(row.querySelector("audio"));
 }
 
 async function toggleLike(track) {
-  const response = await fetch(`/api/tracks/${track.id}/liked`, {
+  const response = await fetch(`/api/tracks/${track.track_id}/liked`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ liked: !track.liked })
+    body: JSON.stringify({
+      catalog_uuid: track.catalog_uuid,
+      track_uuid: track.track_uuid,
+      content_generation: track.content_generation,
+      liked: !track.liked
+    })
   });
   await parseJsonResponse(response);
   await loadActive();
@@ -1344,7 +1435,7 @@ function displayLabel(key) {
 }
 
 function displayTrackTitle(track) {
-  const title = track.title || track.path;
+  const title = track.title || track.file_path;
   return track.artist ? `${track.artist} - ${title}` : title;
 }
 
@@ -1420,23 +1511,52 @@ function trackStatusLine(track) {
     trainedStatus(track),
     predictionStatus(track),
     predictionScoreStatus(track),
+    ...["sonara", "mert", "maest", "clap", "muq"].map(
+      source => trackFeatureStatus(source, track.feature_status?.[source])
+    ),
   ].filter(Boolean).join(" ");
 }
 
+function trackFeatureStatus(source, state) {
+  const status = featureStateStatus(state);
+  const reason = featureStateReason(state) || `${source.toUpperCase()} output is ${status}.`;
+  return `<span class="status-item" title="${escapeHtml(reason)}"><b>${escapeHtml(source.toUpperCase())}</b><span class="analysis-status-badge status-${escapeHtml(status)}">${escapeHtml(status)}</span></span>`;
+}
+
 function featuresReady(track) {
-  return Boolean(track.feature_status.sonara && track.feature_status.mert && track.feature_status.maest);
+  return requiredFeatureSources().every(source => featureStateStatus(track.feature_status?.[source]) === "current");
 }
 
 function missingFeatures(track) {
-  return ["sonara", "mert", "maest"]
-    .filter(key => !track.feature_status[key])
-    .map(key => key.toUpperCase());
+  return requiredFeatureSources()
+    .filter(source => featureStateStatus(track.feature_status?.[source]) !== "current")
+    .map(source => {
+      const state = track.feature_status?.[source];
+      return `${source.toUpperCase()} (${featureStateStatus(state)}: ${featureStateReason(state) || "not current"})`;
+    });
 }
 
 function featuresIndicator(track) {
   const ready = featuresReady(track);
-  const label = ready ? "Features ready: SONARA, MERT, MAEST" : `Missing features: ${missingFeatures(track).join(", ")}`;
+  const sources = requiredFeatureSources().map(source => source.toUpperCase()).join(", ");
+  const label = ready
+    ? `Features ready for ${selectedTrainingFeatureSet}: ${sources}`
+    : `Blocked for ${selectedTrainingFeatureSet}: ${missingFeatures(track).join(", ")}`;
   return `<span class="features-indicator ${ready ? "ready" : "missing"}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}">${ready ? "✓" : "!"}</span>`;
+}
+
+function requiredFeatureSources() {
+  return latestTrainingReadiness?.feature_recipe?.required_sources || ["sonara", "mert", "maest"];
+}
+
+function featureStateStatus(state) {
+  if (typeof state === "boolean") return state ? "current" : "missing";
+  const status = String(state?.status || "missing");
+  return ["current", "missing", "stale"].includes(status) ? status : "missing";
+}
+
+function featureStateReason(state) {
+  return typeof state === "object" && state ? String(state.reason || "") : "";
 }
 
 function trainedStatus(track) {

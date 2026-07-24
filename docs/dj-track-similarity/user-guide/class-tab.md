@@ -1,4 +1,4 @@
-# Classifier scores and the deferred CLASS tab
+# Classifier scores and the CLASS tab
 
 > Audience: Users with promoted Rhythm Lab classifier profiles.
 > Goal: Filter, rescore, and use classifier scores without confusing them with analysis families.
@@ -25,10 +25,10 @@ question will return across many sessions.
 5. SET can prefer, avoid, raise, or lower the concept through a preview.
 
 The backend reads promoted local profiles only when their manifest is valid and compatible with
-current scoring inputs. The React frontend has not yet been ported to v7, so the CLASS tab behaviors
-described below are design intent, not a verified current UI contract. Use the CLI or direct API for
-current scoring. MuQ support is also backend-first: the static Rhythm Lab UI has no dedicated MuQ
-controls yet.
+current scoring inputs. The browser lists those profiles in **CLASS**, shows each profile's blocker
+when scoring is unavailable, serializes the minimum-score filters into the v7 library query, and
+keeps per-profile rescore actions scoped to the selected `classifier_key`. Standalone Rhythm Lab
+also exposes MuQ-aware training recipes and source-readiness explanations.
 
 ## How a promoted classifier is stored
 

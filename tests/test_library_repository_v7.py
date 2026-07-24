@@ -73,24 +73,34 @@ class _Repository(LibraryQueryRepository):
         self._write_lock = threading.RLock()
         self.core_connect_count = 0
         self.artifacts_connect_count = 0
+        self.core_statements: list[str] = []
+        self.artifact_statements: list[str] = []
 
     def connect(self) -> sqlite3.Connection:
         self.core_connect_count += 1
-        return connect_database(
+        connection = connect_database(
             self.path,
             expected_catalog_uuid=self.catalog_uuid,
         )
+        connection.set_trace_callback(self.core_statements.append)
+        return connection
 
     def connect_artifacts(self) -> sqlite3.Connection:
         self.artifacts_connect_count += 1
-        return connect_artifacts_database(
+        connection = connect_artifacts_database(
             self.artifacts_path,
             expected_catalog_uuid=self.catalog_uuid,
         )
+        connection.set_trace_callback(self.artifact_statements.append)
+        return connection
 
     def reset_connection_counts(self) -> None:
         self.core_connect_count = 0
         self.artifacts_connect_count = 0
+
+    def reset_sql_trace(self) -> None:
+        self.core_statements.clear()
+        self.artifact_statements.clear()
 
 
 @pytest.fixture()
@@ -386,6 +396,16 @@ def _insert_classifier(
                 json.dumps({"negative": 1.0 - score, "positive": score}),
                 _NOW,
             ),
+        )
+
+
+def _query_plan(path: Path, statement: str) -> tuple[str, ...]:
+    with sqlite3.connect(path) as connection:
+        return tuple(
+            str(row[3])
+            for row in connection.execute(
+                f"EXPLAIN QUERY PLAN {statement}",
+            )
         )
 
 
@@ -854,3 +874,179 @@ def test_classifier_readers_hide_score_after_ml_contract_change(
     assert (
         repository.library_summary(classifier_keys=("voice_presence",)).classifiers == 0
     )
+
+
+def test_page_artifact_hydration_is_bounded_and_uses_requested_rowids(
+    repository: _Repository,
+) -> None:
+    tracks = tuple(
+        _insert_track(
+            repository,
+            title=f"Track {index:02d}",
+            artist="Artifact Artist",
+        )
+        for index in range(6)
+    )
+    contract = _mert_contract()
+    _register_active(repository, contract)
+    for track in tracks:
+        _insert_embedding(repository, track=track, contract=contract)
+
+    repository.reset_sql_trace()
+    page = repository.paginate_track_summaries(limit=3)
+
+    assert page.total == len(tracks)
+    assert len(page.items) == 3
+    assert all(track.analysis_coverage.mert for track in page.items)
+    hydration_statements = [
+        statement
+        for statement in repository.artifact_statements
+        if "CROSS JOIN mert_embeddings stored" in statement
+    ]
+    assert len(hydration_statements) == 1
+    plan = _query_plan(repository.artifacts_path, hydration_statements[0])
+    assert any("SCAN requested VIRTUAL TABLE" in detail for detail in plan)
+    assert any(
+        "SEARCH stored USING INTEGER PRIMARY KEY (rowid=?)" in detail
+        for detail in plan
+    )
+    assert not any(
+        "idx_mert_embeddings_contract_generation" in detail
+        for detail in plan
+    )
+
+    repository.reset_sql_trace()
+    assert repository.library_summary().mert == len(tracks)
+    full_summary_statement = next(
+        statement
+        for statement in repository.artifact_statements
+        if "FROM mert_embeddings" in statement
+    )
+    assert "CROSS JOIN mert_embeddings" not in full_summary_statement
+    full_summary_plan = _query_plan(
+        repository.artifacts_path,
+        full_summary_statement,
+    )
+    assert any(
+        "idx_mert_embeddings_contract_generation" in detail
+        for detail in full_summary_plan
+    )
+
+    repository.reset_sql_trace()
+    repository.paginate_track_summaries(limit=1)
+    one_row_selects = sum(
+        statement.lstrip().upper().startswith("SELECT")
+        for statement in repository.core_statements
+    ) + sum(
+        statement.lstrip().upper().startswith("SELECT")
+        for statement in repository.artifact_statements
+    )
+    repository.reset_sql_trace()
+    repository.paginate_track_summaries(limit=6)
+    six_row_selects = sum(
+        statement.lstrip().upper().startswith("SELECT")
+        for statement in repository.core_statements
+    ) + sum(
+        statement.lstrip().upper().startswith("SELECT")
+        for statement in repository.artifact_statements
+    )
+    assert one_row_selects == six_row_selects
+
+
+def test_classifier_filter_uses_lookup_index_and_preserves_multi_filter_order(
+    repository: _Repository,
+) -> None:
+    high_voice = _insert_track(
+        repository,
+        title="High voice",
+        artist="Classifier Artist",
+    )
+    high_both = _insert_track(
+        repository,
+        title="High both",
+        artist="Classifier Artist",
+    )
+    second_both = _insert_track(
+        repository,
+        title="Second both",
+        artist="Classifier Artist",
+    )
+    stale = _insert_track(
+        repository,
+        title="Stale",
+        artist="Classifier Artist",
+    )
+    _register_active(repository, _mert_contract())
+    for track, voice, arousal in (
+        (high_voice, 0.99, 0.70),
+        (high_both, 0.86, 0.95),
+        (second_both, 0.81, 0.90),
+        (stale, 1.00, 1.00),
+    ):
+        _insert_classifier(
+            repository,
+            track=track,
+            classifier_key="voice_presence",
+            score=voice,
+        )
+        _insert_classifier(
+            repository,
+            track=track,
+            classifier_key="arousal",
+            score=arousal,
+        )
+    with _core(repository) as core:
+        core.execute(
+            """
+            UPDATE tracks
+            SET content_generation = 2, updated_at = ?
+            WHERE track_id = ?
+            """,
+            (_NOW, stale.track_id),
+        )
+
+    repository.reset_sql_trace()
+    single = repository.filter_track_summaries(
+        classifier_min_scores={"voice_presence": 0.8},
+    )
+    assert [track.track_id for track in single] == [
+        high_voice.track_id,
+        high_both.track_id,
+        second_both.track_id,
+    ]
+
+    driving_statements = [
+        statement
+        for statement in repository.core_statements
+        if "INDEXED BY idx_classifier_scores_lookup" in statement
+    ]
+    assert len(driving_statements) == 2
+    for statement in driving_statements:
+        plan = _query_plan(repository.path, statement)
+        assert any(
+            "SEARCH primary_cs USING INDEX idx_classifier_scores_lookup"
+            in detail
+            for detail in plan
+        )
+        assert any(
+            "SEARCH t USING INTEGER PRIMARY KEY (rowid=?)" in detail
+            for detail in plan
+        )
+    result_statement = next(
+        statement
+        for statement in driving_statements
+        if "ORDER BY" in statement
+    )
+    assert "primary_cs.score DESC" in result_statement
+    assert "SELECT cs.score" not in result_statement
+
+    multi = repository.filter_track_summaries(
+        classifier_min_scores={
+            "voice_presence": 0.8,
+            "arousal": 0.8,
+        },
+    )
+    assert [track.track_id for track in multi] == [
+        high_both.track_id,
+        second_both.track_id,
+    ]

@@ -1,14 +1,20 @@
 import type { Track } from "./api";
+import { libraryTrackIdentityKey } from "./libraryLoading";
 
 export type LibraryPreset = "all" | "syncopated";
 export type LibrarySortDirection = "forward" | "reverse";
 export type LibrarySearchMode = "like" | "fts";
 
-export const libraryPageSize = 200;
+export const libraryPageSize = 100;
 
 export function appendVisibleTracksToPlaylist(playlist: Track[], visibleTracks: Track[]) {
-  const existing = new Set(playlist.map((track) => track.id));
-  const additions = visibleTracks.filter((track) => !existing.has(track.id));
+  const existing = new Set(playlist.map(libraryTrackIdentityKey));
+  const additions = visibleTracks.filter((track) => {
+    const key = libraryTrackIdentityKey(track);
+    if (existing.has(key)) return false;
+    existing.add(key);
+    return true;
+  });
   return [...playlist, ...additions];
 }
 

@@ -1,9 +1,20 @@
-import { Track, TrackDetailV7 } from "./api";
+import type { AnalysisModel, TrackSummaryV7 } from "./api";
 
-export function displayTrack(track: Track | TrackDetailV7) {
+export function displayTrack(track: TrackSummaryV7) {
   if (track.artist && track.title) return `${track.artist} - ${track.title}`;
-  const path = "file_path" in track ? track.file_path : track.path;
-  return track.title || basename(path) || path;
+  return track.title || basename(track.file_path) || track.file_path;
+}
+
+export function sameTrackIdentity(
+  left: TrackSummaryV7,
+  right: TrackSummaryV7
+) {
+  return (
+    left.track_id === right.track_id
+    && left.catalog_uuid === right.catalog_uuid
+    && left.track_uuid === right.track_uuid
+    && left.content_generation === right.content_generation
+  );
 }
 
 export function trackCountLabel(count: number) {
@@ -15,15 +26,10 @@ export function trackCountLabel(count: number) {
   return "треков";
 }
 
-export function trackHasAnalysis(track: Track | TrackDetailV7, adapter: "sonara" | "maest" | "mert" | "muq" | "clap") {
-  if ("analysis_coverage" in track) {
-    if (adapter === "sonara") return !!track.analysis_coverage.sonara_core;
-    return !!track.analysis_coverage[adapter];
-  }
-  const analyses = new Set(track.analyses || []);
-  if (track.metadata?.sonara_features) analyses.add("sonara");
-  if (track.embedding_model) analyses.add("mert");
-  return analyses.has(adapter);
+export function trackHasAnalysis(track: TrackSummaryV7, adapter: AnalysisModel) {
+  if (adapter === "sonara") return track.analysis_coverage.sonara_core;
+  if (adapter === "maest") return track.analysis_coverage.maest_analysis;
+  return track.analysis_coverage[adapter];
 }
 
 export function basename(path: string) {

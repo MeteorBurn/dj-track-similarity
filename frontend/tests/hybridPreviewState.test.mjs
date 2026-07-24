@@ -1,120 +1,159 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
+import ts from "typescript";
 
-const source = readFileSync(fileURLToPath(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url)), "utf8");
-const appSource = readFileSync(fileURLToPath(new URL("../src/App.tsx", import.meta.url)), "utf8");
-const styles = readFileSync(fileURLToPath(new URL("../src/styles.css", import.meta.url)), "utf8");
-
-function cssRule(selector) {
-  return styles.match(new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\{[^}]*\\}`))?.[0] || "";
+async function loadSearchSurfaceState() {
+  const sourcePath = new URL("../src/searchSurfaceState.ts", import.meta.url);
+  const tempDir = mkdtempSync(join(tmpdir(), "search-surface-state-"));
+  const modulePath = join(tempDir, "searchSurfaceState.cjs");
+  const compiled = ts.transpileModule(readFileSync(sourcePath, "utf8"), {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022
+    }
+  }).outputText;
+  writeFileSync(modulePath, compiled, "utf8");
+  return import(pathToFileURL(modulePath));
 }
 
-test("hybrid preview clears stale state when preview inputs change", () => {
-  assert.match(source, /const hybridInputKey = formatHybridInputKey/);
-  assert.match(source, /const showHybridResults = showHybridDiagnostics && hybridResults\.length > 0;/);
-  assert.match(
-    source,
-    /useEffect\(\(\) => \{[\s\S]*setHybridError\(""\);[\s\S]*setHybridResults\(\[\]\);[\s\S]*setHybridWarnings\(\[\]\);[\s\S]*setHybridLimitations\(\[\]\);[\s\S]*setHybridWeightsUsed\(\{\}\);[\s\S]*setHybridPreviewKey\(""\);[\s\S]*\}, \[hybridInputKey\]\);/
+function hybridDraft(overrides = {}) {
+  return {
+    databasePath: "C:/temp/core.sqlite",
+    databaseIdentity: "catalog-a",
+    seedTrackIds: [10, 11],
+    sources: { mert: true, maest: true, muq: true, sonara: true, clap: true },
+    useCustomWeights: false,
+    weights: { mert: 1, maest: 1, muq: 1, sonara: 1, clap: 1 },
+    perSource: 30,
+    limit: 25,
+    transitionRiskWeight: 0,
+    classifierPreferences: {},
+    classifierRiskWeights: {},
+    ...overrides
+  };
+}
+
+test("Hybrid defaults keep all five sources and delegate weight normalization to backend", async () => {
+  const { buildHybridPayload } = await loadSearchSurfaceState();
+  const result = buildHybridPayload(hybridDraft());
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.payload.sources, ["mert", "maest", "muq", "sonara", "clap"]);
+  assert.equal(result.payload.weights, null);
+  assert.equal(result.payload.record_session, true);
+  assert.equal(result.payload.include_diagnostics, true);
+});
+
+test("Hybrid legacy opt-out omits MuQ without retaining a hidden readiness key", async () => {
+  const { buildHybridPayload } = await loadSearchSurfaceState();
+  const result = buildHybridPayload(hybridDraft({
+    sources: { mert: true, maest: true, muq: false, sonara: true, clap: true }
+  }));
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.payload.sources, ["mert", "maest", "sonara", "clap"]);
+  assert.equal(result.payload.weights, null);
+  assert.equal("muq" in (result.payload.weights || {}), false);
+});
+
+test("Hybrid custom weights serialize exact enabled keys and reject invalid values", async () => {
+  const { buildHybridPayload } = await loadSearchSurfaceState();
+  const valid = buildHybridPayload(hybridDraft({
+    sources: { mert: true, maest: false, muq: true, sonara: false, clap: true },
+    useCustomWeights: true,
+    weights: { mert: 0.4, maest: 99, muq: 0.3, sonara: 99, clap: 0.3 }
+  }));
+  assert.equal(valid.ok, true);
+  assert.deepEqual(valid.payload.weights, { mert: 0.4, muq: 0.3, clap: 0.3 });
+
+  const invalid = buildHybridPayload(hybridDraft({
+    useCustomWeights: true,
+    weights: { mert: 0, maest: 0, muq: -0.1, sonara: 0, clap: 0 }
+  }));
+  assert.equal(invalid.ok, false);
+  assert.match(invalid.error, /finite and nonnegative/);
+});
+
+test("Hybrid request guard rejects late success error and finally from an older request", async () => {
+  const { createRequestTokenGuard } = await loadSearchSurfaceState();
+  const guard = createRequestTokenGuard();
+  const older = guard.begin();
+  const newer = guard.begin();
+
+  assert.equal(guard.isCurrent(older), false, "older success/error/finally must be ignored");
+  assert.equal(guard.isCurrent(newer), true);
+  guard.invalidate();
+  assert.equal(guard.isCurrent(newer), false, "config or catalog changes invalidate the active request");
+});
+
+test("generic search results require an exact request key and their originating tab", async () => {
+  const { genericSearchResultIsCurrent } = await loadSearchSurfaceState();
+
+  assert.equal(
+    genericSearchResultIsCurrent("sonara", "sonara", "request-a", "request-a"),
+    true
+  );
+  assert.equal(
+    genericSearchResultIsCurrent("muq", "sonara", "request-a", "request-a"),
+    false,
+    "SONARA results must not render below MUQ"
+  );
+  assert.equal(
+    genericSearchResultIsCurrent("class", "sonara", "request-a", "request-a"),
+    false,
+    "generic results must not render below CLASS"
+  );
+  assert.equal(
+    genericSearchResultIsCurrent("sonara", "sonara", "request-a", "request-b"),
+    false,
+    "changed seed/filter/catalog input invalidates the response"
   );
 });
 
-test("hybrid preview clears current rows before backend errors are shown", () => {
-  assert.match(
-    source,
-    /catch \(error\) \{[\s\S]*setHybridResults\(\[\]\);[\s\S]*setHybridWarnings\(\[\]\);[\s\S]*setHybridLimitations\(\[\]\);[\s\S]*setHybridWeightsUsed\(\{\}\);[\s\S]*setHybridPreviewKey\(""\);[\s\S]*setHybridError\(message\);[\s\S]*\}/
-  );
+test("generic search requests are abortable and commit provenance only while current", () => {
+  const appSource = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const panelSource = readFileSync(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(appSource, /genericSearchRequestGuard\.current\.begin\(\)/);
+  assert.match(appSource, /genericSearchAbortController\.current\?\.abort\(\)/);
+  assert.match(appSource, /genericSearchInputKeyRef\.current === ticket\.requestKey/);
+  assert.match(appSource, /commitGenericSearchResults\(ticket, "sonara", value\)/);
+  assert.match(appSource, /commitGenericSearchResults\(ticket, "clap", value\)/);
+  assert.match(appSource, /signal: ticket\.controller\.signal/);
+  assert.match(panelSource, /genericSearchResultIsCurrent\(/);
+  assert.match(panelSource, /primaryTabPresentation\[genericSearchResultOrigin\]\.label} results/);
+  assert.match(panelSource, /\{showGenericSearchResults && genericSearchResultOrigin \?/);
 });
 
-test("hybrid backend limitations stay out of the default result area", () => {
-  assert.doesNotMatch(source, /\[\.\.\.hybridWarnings,\s*\.\.\.hybridLimitations\]/);
-  assert.match(source, /title=\{hybridDiagnosticTitle\}/);
-  assert.match(source, /Preview score is adjusted weighted RRF\./);
+test("Hybrid signature includes database path catalog identity and only Hybrid config", async () => {
+  const { hybridSignature } = await loadSearchSurfaceState();
+  const base = hybridSignature(hybridDraft());
+  assert.notEqual(base, hybridSignature(hybridDraft({ databasePath: "D:/other.sqlite" })));
+  assert.notEqual(base, hybridSignature(hybridDraft({ databaseIdentity: "catalog-b" })));
+  assert.notEqual(base, hybridSignature(hybridDraft({ sources: { mert: true, maest: true, muq: false, sonara: true, clap: true } })));
 });
 
-test("hybrid preview sends optional transition risk penalty", () => {
-  assert.match(source, /const \[hybridTransitionRiskWeight, setHybridTransitionRiskWeight\] = useState\(0\);/);
-  assert.match(source, /transition_risk_weight: hybridTransitionRiskWeight/);
-  assert.match(source, /record_session: true/);
-  assert.match(source, /Risk penalty/);
-  assert.match(source, /Optional penalty for diagnostic transition risk/);
+test("Hybrid UI consumes backend sources weights contract hashes and MuQ support", () => {
+  const source = readFileSync(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /setHybridSourcesUsed\(response\.sources\)/);
+  assert.match(source, /setHybridWeightsUsed\(response\.weights_used\)/);
+  assert.match(source, /setHybridSourceContractHashes\(response\.source_contract_hashes\)/);
+  assert.match(source, /key: "muq"/);
+  assert.match(source, /current-contract stored MuQ acoustic embeddings/);
+  assert.match(source, /CLAP text prompts are not used here/);
 });
 
-test("hybrid preview initializes and submits PR-21 feedback state", () => {
-  assert.match(source, /setHybridSessionId\(response\.session_id \?\? null\);/);
-  assert.match(source, /setHybridFeedbackDrafts\(hybridFeedbackDraftsFromResults\(response\.results\)\);/);
-  assert.match(source, /api\.evaluationPairFeedback\(\{/);
-  assert.match(source, /seed_track_ids: seeds/);
-  assert.match(source, /source: hybridFeedbackSource/);
-  assert.match(source, /Evaluation labels:/);
-});
+test("Hybrid request completion is token signature and abort guarded", () => {
+  const source = readFileSync(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url), "utf8");
 
-test("hybrid evaluation label summary waits for a selected database", () => {
-  assert.match(appSource, /databasePath=\{databasePath\}/);
-  assert.match(source, /databasePath: string \| null;/);
-  assert.match(
-    source,
-    /useEffect\(\(\) => \{[\s\S]*if \(!databasePath\) \{[\s\S]*setEvaluationLabelCounts\(null\);[\s\S]*return;[\s\S]*\}[\s\S]*void refreshEvaluationLabelCounts\(\);[\s\S]*\}, \[databasePath\]\);/
-  );
-});
-
-test("hybrid preview exposes CLAP as a stored audio source", () => {
-  assert.match(source, /const hybridSourceKeys: HybridSearchSource\[\] = \["mert", "maest", "sonara", "clap"\];/);
-  assert.match(source, /clap: true/);
-  assert.match(source, /label: "CLAP"/);
-  assert.match(source, /Uses stored CLAP audio embeddings only, without prompt input\./);
-  assert.match(source, /stored MERT, MAEST, SONARA, and CLAP analysis data only/);
-});
-
-test("hybrid classifier controls are driven by promoted classifier signal metadata", () => {
-  assert.doesNotMatch(source, /type HybridClassifierToggle = "vocalRisk" \| "abstractEdge" \| "breakEnergy" \| "liveInstrumentation";/);
-  assert.doesNotMatch(source, /const hybridClassifierOptions: Array<\{ key: HybridClassifierToggle;/);
-  assert.match(source, /type HybridClassifierSignalOption/);
-  assert.match(source, /hybridClassifierSignalOptions\(classifiers\)/);
-  assert.match(source, /classifier\.hybrid_signal/);
-  assert.match(source, /hybridClassifierPreferences\(hybridClassifierToggles, hybridClassifierOptions\)/);
-  assert.match(source, /hybridClassifierRiskWeights\(hybridClassifierToggles, hybridClassifierOptions\)/);
-  assert.match(source, /support\.label \|\| classifierKey/);
-});
-
-test("hybrid preview renders PR-22 why-this-track diagnostics", () => {
-  assert.match(source, /function HybridWhyThisTrack/);
-  assert.match(source, /Why this track\?/);
-  assert.match(source, /Unsupervised diagnostic/);
-  assert.match(source, /Adjusted score/);
-  assert.match(source, /Risk estimate/);
-  assert.match(source, /hybridAxisOrder/);
-  assert.match(source, /hybrid-source-support/);
-  assert.doesNotMatch(source, /confidence|probability|guaranteed|perfect transition/i);
-});
-
-test("hybrid preview keeps diagnostics in a separate selected-result panel", () => {
-  assert.match(source, /function HybridResultDetails/);
-  assert.match(source, /const \[hybridSelectedResultId, setHybridSelectedResultId\] = useState<number \| null>\(null\);/);
-  assert.match(source, /const selectedHybridResult = showHybridResults/);
-  assert.match(source, /selected=\{selectedHybridResult\?\.track\.id === result\.track\.id\}/);
-  assert.match(source, /onSelect=\{\(\) => setHybridSelectedResultId\(result\.track\.id\)\}/);
-  assert.match(source, /selectTitle=\{`Show Hybrid diagnostics for \$\{displayTrack\(result\.track\)\}`\}/);
-  assert.match(source, /\{selectedHybridResult \? \(\s*<HybridResultDetails/);
-  assert.match(source, /className="hybrid-result-details"/);
-  assert.match(source, /className="hybrid-result-summary-content"/);
-  assert.match(source, /<HybridFeedbackControls/);
-  assert.doesNotMatch(source, /rowSlot=\{[\s\S]*<HybridResultDetails/);
-  assert.doesNotMatch(source, /hybridExpandedRows|toggleHybridResultDetails|<details|<summary/);
-});
-
-test("hybrid preview layout wraps controls and hardens overflow", () => {
-  const selectedRowRule = cssRule(".result-row.selected");
-  const selectableRowRule = cssRule(".result-row.selectable");
-
-  assert.match(selectableRowRule, /cursor:\s*pointer;/);
-  assert.match(selectedRowRule, /border-color:\s*var\(--accent-soft-border\);/);
-  assert.match(styles, /\.hybrid-preview-panel\s*\{[\s\S]*min-width:\s*0;[\s\S]*overflow:\s*hidden;/);
-  assert.match(styles, /\.hybrid-source-grid\s*\{[\s\S]*display:\s*grid;[\s\S]*grid-template-columns:\s*repeat\(auto-fit,\s*minmax\(178px,\s*1fr\)\);/);
-  assert.match(styles, /\.hybrid-source-toggle input\[type="checkbox"\],\s*\.hybrid-classifier-controls input\[type="checkbox"\]\s*\{[\s\S]*height:\s*14px;[\s\S]*min-height:\s*14px;[\s\S]*width:\s*14px;/);
-  assert.match(styles, /\.hybrid-classifier-toggle-grid\s*\{[\s\S]*display:\s*grid;[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/);
-  assert.match(styles, /\.hybrid-result-details\s*\{[\s\S]*display:\s*grid;[\s\S]*min-width:\s*0;[\s\S]*overflow-wrap:\s*anywhere;/);
-  assert.match(styles, /\.hybrid-result-summary-content\s*\{[\s\S]*display:\s*inline-flex;[\s\S]*flex-wrap:\s*wrap;/);
-  assert.doesNotMatch(styles, /minmax\(320px,\s*1\.35fr\)/);
+  assert.match(source, /new AbortController\(\)/);
+  assert.match(source, /hybridRequestGuard\.current\.isCurrent\(requestToken\)/);
+  assert.match(source, /hybridInputKeyRef\.current !== requestKey/);
+  assert.match(source, /isAbortError\(error\)/);
+  assert.match(source, /finally \{[\s\S]*hybridRequestGuard\.current\.isCurrent\(requestToken\)[\s\S]*setHybridLoading\(false\)/);
 });

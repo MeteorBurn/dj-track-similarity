@@ -14,6 +14,7 @@ function loadLibraryViewModule() {
   const tempDir = mkdtempSync(join(tmpdir(), "library-view-test-"));
   writeTranspiledModule(new URL("../src/maestGenres.ts", import.meta.url), join(tempDir, "maestGenres.js"));
   writeTranspiledModule(new URL("../src/syncopatedRhythm.ts", import.meta.url), join(tempDir, "syncopatedRhythm.js"));
+  writeTranspiledModule(new URL("../src/libraryLoading.ts", import.meta.url), join(tempDir, "libraryLoading.js"));
   const transpiled = transpile(readFileSync(sourcePath, "utf8"));
   const modulePath = join(tempDir, "libraryView.cjs");
   writeFileSync(modulePath, transpiled, "utf8");
@@ -70,16 +71,16 @@ function transpile(source) {
 
 test("visible track add skips duplicates and preserves visible order", async () => {
   const { appendVisibleTracksToPlaylist } = await loadLibraryViewModule();
-  const playlist = [{ id: 3, title: "Already in set", path: "D:/Music/gamma.wav" }];
+  const playlist = [{ track_id: 3, catalog_uuid: "catalog-a", track_uuid: "track-3", content_generation: 1 }];
   const visible = [
-    { id: 2, title: "Broken", path: "D:/Music/alpha.wav" },
-    { id: 3, title: "Already in set", path: "D:/Music/gamma.wav" },
-    { id: 4, title: "Garage", path: "D:/Music/delta.wav" }
+    { track_id: 2, catalog_uuid: "catalog-a", track_uuid: "track-2", content_generation: 1 },
+    { track_id: 3, catalog_uuid: "catalog-a", track_uuid: "track-3", content_generation: 2 },
+    { track_id: 4, catalog_uuid: "catalog-a", track_uuid: "track-4", content_generation: 1 }
   ];
 
   const next = appendVisibleTracksToPlaylist(playlist, visible);
 
-  assert.deepEqual(next.map((track) => track.id), [3, 2, 4]);
+  assert.deepEqual(next.map((track) => track.track_id), [3, 2, 4]);
 });
 
 test("liked library filter toggles and describes liked track count", async () => {
@@ -103,17 +104,17 @@ test("library search mode toggles between substring and FTS semantics", async ()
 test("library track order can be reversed without mutating the loaded page", async () => {
   const { orderedLibraryTracks } = await loadLibraryViewModule();
   const tracks = [
-    { id: 1, title: "First", path: "D:/Music/first.wav" },
-    { id: 2, title: "Second", path: "D:/Music/second.wav" },
-    { id: 3, title: "Third", path: "D:/Music/third.wav" }
+    { track_id: 1 },
+    { track_id: 2 },
+    { track_id: 3 }
   ];
 
   const forward = orderedLibraryTracks(tracks, "forward");
   const reverse = orderedLibraryTracks(tracks, "reverse");
 
-  assert.deepEqual(forward.map((track) => track.id), [1, 2, 3]);
-  assert.deepEqual(reverse.map((track) => track.id), [3, 2, 1]);
-  assert.deepEqual(tracks.map((track) => track.id), [1, 2, 3]);
+  assert.deepEqual(forward.map((track) => track.track_id), [1, 2, 3]);
+  assert.deepEqual(reverse.map((track) => track.track_id), [3, 2, 1]);
+  assert.deepEqual(tracks.map((track) => track.track_id), [1, 2, 3]);
 });
 
 test("library page helpers report one-based pages and clamp requested page offsets", async () => {
@@ -161,7 +162,7 @@ test("playlist pagination slices pages and clamps stale offsets", async () => {
 test("syncopated rhythm label uses stored MAEST flag", async () => {
   const { hasMaestSyncopatedRhythm } = await loadSyncopatedRhythmModule();
 
-  assert.equal(hasMaestSyncopatedRhythm({ maest_syncopated_rhythm: true }), true);
-  assert.equal(hasMaestSyncopatedRhythm({ maest_syncopated_rhythm: false }), false);
-  assert.equal(hasMaestSyncopatedRhythm({ maest_genres: [{ label: "Breakbeat", score: 0.9 }] }), false);
+  assert.equal(hasMaestSyncopatedRhythm({ maest: { syncopated_rhythm: true } }), true);
+  assert.equal(hasMaestSyncopatedRhythm({ maest: { syncopated_rhythm: false } }), false);
+  assert.equal(hasMaestSyncopatedRhythm({ maest: { genres: [{ label: "Breakbeat", score: 0.9 }] } }), false);
 });

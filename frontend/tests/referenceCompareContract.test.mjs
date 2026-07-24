@@ -54,37 +54,73 @@ test("reference compare client serializes model list and seed track", async () =
   assert.deepEqual(JSON.parse(calls[0].options.body), { seed_track_id: 7, models: ["clap", "muq", "sonara"], limit: 12 });
 });
 
-test("reference compare verdict client stores model-specific verdict", async () => {
+test("reference compare verdict client stores MuQ verdict with exact v7 identities and notes", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options) => {
     calls.push({ path, options });
-    return jsonResponse({ id: 1, source: "reference_compare:maest" });
+    return jsonResponse({ id: 1, source: "reference_compare:muq" });
   });
 
-  await api.referenceCompareVerdict({ seed_track_id: 3, candidate_track_id: 9, model: "maest", verdict: "genre", notes: "same genre family" });
+  await api.referenceCompareVerdict({
+    seed: {
+      track_id: 3,
+      catalog_uuid: "catalog-a",
+      track_uuid: "seed-uuid",
+      content_generation: 4,
+    },
+    candidate: {
+      track_id: 9,
+      catalog_uuid: "catalog-a",
+      track_uuid: "candidate-uuid",
+      content_generation: 7,
+    },
+    model: "muq",
+    verdict: "palette",
+    notes: "shared acoustic palette",
+  });
 
   assert.equal(calls[0].path, "/api/reference/compare/verdict");
   assert.equal(calls[0].options.method, "POST");
   assert.deepEqual(JSON.parse(calls[0].options.body), {
-    seed_track_id: 3,
-    candidate_track_id: 9,
-    model: "maest",
-    verdict: "genre",
-    notes: "same genre family"
+    seed: {
+      track_id: 3,
+      catalog_uuid: "catalog-a",
+      track_uuid: "seed-uuid",
+      content_generation: 4,
+    },
+    candidate: {
+      track_id: 9,
+      catalog_uuid: "catalog-a",
+      track_uuid: "candidate-uuid",
+      content_generation: 7,
+    },
+    model: "muq",
+    verdict: "palette",
+    notes: "shared acoustic palette",
   });
 });
 
-test("search panel exposes LAB tab and verdict controls", () => {
-  const panelSource = readFileSync(join(srcDir, "SearchPlaylistPanel.tsx"), "utf8");
+test("reference panel uses v7 ids, exact verdict identities, notes, and stale guards", () => {
   const referencePanelSource = readFileSync(join(srcDir, "ReferenceComparePanel.tsx"), "utf8");
-  const styles = readFileSync(join(srcDir, "styles.css"), "utf8");
 
-  assert.match(panelSource, /activeSearchTab.*\| "lab"/);
-  assert.match(panelSource, />LAB</);
-  assert.match(panelSource, /<ReferenceComparePanel/);
   assert.match(referencePanelSource, /referenceCompareVerdictOptions/);
   assert.match(referencePanelSource, /api\.referenceCompare\(/);
   assert.match(referencePanelSource, /api\.referenceCompareVerdict\(/);
-  assert.match(styles, /\.reference-compare-panel/);
-  assert.match(styles, /\.reference-compare-grid/);
+  assert.match(referencePanelSource, /seed_track_id: requestedTrackId/);
+  assert.match(referencePanelSource, /seed: trackIdentityPayload\(referenceTrack\)/);
+  assert.match(referencePanelSource, /candidate: trackIdentityPayload\(result\.track\)/);
+  assert.match(referencePanelSource, /notes: verdictNotes\[key\]\?\.trim\(\) \|\| null/);
+  assert.match(referencePanelSource, /referenceCompareResponseIsCurrent/);
+  assert.match(referencePanelSource, /activeReferenceIdentityRef/);
+  assert.match(referencePanelSource, /result\.track\.track_id/);
+  assert.doesNotMatch(referencePanelSource, /result\.track\.id|referenceTrack\.id/);
+});
+
+test("reference panel keeps all five model groups visible including MuQ", () => {
+  const referencePanelSource = readFileSync(join(srcDir, "ReferenceComparePanel.tsx"), "utf8");
+
+  assert.match(referencePanelSource, /\["clap", "mert", "muq", "maest", "sonara"\]/);
+  assert.match(referencePanelSource, /orderedReferenceCompareGroups/);
+  assert.match(referencePanelSource, /available: false/);
+  assert.match(referencePanelSource, /did not return \$\{model\.toUpperCase\(\)\} availability/);
 });

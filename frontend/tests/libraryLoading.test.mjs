@@ -1,0 +1,166 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import test from "node:test";
+import ts from "typescript";
+
+async function loadLibraryLoadingModule() {
+  const source = readFileSync(new URL("../src/libraryLoading.ts", import.meta.url), "utf8");
+  const output = ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+      esModuleInterop: true
+    }
+  }).outputText;
+  const tempDir = mkdtempSync(join(tmpdir(), "library-loading-test-"));
+  const modulePath = join(tempDir, "libraryLoading.cjs");
+  writeFileSync(modulePath, output, "utf8");
+  return import(pathToFileURL(modulePath).href);
+}
+
+function track(trackId, generation = 1, catalogUuid = "catalog-a") {
+  return {
+    track_id: trackId,
+    catalog_uuid: catalogUuid,
+    track_uuid: `track-${trackId}`,
+    content_generation: generation,
+    file_path: `D:/Music/${trackId}.wav`,
+    title: `Track ${trackId}`,
+    artist: null,
+    album: null,
+    tag_bpm: null,
+    tag_key: null,
+    audio_duration_seconds: null,
+    liked: false,
+    analysis_coverage: {
+      sonara_core: false,
+      timeline: false,
+      sonara_embedding: false,
+      fingerprint: false,
+      maest_analysis: false,
+      maest_embedding: false,
+      mert: false,
+      muq: false,
+      clap: false
+    },
+    classifier_scores: []
+  };
+}
+
+test("library exposes the exact 100, 500, 1000, and all load modes", async () => {
+  const {
+    firstLibraryChunk,
+    isPagedLibraryLoadSize,
+    libraryLoadSizes,
+    libraryLoadTarget
+  } = await loadLibraryLoadingModule();
+
+  assert.deepEqual(libraryLoadSizes, [100, 500, 1000, "all"]);
+  assert.equal(isPagedLibraryLoadSize(100), true);
+  assert.equal(isPagedLibraryLoadSize(500), true);
+  assert.equal(isPagedLibraryLoadSize(1000), false);
+  assert.equal(isPagedLibraryLoadSize("all"), false);
+  assert.deepEqual(firstLibraryChunk(100), { offset: 0, limit: 100 });
+  assert.deepEqual(firstLibraryChunk(500, 500), { offset: 500, limit: 500 });
+  assert.deepEqual(firstLibraryChunk(1000), { offset: 0, limit: 500 });
+  assert.deepEqual(firstLibraryChunk("all"), { offset: 0, limit: 500 });
+  assert.equal(libraryLoadTarget(5000, 1000), 1000);
+  assert.equal(libraryLoadTarget(5000, "all"), 5000);
+});
+
+test("1000 and all use sequential chunks no larger than 500", async () => {
+  const { libraryChunkPlan } = await loadLibraryLoadingModule();
+
+  assert.deepEqual(libraryChunkPlan(1430, 1000), [
+    { offset: 0, limit: 500 },
+    { offset: 500, limit: 500 }
+  ]);
+  assert.deepEqual(libraryChunkPlan(1201, "all"), [
+    { offset: 0, limit: 500 },
+    { offset: 500, limit: 500 },
+    { offset: 1000, limit: 201 }
+  ]);
+  assert.deepEqual(libraryChunkPlan(850, 500, 500), [
+    { offset: 500, limit: 350 }
+  ]);
+  assert.equal(
+    libraryChunkPlan(5000, "all").every((chunk) => chunk.limit <= 500),
+    true
+  );
+});
+
+test("chunk aggregation is catalog-aware and replaces only same-identity newer generations", async () => {
+  const { libraryTracksBelongToCatalog, mergeLibraryTracks } = await loadLibraryLoadingModule();
+  const oldTrack = track(1, 1);
+  const unrelatedCatalogTrack = {
+    ...track(1, 1, "catalog-b"),
+    track_uuid: oldTrack.track_uuid
+  };
+  const current = [oldTrack, track(2, 3)];
+  const incoming = [
+    { ...track(1, 2), liked: true },
+    track(2, 2),
+    unrelatedCatalogTrack,
+    track(3, 1),
+    track(3, 1)
+  ];
+
+  const merged = mergeLibraryTracks(current, incoming);
+
+  assert.equal(merged.length, 4);
+  assert.equal(merged[0].content_generation, 2);
+  assert.equal(merged[0].liked, true);
+  assert.equal(merged[1].content_generation, 3);
+  assert.equal(merged[2].catalog_uuid, "catalog-b");
+  assert.equal(merged[3].track_id, 3);
+  assert.equal(libraryTracksBelongToCatalog(merged, "catalog-a"), false);
+  assert.equal(libraryTracksBelongToCatalog(merged.slice(0, 2), "catalog-a"), true);
+});
+
+test("new requests abort prior work and reject stale commits", async () => {
+  const { createLibraryLoadCoordinator } = await loadLibraryLoadingModule();
+  const coordinator = createLibraryLoadCoordinator();
+  const first = coordinator.start("catalog-a:first");
+  const second = coordinator.start("catalog-a:second");
+  const committed = [];
+
+  if (coordinator.isCurrent(first)) committed.push("first");
+  if (coordinator.isCurrent(second)) committed.push("second");
+
+  assert.equal(first.signal.aborted, true);
+  assert.equal(coordinator.isCurrent(first), false);
+  assert.equal(coordinator.isCurrent(second), true);
+  assert.deepEqual(committed, ["second"]);
+  assert.equal(coordinator.cancel(), true);
+  assert.equal(second.signal.aborted, true);
+  assert.equal(coordinator.isCurrent(second), false);
+});
+
+test("request keys include catalog, filters, scores, load mode, and paged offset", async () => {
+  const { libraryRequestKey } = await loadLibraryLoadingModule();
+  const common = {
+    databaseKey: "catalog-a",
+    query: "breaks",
+    searchMode: "fts",
+    preset: "syncopated",
+    liked: true,
+    classifierMinScores: { voice: 0.8, energy: 0.4 },
+    loadSize: 500
+  };
+
+  const firstPage = libraryRequestKey({ ...common, offset: 0 });
+  const secondPage = libraryRequestKey({ ...common, offset: 500 });
+  const reorderedScores = libraryRequestKey({
+    ...common,
+    classifierMinScores: { energy: 0.4, voice: 0.8 },
+    offset: 0
+  });
+  const otherCatalog = libraryRequestKey({ ...common, databaseKey: "catalog-b", offset: 0 });
+
+  assert.notEqual(firstPage, secondPage);
+  assert.equal(firstPage, reorderedScores);
+  assert.notEqual(firstPage, otherCatalog);
+});

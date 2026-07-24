@@ -25,9 +25,9 @@
 
 It does not upload your collection. It does not decide what is a good mix. It helps you narrow a large folder into candidates worth hearing together.
 
-The Python backend and CLI now use a greenfield schema-v7 bundle with Core plus mandatory Artifacts and
-optional Evaluation. They do not migrate older schemas. The React frontend port is deferred, so use
-CLI or direct API workflows for the current v7 contract.
+The Python backend, CLI, and React client use a greenfield schema-v7 bundle with Core plus mandatory
+Artifacts and optional Evaluation. They do not migrate older schemas. Browser, CLI, and direct API
+workflows share the same current v7 contract.
 
 ## The Project Idea
 

@@ -64,8 +64,8 @@ as a round-trip stored payload.
 
 CLI and API default to `core`. `timeline`, `embedding`, and `fingerprint` are independent output
 kinds. A deterministic contract identifies each output, so a missing current optional output is
-queued without invalidating current `core` data. The React frontend has not yet been ported to the v7
-payloads.
+queued without invalidating current `core` data. The browser exposes the same output selection and
+shows current optional-output presence in the v7 metadata detail.
 
 The exact field and scoring boundaries are in the
 [SONARA v0.3.1 project contract](../reference/sonara-v0-3-1-contract.md).

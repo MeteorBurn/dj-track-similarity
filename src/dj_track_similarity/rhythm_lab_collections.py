@@ -14,6 +14,8 @@ from pathlib import Path
 import sqlite3
 from typing import Protocol
 
+from .track_models import TrackIdentity
+
 
 DEFAULT_COLLECTION_SOURCE = "manual"
 COLLECTION_MODES = {"append", "replace"}
@@ -196,6 +198,72 @@ def build_rhythm_lab_collection_selection(
                 catalog_uuid=catalog_uuid,
                 track_uuid=str(state.track_uuid),
                 content_generation=state.content_generation,
+                selected_path=str(state.file_path),
+            )
+        )
+    return RhythmLabCollectionSelection(
+        catalog_uuid=catalog_uuid,
+        tracks=tuple(selected),
+    )
+
+
+def build_rhythm_lab_collection_selection_exact(
+    repository: RhythmLabTrackRepository,
+    expected_identities: Sequence[TrackIdentity],
+) -> RhythmLabCollectionSelection:
+    """Resolve paths without rebinding any client-confirmed v7 identity."""
+
+    catalog_uuid = _required_text(
+        repository.catalog_uuid,
+        field="repository catalog_uuid",
+    )
+    expected = tuple(expected_identities)
+    if not expected:
+        raise ValueError("Collection selection must contain at least one track")
+    seen_track_ids: set[int] = set()
+    seen_track_uuids: set[str] = set()
+    for identity in expected:
+        if not isinstance(identity, TrackIdentity):
+            raise TypeError("expected_identities must contain TrackIdentity values")
+        if identity.catalog_uuid != catalog_uuid:
+            raise RuntimeError(
+                "Track identity is stale; refresh the current catalog"
+            )
+        if (
+            identity.track_id in seen_track_ids
+            or identity.track_uuid in seen_track_uuids
+        ):
+            raise ValueError("Collection selection contains duplicate identities")
+        seen_track_ids.add(identity.track_id)
+        seen_track_uuids.add(identity.track_uuid)
+
+    states = repository.get_track_file_states_by_ids(
+        tuple(identity.track_id for identity in expected),
+        include_missing=False,
+    )
+    states_by_id = {state.track_id: state for state in states}
+    if len(states_by_id) != len(expected):
+        raise RuntimeError(
+            "Track identity is stale; refresh the current catalog"
+        )
+
+    selected: list[RhythmLabTrackSelection] = []
+    for identity in expected:
+        state = states_by_id.get(identity.track_id)
+        if (
+            state is None
+            or state.catalog_uuid != identity.catalog_uuid
+            or state.track_uuid != identity.track_uuid
+            or state.content_generation != identity.content_generation
+        ):
+            raise RuntimeError(
+                "Track identity is stale; refresh the current catalog"
+            )
+        selected.append(
+            RhythmLabTrackSelection(
+                catalog_uuid=identity.catalog_uuid,
+                track_uuid=identity.track_uuid,
+                content_generation=identity.content_generation,
                 selected_path=str(state.file_path),
             )
         )

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { SearchResult, Track } from "./api";
+import type { SearchResult, Track, TrackDetailV7 } from "./api";
 import type { ActivityEvent } from "./jobUi";
 import { displayTrack } from "./trackDisplay";
 
@@ -14,16 +14,16 @@ export function useSearchPlaylist({ onActivity }: { onActivity?: ActivityAppende
   const [playlistName, setPlaylistName] = useState("seamless-set");
   const [preview, setPreview] = useState<Track | null>(null);
   const [playingTrackId, setPlayingTrackId] = useState<number | null>(null);
-  const [metadataTrack, setMetadataTrack] = useState<Track | null>(null);
+  const [metadataTrack, setMetadataTrack] = useState<TrackDetailV7 | null>(null);
   const [seedTrackMap, setSeedTrackMap] = useState<Record<number, Track>>({});
 
   const seedSet = useMemo(() => new Set(seeds), [seeds]);
-  const playlistSet = useMemo(() => new Set(playlist.map((track) => track.id)), [playlist]);
+  const playlistSet = useMemo(() => new Set(playlist.map((track) => track.track_id)), [playlist]);
   const seedTracks = useMemo(() => seeds.map((id) => seedTrackMap[id]).filter(Boolean) as Track[], [seeds, seedTrackMap]);
 
   function addSeed(track: Track) {
-    setSeedTrackMap((current) => ({ ...current, [track.id]: track }));
-    setSeeds((current) => (current.includes(track.id) ? current : [...current, track.id]));
+    setSeedTrackMap((current) => ({ ...current, [track.track_id]: track }));
+    setSeeds((current) => (current.includes(track.track_id) ? current : [...current, track.track_id]));
   }
 
   function removeSeed(trackId: number) {
@@ -36,35 +36,35 @@ export function useSearchPlaylist({ onActivity }: { onActivity?: ActivityAppende
   }
 
   function addToPlaylist(track: Track) {
-    if (!playlistSet.has(track.id)) {
+    if (!playlistSet.has(track.track_id)) {
       onActivity?.("ok", "Добавлен в сет", displayTrack(track));
     }
-    setPlaylist((current) => (current.some((item) => item.id === track.id) ? current : [...current, track]));
+    setPlaylist((current) => (current.some((item) => item.track_id === track.track_id) ? current : [...current, track]));
   }
 
   function removeFromPlaylist(trackId: number) {
-    const removed = playlist.find((track) => track.id === trackId);
+    const removed = playlist.find((track) => track.track_id === trackId);
     if (removed) {
       onActivity?.("warn", "Убран из сета", displayTrack(removed));
     }
-    setPlaylist((current) => current.filter((track) => track.id !== trackId));
+    setPlaylist((current) => current.filter((track) => track.track_id !== trackId));
   }
 
   function togglePlaylist(track: Track) {
-    if (playlistSet.has(track.id)) {
-      removeFromPlaylist(track.id);
+    if (playlistSet.has(track.track_id)) {
+      removeFromPlaylist(track.track_id);
     } else {
       addToPlaylist(track);
     }
   }
 
   function togglePreview(track: Track) {
-    if (preview?.id === track.id && playingTrackId === track.id) {
+    if (preview?.track_id === track.track_id && playingTrackId === track.track_id) {
       setPlayingTrackId(null);
       return;
     }
     setPreview(track);
-    setPlayingTrackId(track.id);
+    setPlayingTrackId(track.track_id);
   }
 
   function markPreviewPlaying(trackId: number) {

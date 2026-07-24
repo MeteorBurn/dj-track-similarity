@@ -10,7 +10,7 @@
 flowchart LR
     CLI[Typer CLI] --> DB[LibraryDatabase]
     API[Бэкенд FastAPI] --> DB
-    UI["Интерфейс React (перенос v7 отложен)"] -.-> API
+    UI["Интерфейс React (типизированный клиент v7)"] --> API
     Audio[Аудиофайлы] --> Sonara[SONARA / Symphonia]
     Audio --> FFmpeg[FFmpeg: общее декодирование ML]
     Sonara --> Queue[Последовательная очередь анализа]
@@ -34,7 +34,7 @@ flowchart LR
 - `search.py`, `sonara_similarity*.py`, `set_builder.py` и `transition_diagnostics.py`: поиск, порядок SET и риск перехода.
 - `classifier_manifest.py`, `classifier_scoring.py` и `classifier_jobs.py`: проверка опубликованных артефактов, готовность по манифесту, общий прогресс и расчёт оценок только по базе.
 - `api_routes_*.py`: группы маршрутов FastAPI.
-- `frontend/src/`: клиент API до v7 и панели. Перенос на v7 отложен.
+- `frontend/src/`: типизированный клиент API v7, координаторы состояния фонотеки и поиска, панели React.
 
 Для нового пути `library.sqlite` создаются Core v7 и обязательная `library.artifacts.sqlite` с общим
 `catalog_uuid`. Необязательную `library.evaluation.sqlite` создают только сценарии оценки. Core

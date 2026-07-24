@@ -6,8 +6,9 @@
 
 The API is local and unauthenticated by design. Bind the server carefully. Use `127.0.0.1` unless you intentionally expose it on a LAN.
 
-The backend schemas below are the active v7 contract. The checked-in React client still uses
-pre-v7 payloads and has not yet been ported, so this page does not claim frontend compatibility.
+The backend schemas below are the active v7 contract. The React client imports matching v7
+identities, track shapes, request fields, and response types; this page remains the reference for
+endpoint ranges and validation rules.
 
 ## Database
 

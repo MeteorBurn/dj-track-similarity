@@ -4,20 +4,12 @@
 > Goal: Export M3U or CSV and understand what is written.
 > Type: guide
 
-::: warning v7 frontend status
-The React workflow below documents the deferred frontend. It has not been ported to the schema-v7
-API, so these UI steps are not currently validated or available for v7. Use the backend API
-alternative below.
-:::
-
-## Current v7 alternative
+## Direct API
 
 Call `POST /api/export` with `name`, `track_ids`, `output_dir`, and `format`. The format must be
-`m3u` or `csv`; the response returns the created `path`. Select the track IDs explicitly because
-the current v7 backend does not provide the deferred browser's temporary current-set state. See the
+`m3u` or `csv`; the response returns the created `path`. Direct clients select track IDs explicitly.
+The browser does the same when it sends its temporary current set. See the
 [API reference](../reference/api.md).
-
-## Deferred frontend workflow
 
 The current set in the UI stays temporary until export, and search results or SET previews change it only when you explicitly add tracks.
 
@@ -52,7 +44,9 @@ artist,title,bpm,key,energy,path
 
 ## Save to Rhythm Lab collection
 
-The UI can also save the current set into a Rhythm Lab collection. This writes to the Rhythm Lab labels database, not to the source audio files.
+The UI can also save the current set into a Rhythm Lab collection. Each item carries
+`catalog_uuid`, `track_uuid`, and `content_generation`. This writes to the Rhythm Lab labels
+database, not to the source audio files.
 
 ## Privacy
 

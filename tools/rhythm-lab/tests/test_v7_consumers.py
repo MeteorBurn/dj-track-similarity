@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 import sqlite3
 import sys
@@ -10,6 +11,7 @@ import uuid
 import joblib
 import numpy as np
 import pytest
+from fastapi.testclient import TestClient
 
 
 LAB_ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +19,7 @@ if str(LAB_ROOT) not in sys.path:
     sys.path.insert(0, str(LAB_ROOT))
 
 from dj_track_similarity.analysis_models import (  # noqa: E402
+    ACTIVE_CONTRACT_SETTING_PREFIX,
     AnalysisOutput,
     AnalysisTarget,
     EmbeddingOutput,
@@ -26,6 +29,7 @@ from dj_track_similarity.analysis_models import (  # noqa: E402
     MERT_PREPROCESSING,
     mert_embedding_output,
 )
+from dj_track_similarity.analysis_contracts import register_contract  # noqa: E402
 from dj_track_similarity.analysis_model_runners import (  # noqa: E402
     current_embedding_analysis_output,
 )
@@ -51,9 +55,13 @@ from rhythm_lab import artifact_io  # noqa: E402
 from rhythm_lab.cli import PromotionError  # noqa: E402
 from rhythm_lab.features import build_labeled_feature_matrix  # noqa: E402
 from rhythm_lab.lab_db import RhythmLabDatabase  # noqa: E402
-from rhythm_lab.source_db import SourceDatabase  # noqa: E402
+from rhythm_lab.source_db import (  # noqa: E402
+    SourceDatabase,
+    _ready_embedding_vectors,
+)
 from rhythm_lab.predictions import apply_model_to_lab  # noqa: E402
 from rhythm_lab.training import train_feature_set  # noqa: E402
+from rhythm_lab.web_app import create_app  # noqa: E402
 
 
 NOW = "2026-07-24T10:00:00.000000Z"
@@ -262,6 +270,16 @@ def test_source_features_lab_training_and_promotion_use_exact_v7_identity(
     )
     assert track_page["total"] == 4
     assert {item["label"] for item in track_page["items"]} == {"yes", "no"}
+    empty_track_page = source.list_tracks_page(
+        labels_db_path=lab_path,
+        classifier_key="focused",
+        label_keys=("yes", "no"),
+        training_label_keys=("yes", "no"),
+        label="all",
+        offset=100,
+    )
+    assert empty_track_page["items"] == []
+    assert empty_track_page["total"] == 4
     prediction_page = source.list_predictions_page(
         labels_db_path=lab_path,
         classifier_key="focused",
@@ -278,6 +296,19 @@ def test_source_features_lab_training_and_promotion_use_exact_v7_identity(
     assert prediction["content_generation"] == 1
     assert prediction["selected_path"] == tracks[0].file_path
     assert prediction["track_id"] == tracks[0].track_id
+    empty_prediction_page = source.list_predictions_page(
+        labels_db_path=lab_path,
+        classifier_key="focused",
+        profile_type="binary",
+        positive_label="yes",
+        negative_label="no",
+        label_keys=("yes", "no"),
+        training_label_keys=("yes", "no"),
+        label="all",
+        offset=100,
+    )
+    assert empty_prediction_page["items"] == []
+    assert empty_prediction_page["total"] == 1
 
     features = build_labeled_feature_matrix(
         repository.path,
@@ -380,6 +411,269 @@ def test_source_features_lab_training_and_promotion_use_exact_v7_identity(
     assert stale_prediction["track_uuid"] == tracks[0].track_uuid
     assert stale_prediction["content_generation"] == 1
     assert stale_prediction["selected_path"] == tracks[0].file_path
+
+
+def test_source_feature_states_distinguish_current_missing_and_stale(
+    tmp_path: Path,
+) -> None:
+    repository = Repository(tmp_path)
+    mert = _mert_output()
+    repository.register_analysis_outputs((mert,))
+    _insert_track(repository, mert, index=0)
+    current_muq = current_embedding_analysis_output("muq", device="cpu").contract
+    stale_muq = replace(
+        current_muq,
+        model_version=f"{current_muq.model_version}-stale",
+    )
+    with repository.connect() as core:
+        register_contract(core, stale_muq)
+        core.execute(
+            """
+            INSERT INTO library_settings(setting_key, setting_value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(setting_key) DO UPDATE SET
+                setting_value = excluded.setting_value,
+                updated_at = excluded.updated_at
+            """,
+            (
+                f"{ACTIVE_CONTRACT_SETTING_PREFIX}.muq.embedding",
+                stale_muq.contract_hash,
+                NOW,
+            ),
+        )
+
+    states = SourceDatabase(repository.path).feature_states()
+
+    assert states["mert"].status == "current"
+    assert states["mert"].contract_hash == mert.contract_hash
+    assert states["muq"].status == "stale"
+    assert states["muq"].contract_hash == stale_muq.contract_hash
+    assert "current runtime contract" in str(states["muq"].reason)
+    assert states["clap"].status == "missing"
+    assert states["clap"].contract_hash is None
+
+
+def test_embedding_reads_are_bounded_by_track_id_chunks() -> None:
+    class EmptyResult:
+        def fetchall(self) -> list[object]:
+            return []
+
+    class RecordingConnection:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, tuple[object, ...]]] = []
+
+        def execute(
+            self,
+            sql: str,
+            params: list[object],
+        ) -> EmptyResult:
+            self.calls.append((sql, tuple(params)))
+            return EmptyResult()
+
+    connection = RecordingConnection()
+    contract = _mert_output().contract
+
+    vectors = _ready_embedding_vectors(
+        connection,  # type: ignore[arg-type]
+        family="mert",
+        contract=contract,
+        track_ids=range(1, 1_702),
+    )
+
+    assert vectors == {}
+    assert len(connection.calls) == 3
+    assert max(len(params) for _, params in connection.calls) <= 801
+    assert all("a.track_id IN" in sql for sql, _ in connection.calls)
+
+
+def test_web_contract_uses_exact_v7_identity_and_recipe_readiness(
+    tmp_path: Path,
+) -> None:
+    repository = Repository(tmp_path)
+    mert = _mert_output()
+    repository.register_analysis_outputs((mert,))
+    for index in range(2):
+        _insert_track(repository, mert, index=index)
+    lab_path = tmp_path / "lab.sqlite"
+    _create_focused_profile(lab_path)
+    app = create_app(
+        repository.path,
+        labels_db_path=lab_path,
+        source_catalog_uuid=repository.catalog_uuid,
+    )
+
+    with TestClient(app) as client:
+        current = client.get("/api/source/current")
+        assert current.status_code == 200
+        assert current.json()["catalog_uuid"] == repository.catalog_uuid
+        assert current.json()["expected_catalog_uuid"] == repository.catalog_uuid
+
+        tracks_response = client.get(
+            "/api/profiles/focused/tracks",
+            params={"label": "all"},
+        )
+        assert tracks_response.status_code == 200
+        tracks = tracks_response.json()["items"]
+        first, second = tracks
+        assert first["track_id"] > 0
+        assert first["file_path"].endswith(".wav")
+        assert set(first["feature_status"]) == {
+            "sonara",
+            "mert",
+            "maest",
+            "clap",
+            "muq",
+        }
+        assert first["feature_status"]["mert"]["status"] == "current"
+        assert first["feature_status"]["muq"]["status"] == "missing"
+
+        mert_readiness = client.get(
+            "/api/profiles/focused/training/readiness",
+            params={"feature_set": "mert"},
+        ).json()
+        combined_readiness = client.get(
+            "/api/profiles/focused/training/readiness",
+            params={"feature_set": "combined"},
+        ).json()
+        muq_readiness = client.get(
+            "/api/profiles/focused/training/readiness",
+            params={"feature_set": "muq"},
+        ).json()
+        assert mert_readiness["features_ready"] is True
+        assert mert_readiness["labels_ready"] is False
+        assert combined_readiness["features_ready"] is False
+        assert combined_readiness["feature_recipe"]["required_sources"] == [
+            "sonara",
+            "mert",
+            "maest",
+        ]
+        assert muq_readiness["features_ready"] is False
+        assert muq_readiness["feature_recipe"]["blocking"][0]["source"] == "muq"
+
+        liked_payload = {
+            "catalog_uuid": first["catalog_uuid"],
+            "track_uuid": first["track_uuid"],
+            "content_generation": first["content_generation"],
+            "liked": True,
+        }
+        liked = client.post(
+            f"/api/tracks/{first['track_id']}/liked",
+            json=liked_payload,
+        )
+        assert liked.status_code == 200
+        assert liked.json() == {
+            "catalog_uuid": first["catalog_uuid"],
+            "track_id": first["track_id"],
+            "track_uuid": first["track_uuid"],
+            "content_generation": first["content_generation"],
+            "file_path": first["file_path"],
+            "liked": True,
+        }
+
+        wrong_identity = client.post(
+            f"/api/tracks/{first['track_id']}/liked",
+            json={
+                "catalog_uuid": second["catalog_uuid"],
+                "track_uuid": second["track_uuid"],
+                "content_generation": second["content_generation"],
+                "liked": True,
+            },
+        )
+        assert wrong_identity.status_code == 409
+        stale_generation = client.post(
+            f"/api/tracks/{first['track_id']}/liked",
+            json={
+                **liked_payload,
+                "content_generation": first["content_generation"] + 1,
+            },
+        )
+        assert stale_generation.status_code == 409
+        wrong_catalog = client.post(
+            f"/api/tracks/{first['track_id']}/liked",
+            json={**liked_payload, "catalog_uuid": "other-catalog"},
+        )
+        assert wrong_catalog.status_code == 409
+        incomplete = client.post(
+            f"/api/tracks/{first['track_id']}/liked",
+            json={"liked": False},
+        )
+        assert incomplete.status_code == 422
+
+        static_script = client.get("/static/app.js")
+        assert static_script.status_code == 200
+        script = static_script.text
+        assert "track.track_id" in script
+        assert "track.file_path" in script
+        assert "catalog_uuid: track.catalog_uuid" in script
+        assert "trackFeatureStatus" in script
+        assert '"muq"' in script
+        assert "source_contract_ready" in script
+        assert "track.id" not in script
+        assert "track.path" not in script
+
+
+def test_web_promotion_rejects_stale_muq_artifact_before_copy(
+    tmp_path: Path,
+) -> None:
+    repository = Repository(tmp_path)
+    current_muq = current_embedding_analysis_output("muq", device="cpu")
+    repository.register_analysis_outputs((current_muq,))
+    _insert_track(repository, current_muq, index=0)
+
+    artifact_dir = tmp_path / "artifacts"
+    artifact_dir.mkdir()
+    lab_path = tmp_path / "lab.sqlite"
+    lab = RhythmLabDatabase(lab_path)
+    lab.create_profile(
+        classifier_key="focused",
+        name="Focused",
+        artifact_dir=artifact_dir,
+        labels=[
+            {"key": "yes", "name": "Yes", "role": "positive"},
+            {"key": "no", "name": "No", "role": "negative"},
+        ],
+    )
+    stale_contract = replace(
+        current_muq.contract,
+        model_version=f"{current_muq.contract.model_version}-stale",
+    )
+    artifact = _write_promotable_artifact(
+        artifact_dir,
+        output=AnalysisOutput(stale_contract),
+    )
+    metrics_path = artifact.with_suffix(".metrics.json")
+    metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+    metrics["required_outputs"] = [
+        {
+            "contract_hash": stale_contract.contract_hash,
+            "canonical_payload": stale_contract.canonical_payload,
+        }
+    ]
+    metrics_path.write_text(json.dumps(metrics), encoding="utf-8")
+
+    app = create_app(
+        repository.path,
+        labels_db_path=lab_path,
+        classifier_target_root=tmp_path / "promoted",
+        source_catalog_uuid=repository.catalog_uuid,
+    )
+    with TestClient(app) as client:
+        readiness = client.get(
+            "/api/profiles/focused/training/readiness",
+            params={"feature_set": "muq"},
+        )
+        assert readiness.status_code == 200
+        option = readiness.json()["artifact_summary"]["promotion_options"][0]
+        assert option["feature_set"] == "muq"
+        assert option["source_contract_ready"] is False
+        assert "does not match" in option["source_contract_reason"]
+
+        response = client.post(
+            "/api/profiles/focused/promote",
+            json={"feature_set": "muq"},
+        )
+        assert response.status_code == 409
+        assert not (tmp_path / "promoted").exists()
 
 
 def test_promotion_accepts_exact_muq_artifact_contract(tmp_path: Path) -> None:

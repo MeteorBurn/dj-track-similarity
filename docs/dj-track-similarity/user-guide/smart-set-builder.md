@@ -4,12 +4,6 @@
 > Goal: Explain SET controls, requirements, Hybrid preview, and safety boundaries.
 > Type: guide
 
-::: warning v7 frontend status
-The React workflow below documents the deferred frontend. It has not been ported to the schema-v7
-API, so these UI steps are not currently validated or available for v7. Use the backend API
-alternative below.
-:::
-
 SET helps after search has found too many plausible tracks but you still need a musical direction
 and an order to review. You provide anchors or let the app choose them, then describe the desired
 closeness, diversity, energy shape, and optional tempo or classifier direction.
@@ -18,17 +12,16 @@ The result is an ordered listening draft. It is useful for discovering a possibl
 the library and for spotting gaps, repetitions, or abrupt changes. It is not a finished performance
 plan, cue-point generator, or guarantee that adjacent tracks will mix.
 
-## Current v7 alternative
+## Browser and API entry points
 
-Generate the ordered preview through `POST /api/set-builder/generate`. Hybrid comparison remains
-available through `POST /api/search/hybrid`. Both endpoints return data only; API clients must
-choose which track IDs to keep and call `POST /api/export` separately. The current fields and ranges
-are documented in the [API reference](../reference/api.md).
+Open **SET** in the browser. Its nested **Set Builder** and **Hybrid Preview** tabs have independent
+controls, results, errors, and cancellation. `ArrowLeft` and `ArrowRight` move between the two
+tabs; `Home` and `End` jump to the first and last tab.
 
-Source selection and custom weights are backend request fields without matching v7 controls in the
-deferred React workflow.
-
-## Deferred frontend workflow
+Set Builder calls `POST /api/set-builder/generate`. Hybrid Preview calls
+`POST /api/search/hybrid`. Both browser forms expose source selection and optional custom weights.
+The endpoints return data only. Export remains a separate action through `POST /api/export`. The
+same fields and ranges are documented in the [API reference](../reference/api.md).
 
 ## What happens when you generate
 
@@ -64,10 +57,11 @@ The default raw fusion weights are:
 SET normalizes these weights over the enabled embeddings plus SONARA broad. With all defaults, it
 divides each raw weight by `1.15`; the response reports the result in `weights_used`.
 
-For the exact pre-MuQ behavior, request only `mert`, `maest`, and `clap`. MuQ is then neither loaded
-nor required for eligibility, and the effective weights remain exactly `0.30`, `0.18`, `0.22`, and
-`0.30` for MERT, MAEST, CLAP, and SONARA broad. Custom weights must contain exactly the enabled
-embedding keys plus `sonara_broad`.
+For the exact pre-MuQ request profile, disable MuQ and enable custom weights. The browser sends only
+`mert`, `maest`, and `clap` with raw weights `0.30`, `0.18`, `0.22`, plus `sonara_broad` at
+`0.30`. MuQ is then neither loaded nor required for eligibility. The backend normalizes those raw
+values before scoring. Custom weights must contain exactly the enabled embedding keys plus
+`sonara_broad`.
 
 The response includes total-track and eligible-track counts, plus missing counts for MERT, MAEST,
 MuQ, CLAP, and SONARA.
@@ -137,8 +131,9 @@ Missing classifier scores stay neutral. Classifier controls read stored scores. 
 
 The SET tab also contains **Hybrid preview**, an explicit weighted preview across stored MERT, MAEST,
 MuQ, SONARA, and CLAP data. The backend default enables `mert`, `maest`, `muq`, `sonara`, and `clap`
-at an equal `0.20` each. These source and weight controls are not yet available in the deferred v7
-React frontend.
+at an equal `0.20` each. The browser exposes every source toggle, **Custom weights**, and reset
+controls. To reproduce the pre-MuQ Hybrid profile, disable MuQ; disabled sources are omitted from
+the request and do not remain as hidden readiness requirements.
 
 Hybrid preview:
 
@@ -166,4 +161,7 @@ The UI records evaluation session and event rows for feedback. The preview itsel
 
 ## Add preview
 
-Click **Add preview** to append the current SET preview tracks to the current set. Existing set tracks are not duplicated. Export is still a separate step.
+Click **Add preview** to append the current SET preview tracks to the current set. The action is
+enabled only for the latest Set Builder response whose database and form state still match. It
+never appends Hybrid or another search tab's results. Existing set tracks are not duplicated.
+Export is still a separate step.

@@ -5,57 +5,63 @@ import test from "node:test";
 
 const dialogPath = fileURLToPath(new URL("../src/TrackMetadataDialog.tsx", import.meta.url));
 const apiPath = fileURLToPath(new URL("../src/api.ts", import.meta.url));
-const libraryPanelPath = fileURLToPath(new URL("../src/LibraryPanel.tsx", import.meta.url));
 
-test("metadata dialog reads lightweight storage manifests from the track row", () => {
+test("metadata dialog accepts only the v7 detail contract", () => {
   const source = readFileSync(dialogPath, "utf8");
 
-  assert.match(source, /const timelineFields = track\.timeline_fields \|\| \[\];/);
-  assert.match(source, /const representationFields = track\.representation_fields \|\| \[\];/);
-  assert.doesNotMatch(source, /sonaraTimeline\(track\.id\)/);
-  assert.doesNotMatch(source, /JSON\.stringify\(timeline/);
+  assert.match(source, /import type \{ SonaraCoreV7, TrackDetailV7 \} from "\.\/api";/);
+  assert.match(source, /track: TrackDetailV7;/);
+  assert.doesNotMatch(source, /Track\s*\|\s*TrackDetailV7/);
+  assert.doesNotMatch(source, /\.metadata\b|\.path\b|representation_fields/);
 });
 
-test("metadata dialog renders separate Timeline and Representations presence blocks", () => {
+test("metadata dialog reads every detailed v7 surface directly", () => {
   const source = readFileSync(dialogPath, "utf8");
 
-  assert.match(source, /StoragePresenceBlock title="Timeline" fields=\{timelineFields\}/);
-  assert.match(source, /StoragePresenceBlock title="Representations" fields=\{representationFields\}/);
-  assert.match(source, /Данные присутствуют/);
+  for (const field of [
+    "track.file",
+    "track.file_tags",
+    "track.sonara_core",
+    "track.maest",
+    "track.embeddings",
+    "track.classifier_scores_detail",
+    "track.optional_outputs",
+  ]) {
+    assert.ok(source.includes(field), `missing detailed v7 consumer: ${field}`);
+  }
 });
 
-test("storage presence blocks list exact field names without loading values", () => {
+test("SONARA storage is shown as Core Timeline Embedding and Fingerprint", () => {
+  const source = readFileSync(dialogPath, "utf8");
+
+  assert.match(source, />SONARA · Core</);
+  assert.match(source, /<strong>SONARA · Timeline<\/strong>/);
+  assert.match(source, /title="SONARA · Embedding"/);
+  assert.match(source, /title="SONARA · Fingerprint"/);
+  assert.match(source, /track\.optional_outputs\.timeline_fields/);
+  assert.match(source, /track\.optional_outputs\.sonara_embedding_available/);
+  assert.match(source, /track\.optional_outputs\.audio_fingerprint_available/);
+  assert.doesNotMatch(source, /Representations|representation_fields/);
+});
+
+test("v7 API keeps the four independent SONARA output identifiers", () => {
+  const source = readFileSync(apiPath, "utf8");
+
+  assert.match(source, /export type SonaraOutput = "core" \| "timeline" \| "embedding" \| "fingerprint";/);
+  assert.doesNotMatch(source, /SonaraOutput[^\n]*representations/);
+});
+
+test("metadata lists timeline manifest names without loading timeline values", () => {
   const source = readFileSync(dialogPath, "utf8");
 
   assert.match(source, /fields\.map\(\(field\) => <code key=\{field\}>\{field\}<\/code>\)/);
-  assert.match(source, /fields\.length \?/);
-  assert.match(source, /Timeline данные ещё не рассчитаны/);
-  assert.match(source, /Representations ещё не рассчитаны/);
+  assert.doesNotMatch(source, /api\.sonaraTimeline|JSON\.stringify\(timeline/);
 });
 
-test("track API contract exposes both sidecar field manifests", () => {
-  const source = readFileSync(apiPath, "utf8");
-
-  assert.match(source, /timeline_fields\?: string\[\] \| null;/);
-  assert.match(source, /representation_fields\?: string\[\] \| null;/);
-});
-
-test("analysis panel exposes independent SONARA storage checkboxes", () => {
-  const source = readFileSync(libraryPanelPath, "utf8");
-
-  assert.match(source, /checked=\{sonaraOutputs\.includes\("core"\)\}/);
-  assert.match(source, /checked=\{sonaraOutputs\.includes\("timeline"\)\}/);
-  assert.match(source, /checked=\{sonaraOutputs\.includes\("representations"\)\}/);
-  assert.match(source, /Основные признаки/);
-  assert.match(source, /События и кривые/);
-  assert.match(source, /Embedding и fingerprint/);
-  assert.match(source, /native batch/);
-});
-
-test("metadata dialog renders saved compact SONARA vectors as component values", () => {
+test("metadata copies the canonical file_path", () => {
   const source = readFileSync(dialogPath, "utf8");
 
-  assert.match(source, /const compactValues = compactNumericValues\(value\);/);
-  assert.match(source, /compactValues\.map\(formatNumber\)\.join\(", "\)/);
-  assert.match(source, /flattened\.length <= 64/);
+  assert.match(source, /copyTextToClipboard\(track\.file_path\)/);
+  assert.match(source, /aria-label=\{`Copy file path: \$\{track\.file_path\}`\}/);
+  assert.doesNotMatch(source, /track\.path/);
 });

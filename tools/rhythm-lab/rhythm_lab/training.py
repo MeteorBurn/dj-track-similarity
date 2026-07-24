@@ -15,6 +15,7 @@ from .features import (
     required_outputs_payload,
 )
 from .lab_db import RhythmLabDatabase
+from .source_db import SourceDatabaseError
 
 
 POSITIVE_DISCOVERY_THRESHOLDS = (0.1, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
@@ -166,13 +167,14 @@ def benchmark_lab_database(
     label_order = list(profile.training_label_keys)
     results: dict[str, dict[str, object]] = {}
     for feature_set in feature_sets:
-        features = build_labeled_feature_matrix(
-            source_db_path,
-            labels_db_path,
-            feature_set,
-            classifier_key=profile.classifier_key,
-        )
+        features = None
         try:
+            features = build_labeled_feature_matrix(
+                source_db_path,
+                labels_db_path,
+                feature_set,
+                classifier_key=profile.classifier_key,
+            )
             result = train_feature_set(
                 features.matrix,
                 features.labels,
@@ -195,13 +197,25 @@ def benchmark_lab_database(
                 "skipped_rows": len(features.skipped_identities),
                 "feature_count": len(features.feature_names),
             }
-        except ValueError as error:
+        except (SourceDatabaseError, ValueError) as error:
             results[feature_set] = {
                 "status": "skipped",
                 "error": str(error),
-                "available_rows": int(features.matrix.shape[0]),
-                "skipped_rows": len(features.skipped_identities),
-                "feature_count": len(features.feature_names),
+                "available_rows": (
+                    int(features.matrix.shape[0])
+                    if features is not None
+                    else 0
+                ),
+                "skipped_rows": (
+                    len(features.skipped_identities)
+                    if features is not None
+                    else 0
+                ),
+                "feature_count": (
+                    len(features.feature_names)
+                    if features is not None
+                    else 0
+                ),
             }
     return results
 

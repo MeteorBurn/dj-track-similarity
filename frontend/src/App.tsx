@@ -1,7 +1,23 @@
 import type { MouseEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CopyX, FlaskConical, Moon, Power, RefreshCcw, ScrollText, Square, Sun, Wrench } from "lucide-react";
-import { AnalysisJobStatus, AnalysisModel, AnalysisPipelineStatus, api, AudioDedupJobPayload, AudioDedupJobStatus, AudioDoctorJobPayload, AudioDoctorJobStatus, GenreTagJobStatus, PromotedClassifier, RhythmLabLaunchResult, ScanStats, SetBuilderGeneratePayload, SonaraOutput, Track } from "./api";
+import {
+  AnalysisJobStatus,
+  AnalysisModel,
+  AnalysisPipelineStatus,
+  api,
+  AudioDedupJobPayload,
+  AudioDedupJobStatus,
+  AudioDoctorJobPayload,
+  AudioDoctorJobStatus,
+  EmbeddingSource,
+  GenreTagJobStatus,
+  PromotedClassifier,
+  RhythmLabLaunchResult,
+  ScanStats,
+  SonaraOutput,
+  Track,
+} from "./api";
 import { analysisSelectionOrder, defaultAnalysisSelections, isAudioAnalysisModel, type AnalysisSelection } from "./analysisSelection";
 import { AudioDedupDialog } from "./AudioDedupDialog";
 import { AudioDoctorDialog } from "./AudioDoctorDialog";
@@ -14,9 +30,14 @@ import { analysisJobRequest, cancelAnalysisJob, scanSummary, stageIndicatorLabel
 import { LibraryPanel } from "./LibraryPanel";
 import { appendVisibleTracksToPlaylist } from "./libraryView";
 import { SearchPlaylistPanel, type SearchFiltersState } from "./SearchPlaylistPanel";
+import {
+  createRequestTokenGuard,
+  type GenericSearchTab,
+  type PrimarySearchTab,
+} from "./searchSurfaceState";
 import { TrackMetadataDialog } from "./TrackMetadataDialog";
 import { TrackPanel } from "./TrackPanel";
-import { displayTrack } from "./trackDisplay";
+import { displayTrack, sameTrackIdentity } from "./trackDisplay";
 import { applyTheme, resolveInitialTheme, themeStorageKey, type ThemeMode } from "./theme";
 import { TooltipLayer, useGlobalTooltip } from "./tooltipLayer";
 import { useActivityLog } from "./useActivityLog";
@@ -27,6 +48,15 @@ import { useSearchPlaylist } from "./useSearchPlaylist";
 type Notice = { kind: "ok" | "error" | "idle"; text: string };
 type DeviceMode = "auto" | "cpu" | "cuda";
 type ResetAdapter = AnalysisModel;
+type GenericSearchResultState = {
+  origin: GenericSearchTab;
+  requestKey: string;
+};
+type GuardedRequestTicket = {
+  token: number;
+  requestKey: string;
+  controller: AbortController;
+};
 
 const defaultNotice: Notice = { kind: "idle", text: "Готово к работе" };
 const analysisModelOrder = analysisSelectionOrder;
@@ -52,12 +82,18 @@ function openRhythmLabWindow(result: RhythmLabLaunchResult, pendingWindow: Windo
 export function App() {
   const tooltip = useGlobalTooltip();
   const [databasePath, setDatabasePath] = useState<string | null>(null);
+  const [databaseCatalogUuid, setDatabaseCatalogUuid] = useState<string | null>(null);
+  const databaseCatalogUuidRef = useRef(databaseCatalogUuid);
+  databaseCatalogUuidRef.current = databaseCatalogUuid;
   const suppressNextLibraryRefresh = useRef(false);
   const { activityLog, appendActivity } = useActivityLog();
   const {
     libraryTotal,
     libraryOffset,
     libraryLoading,
+    libraryProgress,
+    libraryError,
+    libraryLoadSize,
     librarySummary,
     query,
     setQuery,
@@ -72,23 +108,29 @@ export function App() {
     hasTracks,
     canGoBack,
     canGoForward,
+    adoptDatabaseScope,
     refreshLibrary,
+    refreshLibrarySummary,
     resetLibraryState,
+    cancelLibraryLoad,
     changeLibraryPage,
     jumpToLibraryPage,
+    setLibraryLoadSize,
     toggleLibraryPreset,
     toggleLikedOnly,
     toggleLibrarySortDirection,
     filteredTracks,
     updateTrackLiked
-  } = useLibraryState({ databaseSelected: Boolean(databasePath) });
+  } = useLibraryState({
+    databaseSelected: Boolean(databasePath),
+    databaseKey: databaseCatalogUuid
+  });
   const {
     textQuery,
     setTextQuery,
     outputDir,
     setOutputDir,
     seeds,
-    setSeeds,
     results,
     setResults,
     playlist,
@@ -162,6 +204,43 @@ export function App() {
       vocalness: 0
     }
   });
+  const genericSearchRequestGuard = useRef(createRequestTokenGuard());
+  const genericSearchAbortController = useRef<AbortController | null>(null);
+  const [genericSearchPending, setGenericSearchPending] = useState(false);
+  const [genericSearchResultState, setGenericSearchResultState] = useState<GenericSearchResultState | null>(null);
+  const genericSearchInputKey = useMemo(
+    () => JSON.stringify({
+      database_path: databasePath,
+      catalog_uuid: databaseCatalogUuid,
+      seed_identities: seedTracks.map((track) => ({
+        track_id: track.track_id,
+        track_uuid: track.track_uuid,
+        content_generation: track.content_generation,
+      })),
+      filters,
+      text_query: textQuery,
+      clap_negative_query: clapNegativeQuery,
+      clap_use_negative_prompt: clapUseNegativePrompt,
+      clap_preset_key: clapPresetKey,
+      clap_min_similarity: clapMinSimilarity,
+      clap_device: analysisDevice,
+    }),
+    [
+      analysisDevice,
+      clapMinSimilarity,
+      clapNegativeQuery,
+      clapPresetKey,
+      clapUseNegativePrompt,
+      databaseCatalogUuid,
+      databasePath,
+      filters,
+      seedTracks,
+      textQuery,
+    ]
+  );
+  const genericSearchInputKeyRef = useRef(genericSearchInputKey);
+  const trackDetailRequestGuard = useRef(createRequestTokenGuard());
+  const trackDetailAbortController = useRef<AbortController | null>(null);
 
   const scanRunning = Boolean(scanJob?.state && ["queued", "running"].includes(scanJob.state));
   const analysisRunning = Boolean(
@@ -184,7 +263,7 @@ export function App() {
   const canStartScan = Boolean(databasePath && musicRoot);
   const analysisModelCounts: Record<AnalysisSelection, number> = {
     sonara: librarySummary.sonara,
-    maest: librarySummary.maest,
+    maest: librarySummary.maest_analysis,
     mert: librarySummary.mert,
     muq: librarySummary.muq,
     clap: librarySummary.clap,
@@ -208,6 +287,22 @@ export function App() {
   }, [theme]);
 
   useEffect(() => {
+    genericSearchInputKeyRef.current = genericSearchInputKey;
+    cancelGenericSearchRequest();
+    setGenericSearchResultState(null);
+    setResults([]);
+  }, [genericSearchInputKey]);
+
+  useEffect(() => {
+    cancelTrackDetailRequest();
+  }, [databaseCatalogUuid]);
+
+  useEffect(() => () => {
+    genericSearchAbortController.current?.abort();
+    trackDetailAbortController.current?.abort();
+  }, []);
+
+  useEffect(() => {
     if (!databasePath) return;
     if (suppressNextLibraryRefresh.current) {
       suppressNextLibraryRefresh.current = false;
@@ -217,7 +312,16 @@ export function App() {
       void refreshLibrary(0);
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [query, searchMode, libraryPreset, likedOnly, classifierMinScores, databasePath]);
+  }, [
+    query,
+    searchMode,
+    libraryPreset,
+    likedOnly,
+    classifierMinScores,
+    libraryLoadSize,
+    databasePath,
+    databaseCatalogUuid
+  ]);
 
   useEffect(() => {
     if (!scanJob?.job_id || !["queued", "running"].includes(scanJob.state || "")) return;
@@ -225,7 +329,7 @@ export function App() {
       void api.scanJob(scanJob.job_id!).then((job) => {
         setScanJob(job);
         if (["completed", "cancelled", "failed"].includes(job.state || "")) {
-          void refreshLibrary();
+          void refreshLibrary(0, { refreshSummary: true });
           if (job.state === "completed") {
             appendActivity("ok", "Сканирование завершено", scanSummary(job));
           }
@@ -247,7 +351,7 @@ export function App() {
       void request.then((job) => {
         setAnalysisJob(job);
         if (["completed", "cancelled", "failed"].includes(job.state)) {
-          void refreshLibrary();
+          void refreshLibrary(0, { refreshSummary: true });
         }
       }).catch((error) => {
         setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
@@ -271,7 +375,9 @@ export function App() {
             setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
           });
         }
-        if (["completed", "cancelled", "failed"].includes(job.state)) void refreshLibrary();
+        if (["completed", "cancelled", "failed"].includes(job.state)) {
+          void refreshLibrary(0, { refreshSummary: true });
+        }
       }).catch((error) => {
         setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
       });
@@ -285,7 +391,7 @@ export function App() {
       void api.genreTagJob(genreTagJob.job_id).then((job) => {
         setGenreTagJob(job);
         if (["completed", "cancelled", "failed"].includes(job.state)) {
-          void refreshLibrary();
+          void refreshLibrary(0, { refreshSummary: true });
           if (job.state === "completed") {
             appendActivity("ok", "Запись жанров завершена", genreTagJobSummary(job));
           }
@@ -306,7 +412,7 @@ export function App() {
       void api.audioDedupJob(audioDedupJob.job_id).then((job) => {
         setAudioDedupJob(job);
         if (["completed", "cancelled", "failed"].includes(job.state)) {
-          if (job.apply) void refreshLibrary();
+          if (job.apply) void refreshLibrary(0, { refreshSummary: true });
           if (job.state === "completed") {
             appendActivity("ok", "Audio Dedup завершен", `groups ${job.groups} · safe ${job.safe_candidates}`);
             setNotice({ kind: "ok", text: job.xlsx_path ? "Audio Dedup: XLSX готов" : "Audio Dedup завершен" });
@@ -328,7 +434,7 @@ export function App() {
       void api.audioDoctorJob(audioDoctorJob.job_id).then((job) => {
         setAudioDoctorJob(job);
         if (["completed", "cancelled", "failed"].includes(job.state)) {
-          if (job.apply) void refreshLibrary();
+          if (job.apply) void refreshLibrary(0, { refreshSummary: true });
           if (job.state === "completed") {
             appendActivity("ok", "Audio Doctor завершен", `repairable ${job.repairable} · repaired ${job.repaired}`);
             setNotice({ kind: "ok", text: job.xlsx_path ? "Audio Doctor: XLSX готов" : "Audio Doctor завершен" });
@@ -348,15 +454,20 @@ export function App() {
     try {
       const current = await api.currentDatabase();
       if (current.path !== databasePath) suppressNextLibraryRefresh.current = true;
+      if (current.selected) adoptDatabaseScope(current.catalog_uuid);
       setDatabasePath(current.path);
-      setMusicRoot(current.music_root || "");
+      setDatabaseCatalogUuid(current.catalog_uuid);
       if (!current.selected) {
         resetDatabaseScopedState();
         setNotice({ kind: "idle", text: "Выберите SQLite базу данных" });
         return;
       }
       const promotedClassifiersRequest = api.classifiers();
-      await refreshLibrary(0, true);
+      await refreshLibrary(0, {
+        selected: true,
+        databaseKey: current.catalog_uuid,
+        refreshSummary: true
+      });
       const promotedClassifiers = await promotedClassifiersRequest;
       setClassifiers(promotedClassifiers);
       setClassifierMinScores((current) => {
@@ -421,7 +532,10 @@ export function App() {
   }
 
   function resetDatabaseScopedState() {
+    cancelGenericSearchRequest();
+    cancelTrackDetailRequest();
     resetLibraryState();
+    setDatabaseCatalogUuid(null);
     setMusicRoot("");
     resetSearchPlaylistState();
     setScanJob(null);
@@ -431,11 +545,19 @@ export function App() {
     setGenreTagJob(null);
   }
 
-  async function run<T>(action: () => Promise<T>, ok: (value: T) => string | void) {
+  async function run<T>(
+    action: () => Promise<T>,
+    ok: (value: T) => string | void,
+    options: { refreshLibrary?: boolean; refreshSummary?: boolean } = {}
+  ) {
     setBusy(true);
     try {
       const value = await action();
-      await refreshLibrary();
+      if (options.refreshLibrary) {
+        await refreshLibrary(0, { refreshSummary: options.refreshSummary });
+      } else if (options.refreshSummary) {
+        await refreshLibrarySummary();
+      }
       const text = ok(value);
       setNotice({ kind: "ok", text: text || "Готово" });
       return value;
@@ -448,15 +570,105 @@ export function App() {
     }
   }
 
+  function beginGenericSearchRequest(): GuardedRequestTicket {
+    genericSearchAbortController.current?.abort();
+    const controller = new AbortController();
+    const ticket = {
+      token: genericSearchRequestGuard.current.begin(),
+      requestKey: genericSearchInputKeyRef.current,
+      controller,
+    };
+    genericSearchAbortController.current = controller;
+    setGenericSearchPending(true);
+    setGenericSearchResultState(null);
+    setResults([]);
+    return ticket;
+  }
+
+  function genericSearchRequestIsCurrent(ticket: GuardedRequestTicket) {
+    return (
+      genericSearchRequestGuard.current.isCurrent(ticket.token)
+      && genericSearchInputKeyRef.current === ticket.requestKey
+    );
+  }
+
+  function commitGenericSearchResults(
+    ticket: GuardedRequestTicket,
+    origin: GenericSearchTab,
+    value: Awaited<ReturnType<typeof api.search>>
+  ) {
+    if (!genericSearchRequestIsCurrent(ticket)) return false;
+    setResults(value);
+    setGenericSearchResultState({
+      origin,
+      requestKey: ticket.requestKey,
+    });
+    return true;
+  }
+
+  function finishGenericSearchRequest(ticket: GuardedRequestTicket) {
+    if (!genericSearchRequestIsCurrent(ticket)) return;
+    if (genericSearchAbortController.current === ticket.controller) {
+      genericSearchAbortController.current = null;
+    }
+    setGenericSearchPending(false);
+  }
+
+  function cancelGenericSearchRequest() {
+    genericSearchRequestGuard.current.invalidate();
+    genericSearchAbortController.current?.abort();
+    genericSearchAbortController.current = null;
+    setGenericSearchPending(false);
+  }
+
+  function handlePrimarySearchTabChange(_tab: PrimarySearchTab) {
+    cancelGenericSearchRequest();
+  }
+
+  function cancelTrackDetailRequest() {
+    trackDetailRequestGuard.current.invalidate();
+    trackDetailAbortController.current?.abort();
+    trackDetailAbortController.current = null;
+    setMetadataTrack(null);
+  }
+
   async function handleTrackDetails(track: Track) {
-    setMetadataTrack(track);
+    trackDetailAbortController.current?.abort();
+    const controller = new AbortController();
+    const token = trackDetailRequestGuard.current.begin();
+    trackDetailAbortController.current = controller;
+    setMetadataTrack(null);
     try {
-      const fullTrack = await api.track(track.id);
+      const fullTrack = await api.track(track.track_id, {
+        signal: controller.signal,
+      });
+      if (!trackDetailRequestGuard.current.isCurrent(token)) return;
+      if (
+        databaseCatalogUuidRef.current !== track.catalog_uuid
+        || !sameTrackIdentity(track, fullTrack)
+      ) {
+        throw new Error(
+          "Track details changed while loading; refresh the current catalog and try again."
+        );
+      }
       setMetadataTrack(fullTrack);
     } catch (error) {
+      if (
+        !trackDetailRequestGuard.current.isCurrent(token)
+        || isAbortError(error)
+      ) {
+        return;
+      }
       const message = error instanceof Error ? error.message : String(error);
       setNotice({ kind: "error", text: message });
       appendActivity("error", "Не удалось загрузить теги трека", message);
+    } finally {
+      if (
+        trackDetailRequestGuard.current.isCurrent(token)
+        && trackDetailAbortController.current === controller
+      ) {
+        trackDetailAbortController.current = null;
+      }
     }
   }
 
@@ -486,7 +698,7 @@ export function App() {
   }
 
   function toggleSonaraOutput(output: SonaraOutput) {
-    const order: SonaraOutput[] = ["core", "timeline", "representations"];
+    const order: SonaraOutput[] = ["core", "timeline", "embedding", "fingerprint"];
     setSonaraOutputs((current) => {
       const next = current.includes(output)
         ? current.filter((item) => item !== output)
@@ -500,15 +712,14 @@ export function App() {
     setBusy(true);
     try {
       const filtered = await filteredTracks();
-      const matchingTracks = filtered.items;
-      const nextPlaylist = appendVisibleTracksToPlaylist(playlist, matchingTracks);
+      const nextPlaylist = appendVisibleTracksToPlaylist(playlist, filtered);
       const added = nextPlaylist.length - playlist.length;
       if (!added) {
         setNotice({ kind: "idle", text: "Все отфильтрованные треки уже в сете" });
         return;
       }
       setPlaylist(nextPlaylist);
-      appendActivity("ok", "Отфильтрованная библиотека добавлена в сет", `${added} новых · всего найдено ${filtered.total}`);
+      appendActivity("ok", "Отфильтрованная библиотека добавлена в сет", `${added} новых · всего найдено ${filtered.length}`);
       setNotice({ kind: "ok", text: `Добавлено в сет: ${added}` });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -525,23 +736,31 @@ export function App() {
       return;
     }
     const customMode = filters.sonaraMode === "custom";
+    const ticket = beginGenericSearchRequest();
     appendActivity("info", "SONARA search запущен", `${filters.sonaraMode} · ${seeds.length} seed`);
-    await run(
-      () =>
-        api.sonaraSearch({
-          seed_track_ids: seeds,
-          limit: filters.limit,
-          mode: filters.sonaraMode,
-          mixer_weights: customMode ? filters.sonaraMixer : null,
-          modifiers: customMode ? filters.sonaraModifiers : null,
-          min_similarity: filters.minSimilarity
-        }),
-      (value) => {
-        setResults(value);
+    try {
+      const value = await api.sonaraSearch({
+        seed_track_ids: seeds,
+        limit: filters.limit,
+        mode: filters.sonaraMode,
+        mixer_weights: customMode ? filters.sonaraMixer : null,
+        modifiers: customMode ? filters.sonaraModifiers : null,
+        min_similarity: filters.minSimilarity
+      }, {
+        signal: ticket.controller.signal,
+      });
+      if (commitGenericSearchResults(ticket, "sonara", value)) {
         appendActivity("ok", "SONARA search завершен", `Найдено: ${value.length}`);
-        return `Найдено: ${value.length}`;
+        setNotice({ kind: "ok", text: `Найдено: ${value.length}` });
       }
-    );
+    } catch (error) {
+      if (!genericSearchRequestIsCurrent(ticket) || isAbortError(error)) return;
+      const message = error instanceof Error ? error.message : String(error);
+      setNotice({ kind: "error", text: message });
+      appendActivity("error", "SONARA search недоступен", message);
+    } finally {
+      finishGenericSearchRequest(ticket);
+    }
   }
 
   async function handleResetClassifiers() {
@@ -554,10 +773,10 @@ export function App() {
     await run(
       () => api.resetClassifiers(available.map((classifier) => classifier.classifier_key)),
       (result) => {
-        void refreshLibrary();
-        appendActivity("ok", "CLASS reset завершен", `scores ${result.scores_deleted}`);
-        return `CLASS: удалено scores ${result.scores_deleted}`;
-      }
+        appendActivity("ok", "CLASS reset завершен", `classifier rows ${result.classifier_rows_deleted}`);
+        return `CLASS: удалено classifier rows ${result.classifier_rows_deleted}`;
+      },
+      { refreshLibrary: true, refreshSummary: true }
     );
   }
 
@@ -585,35 +804,47 @@ export function App() {
         setAnalysisJob(job);
         appendActivity("ok", "Classifier job создан", `${classifier.name} · ${job.job_id.slice(0, 8)} · ${job.total} треков`);
         return `${classifier.name}: ${job.total} треков к пересчету`;
-      }
+      },
+      { refreshLibrary: true, refreshSummary: true }
     );
   }
 
-  async function handleMertSearch() {
+  async function handleEmbeddingSearch(analysisFamily: EmbeddingSource) {
     if (!seeds.length) {
-      setNotice({ kind: "error", text: "Выберите seed-треки" });
-      return;
+      const error = new Error("Выберите от 1 до 5 уникальных seed-треков");
+      setNotice({ kind: "error", text: error.message });
+      throw error;
     }
-    appendActivity("info", "MERT search запущен", `${seeds.length} seed`);
-    await run(
-      () =>
-        api.search({
-          seed_track_ids: seeds,
-          limit: filters.limit,
-          bpm_tolerance: null,
-          key_compatibility: null,
-          energy_min: null,
-          energy_max: null,
-          min_similarity: filters.minSimilarity,
-          epsilon: null,
-          noise: 0
-        }),
-      (value) => {
-        setResults(value);
-        appendActivity("ok", "MERT search завершен", `Найдено: ${value.length}`);
-        return `Найдено: ${value.length}`;
+    if (analysisFamily !== "mert" && analysisFamily !== "muq") {
+      throw new Error(`Unsupported embedding search tab: ${analysisFamily}`);
+    }
+    const label = analysisFamily.toUpperCase();
+    const ticket = beginGenericSearchRequest();
+    appendActivity("info", `${label} search запущен`, `${seeds.length} seed`);
+    try {
+      const value = await api.search({
+        analysis_family: analysisFamily,
+        seed_track_ids: seeds,
+        limit: filters.limit,
+        min_similarity: filters.minSimilarity,
+        epsilon: null,
+        noise: 0,
+      }, {
+        signal: ticket.controller.signal,
+      });
+      if (commitGenericSearchResults(ticket, analysisFamily, value)) {
+        appendActivity("ok", `${label} search завершен`, `Найдено: ${value.length}`);
+        setNotice({ kind: "ok", text: `Найдено: ${value.length}` });
       }
-    );
+    } catch (error) {
+      if (!genericSearchRequestIsCurrent(ticket) || isAbortError(error)) return;
+      const message = error instanceof Error ? error.message : String(error);
+      setNotice({ kind: "error", text: message });
+      appendActivity("error", `${label} search недоступен`, message);
+      throw error;
+    } finally {
+      finishGenericSearchRequest(ticket);
+    }
   }
 
   async function handleScan() {
@@ -656,10 +887,15 @@ export function App() {
         return;
       }
       if (value.path !== databasePath) suppressNextLibraryRefresh.current = true;
-      setDatabasePath(value.path);
       resetDatabaseScopedState();
-      setMusicRoot(value.music_root || "");
-      await refreshLibrary(0, true);
+      adoptDatabaseScope(value.catalog_uuid);
+      setDatabasePath(value.path);
+      setDatabaseCatalogUuid(value.catalog_uuid);
+      await refreshLibrary(0, {
+        selected: true,
+        databaseKey: value.catalog_uuid,
+        refreshSummary: true
+      });
       await loadLatestJobs();
       appendActivity("ok", "База выбрана", value.path);
       setNotice({ kind: "ok", text: value.path });
@@ -742,7 +978,7 @@ export function App() {
       return;
     }
     if (includeSonara && !sonaraOutputs.length) {
-      setNotice({ kind: "error", text: "Выберите хотя бы один SONARA-блок: Core, Timeline или Representations" });
+      setNotice({ kind: "error", text: "Выберите хотя бы один SONARA-блок: Core, Timeline, Embedding или Fingerprint" });
       return;
     }
     const limit = analysisLimit > 0 ? analysisLimit : undefined;
@@ -805,7 +1041,7 @@ export function App() {
         resetSearchPlaylistState();
         setScanJob(null);
         setAnalysisJob(null);
-        const detail = `${value.tracks_deleted} треков · ${value.embeddings_deleted} эмбеддингов`;
+        const detail = `${value.tracks_deleted} треков · ${value.embeddings_deleted} Core embeddings · ${value.artifacts_deleted} Artifacts rows · ${value.evaluation_rows_deleted} Evaluation rows`;
         appendActivity("ok", "База очищена", detail);
         return detail;
       }
@@ -818,10 +1054,10 @@ export function App() {
     await run(
       () => api.resetAnalysis(adapter),
       (result) => {
-        void refreshLibrary();
-        appendActivity("ok", `${label} reset завершен`, `tracks ${result.tracks_updated} · embeddings ${result.embeddings_deleted}`);
-        return `${label}: очищено tracks ${result.tracks_updated}, embeddings ${result.embeddings_deleted}`;
-      }
+        appendActivity("ok", `${label} reset завершен`, `Core ${result.core_rows_deleted} · Artifacts ${result.artifact_rows_deleted} · classifiers ${result.classifier_rows_deleted}`);
+        return `${label}: Core ${result.core_rows_deleted}, Artifacts ${result.artifact_rows_deleted}, classifiers ${result.classifier_rows_deleted}`;
+      },
+      { refreshLibrary: true, refreshSummary: true }
     );
   }
 
@@ -834,60 +1070,41 @@ export function App() {
     const manualQueries = promptQueriesFromText(prompt, clapNegativeQuery, clapUseNegativePrompt);
     const positiveQueries = manualQueries.positiveQueries;
     const negativeQueries = manualQueries.negativeQueries;
+    const ticket = beginGenericSearchRequest();
     appendActivity("info", "CLAP search запущен", negativeQueries.length ? `${prompt} · negative ${negativeQueries[0]}` : prompt);
-    await run(
-      () =>
-        api.textSearch({
-          query: prompt,
-          positive_queries: positiveQueries,
-          negative_queries: negativeQueries,
-          adaptive_contrast: true,
-          preset: clapPresetKey,
-          limit: filters.limit,
-          min_similarity: clapMinSimilarity,
-          device: analysisDevice
-        }),
-      (value) => {
-        setResults(value);
+    try {
+      const value = await api.textSearch({
+        query: prompt,
+        positive_queries: positiveQueries,
+        negative_queries: negativeQueries,
+        adaptive_contrast: true,
+        preset: clapPresetKey,
+        limit: filters.limit,
+        min_similarity: clapMinSimilarity,
+        device: analysisDevice
+      }, {
+        signal: ticket.controller.signal,
+      });
+      if (commitGenericSearchResults(ticket, "clap", value)) {
         appendActivity("ok", "CLAP search завершен", `Найдено: ${value.length}`);
-        return `Найдено: ${value.length}`;
+        setNotice({ kind: "ok", text: `Найдено: ${value.length}` });
       }
-    );
-  }
-
-  async function handleSetBuilderGenerate(payload: SetBuilderGeneratePayload) {
-    if (payload.seed_mode === "manual" && !payload.seed_track_ids.length) {
-      setNotice({ kind: "error", text: "Выберите seed-треки для SET" });
-      return;
+    } catch (error) {
+      if (!genericSearchRequestIsCurrent(ticket) || isAbortError(error)) return;
+      const message = error instanceof Error ? error.message : String(error);
+      setNotice({ kind: "error", text: message });
+      appendActivity("error", "CLAP search недоступен", message);
+    } finally {
+      finishGenericSearchRequest(ticket);
     }
-    appendActivity("info", "SET builder запущен", `${payload.mode} · ${payload.seed_mode}`);
-    await run(
-      () => api.setBuilderGenerate(payload),
-      (value) => {
-        setResults(value.items);
-        setSeeds(value.seed_track_ids);
-        const anchorTracks = value.items
-          .filter((item) => value.seed_track_ids.includes(item.track.id))
-          .map((item) => item.track);
-        setSeedTrackMap((current) => {
-          const next = { ...current };
-          for (const track of anchorTracks) {
-            next[track.id] = track;
-          }
-          return next;
-        });
-        appendActivity("ok", "SET builder завершен", `${value.items.length} треков · eligible ${value.coverage.eligible_tracks}`);
-        return `SET: ${value.items.length} треков`;
-      }
-    );
   }
 
-  function handleAddGeneratedSetToPlaylist() {
-    if (!results.length) {
+  function handleAddGeneratedSetToPlaylist(tracks: Track[]) {
+    if (!tracks.length) {
       setNotice({ kind: "error", text: "Нет SET preview для добавления" });
       return;
     }
-    const nextPlaylist = appendVisibleTracksToPlaylist(playlist, results.map((item) => item.track));
+    const nextPlaylist = appendVisibleTracksToPlaylist(playlist, tracks);
     const added = nextPlaylist.length - playlist.length;
     if (!added) {
       setNotice({ kind: "idle", text: "Все треки preview уже в сете" });
@@ -1050,7 +1267,7 @@ export function App() {
       appendActivity("error", "Экспорт не запущен", pathError);
       return;
     }
-    await run(() => api.exportPlaylist(playlistName || "seamless-set", playlist.map((track) => track.id), outputDir.trim(), format), (value) => {
+    await run(() => api.exportPlaylist(playlistName || "seamless-set", playlist.map((track) => track.track_id), outputDir.trim(), format), (value) => {
       appendActivity("ok", `Экспорт ${format.toUpperCase()}`, value.path);
       return value.path;
     });
@@ -1065,7 +1282,7 @@ export function App() {
     const name = window.prompt("Rhythm Lab collection name", defaultName)?.trim();
     if (!name) return;
     await run(
-      () => api.saveRhythmLabCollection(name, playlist.map((track) => track.id), "append"),
+      () => api.saveRhythmLabCollection(name, playlist, "append"),
       (value) => {
         appendActivity("ok", "Rhythm Lab collection", `${value.name} · ${value.track_count} tracks`);
         return `Collection saved: ${value.name}`;
@@ -1078,11 +1295,11 @@ export function App() {
   }
 
   async function handleGenreTagsApply() {
-    if (!librarySummary.maest) {
+    if (!librarySummary.maest_analysis) {
       setNotice({ kind: "error", text: "Нет MAEST жанров для записи" });
       return;
     }
-    const targetText = `${librarySummary.maest} MAEST треков`;
+    const targetText = `${librarySummary.maest_analysis} MAEST треков`;
     appendActivity("warn", "Запись жанров в теги файлов запущена", `${targetText} · standard Genre`);
     setProcessLogKind("genre_tags");
     setGenreTagJob(null);
@@ -1093,23 +1310,25 @@ export function App() {
     });
   }
 
-  async function handleToggleTrackLiked(track: Track) {
+  async function handleToggleTrackLiked(track: Track): Promise<Track | null> {
     const nextLiked = !track.liked;
     try {
-      const updated = await api.setTrackLiked(track.id, nextLiked);
+      const updated = await api.setTrackLiked(track, nextLiked);
       updateTrackLiked(updated);
-      setPlaylist((current) => current.map((item) => (item.id === updated.id ? { ...item, liked: updated.liked } : item)));
+      setPlaylist((current) => current.map((item) => (item.track_id === updated.track_id ? updated : item)));
       setResults((current) => current.map((item) => (
-        item.track.id === updated.id ? { ...item, track: { ...item.track, liked: updated.liked } } : item
+        item.track.track_id === updated.track_id ? { ...item, track: updated } : item
       )));
       setSeedTrackMap((current) => (
-        current[updated.id] ? { ...current, [updated.id]: { ...current[updated.id], liked: updated.liked } } : current
+        current[updated.track_id] ? { ...current, [updated.track_id]: updated } : current
       ));
       appendActivity(updated.liked ? "ok" : "warn", updated.liked ? "Трек лайкнут" : "Лайк снят", displayTrack(updated));
+      return updated;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setNotice({ kind: "error", text: message });
       appendActivity("error", "Не удалось изменить лайк", message);
+      return null;
     }
   }
 
@@ -1133,7 +1352,7 @@ export function App() {
       const opened = openRhythmLabWindow(result, pendingWindow);
       const status = result.already_running ? "Rhythm Lab уже запущен" : "Rhythm Lab запущен";
       setNotice({ kind: "ok", text: opened ? status : `${status}: ${result.url}` });
-      appendActivity("ok", status, result.source_db ? `source ${result.source_db}` : result.url);
+      appendActivity("ok", status, result.source ? `source ${result.source.database_path}` : result.url);
     } catch (error) {
       pendingWindow?.close();
       const message = error instanceof Error ? error.message : String(error);
@@ -1240,7 +1459,7 @@ export function App() {
           stageRunning={stageRunning}
           canStartScan={canStartScan}
           hasTracks={hasTracks}
-          maestGenreTrackCount={librarySummary.maest}
+          maestGenreTrackCount={librarySummary.maest_analysis}
           scanWorkers={scanWorkers}
           maxScanWorkers={maxScanWorkers}
           adjustScanWorkers={adjustScanWorkers}
@@ -1292,6 +1511,7 @@ export function App() {
         />
 
         <TrackPanel
+          databaseSelected={Boolean(databasePath && databaseCatalogUuid)}
           query={query}
           onQueryChange={setQuery}
           searchMode={searchMode}
@@ -1303,6 +1523,13 @@ export function App() {
           onToggleLikedOnly={toggleLikedOnly}
           librarySortDirection={librarySortDirection}
           onToggleLibrarySortDirection={toggleLibrarySortDirection}
+          loadSize={libraryLoadSize}
+          onLoadSizeChange={setLibraryLoadSize}
+          loadProgress={libraryProgress}
+          loadError={libraryError}
+          onCancelLoading={() => {
+            cancelLibraryLoad();
+          }}
           preview={preview}
           playingTrackId={playingTrackId}
           tracks={orderedTracks}
@@ -1342,11 +1569,16 @@ export function App() {
           clapMinSimilarity={clapMinSimilarity}
           onClapMinSimilarityChange={setClapMinSimilarity}
           databasePath={databasePath}
-          busy={busy || !databasePath}
+          databaseIdentity={databaseCatalogUuid}
+          busy={busy || genericSearchPending || !databasePath}
           filters={filters}
           setFilters={setFilters}
           seeds={seeds}
           results={results}
+          genericSearchInputKey={genericSearchInputKey}
+          genericSearchResultKey={genericSearchResultState?.requestKey || ""}
+          genericSearchResultOrigin={genericSearchResultState?.origin || null}
+          onPrimarySearchTabChange={handlePrimarySearchTabChange}
           seedSet={seedSet}
           playlistSet={playlistSet}
           playlist={playlist}
@@ -1356,7 +1588,12 @@ export function App() {
           onOutputDirChange={setOutputDir}
           onChooseOutputFolder={() => void handleChooseOutputFolder()}
           helpText={helpText}
-          clapEmbeddingCount={librarySummary.clap}
+          embeddingCounts={{
+            mert: librarySummary.mert,
+            maest: librarySummary.maest_embedding,
+            muq: librarySummary.muq,
+            clap: librarySummary.clap
+          }}
           classifiers={classifiers}
           classifierMinScores={classifierMinScores}
           onClassifierMinScoreChange={(classifier, value) =>
@@ -1367,11 +1604,10 @@ export function App() {
           removeSeed={removeSeed}
           handleTextSearch={() => void handleTextSearch()}
           handleSonaraSearch={() => void handleSonaraSearch()}
-          handleMertSearch={() => void handleMertSearch()}
-          handleSetBuilderGenerate={(payload) => void handleSetBuilderGenerate(payload)}
+          handleEmbeddingSearch={handleEmbeddingSearch}
           addGeneratedSetToPlaylist={handleAddGeneratedSetToPlaylist}
           addSeed={addSeed}
-          toggleLiked={(track) => void handleToggleTrackLiked(track)}
+          toggleLiked={handleToggleTrackLiked}
           togglePlaylist={togglePlaylist}
           playingTrackId={playingTrackId}
           setPreview={togglePreview}
@@ -1432,4 +1668,8 @@ export function App() {
 
 function genreTagJobSummary(job: GenreTagJobStatus) {
   return `записано ${job.applied} · пропущено ${job.skipped} · ошибок ${job.failed} · всего ${job.total}`;
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof Error && error.name === "AbortError";
 }

@@ -1,18 +1,13 @@
-# Browse the library without loading everything
+# Browse a large library without rendering everything
 
 > Audience: Users navigating the main web UI after scan.
 > Goal: Find tracks, inspect metadata, preview audio, and build seeds or a temporary set.
 > Type: guide
 
-::: warning v7 frontend status
-The React workflow below documents the deferred frontend. It has not been ported to the schema-v7
-API, so these UI steps are not currently validated or available for v7. Use the backend API
-alternative below.
-:::
+## Direct API equivalent
 
-## Current v7 alternative
-
-Start the backend on `127.0.0.1`, then use the paginated library endpoints directly:
+The browser uses the same v7 endpoints shown here. For scripting, start the backend on `127.0.0.1`
+and call them directly:
 
 ```powershell
 Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/library/summary'
@@ -23,23 +18,32 @@ Use `GET /api/tracks/{track_id}` for full metadata and `GET /media/{track_id}` f
 The current response shapes and filter query parameters are in the
 [API reference](../reference/api.md).
 
-## Deferred frontend behavior
+## Loading behavior
 
-The library panel reads `/api/tracks` with server-side pagination. It does not load the entire SQLite library into the browser.
+The library panel offers `100`, `500`, `1000`, and **All**:
+
+- `100` and `500` read `/api/tracks` with server-side paging.
+- `1000` and **All** read sequential chunks of at most `500`, show progress, and can be cancelled.
+- Results larger than `120` rows render in `120`-row windows with **Previous rows** and
+  **Next rows**. The rest of the loaded result stays in memory instead of the DOM.
+
+Database changes and newer loads invalidate older responses. Duplicate rows are reconciled by
+`catalog_uuid` and `track_uuid`, keeping the greatest `content_generation`.
 
 ## Main controls
 
 The library browser supports:
 
 - Text search over artist, title, album, path, genres, and other indexed fields.
-- Search mode selection between `like` and FTS where the UI exposes it.
+- Search mode selection between `like` and `fts`.
 - A syncopated rhythm preset when MAEST syncopated rhythm data exists.
 - Liked-only filtering.
 - Classifier minimum-score filters when promoted classifier scores exist.
 - Sort direction toggle.
-- Previous, next, and page jump controls.
+- Previous, next, and page jump controls for `100` and `500`.
 
-The API caps page size at `1..500`. The UI keeps rows light and opens full metadata only on demand.
+The API caps each request at `1..500`. The UI keeps rows light and opens full metadata only on
+demand.
 
 ## Metadata dialog
 
@@ -64,7 +68,9 @@ If the file is missing, preview returns an error instead of hiding the problem.
 
 ## Likes
 
-The like button writes a local SQLite row. It does not edit audio tags. Likes can be used for browsing and filtering.
+The like button writes a local SQLite row with `catalog_uuid`, `track_uuid`, and
+`expected_content_generation`. It does not edit audio tags. Likes can be used for browsing and
+filtering.
 
 ## Seeds and the current set
 
@@ -76,8 +82,11 @@ From each visible result row you can:
 - open metadata,
 - toggle liked state.
 
-Seeds feed MERT, SONARA, SET, and Hybrid preview. The current set is the temporary playlist shown in the right panel. It is not written to disk until you export it.
+Seeds feed MERT, MuQ, SONARA, SET, Hybrid preview, and LAB Reference Compare. The current set is the
+temporary playlist shown in the right panel. It is not written to disk until you export it or save
+it as a Rhythm Lab collection.
 
 ## Add visible tracks
 
-The UI can add all currently filtered tracks to the current set. This reads the filtered result list from the server and appends tracks that are not already in the set.
+The UI can add all currently filtered tracks to the current set. It reads the full filtered result
+from the server in bounded chunks and appends tracks that are not already in the set.

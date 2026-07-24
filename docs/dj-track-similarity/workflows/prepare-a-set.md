@@ -4,31 +4,20 @@
 > Goal: Move from seed tracks to export without treating the preview as final truth.
 > Type: workflow
 
-::: warning v7 frontend status
-The React workflow below documents the deferred frontend. It has not been ported to the schema-v7
-API, so these UI steps are not currently validated or available for v7. Use the backend CLI or API
-alternative below.
-:::
-
 Use this workflow when you have a few tracks that define a direction but do not yet have a useful
 route between them. The result is an editable sequence of candidates: enough structure to begin
 rehearsing or crate preparation, without pretending the order is final.
 
-## Current v7 alternative
+## Browser and API entry points
 
-Use `POST /api/search` or `POST /api/search/sonara` to expand the anchors, then send the chosen track
-IDs to `POST /api/set-builder/generate`. Audition returned candidates through
-`GET /media/{track_id}`. After listening and manual selection, send the final IDs to
-`POST /api/export`. CLAP text search is also available through `dj-sim text-search`. The current
-contracts are in the [API reference](../reference/api.md).
+The browser provides the complete workflow below. Direct clients can use `POST /api/search` or
+`POST /api/search/sonara` to expand anchors, send chosen track IDs to
+`POST /api/set-builder/generate`, audition candidates through `GET /media/{track_id}`, and send the
+final IDs to `POST /api/export`. CLAP text search is also available through
+`dj-sim text-search`. The current contracts are in the [API reference](../reference/api.md).
 
-The SET and Hybrid source/weight fields are available through these backend endpoints. Equivalent
-React controls remain part of the deferred frontend port.
-
-## Deferred frontend workflow
-
-The remaining workflow uses the deferred main UI. Expect to remove, replace, and reorder tracks
-after listening when the React port becomes available.
+The browser's SET tab exposes the same source/weight fields in independent **Set Builder** and
+**Hybrid Preview** tabs. Expect to remove, replace, and reorder tracks after listening.
 
 ## 1. Start with a scanned and analyzed library
 
@@ -39,10 +28,10 @@ dj-sim analyze --models sonara --db .\data\library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --db .\data\library.sqlite
 ```
 
-The default SET request requires SONARA, MERT, MAEST, MuQ, and CLAP. If you deliberately request
-only `mert`, `maest`, and `clap`, MuQ is not loaded or required for eligibility, and the effective
-weights remain the previous `0.30`, `0.18`, `0.22`, and `0.30` for MERT, MAEST, CLAP, and SONARA
-broad.
+The default SET request requires SONARA, MERT, MAEST, MuQ, and CLAP. For the exact pre-MuQ request,
+select only `mert`, `maest`, and `clap` with raw weights `0.30`, `0.18`, `0.22`, plus SONARA broad
+at `0.30`. MuQ is not loaded or required for eligibility, and the backend normalizes the selected
+weights.
 
 ## 2. Pick anchors
 
@@ -57,7 +46,7 @@ Open the SET tab.
 - Choose **Manual** if your selected seeds should be fixed anchors.
 - Choose **Auto** if you want the app to choose anchors from the eligible library.
 - Pick a set mode, energy curve, track limit, and diversity value.
-- In an API client, keep the default MERT, MAEST, MuQ, and CLAP sources or choose an explicit subset.
+- Keep the default MERT, MAEST, MuQ, and CLAP sources or choose an explicit subset.
 - Use BPM trajectory only when you truly want the set to climb or descend.
 - Use classifier preferences only when you understand the promoted classifier.
 
@@ -82,7 +71,8 @@ Preview candidates by ear. Watch for:
 
 ## 6. Add and export
 
-Click **Add preview** only when the preview is useful. Then edit the current set manually and export M3U or CSV.
+Click **Add preview** only when the latest Set Builder preview is useful. The action does not append
+Hybrid or another search tab's results. Then edit the current set manually and export M3U or CSV.
 
 ```mermaid
 flowchart LR

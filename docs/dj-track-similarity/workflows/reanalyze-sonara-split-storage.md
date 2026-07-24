@@ -92,6 +92,7 @@ decode or modify audio.
 
 ## 7. Use the current surface
 
-The backend and CLI use the v7 contract. The React frontend port is explicitly deferred, so
-do not use current UI behavior as proof that the v7 API is ready. Validate with CLI output, API
-responses, focused tests, and direct SQLite integrity checks.
+The backend, CLI, and React client use the v7 contract. The browser exposes SONARA outputs, batch
+size, progress, blockers, cancellation, and reset. For a release rebuild, still validate with CLI
+receipts, API responses, focused tests, and direct SQLite integrity checks; a browser status alone
+is not proof that the full-library rebuild is complete.

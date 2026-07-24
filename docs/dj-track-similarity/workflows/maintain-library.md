@@ -16,5 +16,6 @@ crash-resumable `prepare-sonara-release` workflow with backups, then reanalyze a
 SONARA-dependent classifier. It is not a distributed atomic transaction.
 
 Use `python scripts\optimize_database.py --db .\data\library.sqlite` only for a local bundle you
-control. It validates and backs up Core + Artifacts before maintenance. The frontend v7 port is
-deferred, so use CLI/API workflows rather than current browser controls.
+control. It validates and backs up Core + Artifacts before maintenance. The browser supports v7
+scan, Refresh Tags, relocation preview, and report-first helper jobs; database optimization remains
+an explicit script workflow.

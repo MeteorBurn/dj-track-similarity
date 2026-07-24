@@ -9,6 +9,8 @@ from numbers import Integral, Real
 import sqlite3
 from typing import Any
 
+from .track_models import TrackIdentity
+
 
 PROMOTED_SCORE_PROFILE_SETTING_KEY = "evaluation.promoted_score_profile"
 
@@ -437,6 +439,125 @@ class EvaluationRepository:
             source=source,
         )
         return feedback_ids[0]
+
+    def upsert_track_pair_feedback_exact(
+        self,
+        seed: TrackIdentity,
+        candidate: TrackIdentity,
+        rating: int,
+        reason_tags: Sequence[str] = (),
+        notes: str | None = None,
+        source: str = "manual",
+    ) -> int:
+        """Atomically guard two current identities and persist their feedback.
+
+        The identity predicates and the upsert execute in one SQLite statement.
+        A scanner/content update therefore cannot land between a successful
+        optimistic check and a numeric-id feedback write.
+        """
+
+        if not isinstance(seed, TrackIdentity):
+            raise TypeError("seed must be a TrackIdentity")
+        if not isinstance(candidate, TrackIdentity):
+            raise TypeError("candidate must be a TrackIdentity")
+        if (
+            seed.catalog_uuid != self.catalog_uuid
+            or candidate.catalog_uuid != self.catalog_uuid
+        ):
+            raise RuntimeError(
+                "Track identity is stale; refresh the current catalog"
+            )
+        clean_rating = _rating(rating)
+        reason_tags_json = _json_text(_clean_tags(reason_tags, "Reason tag"))
+        clean_source = _required_text(source, "Pair feedback source")
+        timestamp = _utc_timestamp()
+        with (
+            self._write_lock,
+            closing(self.connect()) as connection,
+        ):
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = connection.execute(
+                    """
+                    INSERT INTO pair_feedback(
+                        seed_track_id,
+                        candidate_track_id,
+                        rating,
+                        reason_tags_json,
+                        notes,
+                        source,
+                        created_at,
+                        updated_at
+                    )
+                    SELECT ?, ?, ?, ?, ?, ?, ?, ?
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM tracks
+                        WHERE track_id = ?
+                          AND track_uuid = ?
+                          AND content_generation = ?
+                          AND missing_since IS NULL
+                    )
+                      AND EXISTS (
+                        SELECT 1
+                        FROM tracks
+                        WHERE track_id = ?
+                          AND track_uuid = ?
+                          AND content_generation = ?
+                          AND missing_since IS NULL
+                    )
+                    ON CONFLICT(seed_track_id, candidate_track_id, source)
+                    DO UPDATE SET
+                        rating = excluded.rating,
+                        reason_tags_json = excluded.reason_tags_json,
+                        notes = excluded.notes,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        seed.track_id,
+                        candidate.track_id,
+                        clean_rating,
+                        reason_tags_json,
+                        notes,
+                        clean_source,
+                        timestamp,
+                        timestamp,
+                        seed.track_id,
+                        seed.track_uuid,
+                        seed.content_generation,
+                        candidate.track_id,
+                        candidate.track_uuid,
+                        candidate.content_generation,
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise RuntimeError(
+                        "Track identity is stale; refresh the current catalog"
+                    )
+                row = connection.execute(
+                    """
+                    SELECT feedback_id
+                    FROM pair_feedback
+                    WHERE seed_track_id = ?
+                      AND candidate_track_id = ?
+                      AND source = ?
+                    """,
+                    (
+                        seed.track_id,
+                        candidate.track_id,
+                        clean_source,
+                    ),
+                ).fetchone()
+                if row is None:
+                    raise RuntimeError(
+                        "Failed to persist exact-identity pair feedback"
+                    )
+                connection.commit()
+                return int(row["feedback_id"])
+            except BaseException:
+                if connection.in_transaction:
+                    connection.rollback()
+                raise
 
     def upsert_track_pair_feedback_for_seeds(
         self,

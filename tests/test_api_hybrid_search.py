@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 import numpy as np
 
 import dj_track_similarity.api as api
+import dj_track_similarity.api_routes_search as search_routes
 from dj_track_similarity.analysis_model_runners import (
     MaestModelRunner,
     current_embedding_analysis_output,
@@ -159,6 +160,35 @@ def test_hybrid_search_endpoint_rejects_invalid_weights(monkeypatch, tmp_path: P
 
     assert response.status_code == 400
     assert "positive" in response.json()["detail"]
+
+
+def test_hybrid_search_endpoint_maps_runtime_readiness_error_to_conflict(
+    monkeypatch, tmp_path: Path
+) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+
+    def fail_readiness(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("MuQ artifacts are not current for this catalog")
+
+    monkeypatch.setattr(
+        search_routes,
+        "build_hybrid_search_preview",
+        fail_readiness,
+    )
+    response = _client(monkeypatch, db_path).post(
+        "/api/search/hybrid",
+        json={
+            "seed_track_ids": [1],
+            "sources": ["muq"],
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "MuQ artifacts are not current for this catalog"
+    )
+    assert not db.evaluation_path.exists()
 
 
 def test_hybrid_search_endpoint_rejects_invalid_transition_risk_weight(monkeypatch, tmp_path: Path) -> None:

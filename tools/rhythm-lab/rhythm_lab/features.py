@@ -21,6 +21,14 @@ BASE_FEATURE_SOURCES = ("sonara", *EMBEDDING_FEATURE_SOURCES)
 SUPPORTED_FEATURE_SOURCES = (*SONARA_SOURCE_VARIANTS, *EMBEDDING_FEATURE_SOURCES)
 FEATURE_SOURCE_ALIASES = {"sonara2": "sonara", "sonara2vocal": "sonara"}
 FEATURE_SETS = ("sonara", "mert", "maest", "muq", "combined")
+FEATURE_RECIPE_OPTIONS = (
+    "combined",
+    *(
+        "+".join(sources)
+        for size in range(1, len(BASE_FEATURE_SOURCES) + 1)
+        for sources in combinations(BASE_FEATURE_SOURCES, size)
+    ),
+)
 _LEGACY_ABLATION_EMBEDDING_SOURCES = ("mert", "maest", "clap")
 _LEGACY_ABLATION_FEATURE_SETS = tuple(
     "combined" if sources == ("sonara", "mert", "maest") else "+".join(sources)
@@ -389,6 +397,51 @@ def feature_sources(feature_set: str) -> tuple[str, ...]:
     if duplicates:
         raise ValueError(f"Duplicate feature source: {', '.join(duplicates)}")
     return tuple(source for source in BASE_FEATURE_SOURCES if source in normalized)
+
+
+def feature_recipe_readiness(
+    feature_set: str,
+    feature_states: Mapping[str, object],
+) -> dict[str, object]:
+    """Describe readiness strictly for the selected feature recipe."""
+
+    required_sources = feature_sources(feature_set)
+    selected_states: dict[str, dict[str, object]] = {}
+    blocking: list[dict[str, object]] = []
+    for source in required_sources:
+        state = _feature_state_payload(feature_states.get(source), source=source)
+        selected_states[source] = state
+        if state["status"] != "current":
+            blocking.append({"source": source, **state})
+    return {
+        "feature_set": str(feature_set).strip().lower(),
+        "required_sources": list(required_sources),
+        "ready": not blocking,
+        "sources": selected_states,
+        "blocking": blocking,
+    }
+
+
+def _feature_state_payload(value: object, *, source: str) -> dict[str, object]:
+    if isinstance(value, Mapping):
+        status = str(value.get("status") or "missing")
+        reason = value.get("reason")
+        contract_hash = value.get("contract_hash")
+    else:
+        status = str(getattr(value, "status", "missing"))
+        reason = getattr(value, "reason", None)
+        contract_hash = getattr(value, "contract_hash", None)
+    if status not in {"current", "missing", "stale"}:
+        status = "missing"
+        reason = f"{source.upper()} feature status is unavailable."
+        contract_hash = None
+    return {
+        "status": status,
+        "reason": None if reason is None else str(reason),
+        "contract_hash": (
+            None if contract_hash is None else str(contract_hash)
+        ),
+    }
 
 
 def _sonara_scalar_fields(feature_set: str) -> tuple[str, ...]:

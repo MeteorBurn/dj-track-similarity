@@ -1,28 +1,37 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import test from "node:test";
 
-const appPath = fileURLToPath(new URL("../src/App.tsx", import.meta.url));
-const panelPath = fileURLToPath(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url));
-const helpTextPath = fileURLToPath(new URL("../src/helpText.ts", import.meta.url));
+const panelSource = readFileSync(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url), "utf8");
+const embeddingTabSource = readFileSync(new URL("../src/EmbeddingSearchTab.tsx", import.meta.url), "utf8");
 
-test("SONARA tab exposes backend search modes instead of forcing custom mode", () => {
-  const appSource = readFileSync(appPath, "utf8");
-  const panelSource = readFileSync(panelPath, "utf8");
-
+test("SONARA tab exposes backend modes and custom vocalness modifier", () => {
   assert.match(panelSource, /sonaraModeOptions/);
   assert.match(panelSource, /value=\{filters\.sonaraMode\}/);
-  assert.match(appSource, /mode:\s*filters\.sonaraMode/);
-  assert.doesNotMatch(appSource, /mode:\s*"custom"/);
+  assert.match(panelSource, /key: "vocalness", label: "Vocal"/);
+  assert.match(panelSource, /handleSonaraSearch/);
 });
 
-test("SONARA custom modifiers include vocalness with help text", () => {
-  const appSource = readFileSync(appPath, "utf8");
-  const panelSource = readFileSync(panelPath, "utf8");
-  const helpSource = readFileSync(helpTextPath, "utf8");
+test("MERT and MUQ use one typed generic embedding search component and handler", () => {
+  assert.match(panelSource, /activeSearchTab === "mert" \|\| activeSearchTab === "muq"/);
+  assert.match(panelSource, /<EmbeddingSearchTab/);
+  assert.match(panelSource, /analysisFamily=\{activeSearchTab\}/);
+  assert.match(panelSource, /handleEmbeddingSearch: \(analysisFamily: EmbeddingSource\) => Promise<void>/);
+  assert.match(panelSource, /await handleEmbeddingSearch\(analysisFamily\)/);
+  assert.doesNotMatch(panelSource, /handleMertSearch/);
+});
 
-  assert.match(appSource, /vocalness:\s*0/);
-  assert.match(panelSource, /key:\s*"vocalness", label:\s*"Vocal"/);
-  assert.match(helpSource, /sonaraModifierVocalness:/);
+test("MUQ remains visible at zero coverage and shows a non-blocking current-contract reason", () => {
+  assert.match(panelSource, /muq: \{ label: "MUQ"/);
+  assert.match(panelSource, /currentEmbeddingCount=\{embeddingCounts\[activeSearchTab\]\}/);
+  assert.match(embeddingTabSource, /No current \$\{label\} embeddings are available in the selected catalog/);
+  assert.match(embeddingTabSource, /disabled=\{busy \|\| pending \|\| Boolean\(missingReason\)\}/);
+  assert.match(embeddingTabSource, /\{error \? <span className="embedding-search-requirement error">\{error\}<\/span> : null\}/);
+});
+
+test("embedding search controls clamp finite values without turning empty input into zero", () => {
+  assert.match(embeddingTabSource, /Number\.isFinite\(event\.currentTarget\.valueAsNumber\)/);
+  assert.match(embeddingTabSource, /Math\.max\(0, Math\.min\(1,/);
+  assert.match(embeddingTabSource, /Math\.round\(Math\.max\(1, Math\.min\(500,/);
+  assert.doesNotMatch(embeddingTabSource, /Number\(event\.target\.value\)/);
 });

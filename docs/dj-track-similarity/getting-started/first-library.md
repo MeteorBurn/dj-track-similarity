@@ -32,25 +32,38 @@ by resolving its path. Earlier v5/v6 layouts, including `*.timeline.sqlite` and
 
 ## Choose or create a database
 
+In the browser, click the database button beside the read-only path field and select the Core
+SQLite file. Selecting a new path creates the Core + Artifacts bundle; selecting an existing path
+loads it only after the runtime validates schema version `7`, the mandatory Artifacts companion,
+and the shared `catalog_uuid`. Switching the database also clears old library/search state so a
+late response cannot leak rows from the previous catalog.
+
 From the CLI, pass `--db`:
 
 ```powershell
 dj-sim scan D:\Music --db .\data\library.sqlite
 ```
 
-The frontend v7 port is deferred. Do not rely on the current browser controls for a v7 library;
-use the CLI or API contracts while the UI is being ported.
-
 ## Scan a folder
 
-CLI:
+In the browser:
+
+1. Choose the database.
+2. Enter **Music root** or use the folder picker.
+3. Adjust **Scan workers** when needed.
+4. Click **Load tracks into the database**.
+
+The scan job shows queued/running progress, counts, errors, cancellation, and completion in the
+activity panel. The browser refreshes the typed v7 library summary when the job finishes.
+
+The equivalent CLI command is:
 
 ```powershell
 dj-sim scan D:\Music --db .\data\library.sqlite
 ```
 
-The verified v7 scan surface is the CLI command above. It creates a fresh, bound Core + Artifacts
-pair when neither file exists. It does not convert an older database.
+Both surfaces create a fresh, bound Core + Artifacts pair when neither file exists. Neither
+converts an older database.
 
 Scan supports these extensions:
 
@@ -76,10 +89,18 @@ The CLI prints added, updated, unchanged, and skipped counts.
 ## Refresh Tags
 
 The v7 backend can reread file tags for existing tracks without rerunning SONARA, MAEST, MERT,
-MuQ, or CLAP. Its browser control is deferred with the frontend port, so use the current CLI/API
-surface rather than treating the old UI instructions as available.
+MuQ, or CLAP. Click **Refresh Tags** in the database panel to start the typed refresh job. It uses
+the current scan-worker value and reports progress through the same activity surface as scan.
 
 ## Browse after scan
 
-The v7 backend/API has typed library queries, but the frontend controls are not yet v7-compatible.
-Treat existing browser instructions as deferred until the frontend port lands.
+The library panel starts with `100` rows and offers `100`, `500`, `1000`, or **All**:
+
+- `100` and `500` use backend paging with previous, next, and page-number controls.
+- `1000` and **All** fetch sequential chunks of at most `500`, show progress, and can be cancelled.
+- A loaded result larger than `120` rows is rendered in `120`-row windows. **Previous rows** and
+  **Next rows** move the visible window without refetching the library.
+
+The browser deduplicates each loaded result by `catalog_uuid` and `track_uuid`, keeping the highest
+`content_generation`. Metadata opens from the v7 detail endpoint only when requested; preview and
+liked-track changes use the same exact track identity.

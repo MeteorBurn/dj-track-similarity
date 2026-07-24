@@ -1,8 +1,47 @@
 from __future__ import annotations
 
 import json
+from typing import Protocol
 
 from fastapi import HTTPException
+
+from .api_schemas import TrackIdentityRequestV7
+from .track_models import TrackIdentity
+
+
+class _TrackIdentityRepository(Protocol):
+    catalog_uuid: str
+
+    def get_track_identity(
+        self,
+        track_id: int,
+        *,
+        include_missing: bool = False,
+    ) -> TrackIdentity | None: ...
+
+
+def require_current_track_identity(
+    repository: _TrackIdentityRepository,
+    expected: TrackIdentityRequestV7,
+) -> TrackIdentity:
+    """Resolve and compare one exact current v7 identity.
+
+    This guard is for delayed mutations whose numeric track id may have been
+    rebound by a database switch or content replacement.
+    """
+
+    current = repository.get_track_identity(expected.track_id)
+    if current is None:
+        raise KeyError(f"Track {expected.track_id} is not current")
+    if (
+        current.catalog_uuid != expected.catalog_uuid
+        or current.track_uuid != expected.track_uuid
+        or current.content_generation != expected.content_generation
+    ):
+        raise RuntimeError(
+            f"Track {expected.track_id} identity is stale; refresh the current catalog"
+        )
+    return current
 
 
 def query_classifier_min_scores(raw: str | None) -> dict[str, float]:

@@ -25,8 +25,9 @@ v2 classifier artifacts.
 ## Timeline, embedding, or fingerprint data is unavailable
 
 Those outputs live in mandatory Artifacts and must be requested explicitly after release
-preparation. Core is always included. The frontend v7 port is deferred, so do not infer availability
-from current browser dialogs.
+preparation. Core is always included. The browser analysis panel exposes Timeline, embedding, and
+fingerprint output checkboxes, while the metadata dialog shows whether each optional output is
+present. Use the explicit timeline API when you need its payload rather than only its presence.
 
 ## A classifier is incompatible
 

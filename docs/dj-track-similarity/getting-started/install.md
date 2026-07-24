@@ -34,7 +34,8 @@ python -m pip install -e ".[dev]"
 
 The base package installs the core app dependencies: NumPy, Mutagen, Pydantic, Typer, FastAPI,
 Uvicorn, Joblib, and dev test tools. This is enough for the v7 scan, CLI, backend API, export, and
-database-selection paths. The React frontend is a separate deferred port.
+database-selection paths. The typed React client is built separately with its pinned Node
+dependencies.
 
 ## Optional extras
 
@@ -80,14 +81,18 @@ python -m pip install -e ".[rhythm-lab,dev]"
 
 ## Build the frontend bundle
 
-The React client has not yet been ported to the v7 API. The commands below build the current source,
-but the result is not a verified v7 UI.
-
-The backend serves `frontend/dist` when it exists. Create that bundle with:
+The React client uses the v7 API contract. The backend serves `frontend/dist` when it exists. Create
+that bundle with:
 
 ```powershell
 npm --prefix .\frontend install
 npm --prefix .\frontend run build
+```
+
+Run its contract tests when changing the client:
+
+```powershell
+npm --prefix .\frontend test
 ```
 
 For live frontend development, use:

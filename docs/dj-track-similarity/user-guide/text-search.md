@@ -4,12 +4,6 @@
 > Goal: Write useful CLAP prompts and read the score scale correctly.
 > Type: guide
 
-::: warning v7 frontend status
-The React workflow below documents the deferred frontend. It has not been ported to the schema-v7
-API, so these UI steps are not currently validated or available for v7. Use the backend CLI or API
-alternative below.
-:::
-
 Use text search when you can hear an idea in your head but do not have a good reference track. A
 prompt such as "broken drums with metallic synth hits" gives the app an audible direction. Metadata
 filters serve a different purpose.
@@ -21,9 +15,9 @@ question and often changes the useful part of the list.
 The **CLAP** tab calls `/api/search/text`. It embeds text and compares the text vector against stored
 CLAP audio embeddings. Run CLAP analysis before using it.
 
-## Current v7 alternative
+## CLI and direct API
 
-The CLI is available without the React tab:
+The browser CLAP tab is the main interactive flow. The same search is available from the CLI:
 
 ```powershell
 dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 20 --db .\data\library.sqlite
@@ -31,8 +25,6 @@ dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 20 --
 
 API clients can use `POST /api/search/text`; see the current request contract in the
 [API reference](../reference/api.md).
-
-## Deferred frontend workflow
 
 ## When to choose another search
 

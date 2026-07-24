@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 import numpy as np
+import pytest
 
 import dj_track_similarity.api as api
 from dj_track_similarity.analysis_models import (
@@ -119,8 +120,8 @@ def test_reference_compare_verdict_persists_pair_feedback(
     response = _client(monkeypatch, db_path).post(
         "/api/reference/compare/verdict",
         json={
-            "seed_track_id": seed.track_id,
-            "candidate_track_id": candidate.track_id,
+            "seed": _identity_payload(seed),
+            "candidate": _identity_payload(candidate),
             "model": "muq",
             "verdict": "palette",
             "notes": "same pressure and texture",
@@ -142,9 +143,144 @@ def test_reference_compare_verdict_persists_pair_feedback(
     assert feedback["notes"] == "same pressure and texture"
 
 
+def test_reference_compare_verdict_rejects_legacy_numeric_only_body(
+    monkeypatch, tmp_path: Path
+) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    seed = _track(db, tmp_path, "seed")
+    candidate = _track(db, tmp_path, "candidate")
+
+    response = _client(monkeypatch, db_path).post(
+        "/api/reference/compare/verdict",
+        json={
+            "seed_track_id": seed.track_id,
+            "candidate_track_id": candidate.track_id,
+            "model": "muq",
+            "verdict": "palette",
+        },
+    )
+
+    assert response.status_code == 422
+    assert not db.evaluation_path.exists()
+
+
+@pytest.mark.parametrize(
+    "stale_field",
+    ["catalog_uuid", "track_uuid", "content_generation"],
+)
+def test_reference_compare_verdict_rejects_stale_candidate_identity_without_feedback(
+    monkeypatch,
+    tmp_path: Path,
+    stale_field: str,
+) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    seed = _track(db, tmp_path, "seed")
+    candidate = _track(db, tmp_path, "candidate")
+    stale_candidate = _identity_payload(candidate)
+    stale_candidate[stale_field] = (
+        candidate.content_generation + 1
+        if stale_field == "content_generation"
+        else f"{stale_candidate[stale_field]}-stale"
+    )
+
+    response = _client(monkeypatch, db_path).post(
+        "/api/reference/compare/verdict",
+        json={
+            "seed": _identity_payload(seed),
+            "candidate": stale_candidate,
+            "model": "muq",
+            "verdict": "palette",
+        },
+    )
+
+    assert response.status_code == 409
+    assert "identity is stale" in response.json()["detail"]
+    assert not db.evaluation_path.exists()
+
+
+def test_reference_compare_verdict_does_not_rebind_after_generation_changes_at_write_boundary(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    seed = _track(db, tmp_path, "seed")
+    candidate = _track(db, tmp_path, "candidate")
+    candidate_path = tmp_path / "candidate.wav"
+    original = LibraryDatabase.upsert_track_pair_feedback_exact
+    mutated = False
+
+    def mutate_then_write(
+        repository,
+        seed_identity,
+        candidate_identity,
+        *args,
+        **kwargs,
+    ):
+        nonlocal mutated
+        if not mutated:
+            candidate_path.write_bytes(b"candidate replacement generation")
+            stat = candidate_path.stat()
+            replacement = repository.upsert_scanned_track(
+                file=ScannedFile(
+                    file_path=str(candidate_path),
+                    file_size_bytes=stat.st_size,
+                    file_modified_ns=stat.st_mtime_ns,
+                    audio_format="wav",
+                ),
+                tags=FileTags(
+                    title="candidate replacement",
+                    artist="Reference fixture",
+                ),
+                scanned_at=_NOW,
+            ).identity
+            assert (
+                replacement.content_generation
+                == candidate.content_generation + 1
+            )
+            mutated = True
+        return original(
+            repository,
+            seed_identity,
+            candidate_identity,
+            *args,
+            **kwargs,
+        )
+
+    monkeypatch.setattr(
+        LibraryDatabase,
+        "upsert_track_pair_feedback_exact",
+        mutate_then_write,
+    )
+    response = _client(monkeypatch, db_path).post(
+        "/api/reference/compare/verdict",
+        json={
+            "seed": _identity_payload(seed),
+            "candidate": _identity_payload(candidate),
+            "model": "muq",
+            "verdict": "palette",
+        },
+    )
+
+    assert response.status_code == 409
+    assert "identity is stale" in response.json()["detail"]
+    assert db.get_pair_feedback_map() == {}
+
+
 def _client(monkeypatch, db_path: Path) -> TestClient:
     monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
     return TestClient(create_app(db_path))
+
+
+def _identity_payload(identity: AnalysisTarget) -> dict[str, object]:
+    return {
+        "track_id": identity.track_id,
+        "catalog_uuid": identity.catalog_uuid,
+        "track_uuid": identity.track_uuid,
+        "content_generation": identity.content_generation,
+    }
 
 
 def _reference_library(

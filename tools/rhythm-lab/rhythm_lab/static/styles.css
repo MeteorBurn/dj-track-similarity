@@ -304,6 +304,43 @@ main {
   font-variant-numeric: tabular-nums;
 }
 
+.coverage-feature i {
+  padding: 2px 4px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.coverage-feature.feature-state-current {
+  border-color: rgba(92, 214, 143, 0.42);
+}
+
+.coverage-feature.feature-state-current i {
+  background: rgba(92, 214, 143, 0.14);
+  color: #9cf0be;
+}
+
+.coverage-feature.feature-state-missing {
+  border-color: rgba(240, 184, 74, 0.42);
+}
+
+.coverage-feature.feature-state-missing i {
+  background: rgba(240, 184, 74, 0.14);
+  color: #ffe0a3;
+}
+
+.coverage-feature.feature-state-stale {
+  border-color: rgba(255, 95, 137, 0.48);
+}
+
+.coverage-feature.feature-state-stale i {
+  background: rgba(255, 95, 137, 0.14);
+  color: #ffd6df;
+}
+
 .summary-badge svg {
   width: 14px;
   height: 14px;
@@ -566,6 +603,10 @@ main {
   font-size: 12px;
 }
 
+.workflow-variant-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .workflow-variant-select select {
   width: 100%;
   min-width: 0;
@@ -573,6 +614,8 @@ main {
 
 .workflow-variant-facts {
   display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 4px;
 }
 
@@ -839,6 +882,18 @@ main {
   background: #b4232e;
 }
 
+.analysis-status-badge.status-current {
+  background: #12813e;
+}
+
+.analysis-status-badge.status-missing {
+  background: #8a651d;
+}
+
+.analysis-status-badge.status-stale {
+  background: #b4235f;
+}
+
 .syncopated-badge {
   background: rgba(240, 184, 74, 0.18);
   color: #ffd68a;
@@ -1065,6 +1120,10 @@ menu {
   .workflow-header,
   .workflow-variant-row,
   .workflow-step {
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-variant-facts {
     grid-template-columns: 1fr;
   }
 

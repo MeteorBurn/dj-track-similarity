@@ -152,6 +152,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     serve_parser = subcommands.add_parser("serve", help="Start the minimal labeling web app.")
     serve_parser.add_argument("--source", type=Path, default=None)
+    serve_parser.add_argument(
+        "--source-catalog-uuid",
+        default=None,
+        help="Require the selected v7 source database to match this catalog UUID.",
+    )
     serve_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
     serve_parser.add_argument("--host", default="127.0.0.1")
     serve_parser.add_argument("--port", type=int, default=8777)
@@ -677,7 +682,11 @@ def _serve(args: argparse.Namespace) -> None:
     from .web_app import create_app
 
     uvicorn.run(
-        create_app(args.source, labels_db_path=args.labels),
+        create_app(
+            args.source,
+            labels_db_path=args.labels,
+            source_catalog_uuid=args.source_catalog_uuid,
+        ),
         host=args.host,
         port=args.port,
         log_config=uvicorn_log_config(),

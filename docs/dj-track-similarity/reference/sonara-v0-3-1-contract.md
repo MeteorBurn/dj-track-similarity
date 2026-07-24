@@ -71,8 +71,9 @@ is an optional third database created only by evaluation workflows. Missing, mis
 cross-catalog sidecars fail closed.
 
 Normal track reads expose v7 analysis coverage and compact summaries. The explicit timeline route
-loads only the current signed `timeline` row. The React frontend has not yet been ported to these v7
-responses, so this contract does not claim that the current browser UI can display them.
+loads only the current signed `timeline` row. The browser metadata dialog consumes the v7 detail
+response and shows timeline fields plus embedding/fingerprint presence. Use the explicit route when
+you need the full timeline payload.
 
 ## Release preparation
 

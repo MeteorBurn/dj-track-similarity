@@ -10,7 +10,7 @@
 flowchart LR
     CLI[Typer CLI] --> DB[LibraryDatabase]
     API[FastAPI backend] --> DB
-    UI["React frontend (v7 port deferred)"] -.-> API
+    UI["React frontend (typed v7 client)"] --> API
     Audio[Audio files] --> Sonara[SONARA / Symphonia]
     Audio --> FFmpeg[FFmpeg shared ML decode]
     Sonara --> Queue[Sequential analysis queue]
@@ -35,7 +35,7 @@ flowchart LR
 - `search.py`, `sonara_similarity*.py`, `set_builder.py`, and `transition_diagnostics.py`: search, SET ordering, and transition-risk logic.
 - `classifier_manifest.py`, `classifier_scoring.py`, and `classifier_jobs.py`: promoted artifact validation, manifest-specific readiness, aggregate progress, and database-only scoring.
 - `api_routes_*.py`: FastAPI route groups.
-- `frontend/src/`: pre-v7 API mirror and UI panels. The v7 port is deferred.
+- `frontend/src/`: typed v7 API client, library/search state coordinators, and React UI panels.
 
 Selecting a fresh `library.sqlite` path creates schema-v7 Core and mandatory
 `library.artifacts.sqlite`, bound by one `catalog_uuid`. Optional

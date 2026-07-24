@@ -12,12 +12,12 @@ SONARA broad analysis is always required. A track must also have every enabled e
 The defaults enable MERT, MAEST, MuQ, and CLAP. Disabling a source removes it from eligibility,
 loading, centroids, and diversity calculations.
 
-The exact legacy source selection of `mert`, `maest`, and `clap` does not require MuQ. It preserves
-the previous effective MERT, MAEST, CLAP, and SONARA broad weights of `0.30`, `0.18`, `0.22`, and
-`0.30`. The response reports enabled sources, effective weights, and total and missing coverage.
+The exact pre-MuQ request selects `mert`, `maest`, and `clap` with raw weights `0.30`, `0.18`,
+`0.22`, plus SONARA broad at `0.30`. It does not require MuQ. The backend normalizes those values,
+and the response reports enabled sources, effective weights, and total and missing coverage.
 
-Source and weight selection is available through the backend contract. Matching controls in the
-schema-v7 React frontend remain deferred.
+The schema-v7 browser exposes source toggles, custom raw weights, and a reset to the current default
+profile. Disabled sources are omitted from the request and eligibility.
 
 ## Manual and auto anchors
 

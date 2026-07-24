@@ -303,7 +303,7 @@ test("class tab exposes per-classifier missing-score analysis controls", () => {
 
 test("per-classifier analyze button validates that classifier before reset and scoring", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
-  const handler = appSource.match(/async function handleAnalyzeClassifier[\s\S]*?async function handleMertSearch/)?.[0] || "";
+  const handler = appSource.match(/async function handleAnalyzeClassifier[\s\S]*?async function handleEmbeddingSearch/)?.[0] || "";
 
   const refreshIndex = handler.indexOf("const promotedClassifiers = await api.classifiers()");
   const compatibilityIndex = handler.indexOf("classifierScoringBlockedReason(currentClassifier)");
@@ -326,7 +326,7 @@ test("initial database load does not wait for classifier readiness before librar
 
   const currentIndex = handler.indexOf("const current = await api.currentDatabase()");
   const classifierRequestIndex = handler.indexOf("const promotedClassifiersRequest = api.classifiers()");
-  const refreshIndex = handler.indexOf("await refreshLibrary(0, true)");
+  const refreshIndex = handler.indexOf("await refreshLibrary(0, {");
   const classifierAwaitIndex = handler.indexOf("const promotedClassifiers = await promotedClassifiersRequest");
 
   assert.notEqual(currentIndex, -1);
@@ -338,16 +338,16 @@ test("initial database load does not wait for classifier readiness before librar
   assert.ok(refreshIndex < classifierAwaitIndex);
 });
 
-test("explicit database refresh suppresses the duplicate dependency-effect refresh", () => {
+test("explicit database refresh adopts its catalog scope and suppresses the duplicate dependency-effect refresh", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
-  const effect = appSource.match(/useEffect\(\(\) => \{[\s\S]*?\}, \[query, searchMode, libraryPreset, likedOnly, classifierMinScores, databasePath\]\);/)?.[0] || "";
+  const effect = appSource.match(/useEffect\(\(\) => \{[\s\S]*?suppressNextLibraryRefresh[\s\S]*?\}, \[[\s\S]*?databaseCatalogUuid[\s\S]*?\]\);/)?.[0] || "";
   const initialize = appSource.match(/async function initializeDatabase[\s\S]*?async function loadLatestJobs/)?.[0] || "";
   const choose = appSource.match(/async function handleChooseDatabase[\s\S]*?async function handleChooseOutputFolder/)?.[0] || "";
 
   assert.match(appSource, /const suppressNextLibraryRefresh = useRef\(false\)/);
   assert.match(effect, /if \(suppressNextLibraryRefresh\.current\) \{[\s\S]*?suppressNextLibraryRefresh\.current = false;[\s\S]*?return;/);
-  assert.match(initialize, /suppressNextLibraryRefresh\.current = true;[\s\S]*?setDatabasePath\(current\.path\);[\s\S]*?await refreshLibrary\(0, true\)/);
-  assert.match(choose, /suppressNextLibraryRefresh\.current = true;[\s\S]*?setDatabasePath\(value\.path\);[\s\S]*?await refreshLibrary\(0, true\)/);
+  assert.match(initialize, /suppressNextLibraryRefresh\.current = true;[\s\S]*?adoptDatabaseScope\(current\.catalog_uuid\);[\s\S]*?setDatabasePath\(current\.path\);[\s\S]*?await refreshLibrary\(0,\s*\{[\s\S]*?databaseKey:\s*current\.catalog_uuid[\s\S]*?refreshSummary:\s*true/);
+  assert.match(choose, /suppressNextLibraryRefresh\.current = true;[\s\S]*?resetDatabaseScopedState\(\);[\s\S]*?adoptDatabaseScope\(value\.catalog_uuid\);[\s\S]*?setDatabasePath\(value\.path\);[\s\S]*?await refreshLibrary\(0,\s*\{[\s\S]*?databaseKey:\s*value\.catalog_uuid[\s\S]*?refreshSummary:\s*true/);
 });
 
 test("analysis and scan controls use the measured machine defaults", () => {
@@ -419,7 +419,8 @@ test("model search exposes only current seed controls", () => {
 
   assert.match(appSource, /seed_track_ids:\s*seeds/);
   assert.match(searchSource, /handleSonaraSearch/);
-  assert.match(searchSource, /handleMertSearch/);
+  assert.match(searchSource, /handleEmbeddingSearch/);
+  assert.match(searchSource, /activeSearchTab === "mert" \|\| activeSearchTab === "muq"/);
   assert.match(apiSource, /seed_track_ids/);
   assert.match(schemaSource, /seed_track_ids/);
 });
@@ -494,7 +495,7 @@ test("clap search exposes prompt presets and optional negative contrast fields w
   assert.match(clapSource, /disabled=\{busy \|\| !textQuery\.trim\(\) \|\| !hasStoredClapEmbeddings\}/);
   assert.doesNotMatch(clapSource, /WandSparkles/);
   assert.match(clapSource, /ListFilter/);
-  assert.match(appSource, /clapEmbeddingCount=\{librarySummary\.clap\}/);
+  assert.match(appSource, /embeddingCounts=\{\{[\s\S]*clap:\s*librarySummary\.clap/);
   assert.doesNotMatch(appSource, /generateClapPrompt/);
   assert.match(appSource, /api\.textSearch/);
   assert.doesNotMatch(appSource, /api\.hybridSearch\(\{[\s\S]*query: prompt/);
@@ -628,7 +629,7 @@ test("candidate result rows expose the shared liked toggle", () => {
   assert.ok(resultRowSource.indexOf("result-metadata-button") < resultRowSource.indexOf("track-liked-button"));
   assert.ok(resultRowSource.indexOf("track-liked-button") < resultRowSource.indexOf("result-seed-button"));
   assert.match(resultListSource, /onToggleLiked=\{toggleLiked\}/);
-  assert.match(searchPanelSource, /toggleLiked=\{\(track\) => void handleToggleTrackLiked\(track\)\}/);
+  assert.match(searchPanelSource, /toggleLiked=\{handleToggleTrackLiked\}/);
 });
 
 test("library search mode active state highlights the active mode text", () => {

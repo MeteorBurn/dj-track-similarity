@@ -77,16 +77,17 @@ MuQ requires the optional `ml` dependencies and downloads the official `OpenMuQ/
 
 In the CLI, omit `--limit` for the whole library.
 
-## Frontend status
+## Analyze in the browser
 
-The Python backend and CLI use the v7 analysis contract. The checked-in React frontend has not
-yet been ported to the new database, track-identity, reset, and output payloads. Do not treat the
-current model controls or an existing `frontend/dist` bundle as compatible with this workflow.
+After preparing SONARA from the CLI, use the browser model checkboxes to start the same v7 jobs.
+**Analyze limit** starts at `0` for the whole eligible library. SONARA outputs, Track/Inference/
+SONARA batch values, Device, progress, blockers, cancellation, and SQLite-only resets are carried
+through the typed v7 requests and responses. **CLASSIFIERS** stays a separate stage; **FULL** runs
+SONARA, ML, and CLASSIFIERS in order.
 
-Use the CLI or v7 API for current execution. SONARA receives paths in native batches and decodes them
-through its Symphonia path inside `sonara.analyze_batch()`. It does not call the project's FFmpeg
-loader and has no `analyze_signal` or per-file decode fallback. ML models continue to share the
-project's FFmpeg decode.
+SONARA receives paths in native batches and decodes them through its Symphonia path inside
+`sonara.analyze_batch()`. It does not call the project's FFmpeg loader and has no `analyze_signal`
+or per-file decode fallback. ML models continue to share the project's FFmpeg decode.
 
 The SONARA batch value controls concurrent full-file native reads, not ML inference. Keep the
 default for a library on one HDD unless a measured pilot supports a larger value.

@@ -329,6 +329,15 @@ class HybridSearchRequest(BaseModel):
         return self
 
 
+class TrackIdentityRequestV7(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+    track_id: TrackId
+    catalog_uuid: str = Field(min_length=1)
+    track_uuid: str = Field(min_length=1)
+    content_generation: ContentGeneration
+
+
 class ReferenceCompareRequest(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
@@ -350,8 +359,8 @@ class ReferenceCompareRequest(BaseModel):
 class ReferenceCompareVerdictRequest(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
-    seed_track_id: EvaluationTrackId
-    candidate_track_id: EvaluationTrackId
+    seed: TrackIdentityRequestV7
+    candidate: TrackIdentityRequestV7
     model: ReferenceCompareModel
     verdict: ReferenceCompareVerdict
     notes: str | None = None

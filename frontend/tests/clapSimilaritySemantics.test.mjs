@@ -52,6 +52,6 @@ test("SONARA UI keeps the general Similarity threshold state", () => {
 
 test("Audio Dedup explains that its similarity gate is audio-to-audio, not CLAP text search", () => {
   assert.match(dedupDialogSource, /audio-to-audio/i);
-  assert.match(dedupDialogSource, /MERT\/MAEST\/CLAP/);
+  assert.match(dedupDialogSource, /MERT\/MAEST\/MuQ\/CLAP/);
   assert.match(dedupDialogSource, /not the lower CLAP text-search score/i);
 });

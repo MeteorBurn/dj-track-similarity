@@ -10,6 +10,7 @@ import type {
   ClassifierResetResult,
   DatabaseClearResult,
   DatabaseSelection,
+  EmbeddingSearchPayload,
   EvaluationApplyScoreProfilePayload,
   EvaluationLatestReports,
   EvaluationPairFeedbackPayload,
@@ -32,6 +33,7 @@ import type {
   ReferenceCompareVerdictResult,
   RhythmLabCollectionSaveResult,
   RhythmLabLaunchResult,
+  RhythmLabStopResult,
   RhythmLabStatus,
   ScanStats,
   SearchResult,
@@ -44,6 +46,7 @@ import type {
   SonaraOutput,
   SonaraSearchMode,
   Track,
+  TrackDetailV7,
   TrackPage
 } from "./api";
 
@@ -57,7 +60,7 @@ type TrackQueryParams = {
   classifierMinScores?: Record<string, number>;
   limit?: number;
   offset?: number;
-  includeMetadata?: boolean;
+  signal?: AbortSignal;
 };
 
 type FilteredTracksPayload = {
@@ -77,18 +80,6 @@ type AnalysisJobStartPayload = {
   inference_batch_size?: number;
   sonara_batch_size?: number;
   sonara_outputs?: SonaraOutput[];
-};
-
-type SearchPayload = {
-  seed_track_ids: number[];
-  limit: number;
-  bpm_tolerance?: number | null;
-  key_compatibility?: string | null;
-  energy_min?: number | null;
-  energy_max?: number | null;
-  min_similarity?: number | null;
-  epsilon?: number | null;
-  noise?: number;
 };
 
 type SonaraSearchPayload = {
@@ -111,6 +102,34 @@ type TextSearchPayload = {
   device?: "auto" | "cpu" | "cuda";
 };
 
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+function responseErrorMessage(text: string, fallback: string): string {
+  if (!text) return fallback;
+  try {
+    const payload: unknown = JSON.parse(text);
+    if (
+      typeof payload === "object"
+      && payload !== null
+      && "detail" in payload
+      && typeof payload.detail === "string"
+    ) {
+      return payload.detail;
+    }
+  } catch {
+    // Plain-text errors remain valid API error messages.
+  }
+  return text;
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...options,
@@ -118,7 +137,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || response.statusText);
+    throw new ApiError(
+      response.status,
+      responseErrorMessage(text, response.statusText),
+    );
   }
   return response.json() as Promise<T>;
 }
@@ -154,11 +176,12 @@ const libraryApi = {
     }
     if (params.limit != null) search.set("limit", String(params.limit));
     if (params.offset != null) search.set("offset", String(params.offset));
-    search.set("include_metadata", params.includeMetadata ? "true" : "false");
-    return request<TrackPage>(`/api/tracks?${search.toString()}`);
+    return request<TrackPage>(`/api/tracks?${search.toString()}`, {
+      signal: params.signal,
+    });
   },
   filteredTracks: (payload: FilteredTracksPayload) =>
-    request<{ items: Track[]; total: number }>("/api/tracks/filtered", {
+    request<Track[]>("/api/tracks/filtered", {
       method: "POST",
       body: JSON.stringify({
         query: payload.query || "",
@@ -168,12 +191,20 @@ const libraryApi = {
         classifier_min_scores: payload.classifierMinScores || {}
       })
     }),
-  track: (trackId: number) => request<Track>(`/api/tracks/${trackId}`),
+  track: (trackId: number, options?: { signal?: AbortSignal }) =>
+    request<TrackDetailV7>(`/api/tracks/${trackId}`, {
+      signal: options?.signal,
+    }),
   sonaraTimeline: (trackId: number) => request<SonaraTimeline>(`/api/tracks/${trackId}/sonara-timeline`),
-  setTrackLiked: (trackId: number, liked: boolean) =>
-    request<Track>(`/api/tracks/${trackId}/liked`, {
+  setTrackLiked: (track: Track, liked: boolean) =>
+    request<Track>(`/api/tracks/${track.track_id}/liked`, {
       method: "POST",
-      body: JSON.stringify({ liked })
+      body: JSON.stringify({
+        catalog_uuid: track.catalog_uuid,
+        track_uuid: track.track_uuid,
+        expected_content_generation: track.content_generation,
+        liked,
+      })
     }),
   librarySummary: () => request<LibrarySummary>("/api/library/summary"),
   scan: (root: string, workers: number) =>
@@ -206,8 +237,9 @@ const shellApi = {
       method: "POST",
       body: JSON.stringify({})
     }),
+  rhythmLabStatus: () => request<RhythmLabStatus>("/api/rhythm-lab/status"),
   stopRhythmLab: () =>
-    request<RhythmLabStatus>("/api/rhythm-lab/stop", {
+    request<RhythmLabStopResult>("/api/rhythm-lab/stop", {
       method: "POST",
       body: JSON.stringify({})
     }),
@@ -247,10 +279,10 @@ const helperToolsApi = {
 };
 
 const analysisApi = {
-  resetAnalysis: (adapter: AnalysisModel) =>
+  resetAnalysis: (analysisFamily: AnalysisModel) =>
     request<AnalysisResetResult>("/api/analysis/reset", {
       method: "POST",
-      body: JSON.stringify({ adapter })
+      body: JSON.stringify({ analysis_family: analysisFamily })
     }),
   analysisJobStart: (payload: AnalysisJobStartPayload = {}) => {
     const sonaraOnly = payload.models?.length === 1 && payload.models[0] === "sonara";
@@ -305,10 +337,10 @@ const analysisApi = {
   analysisPipeline: (jobId: string) => request<AnalysisPipelineStatus>(`/api/analysis/pipelines/${jobId}`),
   latestAnalysisPipeline: () => request<AnalysisPipelineStatus | null>("/api/analysis/pipelines/latest"),
   cancelAnalysisPipeline: (jobId: string) => request<AnalysisPipelineStatus>(`/api/analysis/pipelines/${jobId}/cancel`, { method: "POST" }),
-  resetClassifiers: (classifiers: string[]) =>
+  resetClassifiers: (classifierKeys: string[]) =>
     request<ClassifierResetResult>("/api/classifiers/reset", {
       method: "POST",
-      body: JSON.stringify({ classifiers })
+      body: JSON.stringify({ classifier_keys: classifierKeys })
     }),
   classifierJob: (classifier: string, jobId: string) => request<AnalysisJobStatus>(`/api/classifiers/${classifier}/analyze/jobs/${jobId}`),
   latestClassifierJob: (classifier: string) => request<AnalysisJobStatus | null>(`/api/classifiers/${classifier}/analyze/jobs/latest`),
@@ -321,30 +353,35 @@ const analysisApi = {
 };
 
 const searchApi = {
-  search: (payload: SearchPayload) =>
+  search: (payload: EmbeddingSearchPayload, options?: { signal?: AbortSignal }) =>
     request<SearchResult[]>("/api/search", {
       method: "POST",
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: options?.signal,
     }),
-  sonaraSearch: (payload: SonaraSearchPayload) =>
+  sonaraSearch: (payload: SonaraSearchPayload, options?: { signal?: AbortSignal }) =>
     request<SearchResult[]>("/api/search/sonara", {
       method: "POST",
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: options?.signal,
     }),
-  textSearch: (payload: TextSearchPayload) =>
+  textSearch: (payload: TextSearchPayload, options?: { signal?: AbortSignal }) =>
     request<SearchResult[]>("/api/search/text", {
       method: "POST",
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: options?.signal,
     }),
-  hybridSearch: (payload: HybridSearchPayload) =>
+  hybridSearch: (payload: HybridSearchPayload, options?: { signal?: AbortSignal }) =>
     request<HybridSearchResponse>("/api/search/hybrid", {
       method: "POST",
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: options?.signal,
     }),
-  setBuilderGenerate: (payload: SetBuilderGeneratePayload) =>
+  setBuilderGenerate: (payload: SetBuilderGeneratePayload, options?: { signal?: AbortSignal }) =>
     request<SetBuilderGenerateResult>("/api/set-builder/generate", {
       method: "POST",
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: options?.signal,
     })
 };
 
@@ -397,10 +434,20 @@ const playlistApi = {
       method: "POST",
       body: JSON.stringify({ name, track_ids, output_dir, format })
     }),
-  saveRhythmLabCollection: (name: string, track_ids: number[], mode: "append" | "replace" = "append") =>
+  saveRhythmLabCollection: (name: string, tracks: Track[], mode: "append" | "replace" = "append") =>
     request<RhythmLabCollectionSaveResult>("/api/rhythm-lab/collections", {
       method: "POST",
-      body: JSON.stringify({ name, track_ids, source: "main_ui_playlist", mode })
+      body: JSON.stringify({
+        name,
+        tracks: tracks.map((track) => ({
+          track_id: track.track_id,
+          catalog_uuid: track.catalog_uuid,
+          track_uuid: track.track_uuid,
+          content_generation: track.content_generation,
+        })),
+        source: "main_ui_playlist",
+        mode,
+      })
     })
 };
 

@@ -21,13 +21,19 @@ from dj_track_similarity.analysis_model_runners import (  # noqa: E402
 )
 from dj_track_similarity.library_models import AnalysisCoverage  # noqa: E402
 from rhythm_lab.artifact_io import artifact_sha256  # noqa: E402
-from rhythm_lab.cli import PromotionError, promote_profile_model  # noqa: E402
+from rhythm_lab.cli import (  # noqa: E402
+    PromotionError,
+    build_parser,
+    promote_profile_model,
+)
 from rhythm_lab.features import (  # noqa: E402
     ABLATION_FEATURE_SETS,
+    FEATURE_RECIPE_OPTIONS,
     FEATURE_SETS,
     SONARA_SCALAR_FIELDS,
     SONARA_VECTOR_FIELDS,
     build_feature_matrix,
+    feature_recipe_readiness,
     feature_sources,
 )
 from rhythm_lab.lab_db import RhythmLabDatabase, TrackIdentity  # noqa: E402
@@ -35,11 +41,15 @@ from rhythm_lab.predictions import _predict_probabilities  # noqa: E402
 from rhythm_lab.source_db import (  # noqa: E402
     SONARA_CORE_OUTPUT,
     SourceEmbeddingMatrix,
+    SourceFeatureState,
     SourceSonaraFeatures,
     SourceTrack,
 )
 from rhythm_lab.training import train_feature_set  # noqa: E402
-from rhythm_lab.web_app import cleanup_training_artifacts  # noqa: E402
+from rhythm_lab.web_app import (  # noqa: E402
+    _bind_artifact_source_readiness,
+    cleanup_training_artifacts,
+)
 
 
 def _track(index: int, *, generation: int = 1) -> SourceTrack:
@@ -288,6 +298,150 @@ def test_muq_defaults_preserve_legacy_combined_and_ablation_selection() -> None:
         "mert+muq",
         "sonara+mert+maest+clap+muq",
     )
+
+
+def test_recipe_readiness_requires_only_selected_current_sources() -> None:
+    states = {
+        source: SourceFeatureState(
+            status="current",
+            reason=None,
+            contract_hash=f"{source}-current",
+        )
+        for source in ("sonara", "mert", "maest", "clap")
+    }
+    states["muq"] = SourceFeatureState(
+        status="stale",
+        reason="MuQ contract is stale.",
+        contract_hash="muq-old",
+    )
+
+    combined = feature_recipe_readiness("combined", states)
+    muq = feature_recipe_readiness("muq", states)
+    sonara_muq = feature_recipe_readiness("sonara+muq", states)
+
+    assert combined["required_sources"] == ["sonara", "mert", "maest"]
+    assert combined["ready"] is True
+    assert muq["ready"] is False
+    assert muq["blocking"] == [
+        {
+            "source": "muq",
+            "status": "stale",
+            "reason": "MuQ contract is stale.",
+            "contract_hash": "muq-old",
+        }
+    ]
+    assert sonara_muq["ready"] is False
+    assert FEATURE_RECIPE_OPTIONS[0] == "combined"
+    assert "muq" in FEATURE_RECIPE_OPTIONS
+    assert "clap+muq" in FEATURE_RECIPE_OPTIONS
+    assert "sonara+mert+maest+clap+muq" in FEATURE_RECIPE_OPTIONS
+
+
+def test_stale_muq_artifact_is_not_promotable() -> None:
+    output = current_embedding_analysis_output("muq").contract
+    summary = {
+        "by_feature": [
+            {
+                "feature_set": "muq",
+                "latest_model": "muq.joblib",
+                "required_outputs": [
+                    {
+                        "contract_hash": output.contract_hash,
+                        "canonical_payload": output.canonical_payload,
+                    }
+                ],
+                "macro_f1_mean": 0.9,
+            }
+        ],
+        "promotion_options": [],
+        "latest_promotable": None,
+    }
+
+    stale = _bind_artifact_source_readiness(
+        summary,
+        {
+            "muq": SourceFeatureState(
+                status="stale",
+                reason="MuQ source contract is stale.",
+                contract_hash=output.contract_hash,
+            )
+        },
+    )
+
+    assert stale["promotion_options"][0]["source_contract_ready"] is False
+    assert stale["promotion_options"][0]["source_contract_reason"] == (
+        "MuQ source contract is stale."
+    )
+    assert stale["latest_promotable"] is None
+
+    current = _bind_artifact_source_readiness(
+        summary,
+        {
+            "muq": SourceFeatureState(
+                status="current",
+                reason=None,
+                contract_hash=output.contract_hash,
+            )
+        },
+    )
+
+    assert current["promotion_options"][0]["source_contract_ready"] is True
+    assert current["promotion_options"][0]["source_contract_reason"] is None
+    assert current["latest_promotable"]["feature_set"] == "muq"
+
+
+def test_serve_parser_forwards_expected_source_catalog_uuid(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source.sqlite"
+    labels = tmp_path / "labels.sqlite"
+    expected_catalog_uuid = "catalog-v7"
+    args = build_parser().parse_args(
+        [
+            "serve",
+            "--source",
+            str(source),
+            "--source-catalog-uuid",
+            expected_catalog_uuid,
+            "--labels",
+            str(labels),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8777",
+        ]
+    )
+    calls: dict[str, object] = {}
+
+    def fake_create_app(
+        source_path: Path,
+        *,
+        labels_db_path: Path,
+        source_catalog_uuid: str,
+    ) -> object:
+        calls["create_app"] = (
+            source_path,
+            labels_db_path,
+            source_catalog_uuid,
+        )
+        return object()
+
+    def fake_run(app: object, **kwargs: object) -> None:
+        calls["run"] = (app, kwargs)
+
+    import uvicorn
+    from rhythm_lab import web_app
+
+    monkeypatch.setattr(web_app, "create_app", fake_create_app)
+    monkeypatch.setattr(uvicorn, "run", fake_run)
+
+    args.func(args)
+
+    assert calls["create_app"] == (source, labels, expected_catalog_uuid)
+    _, run_kwargs = calls["run"]
+    assert run_kwargs["host"] == "127.0.0.1"
+    assert run_kwargs["port"] == 8777
 
 
 def test_lab_database_starts_without_implicit_profiles(tmp_path: Path) -> None:

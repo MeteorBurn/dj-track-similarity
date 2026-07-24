@@ -1,25 +1,44 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .api_schemas import TrackIdentityRequestV7
 from .api_state import AppDatabaseState
 from .rhythm_lab_collections import (
     RhythmLabCollections,
-    build_rhythm_lab_collection_selection,
+    build_rhythm_lab_collection_selection_exact,
     default_rhythm_lab_labels_path,
 )
 from .rhythm_lab_launcher import RhythmLabSourceBinding
+from .track_models import TrackIdentity
 
 
 class RhythmLabCollectionSaveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str
-    track_ids: list[int]
+    tracks: list[TrackIdentityRequestV7] = Field(min_length=1)
     source: str = "main_ui_playlist"
     note: str | None = None
-    mode: str = "append"
+    mode: Literal["append", "replace"] = "append"
+
+    @model_validator(mode="after")
+    def reject_duplicate_tracks(self) -> "RhythmLabCollectionSaveRequest":
+        identities = {
+            (
+                track.catalog_uuid,
+                track.track_uuid,
+                track.content_generation,
+            )
+            for track in self.tracks
+        }
+        if len(identities) != len(self.tracks):
+            raise ValueError("tracks must contain unique v7 identities")
+        return self
 
 
 def register_rhythm_lab_routes(
@@ -62,9 +81,18 @@ def register_rhythm_lab_routes(
     def save_rhythm_lab_collection(request: RhythmLabCollectionSaveRequest):
         try:
             db = state.require_db()
-            selection = build_rhythm_lab_collection_selection(
+            expected_identities = [
+                TrackIdentity(
+                    catalog_uuid=track.catalog_uuid,
+                    track_id=track.track_id,
+                    track_uuid=track.track_uuid,
+                    content_generation=track.content_generation,
+                )
+                for track in request.tracks
+            ]
+            selection = build_rhythm_lab_collection_selection_exact(
                 db,
-                request.track_ids,
+                expected_identities,
             )
             collection = RhythmLabCollections(default_rhythm_lab_labels_path()).save_collection(
                 request.name,

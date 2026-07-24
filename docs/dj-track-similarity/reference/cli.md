@@ -35,8 +35,8 @@ create a database later through the database picker or `/api/database/switch`. W
 server opens an existing compatible v7 bundle or creates a new Core plus Artifacts pair at the
 specified path before starting Uvicorn.
 
-The checked-in React client has not yet been ported to the v7 API. Do not treat an existing
-`frontend/dist` bundle as a verified v7 UI.
+The React source uses the v7 API. Rebuild `frontend/dist` after frontend or API changes so the
+backend serves a bundle produced from the current typed client.
 
 Run CLAP text search:
 

@@ -17,6 +17,7 @@ from .sonara_similarity import (
     SonaraSearchUnavailable,
     SonaraSimilaritySearch,
 )
+from .track_models import TrackIdentity
 from .vector_index import VectorIndexUnavailable
 
 
@@ -71,6 +72,17 @@ class ReferenceCompareRepository(
         self,
         seed_track_id: int,
         candidate_track_id: int,
+        rating: int,
+        reason_tags: Sequence[str] = (),
+        notes: str | None = None,
+        source: str = "manual",
+    ) -> int:
+        ...
+
+    def upsert_track_pair_feedback_exact(
+        self,
+        seed: TrackIdentity,
+        candidate: TrackIdentity,
         rating: int,
         reason_tags: Sequence[str] = (),
         notes: str | None = None,
@@ -205,6 +217,47 @@ def record_reference_compare_verdict(
         id=feedback_id,
         seed_track_id=seed_track_id,
         candidate_track_id=candidate_track_id,
+        model=model,
+        verdict=verdict,
+        source=source,
+        rating=rating,
+        notes=notes,
+    )
+
+
+def record_reference_compare_verdict_exact(
+    repository: ReferenceCompareRepository,
+    *,
+    seed: TrackIdentity,
+    candidate: TrackIdentity,
+    model: ReferenceCompareModel,
+    verdict: ReferenceCompareVerdict,
+    notes: str | None,
+) -> ReferenceCompareVerdictResult:
+    """Persist a verdict only if both displayed identities are still current."""
+
+    if model not in _REFERENCE_COMPARE_MODELS:
+        raise ValueError(
+            f"Unsupported reference compare model: {model}"
+        )
+    if verdict not in _REFERENCE_COMPARE_VERDICTS:
+        raise ValueError(
+            f"Unsupported reference compare verdict: {verdict}"
+        )
+    source = _feedback_source(model)
+    rating = _verdict_rating(verdict)
+    feedback_id = repository.upsert_track_pair_feedback_exact(
+        seed,
+        candidate,
+        rating,
+        reason_tags=(verdict,),
+        notes=notes,
+        source=source,
+    )
+    return ReferenceCompareVerdictResult(
+        id=feedback_id,
+        seed_track_id=seed.track_id,
+        candidate_track_id=candidate.track_id,
         model=model,
         verdict=verdict,
         source=source,

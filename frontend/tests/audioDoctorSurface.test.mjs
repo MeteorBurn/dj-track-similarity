@@ -64,14 +64,13 @@ test("audio doctor apply mode rejects every confirmation except APPLY REPAIR", (
 
 test("audio dedup apply mode rejects every confirmation except APPLY DELETE", () => {
   const source = readFileSync(new URL("../src/AudioDedupDialog.tsx", import.meta.url), "utf8");
-  const startBlock = source.match(/async function start\(\) \{[\s\S]*?await onStart\(\{[\s\S]*?\n    \}\);/)?.[0] || "";
 
   assert.match(source, /Apply delete safe candidates/);
-  assert.match(source, /placeholder="APPLY DELETE"/);
+  assert.match(source, /const applyDeleteConfirmation = "APPLY DELETE"/);
+  assert.match(source, /placeholder=\{applyDeleteConfirmation\}/);
   assert.match(source, /Required exact confirmation for destructive apply mode/);
-  assert.match(startBlock, /applyMode && confirmation\.trim\(\) !== "APPLY DELETE"/);
-  assert.match(startBlock, /setLocalError\('Для apply mode нужно ввести "APPLY DELETE"'\)/);
-  assert.match(startBlock, /apply: applyMode/);
-  assert.match(startBlock, /confirmation: applyMode \? confirmation\.trim\(\) : null/);
-  assert.doesNotMatch(startBlock, /APPLY REPAIR/);
+  assert.match(source, /draft\.apply && draft\.confirmation !== applyDeleteConfirmation/);
+  assert.match(source, /confirmation: draft\.apply \? draft\.confirmation : null/);
+  assert.doesNotMatch(source, /confirmation\.trim\(\) !== applyDeleteConfirmation/);
+  assert.doesNotMatch(source, /APPLY REPAIR/);
 });

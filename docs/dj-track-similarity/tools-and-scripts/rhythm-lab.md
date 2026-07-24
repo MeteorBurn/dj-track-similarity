@@ -34,10 +34,28 @@ For a changed SONARA release, first run the ordered, crash-resumable `prepare-so
 for the main Core + Artifacts pair, then reanalyze, retrain, promote, and rescore affected profiles.
 It is not a distributed atomic transaction.
 
-The static Rhythm Lab UI has no dedicated MuQ selector or explanatory copy yet, although it can
-display feature sets returned by backend training and benchmarks. Use the CLI for explicit MuQ
-recipes. The frontend v7 port is deferred, so do not rely on current browser launch or CLASS-tab
-instructions for v7 operation.
+## Open Rhythm Lab from the main app
+
+Choose a v7 database in the main app, then click the Rhythm Lab flask in the top bar. The browser
+calls `/api/rhythm-lab/launch`, reuses an existing matching process when possible, and opens the
+returned local URL. The launch response is bound to the selected Core + Artifacts catalog rather
+than to a numeric track ID alone.
+
+The main set panel can also save its current ordered tracks as a Lab collection. That write carries
+`catalog_uuid`, `track_uuid`, and `content_generation` for every item. It does not change labels or
+source audio.
+
+## MuQ-aware standalone UI
+
+The standalone UI reports `current`, `missing`, or `stale` state for SONARA, MERT, MAEST, CLAP, and
+MuQ. Coverage counts do not make a stale source trainable. The **Training recipe** selector exposes
+MuQ alone and every supported source combination; readiness and blocker text are recalculated for
+the selected recipe only. The legacy `combined` option still means `sonara+mert+maest`.
+
+The training workflow uses the selected recipe to fit a model and refresh candidates. You can then
+benchmark variants before promoting a current-contract artifact. Library, Candidates, and
+Collection views use page sizes `50`, `100`, `200`, or `500`. The explicit liked-track toggle is
+still the only narrow main-catalog write from standalone Rhythm Lab.
 
 ## Recover labels from a preserved legacy database
 

@@ -125,9 +125,10 @@ database plus a mandatory adjacent `*.artifacts.sqlite` database; the optional
 migration path: the former `migrate-v7` and `migrate-schema-v7` commands are not part of the current
 CLI, and older database schemas are rejected instead of being upgraded in place.
 
-The React frontend has not yet been ported to the v7 API contract. Treat the backend and CLI as the
-current production surface; do not assume the checked-in frontend source or an existing
-`frontend/dist` bundle is compatible with it.
+The React frontend now consumes the typed v7 database, track, analysis, search, SET/Hybrid, CLASS,
+LAB, Rhythm Lab, Audio Dedup, metadata, media, and exact-identity mutation contracts. Large-library
+loading supports 100/500-row paging plus cancellable 1000/All chunked loads and bounded row
+rendering.
 
 ## 🚧 The long-term direction
 
@@ -243,7 +244,8 @@ CLAP text-search scores are not the same scale as seed-based audio-to-audio scor
 
 Rhythm Lab is a separate local app for turning your own listening decisions into optional classifier
 scores. The backend has routes to launch or reuse it at `127.0.0.1:8777` and to save review
-collections. The deferred frontend port means those controls are not claimed as currently usable.
+collections. The main frontend exposes both actions, and the standalone Lab UI reports
+current/missing/stale source state plus MuQ-aware training recipes.
 
 A new Rhythm Lab labels database starts without a built-in classifier profile. Create or select the profile you want to train. Profile-specific CLI commands use an explicit `--profile`.
 
@@ -307,8 +309,8 @@ Supplying `--db` opens an existing compatible v7 bundle or creates a new Core pl
 that path. If you omit `--db`, the server starts without a selected database and does not create any
 SQLite file. You can then choose an existing database or create a new one with the database picker.
 
-The root mount may serve an existing `frontend/dist`, but that client has not been ported to the v7
-API. Use CLI commands or direct API calls for the current contract.
+The root mount serves `frontend/dist` when it exists. Build that bundle from the current frontend
+source so its typed v7 client matches the backend contract.
 
 There is also an interactive Windows launcher:
 
@@ -394,9 +396,13 @@ In the CLI, omit `--limit` to analyze the whole library.
 
 ## 🖥️ Frontend status
 
-The React source still mirrors the removed pre-v7 database and track payloads. Porting and verifying
-its database, analysis, search, set, CLASS, and metadata flows is a separate task. Until that work is
-complete, the backend and CLI are the trustworthy v7 surfaces.
+The React source is ported to schema v7. Its main search tabs are SET, SONARA, MERT, MUQ, CLAP,
+CLASS, and LAB. SET contains independent Set Builder and Hybrid Preview workflows with source
+selection, custom weights, request cancellation, and stale-response guards. Database changes clear
+catalog-bound state; exact-identity writes carry catalog UUID, track UUID, and content generation.
+
+The UI remains a local, listening-led workbench. Similarity and classifier values are ranking
+signals for review, not objective musical truth or automatic performance decisions.
 
 ## 🛠️ Maintenance tools
 

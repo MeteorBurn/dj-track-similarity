@@ -11,9 +11,10 @@ app turns that starting point into a smaller list worth listening to.
 It does not decide which tracks are good or guarantee that two tracks will mix. Its job is to reduce
 the search space, show why a candidate appeared, and leave the musical decision to you.
 
-The backend and CLI are the active schema-v7 surface. They create a fresh Core plus mandatory
-Artifacts bundle, with Evaluation only when needed. They do not migrate older schemas. The React
-frontend port is deferred.
+The backend, CLI, and React client use the active schema-v7 contract. They create a fresh Core plus
+mandatory Artifacts bundle, with Evaluation only when needed. They do not migrate older schemas.
+The browser adds typed library, analysis, search, set, classifier, and Lab workflows on top of the
+same API.
 
 ## What you can get from it
 

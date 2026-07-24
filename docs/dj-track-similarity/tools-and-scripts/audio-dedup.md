@@ -46,7 +46,16 @@ This exact profile uses MERT 0.43, MAEST 0.32, and CLAP 0.04. Any other source o
 
 Open Audio Dedup from the copy icon in the top bar.
 
-The current React dialog does not expose `sources` or `weights`. Jobs started there use the backend default profile. Use the CLI or API to select sources or change weights. The frontend source/weight controls are deferred.
+The browser dialog exposes the same `sources` and `weights` contract as the CLI and API:
+
+- checkboxes enable or remove MERT, MAEST, MuQ, and audio-to-audio CLAP;
+- **Custom raw weights** reveals one raw-weight field for every enabled source;
+- **Reset defaults** restores all four sources with raw weights 0.43, 0.32, 0.12, and 0.04;
+- **Pre-MuQ legacy** selects only MERT, MAEST, and CLAP with raw weights 0.43, 0.32, and 0.04.
+
+At least one source must stay enabled. Disabled sources are absent from the payload. The run panel
+shows the actual source and raw-weight profile returned by the job, so the submitted configuration
+remains visible during and after execution.
 
 Controls:
 
@@ -59,6 +68,8 @@ Controls:
 - **Output dir**: report directory.
 
 Click **Start** for report mode. The UI shows progress and opens the XLSX report when complete.
+Enabling **Apply delete safe candidates** reveals the confirmation field; the browser will not send
+apply mode unless it contains the exact `APPLY DELETE` text.
 
 ## CLI report mode
 

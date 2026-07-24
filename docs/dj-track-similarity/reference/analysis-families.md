@@ -76,8 +76,9 @@ The backend API uses `sonara_outputs`, and the CLI uses
 canonical union of upstream features required by all four output contracts. The selection controls
 persistence only: the converter writes each selected output to its contract-owned table. `core`
 explicitly selects the bundled SONARA vocalness v2 model.
-`sonara_batch_size` is independent from ML batching and accepts `1..16`. Its default is `8`. The React
-frontend has not yet been ported to this v7 contract, so no current browser-control claim is made.
+`sonara_batch_size` is independent from ML batching and accepts `1..16`. Its default is `8`. The
+browser exposes the four output checkboxes, keeps `core` selected by default, and sends this exact
+v7 field and batch value.
 
 The adapter does not request upstream file-tag passthrough or a SONARA genre model. Mutagen remains
 the project's file-tag source, so SONARA `tags.original_year` is not stored in this analysis family.

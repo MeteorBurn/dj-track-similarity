@@ -104,10 +104,10 @@ stale promoted artifacts are visible but cannot score until replaced.
 
 ## Current UI status
 
-The Rhythm Lab backend and CLI support MuQ recipes, but the static UI has no dedicated MuQ controls
-or explanatory copy yet. Use `benchmark-ablation` with explicit `--feature-set` values when you
-need a recipe outside the defaults.
+The static Rhythm Lab UI shows current/missing/stale state for every source and provides a
+**Training recipe** selector for MuQ and arbitrary supported source combinations. Use
+`benchmark-ablation` with explicit `--feature-set` values when you need a repeatable CLI matrix.
 
-The backend exposes promoted classifier scores, but the frontend v7 port is deferred. Do not treat
-the current CLASS-tab controls or browser workflows as v7-compatible. Missing scores remain neutral
-where a backend workflow consumes them. Malformed manifests block scoring with a clear status.
+The main v7 frontend lists promoted profiles in CLASS, serializes minimum-score filters, and exposes
+per-profile reset plus rescore. Missing scores remain neutral where SET or Hybrid consumes them.
+Malformed manifests stay visible but block scoring with a clear status.

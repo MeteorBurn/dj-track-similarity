@@ -33,7 +33,9 @@ artifacts must be retrained and promoted. Their scores are not silently reused.
 
 ## Can I use the browser UI with v7?
 
-No. The frontend v7 port is deferred. Use CLI or API contracts for v7 library work.
+Yes. Build the current frontend bundle and serve it with the v7 backend. Database selection,
+library paging and chunked loads, analysis, search, SET/Hybrid, CLASS, LAB, Rhythm Lab launch,
+metadata, preview, and exact-identity writes use the typed v7 contracts.
 
 ## Can I share reports or databases?
 

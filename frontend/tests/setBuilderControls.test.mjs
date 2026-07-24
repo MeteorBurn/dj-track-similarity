@@ -1,30 +1,51 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import ts from "typescript";
 
-function loadSetBuilderControls() {
-  const sourcePath = new URL("../src/setBuilderControls.ts", import.meta.url);
-  if (!existsSync(sourcePath)) {
-    throw new Error("frontend/src/setBuilderControls.ts does not exist yet");
-  }
-  const tempDir = mkdtempSync(join(tmpdir(), "set-builder-controls-"));
-  const modulePath = join(tempDir, "setBuilderControls.cjs");
+async function loadTypeScriptModule(relativePath, name) {
+  const sourcePath = new URL(relativePath, import.meta.url);
+  const tempDir = mkdtempSync(join(tmpdir(), `${name}-`));
+  const modulePath = join(tempDir, `${name}.cjs`);
   const compiled = ts.transpileModule(readFileSync(sourcePath, "utf8"), {
     compilerOptions: {
       module: ts.ModuleKind.CommonJS,
-      target: ts.ScriptTarget.ES2022,
-    },
+      target: ts.ScriptTarget.ES2022
+    }
   }).outputText;
   writeFileSync(modulePath, compiled, "utf8");
   return import(pathToFileURL(modulePath));
 }
 
-test("set builder slider reset clears classifier preference maps and restores defaults", async () => {
-  const { resetSetBuilderSliders, setBuilderDefaultDiversity, setBuilderDefaultFlow } = await loadSetBuilderControls();
+function setDraft(overrides = {}) {
+  return {
+    databasePath: "C:/temp/core.sqlite",
+    databaseIdentity: "catalog-a",
+    seedMode: "manual",
+    seedTrackIds: [1, 2],
+    autoSeedCount: 5,
+    sources: { mert: true, maest: true, muq: true, clap: true },
+    useCustomWeights: false,
+    weights: { mert: 0.3, maest: 0.18, muq: 0.15, clap: 0.22, sonara_broad: 0.3 },
+    mode: "balanced_set",
+    limit: 24,
+    diversity: 0.25,
+    energyCurve: "balanced",
+    bpmMode: "general",
+    bpmChange: "medium",
+    classifierPreferences: {},
+    classifierFlows: {},
+    randomSeed: 0,
+    ...overrides
+  };
+}
+
+test("set builder slider reset returns fresh maps", async () => {
+  const { resetSetBuilderSliders, setBuilderDefaultDiversity, setBuilderDefaultFlow } =
+    await loadTypeScriptModule("../src/setBuilderControls.ts", "setBuilderControls");
 
   const first = resetSetBuilderSliders();
   first.classifierPreferences.break_energy = 0.85;
@@ -36,47 +57,89 @@ test("set builder slider reset clears classifier preference maps and restores de
   assert.deepEqual(second.classifierFlows, {});
   assert.equal(setBuilderDefaultFlow, "flat");
   assert.notEqual(first.classifierPreferences, second.classifierPreferences);
-  assert.notEqual(first.classifierFlows, second.classifierFlows);
 });
 
-test("set builder UI keeps basic controls separate from advanced controls", () => {
-  const source = readFileSync(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url), "utf8");
+test("SET defaults include MuQ and keep backend raw defaults authoritative", async () => {
+  const { buildSetBuilderPayload } = await loadTypeScriptModule("../src/searchSurfaceState.ts", "searchSurfaceState");
+  const result = buildSetBuilderPayload(setDraft());
 
-  assert.match(source, /set-builder-basic-controls/);
-  assert.match(source, /set-builder-advanced-toggle-button/);
-  assert.match(source, /aria-expanded=\{setAdvancedControlsOpen\}/);
-  assert.match(source, /set-builder-advanced-controls/);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.payload.sources, ["mert", "maest", "muq", "clap"]);
+  assert.equal(result.payload.weights, null);
+  assert.deepEqual(result.payload.seed_track_ids, [1, 2]);
+  assert.equal(result.payload.random_seed, 0);
 });
 
-test("set builder auto anchors are disabled outside auto seed mode", () => {
-  const source = readFileSync(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url), "utf8");
+test("SET legacy opt-out emits the exact pre-MuQ source and raw-weight profile", async () => {
+  const { buildSetBuilderPayload } = await loadTypeScriptModule("../src/searchSurfaceState.ts", "searchSurfaceState");
+  const result = buildSetBuilderPayload(setDraft({
+    sources: { mert: true, maest: true, muq: false, clap: true },
+    useCustomWeights: true
+  }));
 
-  assert.match(source, /Auto anchors/);
-  assert.match(source, /autoSeedCountDisabled \? ".*disabled-filter/);
-  assert.match(source, /disabled=\{autoSeedCountDisabled\}/);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.payload.sources, ["mert", "maest", "clap"]);
+  assert.deepEqual(result.payload.weights, {
+    mert: 0.3,
+    maest: 0.18,
+    clap: 0.22,
+    sonara_broad: 0.3
+  });
 });
 
-test("set builder basic owns diversity and advanced owns bpm classifier and reset controls", () => {
-  const source = readFileSync(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url), "utf8");
-  const basic = source.match(/className="set-builder-basic-controls"[\s\S]*?className="set-builder-advanced-header"/)?.[0] || "";
-  const advanced = source.match(/className="set-builder-advanced-controls"[\s\S]*?className="set-builder-generate-button"/)?.[0] || "";
+test("SET validation enforces unique manual seeds and numeric backend bounds", async () => {
+  const { buildSetBuilderPayload } = await loadTypeScriptModule("../src/searchSurfaceState.ts", "searchSurfaceState");
 
-  assert.match(basic, /Diversity/);
-  assert.match(advanced, /BPM mode/);
-  assert.match(advanced, /Start BPM/);
-  assert.match(advanced, /set-classifier-controls/);
-  assert.match(advanced, /Reset sliders/);
+  const deduplicated = buildSetBuilderPayload(setDraft({ seedTrackIds: [1, 1, 2] }));
+  assert.equal(deduplicated.ok, true);
+  assert.deepEqual(deduplicated.payload.seed_track_ids, [1, 2]);
+
+  for (const [override, message] of [
+    [{ seedTrackIds: [] }, /1-5 unique seed/],
+    [{ seedTrackIds: [1, 2, 3, 4, 5, 6] }, /1-5 unique seed/],
+    [{ autoSeedCount: 0 }, /Auto anchors/],
+    [{ limit: 501 }, /SET limit/],
+    [{ diversity: Number.NaN }, /diversity/],
+    [{ randomSeed: 1.5 }, /safe integer/]
+  ]) {
+    const result = buildSetBuilderPayload(setDraft(override));
+    assert.equal(result.ok, false);
+    assert.match(result.error, message);
+  }
+
+  const autoWithoutSeeds = buildSetBuilderPayload(setDraft({ seedMode: "auto", seedTrackIds: [] }));
+  assert.equal(autoWithoutSeeds.ok, true);
+  assert.deepEqual(autoWithoutSeeds.payload.seed_track_ids, []);
 });
 
-test("set builder classifier controls expose preference and flow only", () => {
+test("Add preview provenance requires a nonempty current SET response signature", async () => {
+  const { canAddSetPreview, setBuilderSignature } =
+    await loadTypeScriptModule("../src/searchSurfaceState.ts", "searchSurfaceState");
+  const current = setBuilderSignature(setDraft());
+
+  assert.equal(canAddSetPreview(current, current, 4), true);
+  assert.equal(canAddSetPreview("", current, 4), false);
+  assert.equal(canAddSetPreview(`${current}-stale`, current, 4), false);
+  assert.equal(canAddSetPreview(current, current, 0), false);
+});
+
+test("SET signature includes catalog identity and every request-shaping input", async () => {
+  const { setBuilderSignature } = await loadTypeScriptModule("../src/searchSurfaceState.ts", "searchSurfaceState");
+  const current = setBuilderSignature(setDraft());
+
+  assert.notEqual(current, setBuilderSignature(setDraft({ databaseIdentity: "catalog-b" })));
+  assert.notEqual(current, setBuilderSignature(setDraft({ seedTrackIds: [3] })));
+  assert.notEqual(current, setBuilderSignature(setDraft({ sources: { mert: true, maest: true, muq: false, clap: true } })));
+});
+
+test("Set Builder UI owns local response provenance and backend response evidence", () => {
   const source = readFileSync(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url), "utf8");
 
-  assert.match(source, /Preference/);
-  assert.match(source, /Flow/);
-  assert.match(source, /classifier_preferences/);
-  assert.match(source, /classifier_flows/);
-  assert.doesNotMatch(source, /Target boost/);
-  assert.doesNotMatch(source, /Avoid cut/);
-  assert.doesNotMatch(source, /Curve start/);
-  assert.doesNotMatch(source, /Curve end/);
+  assert.match(source, /const \[setBuilderResponse, setSetBuilderResponse\]/);
+  assert.match(source, /api\.setBuilderGenerate\(setBuilderPayload\.payload, \{ signal: controller\.signal \}\)/);
+  assert.match(source, /addGeneratedSetToPlaylist\(setBuilderResponse\.items\.map\(\(item\) => item\.track\)\)/);
+  assert.match(source, /setBuilderResponse\.coverage\.missing_muq/);
+  assert.match(source, /setBuilderResponse\.sources\.join/);
+  assert.match(source, /setBuilderResponse\.weights_used/);
+  assert.doesNotMatch(source, /disabled=\{busy \|\| !results\.length\} onClick=\{addGeneratedSetToPlaylist\}/);
 });

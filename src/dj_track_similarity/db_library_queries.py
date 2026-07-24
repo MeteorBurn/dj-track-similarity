@@ -371,7 +371,8 @@ def _filter_sql(
     search_mode: str,
     liked_only: bool,
     syncopated_only: bool,
-    classifier_min_scores: Mapping[str, float],
+    classifier_filters: Sequence[tuple[str, float]],
+    primary_classifier: tuple[str, float] | None,
     include_missing: bool,
 ) -> tuple[str, list[object]]:
     conditions: list[str] = []
@@ -439,12 +440,42 @@ def _filter_sql(
             )
             params.append(contract.contract_hash)
 
-    for classifier_key, threshold in sorted(classifier_min_scores.items()):
-        if not classifier_key.strip():
-            raise ValueError("classifier keys must be non-empty")
-        score = float(threshold)
-        if not math.isfinite(score) or not 0.0 <= score <= 1.0:
-            raise ValueError("classifier score thresholds must be between 0 and 1")
+    if primary_classifier is not None:
+        classifier_key, score = primary_classifier
+        conditions.append(
+            """
+            primary_cs.classifier_key = ?
+            AND primary_cs.score >= ?
+            AND primary_cs.content_generation = t.content_generation
+            AND primary_cs.required_outputs_hash IN (
+                SELECT CAST(value AS TEXT)
+                FROM json_each(?)
+            )
+            AND (
+                primary_cs.uses_sonara = 0
+                OR (
+                    ? IS NOT NULL
+                    AND primary_cs.sonara_release_hash = ?
+                )
+            )
+            """
+        )
+        params.extend(
+            [
+                classifier_key,
+                score,
+                json.dumps(
+                    sorted(context.active_classifier_required_outputs_hashes),
+                    separators=(",", ":"),
+                ),
+                context.active_release_hash,
+                context.active_release_hash,
+            ]
+        )
+
+    for classifier_key, score in classifier_filters:
+        if primary_classifier is not None and classifier_key == primary_classifier[0]:
+            continue
         conditions.append(
             """
             EXISTS(
@@ -487,29 +518,43 @@ def _filter_sql(
     )
 
 
+def _validated_classifier_filters(
+    classifier_min_scores: Mapping[str, float],
+) -> tuple[tuple[str, float], ...]:
+    filters: list[tuple[str, float]] = []
+    for classifier_key, threshold in sorted(classifier_min_scores.items()):
+        if not classifier_key.strip():
+            raise ValueError("classifier keys must be non-empty")
+        score = float(threshold)
+        if not math.isfinite(score) or not 0.0 <= score <= 1.0:
+            raise ValueError("classifier score thresholds must be between 0 and 1")
+        filters.append((classifier_key, score))
+    return tuple(filters)
+
+
+def _base_from_sql(*, has_primary_classifier: bool) -> str:
+    if has_primary_classifier:
+        return """
+            FROM classifier_scores primary_cs
+                 INDEXED BY idx_classifier_scores_lookup
+            JOIN tracks t ON t.track_id = primary_cs.track_id
+            LEFT JOIN file_tags ft ON ft.track_id = t.track_id
+        """
+    return """
+        FROM tracks t
+        LEFT JOIN file_tags ft ON ft.track_id = t.track_id
+    """
+
+
 def _order_sql(
     *,
-    classifier_min_scores: Mapping[str, float],
-) -> tuple[str, list[object]]:
+    has_primary_classifier: bool,
+) -> str:
     order = [
         "liked DESC",
     ]
-    params: list[object] = []
-    primary_classifier = next(iter(sorted(classifier_min_scores)), None)
-    if primary_classifier is not None:
-        order.append(
-            """
-            (
-                SELECT cs.score
-                FROM classifier_scores cs
-                WHERE cs.track_id = t.track_id
-                  AND cs.classifier_key = ?
-                  AND cs.content_generation = t.content_generation
-                LIMIT 1
-            ) DESC
-            """
-        )
-        params.append(primary_classifier)
+    if has_primary_classifier:
+        order.append("primary_cs.score DESC")
     order.extend(
         [
             "COALESCE(ft.artist, '') COLLATE NOCASE",
@@ -518,7 +563,7 @@ def _order_sql(
             "t.track_id",
         ]
     )
-    return "ORDER BY " + ", ".join(order), params
+    return "ORDER BY " + ", ".join(order)
 
 
 def _query_base_rows(
@@ -534,27 +579,36 @@ def _query_base_rows(
     limit: int | None,
     offset: int,
 ) -> tuple[list[sqlite3.Row], int]:
+    classifier_filters = _validated_classifier_filters(classifier_min_scores)
+    primary_classifier = (
+        None if not classifier_filters else classifier_filters[0]
+    )
     where_sql, where_params = _filter_sql(
         context=context,
         query=query,
         search_mode=search_mode,
         liked_only=liked_only,
         syncopated_only=syncopated_only,
-        classifier_min_scores=classifier_min_scores,
+        classifier_filters=classifier_filters,
+        primary_classifier=primary_classifier,
         include_missing=include_missing,
+    )
+    from_sql = _base_from_sql(
+        has_primary_classifier=primary_classifier is not None,
     )
     total = int(
         connection.execute(
             f"""
             SELECT COUNT(*)
-            FROM tracks t
-            LEFT JOIN file_tags ft ON ft.track_id = t.track_id
+            {from_sql}
             {where_sql}
             """,
             where_params,
         ).fetchone()[0]
     )
-    order_sql, order_params = _order_sql(classifier_min_scores=classifier_min_scores)
+    order_sql = _order_sql(
+        has_primary_classifier=primary_classifier is not None,
+    )
     pagination_sql = ""
     pagination_params: list[object] = []
     if limit is not None:
@@ -563,13 +617,12 @@ def _query_base_rows(
     rows = connection.execute(
         f"""
         SELECT {_base_select_fields()}
-        FROM tracks t
-        LEFT JOIN file_tags ft ON ft.track_id = t.track_id
+        {from_sql}
         {where_sql}
         {order_sql}
         {pagination_sql}
         """,
-        [*where_params, *order_params, *pagination_params],
+        [*where_params, *pagination_params],
     ).fetchall()
     return rows, total
 
@@ -591,21 +644,34 @@ def _valid_sonara_core_ids(
     *,
     contract: ContractIdentity | None,
     identities: Mapping[int, tuple[str, int]],
+    drive_from_requested: bool,
 ) -> set[int]:
     if contract is None or not identities:
         return set()
-    rows = connection.execute(
-        f"""
-        SELECT {", ".join(SONARA_CORE_COLUMNS)}
-        FROM sonara
-        WHERE contract_hash = ?
-          AND track_id IN (
-              SELECT CAST(value AS INTEGER)
-              FROM json_each(?)
-          )
-        """,
-        (contract.contract_hash, _json_ids(identities)),
-    ).fetchall()
+    if drive_from_requested:
+        rows = connection.execute(
+            f"""
+            SELECT {", ".join(f"stored.{column}" for column in SONARA_CORE_COLUMNS)}
+            FROM json_each(?) requested
+            CROSS JOIN sonara stored
+            WHERE stored.track_id = CAST(requested.value AS INTEGER)
+              AND stored.contract_hash = ?
+            """,
+            (_json_ids(identities), contract.contract_hash),
+        ).fetchall()
+    else:
+        rows = connection.execute(
+            f"""
+            SELECT {", ".join(SONARA_CORE_COLUMNS)}
+            FROM sonara
+            WHERE contract_hash = ?
+              AND track_id IN (
+                  SELECT CAST(value AS INTEGER)
+                  FROM json_each(?)
+              )
+            """,
+            (contract.contract_hash, _json_ids(identities)),
+        ).fetchall()
     valid_ids: set[int] = set()
     for row in rows:
         track_id = int(row["track_id"])
@@ -629,21 +695,34 @@ def _valid_maest_analysis_ids(
     *,
     contract: ContractIdentity | None,
     identities: Mapping[int, tuple[str, int]],
+    drive_from_requested: bool,
 ) -> set[int]:
     if contract is None or not identities:
         return set()
-    rows = connection.execute(
-        f"""
-        SELECT {", ".join(MAEST_ANALYSIS_COLUMNS)}
-        FROM maest_scores
-        WHERE contract_hash = ?
-          AND track_id IN (
-              SELECT CAST(value AS INTEGER)
-              FROM json_each(?)
-          )
-        """,
-        (contract.contract_hash, _json_ids(identities)),
-    ).fetchall()
+    if drive_from_requested:
+        rows = connection.execute(
+            f"""
+            SELECT {", ".join(f"stored.{column}" for column in MAEST_ANALYSIS_COLUMNS)}
+            FROM json_each(?) requested
+            CROSS JOIN maest_scores stored
+            WHERE stored.track_id = CAST(requested.value AS INTEGER)
+              AND stored.contract_hash = ?
+            """,
+            (_json_ids(identities), contract.contract_hash),
+        ).fetchall()
+    else:
+        rows = connection.execute(
+            f"""
+            SELECT {", ".join(MAEST_ANALYSIS_COLUMNS)}
+            FROM maest_scores
+            WHERE contract_hash = ?
+              AND track_id IN (
+                  SELECT CAST(value AS INTEGER)
+                  FROM json_each(?)
+              )
+            """,
+            (contract.contract_hash, _json_ids(identities)),
+        ).fetchall()
     valid_ids: set[int] = set()
     for row in rows:
         track_id = int(row["track_id"])
@@ -670,24 +749,39 @@ def _valid_artifact_rows(
     contract: ContractIdentity | None,
     identities: Mapping[int, tuple[str, int]],
     embedding: bool,
+    drive_from_requested: bool,
 ) -> dict[int, Mapping[str, object]]:
     if contract is None or not identities:
         return {}
     embedding_fields = ", dim, normalization, embedding_blob" if embedding else ""
-    rows = connection.execute(
-        f"""
-        SELECT track_id, track_uuid, content_generation, contract_hash,
-               analyzed_at
-               {embedding_fields}
-        FROM {table}
-        WHERE contract_hash = ?
-          AND track_id IN (
-              SELECT CAST(value AS INTEGER)
-              FROM json_each(?)
-          )
-        """,
-        (contract.contract_hash, _json_ids(identities)),
-    )
+    if drive_from_requested:
+        rows = connection.execute(
+            f"""
+            SELECT stored.track_id, stored.track_uuid, stored.content_generation,
+                   stored.contract_hash, stored.analyzed_at
+                   {embedding_fields}
+            FROM json_each(?) requested
+            CROSS JOIN {table} stored
+            WHERE stored.track_id = CAST(requested.value AS INTEGER)
+              AND stored.contract_hash = ?
+            """,
+            (_json_ids(identities), contract.contract_hash),
+        )
+    else:
+        rows = connection.execute(
+            f"""
+            SELECT track_id, track_uuid, content_generation, contract_hash,
+                   analyzed_at
+                   {embedding_fields}
+            FROM {table}
+            WHERE contract_hash = ?
+              AND track_id IN (
+                  SELECT CAST(value AS INTEGER)
+                  FROM json_each(?)
+              )
+            """,
+            (contract.contract_hash, _json_ids(identities)),
+        )
     valid: dict[int, Mapping[str, object]] = {}
     for row in rows:
         track_id = int(row["track_id"])
@@ -725,22 +819,36 @@ def _valid_timeline_rows(
     catalog_uuid: str,
     contract: ContractIdentity | None,
     identities: Mapping[int, tuple[str, int]],
+    drive_from_requested: bool,
 ) -> dict[int, Mapping[str, object]]:
     if contract is None or not identities:
         return {}
-    rows = connection.execute(
-        """
-        SELECT track_id, track_uuid, content_generation, contract_hash,
-               payload_json, analyzed_at
-        FROM sonara_timeline
-        WHERE contract_hash = ?
-          AND track_id IN (
-              SELECT CAST(value AS INTEGER)
-              FROM json_each(?)
-          )
-        """,
-        (contract.contract_hash, _json_ids(identities)),
-    )
+    if drive_from_requested:
+        rows = connection.execute(
+            """
+            SELECT stored.track_id, stored.track_uuid, stored.content_generation,
+                   stored.contract_hash, stored.payload_json, stored.analyzed_at
+            FROM json_each(?) requested
+            CROSS JOIN sonara_timeline stored
+            WHERE stored.track_id = CAST(requested.value AS INTEGER)
+              AND stored.contract_hash = ?
+            """,
+            (_json_ids(identities), contract.contract_hash),
+        )
+    else:
+        rows = connection.execute(
+            """
+            SELECT track_id, track_uuid, content_generation, contract_hash,
+                   payload_json, analyzed_at
+            FROM sonara_timeline
+            WHERE contract_hash = ?
+              AND track_id IN (
+                  SELECT CAST(value AS INTEGER)
+                  FROM json_each(?)
+              )
+            """,
+            (contract.contract_hash, _json_ids(identities)),
+        )
     valid: dict[int, Mapping[str, object]] = {}
     for row in rows:
         track_id = int(row["track_id"])
@@ -768,23 +876,38 @@ def _valid_fingerprint_ids(
     catalog_uuid: str,
     contract: ContractIdentity | None,
     identities: Mapping[int, tuple[str, int]],
+    drive_from_requested: bool,
 ) -> set[int]:
     if contract is None or not identities:
         return set()
-    rows = connection.execute(
-        """
-        SELECT track_id, track_uuid, content_generation, contract_hash,
-               fingerprint_version, word_count, byte_order,
-               fingerprint_blob
-        FROM sonara_fingerprints
-        WHERE contract_hash = ?
-          AND track_id IN (
-              SELECT CAST(value AS INTEGER)
-              FROM json_each(?)
-          )
-        """,
-        (contract.contract_hash, _json_ids(identities)),
-    )
+    if drive_from_requested:
+        rows = connection.execute(
+            """
+            SELECT stored.track_id, stored.track_uuid, stored.content_generation,
+                   stored.contract_hash, stored.fingerprint_version,
+                   stored.word_count, stored.byte_order, stored.fingerprint_blob
+            FROM json_each(?) requested
+            CROSS JOIN sonara_fingerprints stored
+            WHERE stored.track_id = CAST(requested.value AS INTEGER)
+              AND stored.contract_hash = ?
+            """,
+            (_json_ids(identities), contract.contract_hash),
+        )
+    else:
+        rows = connection.execute(
+            """
+            SELECT track_id, track_uuid, content_generation, contract_hash,
+                   fingerprint_version, word_count, byte_order,
+                   fingerprint_blob
+            FROM sonara_fingerprints
+            WHERE contract_hash = ?
+              AND track_id IN (
+                  SELECT CAST(value AS INTEGER)
+                  FROM json_each(?)
+              )
+            """,
+            (contract.contract_hash, _json_ids(identities)),
+        )
     valid: set[int] = set()
     for row in rows:
         track_id = int(row["track_id"])
@@ -812,11 +935,11 @@ def _current_classifier_details(
     identities: Mapping[int, tuple[str, int]],
     active_release_hash: str | None,
     active_required_outputs_hashes: frozenset[str],
+    drive_from_requested: bool,
 ) -> dict[int, tuple[ClassifierScoreDetail, ...]]:
     if not identities or not active_required_outputs_hashes:
         return {}
-    rows = connection.execute(
-        """
+    select_fields = """
         SELECT
             cs.track_id,
             cs.classifier_key,
@@ -833,13 +956,8 @@ def _current_classifier_details(
             cs.sonara_release_hash,
             cs.positive_label,
             cs.analyzed_at
-        FROM classifier_scores cs
-        JOIN tracks t ON t.track_id = cs.track_id
-        WHERE cs.content_generation = t.content_generation
-          AND cs.track_id IN (
-              SELECT CAST(value AS INTEGER)
-              FROM json_each(?)
-          )
+    """
+    current_sql = """
           AND cs.required_outputs_hash IN (
               SELECT CAST(value AS TEXT)
               FROM json_each(?)
@@ -852,17 +970,45 @@ def _current_classifier_details(
               )
           )
         ORDER BY cs.track_id, cs.classifier_key
-        """,
-        (
-            _json_ids(identities),
-            json.dumps(
-                sorted(active_required_outputs_hashes),
-                separators=(",", ":"),
-            ),
-            active_release_hash,
-            active_release_hash,
+    """
+    params = (
+        _json_ids(identities),
+        json.dumps(
+            sorted(active_required_outputs_hashes),
+            separators=(",", ":"),
         ),
+        active_release_hash,
+        active_release_hash,
     )
+    if drive_from_requested:
+        rows = connection.execute(
+            select_fields
+            + """
+            FROM json_each(?) requested
+            CROSS JOIN tracks t
+            CROSS JOIN classifier_scores cs
+            WHERE t.track_id = CAST(requested.value AS INTEGER)
+              AND cs.track_id = t.track_id
+              AND cs.content_generation = t.content_generation
+            """
+            + current_sql,
+            params,
+        )
+    else:
+        rows = connection.execute(
+            select_fields
+            + """
+            FROM classifier_scores cs
+            JOIN tracks t ON t.track_id = cs.track_id
+            WHERE cs.content_generation = t.content_generation
+              AND cs.track_id IN (
+                  SELECT CAST(value AS INTEGER)
+                  FROM json_each(?)
+              )
+            """
+            + current_sql,
+            params,
+        )
     grouped: defaultdict[int, list[ClassifierScoreDetail]] = defaultdict(list)
     for row in rows:
         probabilities = _parse_probabilities(row["probabilities_json"])
@@ -904,15 +1050,18 @@ def _coverage_and_classifiers(
     dict[tuple[str, str], dict[int, Mapping[str, object]]],
 ]:
     identities = _identity_map(rows)
+    drive_from_requested = len(identities) <= 500
     sonara_core = _valid_sonara_core_ids(
         core_connection,
         contract=context.active_contracts.get(("sonara", "core")),
         identities=identities,
+        drive_from_requested=drive_from_requested,
     )
     maest_analysis = _valid_maest_analysis_ids(
         core_connection,
         contract=context.active_contracts.get(("maest", "analysis")),
         identities=identities,
+        drive_from_requested=drive_from_requested,
     )
     artifact_rows: dict[
         tuple[str, str],
@@ -926,12 +1075,14 @@ def _coverage_and_classifiers(
             contract=context.active_contracts.get((family, output_kind)),
             identities=identities,
             embedding=True,
+            drive_from_requested=drive_from_requested,
         )
     timeline = _valid_timeline_rows(
         artifacts_connection,
         catalog_uuid=context.catalog_uuid,
         contract=context.active_contracts.get(("sonara", "timeline")),
         identities=identities,
+        drive_from_requested=drive_from_requested,
     )
     artifact_rows[("sonara", "timeline")] = timeline
     fingerprint = _valid_fingerprint_ids(
@@ -939,6 +1090,7 @@ def _coverage_and_classifiers(
         catalog_uuid=context.catalog_uuid,
         contract=context.active_contracts.get(("sonara", "fingerprint")),
         identities=identities,
+        drive_from_requested=drive_from_requested,
     )
     coverage = {
         track_id: AnalysisCoverage(
@@ -961,6 +1113,7 @@ def _coverage_and_classifiers(
         active_required_outputs_hashes=(
             context.active_classifier_required_outputs_hashes
         ),
+        drive_from_requested=drive_from_requested,
     )
     return coverage, classifiers, artifact_rows
 
@@ -1705,6 +1858,7 @@ class LibraryQueryRepository:
                         int(track["content_generation"]),
                     )
                 },
+                drive_from_requested=True,
             )
             timeline = rows.get(int(track_id))
             if timeline is None:
@@ -1831,11 +1985,13 @@ class LibraryQueryRepository:
                 core_connection,
                 contract=context.active_contracts.get(("sonara", "core")),
                 identities=identities,
+                drive_from_requested=False,
             )
             maest_analysis = _valid_maest_analysis_ids(
                 core_connection,
                 contract=context.active_contracts.get(("maest", "analysis")),
                 identities=identities,
+                drive_from_requested=False,
             )
             artifact_counts: dict[str, int] = {}
             for family in ("maest", "mert", "muq", "clap"):
@@ -1846,6 +2002,7 @@ class LibraryQueryRepository:
                     contract=context.active_contracts.get((family, "embedding")),
                     identities=identities,
                     embedding=True,
+                    drive_from_requested=False,
                 )
                 artifact_counts[family] = len(valid)
             classifier_rows = _current_classifier_details(
@@ -1855,6 +2012,7 @@ class LibraryQueryRepository:
                 active_required_outputs_hashes=(
                     context.active_classifier_required_outputs_hashes
                 ),
+                drive_from_requested=False,
             )
             if requested_classifiers:
                 expected = set(requested_classifiers)

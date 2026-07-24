@@ -1,14 +1,8 @@
 # Search with seed tracks
 
 > Audience: Users who have one or more reference tracks and want nearby candidates.
-> Goal: Use MERT, SONARA, and Reference Compare search without confusing their scores.
+> Goal: Use MERT, MuQ, SONARA, and Reference Compare search without confusing their scores.
 > Type: guide
-
-::: warning v7 frontend status
-The React workflow below documents the deferred frontend. It has not been ported to the schema-v7
-API, so these UI steps are not currently validated or available for v7. Use the backend API
-alternative below.
-:::
 
 Seed search is useful when a real track communicates your intention better than tags or words. The
 app compares stored analysis around that reference and returns candidates to audition. It does not
@@ -17,44 +11,51 @@ claim that the candidates will mix or belong in the same genre.
 Use one seed for a focused neighborhood or several seeds for a blended target. The result is a
 ranked listening list, not an automatic crate.
 
-## Current v7 alternative
+## Browser and API entry points
 
-Use `POST /api/search` for `maest`, `mert`, `muq`, or `clap` seed search and
-`POST /api/search/sonara` for SONARA seed search. `POST /api/reference/compare` exposes the
-per-model comparison without the React tabs. Request fields, limits, and response identity are
-documented in the [API reference](../reference/api.md).
-
-## Deferred frontend workflow
+The browser provides MERT, MUQ, SONARA, and LAB tabs. Direct clients can use `POST /api/search` for
+`maest`, `mert`, `muq`, or `clap` seed search, `POST /api/search/sonara` for SONARA, and
+`POST /api/reference/compare` for per-model comparison. Request fields, limits, and response
+identity are documented in the [API reference](../reference/api.md).
 
 ## Choose the kind of neighborhood
 
 | Use | When it helps | What you can change |
 | --- | --- | --- |
 | MERT | You want a broad learned audio neighborhood with few decisions | Similarity threshold and result limit |
+| MuQ | You want a second generic acoustic embedding neighborhood | Similarity threshold and result limit |
 | SONARA | You know which audible qualities should stay close or move | Feature mode, mixer weights, and directional modifiers |
 | LAB | You want to hear how separate model families disagree | Model columns, result limit, and listening verdicts |
 
-MERT is the quicker question: "what is near these tracks in this model's audio space?" SONARA is
-the more explicit question: "what is near them according to the qualities I care about now?"
+MERT and MuQ ask the quicker question: "what is near these tracks in this model's audio space?"
+SONARA asks the more explicit question: "what is near them according to the qualities I care about
+now?"
 
 ## Choose seeds
 
-In the library list, add tracks to the seed strip. The search panel uses the selected seed IDs for MERT, SONARA, SET, Hybrid preview, and the LAB Reference Compare panel.
+In the library list, add tracks to the seed strip. The search panel uses the selected seed IDs for
+MERT, MuQ, SONARA, SET, Hybrid preview, and the LAB Reference Compare panel.
 
 Hybrid and feedback endpoints accept one to five unique seeds. SET manual mode also expects one to five practical anchors because the artist guard and waypoint placement are built around a small seed set.
 
-## MERT tab
+## MERT and MUQ tabs
 
-MERT search calls `/api/search` with selected seed IDs. It compares stored MERT embeddings and returns scored candidates.
+Both tabs call `/api/search` with selected seed IDs and the matching `analysis_family`. They compare
+only exact-current stored embeddings for that family and return scored candidates.
 
-Use MERT when you want audio-to-audio similarity from learned embedding space. It is useful for timbral and musical neighborhood discovery, but it does not know your exact DJ intention.
+Use MERT or MuQ when you want audio-to-audio similarity from a learned embedding space. MERT is a
+broad musical representation. MuQ adds a separate generic acoustic view. Neither knows your exact
+DJ intention, and their scores are not one shared scale.
 
 Common controls:
 
 - **Similarity**: minimum score threshold from `0.00` to `1.00`.
 - **Limit**: maximum result count, `1..500`.
 
-When BPM filtering is applied, MERT search resolves current SONARA tempo evidence first. At low
+When a tab has zero current embeddings, its search action is disabled with a source-specific
+reason. Request errors remain visible instead of looking like an empty successful result.
+
+When BPM filtering is applied, embedding search resolves current SONARA tempo evidence first. At low
 confidence, it also checks ranked SONARA candidates and the Mutagen BPM tag. Unreliable tempo does
 not become a hard rejection after those alternatives are checked.
 
@@ -98,6 +99,8 @@ Common controls:
 - **Verdict buttons**: save listening notes for a candidate and model as `mood`, `palette`, `instruments`, `groove`, `genre`, `transition`, or `miss`.
 
 Verdicts are stored as local pair feedback with a `reference_compare:<model>` source. They are listening notes for later review and calibration. They do not retag audio files or change the ranked results immediately.
+Each write carries the current `catalog_uuid`, `track_uuid`, and `content_generation`. An unavailable
+model stays in the comparison with its own reason instead of silently disappearing.
 
 ## Review results
 

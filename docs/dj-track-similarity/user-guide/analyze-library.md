@@ -8,11 +8,16 @@ The current runtime uses greenfield schema v7. Analysis reads source audio
 and writes local SQLite state. It does not modify source audio files. Scan first, then select the
 analysis family that answers your listening question.
 
-## Current UI status
+## Browser controls
 
-The frontend v7 port is deferred. The existing browser analysis controls are not v7-compatible, so
-do not use this page as a guide to current checkboxes, limits, or reset buttons. Use the CLI or API
-while the frontend is being ported.
+After the required SONARA preparation below, the browser can start the same v7 jobs. **Analyze
+limit** defaults to `0` for the whole eligible library. The initial batch values are Track `8`,
+Inference `16`, and SONARA `8`; **Device** defaults to `auto`.
+
+The panel keeps **SONARA**, **ML**, and **CLASSIFIERS** as separate stages. **FULL** runs them in the
+fixed order. SONARA exposes `core`, `timeline`, `embedding`, and `fingerprint` checkboxes with
+`core` selected initially. Progress, per-file failures, blockers, cancellation, and reset results
+come from the typed v7 job responses.
 
 ## Prepare SONARA before the first run
 

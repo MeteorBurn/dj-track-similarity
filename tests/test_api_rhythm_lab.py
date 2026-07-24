@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import pytest
 
 import dj_track_similarity.api as api
 import dj_track_similarity.api_routes_rhythm_lab as rhythm_lab_routes
@@ -104,7 +105,10 @@ def test_rhythm_lab_collection_save_endpoint_writes_default_lab_database(monkeyp
         "/api/rhythm-lab/collections",
         json={
             "name": "Main UI set",
-            "track_ids": [first.track_id, second.track_id],
+            "tracks": [
+                _identity_payload(first),
+                _identity_payload(second),
+            ],
             "source": "main_ui_playlist",
             "mode": "replace",
         },
@@ -128,6 +132,227 @@ def test_rhythm_lab_collection_save_endpoint_writes_default_lab_database(monkeyp
     assert [track.selected_path for track in stored.tracks] == [
         track.selected_path for track in expected.tracks
     ]
+
+
+def test_rhythm_lab_collection_save_rejects_legacy_numeric_only_body(
+    monkeypatch, tmp_path: Path
+) -> None:
+    labels_path = tmp_path / "rhythm_lab.sqlite"
+    monkeypatch.setattr(
+        rhythm_lab_routes,
+        "default_rhythm_lab_labels_path",
+        lambda: labels_path,
+    )
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    track = _add_track(db, tmp_path, "legacy.wav", "Artist", "Legacy")
+
+    response = TestClient(create_app(db_path)).post(
+        "/api/rhythm-lab/collections",
+        json={
+            "name": "Legacy selection",
+            "track_ids": [track.track_id],
+            "mode": "replace",
+        },
+    )
+
+    assert response.status_code == 422
+    assert not labels_path.exists()
+
+
+@pytest.mark.parametrize(
+    "stale_field",
+    ["catalog_uuid", "track_uuid", "content_generation"],
+)
+def test_rhythm_lab_collection_rejects_stale_identity_without_replacing_tracks(
+    monkeypatch,
+    tmp_path: Path,
+    stale_field: str,
+) -> None:
+    labels_path = tmp_path / "rhythm_lab.sqlite"
+    monkeypatch.setattr(
+        rhythm_lab_routes,
+        "default_rhythm_lab_labels_path",
+        lambda: labels_path,
+    )
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    existing = _add_track(db, tmp_path, "existing.wav", "Artist", "Existing")
+    replacement = _add_track(
+        db,
+        tmp_path,
+        "replacement.wav",
+        "Artist",
+        "Replacement",
+    )
+    client = TestClient(create_app(db_path))
+    initial = client.post(
+        "/api/rhythm-lab/collections",
+        json={
+            "name": "Protected set",
+            "tracks": [_identity_payload(existing)],
+            "source": "main_ui_playlist",
+            "note": "keep this selection",
+            "mode": "replace",
+        },
+    )
+    assert initial.status_code == 200
+    stale_replacement = _identity_payload(replacement)
+    stale_replacement[stale_field] = (
+        replacement.content_generation + 1
+        if stale_field == "content_generation"
+        else f"{stale_replacement[stale_field]}-stale"
+    )
+
+    response = client.post(
+        "/api/rhythm-lab/collections",
+        json={
+            "name": "Protected set",
+            "tracks": [stale_replacement],
+            "source": "stale_request",
+            "note": "must not replace",
+            "mode": "replace",
+        },
+    )
+
+    assert response.status_code == 409
+    assert "identity is stale" in response.json()["detail"]
+    stored = RhythmLabCollections(labels_path).collection_by_name(
+        "Protected set"
+    )
+    assert stored is not None
+    assert stored.source == "main_ui_playlist"
+    assert stored.note == "keep this selection"
+    assert stored.track_count == 1
+    assert [
+        (track.track_uuid, track.content_generation)
+        for track in stored.tracks
+    ] == [(existing.track_uuid, existing.content_generation)]
+
+
+def test_rhythm_lab_collection_does_not_rebind_generation_changed_at_snapshot_boundary(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    labels_path = tmp_path / "rhythm_lab.sqlite"
+    monkeypatch.setattr(
+        rhythm_lab_routes,
+        "default_rhythm_lab_labels_path",
+        lambda: labels_path,
+    )
+    db_path = tmp_path / "library.sqlite"
+    db = LibraryDatabase(db_path)
+    existing = _add_track(
+        db,
+        tmp_path,
+        "existing-race.wav",
+        "Artist",
+        "Existing",
+    )
+    replacement = _add_track(
+        db,
+        tmp_path,
+        "replacement-race.wav",
+        "Artist",
+        "Replacement",
+    )
+    client = TestClient(create_app(db_path))
+    initial = client.post(
+        "/api/rhythm-lab/collections",
+        json={
+            "name": "Race-protected set",
+            "tracks": [_identity_payload(existing)],
+            "source": "main_ui_playlist",
+            "note": "keep this generation",
+            "mode": "replace",
+        },
+    )
+    assert initial.status_code == 200
+
+    original = LibraryDatabase.get_track_file_states_by_ids
+    replacement_path = tmp_path / "replacement-race.wav"
+    mutated = False
+
+    def mutate_then_snapshot(
+        repository,
+        track_ids,
+        *,
+        include_missing=False,
+    ):
+        nonlocal mutated
+        if not mutated:
+            replacement_path.write_bytes(b"replacement generation two")
+            stat = replacement_path.stat()
+            current = repository.upsert_scanned_track(
+                file=ScannedFile(
+                    file_path=str(replacement_path),
+                    file_size_bytes=stat.st_size,
+                    file_modified_ns=stat.st_mtime_ns,
+                    audio_format="wav",
+                    audio_codec="pcm_s16le",
+                    sample_rate_hz=44_100,
+                    channel_count=2,
+                    bit_rate_bps=1_411_200,
+                    audio_duration_seconds=1.0,
+                ),
+                tags=FileTags(
+                    title="Replacement generation two",
+                    artist="Artist",
+                    album="API Rhythm Lab",
+                    tag_bpm=128.0,
+                    tag_key="8A",
+                    comment=None,
+                    genres=("House",),
+                ),
+            ).identity
+            assert (
+                current.content_generation
+                == replacement.content_generation + 1
+            )
+            mutated = True
+        return original(
+            repository,
+            track_ids,
+            include_missing=include_missing,
+        )
+
+    monkeypatch.setattr(
+        LibraryDatabase,
+        "get_track_file_states_by_ids",
+        mutate_then_snapshot,
+    )
+    response = client.post(
+        "/api/rhythm-lab/collections",
+        json={
+            "name": "Race-protected set",
+            "tracks": [_identity_payload(replacement)],
+            "source": "racing_request",
+            "note": "must not bind generation two",
+            "mode": "replace",
+        },
+    )
+
+    assert response.status_code == 409
+    assert "identity is stale" in response.json()["detail"]
+    stored = RhythmLabCollections(labels_path).collection_by_name(
+        "Race-protected set"
+    )
+    assert stored is not None
+    assert stored.source == "main_ui_playlist"
+    assert stored.note == "keep this generation"
+    assert [
+        (track.track_uuid, track.content_generation)
+        for track in stored.tracks
+    ] == [(existing.track_uuid, existing.content_generation)]
+
+
+def _identity_payload(identity: TrackIdentity) -> dict[str, object]:
+    return {
+        "track_id": identity.track_id,
+        "catalog_uuid": identity.catalog_uuid,
+        "track_uuid": identity.track_uuid,
+        "content_generation": identity.content_generation,
+    }
 
 
 def _add_track(

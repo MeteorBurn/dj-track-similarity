@@ -1,12 +1,32 @@
-import { Dispatch, Fragment, SetStateAction, useEffect, useRef, useState } from "react";
+import { Dispatch, Fragment, KeyboardEvent, SetStateAction, useEffect, useRef, useState } from "react";
 import { Download, FolderOpen, ListFilter, ListMusic, ListPlus, Pause, Play, RotateCcw, Search, Tags, Trash2, X } from "lucide-react";
-import { AnalysisJobStatus, api, HybridClassifierSignal, HybridMatchAxis, HybridSearchResult, HybridSearchSource, PromotedClassifier, SearchResult, SetBuilderBpmChange, SetBuilderBpmMode, SetBuilderClassifierFlow, SetBuilderEnergyCurve, SetBuilderGeneratePayload, SetBuilderMode, SetBuilderSeedMode, SonaraMixerWeights, SonaraModifiers, SonaraSearchMode, Track } from "./api";
+import { AnalysisJobStatus, api, EmbeddingSource, HybridClassifierSignal, HybridMatchAxis, HybridSearchResult, HybridSearchSource, PromotedClassifier, SearchResult, SetBuilderBpmChange, SetBuilderBpmMode, SetBuilderClassifierFlow, SetBuilderEnergyCurve, SetBuilderGenerateResult, SetBuilderMode, SetBuilderSeedMode, SonaraMixerWeights, SonaraModifiers, SonaraSearchMode, Track } from "./api";
 import type { EvaluationPairFeedbackResult, EvaluationPairFeedbackState, EvaluationPairReasonTag } from "./api";
 import { ClapSearchTab } from "./ClapSearchTab";
 import { classifierScoringBlockedReason } from "./classifierCompatibility";
 import type { ClapPromptPreset } from "./clapPrompt";
+import { EmbeddingSearchTab } from "./EmbeddingSearchTab";
 import { playlistPage } from "./playlistView";
 import { ReferenceComparePanel } from "./ReferenceComparePanel";
+import {
+  buildHybridPayload,
+  buildSetBuilderPayload,
+  canAddSetPreview,
+  createRequestTokenGuard,
+  genericSearchResultIsCurrent,
+  hybridSignature,
+  hybridSourceOrder,
+  primarySearchTabs,
+  setBuilderSignature,
+  setDefaultRawWeights,
+  setWorkflowTabs,
+  tabAfterKey,
+  type HybridDraft,
+  type GenericSearchTab,
+  type PrimarySearchTab,
+  type SetBuilderDraft,
+  type SetWorkflowTab
+} from "./searchSurfaceState";
 import { resetSetBuilderSliders, setBuilderDefaultDiversity, setBuilderDefaultFlow } from "./setBuilderControls";
 import { ResultRow } from "./TrackRows";
 import { displayTrack } from "./trackDisplay";
@@ -191,7 +211,30 @@ const sonaraModeOptions: Array<SelectOption<SonaraSearchMode>> = [
   }
 ];
 
-const hybridSourceKeys: HybridSearchSource[] = ["mert", "maest", "sonara", "clap"];
+const hybridSourceKeys: HybridSearchSource[] = [...hybridSourceOrder];
+
+const setSourceOptions: Array<{ key: EmbeddingSource; label: string; title: string }> = [
+  {
+    key: "mert",
+    label: "MERT",
+    title: "Stored MERT acoustic embeddings used by SET candidate generation."
+  },
+  {
+    key: "maest",
+    label: "MAEST",
+    title: "Stored MAEST embeddings used by SET candidate generation; this is distinct from genre labels."
+  },
+  {
+    key: "muq",
+    label: "MuQ",
+    title: "Stored current-contract MuQ acoustic embeddings used by SET candidate generation."
+  },
+  {
+    key: "clap",
+    label: "CLAP audio",
+    title: "Stored CLAP audio embeddings used by SET; this is not CLAP text search."
+  }
+];
 
 const hybridSourceOptions: Array<{ key: HybridSearchSource; label: string; title: string }> = [
   {
@@ -205,6 +248,11 @@ const hybridSourceOptions: Array<{ key: HybridSearchSource; label: string; title
     title: "MAEST source for Hybrid preview. Type: checkbox on/off. Range: enabled or disabled. Uses stored MAEST embeddings, not genre labels."
   },
   {
+    key: "muq",
+    label: "MuQ",
+    title: "MuQ source for Hybrid Preview. Uses current-contract stored MuQ acoustic embeddings."
+  },
+  {
     key: "sonara",
     label: "SONARA",
     title: "SONARA source for Hybrid preview. Type: checkbox on/off. Range: enabled or disabled. Requires stored SONARA features."
@@ -212,7 +260,7 @@ const hybridSourceOptions: Array<{ key: HybridSearchSource; label: string; title
   {
     key: "clap",
     label: "CLAP",
-    title: "CLAP source for Hybrid preview. Type: checkbox on/off. Range: enabled or disabled. Uses stored CLAP audio embeddings only, without prompt input."
+    title: "CLAP source for Hybrid Preview. Uses stored CLAP audio embeddings only, without prompt input."
   }
 ];
 const hybridAxisOrder: HybridMatchAxis[] = ["groove", "density", "texture", "mood", "tonal", "vocalness", "energy_flow", "novelty"];
@@ -248,6 +296,16 @@ type HybridFeedbackDraft = {
 };
 
 const hybridFeedbackSource = "hybrid_ui";
+
+const primaryTabPresentation: Record<PrimarySearchTab, { label: string; title: string }> = {
+  set: { label: "SET", title: "Set Builder and independent Hybrid Preview workflows" },
+  sonara: { label: "SONARA", title: "SONARA similarity search" },
+  mert: { label: "MERT", title: "MERT seed embedding search" },
+  muq: { label: "MUQ", title: "MuQ seed embedding search" },
+  clap: { label: "CLAP", title: "CLAP text search" },
+  class: { label: "CLASS", title: "Classifier controls" },
+  lab: { label: "LAB", title: "Reference Compare model groups" }
+};
 
 const hybridFeedbackRatings: Array<{ value: PairFeedbackRating; label: string }> = [
   { value: 3, label: "Strong" },
@@ -288,11 +346,16 @@ export function SearchPlaylistPanel({
   clapMinSimilarity,
   onClapMinSimilarityChange,
   databasePath,
+  databaseIdentity,
   busy,
   filters,
   setFilters,
   seeds,
   results,
+  genericSearchInputKey,
+  genericSearchResultKey,
+  genericSearchResultOrigin,
+  onPrimarySearchTabChange,
   seedSet,
   playlistSet,
   playlist,
@@ -302,7 +365,7 @@ export function SearchPlaylistPanel({
   onOutputDirChange,
   onChooseOutputFolder,
   helpText,
-  clapEmbeddingCount,
+  embeddingCounts,
   classifiers,
   classifierMinScores,
   onClassifierMinScoreChange,
@@ -311,8 +374,7 @@ export function SearchPlaylistPanel({
   removeSeed,
   handleTextSearch,
   handleSonaraSearch,
-  handleMertSearch,
-  handleSetBuilderGenerate,
+  handleEmbeddingSearch,
   addGeneratedSetToPlaylist,
   addSeed,
   toggleLiked,
@@ -337,11 +399,16 @@ export function SearchPlaylistPanel({
   clapMinSimilarity: number;
   onClapMinSimilarityChange: (value: number) => void;
   databasePath: string | null;
+  databaseIdentity: string | null;
   busy: boolean;
   filters: SearchFiltersState;
   setFilters: Dispatch<SetStateAction<SearchFiltersState>>;
   seeds: number[];
   results: SearchResult[];
+  genericSearchInputKey: string;
+  genericSearchResultKey: string;
+  genericSearchResultOrigin: GenericSearchTab | null;
+  onPrimarySearchTabChange: (tab: PrimarySearchTab) => void;
   seedSet: Set<number>;
   playlistSet: Set<number>;
   playlist: Track[];
@@ -351,7 +418,7 @@ export function SearchPlaylistPanel({
   onOutputDirChange: (value: string) => void;
   onChooseOutputFolder: () => void;
   helpText: SearchHelpText;
-  clapEmbeddingCount: number;
+  embeddingCounts: Record<EmbeddingSource, number>;
   classifiers: PromotedClassifier[];
   classifierMinScores: Record<string, number>;
   onClassifierMinScoreChange: (classifier: string, value: number) => void;
@@ -360,11 +427,10 @@ export function SearchPlaylistPanel({
   removeSeed: (trackId: number) => void;
   handleTextSearch: () => void;
   handleSonaraSearch: () => void;
-  handleMertSearch: () => void;
-  handleSetBuilderGenerate: (payload: SetBuilderGeneratePayload) => void;
-  addGeneratedSetToPlaylist: () => void;
+  handleEmbeddingSearch: (analysisFamily: EmbeddingSource) => Promise<void>;
+  addGeneratedSetToPlaylist: (tracks: Track[]) => void;
   addSeed: (track: Track) => void;
-  toggleLiked: (track: Track) => void;
+  toggleLiked: (track: Track) => Promise<Track | null>;
   togglePlaylist: (track: Track) => void;
   playingTrackId: number | null;
   setPreview: (track: Track) => void;
@@ -373,7 +439,8 @@ export function SearchPlaylistPanel({
   handleSaveToCollection: () => void;
   handleExport: (format: "m3u" | "csv") => void;
 }) {
-  const [activeSearchTab, setActiveSearchTab] = useState<"set" | "sonara" | "mert" | "clap" | "class" | "lab">("sonara");
+  const [activeSearchTab, setActiveSearchTab] = useState<PrimarySearchTab>("sonara");
+  const [activeSetWorkflowTab, setActiveSetWorkflowTab] = useState<SetWorkflowTab>("builder");
   const [setAdvancedControlsOpen, setSetAdvancedControlsOpen] = useState(false);
   const [playlistOffset, setPlaylistOffset] = useState(0);
   const [setSeedMode, setSetSeedMode] = useState<SetBuilderSeedMode>("manual");
@@ -386,10 +453,21 @@ export function SearchPlaylistPanel({
   const [setBpmStart, setSetBpmStart] = useState("");
   const [setBpmTarget, setSetBpmTarget] = useState("");
   const [setAutoSeedCount, setSetAutoSeedCount] = useState(5);
+  const [setRandomSeed, setSetRandomSeed] = useState("0");
   const [setClassifierPreferences, setSetClassifierPreferences] = useState<Record<string, number>>({});
   const [setClassifierFlows, setSetClassifierFlows] = useState<Record<string, SetBuilderClassifierFlow>>({});
-  const [hybridSources, setHybridSources] = useState<Record<HybridSearchSource, boolean>>({ mert: true, maest: true, sonara: true, clap: true });
-  const [hybridWeights, setHybridWeights] = useState<Record<HybridSearchSource, number>>({ mert: 1, maest: 1, sonara: 1, clap: 1 });
+  const [setSources, setSetSources] = useState<Record<EmbeddingSource, boolean>>({ mert: true, maest: true, muq: true, clap: true });
+  const [setUseCustomWeights, setSetUseCustomWeights] = useState(false);
+  const [setWeights, setSetWeights] = useState<Record<EmbeddingSource | "sonara_broad", number>>({ ...setDefaultRawWeights });
+  const [setBuilderLoading, setSetBuilderLoading] = useState(false);
+  const [setBuilderError, setSetBuilderError] = useState("");
+  const [setBuilderResponse, setSetBuilderResponse] = useState<SetBuilderGenerateResult | null>(null);
+  const [setBuilderResponseKey, setSetBuilderResponseKey] = useState("");
+  const setRequestGuard = useRef(createRequestTokenGuard());
+  const setAbortController = useRef<AbortController | null>(null);
+  const [hybridSources, setHybridSources] = useState<Record<HybridSearchSource, boolean>>({ mert: true, maest: true, muq: true, sonara: true, clap: true });
+  const [hybridUseCustomWeights, setHybridUseCustomWeights] = useState(false);
+  const [hybridWeights, setHybridWeights] = useState<Record<HybridSearchSource, number>>({ mert: 1, maest: 1, muq: 1, sonara: 1, clap: 1 });
   const [hybridPerSource, setHybridPerSource] = useState(30);
   const [hybridLimit, setHybridLimit] = useState(25);
   const [hybridTransitionRiskWeight, setHybridTransitionRiskWeight] = useState(0);
@@ -401,14 +479,26 @@ export function SearchPlaylistPanel({
   const [hybridWarnings, setHybridWarnings] = useState<string[]>([]);
   const [hybridLimitations, setHybridLimitations] = useState<string[]>([]);
   const [hybridWeightsUsed, setHybridWeightsUsed] = useState<Record<string, number>>({});
+  const [hybridSourcesUsed, setHybridSourcesUsed] = useState<HybridSearchSource[]>([]);
+  const [hybridSourceContractHashes, setHybridSourceContractHashes] = useState<Partial<Record<HybridSearchSource, string>>>({});
   const [hybridPreviewKey, setHybridPreviewKey] = useState("");
   const [hybridSessionId, setHybridSessionId] = useState<number | null>(null);
   const [hybridFeedbackDrafts, setHybridFeedbackDrafts] = useState<Record<number, HybridFeedbackDraft>>({});
   const [hybridFeedbackSaving, setHybridFeedbackSaving] = useState<Record<number, boolean>>({});
   const [hybridFeedbackErrors, setHybridFeedbackErrors] = useState<Record<number, string>>({});
   const [hybridSelectedResultId, setHybridSelectedResultId] = useState<number | null>(null);
+  const hybridRequestGuard = useRef(createRequestTokenGuard());
+  const hybridAbortController = useRef<AbortController | null>(null);
+  const [embeddingSearchPending, setEmbeddingSearchPending] = useState<Partial<Record<EmbeddingSource, boolean>>>({});
+  const [embeddingSearchErrors, setEmbeddingSearchErrors] = useState<Partial<Record<EmbeddingSource, string>>>({});
   const [evaluationLabelCounts, setEvaluationLabelCounts] = useState<{ pair: number; transition: number } | null>(null);
   const playlistPageState = playlistPage(playlist, playlistOffset, playlistPageSize);
+  const showGenericSearchResults = genericSearchResultIsCurrent(
+    activeSearchTab,
+    genericSearchResultOrigin,
+    genericSearchResultKey,
+    genericSearchInputKey
+  );
   useEffect(() => {
     if (playlistPageState.offset !== playlistOffset) {
       setPlaylistOffset(playlistPageState.offset);
@@ -442,8 +532,8 @@ export function SearchPlaylistPanel({
   const setBuilderDiversityTitle = "Насколько активно раздвигать похожие кандидаты. Тип: число 0.00-1.00. 0 = ближе к anchors, 1 = больше разнообразия при сохранении связи.";
   const setBpmStartTitle = "Start BPM для явной BPM-кривой. Тип: число 20-300 или пусто = взять из первого seed/anchor, затем из библиотеки.";
   const setBpmTargetTitle = "Target BPM для явной BPM-кривой. Тип: число 20-300 или пусто = вывести из доступного диапазона библиотеки.";
-  const hybridBlockTitle = "Hybrid preview: explicit weighted RRF candidate preview inside SET. Type: action block. Direct API calls are read-only by default; this UI records evaluation session/event rows for feedback only.";
-  const hybridWeightTitle = "Source weight for Weighted preview. Type: number 0.00-1.00. Equal values keep sources balanced; disabled sources are ignored.";
+  const hybridBlockTitle = "Hybrid Preview is an independent weighted rank-fusion search. It does not run Set Builder or change its preview.";
+  const hybridWeightTitle = "Custom source weight. Type: finite nonnegative number. Disabled sources are omitted; backend defaults apply until custom weights are enabled.";
   const hybridPerSourceTitle = "Candidates fetched per enabled source before weighted fusion. Type: integer 1-100. Default: 30.";
   const hybridLimitTitle = "Maximum Hybrid preview rows to show. Type: integer 1-100. Default: 25.";
   const hybridRiskPenaltyTitle = "Optional penalty for diagnostic transition risk. Type: number 0.00-1.00. Score remains an unsupervised diagnostic.";
@@ -452,30 +542,82 @@ export function SearchPlaylistPanel({
   const autoSeedCountControlTitle = autoSeedCountDisabled ? `${setAutoSeedCountTitle} Активно только когда выбран Auto - random start.` : setAutoSeedCountTitle;
   const bpmControlsDisabled = setBpmMode === "general";
   const customSonaraDisabled = filters.sonaraMode !== "custom";
-  const selectedHybridSources = hybridSourceKeys.filter((source) => hybridSources[source]);
   const hybridClassifierOptions = hybridClassifierSignalOptions(classifiers);
-  const hybridSeedMessage = hybridSeedRequirementMessage(seeds.length);
-  const hybridSourceMessage = selectedHybridSources.length ? "" : "Enable at least one Hybrid preview source.";
-  const hybridReadinessMessage = hybridSeedMessage || hybridSourceMessage;
-  const hybridInputKey = formatHybridInputKey(seeds, hybridSources, hybridWeights, hybridPerSource, hybridLimit, hybridTransitionRiskWeight, hybridUseClassifierPreferences, hybridClassifierToggles, hybridClassifierOptions);
+  const setBuilderDraft: SetBuilderDraft = {
+    databasePath,
+    databaseIdentity,
+    seedMode: setSeedMode,
+    seedTrackIds: seeds,
+    autoSeedCount: setAutoSeedCount,
+    sources: setSources,
+    useCustomWeights: setUseCustomWeights,
+    weights: setWeights,
+    mode: setBuilderMode,
+    limit: setBuilderLimit,
+    diversity: setBuilderDiversity,
+    energyCurve: setEnergyCurve,
+    bpmMode: setBpmMode,
+    bpmChange: setBpmChange,
+    bpmStart: optionalNumberInput(setBpmStart),
+    bpmTarget: optionalNumberInput(setBpmTarget),
+    classifierPreferences: compactSignedScoreMap(setClassifierPreferences),
+    classifierFlows: compactClassifierFlows(setClassifierFlows, setClassifierPreferences),
+    randomSeed: optionalIntegerInput(setRandomSeed)
+  };
+  const setBuilderPayload = buildSetBuilderPayload(setBuilderDraft);
+  const setBuilderInputKey = setBuilderSignature(setBuilderDraft);
+  const setBuilderInputKeyRef = useRef(setBuilderInputKey);
+  const setBuilderPreviewIsCurrent = setBuilderResponseKey === setBuilderInputKey;
+  const setBuilderCanAddPreview = canAddSetPreview(setBuilderResponseKey, setBuilderInputKey, setBuilderResponse?.items.length ?? 0);
+  const hybridDraft: HybridDraft = {
+    databasePath,
+    databaseIdentity,
+    seedTrackIds: seeds,
+    sources: hybridSources,
+    useCustomWeights: hybridUseCustomWeights,
+    weights: hybridWeights,
+    perSource: hybridPerSource,
+    limit: hybridLimit,
+    transitionRiskWeight: hybridTransitionRiskWeight,
+    classifierPreferences: hybridUseClassifierPreferences ? hybridClassifierPreferences(hybridClassifierToggles, hybridClassifierOptions) : {},
+    classifierRiskWeights: hybridUseClassifierPreferences ? hybridClassifierRiskWeights(hybridClassifierToggles, hybridClassifierOptions) : {}
+  };
+  const hybridPayload = buildHybridPayload(hybridDraft);
+  const hybridReadinessMessage = hybridPayload.ok ? "" : hybridPayload.error;
+  const hybridInputKey = hybridSignature(hybridDraft);
   const hybridInputKeyRef = useRef(hybridInputKey);
   const hybridPreviewIsCurrent = hybridPreviewKey === hybridInputKey;
   const showHybridDiagnostics = hybridPreviewIsCurrent && !hybridReadinessMessage && !hybridError;
   const showHybridResults = showHybridDiagnostics && hybridResults.length > 0;
-  const selectedHybridResult = showHybridResults ? hybridResults.find((result) => result.track.id === hybridSelectedResultId) || hybridResults[0] : null;
+  const selectedHybridResult = showHybridResults ? hybridResults.find((result) => result.track.track_id === hybridSelectedResultId) || hybridResults[0] : null;
   const hybridDiagnosticTitle = formatHybridDiagnosticTitle(showHybridDiagnostics ? hybridLimitations : []);
-  const hasStoredClapEmbeddings = clapEmbeddingCount > 0;
+  const hasStoredClapEmbeddings = embeddingCounts.clap > 0;
   const clapSearchTitle = hasStoredClapEmbeddings
     ? "Найти треки через CLAP по текстовому описанию звучания. Требуются сохраненные CLAP audio embeddings в SQLite."
     : "CLAP search requires stored CLAP audio embeddings. Запустите анализ CLAP для библиотеки, затем повторите текстовый поиск.";
 
   useEffect(() => {
+    setBuilderInputKeyRef.current = setBuilderInputKey;
+    setRequestGuard.current.invalidate();
+    setAbortController.current?.abort();
+    setAbortController.current = null;
+    setSetBuilderLoading(false);
+    setSetBuilderError("");
+  }, [setBuilderInputKey]);
+
+  useEffect(() => {
     hybridInputKeyRef.current = hybridInputKey;
+    hybridRequestGuard.current.invalidate();
+    hybridAbortController.current?.abort();
+    hybridAbortController.current = null;
+    setHybridLoading(false);
     setHybridError("");
     setHybridResults([]);
     setHybridWarnings([]);
     setHybridLimitations([]);
     setHybridWeightsUsed({});
+    setHybridSourcesUsed([]);
+    setHybridSourceContractHashes({});
     setHybridPreviewKey("");
     setHybridSessionId(null);
     setHybridFeedbackDrafts({});
@@ -485,12 +627,26 @@ export function SearchPlaylistPanel({
   }, [hybridInputKey]);
 
   useEffect(() => {
+    setRequestGuard.current.invalidate();
+    setAbortController.current?.abort();
+    setAbortController.current = null;
+    setSetBuilderLoading(false);
+    setSetBuilderError("");
+    setSetBuilderResponse(null);
+    setSetBuilderResponseKey("");
+    setEmbeddingSearchErrors({});
+    setEmbeddingSearchPending({});
     if (!databasePath) {
       setEvaluationLabelCounts(null);
       return;
     }
     void refreshEvaluationLabelCounts();
-  }, [databasePath]);
+  }, [databaseIdentity, databasePath]);
+
+  useEffect(() => () => {
+    setAbortController.current?.abort();
+    hybridAbortController.current?.abort();
+  }, []);
 
   function setSonaraMixerValue(key: keyof SonaraMixerWeights, value: number) {
     setFilters((current) => ({ ...current, sonaraMixer: { ...current.sonaraMixer, [key]: value } }));
@@ -523,12 +679,32 @@ export function SearchPlaylistPanel({
     setSetClassifierFlows(next.classifierFlows);
   }
 
+  function setSetSourceEnabled(source: EmbeddingSource, enabled: boolean) {
+    setSetSources((current) => ({ ...current, [source]: enabled }));
+  }
+
+  function setSetSourceWeight(source: EmbeddingSource | "sonara_broad", value: number) {
+    setSetWeights((current) => ({ ...current, [source]: value }));
+  }
+
+  function resetSetSourceDefaults() {
+    setSetSources({ mert: true, maest: true, muq: true, clap: true });
+    setSetUseCustomWeights(false);
+    setSetWeights({ ...setDefaultRawWeights });
+  }
+
   function setHybridSourceEnabled(source: HybridSearchSource, enabled: boolean) {
     setHybridSources((current) => ({ ...current, [source]: enabled }));
   }
 
   function setHybridSourceWeight(source: HybridSearchSource, value: number) {
-    setHybridWeights((current) => ({ ...current, [source]: clampNumber(value, 0, 1) }));
+    setHybridWeights((current) => ({ ...current, [source]: value }));
+  }
+
+  function resetHybridSourceDefaults() {
+    setHybridSources({ mert: true, maest: true, muq: true, sonara: true, clap: true });
+    setHybridUseCustomWeights(false);
+    setHybridWeights({ mert: 1, maest: 1, muq: 1, sonara: 1, clap: 1 });
   }
 
   function setHybridClassifierToggle(toggle: string, enabled: boolean) {
@@ -547,8 +723,54 @@ export function SearchPlaylistPanel({
     }
   }
 
+  function handlePrimaryTabKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    const target = tabAfterKey(primarySearchTabs, activeSearchTab, event.key);
+    if (!target) return;
+    event.preventDefault();
+    selectPrimarySearchTab(target);
+    queueMicrotask(() => document.getElementById(`search-tab-${target}`)?.focus());
+  }
+
+  function selectPrimarySearchTab(target: PrimarySearchTab) {
+    if (target === activeSearchTab) return;
+    setActiveSearchTab(target);
+    onPrimarySearchTabChange(target);
+  }
+
+  function handleSetWorkflowTabKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    const target = tabAfterKey(setWorkflowTabs, activeSetWorkflowTab, event.key);
+    if (!target) return;
+    event.preventDefault();
+    setActiveSetWorkflowTab(target);
+    queueMicrotask(() => document.getElementById(`set-workflow-tab-${target}`)?.focus());
+  }
+
+  async function runEmbeddingSearch(analysisFamily: EmbeddingSource) {
+    setEmbeddingSearchPending((current) => ({ ...current, [analysisFamily]: true }));
+    setEmbeddingSearchErrors((current) => ({ ...current, [analysisFamily]: "" }));
+    try {
+      await handleEmbeddingSearch(analysisFamily);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setEmbeddingSearchErrors((current) => ({ ...current, [analysisFamily]: message }));
+    } finally {
+      setEmbeddingSearchPending((current) => ({ ...current, [analysisFamily]: false }));
+    }
+  }
+
+  async function handleLocalToggleLiked(track: Track) {
+    const updatedTrack = await toggleLiked(track);
+    if (!updatedTrack) return;
+    setSetBuilderResponse((current) => current ? {
+      ...current,
+      items: current.items.map((item) => item.track.track_id === updatedTrack.track_id ? { ...item, track: updatedTrack } : item)
+    } : current);
+    setHybridResults((current) => current.map((item) => item.track.track_id === updatedTrack.track_id ? { ...item, track: updatedTrack } : item));
+  }
+
   async function saveHybridFeedback(result: HybridSearchResult, rating: PairFeedbackRating, reasonTags: EvaluationPairReasonTag[]) {
-    const candidateTrackId = result.track.id;
+    const candidateTrackId = result.track.track_id;
+    const feedbackRequestKey = hybridInputKey;
     if (!hybridPreviewIsCurrent) return;
     if (hybridReadinessMessage) return;
     setHybridFeedbackSaving((current) => ({ ...current, [candidateTrackId]: true }));
@@ -563,72 +785,56 @@ export function SearchPlaylistPanel({
         notes: "",
         source: hybridFeedbackSource
       });
+      if (hybridInputKeyRef.current !== feedbackRequestKey) return;
       const feedback = hybridFeedbackFromResponse(response);
-      setHybridResults((current) => current.map((row) => (row.track.id === candidateTrackId ? { ...row, feedback } : row)));
+      setHybridResults((current) => current.map((row) => (row.track.track_id === candidateTrackId ? { ...row, feedback } : row)));
       setHybridFeedbackDrafts((current) => ({ ...current, [candidateTrackId]: hybridFeedbackDraftFromState(feedback) }));
       await refreshEvaluationLabelCounts();
     } catch (error) {
+      if (hybridInputKeyRef.current !== feedbackRequestKey) return;
       const message = error instanceof Error ? error.message : String(error);
       setHybridFeedbackErrors((current) => ({ ...current, [candidateTrackId]: message }));
     } finally {
-      setHybridFeedbackSaving((current) => ({ ...current, [candidateTrackId]: false }));
+      if (hybridInputKeyRef.current === feedbackRequestKey) {
+        setHybridFeedbackSaving((current) => ({ ...current, [candidateTrackId]: false }));
+      }
     }
   }
 
   function setHybridFeedbackRating(result: HybridSearchResult, rating: PairFeedbackRating) {
-    const draft = hybridFeedbackDrafts[result.track.id] || emptyHybridFeedbackDraft();
+    const draft = hybridFeedbackDrafts[result.track.track_id] || emptyHybridFeedbackDraft();
     void saveHybridFeedback(result, rating, draft.reasonTags);
   }
 
   function toggleHybridFeedbackReason(result: HybridSearchResult, reasonTag: EvaluationPairReasonTag) {
-    const draft = hybridFeedbackDrafts[result.track.id] || emptyHybridFeedbackDraft();
+    const draft = hybridFeedbackDrafts[result.track.track_id] || emptyHybridFeedbackDraft();
     const reasonTags = toggleReasonTag(draft.reasonTags, reasonTag);
     if (draft.rating == null) {
-      setHybridFeedbackDrafts((current) => ({ ...current, [result.track.id]: { ...draft, reasonTags } }));
+      setHybridFeedbackDrafts((current) => ({ ...current, [result.track.track_id]: { ...draft, reasonTags } }));
       return;
     }
     void saveHybridFeedback(result, draft.rating, reasonTags);
   }
 
   async function generateHybridPreview() {
-    const seedMessage = hybridSeedRequirementMessage(seeds.length);
-    if (seedMessage) {
-      setHybridResults([]);
-      setHybridWarnings([]);
-      setHybridLimitations([]);
-      setHybridWeightsUsed({});
-      setHybridPreviewKey("");
-      setHybridSessionId(null);
-      setHybridFeedbackDrafts({});
-      setHybridFeedbackSaving({});
-      setHybridFeedbackErrors({});
-      setHybridSelectedResultId(null);
-      setHybridError(seedMessage);
-      return;
-    }
-    const sources = hybridSourceKeys.filter((source) => hybridSources[source]);
-    if (!sources.length) {
-      setHybridResults([]);
-      setHybridWarnings([]);
-      setHybridLimitations([]);
-      setHybridWeightsUsed({});
-      setHybridPreviewKey("");
-      setHybridSessionId(null);
-      setHybridFeedbackDrafts({});
-      setHybridFeedbackSaving({});
-      setHybridFeedbackErrors({});
-      setHybridSelectedResultId(null);
-      setHybridError("Enable at least one Hybrid preview source.");
+    if (!hybridPayload.ok) {
+      setHybridError(hybridPayload.error);
       return;
     }
 
     const requestKey = hybridInputKey;
+    hybridAbortController.current?.abort();
+    const controller = new AbortController();
+    hybridAbortController.current = controller;
+    const requestToken = hybridRequestGuard.current.begin();
     setHybridLoading(true);
     setHybridError("");
     setHybridResults([]);
     setHybridWarnings([]);
     setHybridLimitations([]);
     setHybridWeightsUsed({});
+    setHybridSourcesUsed([]);
+    setHybridSourceContractHashes({});
     setHybridPreviewKey("");
     setHybridSessionId(null);
     setHybridFeedbackDrafts({});
@@ -636,37 +842,29 @@ export function SearchPlaylistPanel({
     setHybridFeedbackErrors({});
     setHybridSelectedResultId(null);
     try {
-      const response = await api.hybridSearch({
-        seed_track_ids: seeds,
-        sources,
-        weights: Object.fromEntries(sources.map((source) => [source, hybridWeights[source]])),
-        per_source: hybridPerSource,
-        limit: hybridLimit,
-        transition_risk_weight: hybridTransitionRiskWeight,
-        transition_risk_version: "v2",
-        classifier_preferences: hybridUseClassifierPreferences ? hybridClassifierPreferences(hybridClassifierToggles, hybridClassifierOptions) : {},
-        classifier_risk_weights: hybridUseClassifierPreferences ? hybridClassifierRiskWeights(hybridClassifierToggles, hybridClassifierOptions) : {},
-        include_diagnostics: true,
-        record_session: true
-      });
-      if (hybridInputKeyRef.current !== requestKey) return;
+      const response = await api.hybridSearch(hybridPayload.payload, { signal: controller.signal });
+      if (!hybridRequestGuard.current.isCurrent(requestToken) || hybridInputKeyRef.current !== requestKey) return;
       setHybridResults(response.results);
       setHybridSessionId(response.session_id ?? null);
       setHybridFeedbackDrafts(hybridFeedbackDraftsFromResults(response.results));
       setHybridFeedbackErrors({});
-      setHybridSelectedResultId(response.results[0]?.track.id ?? null);
+      setHybridSelectedResultId(response.results[0]?.track.track_id ?? null);
       setHybridWarnings(response.warnings);
       setHybridLimitations(response.limitations);
       setHybridWeightsUsed(response.weights_used);
+      setHybridSourcesUsed(response.sources);
+      setHybridSourceContractHashes(response.source_contract_hashes);
       setHybridPreviewKey(requestKey);
       void refreshEvaluationLabelCounts();
     } catch (error) {
-      if (hybridInputKeyRef.current !== requestKey) return;
+      if (!hybridRequestGuard.current.isCurrent(requestToken) || hybridInputKeyRef.current !== requestKey || isAbortError(error)) return;
       const message = error instanceof Error ? error.message : String(error);
       setHybridResults([]);
       setHybridWarnings([]);
       setHybridLimitations([]);
       setHybridWeightsUsed({});
+      setHybridSourcesUsed([]);
+      setHybridSourceContractHashes({});
       setHybridPreviewKey("");
       setHybridSessionId(null);
       setHybridFeedbackDrafts({});
@@ -675,32 +873,43 @@ export function SearchPlaylistPanel({
       setHybridSelectedResultId(null);
       setHybridError(message);
     } finally {
-      setHybridLoading(false);
+      if (hybridRequestGuard.current.isCurrent(requestToken) && hybridInputKeyRef.current === requestKey) {
+        hybridAbortController.current = null;
+        setHybridLoading(false);
+      }
     }
   }
 
-  function generateSetBuilder() {
-    const bpmStart = optionalNumberInput(setBpmStart);
-    const bpmTarget = optionalNumberInput(setBpmTarget);
-    const payload: SetBuilderGeneratePayload = {
-      seed_mode: setSeedMode,
-      seed_track_ids: setSeedMode === "manual" ? seeds : [],
-      auto_seed_count: setAutoSeedCount,
-      mode: setBuilderMode,
-      limit: setBuilderLimit,
-      diversity: setBuilderDiversity,
-      energy_curve: setEnergyCurve,
-      bpm_mode: setBpmMode,
-      bpm_change: setBpmChange,
-      classifier_preferences: compactSignedScoreMap(setClassifierPreferences),
-      classifier_flows: compactClassifierFlows(setClassifierFlows, setClassifierPreferences),
-      random_seed: 0
-    };
-    if (setBpmMode !== "general") {
-      if (bpmStart !== undefined) payload.bpm_start = bpmStart;
-      if (bpmTarget !== undefined) payload.bpm_target = bpmTarget;
+  async function generateSetBuilder() {
+    if (!setBuilderPayload.ok) {
+      setSetBuilderError(setBuilderPayload.error);
+      return;
     }
-    handleSetBuilderGenerate(payload);
+    const requestKey = setBuilderInputKey;
+    setAbortController.current?.abort();
+    const controller = new AbortController();
+    setAbortController.current = controller;
+    const requestToken = setRequestGuard.current.begin();
+    setSetBuilderLoading(true);
+    setSetBuilderError("");
+    setSetBuilderResponse(null);
+    setSetBuilderResponseKey("");
+    try {
+      const response = await api.setBuilderGenerate(setBuilderPayload.payload, { signal: controller.signal });
+      if (!setRequestGuard.current.isCurrent(requestToken) || setBuilderInputKeyRef.current !== requestKey) return;
+      setSetBuilderResponse(response);
+      setSetBuilderResponseKey(requestKey);
+    } catch (error) {
+      if (!setRequestGuard.current.isCurrent(requestToken) || setBuilderInputKeyRef.current !== requestKey || isAbortError(error)) return;
+      setSetBuilderResponse(null);
+      setSetBuilderResponseKey("");
+      setSetBuilderError(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (setRequestGuard.current.isCurrent(requestToken) && setBuilderInputKeyRef.current === requestKey) {
+        setAbortController.current = null;
+        setSetBuilderLoading(false);
+      }
+    }
   }
 
   return (
@@ -712,32 +921,33 @@ export function SearchPlaylistPanel({
         </div>
         <div className="seed-strip">
           {seedTracks.map((track) => (
-            <button className="seed-remove-chip" key={track.id} title={`Убрать seed: ${displayTrack(track)}`} onClick={() => removeSeed(track.id)}>
+            <button className="seed-remove-chip" key={track.track_id} title={`Убрать seed: ${displayTrack(track)}`} onClick={() => removeSeed(track.track_id)} type="button">
               {displayTrack(track)}
               <X size={14} />
             </button>
           ))}
         </div>
         <div className="search-tabs" role="tablist" aria-label="Search model">
-          <button className={`model-search-tab ${activeSearchTab === "set" ? "active" : ""}`} title="Smart Set Builder" onClick={() => setActiveSearchTab("set")} role="tab" aria-selected={activeSearchTab === "set"} type="button">
-            SET
-          </button>
-          <button className={`model-search-tab ${activeSearchTab === "sonara" ? "active" : ""}`} title="SONARA similarity search" onClick={() => setActiveSearchTab("sonara")} role="tab" aria-selected={activeSearchTab === "sonara"} type="button">
-            SONARA
-          </button>
-          <button className={`model-search-tab ${activeSearchTab === "mert" ? "active" : ""}`} title="MERT seed search" onClick={() => setActiveSearchTab("mert")} role="tab" aria-selected={activeSearchTab === "mert"} type="button">
-            MERT
-          </button>
-          <button className={`model-search-tab ${activeSearchTab === "clap" ? "active" : ""}`} title="CLAP text search" onClick={() => setActiveSearchTab("clap")} role="tab" aria-selected={activeSearchTab === "clap"} type="button">
-            CLAP
-          </button>
-          <button className={`model-search-tab ${activeSearchTab === "class" ? "active" : ""}`} title="Classifier controls" onClick={() => setActiveSearchTab("class")} role="tab" aria-selected={activeSearchTab === "class"} type="button">
-            CLASS
-          </button>
-          <button className={`model-search-tab ${activeSearchTab === "lab" ? "active" : ""}`} title="Reference Compare: compare model-specific similarity outputs" onClick={() => setActiveSearchTab("lab")} role="tab" aria-selected={activeSearchTab === "lab"} type="button">LAB</button>
+          {primarySearchTabs.map((tab) => (
+            <button
+              key={tab}
+              id={`search-tab-${tab}`}
+              className={`model-search-tab ${activeSearchTab === tab ? "active" : ""}`}
+              title={primaryTabPresentation[tab].title}
+              onClick={() => selectPrimarySearchTab(tab)}
+              onKeyDown={handlePrimaryTabKeyDown}
+              role="tab"
+              aria-selected={activeSearchTab === tab}
+              aria-controls={`search-panel-${tab}`}
+              tabIndex={activeSearchTab === tab ? 0 : -1}
+              type="button"
+            >
+              {primaryTabPresentation[tab].label}
+            </button>
+          ))}
         </div>
         {activeSearchTab === "lab" && (
-          <div className="search-tab-panel" role="tabpanel">
+          <div id="search-panel-lab" className="search-tab-panel" role="tabpanel" aria-labelledby="search-tab-lab">
             <ReferenceComparePanel
               seedTracks={seedTracks}
               busy={busy}
@@ -753,7 +963,28 @@ export function SearchPlaylistPanel({
           </div>
         )}
         {activeSearchTab === "set" && (
-          <div className="search-tab-panel" role="tabpanel">
+          <div id="search-panel-set" className="search-tab-panel set-workflow-panel" role="tabpanel" aria-labelledby="search-tab-set">
+            <div className="set-workflow-tabs" role="tablist" aria-label="SET workflow">
+              {setWorkflowTabs.map((tab) => (
+                <button
+                  key={tab}
+                  id={`set-workflow-tab-${tab}`}
+                  className={`set-workflow-tab ${activeSetWorkflowTab === tab ? "active" : ""}`}
+                  role="tab"
+                  aria-selected={activeSetWorkflowTab === tab}
+                  aria-controls={`set-workflow-panel-${tab}`}
+                  tabIndex={activeSetWorkflowTab === tab ? 0 : -1}
+                  title={tab === "builder" ? "Open the independent Set Builder workflow." : "Open the independent Hybrid Preview workflow."}
+                  onClick={() => setActiveSetWorkflowTab(tab)}
+                  onKeyDown={handleSetWorkflowTabKeyDown}
+                  type="button"
+                >
+                  {tab === "builder" ? "Set Builder" : "Hybrid Preview"}
+                </button>
+              ))}
+            </div>
+            {activeSetWorkflowTab === "builder" ? (
+              <div id="set-workflow-panel-builder" className="set-workflow-tab-panel" role="tabpanel" aria-labelledby="set-workflow-tab-builder">
             <div className="set-builder-controls">
               <div className="set-builder-basic-controls">
                 <div className="set-builder-seed-row">
@@ -776,7 +1007,9 @@ export function SearchPlaylistPanel({
                   </div>
                   <label className={`set-builder-auto-anchors-control ${autoSeedCountDisabled ? "disabled-filter" : ""}`} title={autoSeedCountControlTitle}>
                     Auto anchors
-                    <input type="number" value={setAutoSeedCount} min={1} max={5} title={autoSeedCountControlTitle} disabled={autoSeedCountDisabled} onChange={(event) => setSetAutoSeedCount(Number(event.target.value))} />
+                    <input type="number" value={setAutoSeedCount} min={1} max={5} title={autoSeedCountControlTitle} disabled={autoSeedCountDisabled} onChange={(event) => {
+                      if (Number.isFinite(event.currentTarget.valueAsNumber)) setSetAutoSeedCount(Math.round(clampNumber(event.currentTarget.valueAsNumber, 1, 5)));
+                    }} />
                   </label>
                 </div>
                 <div className="search-filter-grid set-builder-grid set-builder-basic-grid">
@@ -798,11 +1031,15 @@ export function SearchPlaylistPanel({
                   </label>
                   <label title={setBuilderLimitTitle}>
                     Track limit
-                    <input type="number" value={setBuilderLimit} min={1} max={500} title={setBuilderLimitTitle} onChange={(event) => setSetBuilderLimit(Number(event.target.value))} />
+                    <input type="number" value={setBuilderLimit} min={1} max={500} title={setBuilderLimitTitle} onChange={(event) => {
+                      if (Number.isFinite(event.currentTarget.valueAsNumber)) setSetBuilderLimit(Math.round(clampNumber(event.currentTarget.valueAsNumber, 1, 500)));
+                    }} />
                   </label>
                   <label title={setBuilderDiversityTitle}>
                     Diversity
-                    <input type="number" value={setBuilderDiversity} min={0} max={1} step={0.05} title={setBuilderDiversityTitle} onChange={(event) => setSetBuilderDiversity(Number(event.target.value))} />
+                    <input type="number" value={setBuilderDiversity} min={0} max={1} step={0.05} title={setBuilderDiversityTitle} onChange={(event) => {
+                      if (Number.isFinite(event.currentTarget.valueAsNumber)) setSetBuilderDiversity(clampNumber(event.currentTarget.valueAsNumber, 0, 1));
+                    }} />
                   </label>
                 </div>
               </div>
@@ -845,6 +1082,62 @@ export function SearchPlaylistPanel({
                       Target BPM
                       <input type="number" value={setBpmTarget} min={20} max={300} step={1} placeholder="auto" title={setBpmTargetTitle} disabled={bpmControlsDisabled} onChange={(event) => setSetBpmTarget(event.target.value)} />
                     </label>
+                    <label title="Optional deterministic integer seed. Leave empty for backend random behavior.">
+                      Random seed
+                      <input type="number" value={setRandomSeed} step={1} placeholder="random" onChange={(event) => setSetRandomSeed(event.target.value)} />
+                    </label>
+                  </div>
+                  <div className="set-source-controls">
+                    <div className="custom-control-header">
+                      <span>SET acoustic sources</span>
+                      <button type="button" className="set-source-reset-button" onClick={resetSetSourceDefaults} title="Restore backend source defaults and stop sending custom weights.">
+                        <RotateCcw size={15} />
+                        Backend defaults
+                      </button>
+                    </div>
+                    <label className="toggle set-custom-weights-toggle" title="When off, SET sends weights null so backend raw defaults remain authoritative.">
+                      <input type="checkbox" checked={setUseCustomWeights} onChange={(event) => setSetUseCustomWeights(event.target.checked)} />
+                      Custom raw weights
+                    </label>
+                    <div className="set-source-grid">
+                      {setSourceOptions.map((source) => (
+                        <div className="set-source-row" key={source.key}>
+                          <label className="toggle set-source-toggle" title={source.title}>
+                            <input type="checkbox" checked={setSources[source.key]} onChange={(event) => setSetSourceEnabled(source.key, event.target.checked)} />
+                            {source.label}
+                          </label>
+                          <label className={setSources[source.key] && setUseCustomWeights ? "" : "disabled-filter"} title="Raw source weight; backend normalizes enabled evidence.">
+                            Raw weight
+                            <input
+                              type="number"
+                              value={setWeights[source.key]}
+                              min={0}
+                              step={0.01}
+                              disabled={!setSources[source.key] || !setUseCustomWeights}
+                              onChange={(event) => {
+                                if (Number.isFinite(event.currentTarget.valueAsNumber)) setSetSourceWeight(source.key, event.currentTarget.valueAsNumber);
+                              }}
+                            />
+                          </label>
+                        </div>
+                      ))}
+                      <div className="set-source-row">
+                        <span className="set-source-static-label" title="SONARA broad evidence is always the separate SET broad signal.">SONARA broad</span>
+                        <label className={setUseCustomWeights ? "" : "disabled-filter"} title="Raw SONARA broad weight; backend normalizes enabled evidence.">
+                          Raw weight
+                          <input
+                            type="number"
+                            value={setWeights.sonara_broad}
+                            min={0}
+                            step={0.01}
+                            disabled={!setUseCustomWeights}
+                            onChange={(event) => {
+                              if (Number.isFinite(event.currentTarget.valueAsNumber)) setSetSourceWeight("sonara_broad", event.currentTarget.valueAsNumber);
+                            }}
+                          />
+                        </label>
+                      </div>
+                    </div>
                   </div>
                   {classifiers.length ? (
                     <div className="classifier-controls set-classifier-controls">
@@ -883,23 +1176,84 @@ export function SearchPlaylistPanel({
               ) : null}
             </div>
             <div className="set-builder-actions">
-              <button className="set-builder-generate-button" title="Build a new ordered SET preview. Auto mode samples the first anchor from the full eligible library, then builds a related route; Manual mode distributes selected seeds as waypoints." disabled={busy || (setSeedMode === "manual" && !seeds.length)} onClick={generateSetBuilder} type="button">
+              <button className="set-builder-generate-button" title="Build a read-only ordered SET preview from the current controls." disabled={busy || setBuilderLoading || !setBuilderPayload.ok} onClick={() => void generateSetBuilder()} type="button">
                 <Search size={17} />
-                Generate
+                {setBuilderLoading ? "Generating..." : "Generate"}
               </button>
-              <button className="set-builder-add-all-button" title="Add all tracks from the current SET preview to the current set. It does not replace existing set tracks." disabled={busy || !results.length} onClick={addGeneratedSetToPlaylist} type="button">
+              <button
+                className="set-builder-add-all-button"
+                title="Add only tracks from the latest successful, still-current Set Builder response."
+                disabled={busy || !setBuilderCanAddPreview}
+                onClick={() => {
+                  if (setBuilderPreviewIsCurrent && setBuilderResponse) {
+                    addGeneratedSetToPlaylist(setBuilderResponse.items.map((item) => item.track));
+                  }
+                }}
+                type="button"
+              >
                 <ListMusic size={17} />
                 Add preview
               </button>
             </div>
-            <div className="hybrid-preview-panel" title={hybridBlockTitle}>
+            {!setBuilderPayload.ok ? <span className="set-builder-status-message">{setBuilderPayload.error}</span> : null}
+            {setBuilderError ? <span className="set-builder-status-message error">{setBuilderError}</span> : null}
+            {setBuilderResponse && !setBuilderPreviewIsCurrent ? (
+              <span className="set-builder-status-message">SET controls changed. Generate again before adding this preview.</span>
+            ) : null}
+            {setBuilderResponse && setBuilderPreviewIsCurrent ? (
+              <>
+                <div className="set-builder-response-summary">
+                  <span>Sources: {setBuilderResponse.sources.join(", ")}</span>
+                  <span>Weights used: {formatWeightsTitle(setBuilderResponse.weights_used)}</span>
+                  <span>
+                    Coverage: {setBuilderResponse.coverage.eligible_tracks}/{setBuilderResponse.coverage.tracks} eligible · missing MERT {setBuilderResponse.coverage.missing_mert} · MAEST {setBuilderResponse.coverage.missing_maest} · MuQ {setBuilderResponse.coverage.missing_muq} · CLAP {setBuilderResponse.coverage.missing_clap} · SONARA {setBuilderResponse.coverage.missing_sonara}
+                  </span>
+                </div>
+                <div className="set-builder-results" aria-label="Set Builder preview results">
+                  {setBuilderResponse.items.map(({ track, score, score_breakdown, reason, sonara_groups, classifier_scores, transition }) => (
+                    <ResultRow
+                      key={track.track_id}
+                      track={track}
+                      score={score}
+                      scoreBreakdown={score_breakdown}
+                      reason={reason}
+                      sonaraGroups={sonara_groups}
+                      classifierScores={classifier_scores}
+                      transition={transition}
+                      playingTrackId={playingTrackId}
+                      isSeed={seedSet.has(track.track_id)}
+                      inPlaylist={playlistSet.has(track.track_id)}
+                      onSeed={addSeed}
+                      onToggleLiked={(selectedTrack) => void handleLocalToggleLiked(selectedTrack)}
+                      onTogglePlaylist={togglePlaylist}
+                      onPreview={setPreview}
+                      onDetails={setMetadataTrack}
+                    />
+                  ))}
+                </div>
+              </>
+            ) : null}
+              </div>
+            ) : null}
+            {activeSetWorkflowTab === "hybrid" ? (
+            <div id="set-workflow-panel-hybrid" className="set-workflow-tab-panel hybrid-preview-panel" role="tabpanel" aria-labelledby="set-workflow-tab-hybrid" title={hybridBlockTitle}>
               <div className="custom-control-header">
-                <span>Hybrid preview</span>
-                <span className="hybrid-diagnostic-chip" title={hybridDiagnosticTitle}>Score info</span>
+                <span>Hybrid Preview</span>
+                <div className="hybrid-header-actions">
+                  <span className="hybrid-diagnostic-chip" title={hybridDiagnosticTitle}>Score info</span>
+                  <button type="button" className="hybrid-source-reset-button" onClick={resetHybridSourceDefaults} title="Restore all five backend-default sources and stop sending custom weights.">
+                    <RotateCcw size={15} />
+                    Backend defaults
+                  </button>
+                </div>
               </div>
               <p className="hybrid-preview-note">
-                Uses stored MERT, MAEST, SONARA, and CLAP analysis data only. Direct API calls are read-only by default; this UI records evaluation session/event rows so feedback can be attached.
+                Uses stored MERT, MAEST, MuQ, SONARA, and CLAP audio evidence. CLAP text prompts are not used here. Preview generation stays independent from Set Builder.
               </p>
+              <label className="toggle hybrid-custom-weights-toggle" title="When off, Hybrid sends weights null and displays the actual normalized weights returned by the backend.">
+                <input type="checkbox" checked={hybridUseCustomWeights} onChange={(event) => setHybridUseCustomWeights(event.target.checked)} />
+                Custom weights
+              </label>
               <div className="hybrid-source-grid">
                 {hybridSourceOptions.map((source) => (
                   <div className="hybrid-source-row" key={source.key}>
@@ -912,17 +1266,18 @@ export function SearchPlaylistPanel({
                       />
                       {source.label}
                     </label>
-                    <label className={hybridSources[source.key] ? "" : "disabled-filter"} title={hybridWeightTitle}>
+                    <label className={hybridSources[source.key] && hybridUseCustomWeights ? "" : "disabled-filter"} title={hybridWeightTitle}>
                       Weight
                       <input
                         type="number"
                         value={hybridWeights[source.key]}
                         min={0}
-                        max={1}
                         step={0.01}
                         title={hybridWeightTitle}
-                        disabled={!hybridSources[source.key]}
-                        onChange={(event) => setHybridSourceWeight(source.key, Number(event.target.value))}
+                        disabled={!hybridSources[source.key] || !hybridUseCustomWeights}
+                        onChange={(event) => {
+                          if (Number.isFinite(event.currentTarget.valueAsNumber)) setHybridSourceWeight(source.key, event.currentTarget.valueAsNumber);
+                        }}
                       />
                     </label>
                   </div>
@@ -960,27 +1315,38 @@ export function SearchPlaylistPanel({
               <div className="search-filter-grid hybrid-preview-grid">
                 <label title={hybridPerSourceTitle}>
                   Per-source
-                  <input type="number" value={hybridPerSource} min={1} max={100} title={hybridPerSourceTitle} onChange={(event) => setHybridPerSource(clampNumber(Number(event.target.value), 1, 100))} />
+                  <input type="number" value={hybridPerSource} min={1} max={100} title={hybridPerSourceTitle} onChange={(event) => {
+                    if (Number.isFinite(event.currentTarget.valueAsNumber)) setHybridPerSource(clampNumber(event.currentTarget.valueAsNumber, 1, 100));
+                  }} />
                 </label>
                 <label title={hybridLimitTitle}>
                   Result limit
-                  <input type="number" value={hybridLimit} min={1} max={100} title={hybridLimitTitle} onChange={(event) => setHybridLimit(clampNumber(Number(event.target.value), 1, 100))} />
+                  <input type="number" value={hybridLimit} min={1} max={100} title={hybridLimitTitle} onChange={(event) => {
+                    if (Number.isFinite(event.currentTarget.valueAsNumber)) setHybridLimit(clampNumber(event.currentTarget.valueAsNumber, 1, 100));
+                  }} />
                 </label>
                 <label title={hybridRiskPenaltyTitle}>
                   Risk penalty
-                  <input type="number" value={hybridTransitionRiskWeight} min={0} max={1} step={0.01} title={hybridRiskPenaltyTitle} onChange={(event) => setHybridTransitionRiskWeight(clampNumber(Number(event.target.value), 0, 1))} />
+                  <input type="number" value={hybridTransitionRiskWeight} min={0} max={1} step={0.01} title={hybridRiskPenaltyTitle} onChange={(event) => {
+                    if (Number.isFinite(event.currentTarget.valueAsNumber)) setHybridTransitionRiskWeight(clampNumber(event.currentTarget.valueAsNumber, 0, 1));
+                  }} />
                 </label>
               </div>
-              <button className="hybrid-preview-button" title="Generate a weighted Hybrid preview from 1-5 selected seed tracks. This does not change SET, SONARA, MERT, CLAP, or CLASS behavior." disabled={busy || hybridLoading || Boolean(hybridReadinessMessage)} onClick={() => void generateHybridPreview()} type="button">
+              <button className="hybrid-preview-button" title="Generate a weighted Hybrid preview from 1-5 selected seed tracks. This does not change Set Builder, SONARA, MERT, MUQ, CLAP, or CLASS results." disabled={busy || hybridLoading || Boolean(hybridReadinessMessage)} onClick={() => void generateHybridPreview()} type="button">
                 <Search size={17} />
                 {hybridLoading ? "Generating..." : "Generate weighted preview"}
               </button>
               {hybridReadinessMessage ? <span className="hybrid-status-message">{hybridReadinessMessage}</span> : null}
               {hybridError ? <span className="hybrid-status-message error">{hybridError}</span> : null}
               {showHybridResults ? (
-                <span className="hybrid-status-message" title={formatHybridWeightsTitle(hybridWeightsUsed)}>
-                  {hybridResults.length} weighted preview rows · {formatHybridWeightsTitle(hybridWeightsUsed)}
-                </span>
+                <div className="hybrid-response-summary">
+                  <span className="hybrid-status-message" title={formatHybridWeightsTitle(hybridWeightsUsed)}>
+                    {hybridResults.length} rows · sources {hybridSourcesUsed.join(", ")} · {formatHybridWeightsTitle(hybridWeightsUsed)}
+                  </span>
+                  <span className="hybrid-status-message" title="Current embedding contract hashes returned for this Hybrid response.">
+                    Contracts: {formatSourceContractHashes(hybridSourceContractHashes)}
+                  </span>
+                </div>
               ) : null}
               {evaluationLabelCounts ? (
                 <span className="hybrid-status-message">
@@ -998,30 +1364,30 @@ export function SearchPlaylistPanel({
                 <div className="hybrid-preview-results" aria-label="Hybrid preview results">
                   {hybridResults.map((result) => (
                     <ResultRow
-                      key={result.track.id}
+                      key={result.track.track_id}
                       track={result.track}
                       score={result.score}
                       scoreBreakdown={hybridScoreBreakdown(result)}
                       reason={hybridReason(result)}
                       playingTrackId={playingTrackId}
-                      isSeed={seedSet.has(result.track.id)}
-                      inPlaylist={playlistSet.has(result.track.id)}
+                      isSeed={seedSet.has(result.track.track_id)}
+                      inPlaylist={playlistSet.has(result.track.track_id)}
                       onSeed={addSeed}
-                      onToggleLiked={toggleLiked}
+                      onToggleLiked={(selectedTrack) => void handleLocalToggleLiked(selectedTrack)}
                       onTogglePlaylist={togglePlaylist}
                       onPreview={setPreview}
                       onDetails={setMetadataTrack}
-                      selected={selectedHybridResult?.track.id === result.track.id}
-                      onSelect={() => setHybridSelectedResultId(result.track.id)}
+                      selected={selectedHybridResult?.track.track_id === result.track.track_id}
+                      onSelect={() => setHybridSelectedResultId(result.track.track_id)}
                       selectTitle={`Show Hybrid diagnostics for ${displayTrack(result.track)}`}
                     />
                   ))}
                   {selectedHybridResult ? (
                     <HybridResultDetails
                       result={selectedHybridResult}
-                      draft={hybridFeedbackDrafts[selectedHybridResult.track.id] || emptyHybridFeedbackDraft()}
-                      saving={Boolean(hybridFeedbackSaving[selectedHybridResult.track.id])}
-                      error={hybridFeedbackErrors[selectedHybridResult.track.id] || ""}
+                      draft={hybridFeedbackDrafts[selectedHybridResult.track.track_id] || emptyHybridFeedbackDraft()}
+                      saving={Boolean(hybridFeedbackSaving[selectedHybridResult.track.track_id])}
+                      error={hybridFeedbackErrors[selectedHybridResult.track.track_id] || ""}
                       onRate={(rating) => setHybridFeedbackRating(selectedHybridResult, rating)}
                       onToggleReason={(reasonTag) => toggleHybridFeedbackReason(selectedHybridResult, reasonTag)}
                     />
@@ -1029,10 +1395,11 @@ export function SearchPlaylistPanel({
                 </div>
               ) : null}
             </div>
+            ) : null}
           </div>
         )}
         {activeSearchTab === "sonara" && (
-          <div className="search-tab-panel" role="tabpanel">
+          <div id="search-panel-sonara" className="search-tab-panel" role="tabpanel" aria-labelledby="search-tab-sonara">
             <div className={customSonaraDisabled ? "sonara-custom-controls disabled-filter" : "sonara-custom-controls"}>
               <div className="custom-control-header">
                 <span>Mixer</span>
@@ -1098,28 +1465,39 @@ export function SearchPlaylistPanel({
                   ))}
                 </select>
               </label>
-              <label title={helpText.similarity}>Similarity<input type="number" value={filters.minSimilarity} min={0} max={1} step={0.01} title={helpText.similarity} onChange={(event) => setFilters({ ...filters, minSimilarity: Number(event.target.value) })} /></label>
-              <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => setFilters({ ...filters, limit: Number(event.target.value) })} /></label>
+              <label title={helpText.similarity}>Similarity<input type="number" value={filters.minSimilarity} min={0} max={1} step={0.01} title={helpText.similarity} onChange={(event) => {
+                if (Number.isFinite(event.currentTarget.valueAsNumber)) setFilters({ ...filters, minSimilarity: clampNumber(event.currentTarget.valueAsNumber, 0, 1) });
+              }} /></label>
+              <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => {
+                if (Number.isFinite(event.currentTarget.valueAsNumber)) setFilters({ ...filters, limit: Math.round(clampNumber(event.currentTarget.valueAsNumber, 1, 500)) });
+              }} /></label>
             </div>
-            <button className="sonara-search-button" title="Найти похожие треки через SONARA по выбранным seed-трекам" disabled={busy || !seeds.length} onClick={handleSonaraSearch}>
+            <button className="sonara-search-button" title="Найти похожие треки через SONARA по выбранным seed-трекам" disabled={busy || !seeds.length} onClick={handleSonaraSearch} type="button">
               <Search size={17} />
               SONARA search
             </button>
           </div>
         )}
-        {activeSearchTab === "mert" && (
-          <div className="search-tab-panel" role="tabpanel">
-            <div className="search-filter-grid">
-              <label title={helpText.similarity}>Similarity<input type="number" value={filters.minSimilarity} min={0} max={1} step={0.01} title={helpText.similarity} onChange={(event) => setFilters({ ...filters, minSimilarity: Number(event.target.value) })} /></label>
-              <label title={helpText.limit}>Limit<input type="number" value={filters.limit} min={1} max={500} title={helpText.limit} onChange={(event) => setFilters({ ...filters, limit: Number(event.target.value) })} /></label>
-            </div>
-            <button className="mert-search-button" title="Найти похожие треки через MERT по выбранным seed-трекам" disabled={busy || !seeds.length} onClick={handleMertSearch}>
-              <Search size={17} />
-              MERT search
-            </button>
+        {(activeSearchTab === "mert" || activeSearchTab === "muq") && (
+          <div id={`search-panel-${activeSearchTab}`} className="search-tab-panel" role="tabpanel" aria-labelledby={`search-tab-${activeSearchTab}`}>
+            <EmbeddingSearchTab
+              analysisFamily={activeSearchTab}
+              currentEmbeddingCount={embeddingCounts[activeSearchTab]}
+              busy={busy || !seeds.length}
+              pending={Boolean(embeddingSearchPending[activeSearchTab])}
+              error={embeddingSearchErrors[activeSearchTab] || ""}
+              minSimilarity={filters.minSimilarity}
+              limit={filters.limit}
+              similarityHelp={helpText.similarity}
+              limitHelp={helpText.limit}
+              onMinSimilarityChange={(value) => setFilters({ ...filters, minSimilarity: value })}
+              onLimitChange={(value) => setFilters({ ...filters, limit: value })}
+              onSearch={runEmbeddingSearch}
+            />
           </div>
         )}
         {activeSearchTab === "clap" && (
+          <div id="search-panel-clap" className="search-tab-panel-wrapper" role="tabpanel" aria-labelledby="search-tab-clap">
           <ClapSearchTab
             textQuery={textQuery}
             onTextQueryChange={onTextQueryChange}
@@ -1142,9 +1520,10 @@ export function SearchPlaylistPanel({
             clapSearchTitle={clapSearchTitle}
             handleTextSearch={handleTextSearch}
           />
+          </div>
         )}
         {activeSearchTab === "class" && (
-          <div className="search-tab-panel" role="tabpanel">
+          <div id="search-panel-class" className="search-tab-panel" role="tabpanel" aria-labelledby="search-tab-class">
             {classifiers.length ? (
               <div className="classifier-controls">
                 {classifiers.map((classifier) => {
@@ -1193,28 +1572,40 @@ export function SearchPlaylistPanel({
             )}
           </div>
         )}
-        <div className="results-list">
-          {results.map(({ track, score, score_breakdown, reason, sonara_groups, classifier_scores, transition }) => (
-            <ResultRow
-              key={track.id}
-              track={track}
-              score={score}
-              scoreBreakdown={score_breakdown}
-              reason={reason}
-              sonaraGroups={sonara_groups}
-              classifierScores={classifier_scores}
-              transition={transition}
-              playingTrackId={playingTrackId}
-              isSeed={seedSet.has(track.id)}
-              inPlaylist={playlistSet.has(track.id)}
-              onSeed={addSeed}
-              onToggleLiked={toggleLiked}
-              onTogglePlaylist={togglePlaylist}
-              onPreview={setPreview}
-              onDetails={setMetadataTrack}
-            />
-          ))}
-        </div>
+        {showGenericSearchResults && genericSearchResultOrigin ? (
+          <div className="generic-search-results">
+            <div className="generic-search-result-provenance" role="status">
+              {primaryTabPresentation[genericSearchResultOrigin].label} results
+              <span>{results.length}</span>
+            </div>
+            <div className="results-list">
+              {results.length ? results.map(({ track, score, score_breakdown, reason, sonara_groups, classifier_scores, transition }) => (
+                <ResultRow
+                  key={track.track_id}
+                  track={track}
+                  score={score}
+                  scoreBreakdown={score_breakdown}
+                  reason={reason}
+                  sonaraGroups={sonara_groups}
+                  classifierScores={classifier_scores}
+                  transition={transition}
+                  playingTrackId={playingTrackId}
+                  isSeed={seedSet.has(track.track_id)}
+                  inPlaylist={playlistSet.has(track.track_id)}
+                  onSeed={addSeed}
+                  onToggleLiked={toggleLiked}
+                  onTogglePlaylist={togglePlaylist}
+                  onPreview={setPreview}
+                  onDetails={setMetadataTrack}
+                />
+              )) : (
+                <div className="empty-state">
+                  No current {primaryTabPresentation[genericSearchResultOrigin].label} results matched this request.
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
       </section>
       <section className="playlist-export-section">
         <div className="panel-title">
@@ -1242,18 +1633,18 @@ export function SearchPlaylistPanel({
             </div>
           ) : (
             playlistPageState.items.map((track, index) => {
-              const trackPreviewActive = playingTrackId === track.id;
+              const trackPreviewActive = playingTrackId === track.track_id;
               return (
-                <div className="playlist-row" key={track.id}>
+                <div className="playlist-row" key={track.track_id}>
                   <span className="row-index">{playlistPageState.offset + index + 1}</span>
-                  <button className="icon-button playlist-preview-button" title={trackPreviewActive ? "Pause preview" : "Preview"} aria-label={`${trackPreviewActive ? "Pause" : "Preview"} ${displayTrack(track)}`} onClick={() => setPreview(track)}>
+                  <button className="icon-button playlist-preview-button" title={trackPreviewActive ? "Pause preview" : "Preview"} aria-label={`${trackPreviewActive ? "Pause" : "Preview"} ${displayTrack(track)}`} onClick={() => setPreview(track)} type="button">
                     {trackPreviewActive ? <Pause size={15} /> : <Play size={15} />}
                   </button>
                   <div className="track-title-cell">
                     <strong>{displayTrack(track)}</strong>
                   </div>
-                  <button className="icon-button playlist-metadata-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={() => setMetadataTrack(track)}><Tags size={15} /></button>
-                  <button className="icon-button intent-remove playlist-remove-button" title="Убрать из сета" aria-label={`Убрать ${displayTrack(track)} из сета`} onClick={() => removeFromPlaylist(track.id)}><Trash2 size={15} /></button>
+                  <button className="icon-button playlist-metadata-button" title="Теги и жанры" aria-label={`Теги ${displayTrack(track)}`} onClick={() => setMetadataTrack(track)} type="button"><Tags size={15} /></button>
+                  <button className="icon-button intent-remove playlist-remove-button" title="Убрать из сета" aria-label={`Убрать ${displayTrack(track)} из сета`} onClick={() => removeFromPlaylist(track.track_id)} type="button"><Trash2 size={15} /></button>
                 </div>
               );
             })
@@ -1450,7 +1841,7 @@ function emptyHybridFeedbackDraft(): HybridFeedbackDraft {
 function hybridFeedbackDraftsFromResults(results: HybridSearchResult[]) {
   const drafts: Record<number, HybridFeedbackDraft> = {};
   for (const result of results) {
-    drafts[result.track.id] = hybridFeedbackDraftFromState(result.feedback);
+    drafts[result.track.track_id] = hybridFeedbackDraftFromState(result.feedback);
   }
   return drafts;
 }
@@ -1535,31 +1926,14 @@ function optionalNumberInput(value: string) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function optionalIntegerInput(value: string) {
+  const trimmed = value.trim();
+  return trimmed ? Number(trimmed) : undefined;
+}
+
 function clampNumber(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
   return Math.max(min, Math.min(max, value));
-}
-
-function hybridSeedRequirementMessage(seedCount: number) {
-  if (seedCount < 1) return "Hybrid preview requires 1-5 selected seed tracks.";
-  if (seedCount > 5) return "Hybrid preview uses at most 5 selected seed tracks; remove extra seeds first.";
-  return "";
-}
-
-function formatHybridInputKey(
-  seeds: number[],
-  sources: Record<HybridSearchSource, boolean>,
-  weights: Record<HybridSearchSource, number>,
-  perSource: number,
-  limit: number,
-  transitionRiskWeight: number,
-  useClassifierPreferences: boolean,
-  classifierToggles: Record<string, boolean>,
-  classifierOptions: HybridClassifierSignalOption[]
-) {
-  const sourceState = hybridSourceKeys.map((source) => `${source}:${sources[source] ? "1" : "0"}:${weights[source]}`).join("|");
-  const classifierState = classifierOptions.map((option) => `${option.key}:${hybridClassifierToggleEnabled(classifierToggles, option) ? "1" : "0"}`).join("|");
-  return `${seeds.join(",")}|${sourceState}|${perSource}|${limit}|risk:${transitionRiskWeight}|class:${useClassifierPreferences ? "1" : "0"}:${classifierState}`;
 }
 
 function hybridClassifierPreferences(toggles: Record<string, boolean>, classifierOptions: HybridClassifierSignalOption[]) {
@@ -1667,14 +2041,14 @@ function hybridScoreBreakdown(result: HybridSearchResult) {
 
 function hybridAvailableSourceCount(result: HybridSearchResult) {
   const sourceSupport = result.source_support || {};
-  const availableSources = Object.values(sourceSupport).filter((support) => support.available).length;
+  const availableSources = Object.values(sourceSupport).filter((support) => support?.available).length;
   return availableSources || Object.keys(result.score_breakdown).length;
 }
 
 function hybridTopSources(result: HybridSearchResult) {
   return hybridSourceKeys
     .map((source) => ({ source, support: result.source_support[source] }))
-    .filter(({ support }) => support?.available)
+    .filter((row): row is { source: HybridSearchSource; support: HybridSourceSupport } => Boolean(row.support?.available))
     .sort((left, right) => {
       const leftRank = typeof left.support.rank === "number" ? left.support.rank : Number.POSITIVE_INFINITY;
       const rightRank = typeof right.support.rank === "number" ? right.support.rank : Number.POSITIVE_INFINITY;
@@ -1705,13 +2079,15 @@ function formatOptionalUnitScore(value?: number | null) {
   return typeof value === "number" ? formatUnitScore(value) : "unavailable";
 }
 
-function hybridSourceSupportLabel(support?: HybridSearchResult["source_support"][string]) {
+type HybridSourceSupport = NonNullable<HybridSearchResult["source_support"][HybridSearchSource]>;
+
+function hybridSourceSupportLabel(support?: HybridSourceSupport) {
   if (!support?.available) return "unavailable";
   if (typeof support.rank === "number") return `rank ${support.rank}`;
   return "available";
 }
 
-function hybridSourceSupportTitle(source: HybridSearchSource, support?: HybridSearchResult["source_support"][string]) {
+function hybridSourceSupportTitle(source: HybridSearchSource, support?: HybridSourceSupport) {
   if (!support?.available) return `${source.toUpperCase()} source unavailable for this row; missing data stays neutral.`;
   const score = typeof support.score === "number" ? ` score ${support.score.toFixed(3)}` : "";
   const seeds = support.supporting_seed_track_ids?.length ? ` seeds ${support.supporting_seed_track_ids.join(", ")}` : "";
@@ -1731,9 +2107,23 @@ function hybridClassifierSupportTitle(classifierKey: string, support: HybridSear
 }
 
 function formatHybridWeightsTitle(weights: Record<string, number>) {
-  const entries = Object.entries(weights);
+  return formatWeightsTitle(weights);
+}
+
+function formatWeightsTitle(weights: Partial<Record<string, number>>) {
+  const entries = Object.entries(weights).filter((entry): entry is [string, number] => typeof entry[1] === "number");
   if (!entries.length) return "Weights pending";
   return entries.map(([source, weight]) => `${source.toUpperCase()} ${weight.toFixed(2)}`).join(" · ");
+}
+
+function formatSourceContractHashes(hashes: Partial<Record<HybridSearchSource, string>>) {
+  const entries = Object.entries(hashes).filter((entry): entry is [HybridSearchSource, string] => typeof entry[1] === "string");
+  if (!entries.length) return "none returned";
+  return entries.map(([source, hash]) => `${source.toUpperCase()} ${hash.slice(0, 12)}`).join(" · ");
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === "AbortError";
 }
 
 function compactClassifierFlows(values: Record<string, SetBuilderClassifierFlow>, preferences: Record<string, number>) {

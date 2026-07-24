@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 import json
 import logging
 import os
@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
+from dj_track_similarity.analysis_contracts import ContractIdentity
 from dj_track_similarity.dependencies import require_ffmpeg
 from dj_track_similarity.logging_config import install_asyncio_exception_logging
 from dj_track_similarity.media_preview import requires_browser_preview_transcode, transcoded_wav_file_response
@@ -23,9 +24,18 @@ from dj_track_similarity.rhythm_lab_collections import (
 
 from .ablation import ABLATION_FEATURE_SETS, run_ablation_benchmark
 from .cli import DEFAULT_CLASSIFIER_TARGET_ROOT, PromotionError, promote_profile_model
+from .features import (
+    FEATURE_RECIPE_OPTIONS,
+    feature_recipe_readiness,
+    feature_sources,
+)
 from .lab_db import ClassifierProfile, RhythmLabDatabase
 from .predictions import apply_model_to_lab
-from .source_db import SourceDatabase
+from .source_db import (
+    SourceDatabase,
+    SourceDatabaseError,
+    SourceTrackNotCurrentError,
+)
 from .training import benchmark_lab_database
 
 
@@ -43,6 +53,9 @@ class LabelRequest(BaseModel):
 
 
 class TrackLikedRequest(BaseModel):
+    catalog_uuid: str
+    track_uuid: str
+    content_generation: int
     liked: bool
 
 
@@ -109,9 +122,23 @@ class CalibrateRequest(BaseModel):
     feature_set: str | None = None
 
 
+class TrainRefreshRequest(BaseModel):
+    feature_set: str = "combined"
+
+
 class SourceDatabaseState:
-    def __init__(self, source_path: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        source_path: str | Path | None = None,
+        *,
+        expected_catalog_uuid: str | None = None,
+    ) -> None:
         self._lock = threading.RLock()
+        self.expected_catalog_uuid = (
+            str(expected_catalog_uuid).strip()
+            if expected_catalog_uuid is not None
+            else None
+        )
         self.path: Path | None = None
         self.source: SourceDatabase | None = None
         if source_path is not None and Path(source_path).expanduser().exists():
@@ -122,10 +149,17 @@ class SourceDatabaseState:
             return {
                 "path": str(self.path) if self.path is not None else None,
                 "selected": self.source is not None,
+                "catalog_uuid": (
+                    self.source.catalog_uuid if self.source is not None else None
+                ),
+                "expected_catalog_uuid": self.expected_catalog_uuid,
             }
 
     def switch(self, path: str | Path) -> dict[str, object]:
-        selected = SourceDatabase(path)
+        selected = SourceDatabase(
+            path,
+            expected_catalog_uuid=self.expected_catalog_uuid,
+        )
         with self._lock:
             self.path = selected.path
             self.source = selected
@@ -166,10 +200,14 @@ def create_app(
     labels_db_path: str | Path,
     classifier_target_root: str | Path | None = None,
     shutdown_callback: Callable[[], None] | None = None,
+    source_catalog_uuid: str | None = None,
 ) -> FastAPI:
     labels_path = Path(labels_db_path)
     labels_db = RhythmLabDatabase(labels_path)
-    source_state = SourceDatabaseState(source_db_path)
+    source_state = SourceDatabaseState(
+        source_db_path,
+        expected_catalog_uuid=source_catalog_uuid,
+    )
     target_root = Path(classifier_target_root) if classifier_target_root is not None else DEFAULT_CLASSIFIER_TARGET_ROOT
     app = FastAPI(title="Rhythm Lab")
     app.router.on_startup.append(install_rhythm_lab_asyncio_exception_logging)
@@ -251,6 +289,10 @@ def create_app(
     def switch_source(request: SourceSwitchRequest):
         try:
             return source_state.switch(request.path)
+        except SourceDatabaseError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
         except (FileNotFoundError, ValueError, OSError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -431,17 +473,30 @@ def create_app(
             "sonara": 0,
             "mert": 0,
             "maest": 0,
+            "clap": 0,
+            "muq": 0,
+            "feature_states": {
+                source_name: {
+                    "status": "missing",
+                    "reason": "Source database is not selected.",
+                    "contract_hash": None,
+                }
+                for source_name in ("sonara", "mert", "maest", "clap", "muq")
+            },
             "liked": 0,
             "source": source_state.current(),
         }
         if source is None:
             return base
+        feature_counts = source.feature_counts()
         return {
             **base,
             "tracks": source.count_tracks(),
-            "sonara": source.count_sonara_features(),
-            "mert": source.count_embeddings("mert"),
-            "maest": source.count_embeddings("maest"),
+            **feature_counts,
+            "feature_states": {
+                source_name: state.payload()
+                for source_name, state in source.feature_states().items()
+            },
             "liked": source.count_liked_tracks(),
         }
 
@@ -491,18 +546,28 @@ def create_app(
     def set_track_liked(track_id: int, request: TrackLikedRequest):
         try:
             source = source_state.require_source()
-            current = source.get_track(track_id)
+            if request.catalog_uuid != source.catalog_uuid:
+                raise SourceTrackNotCurrentError(
+                    "Like target catalog UUID is not the selected source catalog"
+                )
             updated = source.set_track_liked(
-                track_uuid=current.track_uuid,
-                content_generation=current.content_generation,
+                track_id=track_id,
+                track_uuid=request.track_uuid,
+                content_generation=request.content_generation,
                 liked=request.liked,
             )
-        except (KeyError, ValueError) as error:
+        except SourceTrackNotCurrentError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
         return {
+            "catalog_uuid": updated.catalog_uuid,
             "track_id": updated.track_id,
             "track_uuid": updated.track_uuid,
             "content_generation": updated.content_generation,
+            "file_path": updated.file_path,
             "liked": updated.liked,
         }
 
@@ -595,20 +660,60 @@ def create_app(
         return {**result, "artifact": str(artifact), "deleted_old_predictions": deleted}
 
     @app.get("/api/profiles/{profile_key}/training/readiness")
-    def profile_training_readiness(profile_key: str):
+    def profile_training_readiness(
+        profile_key: str,
+        feature_set: str = "combined",
+    ):
         profile = profile_or_404(profile_key)
-        return _training_readiness(profile_db(profile.classifier_key), artifact_dir=Path(profile.artifact_dir), profile=profile)
+        try:
+            return _training_readiness(
+                profile_db(profile.classifier_key),
+                artifact_dir=Path(profile.artifact_dir),
+                profile=profile,
+                source=source_state.source,
+                feature_set=feature_set,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.post("/api/profiles/{profile_key}/training/train-refresh")
-    def profile_train_refresh(profile_key: str):
+    def profile_train_refresh(
+        profile_key: str,
+        request: TrainRefreshRequest | None = None,
+    ):
         profile = profile_or_404(profile_key)
         source = source_state.source
         if source is None or source_state.path is None:
             raise HTTPException(status_code=400, detail="Source database is not selected")
+        selected_feature_set = (
+            request.feature_set if request is not None else "combined"
+        )
         scoped = profile_db(profile.classifier_key)
-        readiness = _training_readiness(scoped, artifact_dir=Path(profile.artifact_dir), profile=profile)
+        try:
+            readiness = _training_readiness(
+                scoped,
+                artifact_dir=Path(profile.artifact_dir),
+                profile=profile,
+                source=source,
+                feature_set=selected_feature_set,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
         if readiness["ready"] is not True:
             added = readiness["added"]
+            recipe = readiness["feature_recipe"]
+            if recipe["ready"] is not True:
+                blocking = ", ".join(
+                    f"{item['source']}: {item['reason']}"
+                    for item in recipe["blocking"]
+                )
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"{selected_feature_set} feature recipe is not ready. "
+                        f"{blocking}"
+                    ),
+                )
             raise HTTPException(
                 status_code=400,
                 detail=_training_readiness_error(profile, added),
@@ -621,10 +726,26 @@ def create_app(
                 labels_path,
                 artifact_dir,
                 classifier_key=profile.classifier_key,
+                feature_sets=(selected_feature_set,),
             )
-            artifact = _latest_combined_artifact(artifact_dir, profile.artifact_prefix)
+            trained = training.get(selected_feature_set)
+            if not isinstance(trained, dict) or trained.get("status") != "trained":
+                error = (
+                    trained.get("error")
+                    if isinstance(trained, dict)
+                    else "feature recipe was not trained"
+                )
+                raise RuntimeError(str(error))
+            artifact = _latest_feature_artifact(
+                artifact_dir,
+                profile.artifact_prefix,
+                selected_feature_set,
+            )
             if artifact is None:
-                raise RuntimeError(f"No combined {profile.name} model artifact found in {artifact_dir}")
+                raise RuntimeError(
+                    f"No {selected_feature_set} {profile.name} model artifact "
+                    f"found in {artifact_dir}"
+                )
             result = apply_model_to_lab(
                 source_state.path,
                 labels_path,
@@ -646,6 +767,7 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(error)) from error
         return {
             "training": training,
+            "feature_set": selected_feature_set,
             "artifact": str(artifact),
             "training_counts": counts,
             **result,
@@ -689,7 +811,12 @@ def create_app(
         profile = profile_or_404(profile_key)
         if source_state.path is None:
             raise HTTPException(status_code=400, detail="Source database is not selected")
-        readiness = _training_readiness(profile_db(profile.classifier_key), artifact_dir=Path(profile.artifact_dir), profile=profile)
+        readiness = _training_readiness(
+            profile_db(profile.classifier_key),
+            artifact_dir=Path(profile.artifact_dir),
+            profile=profile,
+            source=source_state.source,
+        )
         artifact_summary = readiness.get("artifact_summary")
         selected_feature_set = (request.feature_set if request is not None else None) or _default_promotion_feature_set(artifact_summary)
         promotion_options = artifact_summary.get("promotion_options") if isinstance(artifact_summary, dict) else []
@@ -705,6 +832,17 @@ def create_app(
             raise HTTPException(
                 status_code=400,
                 detail=f"Train a {selected_feature_set} model before calibrating {profile.name}.",
+            )
+        if selected_option.get("source_contract_ready") is not True:
+            raise HTTPException(
+                status_code=409,
+                detail=str(
+                    selected_option.get("source_contract_reason")
+                    or (
+                        f"{selected_feature_set} artifact does not match the "
+                        "current source contracts."
+                    )
+                ),
             )
         try:
             training = benchmark_lab_database(
@@ -727,7 +865,12 @@ def create_app(
     @app.post("/api/profiles/{profile_key}/promote")
     def promote_profile(profile_key: str, request: PromoteRequest | None = None):
         profile = profile_or_404(profile_key)
-        readiness = _training_readiness(profile_db(profile.classifier_key), artifact_dir=Path(profile.artifact_dir), profile=profile)
+        readiness = _training_readiness(
+            profile_db(profile.classifier_key),
+            artifact_dir=Path(profile.artifact_dir),
+            profile=profile,
+            source=source_state.source,
+        )
         artifact_summary = readiness.get("artifact_summary")
         selected_feature_set = (request.feature_set if request is not None else None) or "combined"
         promotion_options = artifact_summary.get("promotion_options") if isinstance(artifact_summary, dict) else []
@@ -743,6 +886,17 @@ def create_app(
             raise HTTPException(
                 status_code=400,
                 detail=f"Train a {selected_feature_set} model before promoting {profile.name}.",
+            )
+        if selected_option.get("source_contract_ready") is not True:
+            raise HTTPException(
+                status_code=409,
+                detail=str(
+                    selected_option.get("source_contract_reason")
+                    or (
+                        f"{selected_feature_set} artifact does not match the "
+                        "current source contracts."
+                    )
+                ),
             )
         try:
             result = promote_profile_model(
@@ -962,6 +1116,8 @@ def _training_readiness(
     *,
     artifact_dir: Path,
     profile: ClassifierProfile | None = None,
+    source: SourceDatabase | None = None,
+    feature_set: str = "combined",
 ) -> dict[str, object]:
     profile = profile or labels_db.get_profile()
     counts = _training_label_counts(labels_db.label_counts(), profile=profile)
@@ -978,17 +1134,57 @@ def _training_readiness(
         label: max(0, counts[label] - int(checkpoint_counts.get(label, 0)))
         for label in profile.training_label_keys
     }
-    ready = all(added[label] >= profile.training_min_added for label in profile.training_label_keys)
+    labels_ready = all(
+        added[label] >= profile.training_min_added
+        for label in profile.training_label_keys
+    )
+    if source is not None:
+        source_states: dict[str, object] = dict(source.feature_states())
+        ready_counts = source.feature_counts()
+        for source_name, count in ready_counts.items():
+            state = source_states[source_name]
+            if state.status == "current" and count == 0:
+                source_states[source_name] = {
+                    "status": "missing",
+                    "reason": (
+                        f"No current {source_name.upper()} track outputs are "
+                        "available."
+                    ),
+                    "contract_hash": state.contract_hash,
+                }
+    else:
+        source_states = {
+            source_name: {
+                "status": "missing",
+                "reason": "Source database is not selected.",
+                "contract_hash": None,
+            }
+            for source_name in ("sonara", "mert", "maest", "clap", "muq")
+        }
+    recipe = feature_recipe_readiness(feature_set, source_states)
+    ready = labels_ready and recipe["ready"] is True
+    artifact_summary = _bind_artifact_source_readiness(
+        _artifact_summary(artifact_dir, profile.artifact_prefix),
+        source_states,
+    )
     return {
         "ready": ready,
+        "labels_ready": labels_ready,
+        "features_ready": recipe["ready"],
+        "feature_recipe": recipe,
+        "available_feature_sets": list(FEATURE_RECIPE_OPTIONS),
         "current": counts,
         "last_trained": {label: int(checkpoint_counts.get(label, 0)) for label in profile.training_label_keys},
         "last_trained_at": checkpoint["updated_at"],
         "added": added,
         "required_added": {label: profile.training_min_added for label in profile.training_label_keys},
         "model_artifact": checkpoint_artifact,
-        "artifact_summary": _artifact_summary(artifact_dir, profile.artifact_prefix),
-        "metrics_history": _metrics_history(artifact_dir, profile.artifact_prefix, feature_set="combined"),
+        "artifact_summary": artifact_summary,
+        "metrics_history": _metrics_history(
+            artifact_dir,
+            profile.artifact_prefix,
+            feature_set=str(recipe["feature_set"]),
+        ),
     }
 
 
@@ -1017,6 +1213,136 @@ def _artifact_summary(artifact_dir: Path, artifact_prefix: str) -> dict[str, obj
         "promotion_options": promotion_options,
         "by_feature": by_feature,
     }
+
+
+def _bind_artifact_source_readiness(
+    summary: dict[str, object],
+    source_states: Mapping[str, object],
+) -> dict[str, object]:
+    annotated: list[dict[str, object]] = []
+    raw_rows = summary.get("by_feature")
+    if isinstance(raw_rows, list):
+        for value in raw_rows:
+            if not isinstance(value, dict):
+                continue
+            row = dict(value)
+            ready, reason = _artifact_source_contract_readiness(
+                row,
+                source_states,
+            )
+            row["source_contract_ready"] = ready
+            row["source_contract_reason"] = reason
+            annotated.append(row)
+    promotion_options = _promotion_options(annotated)
+    promotable = [
+        row
+        for row in promotion_options
+        if row.get("source_contract_ready") is True
+    ]
+    return {
+        **summary,
+        "by_feature": annotated,
+        "benchmark_winner": (
+            promotion_options[0] if promotion_options else None
+        ),
+        "latest_promotable": promotable[0] if promotable else None,
+        "promotion_options": promotion_options,
+    }
+
+
+def _artifact_source_contract_readiness(
+    row: Mapping[str, object],
+    source_states: Mapping[str, object],
+) -> tuple[bool, str | None]:
+    feature_set = str(row.get("feature_set") or "")
+    try:
+        required_sources = feature_sources(feature_set)
+    except ValueError as error:
+        return False, str(error)
+    required_outputs = row.get("required_outputs")
+    if not isinstance(required_outputs, list) or not required_outputs:
+        return False, "Artifact does not declare required_outputs."
+    if len(required_outputs) != len(required_sources):
+        return (
+            False,
+            "Artifact required_outputs do not match the selected feature recipe.",
+        )
+    for index, source_name in enumerate(required_sources):
+        item = required_outputs[index]
+        if not isinstance(item, Mapping) or set(item) != {
+            "contract_hash",
+            "canonical_payload",
+        }:
+            return (
+                False,
+                f"Artifact required_outputs[{index}] is malformed.",
+            )
+        canonical_payload = item.get("canonical_payload")
+        if not isinstance(canonical_payload, Mapping):
+            return (
+                False,
+                f"Artifact required_outputs[{index}] has no canonical payload.",
+            )
+        try:
+            canonical_json = json.dumps(
+                dict(canonical_payload),
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            )
+            contract = ContractIdentity.from_canonical_payload_json(
+                canonical_json
+            )
+        except (TypeError, ValueError):
+            return (
+                False,
+                f"Artifact required_outputs[{index}] is not canonical.",
+            )
+        expected_kind = "core" if source_name == "sonara" else "embedding"
+        if (
+            contract.analysis_family != source_name
+            or contract.output_kind != expected_kind
+        ):
+            return (
+                False,
+                "Artifact required_outputs do not follow feature source order.",
+            )
+        artifact_hash = item.get("contract_hash")
+        if artifact_hash != contract.contract_hash:
+            return (
+                False,
+                (
+                    f"Artifact required_outputs[{index}] contract hash "
+                    "does not match its canonical payload."
+                ),
+            )
+        state = source_states.get(source_name)
+        if isinstance(state, Mapping):
+            status = str(state.get("status") or "missing")
+            active_hash = state.get("contract_hash")
+            state_reason = state.get("reason")
+        else:
+            status = str(getattr(state, "status", "missing"))
+            active_hash = getattr(state, "contract_hash", None)
+            state_reason = getattr(state, "reason", None)
+        if status != "current":
+            return (
+                False,
+                str(
+                    state_reason
+                    or f"{source_name.upper()} source contract is {status}."
+                ),
+            )
+        if not isinstance(artifact_hash, str) or artifact_hash != active_hash:
+            return (
+                False,
+                (
+                    f"Artifact {source_name.upper()} contract "
+                    "does not match the active source contract."
+                ),
+            )
+    return True, None
 
 
 def _artifact_feature_summary(feature_set: str, *, latest_model: Path | None, latest_metrics: Path | None) -> dict[str, object]:
@@ -1144,6 +1470,11 @@ def _metric_summary(metrics: dict[str, object]) -> dict[str, object]:
         "feature_count": _optional_int(metrics.get("feature_count")),
         "positive_label": metrics.get("positive_label"),
         "label_order": metrics.get("label_order") if isinstance(metrics.get("label_order"), list) else None,
+        "required_outputs": (
+            metrics.get("required_outputs")
+            if isinstance(metrics.get("required_outputs"), list)
+            else None
+        ),
         "accuracy_mean": _optional_float(cross_validation.get("accuracy_mean")),
         "macro_f1_mean": _optional_float(cross_validation.get("macro_f1_mean")),
         "positive_precision_mean": _optional_float(cross_validation.get("positive_precision_mean")),

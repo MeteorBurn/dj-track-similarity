@@ -4,12 +4,6 @@
 > Goal: Create a database, start the v7 backend, and make the first useful search.
 > Type: tutorial
 
-::: warning v7 frontend status
-The React workflow below documents the deferred frontend. It has not been ported to the schema-v7
-API, so these UI steps are not currently validated or available for v7. Use the backend CLI or API
-alternative below.
-:::
-
 The commands below create a local catalog and analyze 25 tracks so the active backend has real
 search data. Keep this first batch small while you verify setup and compare search surfaces.
 
@@ -75,10 +69,17 @@ each search approach returns before spending time on full-library analysis.
   omit `muq` from an explicit source list when they want the legacy source mix; CLAP remains the
   model for text search.
 
-In the CLI, omit `--limit` for the whole library. The deferred UI uses `Analyze limit = 0` for the
-whole library, but that control is not currently available for v7.
+In the CLI, omit `--limit` for the whole library. In the browser, **Analyze limit** `0` has the same
+whole-eligible-library meaning.
 
-## 4. Start the v7 backend API
+## 4. Build the frontend and start the v7 app
+
+Build the current typed client:
+
+```powershell
+npm --prefix .\frontend install
+npm --prefix .\frontend run build
+```
 
 ```powershell
 dj-sim serve --host 127.0.0.1 --port 8765
@@ -106,10 +107,10 @@ with `lan` only when you want the server reachable from other devices on the loc
 mode commands use only the arguments you provide. The server command keeps its terminal occupied.
 Run later CLI jobs in a second activated terminal.
 
-Do not treat the page served at `http://127.0.0.1:8765/` as a validated v7 frontend. The active
-surface is the backend API.
+Open `http://127.0.0.1:8765/`. The served bundle uses the typed v7 database, track, analysis,
+search, set, classifier, Lab, and exact-identity mutation contracts.
 
-## 5. Check the current v7 backend
+## 5. Check the backend and browser
 
 In a second PowerShell terminal, read the library summary and the first 25 track rows:
 
@@ -124,22 +125,23 @@ For a first text shortlist, use the CLI after CLAP analysis:
 dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 20 --db .\data\library.sqlite
 ```
 
-Seed search, SONARA search, SET, and export are available through the current backend endpoints
-documented in the [API reference](../reference/api.md).
+Seed search, SONARA search, SET, and export are available in the browser and through the backend
+endpoints documented in the [API reference](../reference/api.md).
 
-## Deferred frontend flow
+## First browser flow
 
 1. In **Database and analysis**, confirm the SQLite path and music root.
-2. In **Library**, search or page to a track.
+2. In **Library**, choose a `100`, `500`, `1000`, or **All** load size, then search or page to a
+   track.
 3. Add one to five tracks as seeds.
-4. Open **MERT** for a broad audio neighborhood or **SONARA** when you want to steer the search by
-   rhythm, sound, dynamics, harmony, or tempo.
+4. Open **MERT** or **MUQ** for an embedding neighborhood, or **SONARA** when you want to steer the
+   search by rhythm, sound, dynamics, harmony, or tempo.
 5. Open **SET** to generate an ordered preview.
 6. Preview candidates by ear before adding them to the current set.
 7. Export the set as M3U or CSV when it is useful.
 
-After the React port, this flow is intended to provide the same listening-led loop: start from an
-idea, get a shortlist, listen, keep the useful tracks, and export only when the list has earned it.
+This remains a listening-led loop: start from an idea, get a shortlist, listen, keep the useful
+tracks, and export only when the list has earned it.
 
 ## If something fails
 

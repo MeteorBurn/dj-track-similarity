@@ -63,7 +63,8 @@ contract becomes part of a SONARA-dependent artifact identity.
 
 ## 2. Start Rhythm Lab
 
-The React frontend's v7 port is deferred. Start Rhythm Lab directly:
+Choose the v7 database in the main app and click the Rhythm Lab flask in the top bar. The app starts
+or reuses the local Lab process and opens its URL. You can also start it directly:
 
 ```powershell
 python tools\rhythm-lab\rhythm_lab_cli.py serve --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
@@ -102,9 +103,10 @@ labels for the calibration gate. UI promotion ignores calibrated artifacts
 while calibration is hidden, so an older uncalibrated winner is safer than an
 automatically generated calibrated finalist.
 
-Normal CLI training now includes the standalone `muq` feature set alongside the
-previous defaults. The static Training UI has no dedicated MuQ recipe selector
-or updated explanatory copy yet.
+Normal CLI training includes the standalone `muq` feature set alongside the
+previous defaults. The static Training UI exposes a **Training recipe** selector
+for MuQ and all supported source combinations. It recalculates readiness and
+blockers for the selected recipe before enabling training.
 
 After training, listen to high-scoring, low-scoring, and borderline candidates. Useful mistakes
 often reveal that the concept or the label set needs refinement before promotion.

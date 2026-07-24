@@ -25,6 +25,7 @@ state.*.json
 .codex/
 .omo/
 models/
+plans/frontend-v7-port/
 /.ideas/
 tools/audio-dedup/data/reports/*
 !tools/audio-dedup/data/reports/.gitkeep

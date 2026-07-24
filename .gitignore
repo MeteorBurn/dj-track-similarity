@@ -24,10 +24,7 @@ state.*.json
 .dj-track-similarity-indexes/
 .codex/
 .omo/
-models/classifiers/*/model.joblib
-models/classifiers/*/model.json
-models/classifiers-backup-*/
-models/classifiers-calibrated-test/
+models/
 /.ideas/
 tools/audio-dedup/data/reports/*
 !tools/audio-dedup/data/reports/.gitkeep

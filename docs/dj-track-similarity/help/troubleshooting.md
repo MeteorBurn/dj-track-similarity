@@ -15,17 +15,20 @@ A v7 library needs its Core `.sqlite` and mandatory `*.artifacts.sqlite` compani
 `catalog_uuid`. Do not substitute old `*.timeline.sqlite` or `*.representations.sqlite` files. v5/v6
 databases are not migrated by this runtime.
 
-## SONARA is blocked after an update
+## SONARA reports conflicting or inconsistent release state
 
-Use `prepare-sonara-release` with a backup directory and the exact confirmation. It prepares the
-four outputs `core`, `timeline`, `embedding`, and `fingerprint`, records progress for crash resume,
-and is not a distributed atomic transaction. Reanalyze SONARA, then retrain/promote/rescore affected
-v2 classifier artifacts.
+A fresh catalog does not need a separate preparation step: its first SONARA **Analyze** registers
+the exact `core`, `timeline`, `embedding`, and `fingerprint` runtime contracts automatically.
+
+If a catalog already contains conflicting or inconsistent release state, stop normal analysis and
+use the advanced `prepare-sonara-release` CLI/API recovery workflow with verified Core and Artifacts
+backups. After a SONARA version or contract change, the normal full-reanalysis workflow is **Reset
+SONARA**, then **Analyze**. Retrain, promote, and rescore affected v2 classifier artifacts afterward.
 
 ## Timeline, embedding, or fingerprint data is unavailable
 
-Those outputs live in mandatory Artifacts and must be requested explicitly after release
-preparation. Core is always included. The browser analysis panel exposes Timeline, embedding, and
+Those outputs live in mandatory Artifacts and must be requested explicitly. Core is always
+included and locked. The browser analysis panel exposes Timeline, embedding, and
 fingerprint output checkboxes, while the metadata dialog shows whether each optional output is
 present. Use the explicit timeline API when you need its payload rather than only its presence.
 

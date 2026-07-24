@@ -23,10 +23,13 @@
 | Журналы выполнения | `logs/` |
 | Отчёты, состояние и резервные копии Audio Doctor | `tools/audio-doctor/data/` |
 | Отчёты Audio Dedup | `tools/audio-dedup/data/reports/` |
-| Метки Rhythm Lab | `tools/rhythm-lab/data/rhythm_lab.sqlite` |
+| Метки Rhythm Lab v7 | `tools/rhythm-lab/data/rhythm_lab_v7.sqlite` |
 | Артефакты Rhythm Lab | `tools/rhythm-lab/artifacts/` |
 | Опубликованные классификаторы | `models/classifiers/<artifact-prefix>/` |
 | Постоянные индексы ANN | `.dj-track-similarity-indexes/` рядом с выбранной базой по умолчанию |
+
+База до v7 `tools/rhythm-lab/data/rhythm_lab.sqlite` служит явным источником восстановления, а не
+обычной записываемой базой Lab.
 
 Создаваемые локальные артефакты исключены из Git, если политика явно не требует обратного.
 

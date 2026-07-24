@@ -6,7 +6,7 @@ import time
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Protocol, cast
+from typing import Literal, Protocol, cast
 
 from . import analysis_model_runners as model_runner_module
 from .analysis_config import (
@@ -80,6 +80,8 @@ __all__ = [
     "EmbeddingModelRunner",
     "MaestModelRunner",
     "RunnerFactory",
+    "SonaraReleaseOutputStatus",
+    "SonaraReleaseStatus",
     "SonaraModelRunner",
 ]
 
@@ -110,11 +112,37 @@ class _RunnerPreflightError(RuntimeError):
 
 
 class _SonaraPreflightRepository(AnalysisWriteRepository, Protocol):
+    catalog_uuid: str
+
     def active_analysis_output(
         self,
         analysis_family: str,
         output_kind: str,
     ) -> AnalysisOutput | None: ...
+
+    def activate_sonara_outputs_if_empty(
+        self,
+        outputs: Sequence[AnalysisOutput],
+    ) -> bool: ...
+
+
+@dataclass(frozen=True)
+class SonaraReleaseOutputStatus:
+    output_kind: Literal["core", "timeline", "embedding", "fingerprint"]
+    state: Literal["current", "missing", "stale", "unavailable"]
+    expected_contract_hash: str | None
+    active_contract_hash: str | None
+
+
+@dataclass(frozen=True)
+class SonaraReleaseStatus:
+    catalog_uuid: str
+    state: Literal["ready", "preparation_required", "unavailable"]
+    ready: bool
+    detail: str
+    expected_release_hash: str | None
+    active_release_hash: str | None
+    outputs: tuple[SonaraReleaseOutputStatus, ...]
 
 
 class AnalysisJobManager:
@@ -218,66 +246,202 @@ class AnalysisJobManager:
         self._append_event(job_id, "info", settings_message)
         return job_id
 
-    def validate_sonara_preflight(self) -> None:
-        """Require the loaded runtime's exact four-output SONARA release.
+    def sonara_release_status(self) -> SonaraReleaseStatus:
+        """Describe exact loaded-runtime readiness without changing the database."""
 
-        The caller supplies no release identity.  All four contracts are
-        derived from the loaded SONARA runtime, compared with the repository's
-        active outputs, and then checked through the normal v7 candidate
-        boundary before a job may be queued.
-        """
+        repository = cast(_SonaraPreflightRepository, self.db)
+        catalog_uuid = str(repository.catalog_uuid)
+        try:
+            expected_outputs = analysis_outputs_for_sonara_runtime()
+        except Exception as error:
+            return _unavailable_sonara_release_status(
+                catalog_uuid,
+                f"SONARA release status is unavailable: {exception_summary(error)}",
+            )
 
-        expected_outputs = analysis_outputs_for_sonara_runtime()
         expected_kinds = tuple(
             output.contract.output_kind for output in expected_outputs
         )
         if expected_kinds != SONARA_OUTPUT_KINDS or any(
             output.contract.analysis_family != "sonara" for output in expected_outputs
         ):
-            raise RuntimeError(
+            return _unavailable_sonara_release_status(
+                catalog_uuid,
                 "Loaded SONARA runtime did not derive the exact core, timeline, "
-                "embedding, and fingerprint outputs"
+                "embedding, and fingerprint outputs",
+                expected_outputs=expected_outputs,
             )
 
         releases = {output.contract.release_hash for output in expected_outputs}
         if len(releases) != 1 or None in releases:
-            raise RuntimeError("Loaded SONARA runtime outputs do not share one release")
+            return _unavailable_sonara_release_status(
+                catalog_uuid,
+                "Loaded SONARA runtime outputs do not share one release",
+                expected_outputs=expected_outputs,
+            )
+        expected_release_hash = next(iter(releases))
+        assert expected_release_hash is not None
 
-        repository = cast(_SonaraPreflightRepository, self.db)
         try:
             active_outputs = tuple(
                 repository.active_analysis_output(*expected.key)
                 for expected in expected_outputs
             )
-        except InactiveAnalysisOutputError as error:
-            raise _sonara_release_preparation_required(
-                "the active SONARA release settings are inconsistent"
-            ) from error
+        except InactiveAnalysisOutputError:
+            return _preparation_required_sonara_release_status(
+                catalog_uuid,
+                expected_outputs,
+                reason="the active SONARA release settings are inconsistent",
+                output_state="stale",
+            )
+        except RuntimeError:
+            return _preparation_required_sonara_release_status(
+                catalog_uuid,
+                expected_outputs,
+                reason="the active SONARA release settings are inconsistent",
+                output_state="stale",
+            )
 
-        for expected, active in zip(expected_outputs, active_outputs):
+        output_statuses: list[SonaraReleaseOutputStatus] = []
+        for expected, active in zip(expected_outputs, active_outputs, strict=True):
             if active is None:
-                raise _sonara_release_preparation_required(
-                    f"the {expected.contract.output_kind} output is not active"
+                output_statuses.append(
+                    SonaraReleaseOutputStatus(
+                        output_kind=cast(
+                            Literal["core", "timeline", "embedding", "fingerprint"],
+                            expected.contract.output_kind,
+                        ),
+                        state="missing",
+                        expected_contract_hash=expected.contract_hash,
+                        active_contract_hash=None,
+                    )
                 )
-            if (
+                continue
+            mismatches = (
                 active.contract_hash != expected.contract_hash
                 or active.contract.canonical_payload_json
                 != expected.contract.canonical_payload_json
-            ):
-                raise _sonara_release_preparation_required(
-                    f"the active {expected.contract.output_kind} output does "
-                    "not match the loaded runtime"
+            )
+            output_statuses.append(
+                SonaraReleaseOutputStatus(
+                    output_kind=cast(
+                        Literal["core", "timeline", "embedding", "fingerprint"],
+                        expected.contract.output_kind,
+                    ),
+                    state="stale" if mismatches else "current",
+                    expected_contract_hash=expected.contract_hash,
+                    active_contract_hash=active.contract_hash,
                 )
+            )
+
+        active_releases = {
+            output.contract.release_hash
+            for output in active_outputs
+            if output is not None and output.contract.release_hash is not None
+        }
+        active_release_hash = (
+            next(iter(active_releases)) if len(active_releases) == 1 else None
+        )
+
+        first_blocker = next(
+            (output for output in output_statuses if output.state != "current"),
+            None,
+        )
+        if first_blocker is not None:
+            reason = (
+                f"the {first_blocker.output_kind} output is not active"
+                if first_blocker.state == "missing"
+                else f"the active {first_blocker.output_kind} output does "
+                "not match the loaded runtime"
+            )
+            return SonaraReleaseStatus(
+                catalog_uuid=catalog_uuid,
+                state="preparation_required",
+                ready=False,
+                detail=str(_sonara_release_preparation_required(reason)),
+                expected_release_hash=expected_release_hash,
+                active_release_hash=active_release_hash,
+                outputs=tuple(output_statuses),
+            )
 
         try:
             repository.list_analysis_candidates(
                 expected_outputs,
                 limit=0,
             )
-        except InactiveAnalysisOutputError as error:
-            raise _sonara_release_preparation_required(
-                "the exact runtime outputs are not ready for analysis"
-            ) from error
+        except InactiveAnalysisOutputError:
+            return SonaraReleaseStatus(
+                catalog_uuid=catalog_uuid,
+                state="preparation_required",
+                ready=False,
+                detail=str(
+                    _sonara_release_preparation_required(
+                        "the exact runtime outputs are not ready for analysis"
+                    )
+                ),
+                expected_release_hash=expected_release_hash,
+                active_release_hash=active_release_hash,
+                outputs=tuple(output_statuses),
+            )
+        except RuntimeError as error:
+            return SonaraReleaseStatus(
+                catalog_uuid=catalog_uuid,
+                state="unavailable",
+                ready=False,
+                detail=f"SONARA release status is unavailable: {error}",
+                expected_release_hash=expected_release_hash,
+                active_release_hash=active_release_hash,
+                outputs=tuple(
+                    SonaraReleaseOutputStatus(
+                        output_kind=output.output_kind,
+                        state="unavailable",
+                        expected_contract_hash=output.expected_contract_hash,
+                        active_contract_hash=output.active_contract_hash,
+                    )
+                    for output in output_statuses
+                ),
+            )
+
+        return SonaraReleaseStatus(
+            catalog_uuid=catalog_uuid,
+            state="ready",
+            ready=True,
+            detail="The loaded runtime's exact SONARA release is active.",
+            expected_release_hash=expected_release_hash,
+            active_release_hash=active_release_hash,
+            outputs=tuple(output_statuses),
+        )
+
+    def validate_sonara_preflight(self) -> None:
+        """Require the loaded runtime's exact four-output SONARA release.
+
+        The caller supplies no release identity. All four contracts are
+        derived from the loaded SONARA runtime. A database with no prior SONARA
+        state activates those contracts at this start boundary; the status
+        boundary exposed to the UI remains read-only.
+        """
+
+        status = self.sonara_release_status()
+        if not status.ready:
+            try:
+                expected_outputs = analysis_outputs_for_sonara_runtime()
+                expected_kinds = tuple(
+                    output.contract.output_kind for output in expected_outputs
+                )
+                if expected_kinds == SONARA_OUTPUT_KINDS and all(
+                    output.contract.analysis_family == "sonara"
+                    for output in expected_outputs
+                ):
+                    repository = cast(_SonaraPreflightRepository, self.db)
+                    if repository.activate_sonara_outputs_if_empty(expected_outputs):
+                        status = self.sonara_release_status()
+            except Exception:
+                # Preserve the status boundary's stable, actionable error. Any
+                # activation failure is represented by the unchanged not-ready
+                # state and analysis remains fail-closed.
+                pass
+        if not status.ready:
+            raise RuntimeError(status.detail)
 
     def start(self, **kwargs: object) -> AnalysisJobStatus:
         job_id = self.create_job(**kwargs)
@@ -920,9 +1084,76 @@ def _validated_runner_results(
     return normalized
 
 
+def _unavailable_sonara_release_status(
+    catalog_uuid: str,
+    detail: str,
+    *,
+    expected_outputs: Sequence[AnalysisOutput] = (),
+) -> SonaraReleaseStatus:
+    expected_by_kind = {
+        output.contract.output_kind: output.contract_hash
+        for output in expected_outputs
+        if output.contract.output_kind in SONARA_OUTPUT_KINDS
+    }
+    return SonaraReleaseStatus(
+        catalog_uuid=catalog_uuid,
+        state="unavailable",
+        ready=False,
+        detail=detail,
+        expected_release_hash=None,
+        active_release_hash=None,
+        outputs=tuple(
+            SonaraReleaseOutputStatus(
+                output_kind=cast(
+                    Literal["core", "timeline", "embedding", "fingerprint"],
+                    output_kind,
+                ),
+                state="unavailable",
+                expected_contract_hash=expected_by_kind.get(output_kind),
+                active_contract_hash=None,
+            )
+            for output_kind in SONARA_OUTPUT_KINDS
+        ),
+    )
+
+
+def _preparation_required_sonara_release_status(
+    catalog_uuid: str,
+    expected_outputs: Sequence[AnalysisOutput],
+    *,
+    reason: str,
+    output_state: Literal["missing", "stale"],
+) -> SonaraReleaseStatus:
+    releases = {
+        output.contract.release_hash
+        for output in expected_outputs
+        if output.contract.release_hash is not None
+    }
+    return SonaraReleaseStatus(
+        catalog_uuid=catalog_uuid,
+        state="preparation_required",
+        ready=False,
+        detail=str(_sonara_release_preparation_required(reason)),
+        expected_release_hash=next(iter(releases)) if len(releases) == 1 else None,
+        active_release_hash=None,
+        outputs=tuple(
+            SonaraReleaseOutputStatus(
+                output_kind=cast(
+                    Literal["core", "timeline", "embedding", "fingerprint"],
+                    output.contract.output_kind,
+                ),
+                state=output_state,
+                expected_contract_hash=output.contract_hash,
+                active_contract_hash=None,
+            )
+            for output in expected_outputs
+        ),
+    )
+
+
 def _sonara_release_preparation_required(reason: str) -> RuntimeError:
     return RuntimeError(
         "SONARA_RELEASE_PREPARATION_REQUIRED: "
-        f"{reason}. Back up the selected Core and Artifacts databases, then "
-        "run prepare-sonara-release for the loaded runtime before analysis."
+        f"{reason}. Reset incompatible SONARA analysis data before retrying "
+        "analysis."
     )

@@ -4,6 +4,7 @@ import json
 from dataclasses import fields, replace
 from itertools import combinations
 from pathlib import Path
+import sqlite3
 import sys
 
 import joblib
@@ -20,8 +21,12 @@ from dj_track_similarity.analysis_model_runners import (  # noqa: E402
     current_embedding_analysis_output,
 )
 from dj_track_similarity.library_models import AnalysisCoverage  # noqa: E402
+from dj_track_similarity.rhythm_lab_collections import (  # noqa: E402
+    default_rhythm_lab_labels_path,
+)
 from rhythm_lab.artifact_io import artifact_sha256  # noqa: E402
 from rhythm_lab.cli import (  # noqa: E402
+    DEFAULT_LABELS_DB,
     PromotionError,
     build_parser,
     promote_profile_model,
@@ -49,6 +54,7 @@ from rhythm_lab.training import train_feature_set  # noqa: E402
 from rhythm_lab.web_app import (  # noqa: E402
     _bind_artifact_source_readiness,
     cleanup_training_artifacts,
+    create_app,
 )
 
 
@@ -442,6 +448,228 @@ def test_serve_parser_forwards_expected_source_catalog_uuid(
     _, run_kwargs = calls["run"]
     assert run_kwargs["host"] == "127.0.0.1"
     assert run_kwargs["port"] == 8777
+
+
+def test_default_labels_path_is_shared_greenfield_v7_path() -> None:
+    args = build_parser().parse_args(["serve"])
+
+    assert DEFAULT_LABELS_DB == default_rhythm_lab_labels_path()
+    assert args.labels == DEFAULT_LABELS_DB
+    assert args.labels.name == "rhythm_lab_v7.sqlite"
+    assert args.labels.name != "rhythm_lab.sqlite"
+
+
+def test_explicit_legacy_labels_path_fails_closed_without_mutation(
+    tmp_path: Path,
+) -> None:
+    legacy_path = tmp_path / "rhythm_lab.sqlite"
+    with sqlite3.connect(legacy_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE classifier_labels (
+                classifier_key TEXT NOT NULL,
+                source_track_id INTEGER NOT NULL,
+                path TEXT NOT NULL,
+                size INTEGER,
+                mtime REAL,
+                label TEXT NOT NULL,
+                note TEXT,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (classifier_key, source_track_id, path)
+            );
+            INSERT INTO classifier_labels (
+                classifier_key,
+                source_track_id,
+                path,
+                size,
+                mtime,
+                label,
+                note,
+                updated_at
+            ) VALUES (
+                'legacy-profile',
+                7,
+                'C:/Music/legacy.wav',
+                1234,
+                5678.0,
+                'positive',
+                'preserve me',
+                '2026-07-01T00:00:00Z'
+            );
+            """
+        )
+    wal_path = Path(f"{legacy_path}-wal")
+    shm_path = Path(f"{legacy_path}-shm")
+    wal_path.write_bytes(b"preserved legacy WAL")
+    shm_path.write_bytes(b"preserved legacy SHM")
+    before = {
+        path: path.read_bytes()
+        for path in (legacy_path, wal_path, shm_path)
+    }
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"rhythm_lab_v7\.sqlite.*label_transfer",
+    ):
+        RhythmLabDatabase(legacy_path)
+
+    assert {
+        path: path.read_bytes()
+        for path in (legacy_path, wal_path, shm_path)
+    } == before
+    with sqlite3.connect(
+        f"file:{legacy_path.as_posix()}?mode=ro&immutable=1",
+        uri=True,
+    ) as connection:
+        rows = connection.execute(
+            """
+            SELECT classifier_key, source_track_id, path, label, note
+            FROM classifier_labels
+            """
+        ).fetchall()
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+    assert rows == [
+        (
+            "legacy-profile",
+            7,
+            "C:/Music/legacy.wav",
+            "positive",
+            "preserve me",
+        )
+    ]
+    assert tables == {"classifier_labels"}
+
+
+def test_wal_visible_legacy_schema_is_rejected_before_any_ddl(
+    tmp_path: Path,
+) -> None:
+    legacy_path = tmp_path / "rhythm_lab.sqlite"
+    setup = sqlite3.connect(legacy_path)
+    try:
+        assert setup.execute("PRAGMA journal_mode = WAL").fetchone()[0] == "wal"
+        setup.execute("CREATE TABLE sentinel (value TEXT NOT NULL)")
+        setup.execute("INSERT INTO sentinel(value) VALUES ('base')")
+        setup.commit()
+        setup.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    finally:
+        setup.close()
+
+    reader = sqlite3.connect(legacy_path)
+    try:
+        reader.execute("BEGIN")
+        assert reader.execute("SELECT value FROM sentinel").fetchall() == [
+            ("base",)
+        ]
+
+        writer = sqlite3.connect(legacy_path)
+        try:
+            writer.execute("PRAGMA wal_autocheckpoint = 0")
+            writer.execute(
+                """
+                CREATE TABLE classifier_labels (
+                    classifier_key TEXT NOT NULL,
+                    source_track_id INTEGER NOT NULL,
+                    path TEXT NOT NULL,
+                    label TEXT NOT NULL
+                )
+                """
+            )
+            writer.execute(
+                """
+                INSERT INTO classifier_labels (
+                    classifier_key,
+                    source_track_id,
+                    path,
+                    label
+                ) VALUES ('wal-profile', 21, 'C:/Music/wal.wav', 'positive')
+                """
+            )
+            writer.commit()
+        finally:
+            writer.close()
+
+        wal_path = Path(f"{legacy_path}-wal")
+        shm_path = Path(f"{legacy_path}-shm")
+        assert wal_path.stat().st_size > 0
+        assert shm_path.stat().st_size > 0
+        before = {
+            path: path.read_bytes()
+            for path in (legacy_path, wal_path)
+        }
+        shm_size_before = shm_path.stat().st_size
+
+        with pytest.raises(RuntimeError, match="legacy track identity"):
+            RhythmLabDatabase(legacy_path)
+
+        # The SHM file is SQLite's transient WAL index; validation reads may
+        # update its read marks. Durable database and WAL bytes must not change.
+        assert {
+            path: path.read_bytes()
+            for path in (legacy_path, wal_path)
+        } == before
+        assert shm_path.stat().st_size == shm_size_before
+        with sqlite3.connect(
+            f"file:{legacy_path.as_posix()}?mode=ro",
+            uri=True,
+        ) as observer:
+            tables = {
+                str(row[0])
+                for row in observer.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+            rows = observer.execute(
+                "SELECT classifier_key, source_track_id, path, label "
+                "FROM classifier_labels"
+            ).fetchall()
+        assert tables == {"sentinel", "classifier_labels"}
+        assert rows == [
+            ("wal-profile", 21, "C:/Music/wal.wav", "positive")
+        ]
+    finally:
+        reader.close()
+
+
+def test_web_app_uses_separate_v7_labels_without_touching_legacy(
+    tmp_path: Path,
+) -> None:
+    legacy_path = tmp_path / "rhythm_lab.sqlite"
+    with sqlite3.connect(legacy_path) as connection:
+        connection.execute(
+            "CREATE TABLE classifier_labels(source_track_id INTEGER, path TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO classifier_labels(source_track_id, path) VALUES (9, 'legacy.wav')"
+        )
+    legacy_before = legacy_path.read_bytes()
+    labels_path = tmp_path / DEFAULT_LABELS_DB.name
+
+    app = create_app(labels_db_path=labels_path)
+
+    assert app.title == "Rhythm Lab"
+    assert labels_path.exists()
+    assert legacy_path.read_bytes() == legacy_before
+    with sqlite3.connect(
+        f"file:{labels_path.as_posix()}?mode=ro",
+        uri=True,
+    ) as connection:
+        columns = {
+            str(row[1])
+            for row in connection.execute(
+                "PRAGMA table_info(classifier_labels)"
+            ).fetchall()
+        }
+    assert {
+        "catalog_uuid",
+        "track_uuid",
+        "content_generation",
+        "selected_path",
+    }.issubset(columns)
 
 
 def test_lab_database_starts_without_implicit_profiles(tmp_path: Path) -> None:

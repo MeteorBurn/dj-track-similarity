@@ -10,8 +10,14 @@ Rhythm Lab — отдельный локальный инструмент раз
 изменяет исходное аудио.
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py serve --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py serve --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab_v7.sqlite
 ```
+
+Штатная записываемая база greenfield v7 находится в
+`tools/rhythm-lab/data/rhythm_lab_v7.sqlite`. Если от старого runtime осталась
+`tools/rhythm-lab/data/rhythm_lab.sqlite`, обычный запуск и сохранение коллекций её не изменяют. Не
+передавайте старый файл обычным командам `serve`, обучения или работы с коллекциями. Используйте
+описанный ниже сценарий восстановления.
 
 Создайте и разметьте профиль, обучите его по объявленным входам, проверьте предсказания и опубликуйте
 выбранный артефакт. Публикация делает артефакт доступным для расчёта только по базе данных в основном

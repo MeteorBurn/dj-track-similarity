@@ -33,13 +33,15 @@ def register_library_routes(
     @app.post("/api/library/scan")
     def scan(request: ScanRequest):
         try:
-            return state.require_scan_jobs().start(request.root, workers=request.workers)
+            with state.job_start():
+                return state.require_scan_jobs().start(request.root, workers=request.workers)
         except (FileNotFoundError, NotADirectoryError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.post("/api/library/tags/refresh")
     def refresh_tags(request: TagRefreshRequest):
-        return state.require_scan_jobs().start_tag_refresh(workers=request.workers)
+        with state.job_start():
+            return state.require_scan_jobs().start_tag_refresh(workers=request.workers)
 
     @app.post("/api/library/relocate")
     def relocate_library(request: RelocateLibraryRequest):

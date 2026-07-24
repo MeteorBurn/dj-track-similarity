@@ -153,7 +153,7 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.match(source, /analysis-model-count/);
   assert.match(source, /analysis-model-check/);
   assert.match(source, /analyze-selected-button/);
-  assert.match(source, />Analyze<\/button>/);
+  assert.match(source, />\s*Analyze\s*<\/button>/);
   assert.match(source, /analysis-full-check/);
   assert.match(source, />\s*FULL\s*<\/label>/);
   assert.match(source, /classifiers/);
@@ -178,7 +178,14 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.match(appSource, /if \(current\.length === 1 && current\.includes\(model\)\) return current/);
   assert.match(appSource, /if \(model === "sonara" \|\| model === "classifiers"\) \{[\s\S]*?return \[model\]/);
   assert.match(appSource, /current\.filter\(\(item\) => item !== "sonara" && item !== "classifiers"\)/);
-  assert.match(appSource, /function toggleAllAnalysisModels\(\)[\s\S]*?analysisSelectionOrder\.length[\s\S]*?setSelectedAnalysisModels\(\["sonara"\]\)[\s\S]*?setSonaraOutputs\(\["core"\]\)[\s\S]*?\[\.\.\.analysisSelectionOrder\]/);
+  assert.match(appSource, /function toggleAllAnalysisModels\(\)[\s\S]*?analysisSelectionOrder\.length[\s\S]*?setSelectedAnalysisModels\(\["sonara"\]\)[\s\S]*?\[\.\.\.analysisSelectionOrder\]/);
+  assert.match(appSource, /useState<SonaraOutput\[]>\(\["core"\]\)/);
+  assert.match(appSource, /if \(output === "core"\) return/);
+  assert.match(source, /className="sonara-core-option"[\s\S]*?<input type="checkbox" checked disabled/);
+  assert.match(source, /className="sonara-optional-options"[\s\S]*?Timeline[\s\S]*?Embedding[\s\S]*?Fingerprint/);
+  assert.match(styles, /\.sonara-optional-options\s*{[\s\S]*?grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(styles, /\.analysis-model-count\s*{[\s\S]*?align-self:\s*stretch[\s\S]*?height:\s*auto[\s\S]*?min-height:\s*44px/);
+  assert.doesNotMatch(source, /Active SONARA release|Prepare release|sonaraAnalysisBlockedReason/);
   assert.match(appSource, /const childJobId = currentStage \? job\.stages\[currentStage\]\?\.child_job_id : null/);
   assert.match(appSource, /currentStage === "classifiers"[\s\S]*?api\.aggregateClassifierJob\(childJobId\)[\s\S]*?api\.analysisJob\(childJobId\)/);
   assert.match(appSource, /SONARA · \$\{outputs\} · SONARA batch \$\{sonaraBatchSize\}/);

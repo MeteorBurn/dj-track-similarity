@@ -8,10 +8,12 @@ import pytest
 
 import dj_track_similarity.rhythm_lab_launcher as launcher
 from dj_track_similarity.rhythm_lab_collections import (
+    DEFAULT_RHYTHM_LAB_LABELS_FILENAME,
     RhythmLabCollectionSelection,
     RhythmLabCollections,
     RhythmLabTrackSelection,
     build_rhythm_lab_collection_selection,
+    default_rhythm_lab_labels_path,
 )
 
 
@@ -66,6 +68,179 @@ def _selection(
             for track_uuid, generation, selected_path in tracks
         ),
     )
+
+
+def test_default_rhythm_lab_labels_path_is_greenfield_v7() -> None:
+    labels_path = default_rhythm_lab_labels_path()
+
+    assert labels_path.name == DEFAULT_RHYTHM_LAB_LABELS_FILENAME
+    assert labels_path.name == "rhythm_lab_v7.sqlite"
+    assert labels_path.parent.name == "data"
+
+
+def test_collection_repository_rejects_legacy_labels_without_mutation(
+    tmp_path: Path,
+) -> None:
+    legacy_path = tmp_path / "rhythm_lab.sqlite"
+    with sqlite3.connect(legacy_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE classifier_labels (
+                classifier_key TEXT NOT NULL,
+                source_track_id INTEGER NOT NULL,
+                path TEXT NOT NULL,
+                label TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO classifier_labels (
+                classifier_key,
+                source_track_id,
+                path,
+                label
+            ) VALUES ('legacy-profile', 17, 'C:/Music/legacy.wav', 'positive')
+            """
+        )
+    wal_path = Path(f"{legacy_path}-wal")
+    shm_path = Path(f"{legacy_path}-shm")
+    wal_path.write_bytes(b"preserved collection WAL")
+    shm_path.write_bytes(b"preserved collection SHM")
+    before = {
+        path: path.read_bytes()
+        for path in (legacy_path, wal_path, shm_path)
+    }
+
+    with pytest.raises(
+        RuntimeError,
+        match=r"legacy track identity.*rhythm_lab_v7\.sqlite",
+    ):
+        RhythmLabCollections(legacy_path)
+
+    assert {
+        path: path.read_bytes()
+        for path in (legacy_path, wal_path, shm_path)
+    } == before
+
+
+def test_collection_repository_rejects_partial_v7_labels_before_ddl(
+    tmp_path: Path,
+) -> None:
+    labels_path = tmp_path / "partial-v7.sqlite"
+    with sqlite3.connect(labels_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE classifier_labels (
+                classifier_key TEXT NOT NULL,
+                catalog_uuid TEXT NOT NULL,
+                track_uuid TEXT NOT NULL,
+                content_generation INTEGER NOT NULL,
+                selected_path TEXT NOT NULL,
+                label TEXT NOT NULL
+            )
+            """
+        )
+    before = labels_path.read_bytes()
+
+    with pytest.raises(RuntimeError, match="not the canonical v7 schema"):
+        RhythmLabCollections(labels_path)
+
+    assert labels_path.read_bytes() == before
+    with sqlite3.connect(
+        f"file:{labels_path.as_posix()}?mode=ro&immutable=1",
+        uri=True,
+    ) as connection:
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+    assert tables == {"classifier_labels"}
+
+
+def test_collection_repository_rejects_wal_visible_legacy_identity_before_ddl(
+    tmp_path: Path,
+) -> None:
+    legacy_path = tmp_path / "rhythm_lab.sqlite"
+    setup = sqlite3.connect(legacy_path)
+    try:
+        assert setup.execute("PRAGMA journal_mode = WAL").fetchone()[0] == "wal"
+        setup.execute("CREATE TABLE sentinel (value TEXT NOT NULL)")
+        setup.execute("INSERT INTO sentinel(value) VALUES ('base')")
+        setup.commit()
+        setup.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    finally:
+        setup.close()
+
+    reader = sqlite3.connect(legacy_path)
+    try:
+        reader.execute("BEGIN")
+        assert reader.execute("SELECT value FROM sentinel").fetchall() == [
+            ("base",)
+        ]
+
+        writer = sqlite3.connect(legacy_path)
+        try:
+            writer.execute("PRAGMA wal_autocheckpoint = 0")
+            writer.execute(
+                """
+                CREATE TABLE classifier_labels (
+                    classifier_key TEXT NOT NULL,
+                    source_track_id INTEGER NOT NULL,
+                    path TEXT NOT NULL,
+                    label TEXT NOT NULL
+                )
+                """
+            )
+            writer.execute(
+                """
+                INSERT INTO classifier_labels (
+                    classifier_key,
+                    source_track_id,
+                    path,
+                    label
+                ) VALUES ('wal-profile', 31, 'C:/Music/wal.wav', 'positive')
+                """
+            )
+            writer.commit()
+        finally:
+            writer.close()
+
+        wal_path = Path(f"{legacy_path}-wal")
+        shm_path = Path(f"{legacy_path}-shm")
+        assert wal_path.stat().st_size > 0
+        assert shm_path.stat().st_size > 0
+        before = {
+            path: path.read_bytes()
+            for path in (legacy_path, wal_path)
+        }
+        shm_size_before = shm_path.stat().st_size
+
+        with pytest.raises(RuntimeError, match="legacy track identity"):
+            RhythmLabCollections(legacy_path)
+
+        # The SHM file is SQLite's transient WAL index; validation reads may
+        # update its read marks. Durable database and WAL bytes must not change.
+        assert {
+            path: path.read_bytes()
+            for path in (legacy_path, wal_path)
+        } == before
+        assert shm_path.stat().st_size == shm_size_before
+        with sqlite3.connect(
+            f"file:{legacy_path.as_posix()}?mode=ro",
+            uri=True,
+        ) as observer:
+            tables = {
+                str(row[0])
+                for row in observer.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+        assert tables == {"sentinel", "classifier_labels"}
+    finally:
+        reader.close()
 
 
 def test_collection_selection_uses_repository_identity_and_request_order() -> None:

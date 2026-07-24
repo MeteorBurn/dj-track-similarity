@@ -172,6 +172,51 @@ test("analysis job client defaults a SONARA-only request to Core storage", async
   });
 });
 
+test("SONARA release client reads exact readiness and prepares only with explicit backup confirmation", async () => {
+  const calls = [];
+  const { api } = loadApiModule(async (path, options) => {
+    calls.push({ path, options });
+    if (path.endsWith("/status")) {
+      return jsonResponse({
+        catalog_uuid: "catalog-v7",
+        state: "preparation_required",
+        ready: false,
+        detail: "SONARA_RELEASE_PREPARATION_REQUIRED",
+        expected_release_hash: "sha256:expected",
+        active_release_hash: null,
+        outputs: []
+      });
+    }
+    return jsonResponse({
+      stage: "completed",
+      catalog_uuid: "catalog-v7",
+      activation_result: {
+        core_rows_deleted: 0,
+        artifact_rows_deleted: 0,
+        classifier_rows_deleted: 0
+      }
+    });
+  });
+
+  const status = await api.sonaraReleaseStatus();
+  await api.prepareSonaraRelease(
+    "catalog-v7",
+    "C:\\Backups\\sonara",
+    "PREPARE SONARA RELEASE"
+  );
+
+  assert.equal(calls[0].path, "/api/analysis/sonara/releases/status");
+  assert.equal(calls[0].options.method, undefined);
+  assert.equal(status.state, "preparation_required");
+  assert.equal(calls[1].path, "/api/analysis/sonara/releases/prepare");
+  assert.equal(calls[1].options.method, "POST");
+  assert.deepEqual(JSON.parse(calls[1].options.body), {
+    catalog_uuid: "catalog-v7",
+    backup_dir: "C:\\Backups\\sonara",
+    confirm: "PREPARE SONARA RELEASE"
+  });
+});
+
 test("CLAP text search client keeps positive and negative prompt arrays separate", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options) => {

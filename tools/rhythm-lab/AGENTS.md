@@ -12,7 +12,7 @@ Standalone classifier labeling / training / promotion UI + CLI. Independent safe
 ## Source Database Boundary
 
 - The main library SQLite is opened via `source_db.py` MOSTLY READ-ONLY. The one exception is the explicit liked-track toggle, which updates `likes` on the source DB. No other write path to the main DB.
-- All labels, predictions, training queue rows, checkpoints, metrics, and calibration data live in the lab DB at `tools/rhythm-lab/data/rhythm_lab.sqlite`.
+- All current v7 labels, predictions, training queue rows, checkpoints, metrics, and calibration data live in the lab DB at `tools/rhythm-lab/data/rhythm_lab_v7.sqlite`. A preserved legacy `tools/rhythm-lab/data/rhythm_lab.sqlite` is recovery input only.
 - Do not add other main-DB write paths from any Rhythm Lab code.
 
 ## SONARA Contract Guard

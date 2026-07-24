@@ -540,9 +540,11 @@ export function App() {
     resetSearchPlaylistState();
     setScanJob(null);
     setAnalysisJob(null);
+    setAnalysisPipelineJob(null);
     setAudioDedupJob(null);
     setAudioDoctorJob(null);
     setGenreTagJob(null);
+    setClassifiers([]);
   }
 
   async function run<T>(
@@ -673,7 +675,6 @@ export function App() {
   }
 
   function toggleAnalysisModel(model: AnalysisSelection) {
-    if (model === "sonara" && !sonaraOutputs.length) setSonaraOutputs(["core"]);
     setSelectedAnalysisModels((current) => {
       if (current.length === 1 && current.includes(model)) return current;
       if (model === "sonara" || model === "classifiers") {
@@ -683,26 +684,27 @@ export function App() {
       const next: AnalysisSelection[] = mlSelections.includes(model)
         ? mlSelections.filter((item) => item !== model)
         : [...mlSelections, model];
-      return analysisModelOrder.filter((item) => next.includes(item));
+      return next.length
+        ? analysisModelOrder.filter((item) => next.includes(item))
+        : current;
     });
   }
 
   function toggleAllAnalysisModels() {
     if (selectedAnalysisModels.length === analysisSelectionOrder.length) {
       setSelectedAnalysisModels(["sonara"]);
-      setSonaraOutputs(["core"]);
       return;
     }
     setSelectedAnalysisModels([...analysisSelectionOrder]);
-    if (!sonaraOutputs.length) setSonaraOutputs(["core"]);
   }
 
   function toggleSonaraOutput(output: SonaraOutput) {
+    if (output === "core") return;
     const order: SonaraOutput[] = ["core", "timeline", "embedding", "fingerprint"];
     setSonaraOutputs((current) => {
       const next = current.includes(output)
         ? current.filter((item) => item !== output)
-        : [...current, output];
+        : [...current, output, "core"];
       return order.filter((item) => next.includes(item));
     });
   }
@@ -891,12 +893,19 @@ export function App() {
       adoptDatabaseScope(value.catalog_uuid);
       setDatabasePath(value.path);
       setDatabaseCatalogUuid(value.catalog_uuid);
+      const promotedClassifiersRequest = api.classifiers();
       await refreshLibrary(0, {
         selected: true,
         databaseKey: value.catalog_uuid,
         refreshSummary: true
       });
-      await loadLatestJobs();
+      const promotedClassifiers = await promotedClassifiersRequest;
+      setClassifiers(promotedClassifiers);
+      setClassifierMinScores((current) => {
+        const keys = new Set(promotedClassifiers.map((classifier) => classifier.classifier_key));
+        return Object.fromEntries(Object.entries(current).filter(([key]) => keys.has(key)));
+      });
+      await loadLatestJobs(promotedClassifiers);
       appendActivity("ok", "База выбрана", value.path);
       setNotice({ kind: "ok", text: value.path });
     } catch (error) {
@@ -977,10 +986,6 @@ export function App() {
       setNotice({ kind: "error", text: "Нет совместимых promoted classifiers: сначала переобучите и promote модели" });
       return;
     }
-    if (includeSonara && !sonaraOutputs.length) {
-      setNotice({ kind: "error", text: "Выберите хотя бы один SONARA-блок: Core, Timeline, Embedding или Fingerprint" });
-      return;
-    }
     const limit = analysisLimit > 0 ? analysisLimit : undefined;
     const settings: string[] = [];
     if (includeSonara) {
@@ -999,16 +1004,18 @@ export function App() {
     setAnalysisJob(null);
     setAnalysisPipelineJob(null);
     await run(
-      () => api.analysisPipelineStart({
-        stages,
-        limit: limit ?? null,
-        sonara: { outputs: sonaraOutputs, batch_size: sonaraBatchSize },
-        ml: {
-          models: mlModels, device: analysisDevice, top_k: 3,
-          track_batch_size: analysisTrackBatchSize, inference_batch_size: analysisInferenceBatchSize
-        },
-        classifiers: { classifier_keys: classifierKeys }
-      }),
+      async () => {
+        return api.analysisPipelineStart({
+          stages,
+          limit: limit ?? null,
+          sonara: { outputs: sonaraOutputs, batch_size: sonaraBatchSize },
+          ml: {
+            models: mlModels, device: analysisDevice, top_k: 3,
+            track_batch_size: analysisTrackBatchSize, inference_batch_size: analysisInferenceBatchSize
+          },
+          classifiers: { classifier_keys: classifierKeys }
+        });
+      },
       (job) => {
         setAnalysisPipelineJob(job);
         appendActivity("ok", "Анализ поставлен в очередь", settings.join(" | "));

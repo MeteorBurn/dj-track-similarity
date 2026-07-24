@@ -19,19 +19,20 @@ def register_audio_dedup_routes(app: FastAPI, state: AppDatabaseState) -> None:
         if request.apply and request.confirmation != APPLY_CONFIRMATION:
             raise HTTPException(status_code=400, detail=f'Type exactly "{APPLY_CONFIRMATION}" to run apply mode')
         try:
-            return state.require_audio_dedup_jobs().start(
-                root=request.root,
-                path_contains=request.path_contains,
-                sources=request.sources,
-                weights=request.weights,
-                preset=request.preset,
-                min_score=request.min_score,
-                min_similarity=request.min_similarity,
-                limit_groups=request.limit_groups,
-                out_dir=request.out_dir,
-                apply=request.apply,
-                confirmation=request.confirmation,
-            )
+            with state.job_start():
+                return state.require_audio_dedup_jobs().start(
+                    root=request.root,
+                    path_contains=request.path_contains,
+                    sources=request.sources,
+                    weights=request.weights,
+                    preset=request.preset,
+                    min_score=request.min_score,
+                    min_similarity=request.min_similarity,
+                    limit_groups=request.limit_groups,
+                    out_dir=request.out_dir,
+                    apply=request.apply,
+                    confirmation=request.confirmation,
+                )
         except (FileNotFoundError, OSError, ValueError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 

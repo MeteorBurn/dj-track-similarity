@@ -19,6 +19,94 @@ from .track_models import TrackIdentity
 
 DEFAULT_COLLECTION_SOURCE = "manual"
 COLLECTION_MODES = {"append", "replace"}
+DEFAULT_RHYTHM_LAB_LABELS_FILENAME = "rhythm_lab_v7.sqlite"
+
+RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS: dict[str, frozenset[str]] = {
+    "classifier_profiles": frozenset(
+        {
+            "classifier_key",
+            "profile_type",
+            "name",
+            "description",
+            "artifact_dir",
+            "artifact_prefix",
+            "training_min_added",
+            "positive_label",
+            "negative_label",
+            "archived_at",
+            "created_at",
+            "updated_at",
+        }
+    ),
+    "classifier_profile_labels": frozenset(
+        {
+            "classifier_key",
+            "label_key",
+            "display_name",
+            "description",
+            "role",
+            "position",
+            "created_at",
+            "updated_at",
+        }
+    ),
+    "classifier_labels": frozenset(
+        {
+            "classifier_key",
+            "catalog_uuid",
+            "track_uuid",
+            "content_generation",
+            "selected_path",
+            "file_size_bytes",
+            "file_modified_ns",
+            "label",
+            "note",
+            "updated_at",
+        }
+    ),
+    "classifier_label_queue": frozenset(
+        {
+            "id",
+            "classifier_key",
+            "catalog_uuid",
+            "track_uuid",
+            "content_generation",
+            "selected_path",
+            "mode",
+            "score",
+            "priority",
+            "reason_json",
+            "state",
+            "created_at",
+            "updated_at",
+        }
+    ),
+    "classifier_predictions": frozenset(
+        {
+            "classifier_key",
+            "catalog_uuid",
+            "track_uuid",
+            "content_generation",
+            "selected_path",
+            "artist",
+            "title",
+            "feature_set",
+            "model_artifact",
+            "label",
+            "confidence",
+            "probabilities_json",
+            "updated_at",
+        }
+    ),
+    "classifier_training_checkpoints": frozenset(
+        {
+            "classifier_key",
+            "counts_json",
+            "model_artifact",
+            "updated_at",
+        }
+    ),
+}
 
 _COLLECTION_COLUMNS = {
     "id",
@@ -144,12 +232,14 @@ class ReviewCollection:
 
 
 def default_rhythm_lab_labels_path() -> Path:
+    # Keep the preserved pre-v7 rhythm_lab.sqlite outside the normal writable
+    # path. Legacy labels move only through the explicit label-transfer flow.
     return (
         Path(__file__).resolve().parents[2]
         / "tools"
         / "rhythm-lab"
         / "data"
-        / "rhythm_lab.sqlite"
+        / DEFAULT_RHYTHM_LAB_LABELS_FILENAME
     )
 
 
@@ -281,16 +371,7 @@ def ensure_review_collection_schema(connection: sqlite3.Connection) -> None:
     workflow.
     """
 
-    _reject_noncanonical_table(
-        connection,
-        table="review_collections",
-        expected_columns=_COLLECTION_COLUMNS,
-    )
-    _reject_noncanonical_table(
-        connection,
-        table="review_collection_tracks",
-        expected_columns=_COLLECTION_TRACK_COLUMNS,
-    )
+    validate_review_collection_schema(connection)
     connection.execute("PRAGMA foreign_keys = ON")
     connection.executescript(
         """
@@ -343,13 +424,52 @@ def ensure_review_collection_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+def validate_review_collection_schema(
+    connection: sqlite3.Connection,
+) -> None:
+    """Validate any existing v7 review tables without creating or changing them."""
+
+    _reject_noncanonical_table(
+        connection,
+        table="review_collections",
+        expected_columns=_COLLECTION_COLUMNS,
+    )
+    _reject_noncanonical_table(
+        connection,
+        table="review_collection_tracks",
+        expected_columns=_COLLECTION_TRACK_COLUMNS,
+    )
+
+
+def validate_rhythm_lab_classifier_schema(
+    connection: sqlite3.Connection,
+) -> None:
+    """Validate every existing Lab classifier table without changing it."""
+
+    for table, expected_columns in RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS.items():
+        _reject_noncanonical_table(
+            connection,
+            table=table,
+            expected_columns=expected_columns,
+        )
+
+
 class RhythmLabCollections:
     """Repository for review collections in the Rhythm Lab database only."""
 
     def __init__(self, labels_db_path: str | Path) -> None:
         self.path = Path(labels_db_path).expanduser().resolve(strict=False)
+        if self.path.exists():
+            with _immutable_read_only_connection(self.path) as connection:
+                validate_review_collection_schema(connection)
+                validate_rhythm_lab_classifier_schema(connection)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as connection:
+            # Repeat the non-mutating checks on the live SQLite view so a
+            # pre-existing WAL cannot hide legacy identity from the immutable
+            # main-file preflight.
+            validate_review_collection_schema(connection)
+            validate_rhythm_lab_classifier_schema(connection)
             ensure_review_collection_schema(connection)
 
     def connect(self) -> sqlite3.Connection:
@@ -796,17 +916,46 @@ def _table_columns(
     }
 
 
+def _immutable_read_only_connection(path: Path) -> sqlite3.Connection:
+    connection = sqlite3.connect(
+        f"{path.as_uri()}?mode=ro&immutable=1",
+        uri=True,
+        timeout=30,
+    )
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA query_only = ON")
+    return connection
+
+
 def _reject_noncanonical_table(
     connection: sqlite3.Connection,
     *,
     table: str,
-    expected_columns: set[str],
+    expected_columns: set[str] | frozenset[str],
 ) -> None:
     columns = _table_columns(connection, table)
     if columns is not None and columns != expected_columns:
+        required_v7_identity = {
+            "catalog_uuid",
+            "track_uuid",
+            "content_generation",
+            "selected_path",
+        }
+        if (
+            table == "classifier_labels"
+            and not required_v7_identity.issubset(columns)
+        ):
+            raise RuntimeError(
+                "Rhythm Lab table 'classifier_labels' uses legacy track identity; "
+                f"choose {DEFAULT_RHYTHM_LAB_LABELS_FILENAME!r} as the writable "
+                "database and use the explicit label recovery command "
+                "'python -m rhythm_lab.label_transfer'"
+            )
         raise RuntimeError(
             f"Rhythm Lab table {table!r} is not the canonical v7 schema; "
-            "use the explicit label recovery workflow"
+            f"choose {DEFAULT_RHYTHM_LAB_LABELS_FILENAME!r} as the writable "
+            "database and use the explicit label recovery command "
+            "'python -m rhythm_lab.label_transfer'"
         )
 
 

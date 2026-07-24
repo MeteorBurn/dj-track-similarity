@@ -16,6 +16,7 @@ from dj_track_similarity.rhythm_lab_collections import (
     RhythmLabCollectionSelection,
     RhythmLabCollections,
     RhythmLabTrackSelection,
+    default_rhythm_lab_labels_path,
 )
 
 from .ablation import ABLATION_FEATURE_SETS, cli_summary, run_ablation_benchmark
@@ -34,7 +35,7 @@ from .training import benchmark_lab_database
 LAB_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = LAB_ROOT.parents[1]
 DEFAULT_SOURCE_DB = Path(r"C:\db\abstracted.sqlite")
-DEFAULT_LABELS_DB = LAB_ROOT / "data" / "rhythm_lab.sqlite"
+DEFAULT_LABELS_DB = default_rhythm_lab_labels_path()
 DEFAULT_CLASSIFIER_TARGET_ROOT = PROJECT_ROOT / "models" / "classifiers"
 
 

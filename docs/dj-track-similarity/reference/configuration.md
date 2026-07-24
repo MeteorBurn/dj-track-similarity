@@ -23,10 +23,13 @@ If the variable is set but points to a missing file, server startup fails clearl
 | Runtime logs | `logs/` |
 | Audio Doctor reports/state/backups | `tools/audio-doctor/data/` |
 | Audio Dedup reports | `tools/audio-dedup/data/reports/` |
-| Rhythm Lab labels | `tools/rhythm-lab/data/rhythm_lab.sqlite` |
+| Rhythm Lab v7 labels | `tools/rhythm-lab/data/rhythm_lab_v7.sqlite` |
 | Rhythm Lab artifacts | `tools/rhythm-lab/artifacts/` |
 | Promoted classifier models | `models/classifiers/<artifact-prefix>/` |
 | Persistent ANN sidecars | `.dj-track-similarity-indexes/` beside the selected DB by default |
+
+A pre-v7 `tools/rhythm-lab/data/rhythm_lab.sqlite` is an explicit recovery input, not the normal
+writable Lab database.
 
 Generated local artifacts are ignored by Git unless explicitly tracked by policy.
 

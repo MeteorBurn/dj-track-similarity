@@ -864,6 +864,123 @@ class AnalysisRepository:
                     raise
         return tuple(output.contract_hash for output in normalized)
 
+    def activate_sonara_outputs_if_empty(
+        self,
+        outputs: Sequence[AnalysisOutput],
+    ) -> bool:
+        """Activate the exact runtime outputs only before SONARA has any state.
+
+        This is the narrow first-analysis path. It writes only the immutable
+        contracts and active Core settings. Historical immutable contracts may
+        remain after an explicit reset; existing active settings, analysis
+        rows, or SONARA-dependent classifier rows leave the database unchanged
+        so the caller can fail closed.
+        """
+
+        normalized = _canonical_sonara_release_outputs(outputs)
+        requested_release = normalized[0].contract.release_hash
+        expected_settings = {
+            SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY: requested_release,
+            **{
+                active_contract_setting_key(output): output.contract_hash
+                for output in normalized
+            },
+        }
+        with self._write_lock:
+            with (
+                closing(self.connect()) as core_connection,
+                closing(self.connect_artifacts()) as artifacts_connection,
+            ):
+                try:
+                    core_connection.execute("BEGIN IMMEDIATE")
+                    validate_storage_binding(
+                        core_connection,
+                        artifacts_connection,
+                    )
+                    active_settings = {
+                        str(row[0]): str(row[1])
+                        for row in core_connection.execute(
+                            """
+                            SELECT setting_key, setting_value
+                            FROM library_settings
+                            WHERE setting_key = ?
+                               OR setting_key LIKE ?
+                            """,
+                            (
+                                SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY,
+                                f"{ACTIVE_CONTRACT_SETTING_PREFIX}.sonara.%",
+                            ),
+                        )
+                    }
+                    if active_settings == expected_settings:
+                        require_active_analysis_outputs(
+                            core_connection,
+                            normalized,
+                        )
+                        core_connection.commit()
+                        return True
+
+                    has_existing_state = bool(active_settings)
+                    if not has_existing_state:
+                        has_existing_state = (
+                            core_connection.execute(
+                                "SELECT 1 FROM sonara LIMIT 1"
+                            ).fetchone()
+                            is not None
+                        )
+                    if not has_existing_state:
+                        has_existing_state = (
+                            core_connection.execute(
+                                """
+                                SELECT 1
+                                FROM classifier_scores
+                                WHERE uses_sonara = 1
+                                LIMIT 1
+                                """
+                            ).fetchone()
+                            is not None
+                        )
+                    if not has_existing_state:
+                        for table in (
+                            "sonara_timeline",
+                            "sonara_similarity_embeddings",
+                            "sonara_fingerprints",
+                        ):
+                            if (
+                                artifacts_connection.execute(
+                                    f"SELECT 1 FROM {table} LIMIT 1"
+                                ).fetchone()
+                                is not None
+                            ):
+                                has_existing_state = True
+                                break
+                    if has_existing_state:
+                        core_connection.commit()
+                        return False
+
+                    timestamp = utc_timestamp()
+                    for output in normalized:
+                        register_contract(
+                            core_connection,
+                            output.contract,
+                            created_at=timestamp,
+                        )
+                    for setting_key, setting_value in expected_settings.items():
+                        core_connection.execute(
+                            """
+                            INSERT INTO library_settings (
+                                setting_key, setting_value, updated_at
+                            ) VALUES (?, ?, ?)
+                            """,
+                            (setting_key, setting_value, timestamp),
+                        )
+                    core_connection.commit()
+                    return True
+                except BaseException:
+                    if core_connection.in_transaction:
+                        core_connection.rollback()
+                    raise
+
     def activate_sonara_release(
         self,
         outputs: Sequence[AnalysisOutput],
@@ -1901,6 +2018,28 @@ class AnalysisRepository:
                         classifier_deleted += max(
                             0,
                             int(cursor.rowcount),
+                        )
+                    sonara_output_kinds = {
+                        output.contract.output_kind
+                        for output in normalized
+                        if output.contract.analysis_family == "sonara"
+                    }
+                    if sonara_output_kinds == {
+                        "core",
+                        "timeline",
+                        "embedding",
+                        "fingerprint",
+                    }:
+                        core_connection.execute(
+                            """
+                            DELETE FROM library_settings
+                            WHERE setting_key = ?
+                               OR setting_key LIKE ?
+                            """,
+                            (
+                                SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY,
+                                f"{ACTIVE_CONTRACT_SETTING_PREFIX}.sonara.%",
+                            ),
                         )
                     _commit_coordinated(
                         core_connection,

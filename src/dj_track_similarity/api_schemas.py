@@ -537,12 +537,71 @@ class EvaluationWeightedCandidatesRunRequest(BaseModel):
 class PrepareSonaraReleaseRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    catalog_uuid: str = Field(min_length=1)
     backup_dir: str
     confirm: str
 
 
 class _V7ResponseModel(BaseModel):
     model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+
+class SonaraReleaseOutputStatusV7(_V7ResponseModel):
+    output_kind: Literal["core", "timeline", "embedding", "fingerprint"]
+    state: Literal["current", "missing", "stale", "unavailable"]
+    expected_contract_hash: str | None
+    active_contract_hash: str | None
+
+
+class SonaraReleaseStatusV7(_V7ResponseModel):
+    catalog_uuid: str
+    state: Literal["ready", "preparation_required", "unavailable"]
+    ready: bool
+    detail: str
+    expected_release_hash: str | None
+    active_release_hash: str | None
+    outputs: list[SonaraReleaseOutputStatusV7]
+
+
+class SonaraReleaseContractHashesV7(_V7ResponseModel):
+    core: str
+    timeline: str
+    embedding: str
+    fingerprint: str
+
+
+class SonaraReleaseBackupV7(_V7ResponseModel):
+    path: str
+    sha256: str
+    size_bytes: int = Field(ge=1)
+
+
+class SonaraReleaseBackupsV7(_V7ResponseModel):
+    core: SonaraReleaseBackupV7
+    artifacts: SonaraReleaseBackupV7
+
+
+class SonaraReleaseActivationResultV7(_V7ResponseModel):
+    core_rows_deleted: int = Field(ge=0)
+    artifact_rows_deleted: int = Field(ge=0)
+    classifier_rows_deleted: int = Field(ge=0)
+
+
+class PrepareSonaraReleaseResponseV7(_V7ResponseModel):
+    receipt_version: int = Field(ge=1)
+    operation_id: str
+    stage: Literal["completed"]
+    catalog_uuid: str
+    core_path: str
+    artifacts_path: str
+    backup_dir: str
+    release_hash: str
+    contract_hashes: SonaraReleaseContractHashesV7
+    backups: SonaraReleaseBackupsV7
+    activation_result: SonaraReleaseActivationResultV7
+    started_at: str
+    updated_at: str
+    completed_at: str
 
 
 class AnalysisCoverageV7(_V7ResponseModel):

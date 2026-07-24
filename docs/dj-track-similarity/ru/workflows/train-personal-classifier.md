@@ -70,7 +70,7 @@ dj-sim analyze --models muq --db .\data\library.sqlite
 также можно запустить напрямую:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py serve --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py serve --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab_v7.sqlite
 ```
 
 Откройте:
@@ -96,7 +96,7 @@ http://127.0.0.1:8777/
 первого обученного артефакта.
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab_v7.sqlite
 ```
 
 На вкладке Training кнопка `Train` переобучает модель по всем текущим меткам и автоматически
@@ -118,7 +118,7 @@ python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation -
 Чтобы сравнить источники признаков активного профиля, запустите бенчмарк:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --profile live_instrumentation --output tools\rhythm-lab\artifacts\ablation.json
+python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab_v7.sqlite --profile live_instrumentation --output tools\rhythm-lab\artifacts\ablation.json
 ```
 
 Вкладка Training показывает победителя и позволяет выбрать другой обученный вариант перед
@@ -129,7 +129,7 @@ python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\lib
 Для любого другого сочетания повторите параметр CLI:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --profile live_instrumentation --feature-set muq --feature-set sonara+muq --output tools\rhythm-lab\artifacts\ablation-muq.json
+python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab_v7.sqlite --profile live_instrumentation --feature-set muq --feature-set sonara+muq --output tools\rhythm-lab\artifacts\ablation-muq.json
 ```
 
 ## 6. Необязательная калибровка
@@ -145,13 +145,13 @@ python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\lib
 Калибровка обычного обучения:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --calibrate
+python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab_v7.sqlite --calibrate
 ```
 
 Калибровка победителей после абляции:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --profile live_instrumentation --calibrate-finalists --output tools\rhythm-lab\artifacts\ablation-calibrated.json
+python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab_v7.sqlite --profile live_instrumentation --calibrate-finalists --output tools\rhythm-lab\artifacts\ablation-calibrated.json
 ```
 
 Калибровка выбранного набора через API Rhythm Lab:
@@ -165,19 +165,19 @@ POST http://127.0.0.1:8777/api/profiles/live_instrumentation/training/calibrate
 калиброванного артефакта используйте требование CLI:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --feature-set 'mert+maest' --require-calibration --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --feature-set 'mert+maest' --require-calibration --labels tools\rhythm-lab\data\rhythm_lab_v7.sqlite
 ```
 
 До публикации проверьте выбранный артефакт через `calibration-report`:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py calibration-report --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py calibration-report --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab_v7.sqlite
 ```
 
 ## 7. Опубликуйте
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --feature-set combined --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --feature-set combined --labels tools\rhythm-lab\data\rhythm_lab_v7.sqlite
 ```
 
 Публикация копирует выбранный исполняемый артефакт в

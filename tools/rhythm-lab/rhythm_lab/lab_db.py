@@ -9,7 +9,13 @@ import sqlite3
 from collections.abc import Mapping
 from typing import Literal
 
-from dj_track_similarity.rhythm_lab_collections import ensure_review_collection_schema
+from dj_track_similarity.rhythm_lab_collections import (
+    DEFAULT_RHYTHM_LAB_LABELS_FILENAME,
+    RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS,
+    ensure_review_collection_schema,
+    validate_review_collection_schema,
+    validate_rhythm_lab_classifier_schema,
+)
 
 from .source_db import SourceTrack
 
@@ -34,78 +40,24 @@ LABEL_QUEUE_STATES: tuple[str, ...] = (
     "used_for_training",
     "archived",
 )
-_PROFILE_COLUMNS = {
-    "classifier_key",
-    "profile_type",
-    "name",
-    "description",
-    "artifact_dir",
-    "artifact_prefix",
-    "training_min_added",
-    "positive_label",
-    "negative_label",
-    "archived_at",
-    "created_at",
-    "updated_at",
-}
-_PROFILE_LABEL_COLUMNS = {
-    "classifier_key",
-    "label_key",
-    "display_name",
-    "description",
-    "role",
-    "position",
-    "created_at",
-    "updated_at",
-}
-_CLASSIFIER_LABEL_COLUMNS = {
-    "classifier_key",
-    "catalog_uuid",
-    "track_uuid",
-    "content_generation",
-    "selected_path",
-    "file_size_bytes",
-    "file_modified_ns",
-    "label",
-    "note",
-    "updated_at",
-}
-_CLASSIFIER_QUEUE_COLUMNS = {
-    "id",
-    "classifier_key",
-    "catalog_uuid",
-    "track_uuid",
-    "content_generation",
-    "selected_path",
-    "mode",
-    "score",
-    "priority",
-    "reason_json",
-    "state",
-    "created_at",
-    "updated_at",
-}
-_CLASSIFIER_PREDICTION_COLUMNS = {
-    "classifier_key",
-    "catalog_uuid",
-    "track_uuid",
-    "content_generation",
-    "selected_path",
-    "artist",
-    "title",
-    "feature_set",
-    "model_artifact",
-    "label",
-    "confidence",
-    "probabilities_json",
-    "updated_at",
-}
-_TRAINING_CHECKPOINT_COLUMNS = {
-    "classifier_key",
-    "counts_json",
-    "model_artifact",
-    "updated_at",
-}
+_PROFILE_COLUMNS = set(
+    RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS["classifier_profiles"]
+)
+_PROFILE_LABEL_COLUMNS = set(
+    RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS["classifier_profile_labels"]
+)
+_CLASSIFIER_LABEL_COLUMNS = set(
+    RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS["classifier_labels"]
+)
+_CLASSIFIER_QUEUE_COLUMNS = set(
+    RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS["classifier_label_queue"]
+)
+_CLASSIFIER_PREDICTION_COLUMNS = set(
+    RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS["classifier_predictions"]
+)
+_TRAINING_CHECKPOINT_COLUMNS = set(
+    RHYTHM_LAB_CLASSIFIER_TABLE_COLUMNS["classifier_training_checkpoints"]
+)
 DEFAULT_TRAINING_MIN_ADDED = 50
 PROFILE_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 LABEL_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -191,6 +143,8 @@ class RhythmLabDatabase:
     def __init__(self, path: str | Path, *, classifier_key: str | None = None) -> None:
         self.path = Path(path).expanduser().resolve(strict=False)
         self.classifier_key = _validate_profile_key(classifier_key) if classifier_key is not None else None
+        if self.path.exists():
+            _validate_existing_lab_schema_read_only(self.path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._ensure_lab_schema()
 
@@ -203,6 +157,10 @@ class RhythmLabDatabase:
 
     def _ensure_lab_schema(self) -> None:
         with self.connect() as connection:
+            # Validate every existing table before the first DDL statement.
+            # This second pass sees committed WAL frames that immutable
+            # main-file preflight intentionally ignores.
+            _validate_lab_schema_tables(connection)
             _ensure_profile_tables(connection)
             _ensure_classifier_tables(connection)
             ensure_review_collection_schema(connection)
@@ -1066,6 +1024,22 @@ def _ensure_classifier_tables(connection: sqlite3.Connection) -> None:
     connection.execute(_classifier_training_checkpoints_table_sql("classifier_training_checkpoints"))
 
 
+def _validate_existing_lab_schema_read_only(path: Path) -> None:
+    with sqlite3.connect(
+        f"{path.as_uri()}?mode=ro&immutable=1",
+        uri=True,
+        timeout=30,
+    ) as connection:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA query_only = ON")
+        _validate_lab_schema_tables(connection)
+
+
+def _validate_lab_schema_tables(connection: sqlite3.Connection) -> None:
+    validate_rhythm_lab_classifier_schema(connection)
+    validate_review_collection_schema(connection)
+
+
 def _get_profile(connection: sqlite3.Connection, classifier_key: str) -> ClassifierProfile:
     row = connection.execute(
         """
@@ -1421,7 +1395,9 @@ def _reject_noncanonical_table(
     if columns and columns != expected_columns:
         raise RuntimeError(
             f"Rhythm Lab database table {table!r} is not the greenfield v7 schema; "
-            "choose a new lab database path"
+            f"choose a new lab database path such as {DEFAULT_RHYTHM_LAB_LABELS_FILENAME!r}. "
+            "The existing database was not migrated; recover legacy labels with "
+            "'python -m rhythm_lab.label_transfer'."
         )
 
 

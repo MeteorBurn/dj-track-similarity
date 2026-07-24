@@ -3,6 +3,50 @@ export type EvaluationSource = EmbeddingSource | "sonara";
 export type HybridSearchSource = EvaluationSource;
 export type AnalysisModel = "sonara" | EmbeddingSource;
 export type SonaraOutput = "core" | "timeline" | "embedding" | "fingerprint";
+export type SonaraReleaseOutputState = "current" | "missing" | "stale" | "unavailable";
+export type SonaraReleaseState = "ready" | "preparation_required" | "unavailable";
+
+export type SonaraReleaseOutputStatus = {
+  output_kind: SonaraOutput;
+  state: SonaraReleaseOutputState;
+  expected_contract_hash: string | null;
+  active_contract_hash: string | null;
+};
+
+export type SonaraReleaseStatus = {
+  catalog_uuid: string;
+  state: SonaraReleaseState;
+  ready: boolean;
+  detail: string;
+  expected_release_hash: string | null;
+  active_release_hash: string | null;
+  outputs: SonaraReleaseOutputStatus[];
+};
+
+export type PrepareSonaraReleaseResult = {
+  receipt_version: number;
+  operation_id: string;
+  stage: "completed";
+  catalog_uuid: string;
+  core_path: string;
+  artifacts_path: string;
+  backup_dir: string;
+  release_hash: string;
+  contract_hashes: Record<SonaraOutput, string>;
+  backups: Record<"core" | "artifacts", {
+    path: string;
+    sha256: string;
+    size_bytes: number;
+  }>;
+  activation_result: {
+    core_rows_deleted: number;
+    artifact_rows_deleted: number;
+    classifier_rows_deleted: number;
+  };
+  started_at: string;
+  updated_at: string;
+  completed_at: string;
+};
 
 export type AnalysisCoverageV7 = {
   sonara_core: boolean;

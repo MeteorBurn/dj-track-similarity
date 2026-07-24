@@ -61,7 +61,8 @@ def register_tags_export_routes(
 
     @app.post("/api/tags/genres/jobs")
     def genre_tags_job_start(_request: GenreTagRequest):
-        return state.require_genre_tag_jobs().start()
+        with state.job_start():
+            return state.require_genre_tag_jobs().start()
 
     @app.get("/api/tags/genres/jobs/latest")
     def latest_genre_tags_job():

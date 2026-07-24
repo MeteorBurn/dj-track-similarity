@@ -23,11 +23,26 @@ This document follows the repository root `PLANS.md`.
   completed.
 - [x] Independent final review completed and every item in
   `50-ACCEPTANCE.md` closed with evidence.
+- [x] Post-acceptance Rhythm Lab startup regression audited against the
+  preserved legacy Lab DB and label-transfer boundary.
+- [x] Versioned Lab default, immutable schema preflight, mirrored docs and
+  corrective runtime validation completed.
+- [x] Shared exact Lab schema matrix, partial-schema and real-WAL regressions,
+  full validation, and independent corrective re-review completed.
+- [x] Replace the SONARA preparation UI with the confirmed Reset → Analyze
+  workflow while preserving exact internal v7 contract identity.
+- [x] Revalidate the simplified SONARA workflow across focused, full-suite,
+  documentation and browser evidence.
 
 ## Current phase
 
-Phase E complete — corrective integration, full revalidation, browser race
-smoke, independent re-review and acceptance closure are green.
+Post-acceptance SONARA workflow simplification is complete. SONARA and its
+mandatory locked Core output are selected at startup; Timeline, Embedding and
+Fingerprint are optional. Selecting ML removes SONARA and classifiers without
+changing either family’s results. The ordinary workflow is Analyze missing
+outputs, or Reset SONARA followed by Analyze for a complete rebuild. Exact
+contract hashes remain internal v7 provenance; the removed release card,
+preparation dialog and frontend readiness gate no longer form a user workflow.
 
 ## Baseline
 
@@ -138,6 +153,9 @@ agent.
 | Backend contract tests | `/root/backend_contract_tests` | write | `tests/test_api_reference_compare.py`, `tests/test_api_rhythm_lab.py`, `tests/test_api_hybrid_search.py`, plus one new API-contract-only test if needed | Runtime source, frontend, query-worker tests, helper tests | Complete; integrated diff reviewed |
 | Documentation mirror | `/root/frontend_v7_docs` | write | `README.md` and only directly affected EN/RU Markdown under `docs/dj-track-similarity/` | Runtime source, plans, generated `site/`, unrelated dirty files | Complete; 30 EN pages and 30 mirrored RU pages integrated, docs gate green |
 | Independent final review | `/root/frontend_v7_final_review` | read-only | Entire final diff, plans and acceptance evidence | All files are read-only; no real data, commit, push or PR | Complete; focused re-review confirms all three findings resolved with no remaining P0/P1/P2 in scope |
+| Rhythm Lab startup regression audit | `/root/rhythm_lab_audit` | read-only | Current launcher/CLI/Lab DB/default-path sources, docs and tests | No edits, services, DB opens, audio, commit, push or PR | Complete; final re-review found no remaining P0/P1/P2 after exact-schema and WAL corrections |
+| Rhythm Lab default-path correction | Primary agent | write | Shared labels-path/schema helpers, launcher, standalone CLI/Lab preflight, focused bridge/helper tests, directly affected docs and this ExecPlan | Real Lab/Core/Artifacts DBs, audio, label migration/apply, generated state | Complete; 92 focused tests, 1,093 root tests and docs gate green; real legacy file hash unchanged |
+| SONARA simple workflow correction | Primary plus non-overlapping backend/docs workers | write | Backend worker: `db_analysis.py`, `analysis_jobs.py`, focused tests. Primary: `App.tsx`, `LibraryPanel.tsx`, selection/tests/CSS and integration. Docs worker: assigned README plus four EN/RU page pairs. Primary retains this ExecPlan and final fan-in. | Real Core/Artifacts databases, audio, actual analysis/reanalysis, schema/DDL/index changes, overlapping file edits, worker commit/push/PR | Implemented; validation and browser evidence in progress |
 
 ## Dependency graph and phase plan
 
@@ -246,6 +264,42 @@ Record facts discovered from the executable code, tests, database fixtures or ru
   selection or a catalog switch could display late A data. The corrective
   client aborts superseded requests and commits only an exact four-field v7
   identity in the still-current catalog.
+- Greenfield activation made the Lab schema exact-identity-only but left three
+  implicit writable defaults on the preserved `rhythm_lab.sqlite`: standalone
+  CLI, main launcher and main-app collection saves. The production default
+  therefore selected recovery input instead of a new v7 Lab database.
+- A temporary legacy fixture showed that rejecting after ordinary
+  `sqlite3.connect()` preserved logical rows but still changed physical SQLite
+  bytes. Existing Lab files now receive an immutable main-file preflight before
+  any writable connection, followed by a live WAL-visible exact check before
+  DDL. Main-file legacy fixtures remain byte-identical on rejection.
+- The collection bridge originally accepted a partially converted
+  `classifier_labels` table when it contained only the four v7 identity fields.
+  One shared exact matrix now validates all six Lab classifier tables for both
+  the bridge and standalone runtime before any DDL.
+- A real WAL fixture with committed frames and a closed writer confirmed that
+  validation preserves the durable main database and WAL byte-for-byte.
+  SQLite may update read marks inside the transient SHM WAL index while reading;
+  tests therefore require that SHM remains present at the same size and separately
+  prove that no table or row was created, removed, or rebound.
+- The user does not need a distinct SONARA release workflow. The useful
+  invariant is simpler: exact contract hashes remain internal provenance,
+  ordinary runs fill missing requested outputs, and an explicit full SONARA
+  reset removes old rows and active pointers so the next Analyze can register
+  the current exact four-output identity automatically.
+- The first implementation of that simplification handled a fresh SONARA state
+  but retained old active settings after reset. A focused old-runtime → reset →
+  current-runtime test exposed the gap; full SONARA reset now clears those
+  settings in the same transaction while historical immutable contracts remain.
+- Independent review exposed two corrupt-pointer reset states: one missing
+  active contract, or all active settings missing while SONARA rows survive.
+  Both must return `409` before mutation; only a genuinely empty state is a
+  successful no-op. Parameterized route tests preserve settings and Core rows
+  in both rejected cases.
+- Browser QA against the existing read-only catalog exposed duplicate React
+  keys when several classifier artifacts returned the same blocker text.
+  Classifier identity plus blocker position now supplies a stable unique key;
+  no new console error appeared after the corrective render.
 
 ## Decision Log
 
@@ -267,6 +321,17 @@ Record facts discovered from the executable code, tests, database fixtures or ru
 | 2026-07-24 Phase E | Give each generic search response an origin and exact catalog/seed-identity/filter/query key | Independent review demonstrated cross-tab rendering and late overwrite despite separate SET/Hybrid guards | SONARA/MERT/MUQ/CLAP requests share an abort/token guard but results render only under their originating tab and current key |
 | 2026-07-24 Phase E | Move verdict identity predicates into the feedback upsert and persist Rhythm Lab selections from one exact snapshot | Validate-then-resolve left a generation-change window in both mutation paths | Stale races fail with 409 and cannot write or rebind a replacement generation |
 | 2026-07-24 Phase E | Treat track detail as an exact-identity request even though the route is numeric | A late numeric response could replace the current dialog selection | Abort/token/catalog guards plus four-field response comparison prevent A→B and database-switch overwrite |
+| 2026-07-24 follow-up | Move every implicit writable Lab consumer to shared `rhythm_lab_v7.sqlite`; retain explicit legacy-path rejection and label transfer | Numeric/path-keyed legacy labels cannot be converted to exact v7 identity in place, and the old DB is the recovery source | Normal launch and collection saves create/use a separate greenfield file; no rename, migration, checkpoint or write to the preserved DB |
+| 2026-07-24 follow-up | Preflight the main-file view through an immutable read-only URI, then repeat exact validation on the live WAL-visible view before DDL | A focused byte snapshot proved rollback after main-file schema rejection was not physically byte-preserving, while immutable mode intentionally ignores WAL | Main-file legacy paths fail before any writable SQLite open; WAL-only legacy frames fail before DDL and point to `rhythm_lab.label_transfer` |
+| 2026-07-24 follow-up | Share one exact column matrix for all six Lab classifier tables between standalone and collection code | A four-field subset check allowed partially converted classifier tables to reach collection DDL | Every existing classifier/review table is exact-checked before schema creation; partial v7 tables fail closed |
+| 2026-07-24 follow-up | Define WAL rejection durability over the main database and WAL; treat SHM as a transient WAL index | A closed-writer real-WAL fixture showed SQLite validation reads can change only SHM read marks | Main and WAL bytes, logical schema and rows must remain unchanged; SHM must remain present with stable size |
+| 2026-07-24 SONARA follow-up, superseded | Expose active-release readiness and explicit preparation in the main UI | This was a fail-closed interpretation of exact contract identity | Superseded after user workflow review; retained only as historical decision evidence |
+| 2026-07-24 SONARA simplification | Keep version identity internal and restore Reset → Analyze as the ordinary workflow | The user runs one SONARA configuration, accepts full reset/reanalysis after a future update, and does not need release management | Startup is SONARA + locked Core; no release card/dialog/gate; first/no-result Analyze registers exact contracts automatically |
+| 2026-07-24 SONARA reset semantics | Clear SONARA active settings only during a complete four-output reset, then allow activation when no SONARA rows or dependent scores remain | Otherwise a future old-runtime → Reset → new-runtime sequence would stay blocked by old metadata | Historical contracts remain immutable; partial resets do not strand remaining data; no schema or index change |
+| 2026-07-24 SONARA reset fail-closed correction | Require the exact release plus four active contract pointers before deleting; when every pointer is absent, inspect Core, Artifacts and dependent classifier rows before accepting an empty no-op | Independent review found that partial pointers could trigger partial deletion and zero pointers could hide surviving data | Inconsistent pointer/data states return `409` with zero mutation; parameterized route coverage closes both cases |
+| 2026-07-24 SONARA follow-up | Bind every prepare request to the reviewed `catalog_uuid` and check it inside `exclusive_db` before `_prepare` | Independent review reproduced catalog A status followed by a switch and successful mutation of catalog B | Stale confirmations fail with `409 SONARA_CATALOG_CHANGED` before backup or activation |
+| 2026-07-24 SONARA follow-up | Hold the application state lock from job availability check through manager queueing | Independent review reproduced preparation acquiring exclusivity during SONARA preflight | `job_start()` serializes every API job-start boundary against switch/exclusive maintenance; preparation either wins first or observes a queued/running job |
+| 2026-07-24 SONARA follow-up | Preserve `unavailable` as distinct from `preparation_required` | The generic error mapper prefixed any detail containing `release`, even a missing runtime package | Only an explicit readiness marker recommends preparation; runtime-unavailable details remain actionable and fail closed |
 
 ## Validation Evidence
 
@@ -301,6 +366,24 @@ Record facts discovered from the executable code, tests, database fixtures or ru
 | Corrective compile/type gates | `.venv\Scripts\python.exe -m compileall -q src\dj_track_similarity`; `cd frontend; npm run typecheck` | Both exit 0 | Backend exact-identity code compiles and the corrected shared UI contracts pass unused checks | AC-02, AC-18 |
 | Corrective browser race smoke | In-app Browser against a three-track disposable Core 7 + Artifacts 1 bundle with deterministic 1,500 ms search/detail latency | Late SONARA rendered 0 blocks under MUQ; completed MUQ showed `MUQ results 1` only under MUQ, restored only on return and cleared after a seed change; overlapping A→B detail stayed Beta | Clean repeat used valid temporary WAVs: 25 HTTP request lines, no non-2xx/3xx, empty development log, and `scrollWidth 914 < viewport 929` | AC-02, AC-04, AC-05, AC-15, AC-20 |
 | Focused independent re-review | `/root/frontend_v7_final_review` read-only re-review of the three prior findings | All three resolved; no remaining P0/P1/P2 or new regression in scope | Reviewer reran 5/5 frontend and 2/2 forced backend race tests and explicitly supports AC-02/04/05/06/10/15 | AC-02, AC-04–AC-06, AC-10, AC-15 |
+| Rhythm Lab labels-path follow-up | `.venv\Scripts\python.exe -m pytest tests\test_api_rhythm_lab.py tests\test_rhythm_lab_bridge_v7.py tools\rhythm-lab\tests\test_rhythm_lab.py tools\rhythm-lab\tests\test_v7_consumers.py tools\rhythm-lab\tests\test_label_transfer.py --override-ini addopts=` | 92 passed; one external warning; 10.38 s | Shared `rhythm_lab_v7.sqlite` default, exact six-table validation, partial-v7 rejection, exact launcher argument, direct startup, collection save, label recovery, and closed-writer committed-WAL fixtures; durable main/WAL bytes unchanged and transient SHM retained at the same size | AC-10, AC-17, AC-19 |
+| Full backend after labels-path correction | `.venv\Scripts\python.exe -m pytest` | Exit 0; 1,093 passed; one external warning; 195.17 s | All root API/bridge consumers, including partial-schema and WAL regressions, remain green; temporary fixture DBs only | AC-10, AC-17, AC-19 |
+| Rhythm Lab corrective re-review | `/root/rhythm_lab_audit` read-only review of the final source, disposable-fixture tests and evidence | No remaining P0/P1/P2 | Confirmed shared six-table matrix, pre-DDL partial-schema rejection, closed writer with committed WAL frames, durable byte boundary and explicit transient-SHM contract; no real DB was opened | AC-10, AC-17, AC-19, AC-21 |
+| Follow-up documentation | `cd docs/dj-track-similarity; npm run check` | Exit 0 | Vale 0 errors/0 warnings/0 suggestions across 109 files; locale parity 54/54; VitePress 1.6.4 build 8.32 s | AC-24 |
+| Preserved real Lab state | Before/after length, UTC mtime and SHA-256 for `tools/rhythm-lab/data/rhythm_lab.sqlite`; verify v7 default absent | 212,320,256 bytes; `2026-07-21T02:47:43.9331908Z`; `E07B4B39A9239ED95791AAB5443F77CE8F42CE67C30B253A341A211BA7CCCA09`; `rhythm_lab_v7.sqlite` absent | An early toolkit read created an empty WAL and 32 KiB SHM at 13:24:06; exact path/size/process checks proved they were task-generated, both were removed, and the original no-sidecar state was restored | AC-17, AC-22, AC-23 |
+| Follow-up diff hygiene | `git diff --check`; changed-path/generated-state/status inspection | Exit 0; 19 scoped tracked files | No SQLite/log/dist/site file in diff; v7 default and legacy sidecars absent; `.kglite`, root `PLANS.md` and ignored `.omo` draft preserved; port 8777 clear | AC-21–AC-23 |
+| SONARA focused backend | `.venv\Scripts\python.exe -m pytest tests\test_api_runtime_v7.py tests\test_analysis_sonara_preflight_v7.py tests\test_api_analysis_jobs.py --override-ini addopts=` | 29 passed; one external warning; 6.63 s | Fresh/ready status, pipeline-before-queue 409, stale catalog rejected before `_prepare`, exclusive/job-start TOCTOU, active-job prepare 409, and unavailable semantic regression | AC-02, AC-17, AC-19 |
+| SONARA final frontend | `cd frontend; npm run typecheck`; `npm test`; `npm run build` | Exit 0; 166 passed; Vite 7.3.6, 1,736 modules, 2.57 s | Exact status/prepare serializer, catalog/request-token guard, startup/output selection, confirmation/focus assertions, and production bundle | AC-02, AC-15, AC-18 |
+| SONARA full backend | `.venv\Scripts\python.exe -m pytest` | Exit 0; 1,099 passed; one external warning; 191.71 s | Final repeat after active-job HTTP 409 correction; all root API/job/exclusive-operation and v7 consumers pass on temporary fixtures only | AC-02, AC-10, AC-17, AC-19 |
+| SONARA Rhythm Lab repeat | `.venv\Scripts\python.exe -m pytest tests\test_api_rhythm_lab.py tests\test_rhythm_lab_bridge_v7.py tools\rhythm-lab\tests\test_rhythm_lab.py tools\rhythm-lab\tests\test_v7_consumers.py tools\rhythm-lab\tests\test_label_transfer.py --override-ini addopts=` | 92 passed; one external warning; 11.16 s | Greenfield path, exact schema/WAL and label recovery boundaries remain green | AC-10, AC-17, AC-19 |
+| SONARA documentation repeat | `cd docs\dj-track-similarity; npm run check` | Exit 0 | Vale 0 errors/0 warnings/0 suggestions across 109 files; locale parity 54/54; VitePress 1.6.4 build 8.06 s | AC-24 |
+| SONARA independent re-review | `/root/sonara_readiness_final_review`, read-only initial and targeted repeat | P0/P1/P2 none after fixes | Reviewer reproduced and then verified closure of stale-catalog preparation, job-start/exclusive TOCTOU, unavailable semantic drift, and active-job 500→409; no files, services or real databases touched | AC-02, AC-15, AC-17, AC-19 |
+| SONARA final hygiene | `git diff --check`; no-index checks for three new task files; generated/status/port/process inspection | All clean; zero generated tracked files, unsafe SQLite/audio/log status entries, watched listeners or task processes | Branch `main` remains at `6e431114`; unrelated `.kglite/` and root `PLANS.md` remain untracked and preserved | AC-17, AC-21–AC-23 |
+| Simplified SONARA focused backend | `.venv\Scripts\python.exe -m pytest tests\test_analysis_sonara_preflight_v7.py tests\test_analysis_repository_v7.py tests\test_api_runtime_v7.py tests\test_api_analysis_jobs.py --override-ini addopts=` | 86 passed; one external warning; 22.81 s | First/no-result activation, exact-ready no-op, complete Reset → current runtime, and route-level 409/no-mutation coverage for one or all missing active settings with surviving rows; temporary fixtures only | AC-02, AC-03, AC-17, AC-19 |
+| Simplified SONARA full backend | `.venv\Scripts\python.exe -m pytest` | Exit 0; 1,110 passed; one external warning; 267.17 s | Final complete root suite after all Reset fail-closed corrections; no real library or audio used | AC-02, AC-10, AC-17, AC-19 |
+| Simplified SONARA frontend | `cd frontend; npm run typecheck`; `npm test`; `npm run build` | Exit 0; 162 passed; Vite 7.3.6, 1,734 modules; 2.59 s build | Startup SONARA/Core, locked Core, optional row, ML exclusivity, selection persistence, removed release surface and equal-height count contract | AC-03, AC-15, AC-18 |
+| Simplified SONARA docs | `cd docs\dj-track-similarity; npm run check:locales`; `npm run check` | Exit 0; locale parity 54/54; Vale 0 errors/0 warnings; VitePress build complete | README plus affected EN/RU workflow pages describe Analyze missing outputs and Reset → Analyze; prepare CLI remains advanced recovery only | AC-24 |
+| Simplified SONARA independent final review | `/root/sonara_simple_workflow_review`, read-only initial and two corrective repeats | No remaining P0/P1/P2 or acceptance gaps | Reviewer verified exact four-setting Reset, zero/all-setting missing fail-closed checks across Core/Artifacts/dependent classifiers, genuine-empty no-op, updated docs and explicitly superseded historical browser evidence | AC-03, AC-15, AC-17, AC-19, AC-24 |
 
 ## SQLite query-plan and benchmark evidence
 
@@ -340,6 +423,13 @@ Record facts discovered from the executable code, tests, database fixtures or ru
 | Main UI effective 200% | 1,280 physical px → 640×450 CSS px, DPR 2 | Hybrid five-source controls | No overflow; one-column source grid; all main/nested tabs and MuQ controls accessible | No console/API error | AC-09, AC-15, AC-20 |
 | Standalone Rhythm Lab | 1440×900 | Load disposable bound v7 catalog and training view | Page `1 / 60 (1-100 / 5941)`; coverage SONARA 36, MERT 5941, MAEST 36, CLAP 36, MuQ 36; full `sonara+mert+maest+clap+muq` recipe reported all five required/current | No console warning or error | AC-04, AC-10, AC-20 |
 | Standalone Rhythm Lab | 640×900 | Library track statuses and five-source recipe | Per-track SONARA/MERT/MAEST/CLAP/MuQ current/missing statuses remained readable; document width 625 for 640 CSS px | No overflow, console warning or error | AC-10, AC-15, AC-20 |
+| Historical SONARA readiness (superseded) | Desktop, existing selected catalog, synthetic read-only status response | This observation described the removed release-card design: initial SONARA/Core were both unchecked; selecting SONARA checked Core and disabled Analyze under `preparation_required` | Retained only as historical evidence for the design that was replaced; no prepare or analysis request was sent and the catalog remained read only | Superseded by the simplified AC-02, AC-15, AC-17, AC-20 workflow |
+| Historical SONARA prepare dialog (superseded) | Desktop and 640×900 | This observation described the removed preparation dialog, including focus wrapping and narrow viewport geometry | Retained only as historical evidence for the removed design; the final Prepare action was never invoked | Superseded by the simplified AC-15, AC-17, AC-20 workflow |
+| SONARA console correction | Live HMR render after classifier blocker key fix | Repeated identical manifest blockers remained visible without duplicate-key identity | Last log entry after the fix was the expected Vite HMR update; no later React warning/error | AC-15, AC-20 |
+| Simplified SONARA controls | Default 1,265 CSS px, Vite-only read-only UI | SONARA initially checked; Core checked+disabled; Timeline/Embedding/Fingerprint share one desktop row; no Active release/Prepare UI | Optional labels share `y=557.43`; release text absent; no warning/error logs | AC-03, AC-15, AC-20 |
+| Simplified analysis row geometry | Default 1,265 CSS px | Measure first `analysis-model-name` and `analysis-model-count` after corrective CSS reload | Both `52.1429 px` high at `y=414.2857`; actual outer geometry matches | AC-15, AC-20 |
+| Simplified selection state | Default 1,265 CSS px | Select MAEST, return to SONARA, select Timeline, switch to MERT, return to SONARA | ML cleared SONARA and classifiers; return restored SONARA with mandatory Core and preserved Timeline preference; no analysis request sent | AC-03, AC-15, AC-17, AC-20 |
+| Simplified SONARA narrow | 640×900 | Inspect optional outputs and overflow | Three optional outputs stack below 720 px; document `625 px` equals viewport `625 px`; no horizontal overflow or release surface | AC-15, AC-20 |
 
 ## Remaining Acceptance Criteria
 
@@ -348,7 +438,7 @@ Use stable identifiers `AC-01` … `AC-24` matching `50-ACCEPTANCE.md`.
 | ID | Closure evidence | Status |
 |---|---|---|
 | AC-01 | Exact `TrackSummaryV7`/`TrackDetailV7` client graph, no active `track.id`/`track.path` consumers; 156 frontend tests, typecheck, full backend and clean browser catalog switch/reload | Closed |
-| AC-02 | Backend routes/repositories, TypeScript/client signals and exact identities agree; 161 frontend, 1,089 full backend, forced race tests and independent re-review are green | Closed |
+| AC-02 | Backend routes/repositories, TypeScript/client signals and exact identities agree; 166 frontend, 1,099 full backend, stale-catalog/job-start races, 409 contention and unavailable semantics are covered | Closed |
 | AC-03 | Active SONARA selectors/types/UI use only `core`, `timeline`, `embedding`, `fingerprint`; legacy `representations` is absent from active frontend source | Closed |
 | AC-04 | MuQ remains present across every required consumer; focused tests and clean browser race smoke prove generic result provenance is source scoped | Closed |
 | AC-05 | Dedicated MUQ tab sends the current contract, labels its results, hides them under other tabs and clears them on request-key changes | Closed |
@@ -356,21 +446,21 @@ Use stable identifiers `AC-01` … `AC-24` matching `50-ACCEPTANCE.md`.
 | AC-07 | Nested Set Builder/Hybrid tabs have separate payloads, semantics, loading/errors/results/stale guards; keyboard and browser evidence confirms separation | Closed |
 | AC-08 | `Add preview` is SET-response keyed only; tests reject stale/MERT/MuQ/SONARA/CLAP/Hybrid provenance and browser added exactly the current 24 SET rows | Closed |
 | AC-09 | SET/Hybrid/Dedup expose MuQ, actual backend sources/weights, and tested/browser-verified MuQ-disabled legacy profiles | Closed |
-| AC-10 | Standalone UI remains v7/MuQ complete; collection selection uses one exact snapshot and the forced generation race returns 409 without replacement | Closed |
+| AC-10 | Standalone UI remains v7/MuQ complete; collection selection uses one exact snapshot, the forced generation race returns 409, and every implicit Lab consumer shares the separate v7 labels path | Closed |
 | AC-11 | Audio Dedup tests and browser prove dry-run default, exact `APPLY DELETE`, root/identity/file-state gates and mandatory MERT+MAEST deletion corroboration | Closed |
 | AC-12 | Browser exercised 100/500/1000/All with exact totals | Closed |
 | AC-13 | Sequential requests are capped at 500; progress/cancel/filter race/catalog/request-key/generation guards covered by tests and throttled browser observations | Closed |
 | AC-14 | `libraryWindow` caps rendered rows at 120; browser observed 120 rows for 500/1000/5,941 loaded tracks | Closed |
-| AC-15 | Existing desktop/640 px/2×/keyboard evidence plus clean 929 px provenance and overlapping-detail race observations have no overflow or stale cross-tab content | Closed |
+| AC-15 | Existing desktop/640 px/2×/keyboard evidence plus the simplified SONARA desktop/narrow observations, exact equal-height row measurement, clean provenance and overlapping-detail observations have no overflow or stale content | Closed |
 | AC-16 | Disposable 6k/12k SQLite query plans and retained before/after medians document ID-driven hydration, classifier drive and Rhythm Lab prediction improvement | Closed |
-| AC-17 | Core 7/Artifacts 1 topology, `muq_embeddings`, catalog identity and indexes remain unchanged; all tests/measurements/browser runs used disposable fixtures only | Closed |
-| AC-18 | Final `npm run typecheck`, 161/161 tests and production build are green | Closed |
-| AC-19 | Focused backend 293 passed, corrective identity races 26 passed, Rhythm Lab 33 passed, and full root backend 1,089 passed | Closed |
-| AC-20 | Final desktop/narrow main UI and Rhythm Lab runs plus the clean corrective race run have no unexpected console/API errors; intentional offline/fake-audio exploratory errors were isolated and clean repeats verified | Closed |
+| AC-17 | Core 7/Artifacts 1 topology, `muq_embeddings`, catalog identity and indexes remain unchanged; follow-up tests use disposable fixtures and the preserved real Lab file matches its before hash/mtime/size with no sidecars left | Closed |
+| AC-18 | Final `npm run typecheck`, 162/162 tests and a 1,734-module production build are green after removing the release-only frontend files | Closed |
+| AC-19 | Focused backend 86 passed for the final SONARA lifecycle, including both partial-pointer fail-closed cases; prior integration suites remain recorded, and final full root backend 1,110 passed | Closed |
+| AC-20 | Final desktop/narrow main UI, Rhythm Lab, corrective race and simplified SONARA observations are complete; actual name/count geometry matches and the final console is clean | Closed |
 | AC-21 | Full tracked `git diff --check` exits 0 and all ten new task files pass `--no-index --check` | Closed |
 | AC-22 | Baseline `.kglite`, `PLANS.md`, task-plan files and the 92,725-byte user-added `.omo` draft remain present; no unrelated edit was reverted | Closed |
-| AC-23 | `dist/`, docs `site/` and browser state remain ignored/untracked; ports 8765/5173/8777 are clear and every verified task temp directory/log is absent | Closed |
-| AC-24 | README plus 30 affected EN pages and all 30 RU mirrors updated; Vale/locales/VitePress docs gate green | Closed |
+| AC-23 | `dist/`, docs `site/` and browser state remain ignored/untracked; final ports 5173/8765/8777 are clear, and task cleanup targeted only the verified Vite process tree rather than the pre-existing backend/Rhythm Lab PIDs | Closed |
+| AC-24 | Original README, affected EN/RU page pairs and follow-up SONARA/Lab pages remain mirrored; final Vale/locales/VitePress docs gate is green | Closed |
 
 ## Blockers
 
@@ -391,5 +481,23 @@ Complete only after validation or a genuine blocker.
   exact-identity verdict upsert, a one-snapshot collection boundary and guarded
   track details. Forced races, full suites and a clean deterministic browser
   repeat verify those corrections.
-- No schema, index, database version, real SQLite catalog or real audio file was
-  changed. No commit, push or pull request was created.
+- The final SONARA simplification removes release management from the ordinary
+  UI. Startup is SONARA plus locked Core; three optional outputs remain
+  independent, ML-only work is order-independent, and output preferences survive
+  mode switches. First/no-result Analyze records internal v7 identity
+  automatically; complete Reset clears rows, dependent scores and active
+  pointers so a later version can be analyzed without a preparation dialog.
+  Focused tests, 1,110 root tests, 162 frontend tests, mirrored docs and a
+  no-write desktop/narrow browser run close the correction.
+- The user then authorized direct publication; the completed port was committed
+  and pushed to `main` as `6e431114a797824ff71028866dc883d46f832968`.
+- The startup follow-up keeps the preserved `rhythm_lab.sqlite` as recovery
+  input, uses `rhythm_lab_v7.sqlite` for normal writes, and rejects explicit
+  legacy paths before DDL. Standalone and collection paths share an exact
+  six-table classifier schema matrix; partial-v7 and closed-writer real-WAL
+  regressions are covered. The real legacy file matches its before hash, mtime
+  and size; task-created empty WAL/SHM sidecars were removed after exact
+  validation. No audio, Core, Artifacts, schema, index, database version,
+  migration, training, promotion or scoring changed.
+- The follow-up is intentionally uncommitted and unpushed pending separate user
+  authorization.

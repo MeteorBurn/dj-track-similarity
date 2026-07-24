@@ -12,6 +12,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from .rhythm_lab_collections import default_rhythm_lab_labels_path
+
 
 RHYTHM_LAB_HOST = "127.0.0.1"
 RHYTHM_LAB_PORT = 8777
@@ -100,7 +102,7 @@ def launch_rhythm_lab(
 
     repo_root = Path(__file__).resolve().parents[2]
     script = repo_root / "tools" / "rhythm-lab" / "rhythm_lab_cli.py"
-    labels = repo_root / "tools" / "rhythm-lab" / "data" / "rhythm_lab.sqlite"
+    labels = default_rhythm_lab_labels_path()
     if not script.exists():
         raise RuntimeError(f"Rhythm Lab CLI not found: {script}")
     labels.parent.mkdir(parents=True, exist_ok=True)

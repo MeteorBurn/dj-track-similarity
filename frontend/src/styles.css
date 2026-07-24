@@ -1252,7 +1252,7 @@ h2 {
   border-top: 1px solid var(--border-soft);
   display: grid;
   gap: 8px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   margin: 0;
   padding: 9px 2px 8px;
   width: 100%;
@@ -1264,6 +1264,12 @@ h2 {
   font-weight: 760;
   padding: 0 4px;
   text-transform: uppercase;
+}
+
+.sonara-optional-options {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .sonara-output-options label {
@@ -1495,6 +1501,7 @@ h2 {
 }
 
 .analysis-model-count {
+  align-self: stretch;
   align-items: center;
   background: var(--surface-subtle);
   border: 1px solid var(--border-soft);
@@ -1504,10 +1511,11 @@ h2 {
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   font-weight: 800;
-  height: 34px;
+  box-sizing: border-box;
+  height: auto;
   justify-content: flex-end;
-  align-self: center;
   justify-self: end;
+  min-height: 44px;
   min-width: 42px;
   padding: 0 8px;
   text-align: right;
@@ -4070,6 +4078,10 @@ button.metadata-copy-path-button:hover:not(:disabled) {
   }
 
   .analysis-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sonara-optional-options {
     grid-template-columns: minmax(0, 1fr);
   }
 

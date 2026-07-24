@@ -41,22 +41,18 @@ MAEST/MERT/MuQ/CLAP requirements. Incomplete tracks are counted as not ready rat
 
 ## CLI analysis
 
-Install optional analysis dependencies first. A fresh v7 bundle must activate the loaded SONARA
-release before its first SONARA job. Create a writable backup directory and prepare the immutable
-four-output release. Then run:
+Install optional analysis dependencies first. On a fresh v7 bundle, the first SONARA job derives
+and registers the exact runtime contracts for all four outputs automatically. Then run:
 
 ```powershell
-mkdir .\backups
-dj-sim prepare-sonara-release --db .\data\library.sqlite --backup-dir .\backups --confirm "PREPARE SONARA RELEASE"
 dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --limit 25 --db .\data\library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --limit 25 --db .\data\library.sqlite
 dj-sim analyze-classifiers --db .\data\library.sqlite
 dj-sim analyze-pipeline --stages sonara,ml,classifiers --sonara-outputs core,timeline,embedding,fingerprint --db .\data\library.sqlite
 ```
 
-Preparation derives and activates the exact `core`, `timeline`, `embedding`, and `fingerprint`
-contracts. It verifies Core and Artifacts backups and records a resumable receipt before analysis
-can write under that release.
+The automatic registration covers the exact `core`, `timeline`, `embedding`, and `fingerprint`
+contracts even when this first job requests only some outputs.
 
 Useful options:
 
@@ -79,11 +75,17 @@ In the CLI, omit `--limit` for the whole library.
 
 ## Analyze in the browser
 
-After preparing SONARA from the CLI, use the browser model checkboxes to start the same v7 jobs.
-**Analyze limit** starts at `0` for the whole eligible library. SONARA outputs, Track/Inference/
+Use the browser model checkboxes to start the same v7 jobs. **Analyze limit** starts at `0` for the
+whole eligible library. SONARA outputs, Track/Inference/
 SONARA batch values, Device, progress, blockers, cancellation, and SQLite-only resets are carried
 through the typed v7 requests and responses. **CLASSIFIERS** stays a separate stage; **FULL** runs
 SONARA, ML, and CLASSIFIERS in order.
+
+SONARA is selected at startup. Its mandatory `core` output is selected and locked; `timeline`,
+`embedding`, and `fingerprint` are optional. The ML selection contains MAEST, MERT, MuQ, and CLAP,
+not SONARA or CLASSIFIERS. On a catalog with no SONARA results, **Analyze** registers the exact
+runtime contracts automatically and starts the requested work without a separate release card or
+backup dialog.
 
 SONARA receives paths in native batches and decodes them through its Symphonia path inside
 `sonara.analyze_batch()`. It does not call the project's FFmpeg loader and has no `analyze_signal`
@@ -99,10 +101,11 @@ Analysis jobs target missing results for the selected families. SONARA materiali
 release, so adding another active output later does not replace `core`. Other complete families are
 skipped. Use reset only when you intentionally want to delete stored results.
 
-An unprepared SONARA release fails closed. The preparation above is mandatory even for the first
-SONARA run on a fresh v7 bundle. Follow
-[Prepare and rebuild a SONARA release](../workflows/reanalyze-sonara-split-storage.md) for the full
-backup, activation, rebuild, and classifier sequence.
+After a SONARA version or contract change, use **Reset SONARA**, then **Analyze**, for the explicit
+full reanalysis workflow. The advanced `prepare-sonara-release` CLI/API remains available for
+conflicting or inconsistent release state. Follow
+[Prepare and rebuild a SONARA release](../workflows/reanalyze-sonara-split-storage.md) when that
+recovery path is required.
 
 ## Reset boundaries
 

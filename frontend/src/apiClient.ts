@@ -26,6 +26,7 @@ import type {
   HybridSearchPayload,
   HybridSearchResponse,
   LibrarySummary,
+  PrepareSonaraReleaseResult,
   PromotedClassifier,
   ReferenceComparePayload,
   ReferenceCompareResponse,
@@ -44,6 +45,7 @@ import type {
   SonaraMixerWeights,
   SonaraModifiers,
   SonaraOutput,
+  SonaraReleaseStatus,
   SonaraSearchMode,
   Track,
   TrackDetailV7,
@@ -279,6 +281,21 @@ const helperToolsApi = {
 };
 
 const analysisApi = {
+  sonaraReleaseStatus: () =>
+    request<SonaraReleaseStatus>("/api/analysis/sonara/releases/status"),
+  prepareSonaraRelease: (
+    catalogUuid: string,
+    backupDir: string,
+    confirm: string
+  ) =>
+    request<PrepareSonaraReleaseResult>("/api/analysis/sonara/releases/prepare", {
+      method: "POST",
+      body: JSON.stringify({
+        catalog_uuid: catalogUuid,
+        backup_dir: backupDir,
+        confirm,
+      }),
+    }),
   resetAnalysis: (analysisFamily: AnalysisModel) =>
     request<AnalysisResetResult>("/api/analysis/reset", {
       method: "POST",

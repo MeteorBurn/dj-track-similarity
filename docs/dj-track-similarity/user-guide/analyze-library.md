@@ -10,32 +10,30 @@ analysis family that answers your listening question.
 
 ## Browser controls
 
-After the required SONARA preparation below, the browser can start the same v7 jobs. **Analyze
-limit** defaults to `0` for the whole eligible library. The initial batch values are Track `8`,
+The browser can start the v7 jobs directly. **Analyze limit** defaults to `0` for the whole eligible
+library. The initial batch values are Track `8`,
 Inference `16`, and SONARA `8`; **Device** defaults to `auto`.
 
 The panel keeps **SONARA**, **ML**, and **CLASSIFIERS** as separate stages. **FULL** runs them in the
-fixed order. SONARA exposes `core`, `timeline`, `embedding`, and `fingerprint` checkboxes with
-`core` selected initially. Progress, per-file failures, blockers, cancellation, and reset results
-come from the typed v7 job responses.
+fixed order. SONARA is selected at startup. Its mandatory `core` output is selected and locked;
+`timeline`, `embedding`, and `fingerprint` are optional. The ML selection contains MAEST, MERT, MuQ,
+and CLAP, not SONARA or CLASSIFIERS. Progress, per-file failures, blockers, cancellation, and reset
+results come from the typed v7 job responses.
 
-## Prepare SONARA before the first run
+## First SONARA run
 
-Every fresh v7 bundle must activate the loaded immutable four-output SONARA release before the first
-SONARA analysis:
+In a catalog with no SONARA state, the first SONARA **Analyze** derives and registers the exact
+runtime contracts for all four outputs automatically. There is no separate UI release card or
+backup dialog. Registration still covers the complete release when the job requests only `core` or
+another subset.
 
-```powershell
-mkdir .\backups
-dj-sim prepare-sonara-release --db .\data\library.sqlite --backup-dir .\backups --confirm "PREPARE SONARA RELEASE"
-```
-
-The backup directory must exist and be writable. Preparation derives the exact `core`, `timeline`,
-`embedding`, and `fingerprint` contracts from the loaded runtime. It also verifies Core and
-Artifacts backups before writing a durable resumable receipt.
+The advanced `prepare-sonara-release` CLI/API workflow remains available for a catalog with
+conflicting or inconsistent release state. It verifies Core and Artifacts backups and records a
+resumable receipt. It is not a mandatory fresh-catalog or browser step.
 
 ## Run a family
 
-After preparation, SONARA runs alone. Select all four outputs for the complete active release:
+SONARA can run alone. Select all four outputs when you need every optional output:
 
 ```powershell
 dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --db .\data\library.sqlite
@@ -61,12 +59,13 @@ embeddings also live in Artifacts. Core and Artifacts must share one `catalog_uu
 `*.evaluation.sqlite` is optional evaluation state. The runtime does not migrate v5/v6 databases,
 adapt old SONARA results, or recreate the removed Timeline/Representations sidecars.
 
-## Prepare again when the SONARA release changes
+## Reanalyze after the SONARA release changes
 
 The project SONARA feature revision is `6`. A changed SONARA release, decoder, output feature
-profile, or feature revision requires the same preparation before new SONARA work. The process is
-ordered and crash-resumable, not a distributed atomic transaction. After preparation, reanalyze
-SONARA and retrain, promote, and rescore every classifier that uses SONARA.
+profile, or feature revision requires a full SONARA reanalysis. In the browser, use **Reset
+SONARA**, then **Analyze**. Reset removes the stored SONARA outputs and dependent classifier scores,
+so the next analysis registers the exact runtime contracts and rebuilds the requested outputs.
+Retrain, promote, and rescore every classifier that uses SONARA.
 
 ## Pipeline and classifiers
 
@@ -79,6 +78,7 @@ and promoted. Scores stay scoped to their `classifier_key`.
 
 ## Reset and interpretation
 
-Resets affect SQLite data only. Do not use a reset as a substitute for the ordered SONARA release
-preparation flow. Model outputs are ranking evidence for listening-led shortlists, not objective
-truth or automatic DJ decisions.
+Resets affect SQLite data only. Normal reruns skip current results and analyze missing requested
+outputs; use **Reset SONARA**, then **Analyze**, only for an intentional full reanalysis. Model
+outputs are ranking evidence for listening-led shortlists, not objective truth or automatic DJ
+decisions.

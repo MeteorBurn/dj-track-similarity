@@ -134,6 +134,19 @@ class AppDatabaseState:
             with self._lock:
                 self._exclusive_operation = None
 
+    @contextmanager
+    def job_start(self) -> Iterator[None]:
+        """Keep selection and exclusivity stable until a job is queued.
+
+        Manager lookup followed by ``start()`` is otherwise a check-then-act
+        race: an exclusive database operation can begin after the lookup but
+        before the manager records its queued job.
+        """
+
+        with self._lock:
+            self._require_jobs_available()
+            yield
+
     def _require_jobs_available(self) -> None:
         with self._lock:
             self.require_db()

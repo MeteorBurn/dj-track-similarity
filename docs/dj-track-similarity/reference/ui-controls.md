@@ -43,9 +43,12 @@ The initial analysis values are:
 | **Device** | `auto` | `auto`, `cpu`, or `cuda` |
 
 The stage controls keep **SONARA**, **ML**, and **CLASSIFIERS** distinct. **FULL** runs the ordered
-pipeline. SONARA outputs are `core`, `timeline`, `embedding`, and `fingerprint`; `core` starts
-enabled. The UI shows queued/running progress, per-file failures, blockers, cancellation, and reset
-actions from the typed v7 job responses.
+pipeline. SONARA is selected at startup. Its outputs are `core`, `timeline`, `embedding`, and
+`fingerprint`. Core is mandatory and locked, while Timeline, Embedding, and Fingerprint are
+optional. The ML selection contains MAEST, MERT, MuQ, and CLAP only; SONARA and CLASSIFIERS remain
+separate stages. On the first SONARA run in a catalog with no SONARA state, **Analyze** registers
+the exact runtime contracts automatically. The UI also shows queued/running progress, per-file
+failures, blockers, cancellation, and reset actions from the typed v7 job responses.
 
 ## Search tabs
 

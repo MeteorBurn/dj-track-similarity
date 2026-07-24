@@ -184,7 +184,7 @@ The canonical contract registry records the exact SONARA output identity as cano
 contract and release hashes. Raw analyzer provenance is validated during ingestion but is not
 promised as a round-trip stored payload.
 
-A deterministic signature is stored independently for each selected SONARA output. It covers SONARA `0.3.1`, schema `5`, playlist mode, sample rate, BPM range, output feature profile, project feature revision `6`, `decoder_backend="sonara-symphonia"`, and `execution_path="analyze_batch"`. `dj-sim prepare-sonara-release` derives all four current contracts and verifies a Core plus Artifacts backup pair. It then activates the release before reanalysis. Old and new results are never mixed.
+A deterministic signature is stored independently for each selected SONARA output. It covers SONARA `0.3.1`, schema `5`, playlist mode, sample rate, BPM range, output feature profile, project feature revision `6`, `decoder_backend="sonara-symphonia"`, and `execution_path="analyze_batch"`. The first SONARA analysis in a catalog with no SONARA state registers all four exact runtime contracts automatically. After a SONARA version or contract change, use **Reset SONARA**, then **Analyze**, for an explicit full reanalysis. `dj-sim prepare-sonara-release` remains an advanced recovery path for conflicting or inconsistent release state. Old and new results are never mixed.
 
 SONARA 0.3.1 provides an opt-in `aggression` feature, but this project does not request or store it.
 The existing `mood_aggressive_score` still comes from the separate `mood` feature and is not the
@@ -264,12 +264,16 @@ SONARA-dependent classifier artifacts must be retrained and promoted with the cu
 Manual commands are available when you want the CLI workflow:
 
 ```powershell
-python tools/rhythm-lab/rhythm_lab_cli.py serve --source ./data/library.sqlite --labels tools/rhythm-lab/data/rhythm_lab.sqlite
-python tools/rhythm-lab/rhythm_lab_cli.py train --profile live_instrumentation --source ./data/library.sqlite --labels tools/rhythm-lab/data/rhythm_lab.sqlite
-python tools/rhythm-lab/rhythm_lab_cli.py promote --profile live_instrumentation --labels tools/rhythm-lab/data/rhythm_lab.sqlite
+python tools/rhythm-lab/rhythm_lab_cli.py serve --source ./data/library.sqlite --labels tools/rhythm-lab/data/rhythm_lab_v7.sqlite
+python tools/rhythm-lab/rhythm_lab_cli.py train --profile live_instrumentation --source ./data/library.sqlite --labels tools/rhythm-lab/data/rhythm_lab_v7.sqlite
+python tools/rhythm-lab/rhythm_lab_cli.py promote --profile live_instrumentation --labels tools/rhythm-lab/data/rhythm_lab_v7.sqlite
 dj-sim analyze-classifier live_instrumentation --db ./data/library.sqlite
 dj-sim analyze-classifiers --db ./data/library.sqlite
 ```
+
+The v7 Lab database uses the separate `rhythm_lab_v7.sqlite` default. A
+pre-v7 `rhythm_lab.sqlite` remains a recovery source and is never migrated by
+normal startup.
 
 See [Rhythm Lab](docs/dj-track-similarity/tools-and-scripts/rhythm-lab.md), [Train a personal classifier](docs/dj-track-similarity/workflows/train-personal-classifier.md), and [CLASS tab](docs/dj-track-similarity/user-guide/class-tab.md).
 
@@ -352,17 +356,17 @@ that pinned package version from PyPI.
 Run a small first pass:
 
 ```powershell
-mkdir ./backups
-dj-sim prepare-sonara-release --db ./data/library.sqlite --backup-dir ./backups --confirm "PREPARE SONARA RELEASE"
 dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --limit 25 --db ./data/library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --limit 25 --db ./data/library.sqlite
 dj-sim analyze-classifiers --db ./data/library.sqlite
 dj-sim analyze-pipeline --stages sonara,ml,classifiers --sonara-outputs core,timeline,embedding,fingerprint --db ./data/library.sqlite
 ```
 
-Fresh v7 bundles must run `prepare-sonara-release` before the first SONARA analysis. Preparation
-derives and activates the immutable release contracts for all four outputs. It also verifies the Core
-plus Artifacts backup pair and records a resumable receipt.
+On a fresh v7 bundle, the first SONARA analysis derives and registers the immutable contracts for
+all four outputs automatically. Normal reruns analyze only missing requested outputs. After a
+SONARA version or contract change, use **Reset SONARA**, then run analysis again. Reserve
+`prepare-sonara-release` for advanced recovery from conflicting or inconsistent release state; it
+verifies a Core plus Artifacts backup pair and records a resumable receipt.
 
 Useful options from the current CLI and API are:
 
@@ -417,7 +421,7 @@ Common maintenance commands:
 python tools/audio-doctor/audio_doctor_cli.py --db ./data/library.sqlite
 python tools/audio-dedup/audio_dedup_cli.py --db ./data/library.sqlite --root D:/Music --preset safe
 python scripts/optimize_database.py --db ./data/library.sqlite
-python scripts/optimize_database.py --db tools/rhythm-lab/data/rhythm_lab.sqlite
+python scripts/optimize_database.py --db tools/rhythm-lab/data/rhythm_lab_v7.sqlite
 ```
 
 ## 🛡️ Safety model

@@ -71,6 +71,7 @@ Each field is a serialized payload rather than a raw top-level array. The respon
 | `GET` | `/api/analysis/jobs/{job_id}` | job status |
 | `POST` | `/api/analysis/jobs/{job_id}/cancel` | request cancellation |
 | `POST` | `/api/analysis/reset` | reset one family |
+| `GET` | `/api/analysis/sonara/releases/status` | exact loaded-runtime release readiness for the selected catalog |
 | `POST` | `/api/analysis/sonara/releases/prepare` | back up and activate the loaded four-output SONARA release |
 | `GET` | `/api/classifiers` | promoted classifier profiles |
 | `POST` | `/api/classifiers/analyze` | score selected classifiers; empty list means all compatible |
@@ -90,17 +91,29 @@ SONARA runs alone, and its scheduler compares the independent contract for every
 passes paths to native `analyze_batch`. ML models continue to use shared FFmpeg decode. An
 unprepared release returns `409` with `SONARA_RELEASE_PREPARATION_REQUIRED`.
 
+The read-only status response is keyed by `catalog_uuid`. It returns `ready`,
+`preparation_required`, or `unavailable`, the expected and active release hashes, and one
+`current`, `missing`, `stale`, or `unavailable` state for each exact output. Coverage counts are
+not a readiness substitute: an active release can have no analyzed rows yet.
+
 The prepare payload is:
 
 ```json
 {
+  "catalog_uuid": "00000000-0000-4000-8000-000000000001",
   "backup_dir": "C:\\backups\\dj-track-similarity",
   "confirm": "PREPARE SONARA RELEASE"
 }
 ```
 
 Clients cannot supply output kinds or a release hash. Preparation verifies Core and Artifacts
-backups and uses an ordered, receipt-backed flow that can resume after interruption.
+backups and uses an ordered, receipt-backed flow that can resume after interruption. The server
+checks `catalog_uuid` again while reserving the selected database, before it creates a backup or
+changes release state. After a database switch, an older confirmation fails with `409` instead of
+preparing another catalog. The typed completed receipt includes `catalog_uuid`,
+`release_hash`, four `contract_hashes`, the Core and Artifacts backup paths, hashes and sizes, plus
+`core_rows_deleted`, `artifact_rows_deleted`, and `classifier_rows_deleted`. Preparation never
+starts an analysis job.
 
 The aggregate classifier payload is `{ "classifier_keys": [], "limit": null }`. Readiness is
 manifest-specific, totals count ready classifier-track pairs, and not-ready tracks are excluded

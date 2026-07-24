@@ -9,8 +9,13 @@ artifacts stay under `tools/rhythm-lab/`. It reads the main v7 library mostly re
 liked-track toggle is the narrow main-database write path. Rhythm Lab does not rewrite source audio.
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py serve --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+python tools\rhythm-lab\rhythm_lab_cli.py serve --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab_v7.sqlite
 ```
+
+The greenfield v7 writable default is `tools/rhythm-lab/data/rhythm_lab_v7.sqlite`. If
+`tools/rhythm-lab/data/rhythm_lab.sqlite` exists from the legacy runtime, normal startup and
+collection saves leave it untouched. Do not pass the legacy file to normal `serve`, training, or
+collection commands. Use the recovery workflow below.
 
 Create and label a profile, train it from its declared inputs, review its predictions, and promote a
 chosen artifact. Promotion makes a database-only scoring artifact available to the main runtime.

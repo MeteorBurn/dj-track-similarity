@@ -128,6 +128,14 @@ export function LibraryPanel({
   const readyClassifiers = classifiers.reduce((sum, item) => sum + (item.ready || 0), 0);
   const notReadyClassifiers = classifiers.reduce((sum, item) => sum + (item.not_ready || 0), 0);
   const blockerCount = classifiers.filter((item) => item.readiness_blockers?.length).length;
+  const visibleClassifierBlockers = classifiers
+    .flatMap((item) => (item.readiness_blockers || []).map(
+      (blocker, blockerIndex) => ({
+        key: `${item.classifier_key}:${blockerIndex}`,
+        blocker,
+      })
+    ))
+    .slice(0, 3);
   const sonaraSelected = selectedAnalysisModels.includes("sonara");
   const classifiersSelected = selectedAnalysisModels.includes("classifiers");
   const fullAnalysisSelected = selectedAnalysisModels.length === audioAnalysisModelOrder.length + 1;
@@ -192,23 +200,25 @@ export function LibraryPanel({
       <div className="analysis-family-card sonara-analysis-block">
         <div className="analysis-actions">{modelRow("sonara")}</div>
         <fieldset className="sonara-output-options" disabled={busy || stageRunning || !sonaraSelected}>
-          <legend>SONARA data</legend>
-          <label title="Лёгкие скалярные признаки и короткие агрегированные векторы в основной базе.">
-            <input type="checkbox" checked={sonaraOutputs.includes("core")} onChange={() => onToggleSonaraOutput("core")} />
+          <legend>Данные SONARA</legend>
+          <label className="sonara-core-option" title="Обязательные основные признаки SONARA.">
+            <input type="checkbox" checked disabled />
             <span><b>Core</b><small>Основные признаки</small></span>
           </label>
-          <label title="Полные временные ряды, события и сегменты в обязательной Artifacts-базе.">
-            <input type="checkbox" checked={sonaraOutputs.includes("timeline")} onChange={() => onToggleSonaraOutput("timeline")} />
-            <span><b>Timeline</b><small>События и кривые</small></span>
-          </label>
-          <label title="SONARA embedding в обязательной Artifacts-базе.">
-            <input type="checkbox" checked={sonaraOutputs.includes("embedding")} onChange={() => onToggleSonaraOutput("embedding")} />
-            <span><b>Embedding</b><small>Вектор SONARA</small></span>
-          </label>
-          <label title="Аудио-fingerprint SONARA в обязательной Artifacts-базе.">
-            <input type="checkbox" checked={sonaraOutputs.includes("fingerprint")} onChange={() => onToggleSonaraOutput("fingerprint")} />
-            <span><b>Fingerprint</b><small>Идентичность записи</small></span>
-          </label>
+          <div className="sonara-optional-options">
+            <label title="Полные временные ряды, события и сегменты в обязательной Artifacts-базе.">
+              <input type="checkbox" checked={sonaraOutputs.includes("timeline")} onChange={() => onToggleSonaraOutput("timeline")} />
+              <span><b>Timeline</b><small>События и кривые</small></span>
+            </label>
+            <label title="SONARA embedding в обязательной Artifacts-базе.">
+              <input type="checkbox" checked={sonaraOutputs.includes("embedding")} onChange={() => onToggleSonaraOutput("embedding")} />
+              <span><b>Embedding</b><small>Вектор SONARA</small></span>
+            </label>
+            <label title="Аудио-fingerprint SONARA в обязательной Artifacts-базе.">
+              <input type="checkbox" checked={sonaraOutputs.includes("fingerprint")} onChange={() => onToggleSonaraOutput("fingerprint")} />
+              <span><b>Fingerprint</b><small>Идентичность записи</small></span>
+            </label>
+          </div>
         </fieldset>
         <div className="analysis-settings-grid sonara-analysis-settings">
           <div className="worker-control">
@@ -258,7 +268,7 @@ export function LibraryPanel({
             <button className="icon-button stop-button analysis-reset-button classifiers-reset-button" title="Сбросить CLASSIFIERS" disabled={analysisDisabled} onClick={onResetClassifiers} type="button"><Trash2 size={16} /></button>
           </div>
         </div>
-        {classifiers.flatMap((item) => item.readiness_blockers || []).slice(0, 3).map((blocker) => <small className="analysis-muted" key={blocker}>{blocker}</small>)}
+        {visibleClassifierBlockers.map((item) => <small className="analysis-muted" key={item.key}>{item.blocker}</small>)}
       </div>
 
       <div className="worker-control analysis-limit" title={helpText.analyzeLimit}>
@@ -272,7 +282,16 @@ export function LibraryPanel({
       </div>
       {analysisJob ? <small className="analysis-muted">Job {analysisJob.state} · {analysisJob.processed}/{analysisJob.total} · {analysisJob.current_model || analysisJob.models?.join(", ")}</small> : null}
       {pipelineJob ? <small className="analysis-muted">Pipeline {pipelineJob.state} · {pipelineJob.order.map((stage) => `${stage}:${pipelineJob.stages[stage]?.state}`).join(" → ")}</small> : null}
-      <button className="analyze-selected-button analysis-pipeline-button" title="Запустить отмеченные модели в порядке SONARA → ML → CLASSIFIERS" disabled={analysisDisabled || !selectedAnalysisModels.length || (sonaraSelected && !sonaraOutputs.length)} onClick={onAnalyzeSelected} type="button"><Play size={15} />Analyze</button>
+      <button
+        className="analyze-selected-button analysis-pipeline-button"
+        title="Запустить отмеченные модели в порядке SONARA → ML → CLASSIFIERS"
+        disabled={analysisDisabled || !selectedAnalysisModels.length}
+        onClick={onAnalyzeSelected}
+        type="button"
+      >
+        <Play size={15} />
+        Analyze
+      </button>
     </aside>
   );
 }

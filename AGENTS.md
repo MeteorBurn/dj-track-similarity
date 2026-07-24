@@ -5,7 +5,7 @@
 - `dj-track-similarity` is a local-first, enthusiast DJ-library workbench. Keep claims modest: model outputs are ranking signals for listening-led shortlisting, not objective truth or finished automatic DJ generation.
 - Prefer executable sources over prose: `pyproject.toml`, `frontend/package.json`, `docs/dj-track-similarity/package.json`, tests, schemas, routes, and current source beat README/docs when they disagree.
 - English is the source language for user-facing docs, with a maintained Russian mirror under `docs/dj-track-similarity/ru/`. The maintained public surface is `README.md` plus `docs/dj-track-similarity/`; the English entrypoint is `docs/dj-track-similarity/project-guide.md` and the Russian entrypoint is `docs/dj-track-similarity/ru/project-guide.md`.
-- For manual checks against the real library, use `C:\db\abstracted.sqlite` unless the user gives another DB. Never use the real library in automated tests.
+- For manual checks against the real library, use `C:\db\volumes.sqlite` unless the user gives another DB. Never use the real library in automated tests.
 
 ## High-Value Map
 
@@ -22,7 +22,7 @@
 - `frontend/` is the React 19 + Vite 7 + TypeScript 5.9 UI. Its v7 API port is explicitly deferred: the current `frontend/src/api.ts` still reflects the removed pre-v7 contract, so do not claim the frontend or an existing `frontend/dist` bundle is v7-compatible. Root component tree in `frontend/src/App.tsx`; main panels in `LibraryPanel.tsx`, `TrackPanel.tsx`, `SearchPlaylistPanel.tsx`, `ReferenceComparePanel.tsx`, `ClapSearchTab.tsx`. Frontend tests use Node's built-in `node --test`, not Vitest. See `frontend/AGENTS.md`.
 - `docs/dj-track-similarity/` is the VitePress source; `site/` is generated output. Style rules live in `.vale.ini`, `docs/dj-track-similarity/cspell.json`, and `docs/dj-track-similarity/.markdownlint.json`.
 - Helper tools are separate safety domains, each with its own `AGENTS.md`: `tools/audio-doctor/`, `tools/audio-dedup/`, `tools/rhythm-lab/`.
-- Runtime ports are fixed: backend `8765`, Vite `5173`, Rhythm Lab `8777`. Before starting one, check for an existing matching project process. For this workspace, prefer `run_server.cmd lan --db C:\db\abstracted.sqlite` when launching the main app.
+- Runtime ports are fixed: backend `8765`, Vite `5173`, Rhythm Lab `8777`. Before starting one, check for an existing matching project process. Running `run_server.cmd` without arguments must prompt first for a database path with the shown default `C:\db\volumes.sqlite`, then prompt for local or LAN mode; pass the selected path to `dj-sim serve` only after both prompts complete. Explicit `run_server.cmd local ...` and `run_server.cmd lan ...` calls remain non-interactive and use only their supplied arguments. Keep argument forwarding through `scripts/run_server_launcher.py` as a list with `shell=False`; do not rebuild user-supplied paths into a `cmd.exe` command string.
 
 ## Architecture Sketch
 
@@ -68,6 +68,7 @@
 - Rhythm Lab: `python -m pytest tools\rhythm-lab\tests\test_rhythm_lab.py --override-ini addopts=`; include `tests\test_break_energy.py` for promoted classifier scoring boundaries.
 - Audio Doctor: `python -m pytest scripts\tests\test_repair_audio_metadata.py --override-ini addopts=`.
 - Audio Dedup: `python -m pytest scripts\tests\test_audio_dedup.py --override-ini addopts=`.
+- Windows launcher: `python -m pytest scripts\tests\test_run_server_lan_script.py --override-ini addopts=`.
 - SONARA changes should use stubbed helpers or small temp WAV fixtures, not the real music library.
 
 ## Runtime Dependencies

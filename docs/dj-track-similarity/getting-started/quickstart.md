@@ -92,13 +92,17 @@ compatible bundle is opened. A wholly missing bundle is created.
 If you use the Windows launcher:
 
 ```powershell
-run_server.cmd local
+run_server.cmd
 ```
 
-Use `run_server.cmd lan` only when you want the server reachable from other devices on the local
-network. Both launcher modes accept `--db .\data\library.sqlite` when you want to preselect a
-database. The server command keeps its terminal occupied. Run later CLI jobs in a second activated
-terminal.
+The first prompt suggests `C:\db\volumes.sqlite`. Press Enter to accept it or type another database
+path. The next prompt selects local-only or LAN mode. The selected path is passed to `dj-sim serve`
+only after both prompts are complete.
+
+For a non-interactive launch, use `run_server.cmd local --db C:\db\volumes.sqlite`. Replace `local`
+with `lan` only when you want the server reachable from other devices on the local network. Explicit
+mode commands use only the arguments you provide. The server command keeps its terminal occupied.
+Run later CLI jobs in a second activated terminal.
 
 Do not treat the page served at `http://127.0.0.1:8765/` as a validated v7 frontend. The active
 surface is the backend API.

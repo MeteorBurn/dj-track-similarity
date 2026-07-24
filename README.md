@@ -306,15 +306,25 @@ SQLite file. You can then choose an existing database or create a new one with t
 The root mount may serve an existing `frontend/dist`, but that client has not been ported to the v7
 API. Use CLI commands or direct API calls for the current contract.
 
-There is also a Windows launcher that activates `.venv` and forwards remaining arguments to `dj-sim serve`:
+There is also an interactive Windows launcher:
 
 ```powershell
-run_server.cmd local
-run_server.cmd local --db C:/db/abstracted.sqlite
-run_server.cmd lan --db C:/db/abstracted.sqlite
+run_server.cmd
 ```
 
-`local` binds to `127.0.0.1`. `lan` binds to `0.0.0.0` and prints a LAN URL.
+It first shows `C:\db\volumes.sqlite` as the database path. Press Enter to accept that path or type a
+replacement. The next prompt selects local or LAN mode. The launcher passes the confirmed database
+path to `dj-sim serve` only after both prompts are complete.
+
+For non-interactive use, specify the mode and database explicitly:
+
+```powershell
+run_server.cmd local --db C:/db/volumes.sqlite
+run_server.cmd lan --db C:/db/volumes.sqlite
+```
+
+`local` binds to `127.0.0.1`. `lan` binds to `0.0.0.0` and prints a LAN URL. Explicit mode commands
+use only the arguments supplied on the command line.
 
 ## 🧠 Add model-backed analysis
 

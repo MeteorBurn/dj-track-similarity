@@ -19,7 +19,7 @@ If the variable is set but points to a missing file, server startup fails clearl
 | Default non-server CLI database | `dj-track-similarity.sqlite` when `--db` is omitted |
 | Initial `serve` database | None when `--db` is omitted |
 | Example project database | `.\data\library.sqlite` |
-| Local manual Windows database | `C:\db\abstracted.sqlite` |
+| No-argument Windows launcher suggestion | `C:\db\volumes.sqlite` |
 | Runtime logs | `logs/` |
 | Audio Doctor reports/state/backups | `tools/audio-doctor/data/` |
 | Audio Dedup reports | `tools/audio-dedup/data/reports/` |
@@ -62,13 +62,16 @@ dj-sim serve --host 0.0.0.0 --port 8765
 Windows helper:
 
 ```powershell
-run_server.cmd local
-run_server.cmd lan
+run_server.cmd
 ```
 
-Add `--db .\data\library.sqlite` to any server command to open an existing compatible v7 bundle or
-create a new one before startup. Without `--db`, the server creates no database and waits for a
-selection through the database API or picker.
+With no arguments, the launcher prompts for a database path with `C:\db\volumes.sqlite` as the shown
+default, then prompts for local or LAN mode. It forwards the confirmed path only after both prompts
+complete.
+
+For non-interactive use, run `run_server.cmd local --db C:\db\volumes.sqlite` or replace `local` with
+`lan`. Explicit mode commands use only the supplied arguments. Direct `dj-sim serve` commands still
+create no database when `--db` is omitted and wait for a selection through the database API or picker.
 
 ## Build commands
 

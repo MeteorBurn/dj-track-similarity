@@ -1,27 +1,44 @@
 @echo off
-setlocal EnableExtensions EnableDelayedExpansion
+setlocal EnableExtensions DisableDelayedExpansion
 
 set "PROJECT_ROOT=%~dp0."
 set "PORT=8765"
+set "DEFAULT_DB_PATH=C:\db\volumes.sqlite"
+set "DB_PATH="
 set "MODE="
+set "INTERACTIVE_START=0"
 set "PROMPT_ON_EXIT=0"
+
+if "%~1"=="" set "INTERACTIVE_START=1"
 
 if /I "%~1"=="help" goto :usage
 if /I "%~1"=="--help" goto :usage
 if /I "%~1"=="/?" goto :usage
 
-if /I "%~1"=="local" set "MODE=local" & shift /1 & goto :mode_selected
-if /I "%~1"=="localhost" set "MODE=local" & shift /1 & goto :mode_selected
-if /I "%~1"=="127.0.0.1" set "MODE=local" & shift /1 & goto :mode_selected
-if /I "%~1"=="--local" set "MODE=local" & shift /1 & goto :mode_selected
-if /I "%~1"=="lan" set "MODE=lan" & shift /1 & goto :mode_selected
-if /I "%~1"=="network" set "MODE=lan" & shift /1 & goto :mode_selected
-if /I "%~1"=="0.0.0.0" set "MODE=lan" & shift /1 & goto :mode_selected
-if /I "%~1"=="--lan" set "MODE=lan" & shift /1 & goto :mode_selected
+if /I "%~1"=="local" goto :select_local
+if /I "%~1"=="localhost" goto :select_local
+if /I "%~1"=="127.0.0.1" goto :select_local
+if /I "%~1"=="--local" goto :select_local
+if /I "%~1"=="lan" goto :select_lan
+if /I "%~1"=="network" goto :select_lan
+if /I "%~1"=="0.0.0.0" goto :select_lan
+if /I "%~1"=="--lan" goto :select_lan
+goto :mode_selected
+
+:select_local
+set "MODE=local"
+goto :mode_selected
+
+:select_lan
+set "MODE=lan"
+goto :mode_selected
 
 :mode_selected
 if not defined MODE (
     set "PROMPT_ON_EXIT=1"
+    echo DJ Track Similarity UI server
+    echo.
+    if "%INTERACTIVE_START%"=="1" call :prompt_database
     call :prompt_mode
 )
 
@@ -32,16 +49,6 @@ if /I "%MODE%"=="lan" (
     set "HOST=127.0.0.1"
 )
 
-set "FORWARDED_ARGS="
-
-:collect_args
-if "%~1"=="" goto :args_done
-set "ARG=%~1"
-set "FORWARDED_ARGS=!FORWARDED_ARGS! ^"!ARG!^""
-shift /1
-goto :collect_args
-
-:args_done
 cd /d "%PROJECT_ROOT%" || goto :setup_error
 
 if not exist "%PROJECT_ROOT%\.venv\Scripts\activate.bat" (
@@ -70,6 +77,7 @@ if /I "%MODE%"=="lan" call :detect_lan_ip
 
 echo Starting DJ Track Similarity UI server...
 echo.
+if defined DB_PATH echo Database: "%DB_PATH%"
 echo This computer: http://127.0.0.1:%PORT%/
 if /I "%MODE%"=="lan" (
     if defined LAN_IP (
@@ -89,7 +97,10 @@ if /I "%MODE%"=="lan" (
 )
 echo.
 
-dj-sim serve --host %HOST% --port %PORT% %FORWARDED_ARGS%
+set "DJ_TRACK_SIMILARITY_LAUNCHER_HOST=%HOST%"
+set "DJ_TRACK_SIMILARITY_LAUNCHER_PORT=%PORT%"
+set "DJ_TRACK_SIMILARITY_LAUNCHER_DATABASE=%DB_PATH%"
+python "%PROJECT_ROOT%\scripts\run_server_launcher.py" %*
 set "EXIT_CODE=%ERRORLEVEL%"
 
 echo.
@@ -97,18 +108,27 @@ echo Server stopped with exit code %EXIT_CODE%.
 if "%PROMPT_ON_EXIT%"=="1" pause
 exit /b %EXIT_CODE%
 
-:prompt_mode
-echo DJ Track Similarity UI server
+:prompt_database
+set "DB_PATH=%DEFAULT_DB_PATH%"
+set /p "DB_PATH=Database path [%DEFAULT_DB_PATH%]: "
 echo.
+exit /b 0
+
+:prompt_mode
 echo Choose server mode:
 echo   1. Local only     http://127.0.0.1:%PORT%/
 echo   2. Local network  http://^<this-computer-lan-ip^>:%PORT%/
 echo.
+set "MODE_CHOICE="
 set /p "MODE_CHOICE=Mode [1/2, default 1]: "
-if /I "%MODE_CHOICE%"=="2" set "MODE=lan" & exit /b 0
-if /I "%MODE_CHOICE%"=="lan" set "MODE=lan" & exit /b 0
-if /I "%MODE_CHOICE%"=="network" set "MODE=lan" & exit /b 0
+if /I "%MODE_CHOICE%"=="2" goto :prompt_lan_selected
+if /I "%MODE_CHOICE%"=="lan" goto :prompt_lan_selected
+if /I "%MODE_CHOICE%"=="network" goto :prompt_lan_selected
 set "MODE=local"
+exit /b 0
+
+:prompt_lan_selected
+set "MODE=lan"
 exit /b 0
 
 :detect_lan_ip
@@ -123,13 +143,15 @@ echo   run_server.cmd local [dj-sim serve options]
 echo   run_server.cmd lan [dj-sim serve options]
 echo.
 echo Examples:
-echo   run_server.cmd local
-echo   run_server.cmd local --db C:\db\abstracted.sqlite
-echo   run_server.cmd lan --db C:\db\abstracted.sqlite
+echo   run_server.cmd
+echo   run_server.cmd local --db C:\db\volumes.sqlite
+echo   run_server.cmd lan --db C:\db\volumes.sqlite
 echo   run_server.cmd local --help
 echo.
-echo Without --db, the server starts without a selected database.
-echo Choose or create a database through the UI.
+echo With no arguments, the launcher asks for a database path first.
+echo Press Enter to accept C:\db\volumes.sqlite, or type another path.
+echo It then asks whether to start in local or LAN mode.
+echo Explicit local or lan commands use only the arguments you provide.
 exit /b 0
 
 :setup_error

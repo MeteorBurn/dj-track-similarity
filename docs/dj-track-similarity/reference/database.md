@@ -83,7 +83,7 @@ Reset and scoring remain scoped by classifier key. Unrelated classifier scores a
 - Database clear removes Core rows, matching Artifacts rows, and existing Evaluation payload rows. It does not delete audio.
 - Reset removes only the active outputs for the requested analysis family and dependent SONARA classifier scores.
 - Audio Dedup apply removes database rows only for files it actually deleted.
-- Destructive work on `C:\db\abstracted.sqlite` or another real library requires explicit approval and a verified backup first.
+- Destructive work on `C:\db\volumes.sqlite` or another real library requires explicit approval and a verified backup first.
 
 ## Backup habit
 

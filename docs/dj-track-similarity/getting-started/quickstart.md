@@ -131,8 +131,8 @@ endpoints documented in the [API reference](../reference/api.md).
 ## First browser flow
 
 1. In **Database and analysis**, confirm the SQLite path and music root.
-2. In **Library**, choose a `100`, `500`, `1000`, or **All** load size, then search or page to a
-   track.
+2. In **Library**, search or use **Prev**, **Next**, and the page-number field to browse fixed
+   pages of up to `500` tracks.
 3. Add one to five tracks as seeds.
 4. Open **MERT** or **MUQ** for an embedding neighborhood, or **SONARA** when you want to steer the
    search by rhythm, sound, dynamics, harmony, or tempo.

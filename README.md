@@ -127,8 +127,8 @@ CLI, and older database schemas are rejected instead of being upgraded in place.
 
 The React frontend now consumes the typed v7 database, track, analysis, search, SET/Hybrid, CLASS,
 LAB, Rhythm Lab, Audio Dedup, metadata, media, and exact-identity mutation contracts. Large-library
-loading supports 100/500-row paging plus cancellable 1000/All chunked loads and bounded row
-rendering.
+loading uses fixed server-side pages of up to `500` tracks with previous, next, and page-number
+navigation.
 
 ## 🚧 The long-term direction
 

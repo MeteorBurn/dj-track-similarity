@@ -94,12 +94,10 @@ the current scan-worker value and reports progress through the same activity sur
 
 ## Browse after scan
 
-The library panel starts with `100` rows and offers `100`, `500`, `1000`, or **All**:
-
-- `100` and `500` use backend paging with previous, next, and page-number controls.
-- `1000` and **All** fetch sequential chunks of at most `500`, show progress, and can be cancelled.
-- A loaded result larger than `120` rows is rendered in `120`-row windows. **Previous rows** and
-  **Next rows** move the visible window without refetching the library.
+The library panel reads one server-backed page of up to `500` tracks at a time. Use **Prev**,
+**Next**, or the page-number field to move between pages. Each page maps to one `/api/tracks`
+request with `limit=500`. The final page can contain fewer rows. All rows from the current page
+render in one scrollable list.
 
 The browser deduplicates each loaded result by `catalog_uuid` and `track_uuid`, keeping the highest
 `content_generation`. Metadata opens from the v7 detail endpoint only when requested; preview and

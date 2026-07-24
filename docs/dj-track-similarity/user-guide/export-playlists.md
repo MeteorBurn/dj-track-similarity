@@ -15,10 +15,16 @@ The current set in the UI stays temporary until export, and search results or SE
 
 ## UI flow
 
+**Set and export** is collapsed by default so candidate results keep more vertical space. Adding a
+track updates the visible set count without opening the disclosure. Expand it whenever you want to
+review the temporary set. The expanded block shows 20 tracks per page with **Prev** and **Next**
+navigation, and its current page scrolls inside the block.
+
 1. Add tracks to the current set from library rows, search results, SET preview, or another UI action.
-2. Set the playlist name.
-3. Choose or type an output directory.
-4. Click the M3U or CSV export button.
+2. Expand **Set and export**.
+3. Set the playlist name.
+4. Choose or type an output directory.
+5. Click the M3U or CSV export button.
 
 The output directory is created if it does not exist.
 

@@ -15,10 +15,10 @@ workflows. There are no separate Timeline or Representations database controls.
   instead of being migrated in place.
 - **Music root** and **Scan workers** configure a scan. Scan and **Refresh Tags** update catalog
   rows without rewriting source audio.
-- **Load** offers `100`, `500`, `1000`, and **All**. The first two sizes use backend paging.
-  `1000` and **All** load sequential chunks of at most `500`, show progress, and can be cancelled.
-- Large loaded results render in windows of `120` rows with **Previous rows** and **Next rows**.
-  This limits DOM work without changing the loaded result set.
+- Library pages contain up to `500` tracks. **Prev**, **Next**, and the page-number field request one
+  `/api/tracks` page at a time.
+- All rows from the current page render in one scrollable list. There is no second row-window
+  paginator.
 - Library text search can use **LIKE** or **FTS**. Preset, liked-only, classifier-score, and sort
   controls remain server-backed filters.
 - Preview streams `/media/{track_id}`. Metadata is fetched on demand from

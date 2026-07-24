@@ -20,12 +20,9 @@ The current response shapes and filter query parameters are in the
 
 ## Loading behavior
 
-The library panel offers `100`, `500`, `1000`, and **All**:
-
-- `100` and `500` read `/api/tracks` with server-side paging.
-- `1000` and **All** read sequential chunks of at most `500`, show progress, and can be cancelled.
-- Results larger than `120` rows render in `120`-row windows with **Previous rows** and
-  **Next rows**. The rest of the loaded result stays in memory instead of the DOM.
+The library panel uses fixed server-side pages of up to `500` tracks. **Prev**, **Next**, and the
+page-number field request one `/api/tracks` page at a time. All returned rows render in one
+scrollable list. There is no second row-window paginator.
 
 Database changes and newer loads invalidate older responses. Duplicate rows are reconciled by
 `catalog_uuid` and `track_uuid`, keeping the greatest `content_generation`.
@@ -40,7 +37,7 @@ The library browser supports:
 - Liked-only filtering.
 - Classifier minimum-score filters when promoted classifier scores exist.
 - Sort direction toggle.
-- Previous, next, and page jump controls for `100` and `500`.
+- **Prev**, **Next**, and page-number navigation for fixed pages of up to `500` tracks.
 
 The API caps each request at `1..500`. The UI keeps rows light and opens full metadata only on
 demand.

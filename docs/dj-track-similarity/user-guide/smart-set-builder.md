@@ -25,6 +25,9 @@ available through `POST /api/search/hybrid`. Both endpoints return data only; AP
 choose which track IDs to keep and call `POST /api/export` separately. The current fields and ranges
 are documented in the [API reference](../reference/api.md).
 
+Source selection and custom weights are backend request fields without matching v7 controls in the
+deferred React workflow.
+
 ## Deferred frontend workflow
 
 ## What happens when you generate
@@ -40,14 +43,34 @@ The **SET** tab calls `/api/set-builder/generate` to create this preview.
 
 ## Requirements
 
-SET uses feature-complete tracks. A track is eligible only when it has:
+SET always requires SONARA broad analysis. It also requires every enabled embedding source. The
+default enabled sources are:
 
-- SONARA analysis,
 - MERT embedding,
 - MAEST embedding,
+- MuQ embedding,
 - CLAP audio embedding.
 
-The response includes total-track and eligible-track counts, plus missing counts for MERT, MAEST, CLAP, and SONARA.
+The default raw fusion weights are:
+
+| Signal | Raw weight |
+| --- | ---: |
+| `mert` | `0.30` |
+| `maest` | `0.18` |
+| `muq` | `0.15` |
+| `clap` | `0.22` |
+| `sonara_broad` | `0.30` |
+
+SET normalizes these weights over the enabled embeddings plus SONARA broad. With all defaults, it
+divides each raw weight by `1.15`; the response reports the result in `weights_used`.
+
+For the exact pre-MuQ behavior, request only `mert`, `maest`, and `clap`. MuQ is then neither loaded
+nor required for eligibility, and the effective weights remain exactly `0.30`, `0.18`, `0.22`, and
+`0.30` for MERT, MAEST, CLAP, and SONARA broad. Custom weights must contain exactly the enabled
+embedding keys plus `sonara_broad`.
+
+The response includes total-track and eligible-track counts, plus missing counts for MERT, MAEST,
+MuQ, CLAP, and SONARA.
 
 ## Seed source
 
@@ -112,7 +135,10 @@ Missing classifier scores stay neutral. Classifier controls read stored scores. 
 
 ## Hybrid preview
 
-The SET tab also contains **Hybrid preview**, an explicit weighted preview across stored MERT, MAEST, SONARA, and CLAP data.
+The SET tab also contains **Hybrid preview**, an explicit weighted preview across stored MERT, MAEST,
+MuQ, SONARA, and CLAP data. The backend default enables `mert`, `maest`, `muq`, `sonara`, and `clap`
+at an equal `0.20` each. These source and weight controls are not yet available in the deferred v7
+React frontend.
 
 Hybrid preview:
 

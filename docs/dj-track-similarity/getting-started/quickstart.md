@@ -68,10 +68,12 @@ each search approach returns before spending time on full-library analysis.
 
 - SONARA makes feature-guided search and transition evidence available.
 - MERT gives you a direct "find tracks near this track" search.
-- MAEST and CLAP complete the evidence needed by SET.
+- MAEST, MuQ, and CLAP complete the default embedding evidence used by SET.
 - CLAP also enables text search.
-- MuQ is only used by LAB Reference Compare in this release. You can omit it when you only want seed
-  search, SET, Hybrid, or text search.
+- MuQ also enables its seed-search and LAB views and joins the default SET and Hybrid source lists.
+  Audio Dedup and compatible classifier feature sets can use it too. API and helper-CLI callers can
+  omit `muq` from an explicit source list when they want the legacy source mix; CLAP remains the
+  model for text search.
 
 In the CLI, omit `--limit` for the whole library. The deferred UI uses `Analyze limit = 0` for the
 whole library, but that control is not currently available for v7.

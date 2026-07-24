@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from ..track_resolution import resolve_track_bpm, resolve_track_energy, resolve_track_key
 from ..transition_diagnostics import TransitionTrack
+from .candidates import ALLOWED_CANDIDATE_SOURCES
 from .csv_io import CsvRow, write_csv_rows
 from .track_views import load_all_transition_tracks
 
@@ -26,6 +27,7 @@ SEED_SAMPLE_COLUMNS = (
     "energy",
     "sonara_core",
     "mert_embedding",
+    "muq_embedding",
     "clap_embedding",
     "maest_analysis",
     "maest_embedding",
@@ -44,6 +46,7 @@ class SeedSampleTrack:
     energy: float | None
     sonara_core: bool
     mert_embedding: bool
+    muq_embedding: bool
     clap_embedding: bool
     maest_analysis: bool
     maest_embedding: bool
@@ -71,6 +74,7 @@ class SeedSampleTrack:
             "energy": _optional_number(self.energy),
             "sonara_core": _analysis_flag(self.sonara_core),
             "mert_embedding": _analysis_flag(self.mert_embedding),
+            "muq_embedding": _analysis_flag(self.muq_embedding),
             "clap_embedding": _analysis_flag(self.clap_embedding),
             "maest_analysis": _analysis_flag(self.maest_analysis),
             "maest_embedding": _analysis_flag(self.maest_embedding),
@@ -96,10 +100,15 @@ def export_seed_sample(
     count: int = 50,
     random_seed: int = 123,
     require_complete_analysis: bool = True,
+    required_sources: Sequence[str] | None = None,
 ) -> SeedSampleResult:
     clean_count = _positive_int(count, "count")
     clean_random_seed = _int_value(random_seed, "random_seed")
-    eligible_tracks = load_seed_sample_eligible_tracks(db, require_complete_analysis=require_complete_analysis)
+    eligible_tracks = load_seed_sample_eligible_tracks(
+        db,
+        require_complete_analysis=require_complete_analysis,
+        required_sources=required_sources,
+    )
     selected_tracks, bucket_mode = sample_seed_tracks(
         eligible_tracks,
         count=clean_count,
@@ -117,6 +126,7 @@ def load_seed_sample_eligible_tracks(
     db: LibraryDatabase,
     *,
     require_complete_analysis: bool = True,
+    required_sources: Sequence[str] | None = None,
 ) -> tuple[SeedSampleTrack, ...]:
     views = load_all_transition_tracks(db)
     tracks = tuple(
@@ -128,7 +138,12 @@ def load_seed_sample_eligible_tracks(
     )
     if not require_complete_analysis:
         return tracks
-    return tuple(track for track in tracks if _has_complete_analysis(track))
+    clean_required_sources = _clean_required_sources(required_sources)
+    return tuple(
+        track
+        for track in tracks
+        if _has_required_analysis(track, clean_required_sources)
+    )
 
 
 def sample_seed_tracks(
@@ -172,6 +187,7 @@ def _transition_track_to_seed_sample_track(
         energy=energy,
         sonara_core=sonara is not None,
         mert_embedding=coverage.mert,
+        muq_embedding=coverage.muq,
         clap_embedding=coverage.clap,
         maest_analysis=coverage.maest_analysis,
         maest_embedding=coverage.maest_embedding,
@@ -179,15 +195,45 @@ def _transition_track_to_seed_sample_track(
     )
 
 
-def _has_complete_analysis(track: SeedSampleTrack) -> bool:
-    return all(
-        (
-            track.sonara_core,
-            track.mert_embedding,
-            track.clap_embedding,
-            track.maest_embedding,
+def _has_required_analysis(
+    track: SeedSampleTrack,
+    required_sources: Sequence[str],
+) -> bool:
+    coverage = {
+        "mert": track.mert_embedding,
+        "maest": track.maest_embedding,
+        "muq": track.muq_embedding,
+        "sonara": track.sonara_core,
+        "clap": track.clap_embedding,
+    }
+    return all(coverage[source] for source in required_sources)
+
+
+def _clean_required_sources(
+    required_sources: Sequence[str] | None,
+) -> tuple[str, ...]:
+    values = ALLOWED_CANDIDATE_SOURCES if required_sources is None else required_sources
+    clean_sources = tuple(
+        dict.fromkeys(
+            text
+            for source in values
+            if (text := str(source).strip().lower())
         )
     )
+    if not clean_sources:
+        raise ValueError("At least one required seed-analysis source is required")
+    unsupported = [
+        source
+        for source in clean_sources
+        if source not in ALLOWED_CANDIDATE_SOURCES
+    ]
+    if unsupported:
+        allowed = ", ".join(ALLOWED_CANDIDATE_SOURCES)
+        raise ValueError(
+            "Unsupported required seed-analysis source(s): "
+            f"{', '.join(unsupported)}. Allowed: {allowed}"
+        )
+    return clean_sources
 
 
 def _has_enough_bucket_data(tracks: Sequence[SeedSampleTrack], target_count: int) -> bool:

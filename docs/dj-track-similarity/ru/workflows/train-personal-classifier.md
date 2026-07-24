@@ -48,6 +48,13 @@ dj-sim analyze --models sonara --db .\data\library.sqlite
 dj-sim analyze --models maest,mert --db .\data\library.sqlite
 ```
 
+Старый набор `combined` по-прежнему означает ровно `sonara+mert+maest`. Если выбранный набор
+содержит MuQ, сначала сохраните его актуальный эмбеддинг:
+
+```powershell
+dj-sim analyze --models muq --db .\data\library.sqlite
+```
+
 Варианты бенчмарка также могут использовать CLAP, если эмбеддинги CLAP уже есть. Варианты SONARA 2.0
 читают сохранённые признаки SONARA. Вариант `sonara2vocal` добавляет `vocalness` в набор
 признаков-кандидатов.
@@ -96,6 +103,10 @@ python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation -
 скрыта, публикация из интерфейса игнорирует калиброванные артефакты, поэтому старый
 некалиброванный победитель безопаснее автоматически созданного калиброванного финалиста.
 
+Обычное обучение через CLI теперь включает отдельный набор `muq` вместе с прежними вариантами по
+умолчанию. В статическом UI вкладки Training пока нет отдельного селектора наборов MuQ или
+обновлённого поясняющего текста.
+
 После обучения прослушайте кандидатов с высокими, низкими и пограничными оценками. Полезные ошибки
 часто показывают, что понятие или разметку нужно уточнить до публикации.
 
@@ -109,7 +120,14 @@ python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\lib
 
 Вкладка Training показывает победителя и позволяет выбрать другой обученный вариант перед
 публикацией. Матрица по умолчанию включает сочетания только эмбеддингов, исходный набор SONARA,
-`sonara2` и `sonara2vocal`.
+`sonara2` и `sonara2vocal`. Она сохраняет прежнюю матрицу и добавляет `muq`, `sonara+muq`,
+`mert+muq` и `sonara+mert+maest+clap+muq`.
+
+Для любого другого сочетания повторите параметр CLI:
+
+```powershell
+python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --profile live_instrumentation --feature-set muq --feature-set sonara+muq --output tools\rhythm-lab\artifacts\ablation-muq.json
+```
 
 ## 6. Необязательная калибровка
 
@@ -189,7 +207,9 @@ SONARA, затем переобучите и опубликуйте затрон
 
 Рабочая среда принимает манифест версии `2`. Текущие опубликованные `model.json` в
 `models/classifiers/` всё ещё используют версию `1`, поэтому они заблокированы до переобучения и
-новой публикации.
+новой публикации. Новый манифест v2 может объявлять упорядоченные признаки `muq:<index>` и точный
+актуальный контракт эмбеддинга MuQ; backend загружает эти значения из SQLite без декодирования
+аудио.
 
 ## Безопасность
 

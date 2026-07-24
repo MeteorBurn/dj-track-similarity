@@ -10,6 +10,7 @@ import threading
 import time
 import uuid
 from types import ModuleType
+from typing import Mapping
 
 from .database import LibraryDatabase
 from .job_runtime import JobStore
@@ -18,6 +19,13 @@ from .logging_config import exception_summary, log_failure, log_job_event
 
 LOGGER = logging.getLogger(__name__)
 APPLY_CONFIRMATION = "APPLY DELETE"
+DEFAULT_SOURCES = ("mert", "maest", "muq", "clap")
+DEFAULT_WEIGHTS = {
+    "mert": 0.43,
+    "maest": 0.32,
+    "muq": 0.12,
+    "clap": 0.04,
+}
 
 
 @dataclass(frozen=True)
@@ -39,6 +47,12 @@ class AudioDedupJobStatus:
     state: str
     root: str
     path_contains: list[str] = field(default_factory=list)
+    sources: list[str] = field(
+        default_factory=lambda: list(DEFAULT_SOURCES)
+    )
+    weights: dict[str, float] = field(
+        default_factory=lambda: dict(DEFAULT_WEIGHTS)
+    )
     preset: str = "safe"
     min_score: float | None = None
     min_similarity: float | None = None
@@ -69,6 +83,8 @@ class AudioDedupJobPayload:
     db_path: Path
     root: Path
     path_contains: list[str]
+    sources: list[str]
+    weights: dict[str, float]
     preset: str
     min_score: float | None
     min_similarity: float | None
@@ -88,6 +104,8 @@ class AudioDedupJobManager:
         *,
         root: str | Path,
         path_contains: list[str] | None = None,
+        sources: list[str] | None = None,
+        weights: Mapping[str, float] | None = None,
         preset: str = "safe",
         min_score: float | None = None,
         min_similarity: float | None = None,
@@ -104,7 +122,14 @@ class AudioDedupJobManager:
         root_path = Path(root_text)
         if limit_groups is not None and limit_groups < 1:
             raise ValueError("limit_groups must be greater than zero")
+        core = _load_audio_dedup_core()
+        source_config = core.resolve_source_config(
+            sources=sources,
+            weights=weights,
+        )
         selected_path_contains = [item.strip() for item in (path_contains or []) if item.strip()]
+        selected_sources = list(source_config.sources)
+        selected_weights = dict(source_config.weights)
         selected_out_dir = Path(out_dir).expanduser().resolve(strict=False) if out_dir else None
         job_id = str(uuid.uuid4())
         status = AudioDedupJobStatus(
@@ -112,6 +137,8 @@ class AudioDedupJobManager:
             state="queued",
             root=str(root_path),
             path_contains=selected_path_contains,
+            sources=selected_sources,
+            weights=selected_weights,
             preset=preset,
             min_score=min_score,
             min_similarity=min_similarity,
@@ -122,6 +149,8 @@ class AudioDedupJobManager:
             db_path=self.db.path,
             root=root_path,
             path_contains=selected_path_contains,
+            sources=selected_sources,
+            weights=selected_weights,
             preset=preset,
             min_score=min_score,
             min_similarity=min_similarity,
@@ -138,6 +167,8 @@ class AudioDedupJobManager:
         *,
         root: str | Path,
         path_contains: list[str] | None = None,
+        sources: list[str] | None = None,
+        weights: Mapping[str, float] | None = None,
         preset: str = "safe",
         min_score: float | None = None,
         min_similarity: float | None = None,
@@ -149,6 +180,8 @@ class AudioDedupJobManager:
         job_id = self.create_job(
             root=root,
             path_contains=path_contains,
+            sources=sources,
+            weights=weights,
             preset=preset,
             min_score=min_score,
             min_similarity=min_similarity,
@@ -166,6 +199,8 @@ class AudioDedupJobManager:
         *,
         root: str | Path,
         path_contains: list[str] | None = None,
+        sources: list[str] | None = None,
+        weights: Mapping[str, float] | None = None,
         preset: str = "safe",
         min_score: float | None = None,
         min_similarity: float | None = None,
@@ -177,6 +212,8 @@ class AudioDedupJobManager:
         job_id = self.create_job(
             root=root,
             path_contains=path_contains,
+            sources=sources,
+            weights=weights,
             preset=preset,
             min_score=min_score,
             min_similarity=min_similarity,
@@ -204,6 +241,8 @@ class AudioDedupJobManager:
                 database=self.db,
                 root=payload.root,
                 path_contains=payload.path_contains,
+                sources=payload.sources,
+                weights=payload.weights,
                 preset_name=payload.preset,
                 min_score=payload.min_score,
                 min_similarity=payload.min_similarity,
@@ -307,6 +346,8 @@ class AudioDedupJobManager:
             state=status.state,
             root=status.root,
             path_contains=list(status.path_contains),
+            sources=list(status.sources),
+            weights=dict(status.weights),
             preset=status.preset,
             min_score=status.min_score,
             min_similarity=status.min_similarity,

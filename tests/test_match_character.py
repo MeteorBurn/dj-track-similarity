@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import math
 
+import pytest
+
 from dj_track_similarity.analysis_contracts import ContractIdentity
 from dj_track_similarity.analysis_models import (
     AnalysisOutput,
@@ -10,6 +12,7 @@ from dj_track_similarity.analysis_models import (
 )
 from dj_track_similarity.hybrid_explanation import (
     MATCH_CHARACTER_AXES,
+    _score_quality,
     build_hybrid_explanation,
 )
 from dj_track_similarity.library_models import AnalysisCoverage, TrackSummary
@@ -134,6 +137,17 @@ def test_missing_axis_data_is_neutral_and_marked_unavailable() -> None:
     assert explanation.source_support["clap"]["available"] is False
     assert explanation.risk_breakdown["bpm"] is None
     assert any("unavailable bpm data kept neutral" in warning for warning in explanation.warnings)
+
+
+@pytest.mark.parametrize(
+    ("score", "expected"),
+    [(-1.0, 0.0), (0.0, 0.5), (1.0, 1.0)],
+)
+def test_muq_uses_embedding_score_semantics(
+    score: float,
+    expected: float,
+) -> None:
+    assert _score_quality("muq", score) == pytest.approx(expected)
 
 
 def test_warnings_are_severity_sorted_and_avoid_forbidden_copy() -> None:

@@ -36,7 +36,7 @@ from .db_schema_v7 import ClassifierScoreV7, SonaraRowV7
 
 
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
-_SUPPORTED_FEATURE_FAMILIES = ("sonara", "mert", "maest", "clap")
+_SUPPORTED_FEATURE_FAMILIES = ("sonara", "mert", "maest", "clap", "muq")
 _SONARA_VECTOR_DIMS = {
     "mfcc_mean_blob": 13,
     "chroma_mean_blob": 12,

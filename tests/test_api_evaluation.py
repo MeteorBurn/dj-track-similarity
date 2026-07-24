@@ -16,9 +16,16 @@ from dj_track_similarity.analysis_models import (
     EmbeddingWrite,
 )
 from dj_track_similarity.api import create_app
+from dj_track_similarity.api_schemas import EvaluationSourceProfileRunRequest
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db_schema_v7 import SCHEMA_VERSION
 from dj_track_similarity.track_models import FileTags, ScannedFile
+
+
+def test_evaluation_source_profile_defaults_include_muq() -> None:
+    request = EvaluationSourceProfileRunRequest()
+
+    assert request.sources == ["mert", "maest", "muq", "sonara", "clap"]
 
 
 def test_evaluation_summary_keeps_feedback_in_core_and_sessions_in_sidecar(
@@ -174,6 +181,66 @@ def test_weighted_candidate_preview_uses_typed_targets_without_sidecar_write(
     assert payload["rows_returned"] == 1
     assert payload["rows"][0]["candidate_track_id"] != seed.track_id
     assert not database.evaluation_path.exists()
+
+
+def test_weighted_candidate_auto_seeds_require_only_explicit_sources(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "library.sqlite"
+    database = LibraryDatabase(db_path)
+    tracks = (
+        _track(database, tmp_path / "first.wav"),
+        _track(database, tmp_path / "second.wav"),
+        _track(database, tmp_path / "third.wav"),
+    )
+    output = current_embedding_analysis_output("mert")
+    database.register_analysis_outputs((output,))
+    for identity, vector in zip(
+        tracks,
+        (
+            _vector(1.0, 0.0),
+            _vector(0.99, 0.1),
+            _vector(0.0, 1.0),
+        ),
+        strict=True,
+    ):
+        assert database.save_embedding_results(
+            (
+                EmbeddingWrite(
+                    target=AnalysisTarget(
+                        catalog_uuid=identity.catalog_uuid,
+                        track_id=identity.track_id,
+                        track_uuid=identity.track_uuid,
+                        content_generation=identity.content_generation,
+                    ),
+                    output=EmbeddingOutput(
+                        contract=output.contract,
+                        vector=vector,
+                        analyzed_at="2026-07-24T12:00:00Z",
+                    ),
+                ),
+            )
+        )[0].ok
+
+    response = _client(monkeypatch, db_path).post(
+        "/api/evaluation/run/weighted-candidates",
+        json={
+            "name": "legacy-without-muq",
+            "weights": {"mert": 1.0},
+            "sources": ["mert"],
+            "sample_count": 1,
+            "per_source": 2,
+            "limit_per_seed": 1,
+            "record_session": False,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sources"] == ["mert"]
+    assert len(payload["seed_track_ids"]) == 1
+    assert payload["rows_returned"] == 1
 
 
 def test_evaluation_api_rejects_unselected_and_legacy_core(

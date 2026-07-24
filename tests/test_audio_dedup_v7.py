@@ -131,6 +131,33 @@ def test_cli_prompt_requires_exact_confirmation(
     ) is accepted
 
 
+def test_job_status_carries_normalized_sources_and_weights(
+    tmp_path: Path,
+) -> None:
+    manager = AudioDedupJobManager(
+        LibraryDatabase(tmp_path / "library.sqlite")
+    )
+
+    job_id = manager.create_job(
+        root=tmp_path,
+        sources=["mert", "maest", "clap"],
+        weights={
+            "mert": 0.43,
+            "maest": 0.32,
+            "clap": 0.04,
+        },
+    )
+
+    status = manager.get(job_id)
+    assert status.sources == ["mert", "maest", "clap"]
+    assert status.weights == {
+        "mert": 0.43,
+        "maest": 0.32,
+        "clap": 0.04,
+    }
+    assert status.apply is False
+
+
 def test_report_reader_carries_public_v7_identity(
     tmp_path: Path,
 ) -> None:

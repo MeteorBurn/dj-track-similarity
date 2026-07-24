@@ -137,6 +137,17 @@ Important ranges:
 - SET `auto_seed_count` is `1..5`,
 - SET `bpm_start` and `bpm_target` are `20..300` when provided.
 
+SET accepts `sources` from `mert`, `maest`, `muq`, and `clap`. The default enables all four, while
+SONARA broad similarity remains mandatory and is not part of that list. Default raw weights are
+`mert=0.30`, `maest=0.18`, `muq=0.15`, `clap=0.22`, and `sonara_broad=0.30`; the backend normalizes
+the enabled values. A custom `weights` object must contain exactly the enabled source keys plus
+`sonara_broad`. Omitting `muq` from `sources` restores the legacy raw mix
+`0.30/0.18/0.22/0.30`.
+
+Hybrid accepts `mert`, `maest`, `muq`, `sonara`, and `clap`. All five are enabled by default with
+equal normalized weight `0.20`. When `muq` is omitted and no custom weights are supplied, the four
+remaining sources each receive `0.25`. Custom weights must match the selected source keys exactly.
+
 Reference Compare accepts one `seed_track_id`, optional `models` from `clap`, `mert`, `muq`, `maest`, and `sonara`, and `limit=1..100`. Verdicts use `mood`, `palette`, `instruments`, `groove`, `genre`, `transition`, or `miss`. They persist as local pair feedback under `reference_compare:<model>`.
 
 ## Tags and export
@@ -169,6 +180,12 @@ The genre API rejects per-track writes. Current behavior writes all available st
 | `GET` | `/api/audio-dedup/jobs/{job_id}/report/xlsx` | download XLSX |
 
 Audio Doctor apply requires exact `APPLY REPAIR`. Audio Dedup apply requires exact `APPLY DELETE`.
+
+Audio Dedup requests accept `sources` from `mert`, `maest`, `muq`, and `clap` plus an optional
+exact-key `weights` object. The default raw weights are `mert=0.43`, `maest=0.32`, `muq=0.12`, and
+`clap=0.04`. Enabled available values are normalized during scoring. Omitting `muq` preserves the
+legacy MERT/MAEST/CLAP mix. MERT and MAEST remain mandatory independent safe-delete corroboration,
+so MuQ-only evidence always stays review-only.
 
 ## Rhythm Lab and server
 

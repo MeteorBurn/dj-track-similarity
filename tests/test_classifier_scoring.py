@@ -11,6 +11,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from dj_track_similarity.analysis_model_runners import (
+    current_embedding_analysis_output,
+)
 from dj_track_similarity.analysis_models import (
     AnalysisOutput,
     AnalysisTarget,
@@ -81,6 +84,10 @@ def _mert_output() -> AnalysisOutput:
             "processor_padding": "right-zero-with-attention-mask",
         },
     )
+
+
+def _muq_output() -> AnalysisOutput:
+    return current_embedding_analysis_output("muq", device="cpu")
 
 
 def _artifact_hash(data: bytes = _ARTIFACT_BYTES) -> str:
@@ -170,7 +177,7 @@ def _insert_track(
     )
 
 
-def _write_mert_embedding(
+def _write_embedding(
     db: LibraryDatabase,
     target: AnalysisTarget,
     output: AnalysisOutput,
@@ -190,6 +197,14 @@ def _write_mert_embedding(
         )
     )
     assert len(results) == 1 and results[0].ok
+
+
+def _write_mert_embedding(
+    db: LibraryDatabase,
+    target: AnalysisTarget,
+    output: AnalysisOutput,
+) -> None:
+    _write_embedding(db, target, output)
 
 
 def _score_write(
@@ -375,6 +390,46 @@ def test_artifact_and_model_validation_precede_stale_score_deletion(
         )
     ]
     assert _score_rows(db, "other_classifier")[0][1] == "other-model"
+
+
+def test_production_scoring_loads_current_muq_embedding(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    output = _muq_output()
+    db.register_analysis_outputs((output,))
+    target = _insert_track(db)
+    _write_embedding(db, target, output)
+    names = ("muq:0",)
+    model_path = _write_artifact(
+        tmp_path / "muq-artifact",
+        output,
+        feature_set="muq",
+        feature_names=list(names),
+        feature_count=len(names),
+        feature_manifest_hash=classifier_feature_manifest_hash(names),
+    )
+    _install_fake_joblib(
+        monkeypatch,
+        payload={
+            "model": _ProbabilityModel((0.25, 0.75), feature_count=1),
+        },
+    )
+
+    result = analyze_classifier(
+        db,
+        classifier="test_classifier",
+        model_path=model_path,
+    )
+
+    assert result["scored"] == 1
+    assert result["not_ready"] == 0
+    assert result["skipped"] == 0
+    stored = _score_rows(db, "test_classifier")
+    assert stored[0][1] == "model-current"
+    assert stored[0][4] == "positive"
+    assert stored[0][6] == pytest.approx(0.75)
 
 
 def test_requirements_reject_non_current_contract_and_out_of_range_feature(

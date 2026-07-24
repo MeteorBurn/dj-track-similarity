@@ -27,7 +27,7 @@ When the Negative bank is enabled, the visible score is contrast evidence, not a
 
 ## SET scores
 
-Smart Set Builder combines MERT, CLAP audio, MAEST embedding, broad SONARA similarity, transition confidence, diversity, energy curve, BPM curve, artist pressure, and optional classifier preferences. The output score is for ordering a preview under the selected controls.
+Smart Set Builder combines its enabled MERT, MAEST, MuQ, and CLAP embeddings with broad SONARA similarity, transition confidence, diversity, energy curve, BPM curve, artist pressure, and optional classifier preferences. The output score is for ordering a preview under the selected controls.
 
 ## Hybrid preview scores
 
@@ -41,7 +41,7 @@ Saved LAB verdicts are manual pair-feedback labels for a specific model source. 
 
 ## Audio Dedup thresholds
 
-Audio Dedup `min_similarity` is an audio-to-audio content gate over stored MERT, MAEST, and CLAP audio embeddings. It is not comparable to CLAP text-search similarity.
+Audio Dedup `min_similarity` is an audio-to-audio content gate over the enabled stored MERT, MAEST, MuQ, and CLAP audio embeddings. It is not comparable to CLAP text-search similarity. MuQ evidence alone does not satisfy the separate safe-delete corroboration rules.
 
 ## Practical reading
 

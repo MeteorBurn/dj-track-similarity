@@ -61,7 +61,8 @@ The current CLI opt-in is explicit:
 dj-sim text-search "warm dub techno pads" --use-ann-index --db .\data\library.sqlite
 ```
 
-If the sidecar is missing, stale, or unsupported, the command warns and falls back to exact search.
+If the sidecar is missing, stale, or unsupported, the command fails. Omit `--use-ann-index` when you
+want exact search without the sidecar.
 
 ## Rebuild after embeddings change
 

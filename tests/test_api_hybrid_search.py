@@ -19,6 +19,7 @@ from dj_track_similarity.analysis_models import (
     MaestWrite,
 )
 from dj_track_similarity.api import create_app
+from dj_track_similarity.api_schemas import HybridSearchRequest
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
@@ -38,6 +39,13 @@ RISK_BREAKDOWN_KEYS = {
     "source_disagreement",
     "confidence_missingness",
 }
+
+
+def test_hybrid_api_defaults_include_muq_with_equal_weight_inputs() -> None:
+    request = HybridSearchRequest(seed_track_ids=[1])
+
+    assert request.sources == ["mert", "maest", "muq", "sonara", "clap"]
+    assert request.weights is None
 
 
 def test_hybrid_search_endpoint_returns_unified_diagnostics(monkeypatch, tmp_path: Path) -> None:

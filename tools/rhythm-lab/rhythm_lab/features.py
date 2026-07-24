@@ -16,18 +16,26 @@ from .source_db import SONARA_CORE_OUTPUT, SourceDatabase, SourceTrack
 
 
 SONARA_SOURCE_VARIANTS = ("sonara", "sonara2", "sonara2vocal")
-EMBEDDING_FEATURE_SOURCES = ("mert", "maest", "clap")
+EMBEDDING_FEATURE_SOURCES = ("mert", "maest", "clap", "muq")
 BASE_FEATURE_SOURCES = ("sonara", *EMBEDDING_FEATURE_SOURCES)
 SUPPORTED_FEATURE_SOURCES = (*SONARA_SOURCE_VARIANTS, *EMBEDDING_FEATURE_SOURCES)
 FEATURE_SOURCE_ALIASES = {"sonara2": "sonara", "sonara2vocal": "sonara"}
-FEATURE_SETS = ("sonara", "mert", "maest", "combined")
-ABLATION_FEATURE_SETS = tuple(
+FEATURE_SETS = ("sonara", "mert", "maest", "muq", "combined")
+_LEGACY_ABLATION_EMBEDDING_SOURCES = ("mert", "maest", "clap")
+_LEGACY_ABLATION_FEATURE_SETS = tuple(
     "combined" if sources == ("sonara", "mert", "maest") else "+".join(sources)
     for sonara_source in ("", *SONARA_SOURCE_VARIANTS)
-    for size in range(0, len(EMBEDDING_FEATURE_SOURCES) + 1)
-    for embedding_sources in combinations(EMBEDDING_FEATURE_SOURCES, size)
+    for size in range(0, len(_LEGACY_ABLATION_EMBEDDING_SOURCES) + 1)
+    for embedding_sources in combinations(_LEGACY_ABLATION_EMBEDDING_SOURCES, size)
     if sonara_source or embedding_sources
     for sources in (((sonara_source,) if sonara_source else ()) + embedding_sources,)
+)
+ABLATION_FEATURE_SETS = (
+    *_LEGACY_ABLATION_FEATURE_SETS,
+    "muq",
+    "sonara+muq",
+    "mert+muq",
+    "sonara+mert+maest+clap+muq",
 )
 SONARA_SCALAR_FIELDS = (
     "bpm",

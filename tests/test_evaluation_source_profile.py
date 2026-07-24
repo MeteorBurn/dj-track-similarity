@@ -73,7 +73,7 @@ def test_source_profile_zero_coverage_source_gets_zero_weight_and_warning() -> N
     assert any("source=maest has no coverage" in warning for warning in report["warnings"])
 
 
-def test_source_profile_default_clap_without_rows_is_neutral() -> None:
+def test_source_profile_default_muq_and_clap_without_rows_are_neutral() -> None:
     db = EvaluationRepository()
     _activate_runtime_embedding_outputs(db, ("mert", "maest", "clap"))
     db.sonara_rows.clear()
@@ -91,10 +91,30 @@ def test_source_profile_default_clap_without_rows_is_neutral() -> None:
     )
 
     weights = report["recommended_weights"]["weights"]
-    assert report["sources"] == ["mert", "maest", "sonara", "clap"]
+    assert report["sources"] == ["mert", "maest", "muq", "sonara", "clap"]
     assert weights["mert"] == 1.0
+    assert weights["muq"] == 0.0
     assert weights["clap"] == 0.0
+    assert any("source=muq has no coverage" in warning for warning in report["warnings"])
     assert any("source=clap has no coverage" in warning for warning in report["warnings"])
+
+
+def test_source_profile_accepts_muq_candidate_source() -> None:
+    db = EvaluationRepository()
+    _activate_runtime_embedding_outputs(db, ("muq",))
+    db.set_vector("muq", 1, [1.0, 0.0])
+    db.set_vector("muq", 2, [0.9, 0.1])
+
+    report = build_source_profile(
+        db,
+        seed_track_ids=[1],
+        sources=["muq"],
+        per_source=1,
+        random_seed=123,
+    )
+
+    assert report["sources"] == ["muq"]
+    assert report["recommended_weights"]["weights"] == {"muq": 1.0}
 
 
 def test_source_profile_consensus_source_outweighs_isolated_source() -> None:

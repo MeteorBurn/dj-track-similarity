@@ -7,10 +7,10 @@
 | Family | Reads | Writes | Unlocks |
 | --- | --- | --- | --- |
 | SONARA | file paths decoded natively by SONARA/Symphonia | signed `core`, `timeline`, `embedding`, and `fingerprint` outputs | SONARA search, SET, Hybrid, classifier input |
-| MAEST | shared FFmpeg-decoded audio | Core genre/syncopation rows and an Artifacts embedding | genre display, genre tag apply, SET, Hybrid, Audio Dedup signal |
+| MAEST | shared FFmpeg-decoded audio | Core genre/syncopation rows and an Artifacts embedding | genre display, genre tag apply, seed search, SET, Hybrid, Audio Dedup signal, classifier input |
 | MERT | shared FFmpeg-decoded audio | Artifacts embedding | MERT seed search, SET, Hybrid, Audio Dedup signal, classifier input |
-| MuQ | shared FFmpeg decode, resampled to 24 kHz `float32` | Artifacts embedding | LAB Reference Compare evidence |
-| CLAP | shared FFmpeg-decoded audio | Artifacts audio embedding | CLAP text search, SET, Hybrid, Audio Dedup signal |
+| MuQ | shared FFmpeg decode, resampled to 24 kHz `float32` | Artifacts embedding | seed search, LAB Reference Compare, SET, Hybrid, Audio Dedup signal, classifier input |
+| CLAP | shared FFmpeg-decoded audio | Artifacts audio embedding | seed and text search, SET, Hybrid, Audio Dedup signal, classifier input |
 | CLASSIFIERS | exact stored inputs from each promoted manifest | Core `classifier_scores` rows | CLASS filters, SET preferences, Hybrid diagnostics |
 
 ## Device behavior
@@ -106,7 +106,7 @@ variant, momentary loudness maximum and loudness range remain available to the e
 dynamics comparison, and `vocalness` remains an explicit search modifier and an optional
 `sonara2vocal` variant.
 
-The SONARA `embedding`, `fingerprint`, and tempo curve are data-only today. MERT and CLAP remain the search embeddings, while Audio Dedup and the current similarity and classifier matrices ignore the SONARA representations.
+The SONARA `embedding`, `fingerprint`, and tempo curve are data-only today. MAEST, MERT, MuQ, and CLAP are the current generic seed-search embeddings. Audio Dedup and classifier matrices can use their exact current contracts, but still ignore the SONARA embedding and fingerprint representations.
 
 ## Dedicated storage tables
 
@@ -144,7 +144,7 @@ upserts that Artifacts output. Unselected current outputs remain intact.
 ## Classifier requirement
 
 Classifier jobs use the exact inputs named by each promoted manifest: current SONARA Core when
-required, plus only the MERT, MAEST, and/or CLAP embeddings named by its features or
+required, plus only the MERT, MAEST, MuQ, and/or CLAP embeddings named by its features or
 `required_inputs`. SONARA cannot share an audio job with GPU models, and classifier scoring is a
 third database-only job, so run missing stages before scoring.
 

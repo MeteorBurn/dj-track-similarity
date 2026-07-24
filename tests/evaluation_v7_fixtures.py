@@ -32,7 +32,11 @@ class EvaluationRepository:
             for track_id in range(1, self.track_count + 1)
         }
         coverage = AnalysisCoverage(
-            sonara_core=True, mert=True, maest_embedding=True, clap=True
+            sonara_core=True,
+            mert=True,
+            maest_embedding=True,
+            muq=True,
+            clap=True,
         )
         self.summaries = {
             track_id: _summary(identity, coverage)
@@ -41,6 +45,7 @@ class EvaluationRepository:
         self.outputs = {
             ("mert", "embedding"): _embedding_output("mert", "1"),
             ("maest", "embedding"): _embedding_output("maest", "2"),
+            ("muq", "embedding"): _embedding_output("muq", "4"),
             ("clap", "embedding"): _embedding_output("clap", "3"),
             ("sonara", "core"): _sonara_output(),
         }
@@ -61,6 +66,7 @@ class EvaluationRepository:
         self.vectors: dict[str, dict[int, np.ndarray]] = {
             "mert": {},
             "maest": {},
+            "muq": {},
             "clap": {},
         }
         self._event_id = 1

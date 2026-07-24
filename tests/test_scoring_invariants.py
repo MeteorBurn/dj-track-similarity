@@ -88,6 +88,7 @@ def _score_set_layers(
     embedding_keys = {
         "mert": "mert",
         "maest": "maest_embedding",
+        "muq": "muq",
         "clap": "clap_audio",
     }
     monkeypatch.setattr(
@@ -107,7 +108,7 @@ def _score_set_layers(
         object(),
         analysis_outputs={
             family: current_embedding_analysis_output(family)
-            for family in set_builder.REQUIRED_EMBEDDINGS
+            for family in set_builder.DEFAULT_SET_EMBEDDING_SOURCES
         },
     )._score_candidate(
         _set_candidate(),
@@ -123,8 +124,9 @@ def test_set_fixed_weights_and_exact_synthetic_aggregate(
 ) -> None:
     assert set_builder.DEFAULT_MODEL_WEIGHTS == {
         "mert": 0.30,
-        "clap": 0.22,
         "maest": 0.18,
+        "muq": 0.15,
+        "clap": 0.22,
         "sonara_broad": 0.30,
     }
     assert set_builder.SONARA_GROUP_WEIGHTS == {
@@ -137,28 +139,36 @@ def test_set_fixed_weights_and_exact_synthetic_aggregate(
 
     layer_scores = {
         "mert": 0.80,
-        "clap_audio": 0.60,
         "maest_embedding": 0.40,
+        "muq": 0.70,
+        "clap_audio": 0.60,
         "sonara_broad": 0.20,
     }
     result = _score_set_layers(monkeypatch, layer_scores)
-    expected = 0.80 * 0.30 + 0.60 * 0.22 + 0.40 * 0.18 + 0.20 * 0.30
+    expected = (
+        0.80 * 0.30
+        + 0.40 * 0.18
+        + 0.70 * 0.15
+        + 0.60 * 0.22
+        + 0.20 * 0.30
+    ) / 1.15
 
     assert result.base_score == pytest.approx(expected)
     assert result.breakdown["consensus"] == pytest.approx(expected)
     assert {
         key: result.breakdown[key]
-        for key in ("mert", "clap_audio", "maest_embedding", "sonara_broad")
+        for key in ("mert", "maest_embedding", "muq", "clap_audio", "sonara_broad")
     } == pytest.approx(layer_scores)
 
 
 @pytest.mark.parametrize(
     ("changed_layer", "weight"),
     [
-        ("mert", 0.30),
-        ("clap_audio", 0.22),
-        ("maest_embedding", 0.18),
-        ("sonara_broad", 0.30),
+        ("mert", 0.30 / 1.15),
+        ("maest_embedding", 0.18 / 1.15),
+        ("muq", 0.15 / 1.15),
+        ("clap_audio", 0.22 / 1.15),
+        ("sonara_broad", 0.30 / 1.15),
     ],
 )
 def test_changing_one_set_layer_changes_only_its_raw_component(
@@ -168,8 +178,9 @@ def test_changing_one_set_layer_changes_only_its_raw_component(
 ) -> None:
     baseline_scores = {
         "mert": 0.20,
-        "clap_audio": 0.30,
         "maest_embedding": 0.40,
+        "muq": 0.45,
+        "clap_audio": 0.30,
         "sonara_broad": 0.50,
     }
     changed_scores = {

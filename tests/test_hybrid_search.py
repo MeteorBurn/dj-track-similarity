@@ -129,6 +129,7 @@ def _summary(
             sonara_core=True,
             maest_embedding=True,
             mert=True,
+            muq=True,
             clap=True,
         ),
         classifier_scores=(),
@@ -188,13 +189,13 @@ class _Repository:
             ("sonara", "core"): AnalysisOutput(contracts.core),
             **{
                 (family, "embedding"): current_embedding_analysis_output(family)
-                for family in ("mert", "maest", "clap")
+                for family in ("mert", "maest", "muq", "clap")
             },
         }
         self.summaries: dict[int, TrackSummary] = {}
         self.sonara_rows: dict[int, SonaraFeatureRow] = {}
         self.vectors: dict[str, dict[int, np.ndarray]] = {
-            family: {} for family in ("mert", "maest", "clap")
+            family: {} for family in ("mert", "maest", "muq", "clap")
         }
         self.session_requests: list[dict[str, object]] = []
         self.events: list[dict[str, object]] = []
@@ -205,6 +206,7 @@ class _Repository:
         *,
         mert: Sequence[float],
         maest: Sequence[float],
+        muq: Sequence[float] | None = None,
         clap: Sequence[float] | None = None,
         bpm: float = 124.0,
         energy: float = 0.5,
@@ -225,6 +227,7 @@ class _Repository:
         vectors = {
             "mert": mert,
             "maest": maest,
+            "muq": mert if muq is None else muq,
             "clap": mert if clap is None else clap,
         }
         for family, values in vectors.items():
@@ -331,7 +334,7 @@ class _Repository:
 def _analysis_outputs(repository: _Repository) -> dict[str, AnalysisOutput]:
     return {
         family: repository.outputs[(family, "embedding")]
-        for family in ("mert", "maest", "clap")
+        for family in ("mert", "maest", "muq", "clap")
     }
 
 
@@ -376,6 +379,94 @@ def test_hybrid_search_uses_equal_weights_and_typed_contracts() -> None:
     assert all(row.track.track_id != 1 for row in result.results)
     assert tuple(result.results[0].match_character) == MATCH_CHARACTER_AXES
     assert set(result.results[0].risk_breakdown) == _RISK_BREAKDOWN_KEYS
+
+
+def test_hybrid_default_sources_include_muq_with_equal_weights() -> None:
+    repository = _hybrid_library()
+
+    result = _build(
+        repository,
+        seed_track_ids=[1],
+        sources=None,
+        per_source=3,
+        limit=3,
+        record_session=True,
+    )
+
+    assert result.sources == ("mert", "maest", "muq", "sonara", "clap")
+    assert result.weights_used == {
+        "mert": 0.2,
+        "maest": 0.2,
+        "muq": 0.2,
+        "sonara": 0.2,
+        "clap": 0.2,
+    }
+    assert result.source_contract_hashes["muq"] == (
+        repository.outputs[("muq", "embedding")].contract_hash
+    )
+    assert any("muq" in row.score_breakdown for row in result.results)
+    assert repository.session_requests[0]["source_contract_hashes"]["muq"] == (
+        repository.outputs[("muq", "embedding")].contract_hash
+    )
+    assert any(
+        "muq" in event["score_breakdown"]["sources"]
+        for event in repository.events
+    )
+
+
+def test_hybrid_muq_changes_ranking_and_disables_cleanly() -> None:
+    repository = _Repository()
+    repository.add(
+        1,
+        mert=[1.0, 0.0],
+        maest=[1.0, 0.0],
+        muq=[1.0, 0.0],
+    )
+    repository.add(
+        2,
+        mert=[0.0, 1.0],
+        maest=[0.0, 1.0],
+        muq=[0.99, 0.01],
+    )
+    repository.add(
+        3,
+        mert=[0.99, 0.01],
+        maest=[0.99, 0.01],
+        muq=[0.0, 1.0],
+    )
+
+    muq_only = _build(
+        repository,
+        seed_track_ids=[1],
+        sources=["muq"],
+        weights={"muq": 1.0},
+        per_source=2,
+        limit=2,
+    )
+    assert [row.track.track_id for row in muq_only.results] == [2, 3]
+    assert "muq" in muq_only.results[0].score_breakdown
+
+    repository.outputs.pop(("muq", "embedding"))
+    repository.vectors.pop("muq")
+    without_muq = build_hybrid_search_preview(
+        repository,
+        seed_track_ids=[1],
+        analysis_outputs={
+            family: repository.outputs[(family, "embedding")]
+            for family in ("mert", "maest", "clap")
+        },
+        sources=["mert", "maest", "sonara", "clap"],
+        per_source=2,
+        limit=2,
+    )
+
+    assert without_muq.weights_used == {
+        "mert": 0.25,
+        "maest": 0.25,
+        "sonara": 0.25,
+        "clap": 0.25,
+    }
+    assert all("muq" not in row.score_breakdown for row in without_muq.results)
 
 
 def test_hybrid_custom_weights_change_rrf_order() -> None:

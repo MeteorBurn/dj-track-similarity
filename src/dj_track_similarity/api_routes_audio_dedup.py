@@ -22,6 +22,8 @@ def register_audio_dedup_routes(app: FastAPI, state: AppDatabaseState) -> None:
             return state.require_audio_dedup_jobs().start(
                 root=request.root,
                 path_contains=request.path_contains,
+                sources=request.sources,
+                weights=request.weights,
                 preset=request.preset,
                 min_score=request.min_score,
                 min_similarity=request.min_similarity,

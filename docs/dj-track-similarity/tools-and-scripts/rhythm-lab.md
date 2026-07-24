@@ -20,10 +20,24 @@ Only classifier manifest version `2` is scoring-compatible. Checked-in version `
 artifacts are blocked until retrained and promoted. SONARA-dependent profiles must match current
 SONARA contracts and feature revision `6`. Missing inputs are incompatible rather than zero-filled.
 
+Normal training now includes the `muq` feature set. MuQ can also participate in arbitrary
+source combinations accepted by the backend and CLI. The legacy `combined` alias remains
+`sonara+mert+maest`.
+
+The default `benchmark-ablation` matrix preserves its previous combinations and adds four
+representative MuQ cases: `muq`, `sonara+muq`, `mert+muq`, and
+`sonara+mert+maest+clap+muq`. Repeat `--feature-set` to benchmark other explicit combinations.
+Promoted manifest version `2` records the exact ordered contracts, and runtime scoring accepts
+canonical `muq:<index>` features from the current MuQ embedding contract.
+
 For a changed SONARA release, first run the ordered, crash-resumable `prepare-sonara-release` flow
 for the main Core + Artifacts pair, then reanalyze, retrain, promote, and rescore affected profiles.
-It is not a distributed atomic transaction. The frontend v7 port is deferred, so do not rely on
-current browser launch or CLASS-tab instructions for v7 operation.
+It is not a distributed atomic transaction.
+
+The static Rhythm Lab UI has no dedicated MuQ selector or explanatory copy yet, although it can
+display feature sets returned by backend training and benchmarks. Use the CLI for explicit MuQ
+recipes. The frontend v7 port is deferred, so do not rely on current browser launch or CLASS-tab
+instructions for v7 operation.
 
 ## Recover labels from a preserved legacy database
 

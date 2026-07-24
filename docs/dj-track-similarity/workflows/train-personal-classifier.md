@@ -46,7 +46,16 @@ dj-sim analyze --models sonara --db .\data\library.sqlite
 dj-sim analyze --models maest,mert --db .\data\library.sqlite
 ```
 
-Benchmark variants can also use CLAP when CLAP embeddings already exist. SONARA 2.0 benchmark variants still read stored SONARA features. The `sonara2vocal` variant adds `vocalness` to the candidate feature set.
+The legacy `combined` feature set still means exactly `sonara+mert+maest`. If a selected feature set
+contains MuQ, store its current embedding first:
+
+```powershell
+dj-sim analyze --models muq --db .\data\library.sqlite
+```
+
+Benchmark variants can also use CLAP when CLAP embeddings already exist. SONARA 2.0 benchmark
+variants still read stored SONARA features. The `sonara2vocal` variant adds `vocalness` to the
+candidate feature set.
 
 The command above uses the current SONARA `core` output, matching the CLI and direct API defaults.
 The `timeline`, `embedding`, and `fingerprint` outputs are not classifier inputs. The exact `core`
@@ -93,6 +102,10 @@ labels for the calibration gate. UI promotion ignores calibrated artifacts
 while calibration is hidden, so an older uncalibrated winner is safer than an
 automatically generated calibrated finalist.
 
+Normal CLI training now includes the standalone `muq` feature set alongside the
+previous defaults. The static Training UI has no dedicated MuQ recipe selector
+or updated explanatory copy yet.
+
 After training, listen to high-scoring, low-scoring, and borderline candidates. Useful mistakes
 often reveal that the concept or the label set needs refinement before promotion.
 
@@ -108,7 +121,14 @@ python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\lib
 The Training tab shows the benchmark winner and lets you choose a different
 trained variant before promotion. The default benchmark matrix includes
 embedding-only combinations, the original SONARA feature set, `sonara2`, and
-`sonara2vocal`.
+`sonara2vocal`. It preserves the previous matrix and adds `muq`, `sonara+muq`,
+`mert+muq`, and `sonara+mert+maest+clap+muq`.
+
+For any other combination, repeat the CLI option:
+
+```powershell
+python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --profile live_instrumentation --feature-set muq --feature-set sonara+muq --output tools\rhythm-lab\artifacts\ablation-muq.json
+```
 
 ## 6. Optional calibration
 
@@ -189,7 +209,9 @@ analysis contract changes.
 
 The runtime accepts manifest version `2`. The promoted `model.json` files currently in
 `models/classifiers/` still declare version `1`, so they are blocked until their profiles are
-retrained and promoted.
+retrained and promoted. A new v2 manifest may declare ordered `muq:<index>` features and the exact
+current MuQ embedding contract; backend scoring loads those values from SQLite without decoding
+audio.
 
 ## Safety
 

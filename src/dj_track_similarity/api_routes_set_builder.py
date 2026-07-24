@@ -34,13 +34,15 @@ def register_set_builder_routes(
             classifier_preferences=request.classifier_preferences,
             classifier_flows=request.classifier_flows,
             random_seed=request.random_seed,
+            sources=tuple(request.sources),
+            weights=request.weights,
         )
         try:
             return SmartSetBuilder(
                 state.require_db(),
                 analysis_outputs={
                     family: current_embedding_analysis_output(family)
-                    for family in ("mert", "maest", "clap")
+                    for family in request.sources
                 },
             ).generate(config)
         except (RuntimeError, ValueError) as error:

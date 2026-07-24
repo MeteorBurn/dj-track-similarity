@@ -23,8 +23,9 @@ from .analysis_config import (
 )
 
 
-EvaluationSource = Literal["mert", "maest", "sonara", "clap"]
-HybridSearchSource = Literal["mert", "maest", "sonara", "clap"]
+EmbeddingSource = Literal["mert", "maest", "muq", "clap"]
+EvaluationSource = Literal["mert", "maest", "muq", "sonara", "clap"]
+HybridSearchSource = Literal["mert", "maest", "muq", "sonara", "clap"]
 ReferenceCompareModel = Literal["clap", "mert", "muq", "maest", "sonara"]
 ReferenceCompareVerdict = Literal[
     "mood", "palette", "instruments", "groove", "genre", "transition", "miss"
@@ -115,6 +116,12 @@ class AudioDedupJobRequest(BaseModel):
 
     root: str
     path_contains: list[str] = Field(default_factory=list)
+    sources: list[EmbeddingSource] = Field(
+        default_factory=lambda: ["mert", "maest", "muq", "clap"],
+        min_length=1,
+        max_length=4,
+    )
+    weights: dict[str, float] | None = None
     preset: str = Field(default="safe", pattern="^(safe|balanced|aggressive)$")
     min_score: float | None = Field(default=None, ge=0.0, le=1.0)
     min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
@@ -122,6 +129,12 @@ class AudioDedupJobRequest(BaseModel):
     out_dir: str | None = None
     apply: bool = False
     confirmation: str | None = None
+
+    @model_validator(mode="after")
+    def reject_duplicate_sources(self) -> "AudioDedupJobRequest":
+        if len(set(self.sources)) != len(self.sources):
+            raise ValueError("sources must be unique")
+        return self
 
 
 class AudioDoctorJobRequest(BaseModel):
@@ -284,9 +297,9 @@ class HybridSearchRequest(BaseModel):
 
     seed_track_ids: list[EvaluationTrackId] = Field(min_length=1, max_length=5)
     sources: list[HybridSearchSource] = Field(
-        default_factory=lambda: ["mert", "maest", "sonara", "clap"],
+        default_factory=lambda: ["mert", "maest", "muq", "sonara", "clap"],
         min_length=1,
-        max_length=4,
+        max_length=5,
     )
     weights: dict[str, float] | None = None
     score_profile: dict[str, Any] | None = None
@@ -311,6 +324,8 @@ class HybridSearchRequest(BaseModel):
             raise ValueError("Provide either weights or score_profile, not both")
         if len(set(self.seed_track_ids)) != len(self.seed_track_ids):
             raise ValueError("seed_track_ids must be unique")
+        if len(set(self.sources)) != len(self.sources):
+            raise ValueError("sources must be unique")
         return self
 
 
@@ -348,6 +363,12 @@ class SetBuilderGenerateRequest(BaseModel):
     seed_mode: str = Field(default="manual", pattern="^(manual|auto)$")
     seed_track_ids: list[int] = Field(default_factory=list)
     auto_seed_count: int = Field(default=5, ge=1, le=5)
+    sources: list[EmbeddingSource] = Field(
+        default_factory=lambda: ["mert", "maest", "muq", "clap"],
+        min_length=1,
+        max_length=4,
+    )
+    weights: dict[str, float] | None = None
     mode: str = Field(
         default="balanced_set",
         pattern="^(similar_crate|weird_adjacent|balanced_set|discovery)$",
@@ -370,6 +391,12 @@ class SetBuilderGenerateRequest(BaseModel):
         default_factory=dict
     )
     random_seed: int = 0
+
+    @model_validator(mode="after")
+    def reject_duplicate_sources(self) -> "SetBuilderGenerateRequest":
+        if len(set(self.sources)) != len(self.sources):
+            raise ValueError("sources must be unique")
+        return self
 
 
 class FilteredTracksRequest(BaseModel):
@@ -438,9 +465,9 @@ class EvaluationSourceProfileRunRequest(BaseModel):
     seed_track_ids: list[EvaluationTrackId] | None = Field(default=None, max_length=200)
     sample_count: int = Field(default=50, ge=1, le=200)
     sources: list[EvaluationSource] = Field(
-        default_factory=lambda: ["mert", "maest", "sonara", "clap"],
+        default_factory=lambda: ["mert", "maest", "muq", "sonara", "clap"],
         min_length=1,
-        max_length=4,
+        max_length=5,
     )
     per_source: int = Field(default=30, ge=1, le=100)
     top_k: list[EvaluationTopK] = Field(
@@ -480,7 +507,7 @@ class EvaluationWeightedCandidatesRunRequest(BaseModel):
     seed_track_ids: list[EvaluationTrackId] | None = Field(default=None, max_length=200)
     sample_count: int = Field(default=50, ge=1, le=200)
     sources: list[EvaluationSource] | None = Field(
-        default=None, min_length=1, max_length=4
+        default=None, min_length=1, max_length=5
     )
     per_source: int = Field(default=30, ge=1, le=100)
     random_seed: int = 123

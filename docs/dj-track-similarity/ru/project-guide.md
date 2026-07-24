@@ -49,7 +49,7 @@ Evaluation — только при необходимости; старые сх
 
 - [Идея проекта](./concepts/project-idea.md) объясняет цель локальной драматургии диджейского сета и намеренно скромный масштаб проекта.
 - [Признаки, эмбеддинги и теги](./concepts/features-embeddings-tags.md) рассказывают, что означает каждый сохранённый результат.
-- [Оценки сходства](./concepts/similarity-scores.md) объясняют, почему оценки MERT, SONARA, CLAP, SET, Hybrid и Audio Dedup нельзя бездумно смешивать.
+- [Оценки сходства](./concepts/similarity-scores.md) объясняют, почему оценки MERT, MuQ, SONARA, CLAP, SET, Hybrid и Audio Dedup нельзя бездумно смешивать.
 - [Построение маршрута SET](./concepts/smart-set-builder-routing.md) показывает, почему созданный порядок — это черновик, а не гарантия.
 - [Классификаторы и Rhythm Lab](./concepts/classifiers-and-rhythm-lab.md) описывают локальные профили и оценки опубликованных моделей.
 

@@ -1,5 +1,26 @@
 # Agent Instructions
 
+# AGENTS.md Addendum — ExecPlans and Orchestration
+
+Add this block to the existing root `AGENTS.md` if it does not already contain equivalent rules.
+
+## ExecPlans
+
+For large, multi-phase changes, use an ExecPlan in accordance with the root `PLANS.md`.
+
+The static specification for a specific task is stored in `plans/<task-name>/`. The live execution state, decisions, discoveries, ownership, and validation evidence are maintained in `plans/<task-name>/EXECPLAN.md`.
+
+Do not copy the full temporary task specification into `AGENTS.md`.
+
+## Multi-Agent Orchestration
+
+* Parallel subagents should be used primarily for independent read-only investigation, testing, triage, and limited non-overlapping workstreams.
+* Two subagents must not modify the same file or a tightly coupled shared contract at the same time.
+* Shared fan-in files, architectural decisions, conflict resolution, and final integration remain the responsibility of the primary agent.
+* Before the write phase begins, the primary agent must record file ownership in the current ExecPlan.
+* Subagents must not commit, push, or create pull requests without the user’s separate explicit authorization.
+
+
 ## Source Of Truth
 
 - `dj-track-similarity` is a local-first, enthusiast DJ-library workbench. Keep claims modest: model outputs are ranking signals for listening-led shortlisting, not objective truth or finished automatic DJ generation.
@@ -9,17 +30,17 @@
 
 ## High-Value Map
 
-- Backend/CLI/API live under `src/dj_track_similarity/` (~78 modules). Hot files by concern:
+- Backend/CLI/API live under `src/dj_track_similarity/`. Hot files by concern:
   - **Composition**: `cli.py` (Typer), `api.py` (`create_app`), `api_schemas.py`, `api_state.py` (`AppDatabaseState` + job managers), `api_routes_*.py`, `dependencies.py`, `runtime.py`, `job_runtime.py`, `logging_config.py`.
   - **Database**: `database.py` (`LibraryDatabase`), `db_connection.py`, `db_schema.py`, `db_schema_v7.py`, `db_artifacts.py`, `db_evaluation_sidecar.py`, `db_tracks.py`, `db_analysis.py`, `db_analysis_candidates.py`, `db_storage.py`, `db_library_queries.py`, `db_search_fts.py`, `db_summary.py`, `db_evaluation.py`.
   - **Scanning + audio + tags**: `scanner.py`, `scan_jobs.py`, `audio_loader.py`, `media_preview.py`, `tags.py`, `wave_tags.py`, `genres.py`, `track_resolution.py`, `tempo_resolution.py`.
   - **Analysis orchestration**: `analysis_config.py`, `analysis_jobs.py`, `analysis_pipeline.py` (fixed order SONARA → ML → CLASSIFIERS), `analysis_queue.py`, `analysis_job_state.py`, `analysis_job_batch.py`, `analysis_model_runners.py`.
   - **Models**: `sonara_contract.py` (safety-critical signature/version pin), `sonara_features.py`, `sonara_storage.py`, `sonara_similarity.py`, `sonara_similarity_scoring.py`, `embedding.py` (MERT/MuQ/CLAP adapters), `genres.py` (MAEST labels).
   - **Search + set + hybrid**: `search.py` (`SimilaritySearch`), `hybrid_search.py`, `hybrid_explanation.py`, `hybrid_transition.py`, `set_builder.py`, `set_sequence.py`, `transition_diagnostics.py`, `vector_index.py`, `ann_index.py`.
-  - **Classifiers**: `classifier_jobs.py`, `classifier_manifest.py` (`CLASSIFIER_MANIFEST_VERSION = 2`), `classifier_production.py`, `classifier_scoring.py`.
+  - **Classifiers**: `classifier_jobs.py`, `classifier_manifest.py` (`CLASSIFIER_MANIFEST_VERSION = 2`; supported inputs SONARA/MERT/MAEST/CLAP/MuQ), `classifier_production.py`, `classifier_scoring.py`.
   - **Evaluation subsystem**: `evaluation/` (`ablation`, `calibration`, `candidates`, `judged`, `labels`, `metrics`, `reports`, `risk_sweep`, `score_profile_optimizer`, `score_profiles`, `seed_sampling`, `source_profile`, `weighted_candidates`).
   - **Rhythm Lab bridge + misc**: `rhythm_lab_launcher.py`, `rhythm_lab_collections.py`, `reference_compare.py`, `exporter.py`.
-- `frontend/` is the React 19 + Vite 7 + TypeScript 5.9 UI. Its v7 API port is explicitly deferred: the current `frontend/src/api.ts` still reflects the removed pre-v7 contract, so do not claim the frontend or an existing `frontend/dist` bundle is v7-compatible. Root component tree in `frontend/src/App.tsx`; main panels in `LibraryPanel.tsx`, `TrackPanel.tsx`, `SearchPlaylistPanel.tsx`, `ReferenceComparePanel.tsx`, `ClapSearchTab.tsx`. Frontend tests use Node's built-in `node --test`, not Vitest. See `frontend/AGENTS.md`.
+- `frontend/` is the React 19 + Vite 7 + TypeScript 5.9 UI. Its full v7 API port is explicitly deferred: current code mixes legacy track/request shapes with isolated newer types and partial MuQ labels. Do not claim the source or an existing `frontend/dist` bundle is v7-compatible until the complete port is explicitly authorized and verified. Root component tree in `frontend/src/App.tsx`; main panels in `LibraryPanel.tsx`, `TrackPanel.tsx`, `SearchPlaylistPanel.tsx`, `ReferenceComparePanel.tsx`, `ClapSearchTab.tsx`. Frontend tests use Node's built-in `node --test`, not Vitest. See `frontend/AGENTS.md`.
 - `docs/dj-track-similarity/` is the VitePress source; `site/` is generated output. Style rules live in `.vale.ini`, `docs/dj-track-similarity/cspell.json`, and `docs/dj-track-similarity/.markdownlint.json`.
 - Helper tools are separate safety domains, each with its own `AGENTS.md`: `tools/audio-doctor/`, `tools/audio-dedup/`, `tools/rhythm-lab/`.
 - Runtime ports are fixed: backend `8765`, Vite `5173`, Rhythm Lab `8777`. Before starting one, check for an existing matching project process. Running `run_server.cmd` without arguments must prompt first for a database path with the shown default `C:\db\volumes.sqlite`, then prompt for local or LAN mode; pass the selected path to `dj-sim serve` only after both prompts complete. Explicit `run_server.cmd local ...` and `run_server.cmd lan ...` calls remain non-interactive and use only their supplied arguments. Keep argument forwarding through `scripts/run_server_launcher.py` as a list with `shell=False`; do not rebuild user-supplied paths into a `cmd.exe` command string.
@@ -39,10 +60,11 @@
 - SQLite writes go through `LibraryDatabase` with path-scoped locking, WAL, and busy timeout. A fresh runtime catalog is schema-v7 Core plus mandatory Artifacts, bound by one `catalog_uuid`; Evaluation is optional and created only on request. Existing non-v7 Core databases and missing or mismatched Artifacts sidecars are rejected, not migrated. Relocation apply (`db_tracks.py`) updates stored `tracks.file_path` only; it never moves, copies, deletes, or retags audio.
 - Database reset/clear is database-only and must require explicit UI confirmation where applicable. Destructive SQLite maintenance on a real DB needs a backup/copy first and should finish with integrity/orphan checks.
 - Audio Doctor is dry-run-first (`audio_doctor_jobs.py`). `--apply` may rewrite only prior `REPAIRABLE` findings, creates backups by default, verifies each result, and UI/API apply requires the exact `APPLY REPAIR` confirmation.
-- Audio Dedup is report-only by default (`audio_dedup_jobs.py`). `--apply` requires exact `APPLY DELETE`, deletes only safe duplicate candidates inside `--root`, and removes SQLite rows only for files it actually deleted. Do not run apply modes for routine verification.
+- Audio Dedup is report-only by default (`audio_dedup_jobs.py`). `--apply` requires exact `APPLY DELETE`, deletes only safe duplicate candidates inside `--root`, and removes SQLite rows only for files it actually deleted. MuQ can add configurable embedding evidence but never replaces the existing MERT+MAEST delete-safety corroboration. Do not run apply modes for routine verification.
 - Rhythm Lab opens the main SQLite DB mostly read-only; labels, predictions, checkpoints, and artifacts stay under `tools/rhythm-lab/`. The explicit liked-track toggle is the narrow source-DB write path.
 - Promoted classifier scoring (`classifier_scoring.py`) is database-only, scoped by `classifier_key`, and writes only that classifier's `classifier_scores`. Do not recompute or delete other classifier scores. The current manifest format is `CLASSIFIER_MANIFEST_VERSION = 2` (`classifier_manifest.py`); each track must match the manifest signature exactly before scoring, and mismatched artifacts are blocked with a retrain/promote message.
-- Keep CLAP text-search scores separate from audio-to-audio CLAP signals used by SET/Hybrid/Audio Dedup. MuQ is stored for future workflows and is not a current search/SET/classifier input unless a future task explicitly changes that contract.
+- Keep CLAP text-search scores separate from audio-to-audio CLAP signals used by SET/Hybrid/Audio Dedup. Current-contract MuQ embeddings are supported by seed search, SET, Hybrid, Audio Dedup, and classifier inputs; preserve each workflow's explicit source/weight contract and do not mix MuQ with CLAP text scores.
+- SET defaults to MERT/MAEST/MuQ/CLAP with raw weights `0.30/0.18/0.15/0.22` plus SONARA broad `0.30`, normalized over enabled signals. Hybrid defaults to MERT/MAEST/MuQ/SONARA/CLAP with equal normalized weights. Disabling a source removes it from eligibility and the weight map; never retain a disabled source at zero weight as a hidden readiness requirement.
 - Any SONARA update requires a complete SONARA reanalysis. This includes a package/version/build update and any change to the decoder, execution path, analysis mode, sample rate, BPM range, requested features, bundled model, schema, provenance, signature, or project feature revision. The current pinned contract lives in `sonara_contract.py`: SONARA `0.3.1`, schema `5`, mode `playlist`, sample rate `22050`, BPM range `70..180`, feature revision `6`, decoder `sonara-symphonia`, execution path `analyze_batch`. Its output kinds are `core`, `timeline`, `embedding`, and `fingerprint`; the opt-in `aggression` feature and its outputs are not requested or stored. Never preserve compatibility by comparing, adapting, translating, or mixing results from the old and new SONARA contracts.
 - Before writing results under a new SONARA contract, run `prepare-sonara-release` against the selected v7 bundle. It derives the exact four runtime contracts, creates and verifies a Core plus Artifacts backup pair, and runs the ordered, receipt-backed activation so interruption is resumable and mixed state fails closed. Then run a full-library SONARA reanalysis from a clean SONARA state; do not treat a pilot or partial refresh as completion.
 - After the full SONARA reanalysis, retrain, re-promote, and re-score every classifier whose feature set uses SONARA. MERT-, MAEST-, MuQ-, or CLAP-only analysis and models remain independent unless their own contract changed.
@@ -61,7 +83,7 @@
 ## Verification Shortcuts
 
 - No CI is configured (`.github/workflows/` does not exist) and there is no pre-commit/husky/lint-staged setup. Verification is always local. There is no cross-package task runner; `run_server.cmd` is the only root launcher.
-- Instruction-only edit: `git diff -- AGENTS.md`, `git diff --check -- AGENTS.md`, then `rg` sentinel terms for safety topics. Do not run backend/frontend suites for instruction-only edits.
+- Instruction-only edit: inspect the scoped `git diff` for every touched `AGENTS.md`, run `git diff --check -- <paths>`, and use `rg` sentinel terms for safety/source-contract topics. Do not run backend/frontend suites for instruction-only edits.
 - Backend: `python -m pytest` from repo root only discovers `tests/` (per `[tool.pytest.ini_options] testpaths`, default `-q`). Focused runs: `python -m pytest <path> --override-ini addopts=`. No `conftest.py` exists; each test constructs its own temp SQLite/WAV and stubs SONARA/CLAP/MERT/MuQ/MAEST via `sonara_module=` / injected modules. Registered markers: `ml`, `slow`, `evaluation`.
 - Frontend: from `frontend/`, run `npm run build`; add `npm run typecheck` (`tsc --noEmit --noUnusedLocals --noUnusedParameters`) or `npm test` (`node --test tests/*.test.mjs`) when the touched area warrants it. No ESLint/Biome config. Playwright is installed but no Playwright test files exist yet.
 - Docs: from `docs/dj-track-similarity/`, run `npm run check` (strict Vale + VitePress build); run `npm run vale:sync` first after a fresh checkout or Vale package changes.

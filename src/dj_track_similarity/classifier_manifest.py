@@ -19,7 +19,7 @@ from .analysis_models import (
 
 CLASSIFIER_MANIFEST_VERSION = 2
 CLASSIFIER_SUPPORTED_MANIFEST_VERSIONS = (CLASSIFIER_MANIFEST_VERSION,)
-CLASSIFIER_SUPPORTED_INPUTS = ("sonara", "mert", "maest", "clap")
+CLASSIFIER_SUPPORTED_INPUTS = ("sonara", "mert", "maest", "clap", "muq")
 CLASSIFIER_SCORE_SEMANTICS = "positive_label_probability"
 COMPATIBLE_MANIFEST_STATUSES = {"valid"}
 CLASSIFIER_PUBLICATION_POINTER_VERSION = 1
@@ -50,6 +50,7 @@ _OUTPUT_KIND_BY_FEATURE_SOURCE = {
     "mert": "embedding",
     "maest": "embedding",
     "clap": "embedding",
+    "muq": "embedding",
 }
 
 
@@ -747,7 +748,8 @@ def _feature_sources(
         ):
             errors.append(
                 f"model.json feature_names contains unsupported feature "
-                f"{feature_name!r}; expected <sonara|mert|maest|clap>:<key>"
+                f"{feature_name!r}; expected "
+                "<sonara|mert|maest|clap|muq>:<key>"
             )
             continue
         if source not in sources:

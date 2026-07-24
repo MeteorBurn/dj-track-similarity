@@ -49,8 +49,13 @@ Rhythm Lab does not create a built-in starter profile. Existing profiles, includ
 
 Training uses the feature families declared by the selected profile artifact. Combined training
 requires current SONARA Core features plus MERT and MAEST embeddings; a feature set that includes
-CLAP also requires stored CLAP audio embeddings. Missing required values make a track ineligible;
-they are not zero-imputed.
+CLAP also requires stored CLAP audio embeddings. The legacy `combined` alias remains exactly
+`sonara+mert+maest`.
+
+MuQ is a normal embedding feature source. The `muq` set emits ordered `muq:<index>` features from
+the dimension declared by the current MuQ contract. It can be combined with other sources, for
+example as `sonara+muq`, `mert+muq`, or `sonara+mert+maest+clap+muq`. Missing required values make
+a track ineligible. Required values are not zero-imputed.
 
 SONARA inputs must share one current analysis signature. Training skips stale or mixed profiles. A row missing a requested opt-in field is also skipped rather than zero-imputed.
 
@@ -73,13 +78,14 @@ models/classifiers/<artifact-prefix>/model.json
 ```
 
 The main app discovers promoted profiles from those manifests. Manifest version `2` records the
-exact training inputs, including the SONARA contract when needed. Checked-in version `1` or
-unversioned artifacts are blocked from scoring: retrain and promote a v2 artifact instead.
+exact ordered `required_outputs`, including the SONARA contract when needed and the canonical MuQ
+embedding contract for `muq:<index>` features. Checked-in version `1` or unversioned artifacts are
+blocked from scoring: retrain and promote a v2 artifact instead.
 
 ## Scoring
 
 Promoted classifier scoring is database-only. Each manifest identifies the exact current SONARA and
-MERT/MAEST/CLAP inputs it needs. The aggregate job writes `classifier_scores` for every
+MERT/MAEST/CLAP/MuQ inputs it needs. The aggregate job writes `classifier_scores` for every
 selected compatible classifier-track pair without reading audio.
 
 Readiness is computed before the job total. Missing manifest inputs make a track not ready, not
@@ -97,6 +103,10 @@ distributed atomic transaction. Labels, feedback, and embedding-only artifacts r
 stale promoted artifacts are visible but cannot score until replaced.
 
 ## Current UI status
+
+The Rhythm Lab backend and CLI support MuQ recipes, but the static UI has no dedicated MuQ controls
+or explanatory copy yet. Use `benchmark-ablation` with explicit `--feature-set` values when you
+need a recipe outside the defaults.
 
 The backend exposes promoted classifier scores, but the frontend v7 port is deferred. Do not treat
 the current CLASS-tab controls or browser workflows as v7-compatible. Missing scores remain neutral

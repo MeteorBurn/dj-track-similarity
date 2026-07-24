@@ -884,9 +884,10 @@ def test_eval_export_seed_sample_cli_writes_csv(tmp_path: Path) -> None:
         "bpm",
         "musical_key",
         "energy",
-        "sonara_core",
-        "mert_embedding",
-        "clap_embedding",
+            "sonara_core",
+            "mert_embedding",
+            "muq_embedding",
+            "clap_embedding",
         "maest_analysis",
         "maest_embedding",
         "bucket",
@@ -1061,11 +1062,23 @@ def _save_cli_seed_sample_analysis(db: LibraryDatabase, track_id: int) -> None:
     )
     identity = _required_identity(db, track_id)
     target = _target(identity)
+    muq = current_embedding_analysis_output("muq")
     clap = current_embedding_analysis_output("clap")
     maest_analysis, maest_embedding = _maest_outputs()
-    db.register_analysis_outputs((clap, maest_analysis, maest_embedding))
-    clap_result = db.save_embedding_results(
+    db.register_analysis_outputs((muq, clap, maest_analysis, maest_embedding))
+    embedding_results = db.save_embedding_results(
         (
+            EmbeddingWrite(
+                target=target,
+                output=EmbeddingOutput(
+                    contract=muq.contract,
+                    vector=_expanded_unit_vector(
+                        int(muq.contract.dim),
+                        vector,
+                    ),
+                    analyzed_at=_NOW,
+                ),
+            ),
             EmbeddingWrite(
                 target=target,
                 output=EmbeddingOutput(
@@ -1079,7 +1092,7 @@ def _save_cli_seed_sample_analysis(db: LibraryDatabase, track_id: int) -> None:
             ),
         )
     )
-    assert clap_result[0].ok
+    assert all(result.ok for result in embedding_results)
     maest_result = db.save_maest_results(
         (
             MaestWrite(
@@ -1214,6 +1227,8 @@ def _register_evaluation_source_outputs(
             outputs[source] = current_embedding_analysis_output("mert")
         elif source == "maest":
             outputs[source] = _maest_outputs()[1]
+        elif source == "muq":
+            outputs[source] = current_embedding_analysis_output("muq")
         elif source == "clap":
             outputs[source] = current_embedding_analysis_output("clap")
         else:

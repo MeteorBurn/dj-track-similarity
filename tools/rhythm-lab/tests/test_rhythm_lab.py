@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from dataclasses import fields, replace
+from itertools import combinations
 from pathlib import Path
 import sys
 
@@ -20,9 +22,22 @@ from dj_track_similarity.analysis_model_runners import (  # noqa: E402
 from dj_track_similarity.library_models import AnalysisCoverage  # noqa: E402
 from rhythm_lab.artifact_io import artifact_sha256  # noqa: E402
 from rhythm_lab.cli import PromotionError, promote_profile_model  # noqa: E402
+from rhythm_lab.features import (  # noqa: E402
+    ABLATION_FEATURE_SETS,
+    FEATURE_SETS,
+    SONARA_SCALAR_FIELDS,
+    SONARA_VECTOR_FIELDS,
+    build_feature_matrix,
+    feature_sources,
+)
 from rhythm_lab.lab_db import RhythmLabDatabase, TrackIdentity  # noqa: E402
 from rhythm_lab.predictions import _predict_probabilities  # noqa: E402
-from rhythm_lab.source_db import SourceTrack  # noqa: E402
+from rhythm_lab.source_db import (  # noqa: E402
+    SONARA_CORE_OUTPUT,
+    SourceEmbeddingMatrix,
+    SourceSonaraFeatures,
+    SourceTrack,
+)
 from rhythm_lab.training import train_feature_set  # noqa: E402
 from rhythm_lab.web_app import cleanup_training_artifacts  # noqa: E402
 
@@ -129,6 +144,150 @@ class _ConstantClassifier:
 
     def predict(self, matrix: np.ndarray) -> np.ndarray:
         return np.asarray([self.label] * len(matrix))
+
+
+def _sonara_contract() -> ContractIdentity:
+    return ContractIdentity(
+        analysis_family="sonara",
+        output_kind="core",
+        model_name="sonara",
+        model_version="0.3.1",
+        release_hash="sha256:" + "1" * 64,
+        parameters={"fixture": "rhythm-lab-features"},
+    )
+
+
+def _sonara_features() -> SourceSonaraFeatures:
+    values: dict[str, object] = {}
+    text_fields = {
+        "detected_key_name",
+        "detected_key_camelot",
+        "predominant_chord",
+    }
+    vector_lengths = {
+        "mfcc_mean": 13,
+        "chroma_mean": 12,
+        "spectral_contrast_mean": 7,
+    }
+    for field in fields(SourceSonaraFeatures):
+        if field.name in vector_lengths:
+            values[field.name] = tuple(
+                float(index + 1) for index in range(vector_lengths[field.name])
+            )
+        elif field.name == "analyzed_at":
+            values[field.name] = "2026-07-24T10:00:00.000000Z"
+        elif field.name in text_fields:
+            values[field.name] = "fixture"
+        else:
+            values[field.name] = 1.0
+    return SourceSonaraFeatures(**values)  # type: ignore[arg-type]
+
+
+class _FeatureSource:
+    def __init__(self) -> None:
+        self.sonara_contract = _sonara_contract()
+        self.track = replace(
+            _track(1),
+            sonara_features=_sonara_features(),
+            sonara_contract=self.sonara_contract,
+        )
+        self.contracts = {
+            family: current_embedding_analysis_output(family, device="cpu").contract
+            for family in ("mert", "maest", "clap", "muq")
+        }
+
+    def list_tracks(self) -> list[SourceTrack]:
+        return [self.track]
+
+    def active_contract(self, output: object) -> ContractIdentity | None:
+        return self.sonara_contract if output == SONARA_CORE_OUTPUT else None
+
+    def load_embedding_matrix(self, family: str) -> SourceEmbeddingMatrix:
+        contract = self.contracts[family]
+        assert contract.dim is not None
+        family_value = float(("mert", "maest", "clap", "muq").index(family) + 2)
+        matrix = np.full((1, contract.dim), family_value, dtype=np.float32)
+        matrix.setflags(write=False)
+        return SourceEmbeddingMatrix(
+            family=family,  # type: ignore[arg-type]
+            contract=contract,
+            tracks=(self.track,),
+            matrix=matrix,
+            not_ready_track_ids=(),
+        )
+
+
+@pytest.mark.parametrize(
+    ("feature_set", "expected_sources"),
+    (
+        ("muq", ("muq",)),
+        ("sonara+muq", ("sonara", "muq")),
+        ("mert+muq", ("mert", "muq")),
+        (
+            "sonara+mert+maest+clap+muq",
+            ("sonara", "mert", "maest", "clap", "muq"),
+        ),
+    ),
+)
+def test_muq_feature_sets_extract_exact_current_contract_dimensions(
+    feature_set: str,
+    expected_sources: tuple[str, ...],
+) -> None:
+    source = _FeatureSource()
+
+    result = build_feature_matrix(
+        source,  # type: ignore[arg-type]
+        feature_set,
+        labels_by_identity={_identity(source.track): "yes"},
+    )
+
+    assert tuple(
+        contract.analysis_family for contract in result.required_outputs
+    ) == expected_sources
+    assert result.matrix.shape == (1, len(result.feature_names))
+    if "sonara" in expected_sources:
+        sonara_count = len(SONARA_SCALAR_FIELDS) + sum(SONARA_VECTOR_FIELDS.values())
+        assert result.feature_names[: len(SONARA_SCALAR_FIELDS)] == [
+            f"sonara:{field}" for field in SONARA_SCALAR_FIELDS
+        ]
+        assert sum(name.startswith("sonara:") for name in result.feature_names) == (
+            sonara_count
+        )
+    for family in ("mert", "maest", "clap", "muq"):
+        expected_count = (
+            int(source.contracts[family].dim) if family in expected_sources else 0
+        )
+        names = [
+            name for name in result.feature_names if name.startswith(f"{family}:")
+        ]
+        assert names == [f"{family}:{index}" for index in range(expected_count)]
+    if "muq" in expected_sources:
+        assert result.matrix[0, result.feature_names.index("muq:0")] == pytest.approx(
+            5.0
+        )
+
+
+def test_muq_defaults_preserve_legacy_combined_and_ablation_selection() -> None:
+    legacy_ablation = tuple(
+        "combined" if sources == ("sonara", "mert", "maest") else "+".join(sources)
+        for sonara_source in ("", "sonara", "sonara2", "sonara2vocal")
+        for size in range(0, 4)
+        for embedding_sources in combinations(("mert", "maest", "clap"), size)
+        if sonara_source or embedding_sources
+        for sources in (
+            ((sonara_source,) if sonara_source else ()) + embedding_sources,
+        )
+    )
+
+    assert feature_sources("combined") == ("sonara", "mert", "maest")
+    assert FEATURE_SETS == ("sonara", "mert", "maest", "muq", "combined")
+    assert ABLATION_FEATURE_SETS[: len(legacy_ablation)] == legacy_ablation
+    assert ABLATION_FEATURE_SETS[len(legacy_ablation) :] == (
+        "muq",
+        "sonara+muq",
+        "mert+muq",
+        "sonara+mert+maest+clap+muq",
+    )
 
 
 def test_lab_database_starts_without_implicit_profiles(tmp_path: Path) -> None:

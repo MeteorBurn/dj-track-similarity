@@ -22,6 +22,9 @@ IDs to `POST /api/set-builder/generate`. Audition returned candidates through
 `POST /api/export`. CLAP text search is also available through `dj-sim text-search`. The current
 contracts are in the [API reference](../reference/api.md).
 
+The SET and Hybrid source/weight fields are available through these backend endpoints. Equivalent
+React controls remain part of the deferred frontend port.
+
 ## Deferred frontend workflow
 
 The remaining workflow uses the deferred main UI. Expect to remove, replace, and reorder tracks
@@ -33,10 +36,13 @@ For SET, run all core analysis families:
 
 ```powershell
 dj-sim analyze --models sonara --db .\data\library.sqlite
-dj-sim analyze --models maest,mert,clap --db .\data\library.sqlite
+dj-sim analyze --models maest,mert,muq,clap --db .\data\library.sqlite
 ```
 
-A track needs SONARA, MERT, MAEST, and CLAP data to be SET-eligible.
+The default SET request requires SONARA, MERT, MAEST, MuQ, and CLAP. If you deliberately request
+only `mert`, `maest`, and `clap`, MuQ is not loaded or required for eligibility, and the effective
+weights remain the previous `0.30`, `0.18`, `0.22`, and `0.30` for MERT, MAEST, CLAP, and SONARA
+broad.
 
 ## 2. Pick anchors
 
@@ -51,6 +57,7 @@ Open the SET tab.
 - Choose **Manual** if your selected seeds should be fixed anchors.
 - Choose **Auto** if you want the app to choose anchors from the eligible library.
 - Pick a set mode, energy curve, track limit, and diversity value.
+- In an API client, keep the default MERT, MAEST, MuQ, and CLAP sources or choose an explicit subset.
 - Use BPM trajectory only when you truly want the set to climb or descend.
 - Use classifier preferences only when you understand the promoted classifier.
 
@@ -60,7 +67,8 @@ Click **Generate**. Review the coverage counts and preview order.
 
 Use MERT for a broad seed neighborhood. Use SONARA when you want to steer audible feature groups.
 Use CLAP when you can describe a missing sound in words. Use Hybrid preview when you want to see
-which model sources support a candidate and where transition risk may need attention.
+which model sources support a candidate and where transition risk may need attention. Hybrid
+defaults to `mert`, `maest`, `muq`, `sonara`, and `clap` at `0.20` each.
 
 ## 5. Listen
 

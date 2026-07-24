@@ -160,7 +160,7 @@ def register_search_routes(
                 seed_track_ids=request.seed_track_ids,
                 analysis_outputs={
                     family: current_embedding_analysis_output(family)
-                    for family in ("mert", "maest", "clap")
+                    for family in ("mert", "maest", "muq", "clap")
                 },
                 sources=request.sources,
                 weights=request.weights,

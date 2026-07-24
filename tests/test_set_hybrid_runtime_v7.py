@@ -103,6 +103,7 @@ def _summary(track_id: int, *, bpm: float) -> TrackSummary:
             sonara_core=True,
             maest_embedding=True,
             mert=True,
+            muq=True,
             clap=True,
         ),
         classifier_scores=(),
@@ -175,6 +176,7 @@ class _Repository:
             ("sonara", "core"): _sonara_output(),
             ("mert", "embedding"): _embedding_output("mert"),
             ("maest", "embedding"): _embedding_output("maest"),
+            ("muq", "embedding"): _embedding_output("muq"),
             ("clap", "embedding"): _embedding_output("clap"),
         }
         self.sonara_rows = (
@@ -211,6 +213,11 @@ class _Repository:
                 2: np.asarray([0.9, 0.4358899], dtype=np.float32),
                 3: np.asarray([0.0, 1.0], dtype=np.float32),
             },
+            "muq": {
+                1: np.asarray([1.0, 0.0], dtype=np.float32),
+                2: np.asarray([0.92, 0.39191836], dtype=np.float32),
+                3: np.asarray([0.0, 1.0], dtype=np.float32),
+            },
             "clap": {
                 1: np.asarray([1.0, 0.0], dtype=np.float32),
                 2: np.asarray([0.95, 0.3122499], dtype=np.float32),
@@ -239,7 +246,7 @@ class _Repository:
             maest_analysis=0,
             maest_embedding=count,
             mert=count,
-            muq=0,
+            muq=count,
             clap=count,
             liked=0,
             classifiers=0,
@@ -364,7 +371,7 @@ def _analysis_outputs(
 ) -> dict[str, AnalysisOutput]:
     return {
         family: repository.outputs[(family, "embedding")]
-        for family in ("mert", "maest", "clap")
+        for family in ("mert", "maest", "muq", "clap")
     }
 
 
@@ -457,6 +464,7 @@ def test_set_builder_uses_current_repository_rows_and_typed_sonara() -> None:
         ("sonara", "core"),
         ("mert", "embedding"),
         ("maest", "embedding"),
+        ("muq", "embedding"),
         ("clap", "embedding"),
     ]
 
@@ -530,6 +538,62 @@ def test_set_builder_rejects_current_adapter_contract_drift() -> None:
             SetBuilderConfig(
                 seed_mode="manual",
                 seed_track_ids=[1],
+                limit=2,
+            )
+        )
+
+
+def test_set_builder_disabled_muq_is_not_required_or_loaded() -> None:
+    repository = _Repository()
+    repository.outputs.pop(("muq", "embedding"))
+    repository.vectors.pop("muq")
+    expected = {
+        family: repository.outputs[(family, "embedding")]
+        for family in ("mert", "maest", "clap")
+    }
+
+    result = SmartSetBuilder(
+        repository,
+        analysis_outputs=expected,
+    ).generate(
+        SetBuilderConfig(
+            seed_mode="manual",
+            seed_track_ids=[1],
+            sources=("mert", "maest", "clap"),
+            limit=2,
+            random_seed=0,
+        )
+    )
+
+    assert [item["track"]["track_id"] for item in result["items"]] == [1, 2]
+    assert ("muq", "embedding") not in repository.active_output_calls
+    assert result["weights_used"] == {
+        "mert": 0.30,
+        "maest": 0.18,
+        "clap": 0.22,
+        "sonara_broad": 0.30,
+    }
+
+
+def test_set_builder_enabled_muq_requires_exact_current_contract() -> None:
+    repository = _Repository()
+    expected = _analysis_outputs(repository)
+    expected["muq"] = AnalysisOutput(
+        replace(
+            expected["muq"].contract,
+            model_version="runtime-drift",
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="muq.*reanalysis is required"):
+        SmartSetBuilder(
+            repository,
+            analysis_outputs=expected,
+        ).generate(
+            SetBuilderConfig(
+                seed_mode="manual",
+                seed_track_ids=[1],
+                sources=("muq",),
                 limit=2,
             )
         )

@@ -36,7 +36,7 @@ RISK_BREAKDOWN_COMPONENTS = {
     "source_disagreement_risk": "source_disagreement",
     "confidence_missingness_risk": "confidence_missingness",
 }
-EMBEDDING_SOURCES = {"mert", "maest", "clap"}
+EMBEDDING_SOURCES = {"mert", "maest", "muq", "clap"}
 SONARA_GROOVE_FIELDS = ("bpm", "onset_density", "danceability")
 SONARA_DENSITY_FIELDS = (
     "onset_density",

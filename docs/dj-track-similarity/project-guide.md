@@ -49,7 +49,7 @@ CLI, API, storage, and model contracts remain available in the reference section
 
 - [Project idea](./concepts/project-idea.md) explains the local-first DJ set dramaturgy goal and the author's modest scope.
 - [Features, embeddings, and tags](./concepts/features-embeddings-tags.md) explains what each stored signal means.
-- [Similarity scores](./concepts/similarity-scores.md) explains why MERT, SONARA, CLAP, SET, Hybrid, and Audio Dedup scores should not be mixed casually.
+- [Similarity scores](./concepts/similarity-scores.md) explains why MERT, MuQ, SONARA, CLAP, SET, Hybrid, and Audio Dedup scores should not be mixed casually.
 - [SET routing](./concepts/smart-set-builder-routing.md) explains why the generated order is a preview, not a guarantee.
 - [Classifiers and Rhythm Lab](./concepts/classifiers-and-rhythm-lab.md) explains local classifier profiles and promoted scores.
 

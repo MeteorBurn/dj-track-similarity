@@ -325,6 +325,401 @@ def test_load_tracks_rejects_non_unit_l2_embedding(tmp_path: Path) -> None:
     )
 
 
+def test_load_tracks_uses_only_exact_current_muq_contract(
+    tmp_path: Path,
+) -> None:
+    dedup = _load_dedup_module()
+    db_path = tmp_path / "library.sqlite"
+    _create_library_db(db_path)
+    _insert_track(
+        db_path,
+        track_id=1,
+        path="M:/Volumes/Abstracted/one.flac",
+        vectors={"muq": [1.0, 0.0, 0.0]},
+    )
+
+    tracks = dedup.load_tracks(
+        db_path,
+        root=Path("M:/Volumes/Abstracted"),
+        path_contains=[],
+    )
+
+    assert set(tracks[0].embeddings) == {"muq"}
+    _contract, expected_muq = _current_embedding_fixture(
+        "muq",
+        [1.0, 0.0, 0.0],
+    )
+    np.testing.assert_array_equal(
+        tracks[0].embeddings["muq"],
+        expected_muq,
+    )
+
+    current = current_embedding_analysis_output("muq").contract
+    stale = ContractIdentity(
+        analysis_family="muq",
+        output_kind="embedding",
+        model_name="muq-stale-test",
+        model_version="0",
+        dim=current.dim,
+        encoding=current.encoding,
+        normalization=current.normalization,
+    )
+    database = LibraryDatabase(db_path)
+    with database.connect() as connection:
+        register_contract(connection, stale)
+        connection.execute(
+            """
+            UPDATE library_settings
+            SET setting_value = ?,
+                updated_at = '2026-07-24T00:00:00.000000Z'
+            WHERE setting_key = ?
+            """,
+            (
+                stale.contract_hash,
+                f"{ACTIVE_CONTRACT_SETTING_PREFIX}.muq.embedding",
+            ),
+        )
+        connection.commit()
+
+    stale_tracks = dedup.load_tracks(
+        db_path,
+        root=Path("M:/Volumes/Abstracted"),
+        path_contains=[],
+    )
+
+    assert "muq" not in stale_tracks[0].embeddings
+
+
+def test_muq_influences_scores_and_disabling_it_restores_legacy_scores(
+    tmp_path: Path,
+) -> None:
+    dedup = _load_dedup_module()
+    db_path = tmp_path / "library.sqlite"
+    _create_library_db(db_path)
+    sonara = {"energy": 0.7}
+    _insert_track(
+        db_path,
+        track_id=1,
+        path="M:/Volumes/Abstracted/one.flac",
+        sonara=sonara,
+        vectors={
+            "mert": [1.0, 0.0],
+            "maest": [1.0, 0.0],
+            "muq": [1.0, 0.0],
+            "clap": [1.0, 0.0],
+        },
+    )
+    _insert_track(
+        db_path,
+        track_id=2,
+        path="M:/Volumes/Abstracted/two.flac",
+        sonara=sonara,
+        vectors={
+            "mert": [0.96, 0.28],
+            "maest": [0.8, 0.6],
+            "muq": [-1.0, 0.0],
+            "clap": [0.6, 0.8],
+        },
+    )
+    tracks = dedup.load_tracks(
+        db_path,
+        root=Path("M:/Volumes/Abstracted"),
+        path_contains=[],
+    )
+    config = dedup.resolve_preset("safe", min_score=None)
+
+    all_sources = dedup.score_pair(tracks[0], tracks[1], config)
+    legacy_config = dedup.resolve_source_config(
+        sources=["mert", "maest", "clap"],
+    )
+    legacy = dedup.score_pair(
+        tracks[0],
+        tracks[1],
+        config,
+        source_config=legacy_config,
+    )
+
+    assert all_sources.muq_similarity == pytest.approx(-1.0)
+    assert all_sources.content_similarity < legacy.content_similarity
+    assert all_sources.score < legacy.score
+    assert legacy.muq_similarity is None
+    expected_content = (
+        legacy.mert_similarity * 0.43
+        + legacy.maest_similarity * 0.32
+        + legacy.clap_similarity * 0.04
+    ) / (0.43 + 0.32 + 0.04)
+    legacy_weighted = 0.0
+    legacy_total = 0.0
+    for value, weight in (
+        (legacy.mert_similarity, 0.43),
+        (legacy.maest_similarity, 0.32),
+        (legacy.sonara_similarity, 0.14),
+        (legacy.clap_similarity, 0.04),
+    ):
+        legacy_weighted += value * weight
+        legacy_total += weight
+    legacy_weighted += 0.05
+    legacy_total += 0.05
+    assert legacy.content_similarity == expected_content
+    assert legacy.score == legacy_weighted / legacy_total
+    assert not any(
+        "corroboration" in blocker or "weight is not positive" in blocker
+        for blocker in legacy.blocked_reasons
+    )
+    assert legacy_config.weights == {
+        "mert": 0.43,
+        "maest": 0.32,
+        "clap": 0.04,
+    }
+
+
+@pytest.mark.parametrize(
+    ("sources", "weights", "match"),
+    [
+        ([], None, "at least one"),
+        (["mert", "mert"], None, "unique"),
+        (["unknown"], None, "Unsupported"),
+        (["mert", "muq"], {"mert": 1.0}, "exactly"),
+        (["mert"], {"mert": -0.1}, "finite and nonnegative"),
+        (["mert"], {"mert": float("nan")}, "finite and nonnegative"),
+        (["mert"], {"mert": float("inf")}, "finite and nonnegative"),
+        (
+            ["mert", "muq"],
+            {"mert": 0.0, "muq": 0.0},
+            "positive",
+        ),
+    ],
+)
+def test_source_config_rejects_invalid_sources_and_weights(
+    sources: list[str],
+    weights: dict[str, float] | None,
+    match: str,
+) -> None:
+    dedup = _load_dedup_module()
+
+    with pytest.raises(ValueError, match=match):
+        dedup.resolve_source_config(
+            sources=sources,
+            weights=weights,
+        )
+
+
+def test_cli_accepts_repeatable_sources_and_weights() -> None:
+    dedup = _load_dedup_module()
+
+    args = dedup.parse_args(
+        [
+            "--root",
+            "D:/Music",
+            "--source",
+            "mert",
+            "--source",
+            "muq",
+            "--weight",
+            "mert=0.8",
+            "--weight",
+            "muq=0.2",
+        ]
+    )
+    source_config = dedup.resolve_source_config(
+        sources=args.sources,
+        weights=dedup.parse_weight_arguments(args.weights),
+    )
+
+    assert source_config.sources == ("mert", "muq")
+    assert source_config.weights == {"mert": 0.8, "muq": 0.2}
+
+
+@pytest.mark.parametrize(
+    ("sources", "weights", "expected_blockers"),
+    [
+        (
+            ["muq"],
+            {"muq": 1.0},
+            {"MERT source disabled", "MAEST source disabled"},
+        ),
+        (
+            None,
+            None,
+            {"missing MERT embedding", "missing MAEST embedding"},
+        ),
+    ],
+)
+def test_high_muq_only_report_candidate_is_never_safe_to_delete(
+    tmp_path: Path,
+    sources: list[str] | None,
+    weights: dict[str, float] | None,
+    expected_blockers: set[str],
+) -> None:
+    dedup = _load_dedup_module()
+    db_path = tmp_path / "library.sqlite"
+    _create_library_db(db_path)
+    vectors = {"muq": [1.0, 0.0, 0.0]}
+    _insert_track(
+        db_path,
+        track_id=1,
+        path="M:/Volumes/Abstracted/one.flac",
+        size=20_000_000,
+        vectors=vectors,
+    )
+    _insert_track(
+        db_path,
+        track_id=2,
+        path="M:/Volumes/Abstracted/two.mp3",
+        size=8_000_000,
+        vectors=vectors,
+    )
+    tracks = dedup.load_tracks(
+        db_path,
+        root=Path("M:/Volumes/Abstracted"),
+        path_contains=[],
+    )
+    config = dedup.resolve_preset("safe", min_score=None)
+    source_config = dedup.resolve_source_config(
+        sources=sources,
+        weights=weights,
+    )
+
+    groups = dedup.find_duplicate_groups(
+        tracks,
+        config,
+        limit_groups=None,
+        source_config=source_config,
+    )
+    payload = dedup.build_report(
+        groups,
+        tracks,
+        config,
+        root=Path("M:/Volumes/Abstracted"),
+        path_contains=[],
+        source_config=source_config,
+    )
+
+    assert len(groups) == 1
+    evidence = payload["groups"][0]["pairwise_evidence"][0]
+    assert evidence["muq_similarity"] == pytest.approx(1.0)
+    candidate = payload["groups"][0]["candidate_deletes"][0]
+    assert candidate["decision"] == "review"
+    assert candidate["safe_to_delete"] == "false"
+    assert expected_blockers <= set(candidate["blocked_reasons"])
+    assert dedup.safe_delete_candidates(payload) == []
+
+
+@pytest.mark.parametrize(
+    (
+        "sources",
+        "weights",
+        "expected_weight_blockers",
+        "expect_corroboration_blocker",
+    ),
+    [
+        (
+            ["mert", "maest", "muq"],
+            {"mert": 0.0, "maest": 0.0, "muq": 1.0},
+            {
+                "MERT weight is not positive",
+                "MAEST weight is not positive",
+            },
+            False,
+        ),
+        (
+            ["mert", "maest", "muq"],
+            {"mert": 0.001, "maest": 0.001, "muq": 0.998},
+            set(),
+            True,
+        ),
+        (
+            ["mert", "maest", "clap"],
+            {"mert": 0.0, "maest": 0.0, "clap": 1.0},
+            {
+                "MERT weight is not positive",
+                "MAEST weight is not positive",
+            },
+            False,
+        ),
+    ],
+)
+def test_nonlegacy_weighting_requires_substantive_mert_maest_corroboration(
+    tmp_path: Path,
+    sources: list[str],
+    weights: dict[str, float],
+    expected_weight_blockers: set[str],
+    expect_corroboration_blocker: bool,
+) -> None:
+    dedup = _load_dedup_module()
+    db_path = tmp_path / "library.sqlite"
+    _create_library_db(db_path)
+    _insert_track(
+        db_path,
+        track_id=1,
+        path="M:/Volumes/Abstracted/one.flac",
+        size=20_000_000,
+        vectors={
+            "mert": [1.0, 0.0],
+            "maest": [1.0, 0.0],
+            "muq": [1.0, 0.0],
+            "clap": [1.0, 0.0],
+        },
+    )
+    _insert_track(
+        db_path,
+        track_id=2,
+        path="M:/Volumes/Abstracted/two.mp3",
+        size=8_000_000,
+        vectors={
+            "mert": [-1.0, 0.0],
+            "maest": [-1.0, 0.0],
+            "muq": [1.0, 0.0],
+            "clap": [1.0, 0.0],
+        },
+    )
+    tracks = dedup.load_tracks(
+        db_path,
+        root=Path("M:/Volumes/Abstracted"),
+        path_contains=[],
+    )
+    config = dedup.resolve_preset("safe", min_score=None)
+    source_config = dedup.resolve_source_config(
+        sources=sources,
+        weights=weights,
+    )
+
+    groups = dedup.find_duplicate_groups(
+        tracks,
+        config,
+        limit_groups=None,
+        source_config=source_config,
+    )
+    payload = dedup.build_report(
+        groups,
+        tracks,
+        config,
+        root=Path("M:/Volumes/Abstracted"),
+        path_contains=[],
+        source_config=source_config,
+    )
+
+    assert len(groups) == 1
+    evidence = payload["groups"][0]["pairwise_evidence"][0]
+    assert evidence["score"] >= config.min_score
+    assert evidence["content_similarity"] >= config.min_similarity
+    assert evidence["mert_similarity"] == pytest.approx(-1.0)
+    assert evidence["maest_similarity"] == pytest.approx(-1.0)
+    candidate = payload["groups"][0]["candidate_deletes"][0]
+    assert candidate["decision"] == "review"
+    assert candidate["safe_to_delete"] == "false"
+    blockers = set(candidate["blocked_reasons"])
+    assert expected_weight_blockers <= blockers
+    has_corroboration_blocker = any(
+        blocker.startswith(
+            "MERT+MAEST corroboration below delete safety threshold"
+        )
+        for blocker in blockers
+    )
+    assert has_corroboration_blocker is expect_corroboration_blocker
+    assert dedup.safe_delete_candidates(payload) == []
+
+
 def test_min_score_overrides_preset_threshold() -> None:
     dedup = _load_dedup_module()
 
@@ -361,6 +756,7 @@ def test_report_documents_audio_to_audio_clap_similarity_semantics(tmp_path: Pat
     vectors = {
         "mert": [1.0, 0.0, 0.0],
         "maest": [1.0, 0.0, 0.0],
+        "muq": [1.0, 0.0, 0.0],
         "clap": [1.0, 0.0, 0.0],
     }
     _insert_track(db_path, track_id=1, path="M:/Volumes/Abstracted/one.flac", vectors=vectors)
@@ -371,6 +767,7 @@ def test_report_documents_audio_to_audio_clap_similarity_semantics(tmp_path: Pat
     payload = dedup.build_report(groups, tracks, dedup.resolve_preset("safe", min_score=None), root=Path("M:/Volumes/Abstracted"), path_contains=[])
 
     semantics = payload["score_semantics"]
+    assert semantics["muq_similarity"]["kind"] == "audio_to_audio_cosine"
     assert semantics["clap_similarity"]["kind"] == "audio_to_audio_cosine"
     assert semantics["clap_similarity"]["text_search_comparable"] is False
     assert "text-to-audio" in semantics["clap_similarity"]["notes"]
@@ -657,6 +1054,7 @@ def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> Non
     vectors = {
         "mert": [1.0, 0.0, 0.0],
         "maest": [1.0, 0.0, 0.0],
+        "muq": [1.0, 0.0, 0.0],
         "clap": [1.0, 0.0, 0.0],
     }
     sonara = {"bpm": 128.0, "danceability": 0.8, "energy": 0.7, "valence": 0.5}
@@ -685,9 +1083,22 @@ def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> Non
     assert json_payload["database_track_count"] == 3
     assert json_payload["scoped_track_count"] == 2
     assert json_payload["track_count"] == 2
+    assert json_payload["sources"] == [
+        "mert",
+        "maest",
+        "muq",
+        "clap",
+    ]
+    assert json_payload["weights"] == {
+        "mert": 0.43,
+        "maest": 0.32,
+        "muq": 0.12,
+        "clap": 0.04,
+    }
     assert json_payload["min_similarity"] == 0.985
     assert "content_similarity" in json_payload["groups"][0]["pairwise_evidence"][0]
     assert "mert_similarity" in json_payload["groups"][0]["pairwise_evidence"][0]
+    assert json_payload["groups"][0]["pairwise_evidence"][0]["muq_similarity"] == pytest.approx(1.0)
     assert "keeper_reasons" in json_payload["groups"][0]["suggested_keeper"]
     assert json_payload["groups"][0]["suggested_keeper"]["role"] == "KEEP"
     assert "content_length" not in json_payload["groups"][0]["suggested_keeper"]
@@ -721,11 +1132,14 @@ def test_json_and_xlsx_reports_include_candidate_evidence(tmp_path: Path) -> Non
     assert "audio_codec" not in candidates_xml
     assert "MPEG Audio Layer III" not in candidates_xml
     assert "mert_similarity" in candidates_xml
+    assert "muq_similarity" in candidates_xml
     assert "content_similarity_vs_keeper" in candidates_xml
     assert "Audio Dedup Report" in summary_xml
     assert str(db_path.resolve()) in summary_xml
     assert "Total tracks in database" in summary_xml
     assert "Tracks inside selected root" in summary_xml
+    assert "muq=0.12" in summary_xml
+    assert "muq_similarity" in result.log_path.read_text(encoding="utf-8")
     assert not list(out_dir.glob("audio_dedup_report_*.png"))
 
 

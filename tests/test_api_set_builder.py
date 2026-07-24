@@ -67,6 +67,8 @@ def test_set_builder_endpoint_forwards_validated_v7_config(
         json={
             "seed_mode": "manual",
             "seed_track_ids": [7],
+            "sources": ["mert", "clap"],
+            "weights": {"mert": 0.4, "clap": 0.2, "sonara_broad": 0.4},
             "limit": 12,
             "bpm_mode": "low_to_high",
             "bpm_change": "slow",
@@ -83,6 +85,8 @@ def test_set_builder_endpoint_forwards_validated_v7_config(
     config = captured["config"]
     assert isinstance(config, SetBuilderConfig)
     assert config.seed_track_ids == [7]
+    assert config.sources == ("mert", "clap")
+    assert config.weights == {"mert": 0.4, "clap": 0.2, "sonara_broad": 0.4}
     assert config.limit == 12
     assert config.bpm_mode == "low_to_high"
     assert config.bpm_change == "slow"
@@ -100,6 +104,8 @@ def test_set_builder_api_defaults_match_backend_config() -> None:
     assert request.seed_mode == config.seed_mode == "manual"
     assert request.seed_track_ids == config.seed_track_ids == []
     assert request.auto_seed_count == config.auto_seed_count == 5
+    assert request.sources == list(config.sources) == ["mert", "maest", "muq", "clap"]
+    assert request.weights == config.weights is None
     assert request.mode == config.mode == "balanced_set"
     assert request.limit == config.limit == 24
     assert request.diversity == config.diversity == 0.35

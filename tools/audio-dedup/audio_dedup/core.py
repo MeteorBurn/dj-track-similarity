@@ -8,7 +8,7 @@ import math
 from pathlib import Path
 import sqlite3
 import sys
-from typing import Callable, Iterable, TypeVar
+from typing import Callable, Iterable, Mapping, TypeVar
 from xml.sax.saxutils import escape
 import zipfile
 
@@ -33,17 +33,29 @@ REPO_ROOT = TOOL_ROOT.parents[1]
 DEFAULT_DB = Path(r"C:\db\abstracted.sqlite")
 DEFAULT_RHYTHM_LAB_DB = REPO_ROOT / "tools" / "rhythm-lab" / "data" / "rhythm_lab.sqlite"
 DEFAULT_OUT_DIR = TOOL_ROOT / "data" / "reports"
-SUPPORTED_EMBEDDINGS = ("mert", "maest", "clap")
+SUPPORTED_EMBEDDINGS = ("mert", "maest", "muq", "clap")
+DEFAULT_SOURCE_WEIGHTS = {
+    "mert": 0.43,
+    "maest": 0.32,
+    "muq": 0.12,
+    "clap": 0.04,
+}
+DELETE_SAFETY_EMBEDDINGS = ("mert", "maest")
+LEGACY_DELETE_SAFETY_SOURCES = ("mert", "maest", "clap")
+LEGACY_DELETE_SAFETY_WEIGHTS = {
+    source: DEFAULT_SOURCE_WEIGHTS[source]
+    for source in LEGACY_DELETE_SAFETY_SOURCES
+}
 SCORE_SEMANTICS = {
     "score": {
         "kind": "weighted_duplicate_evidence",
         "range": "0..1",
-        "notes": "Overall duplicate score from audio-to-audio embeddings, SONARA features, and duration evidence.",
+        "notes": "Overall duplicate score from enabled audio-to-audio embeddings, SONARA features, and duration evidence; weights are renormalized over available evidence.",
     },
     "content_similarity": {
         "kind": "audio_to_audio_embedding_gate",
         "range": "0..1",
-        "notes": "Embedding-only gate computed from stored MERT, MAEST, and CLAP audio embeddings.",
+        "notes": "Embedding-only gate computed from enabled stored MERT, MAEST, MuQ, and CLAP audio embeddings; MERT plus MAEST remain mandatory for automatic deletion safety.",
     },
     "mert_similarity": {
         "kind": "audio_to_audio_cosine",
@@ -54,6 +66,11 @@ SCORE_SEMANTICS = {
         "kind": "audio_to_audio_cosine",
         "range": "-1..1",
         "notes": "Cosine similarity between stored MAEST audio embeddings.",
+    },
+    "muq_similarity": {
+        "kind": "audio_to_audio_cosine",
+        "range": "-1..1",
+        "notes": "Cosine similarity between stored MuQ audio embeddings.",
     },
     "clap_similarity": {
         "kind": "audio_to_audio_cosine",
@@ -107,6 +124,12 @@ class PresetConfig:
 
 
 @dataclass(frozen=True)
+class SourceConfig:
+    sources: tuple[str, ...]
+    weights: dict[str, float]
+
+
+@dataclass(frozen=True)
 class TrackRecord:
     track_id: int
     path: str
@@ -134,6 +157,7 @@ class PairEvidence:
     content_similarity: float | None
     mert_similarity: float | None
     maest_similarity: float | None
+    muq_similarity: float | None
     clap_similarity: float | None
     sonara_similarity: float | None
     duration_diff_seconds: float | None
@@ -183,6 +207,8 @@ def main(argv: list[str] | None = None) -> int:
             min_similarity=args.min_similarity,
             limit_groups=args.limit_groups,
             out_dir=args.out_dir,
+            sources=args.sources,
+            weights=parse_weight_arguments(args.weights),
         )
         apply_result = None
         if args.apply:
@@ -241,6 +267,21 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--preset", choices=("safe", "balanced", "aggressive"), default="safe")
     parser.add_argument("--min-score", type=float, help="Override the preset duplicate score threshold.")
     parser.add_argument("--min-similarity", type=float, help="Override the preset content-similarity threshold.")
+    parser.add_argument(
+        "--source",
+        dest="sources",
+        action="append",
+        choices=SUPPORTED_EMBEDDINGS,
+        help="Enable one embedding family. Can be repeated; default: all families.",
+    )
+    parser.add_argument(
+        "--weight",
+        dest="weights",
+        action="append",
+        default=[],
+        metavar="FAMILY=VALUE",
+        help="Set every enabled family weight. Repeat once per enabled --source.",
+    )
     parser.add_argument("--limit-groups", type=int, help="Write at most N duplicate groups.")
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT_DIR, help="Report output directory.")
     parser.add_argument(
@@ -249,6 +290,123 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="After writing reports, prompt for confirmation and delete safe duplicate candidates plus their database rows.",
     )
     return parser.parse_args(argv)
+
+
+def parse_weight_arguments(items: Iterable[str]) -> dict[str, float] | None:
+    parsed: dict[str, float] = {}
+    for raw_item in items:
+        family_text, separator, value_text = str(raw_item).partition("=")
+        family = family_text.strip().casefold()
+        if not separator or not family or not value_text.strip():
+            raise ValueError(
+                f"Invalid --weight {raw_item!r}; expected FAMILY=VALUE"
+            )
+        if family in parsed:
+            raise ValueError(f"Duplicate --weight for source: {family}")
+        try:
+            parsed[family] = float(value_text)
+        except ValueError as error:
+            raise ValueError(
+                f"Invalid --weight {raw_item!r}; VALUE must be numeric"
+            ) from error
+    return parsed or None
+
+
+def resolve_source_config(
+    *,
+    sources: Iterable[str] | None = None,
+    weights: Mapping[str, float] | None = None,
+) -> SourceConfig:
+    if isinstance(sources, (str, bytes)):
+        raise ValueError("sources must be a collection of embedding family names")
+    selected_sources = tuple(
+        str(source).strip().casefold()
+        for source in (
+            SUPPORTED_EMBEDDINGS
+            if sources is None
+            else sources
+        )
+    )
+    if not selected_sources:
+        raise ValueError("sources must enable at least one embedding family")
+    if len(set(selected_sources)) != len(selected_sources):
+        raise ValueError("sources must contain unique embedding family names")
+    unsupported = [
+        source
+        for source in selected_sources
+        if source not in SUPPORTED_EMBEDDINGS
+    ]
+    if unsupported:
+        raise ValueError(
+            "Unsupported embedding source(s): "
+            + ", ".join(sorted(unsupported))
+        )
+
+    if weights is None:
+        selected_weights = {
+            source: DEFAULT_SOURCE_WEIGHTS[source]
+            for source in selected_sources
+        }
+    else:
+        normalized_weights: dict[str, float] = {}
+        for raw_family, raw_weight in weights.items():
+            family = str(raw_family).strip().casefold()
+            if family in normalized_weights:
+                raise ValueError(
+                    f"weights contains duplicate normalized source: {family}"
+                )
+            if isinstance(raw_weight, bool):
+                raise ValueError(f"Weight for {family} must be numeric")
+            try:
+                value = float(raw_weight)
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    f"Weight for {family} must be numeric"
+                ) from error
+            normalized_weights[family] = value
+        expected = set(selected_sources)
+        actual = set(normalized_weights)
+        if actual != expected:
+            missing = sorted(expected - actual)
+            extra = sorted(actual - expected)
+            details = []
+            if missing:
+                details.append("missing " + ", ".join(missing))
+            if extra:
+                details.append("unexpected " + ", ".join(extra))
+            raise ValueError(
+                "weights must contain exactly the enabled sources"
+                + (f" ({'; '.join(details)})" if details else "")
+            )
+        selected_weights = {
+            source: normalized_weights[source]
+            for source in selected_sources
+        }
+
+    for source, weight in selected_weights.items():
+        if not math.isfinite(weight) or weight < 0:
+            raise ValueError(
+                f"Weight for {source} must be finite and nonnegative"
+            )
+    if not any(weight > 0 for weight in selected_weights.values()):
+        raise ValueError("At least one enabled source weight must be positive")
+    return SourceConfig(
+        sources=selected_sources,
+        weights=selected_weights,
+    )
+
+
+def _uses_legacy_delete_safety_config(
+    source_config: SourceConfig,
+) -> bool:
+    return (
+        len(source_config.sources)
+        == len(LEGACY_DELETE_SAFETY_SOURCES)
+        and set(source_config.sources)
+        == set(LEGACY_DELETE_SAFETY_SOURCES)
+        and source_config.weights
+        == LEGACY_DELETE_SAFETY_WEIGHTS
+    )
 
 
 def run_report(
@@ -262,10 +420,13 @@ def run_report(
     min_similarity: float | None = None,
     limit_groups: int | None,
     out_dir: Path,
+    sources: Iterable[str] | None = None,
+    weights: Mapping[str, float] | None = None,
     progress_callback: ProgressCallback | None = None,
     should_cancel: CancelCheck | None = None,
 ) -> ReportResult:
     config = resolve_preset(preset_name, min_score=min_score, min_similarity=min_similarity)
+    source_config = resolve_source_config(sources=sources, weights=weights)
     selected_database = _resolve_database(database=database, db_path=db_path)
     selected_db = selected_database.path
     _report_progress(progress_callback, 0, 0, "Reading database")
@@ -279,6 +440,7 @@ def run_report(
         tracks,
         config,
         limit_groups=limit_groups,
+        source_config=source_config,
         progress_callback=progress_callback,
         should_cancel=should_cancel,
     )
@@ -292,6 +454,7 @@ def run_report(
         database_track_count=database_track_count,
         root=root,
         path_contains=path_contains,
+        source_config=source_config,
     )
     payload["rhythm_lab"] = rhythm_lab_impact_payload(
         DEFAULT_RHYTHM_LAB_DB,
@@ -456,15 +619,21 @@ def find_duplicate_groups(
     config: PresetConfig,
     *,
     limit_groups: int | None,
+    source_config: SourceConfig | None = None,
     progress_callback: ProgressCallback | None = None,
     should_cancel: CancelCheck | None = None,
 ) -> list[DuplicateGroup]:
+    selected_sources = source_config or resolve_source_config()
     if len(tracks) < 2:
         _report_progress(progress_callback, 1, 1, "Not enough scoped tracks")
         return []
     by_id = {track.track_id: track for track in tracks}
     _report_progress(progress_callback, 0, 0, "Building candidate pairs")
-    candidate_pairs = _candidate_pair_ids(tracks, config)
+    candidate_pairs = _candidate_pair_ids(
+        tracks,
+        config,
+        selected_sources,
+    )
     pair_total = len(candidate_pairs)
     if pair_total == 0:
         _report_progress(progress_callback, 1, 1, "No candidate pairs")
@@ -478,7 +647,12 @@ def find_duplicate_groups(
             if index == pair_total or index % 50 == 0:
                 _report_progress(progress_callback, index, pair_total, "Searching duplicate pairs")
             continue
-        evidence = score_pair(left, right, config)
+        evidence = score_pair(
+            left,
+            right,
+            config,
+            source_config=selected_sources,
+        )
         if evidence.score >= config.min_score and _passes_content_similarity(evidence, config):
             edges.append(evidence)
         if index == pair_total or index % 50 == 0:
@@ -505,8 +679,16 @@ def _raise_if_cancelled(should_cancel: CancelCheck | None) -> None:
         raise AudioDedupCancelled("Audio dedup job cancelled")
 
 
-def _candidate_pair_ids(tracks: list[TrackRecord], config: PresetConfig) -> list[tuple[int, int]]:
-    high_dim_pairs = _signature_candidate_pairs(tracks, config)
+def _candidate_pair_ids(
+    tracks: list[TrackRecord],
+    config: PresetConfig,
+    source_config: SourceConfig,
+) -> list[tuple[int, int]]:
+    high_dim_pairs = _signature_candidate_pairs(
+        tracks,
+        config,
+        source_config,
+    )
     if high_dim_pairs:
         return sorted(high_dim_pairs)
     return _duration_window_candidate_pairs(tracks, config)
@@ -533,9 +715,15 @@ def _duration_window_candidate_pairs(tracks: list[TrackRecord], config: PresetCo
     return sorted(pairs)
 
 
-def _signature_candidate_pairs(tracks: list[TrackRecord], config: PresetConfig) -> set[tuple[int, int]]:
+def _signature_candidate_pairs(
+    tracks: list[TrackRecord],
+    config: PresetConfig,
+    source_config: SourceConfig,
+) -> set[tuple[int, int]]:
     pairs: set[tuple[int, int]] = set()
     for embedding_key in ("mert", "maest"):
+        if embedding_key not in source_config.sources:
+            continue
         embedding_tracks = [track for track in tracks if embedding_key in track.embeddings]
         if not embedding_tracks:
             continue
@@ -565,19 +753,54 @@ def _signature_candidate_pairs(tracks: list[TrackRecord], config: PresetConfig) 
     return pairs
 
 
-def score_pair(left: TrackRecord, right: TrackRecord, config: PresetConfig) -> PairEvidence:
-    mert = _embedding_similarity(left, right, "mert")
-    maest = _embedding_similarity(left, right, "maest")
-    clap = _embedding_similarity(left, right, "clap")
-    content_similarity = _content_similarity(mert, maest, clap)
+def score_pair(
+    left: TrackRecord,
+    right: TrackRecord,
+    config: PresetConfig,
+    *,
+    source_config: SourceConfig | None = None,
+) -> PairEvidence:
+    selected_sources = source_config or resolve_source_config()
+    similarities = {
+        source: (
+            _embedding_similarity(left, right, source)
+            if source in selected_sources.sources
+            else None
+        )
+        for source in SUPPORTED_EMBEDDINGS
+    }
+    mert = similarities["mert"]
+    maest = similarities["maest"]
+    muq = similarities["muq"]
+    clap = similarities["clap"]
+    content_similarity = _content_similarity(
+        similarities,
+        selected_sources,
+    )
     sonara = _sonara_similarity(left, right)
     duration_diff, duration_ratio = _duration_distance(left, right)
     blocked: list[str] = []
     weighted = 0.0
     total = 0.0
-    for value, weight in ((mert, 0.43), (maest, 0.32), (sonara, 0.14), (clap, 0.04)):
+    for source in ("mert", "maest"):
+        if source not in selected_sources.sources:
+            continue
+        value = similarities[source]
         if value is None:
             continue
+        weight = selected_sources.weights[source]
+        weighted += value * weight
+        total += weight
+    if sonara is not None:
+        weighted += sonara * 0.14
+        total += 0.14
+    for source in ("muq", "clap"):
+        if source not in selected_sources.sources:
+            continue
+        value = similarities[source]
+        if value is None:
+            continue
+        weight = selected_sources.weights[source]
         weighted += value * weight
         total += weight
     if duration_ratio is not None:
@@ -588,10 +811,52 @@ def score_pair(left: TrackRecord, right: TrackRecord, config: PresetConfig) -> P
             blocked.append("duration mismatch")
     else:
         blocked.append("missing duration")
-    if mert is None:
-        blocked.append("missing MERT embedding")
-    if maest is None:
-        blocked.append("missing MAEST embedding")
+    for required_source in DELETE_SAFETY_EMBEDDINGS:
+        if required_source not in selected_sources.sources:
+            blocked.append(f"{required_source.upper()} source disabled")
+            continue
+        required_similarity = similarities[required_source]
+        if required_similarity is None:
+            blocked.append(
+                f"missing {required_source.upper()} embedding"
+            )
+    if not _uses_legacy_delete_safety_config(selected_sources):
+        corroboration_weighted = 0.0
+        corroboration_total = 0.0
+        corroboration_available = True
+        for required_source in DELETE_SAFETY_EMBEDDINGS:
+            if required_source not in selected_sources.sources:
+                corroboration_available = False
+                continue
+            required_weight = selected_sources.weights[required_source]
+            if required_weight <= 0:
+                blocked.append(
+                    f"{required_source.upper()} weight is not positive"
+                )
+                corroboration_available = False
+                continue
+            required_similarity = similarities[required_source]
+            if required_similarity is None:
+                corroboration_available = False
+                continue
+            corroboration_weighted += (
+                required_similarity * required_weight
+            )
+            corroboration_total += required_weight
+        if corroboration_available and corroboration_total > 0:
+            corroboration = max(
+                0.0,
+                min(
+                    1.0,
+                    corroboration_weighted / corroboration_total,
+                ),
+            )
+            if corroboration < config.min_similarity:
+                blocked.append(
+                    "MERT+MAEST corroboration below delete safety "
+                    f"threshold ({corroboration:.6f} < "
+                    f"{config.min_similarity:.6f})"
+                )
     if content_similarity is None:
         blocked.append("missing content similarity")
     elif content_similarity < config.min_similarity:
@@ -604,6 +869,7 @@ def score_pair(left: TrackRecord, right: TrackRecord, config: PresetConfig) -> P
         content_similarity=content_similarity,
         mert_similarity=mert,
         maest_similarity=maest,
+        muq_similarity=muq,
         clap_similarity=clap,
         sonara_similarity=sonara,
         duration_diff_seconds=duration_diff,
@@ -621,7 +887,9 @@ def build_report(
     database_track_count: int | None = None,
     root: Path,
     path_contains: list[str],
+    source_config: SourceConfig | None = None,
 ) -> dict[str, object]:
+    selected_sources = source_config or resolve_source_config()
     by_id = {track.track_id: track for track in tracks}
     report_groups: list[dict[str, object]] = []
     for group in groups:
@@ -689,6 +957,8 @@ def build_report(
         "database_path": str(db_path) if db_path is not None else None,
         "root": normalize_path_text(root),
         "path_contains": path_contains,
+        "sources": list(selected_sources.sources),
+        "weights": dict(selected_sources.weights),
         "preset": config.name,
         "min_score": config.min_score,
         "min_similarity": config.min_similarity,
@@ -749,6 +1019,21 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
     rhythm_lab = payload.get("rhythm_lab", {})
     path_contains = payload.get("path_contains") or []
     path_filter = ", ".join(str(item) for item in path_contains) if isinstance(path_contains, list) else str(path_contains)
+    sources = payload.get("sources", list(SUPPORTED_EMBEDDINGS))
+    source_text = (
+        ", ".join(str(item) for item in sources)
+        if isinstance(sources, list)
+        else str(sources)
+    )
+    weights = payload.get("weights", DEFAULT_SOURCE_WEIGHTS)
+    weight_text = (
+        ", ".join(
+            f"{key}={value}"
+            for key, value in weights.items()
+        )
+        if isinstance(weights, dict)
+        else str(weights)
+    )
     rows: list[list[object]] = [
         ["Audio Dedup Report", "", "", "", ""],
         [
@@ -766,8 +1051,10 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
         ["Path filter", path_filter or "(none)", "Optional case-insensitive path substring filters.", "", ""],
         ["Mode", payload.get("mode", "report-only"), "Report-only writes evidence and does not delete audio.", "", ""],
         ["Preset", payload["preset"], "safe is conservative; balanced/aggressive widen review scope.", "", ""],
+        ["Sources", source_text, "Enabled audio embedding families.", "", ""],
+        ["Source weights", weight_text, "Raw weights are renormalized over available enabled evidence.", "", ""],
         ["Min score", payload["min_score"], "Overall duplicate score threshold.", "", ""],
-        ["Min content similarity", payload["min_similarity"], "Audio-to-audio embedding gate over MERT, MAEST, and CLAP; not CLAP text-search score.", "", ""],
+        ["Min content similarity", payload["min_similarity"], "Audio-to-audio embedding gate over enabled MERT, MAEST, MuQ, and CLAP sources; not CLAP text-search score.", "", ""],
         [],
         ["Decision summary", "Count", "Meaning", "Next action", ""],
         [
@@ -833,7 +1120,14 @@ def _summary_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
     semantics = payload.get("score_semantics", {})
     if isinstance(semantics, dict):
         rows.extend([[], ["Score semantics", "Kind", "Range", "Notes", ""]])
-        for key in ("score", "content_similarity", "mert_similarity", "maest_similarity", "clap_similarity"):
+        for key in (
+            "score",
+            "content_similarity",
+            "mert_similarity",
+            "maest_similarity",
+            "muq_similarity",
+            "clap_similarity",
+        ):
             item = semantics.get(key, {})
             if isinstance(item, dict):
                 rows.append([key, item.get("kind", ""), item.get("range", ""), item.get("notes", ""), ""])
@@ -891,6 +1185,7 @@ def _candidates_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
             "safe_to_delete",
             "mert_similarity",
             "maest_similarity",
+            "muq_similarity",
             "sonara_similarity",
             "clap_similarity",
             "duration_diff_seconds",
@@ -920,6 +1215,7 @@ def _candidates_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
                     candidate["safe_to_delete"],
                     evidence.get("mert_similarity"),
                     evidence.get("maest_similarity"),
+                    evidence.get("muq_similarity"),
                     evidence.get("sonara_similarity"),
                     evidence.get("clap_similarity"),
                     evidence.get("duration_diff_seconds"),
@@ -941,6 +1237,7 @@ def _pair_evidence_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
             "content_similarity",
             "mert_similarity",
             "maest_similarity",
+            "muq_similarity",
             "sonara_similarity",
             "clap_similarity",
             "duration_diff_seconds",
@@ -961,6 +1258,7 @@ def _pair_evidence_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
                     evidence["content_similarity"],
                     evidence["mert_similarity"],
                     evidence["maest_similarity"],
+                    evidence["muq_similarity"],
                     evidence["sonara_similarity"],
                     evidence["clap_similarity"],
                     evidence["duration_diff_seconds"],
@@ -1247,9 +1545,23 @@ def write_text_log(path: Path, payload: dict[str, object], *, apply_result: Appl
         f"database={payload.get('database_path') or ''}",
         f"root={payload['root']}",
         f"preset={payload['preset']}",
+        "sources=" + ",".join(
+            str(item)
+            for item in payload.get(
+                "sources",
+                list(SUPPORTED_EMBEDDINGS),
+            )
+        ),
+        "weights=" + ",".join(
+            f"{key}={value}"
+            for key, value in dict(
+                payload.get("weights", DEFAULT_SOURCE_WEIGHTS)
+            ).items()
+        ),
         f"min_score={payload['min_score']}",
         f"min_similarity={payload['min_similarity']}",
-        "min_similarity_semantics=audio-to-audio content gate over MERT/MAEST/CLAP embeddings; not CLAP text-search score",
+        "min_similarity_semantics=audio-to-audio content gate over enabled MERT/MAEST/MuQ/CLAP embeddings; not CLAP text-search score",
+        "muq_similarity_semantics=audio-to-audio cosine over exact-current-contract stored MuQ embeddings",
         f"database_track_count={payload.get('database_track_count', payload['track_count'])}",
         f"scoped_track_count={payload.get('scoped_track_count', payload['track_count'])}",
         f"group_count={payload['group_count']}",
@@ -1796,6 +2108,7 @@ def pair_payload(pair: PairEvidence) -> dict[str, object]:
         "content_similarity": _round_float(pair.content_similarity),
         "mert_similarity": _round_float(pair.mert_similarity),
         "maest_similarity": _round_float(pair.maest_similarity),
+        "muq_similarity": _round_float(pair.muq_similarity),
         "clap_similarity": _round_float(pair.clap_similarity),
         "sonara_similarity": _round_float(pair.sonara_similarity),
         "duration_diff_seconds": _round_float(pair.duration_diff_seconds),
@@ -2098,12 +2411,19 @@ def _embedding_similarity(left: TrackRecord, right: TrackRecord, key: str) -> fl
     return max(-1.0, min(1.0, float(left_vector @ right_vector)))
 
 
-def _content_similarity(mert: float | None, maest: float | None, clap: float | None) -> float | None:
+def _content_similarity(
+    similarities: Mapping[str, float | None],
+    source_config: SourceConfig,
+) -> float | None:
     weighted = 0.0
     total = 0.0
-    for value, weight in ((mert, 0.43), (maest, 0.32), (clap, 0.04)):
+    for source in SUPPORTED_EMBEDDINGS:
+        if source not in source_config.sources:
+            continue
+        value = similarities.get(source)
         if value is None:
             continue
+        weight = source_config.weights[source]
         weighted += value * weight
         total += weight
     if total == 0.0:

@@ -27,6 +27,10 @@ def _clap_output() -> AnalysisOutput:
     return current_embedding_analysis_output("clap", device="cpu")
 
 
+def _muq_output() -> AnalysisOutput:
+    return current_embedding_analysis_output("muq", device="cpu")
+
+
 def _output_payload(output: AnalysisOutput) -> dict[str, object]:
     return {
         "contract_hash": output.contract_hash,
@@ -212,6 +216,68 @@ def test_required_outputs_are_canonical_self_hashed_and_source_ordered(
         metadata_path=string_path,
     )
     assert any("keys must be exactly" in error for error in string_summary.errors)
+
+
+def test_muq_manifest_uses_declared_dimension_and_first_occurrence_order(
+    tmp_path: Path,
+) -> None:
+    muq = _muq_output()
+    mert = _mert_output()
+    names = ["muq:0", "muq:1023", "mert:1"]
+    payload = _manifest_payload(
+        feature_names=names,
+        required_outputs=[_output_payload(muq), _output_payload(mert)],
+    )
+    model_path, manifest_path = _write_manifest(tmp_path, payload)
+
+    summary = load_classifier_manifest_summary(
+        model_path,
+        expected_classifier_key="test_classifier",
+        metadata_path=manifest_path,
+    )
+
+    assert summary.status == "valid", summary.errors
+    assert summary.required_inputs == ("muq", "mert")
+    assert tuple(output.key for output in summary.required_outputs) == (
+        ("muq", "embedding"),
+        ("mert", "embedding"),
+    )
+    assert summary.feature_manifest_hash == classifier_feature_manifest_hash(names)
+
+    invalid_names = ["muq:1024"]
+    invalid_payload = _manifest_payload(
+        feature_names=invalid_names,
+        required_outputs=[_output_payload(muq)],
+    )
+    invalid_model, invalid_manifest = _write_manifest(
+        tmp_path / "invalid-index",
+        invalid_payload,
+    )
+    invalid_summary = load_classifier_manifest_summary(
+        invalid_model,
+        expected_classifier_key="test_classifier",
+        metadata_path=invalid_manifest,
+    )
+    assert invalid_summary.status == "invalid"
+    assert any(
+        "outside the declared contract dimension 1024" in error
+        for error in invalid_summary.errors
+    )
+
+
+def test_v2_manifest_without_muq_remains_unchanged(tmp_path: Path) -> None:
+    payload = _manifest_payload()
+    model_path, manifest_path = _write_manifest(tmp_path, payload)
+
+    summary = load_classifier_manifest_summary(
+        model_path,
+        expected_classifier_key="test_classifier",
+        metadata_path=manifest_path,
+    )
+
+    assert summary.status == "valid", summary.errors
+    assert summary.required_inputs == ("mert",)
+    assert summary.feature_names == ("mert:0",)
 
 
 def test_feature_manifest_hash_preserves_order_and_manifest_must_match(

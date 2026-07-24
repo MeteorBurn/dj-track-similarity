@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from ..track_models import TrackIdentity
 
 
-ALLOWED_CANDIDATE_SOURCES = ("mert", "maest", "sonara", "clap")
+ALLOWED_CANDIDATE_SOURCES = ("mert", "maest", "muq", "sonara", "clap")
 DEFAULT_FEEDBACK_SOURCE = "manual"
 EXPORT_CANDIDATE_COLUMNS = (
     "seed_track_id",
@@ -343,7 +343,7 @@ def _search_source(
             mode="balanced",
             limit=per_source,
         )
-    if source in {"mert", "maest", "clap"}:
+    if source in {"mert", "maest", "muq", "clap"}:
         output = current_embedding_analysis_output(source)
         search = SimilaritySearch(
             db,

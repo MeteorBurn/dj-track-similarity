@@ -16,7 +16,7 @@ different sources and help with different decisions.
 | Which tracks align on audible rhythm, sound, dynamics, harmony, or tempo? | SONARA | Feature search and transition evidence |
 | Which tracks fit a written sound description? | CLAP | Text-search rankings |
 | What genre-like and audio evidence does another model add? | MAEST | Display labels plus SET and Hybrid support |
-| How does one more model rank this seed? | MuQ | A separate LAB Reference Compare column |
+| How does another general audio model rank and combine this seed? | MuQ | Seed search, a separate LAB group, SET, Hybrid, Audio Dedup, and classifier input |
 | How strongly does a track match my own labeled idea? | Classifier score | CLASS filters and optional SET or Hybrid controls |
 
 An embedding is a compact model representation used for comparison. You do not need to interpret
@@ -82,7 +82,7 @@ MERT stores an audio embedding. The MERT tab searches from selected seed tracks 
 
 ## MuQ embedding
 
-MuQ stores a separate audio embedding from 24 kHz `float32` audio. It is tracked as its own analysis family and can be reset independently. LAB Reference Compare can show MuQ neighbors for one seed track. MuQ is not used by MERT/SONARA search, SET, Hybrid, Audio Dedup, or classifier scoring.
+MuQ stores a separate audio embedding from 24 kHz `float32` audio. It is tracked as its own analysis family and can be reset independently. The current-contract vector supports direct seed search and a separate LAB Reference Compare group. SET, Hybrid, Audio Dedup, and compatible Rhythm Lab classifier feature sets can also consume it. Those configurable multi-source workflows disable MuQ by omitting `muq` from their explicit source list.
 
 ## CLAP audio embedding
 
@@ -90,7 +90,7 @@ CLAP analysis stores audio embeddings. The CLAP tab embeds a text prompt at sear
 
 ## Classifier scores
 
-Promoted Rhythm Lab classifiers write scores under a `classifier_key`. Scores are optional. Missing scores stay neutral in SET and Hybrid modifiers.
+Promoted Rhythm Lab classifiers write scores under a `classifier_key`. A manifest can require current SONARA, MERT, MAEST, MuQ, and/or CLAP inputs. Scores are optional. Missing scores stay neutral in SET and Hybrid modifiers.
 
 ## Why separation matters
 

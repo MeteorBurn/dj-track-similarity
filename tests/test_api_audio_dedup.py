@@ -65,6 +65,8 @@ class SynchronousAudioDedupManager:
         *,
         root,
         path_contains=None,
+        sources=None,
+        weights=None,
         preset="safe",
         min_score=None,
         min_similarity=None,
@@ -76,6 +78,8 @@ class SynchronousAudioDedupManager:
         type(self).last_request = {
             "root": root,
             "path_contains": path_contains,
+            "sources": sources,
+            "weights": weights,
             "preset": preset,
             "min_score": min_score,
             "min_similarity": min_similarity,
@@ -84,7 +88,7 @@ class SynchronousAudioDedupManager:
             "apply": apply,
             "confirmation": confirmation,
         }
-        return _status()
+        return _status(sources=sources, weights=weights)
 
     def latest(self):
         return _status()
@@ -100,12 +104,23 @@ class SynchronousAudioDedupManager:
         return payload
 
 
-def _status():
+def _status(
+    *,
+    sources=None,
+    weights=None,
+):
     return {
         "job_id": "dedup-job-1",
         "state": "completed",
         "root": "D:/Music",
         "path_contains": ["mastered"],
+        "sources": sources or ["mert", "maest", "muq", "clap"],
+        "weights": weights or {
+            "mert": 0.43,
+            "maest": 0.32,
+            "muq": 0.12,
+            "clap": 0.04,
+        },
         "preset": "balanced",
         "min_score": 0.95,
         "min_similarity": 0.98,
@@ -142,6 +157,12 @@ def test_api_starts_audio_dedup_job_from_selected_database(monkeypatch, tmp_path
         json={
             "root": "D:/Music",
             "path_contains": ["mastered"],
+            "sources": ["mert", "maest", "clap"],
+            "weights": {
+                "mert": 0.43,
+                "maest": 0.32,
+                "clap": 0.04,
+            },
             "preset": "balanced",
             "min_score": 0.95,
             "min_similarity": 0.98,
@@ -151,9 +172,21 @@ def test_api_starts_audio_dedup_job_from_selected_database(monkeypatch, tmp_path
 
     assert response.status_code == 200
     assert response.json()["job_id"] == "dedup-job-1"
+    assert response.json()["sources"] == ["mert", "maest", "clap"]
+    assert response.json()["weights"] == {
+        "mert": 0.43,
+        "maest": 0.32,
+        "clap": 0.04,
+    }
     assert SynchronousAudioDedupManager.last_request == {
         "root": "D:/Music",
         "path_contains": ["mastered"],
+        "sources": ["mert", "maest", "clap"],
+        "weights": {
+            "mert": 0.43,
+            "maest": 0.32,
+            "clap": 0.04,
+        },
         "preset": "balanced",
         "min_score": 0.95,
         "min_similarity": 0.98,

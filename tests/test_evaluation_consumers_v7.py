@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from dj_track_similarity.analysis_contracts import (
     FLOAT32_LE_ENCODING,
@@ -102,6 +103,7 @@ def test_seed_sample_distinguishes_maest_analysis_and_embedding_coverage() -> No
         coverage=AnalysisCoverage(
             sonara_core=True,
             mert=True,
+            muq=True,
             clap=True,
             maest_analysis=False,
             maest_embedding=True,
@@ -123,16 +125,46 @@ def test_seed_sample_distinguishes_maest_analysis_and_embedding_coverage() -> No
     row = result.rows[0]
     assert row.sonara_core
     assert row.mert_embedding
+    assert row.muq_embedding
     assert row.clap_embedding
     assert not row.maest_analysis
     assert row.maest_embedding
     assert row.csv_row()["maest_analysis"] == 0
     assert row.csv_row()["maest_embedding"] == 1
 
+    repository.summaries[1] = _summary(
+        repository.identities[1],
+        coverage=AnalysisCoverage(
+            sonara_core=True,
+            mert=True,
+            muq=False,
+            clap=True,
+            maest_analysis=True,
+            maest_embedding=True,
+        ),
+    )
+    missing_muq = export_seed_sample(
+        repository,
+        count=1,
+        require_complete_analysis=True,
+    )
+    assert missing_muq.eligible_count == 0
 
-def test_recorded_session_reader_requires_current_identity_and_contract() -> None:
+    legacy_sources = export_seed_sample(
+        repository,
+        count=1,
+        require_complete_analysis=True,
+        required_sources=("mert", "maest", "sonara", "clap"),
+    )
+    assert legacy_sources.eligible_count == 1
+
+
+@pytest.mark.parametrize("source", ("mert", "muq"))
+def test_recorded_session_reader_requires_current_identity_and_contract(
+    source: str,
+) -> None:
     repository = _Repository()
-    output = repository.outputs[("mert", "embedding")]
+    output = repository.outputs[(source, "embedding")]
     seed = repository.identities[1]
     candidate = repository.identities[2]
     repository.raw_sessions = [
@@ -144,7 +176,7 @@ def test_recorded_session_reader_requires_current_identity_and_contract() -> Non
                 "catalog_uuid": repository.catalog_uuid,
                 "seed_identities": [_identity_payload(seed)],
                 "source_contract_hashes": {
-                    "mert": output.contract_hash,
+                    source: output.contract_hash,
                 },
             },
             "seeds": [
@@ -161,7 +193,7 @@ def test_recorded_session_reader_requires_current_identity_and_contract() -> Non
                     "score_breakdown": {
                         "candidate_identity": _identity_payload(candidate),
                         "sources": {
-                            "mert": {
+                            source: {
                                 "rank": 1,
                                 "score": 0.9,
                                 "contract_hash": output.contract_hash,
@@ -177,8 +209,8 @@ def test_recorded_session_reader_requires_current_identity_and_contract() -> Non
 
     assert len(current) == 1
     assert current[0]["seed_track_ids"] == [1]
-    repository.outputs[("mert", "embedding")] = _embedding_output(
-        "mert",
+    repository.outputs[(source, "embedding")] = _embedding_output(
+        source,
         "9",
     )
     assert load_current_evaluation_sessions(repository) == []
@@ -196,6 +228,7 @@ class _Repository:
         coverage = AnalysisCoverage(
             sonara_core=True,
             mert=True,
+            muq=True,
             clap=True,
             maest_embedding=True,
         )
@@ -209,6 +242,9 @@ class _Repository:
             ),
             ("maest", "embedding"): current_embedding_analysis_output(
                 "maest"
+            ),
+            ("muq", "embedding"): current_embedding_analysis_output(
+                "muq"
             ),
             ("clap", "embedding"): current_embedding_analysis_output(
                 "clap"

@@ -26,6 +26,9 @@ from dj_track_similarity.analysis_models import (  # noqa: E402
     MERT_PREPROCESSING,
     mert_embedding_output,
 )
+from dj_track_similarity.analysis_model_runners import (  # noqa: E402
+    current_embedding_analysis_output,
+)
 from dj_track_similarity.classifier_manifest import (  # noqa: E402
     CLASSIFIER_PUBLICATION_POINTER_NAME,
     load_classifier_manifest_summary,
@@ -161,20 +164,25 @@ def _insert_track(
     assert result[0].ok
 
 
-def _write_promotable_artifact(root: Path) -> Path:
-    artifact = root / "focused-mert-test.joblib"
-    output = _mert_output()
+def _write_promotable_artifact(
+    root: Path,
+    *,
+    output: AnalysisOutput | None = None,
+) -> Path:
+    selected_output = output or _mert_output()
+    family = selected_output.contract.analysis_family
+    artifact = root / f"focused-{family}-test.joblib"
     joblib.dump(
         {
             "classifier_key": "focused",
-            "feature_set": "mert",
-            "feature_names": ["mert:0"],
+            "feature_set": family,
+            "feature_names": [f"{family}:0"],
             "label_order": ["yes", "no"],
             "positive_label": "yes",
             "required_outputs": [
                 {
-                    "contract_hash": output.contract_hash,
-                    "canonical_payload": output.contract.canonical_payload,
+                    "contract_hash": selected_output.contract_hash,
+                    "canonical_payload": selected_output.contract.canonical_payload,
                 }
             ],
             "production_calibration": {
@@ -372,6 +380,33 @@ def test_source_features_lab_training_and_promotion_use_exact_v7_identity(
     assert stale_prediction["track_uuid"] == tracks[0].track_uuid
     assert stale_prediction["content_generation"] == 1
     assert stale_prediction["selected_path"] == tracks[0].file_path
+
+
+def test_promotion_accepts_exact_muq_artifact_contract(tmp_path: Path) -> None:
+    lab_path = tmp_path / "lab.sqlite"
+    _create_focused_profile(lab_path)
+    output = current_embedding_analysis_output("muq", device="cpu")
+    artifact = _write_promotable_artifact(tmp_path, output=output)
+
+    promoted = promote_profile_model(
+        lab_path,
+        "focused",
+        artifact_path=artifact,
+        target_root=tmp_path / "promoted",
+    )
+    summary = load_classifier_manifest_summary(
+        promoted["model_path"],
+        expected_classifier_key="focused",
+        metadata_path=promoted["metadata_path"],
+    )
+
+    assert summary.status == "valid", summary.errors
+    assert summary.feature_set == "muq"
+    assert summary.feature_names == ("muq:0",)
+    assert tuple(required.key for required in summary.required_outputs) == (
+        ("muq", "embedding"),
+    )
+    assert summary.required_outputs[0].contract_hash == output.contract_hash
 
 
 def test_tampered_or_unbound_artifact_is_rejected_before_joblib_load(

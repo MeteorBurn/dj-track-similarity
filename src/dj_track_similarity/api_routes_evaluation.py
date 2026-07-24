@@ -141,6 +141,11 @@ def register_evaluation_routes(app: FastAPI, state: AppDatabaseState) -> None:
                 seed_track_ids=request.seed_track_ids,
                 sample_count=request.sample_count,
                 random_seed=request.random_seed,
+                sources=(
+                    request.sources
+                    if request.sources is not None
+                    else score_profile.sources
+                ),
             )
             result = build_weighted_candidate_pool(
                 db,
@@ -223,12 +228,22 @@ def _weighted_candidate_seed_track_ids(
     seed_track_ids: list[int] | None,
     sample_count: int,
     random_seed: int,
+    sources: list[str] | tuple[str, ...],
 ) -> tuple[int, ...]:
     if seed_track_ids is not None:
         return tuple(seed_track_ids)
-    sample = export_seed_sample(db, count=sample_count, random_seed=random_seed, require_complete_analysis=True)
+    sample = export_seed_sample(
+        db,
+        count=sample_count,
+        random_seed=random_seed,
+        require_complete_analysis=True,
+        required_sources=sources,
+    )
     if not sample.rows:
-        raise ValueError("No eligible seed tracks were found; provide seed_track_ids or check complete analysis coverage")
+        raise ValueError(
+            "No eligible seed tracks were found; provide seed_track_ids or "
+            "check selected-source analysis coverage"
+        )
     return tuple(row.track_id for row in sample.rows)
 
 

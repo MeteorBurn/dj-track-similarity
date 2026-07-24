@@ -145,10 +145,11 @@ For the complete release sequence, follow
 | `--limit` | result count, `1..500` |
 | `--min-similarity` | optional threshold |
 | `--device` | `auto`, `cpu`, or `cuda` for CLAP text embedding |
-| `--use-ann-index` | opt in to persistent CLAP sidecar lookup |
+| `--use-ann-index` | require persistent CLAP sidecar lookup instead of exact search |
 | `--index-dir` | custom sidecar directory |
 
-If the sidecar is unavailable, the command warns and uses exact search.
+If the sidecar is missing, stale, or unsupported, the command fails. Omit `--use-ann-index` when you
+want exact search without the sidecar.
 
 ## Persistent index commands
 
@@ -181,6 +182,10 @@ The `eval` command group is for local diagnostics and feedback reports:
 - `sweep-risk-penalty`
 
 These commands require the current SQLite schema and operate on local database/report files.
+Candidate export and source-profile commands accept repeatable `--source` values from `mert`,
+`maest`, `muq`, `sonara`, and `clap`. Omitting the option uses all five. The default complete-analysis seed
+sample now requires current SONARA, MERT, MAEST, MuQ, and CLAP coverage. Use
+`--allow-partial-analysis` when that complete gate is not intended.
 
 ## Classifier diagnostics
 
@@ -212,6 +217,15 @@ Audio Dedup report:
 
 ```powershell
 python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music --preset safe
+```
+
+The default embedding sources are `mert`, `maest`, `muq`, and `clap`, with raw weights `0.43`,
+`0.32`, `0.12`, and `0.04`. Repeat `--source` to choose a subset and provide one
+`--weight FAMILY=VALUE` for every enabled source when overriding weights. This legacy-source
+example disables MuQ explicitly:
+
+```powershell
+python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music --source mert --source maest --source clap --weight mert=0.43 --weight maest=0.32 --weight clap=0.04
 ```
 
 Database optimization:

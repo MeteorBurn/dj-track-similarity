@@ -97,12 +97,12 @@ class HybridRepository(Protocol):
     ) -> None: ...
 
 
-DEFAULT_HYBRID_SOURCES = ("mert", "maest", "sonara", "clap")
+DEFAULT_HYBRID_SOURCES = ("mert", "maest", "muq", "sonara", "clap")
 ALLOWED_CANDIDATE_SOURCES = DEFAULT_HYBRID_SOURCES
 HYBRID_UI_FEEDBACK_SOURCE = "hybrid_ui"
 HYBRID_SEARCH_SESSION_MODE = "hybrid_search_preview"
 HYBRID_SEARCH_LIMITATIONS = (
-    "Hybrid search is an explicit weighted rank-fusion preview over existing MERT, MAEST, SONARA, and CLAP analysis data.",
+    "Hybrid search is an explicit weighted rank-fusion preview over existing MERT, MAEST, MuQ, SONARA, and CLAP analysis data.",
     "CLAP is used only as stored audio embeddings in this preview; prompt-aware CLAP hybrid search is not part of this path.",
     "Optional classifier controls read stored promoted classifier scores only; missing scores stay neutral and no audio is decoded.",
     "The score is an optional transition-risk-adjusted weighted RRF preview score; it is diagnostic ranking output, not calibrated human-taste evidence.",

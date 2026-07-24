@@ -319,8 +319,10 @@ def _save_ml_embeddings(
     axis: int,
 ) -> None:
     target = _target(identity)
-    mert, clap, maest_analysis, maest_embedding = _ml_outputs()
-    db.register_analysis_outputs((mert, clap, maest_analysis, maest_embedding))
+    mert, muq, clap, maest_analysis, maest_embedding = _ml_outputs()
+    db.register_analysis_outputs(
+        (mert, muq, clap, maest_analysis, maest_embedding)
+    )
     embedding_results = db.save_embedding_results(
         (
             EmbeddingWrite(
@@ -328,6 +330,14 @@ def _save_ml_embeddings(
                 output=EmbeddingOutput(
                     contract=mert.contract,
                     vector=_unit_vector(int(mert.contract.dim), axis),
+                    analyzed_at=_NOW,
+                ),
+            ),
+            EmbeddingWrite(
+                target=target,
+                output=EmbeddingOutput(
+                    contract=muq.contract,
+                    vector=_unit_vector(int(muq.contract.dim), axis),
                     analyzed_at=_NOW,
                 ),
             ),
@@ -407,15 +417,17 @@ def _ml_outputs() -> tuple[
     AnalysisOutput,
     AnalysisOutput,
     AnalysisOutput,
+    AnalysisOutput,
 ]:
     mert = current_embedding_analysis_output("mert")
+    muq = current_embedding_analysis_output("muq")
     clap = current_embedding_analysis_output("clap")
     maest_analysis, maest_embedding = MaestModelRunner(
         device="cpu",
         top_k=3,
         inference_batch_size=1,
     ).active_outputs
-    return mert, clap, maest_analysis, maest_embedding
+    return mert, muq, clap, maest_analysis, maest_embedding
 
 
 def _sonara_contracts() -> SonaraContractSet:

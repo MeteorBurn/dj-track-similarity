@@ -109,10 +109,10 @@ The current application already supports the practical parts of that vision:
 - Browse large libraries through paginated v7 API responses.
 - Read typed metadata, analysis coverage, likes, audio preview, and search/set state.
 - Run SONARA, MAEST, MERT, MuQ, and CLAP analysis jobs.
-- Search from seed tracks with MERT and SONARA.
+- Search from seed tracks with MAEST, MERT, MuQ, CLAP, and SONARA.
 - Search from text prompts with CLAP after CLAP audio embeddings exist.
 - Build Smart Set Builder previews from selected seeds or automatic anchors.
-- Use Hybrid preview for weighted MERT, MAEST, SONARA, and CLAP candidate checks.
+- Use Hybrid preview for weighted MERT, MAEST, MuQ, SONARA, and CLAP candidate checks.
 - Launch Rhythm Lab for local classifier labeling, training, benchmark review, and promotion.
 - Read promoted Rhythm Lab classifier scores for CLASS filtering, SET biasing, and Hybrid diagnostics.
 - Export the current set as M3U or CSV.
@@ -164,7 +164,7 @@ The app keeps evidence sources separate:
 - **SONARA** stores audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy. Its standalone CPU/Rust job passes file paths to `sonara.analyze_batch()`, so SONARA/Symphonia owns decoding. There is no FFmpeg or signal-analysis fallback. The four output kinds are `core`, `timeline`, `embedding`, and `fingerprint`; `core` is the default. SONARA BPM analysis uses the project range `70.0..180.0`.
 - **MAEST** stores genre labels and an audio embedding.
 - **MERT** stores an audio embedding for seed similarity.
-- **MuQ** stores a separate audio embedding. LAB Reference Compare can inspect MuQ neighbors for one seed track, but MuQ is not used by MERT/SONARA search, SET, Hybrid, Audio Dedup, or classifier scoring.
+- **MuQ** stores a separate audio embedding. It is available to seed search, LAB Reference Compare, SET, Hybrid, Audio Dedup, and Rhythm Lab classifier feature sets.
 - **CLAP** stores an audio embedding for text-to-audio search and audio-to-audio comparison.
 - **Rhythm Lab classifiers** run as a separate database-only stage and store optional local scores under a classifier key. Each promoted manifest decides which current SONARA and ML inputs are required.
 
@@ -255,7 +255,7 @@ The normal loop is:
 4. Run classifier scoring in the main library database.
 5. Use CLASS, SET, or Hybrid preview with the promoted scores.
 
-Classifier scoring is database-only. It reads exactly the SONARA and MAEST/MERT/CLAP inputs named by each promoted manifest, then writes scores for the selected classifier key. It does not decode or retag source audio. Tracks without the complete manifest input set are reported as not ready and are not runtime failures.
+Classifier scoring is database-only. It reads exactly the SONARA and MAEST/MERT/MuQ/CLAP inputs named by each promoted manifest, then writes scores for the selected classifier key. It does not decode or retag source audio. Tracks without the complete manifest input set are reported as not ready and are not runtime failures.
 
 SONARA-dependent classifier artifacts must be retrained and promoted with the current analysis signature. Manifest version `2` and each track must match exactly before scoring. Missing opt-in values are skipped rather than imputed as `0.0`. A SONARA reset or release-contract change invalidates dependent main-library scores. The same contract guard removes dependent Rhythm Lab predictions. Labels and feedback are preserved, and stale artifacts remain blocked until retrained and promoted.
 
@@ -388,7 +388,7 @@ Queued-stage messages contain only settings used by that stage. SONARA reports i
 native batch, ML reports its models, device, Track batch, and Inference batch, and CLASSIFIERS
 reports the selected profile count.
 
-MuQ uses the optional `ml` dependencies and official `OpenMuQ/MuQ-large-msd-iter` weights. The app feeds MuQ only 24 kHz `float32` audio and supports CPU or CUDA. CUDA is recommended for full-library runs. In this release, MuQ stores embeddings and analysis status. LAB Reference Compare can use those embeddings for per-model listening checks.
+MuQ uses the optional `ml` dependencies and official `OpenMuQ/MuQ-large-msd-iter` weights. The app feeds MuQ only 24 kHz `float32` audio and supports CPU or CUDA. CUDA is recommended for full-library runs. The stored embedding is a normal current-contract source for seed search, LAB Reference Compare, SET, Hybrid, Audio Dedup, and compatible classifier manifests. SET, Hybrid, and Audio Dedup accept explicit source lists, so API or CLI callers can omit `muq` when they need the legacy source mix.
 
 In the CLI, omit `--limit` to analyze the whole library.
 
@@ -401,7 +401,7 @@ complete, the backend and CLI are the trustworthy v7 surfaces.
 ## 🛠️ Maintenance tools
 
 - **Audio Doctor** checks audio metadata/container issues. It is dry-run-first. Apply mode requires exact `APPLY REPAIR` and existing dry-run state. See [Audio Doctor](docs/dj-track-similarity/tools-and-scripts/audio-doctor.md).
-- **Audio Dedup** reports duplicate candidates from stored analysis data. Apply mode requires exact `APPLY DELETE` and deletes only safe candidates inside the selected root. See [Audio Dedup](docs/dj-track-similarity/tools-and-scripts/audio-dedup.md).
+- **Audio Dedup** reports duplicate candidates from stored MERT, MAEST, MuQ, and CLAP analysis data. Its source list and weights are configurable; MuQ alone never authorizes deletion. Apply mode still requires exact `APPLY DELETE` and deletes only safe candidates inside the selected root. See [Audio Dedup](docs/dj-track-similarity/tools-and-scripts/audio-dedup.md).
 - **Persistent ANN indexes** are optional generated sidecars for repeated vector lookup. Missing or stale indexes fall back to exact search where supported. See [Persistent ANN indexes](docs/dj-track-similarity/tools-and-scripts/persistent-ann-indexes.md).
 - **Database optimization** supports the main library database and the Rhythm Lab labels database. It backs up the SQLite file, checks integrity, and then runs SQLite maintenance commands. See [Optimize database](docs/dj-track-similarity/tools-and-scripts/optimize-database.md).
 

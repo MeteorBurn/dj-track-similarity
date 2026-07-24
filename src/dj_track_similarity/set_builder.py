@@ -88,13 +88,23 @@ SET_BUILDER_ENERGY_CURVES = {"warmup", "balanced", "peak", "wave"}
 SET_BUILDER_BPM_MODES = {"general", "low_to_high", "high_to_low"}
 SET_BUILDER_BPM_CHANGES = {"slow", "medium", "fast"}
 SET_BUILDER_CLASSIFIER_FLOWS = {"flat", "rise", "fall"}
-REQUIRED_EMBEDDINGS = ("mert", "maest", "clap")
-DEFAULT_MODEL_WEIGHTS = {
+DEFAULT_SET_EMBEDDING_SOURCES = ("mert", "maest", "muq", "clap")
+SET_EMBEDDING_SOURCES = frozenset(DEFAULT_SET_EMBEDDING_SOURCES)
+SET_EMBEDDING_BREAKDOWN_KEYS = {
+    "mert": "mert",
+    "maest": "maest_embedding",
+    "muq": "muq",
+    "clap": "clap_audio",
+}
+DEFAULT_SET_MODEL_WEIGHTS = {
     "mert": 0.30,
-    "clap": 0.22,
     "maest": 0.18,
+    "muq": 0.15,
+    "clap": 0.22,
     "sonara_broad": 0.30,
 }
+# Public raw defaults retained for callers that inspect the SET scoring contract.
+DEFAULT_MODEL_WEIGHTS = DEFAULT_SET_MODEL_WEIGHTS
 SEQUENCE_POOL_FACTOR = 20
 SEQUENCE_POOL_MIN = 256
 SEQUENCE_POOL_MAX = 512
@@ -224,6 +234,8 @@ class SetBuilderConfig:
     classifier_preferences: dict[str, float] = field(default_factory=dict)
     classifier_flows: dict[str, str] = field(default_factory=dict)
     random_seed: int | None = None
+    sources: tuple[str, ...] = DEFAULT_SET_EMBEDDING_SOURCES
+    weights: dict[str, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -274,17 +286,27 @@ class SmartSetBuilder:
         analysis_outputs: Mapping[str, AnalysisOutput],
     ) -> None:
         self.db = db
-        self.analysis_outputs = _required_embedding_outputs(
-            analysis_outputs,
-            REQUIRED_EMBEDDINGS,
+        self._available_analysis_outputs = dict(analysis_outputs)
+        self.analysis_outputs: dict[str, AnalysisOutput] = {}
+        self._embedding_sources = DEFAULT_SET_EMBEDDING_SOURCES
+        self._model_weights = _resolve_set_weights(
+            self._embedding_sources,
+            None,
         )
         self._summary_by_id: dict[int, TrackSummary] = {}
         self._embedding_maps: dict[str, dict[int, np.ndarray]] = {
-            key: {} for key in REQUIRED_EMBEDDINGS
+            key: {} for key in self._embedding_sources
         }
 
     def generate(self, config: SetBuilderConfig) -> dict[str, object]:
         cleaned = _clean_config(config)
+        self._embedding_sources = cleaned.sources
+        self._model_weights = dict(cleaned.weights or {})
+        self.analysis_outputs = _required_embedding_outputs(
+            self._available_analysis_outputs,
+            self._embedding_sources,
+        )
+        self._embedding_maps = {key: {} for key in self._embedding_sources}
         rng = _random_generator(cleaned.random_seed)
         manual_seed_ids = (
             _manual_seed_ids(cleaned.seed_track_ids)
@@ -367,7 +389,11 @@ class SmartSetBuilder:
         bpm_plan = _bpm_plan(cleaned, candidates, seeds)
 
         ranges = _numeric_ranges(candidates)
-        context = _build_context(seeds, ranges)
+        context = _build_context(
+            seeds,
+            ranges,
+            self._embedding_sources,
+        )
         scored = [
             self._score_candidate(candidate, context, cleaned)
             for candidate in candidates
@@ -382,6 +408,8 @@ class SmartSetBuilder:
             "mode": cleaned.mode,
             "seed_mode": cleaned.seed_mode,
             "seed_track_ids": seed_ids,
+            "sources": list(self._embedding_sources),
+            "weights_used": dict(self._model_weights),
             "coverage": coverage,
             "items": ordered_items[: cleaned.limit],
         }
@@ -424,7 +452,7 @@ class SmartSetBuilder:
 
         embedding_maps: dict[str, dict[int, np.ndarray]] = {}
         all_targets: list[AnalysisTarget] = [row.target for row in sonara_rows]
-        for family in REQUIRED_EMBEDDINGS:
+        for family in self._embedding_sources:
             output = _require_current_embedding_output(
                 self.db,
                 family,
@@ -446,7 +474,8 @@ class SmartSetBuilder:
             track_id = track.track_id
             sonara = sonara_by_id.get(track_id)
             if sonara is None or any(
-                track_id not in embedding_maps[family] for family in REQUIRED_EMBEDDINGS
+                track_id not in embedding_maps[family]
+                for family in self._embedding_sources
             ):
                 continue
             sonara_features = _sonara_features_from_row(sonara)
@@ -471,6 +500,7 @@ class SmartSetBuilder:
                 0,
                 int(summary.tracks) - int(summary.maest_embedding),
             ),
+            "missing_muq": max(0, int(summary.tracks) - int(summary.muq)),
             "missing_clap": max(0, int(summary.tracks) - int(summary.clap)),
             "missing_sonara": max(
                 0,
@@ -486,7 +516,8 @@ class SmartSetBuilder:
         for light in light_candidates:
             track_id = light.track.track_id
             if not all(
-                track_id in self._embedding_maps[key] for key in REQUIRED_EMBEDDINGS
+                track_id in self._embedding_maps[key]
+                for key in self._embedding_sources
             ):
                 continue
             candidates.append(
@@ -494,7 +525,7 @@ class SmartSetBuilder:
                     track=light.track,
                     vectors={
                         key: self._embedding_maps[key][track_id]
-                        for key in REQUIRED_EMBEDDINGS
+                        for key in self._embedding_sources
                     },
                     sonara_features=light.sonara_features,
                     sonara_values=light.sonara_values,
@@ -546,7 +577,10 @@ class SmartSetBuilder:
         target_count = max(config.limit, count)
         if sonara_centrality is None:
             sonara_centrality = _global_sonara_centrality_scores(candidates, ranges)
-        embedding_centroids = _embedding_centroids(candidates)
+        embedding_centroids = _embedding_centroids(
+            candidates,
+            self._embedding_sources,
+        )
         centrality = [
             (
                 candidate,
@@ -584,14 +618,24 @@ class SmartSetBuilder:
                         not allow_near_duplicate
                         and seeds
                         and max(
-                            _fast_diversity_similarity(candidate, seed, ranges)
+                            _fast_diversity_similarity(
+                                candidate,
+                                seed,
+                                ranges,
+                                self._embedding_sources,
+                            )
                             for seed in seeds
                         )
                         > 0.995
                     ):
                         continue
                     score = _auto_anchor_selection_score(
-                        candidate, centrality_score, seeds, ranges, config.mode
+                        candidate,
+                        centrality_score,
+                        seeds,
+                        ranges,
+                        config.mode,
+                        self._embedding_sources,
                     )
                     anchor_position = (
                         anchor_positions[len(seeds)]
@@ -636,9 +680,12 @@ class SmartSetBuilder:
         config: SetBuilderConfig,
     ) -> _ScoredCandidate | None:
         model_scores = {
-            "mert": _embedding_similarity(candidate, context, "mert"),
-            "maest_embedding": _embedding_similarity(candidate, context, "maest"),
-            "clap_audio": _embedding_similarity(candidate, context, "clap"),
+            SET_EMBEDDING_BREAKDOWN_KEYS[source]: _embedding_similarity(
+                candidate,
+                context,
+                source,
+            )
+            for source in self._embedding_sources
         }
         sonara_score, sonara_groups = _sonara_similarity(candidate, context)
         if sonara_score is None:
@@ -647,10 +694,12 @@ class SmartSetBuilder:
             candidate.track, config
         )
         base = (
-            model_scores["mert"] * DEFAULT_MODEL_WEIGHTS["mert"]
-            + model_scores["clap_audio"] * DEFAULT_MODEL_WEIGHTS["clap"]
-            + model_scores["maest_embedding"] * DEFAULT_MODEL_WEIGHTS["maest"]
-            + sonara_score * DEFAULT_MODEL_WEIGHTS["sonara_broad"]
+            sum(
+                model_scores[SET_EMBEDDING_BREAKDOWN_KEYS[source]]
+                * self._model_weights[source]
+                for source in self._embedding_sources
+            )
+            + sonara_score * self._model_weights["sonara_broad"]
         )
         disagreement = float(np.std(list(model_scores.values()) + [sonara_score]))
         base = _mode_adjusted_base_score(base, disagreement, config.mode)
@@ -728,7 +777,7 @@ class SmartSetBuilder:
                         seed,
                         "seed_anchor",
                         1.0,
-                        _seed_breakdown(transition),
+                        _seed_breakdown(transition, self._embedding_sources),
                         {},
                         transition,
                     )
@@ -765,7 +814,7 @@ class SmartSetBuilder:
                             seed,
                             "seed_anchor",
                             1.0,
-                            _seed_breakdown(transition),
+                            _seed_breakdown(transition, self._embedding_sources),
                             {},
                             transition,
                         )
@@ -816,7 +865,10 @@ class SmartSetBuilder:
                 selected.candidate, bpm_plan, position, target_count
             )
             diversity_score = _diversity_score(
-                selected.candidate, selected_sequence, ranges
+                selected.candidate,
+                selected_sequence,
+                ranges,
+                self._embedding_sources,
             )
             breakdown = dict(selected.breakdown)
             breakdown["transition"] = transition["confidence"]
@@ -875,7 +927,12 @@ class SmartSetBuilder:
             item.candidate.track, config, position, target_count
         )
         bpm_curve = _bpm_curve_score(item.candidate, bpm_plan, position, target_count)
-        diversity_score = _diversity_score(item.candidate, selected_sequence, ranges)
+        diversity_score = _diversity_score(
+            item.candidate,
+            selected_sequence,
+            ranges,
+            self._embedding_sources,
+        )
         diversity_weight = config.diversity * 0.10
         bpm_weight = _bpm_curve_weight(config.mode, bpm_plan)
         if config.mode == "balanced_set":
@@ -928,12 +985,14 @@ class _Context:
 
 
 def _build_context(
-    seeds: list[_Candidate], ranges: dict[str, tuple[float, float]]
+    seeds: list[_Candidate],
+    ranges: dict[str, tuple[float, float]],
+    embedding_sources: Sequence[str] = DEFAULT_SET_EMBEDDING_SOURCES,
 ) -> _Context:
     return _Context(
         seeds=seeds,
         ranges=ranges,
-        embedding_centroids=_embedding_centroids(seeds),
+        embedding_centroids=_embedding_centroids(seeds, embedding_sources),
         sonara_centroid=_sonara_centroid(seeds, ranges),
         chord_context=_text_context(seeds, "predominant_chord"),
     )
@@ -955,6 +1014,8 @@ def _clean_config(config: SetBuilderConfig) -> SetBuilderConfig:
         raise ValueError(f"Unsupported BPM mode: {bpm_mode}")
     if bpm_change not in SET_BUILDER_BPM_CHANGES:
         raise ValueError(f"Unsupported BPM change mode: {bpm_change}")
+    sources = _clean_set_sources(config.sources)
+    weights = _resolve_set_weights(sources, config.weights)
     return SetBuilderConfig(
         seed_mode=seed_mode,
         seed_track_ids=list(
@@ -972,7 +1033,95 @@ def _clean_config(config: SetBuilderConfig) -> SetBuilderConfig:
         classifier_preferences=_clean_preference_map(config.classifier_preferences),
         classifier_flows=_clean_classifier_flows(config.classifier_flows),
         random_seed=None if config.random_seed is None else int(config.random_seed),
+        sources=sources,
+        weights=weights,
     )
+
+
+def _clean_set_sources(sources: Sequence[str] | None) -> tuple[str, ...]:
+    values = DEFAULT_SET_EMBEDDING_SOURCES if sources is None else sources
+    clean_sources = tuple(
+        text for source in values if (text := str(source).strip().lower())
+    )
+    if not clean_sources:
+        raise ValueError("At least one SET embedding source is required")
+    duplicates = sorted(
+        source for source, count in Counter(clean_sources).items() if count > 1
+    )
+    if duplicates:
+        raise ValueError(
+            f"SET sources must not contain duplicates: {', '.join(duplicates)}"
+        )
+    unsupported = [
+        source for source in clean_sources if source not in SET_EMBEDDING_SOURCES
+    ]
+    if unsupported:
+        allowed = ", ".join(DEFAULT_SET_EMBEDDING_SOURCES)
+        raise ValueError(
+            "Unsupported SET embedding source(s): "
+            f"{', '.join(unsupported)}. Allowed: {allowed}"
+        )
+    return clean_sources
+
+
+def _resolve_set_weights(
+    sources: Sequence[str],
+    weights: Mapping[str, float] | None,
+) -> dict[str, float]:
+    expected_keys = {*sources, "sonara_broad"}
+    if weights is None:
+        raw_weights = {
+            source: DEFAULT_SET_MODEL_WEIGHTS[source] for source in sources
+        }
+        raw_weights["sonara_broad"] = DEFAULT_SET_MODEL_WEIGHTS["sonara_broad"]
+    else:
+        raw_weights: dict[str, float] = {}
+        for source, value in weights.items():
+            source_name = str(source).strip().lower()
+            if not source_name:
+                raise ValueError("SET weight keys must be non-empty source names")
+            if source_name in raw_weights:
+                raise ValueError(
+                    "SET weights contains duplicate normalized source "
+                    f"{source_name!r}"
+                )
+            raw_weights[source_name] = _non_negative_finite_float(
+                value,
+                f"weights.{source_name}",
+            )
+        missing = sorted(expected_keys - set(raw_weights))
+        extra = sorted(set(raw_weights) - expected_keys)
+        if missing or extra:
+            details: list[str] = []
+            if missing:
+                details.append(f"missing: {', '.join(missing)}")
+            if extra:
+                details.append(f"extra: {', '.join(extra)}")
+            raise ValueError(
+                "SET weights must match enabled embedding sources plus "
+                f"sonara_broad exactly ({'; '.join(details)})"
+            )
+    weight_sum = sum(raw_weights.values())
+    if weight_sum <= 0.0:
+        raise ValueError("SET weights must contain at least one positive value")
+    return {
+        source: raw_weights[source] / weight_sum
+        for source in (*sources, "sonara_broad")
+    }
+
+
+def _non_negative_finite_float(value: object, field_name: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a finite non-negative number")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            f"{field_name} must be a finite non-negative number"
+        ) from error
+    if not math.isfinite(number) or number < 0.0:
+        raise ValueError(f"{field_name} must be a finite non-negative number")
+    return number
 
 
 def _clean_bpm_value(value: float | None, name: str) -> float | None:
@@ -1650,9 +1799,12 @@ def _text_context(
     return {value for value, count in counts.items() if count == most_common_count}
 
 
-def _embedding_centroids(candidates: list[_Candidate]) -> dict[str, np.ndarray]:
+def _embedding_centroids(
+    candidates: list[_Candidate],
+    embedding_sources: Sequence[str],
+) -> dict[str, np.ndarray]:
     centroids: dict[str, np.ndarray] = {}
-    for key in REQUIRED_EMBEDDINGS:
+    for key in embedding_sources:
         centroid = np.mean([candidate.vectors[key] for candidate in candidates], axis=0)
         norm = float(np.linalg.norm(centroid))
         if norm > 0:
@@ -1717,11 +1869,18 @@ def _auto_anchor_selection_score(
     selected: list[_Candidate],
     ranges: dict[str, tuple[float, float]],
     mode: str,
+    embedding_sources: Sequence[str],
 ) -> float:
     if not selected:
         return _bounded(centrality_score)
     relatedness = max(
-        _fast_diversity_similarity(candidate, seed, ranges) for seed in selected
+        _fast_diversity_similarity(
+            candidate,
+            seed,
+            ranges,
+            embedding_sources,
+        )
+        for seed in selected
     )
     if mode == "similar_crate":
         score = centrality_score * 0.35 + relatedness * 0.65
@@ -2217,13 +2376,16 @@ def _key_relation(
 
 
 def _combined_similarity(
-    candidate: _Candidate, seed: _Candidate, ranges: dict[str, tuple[float, float]]
+    candidate: _Candidate,
+    seed: _Candidate,
+    ranges: dict[str, tuple[float, float]],
+    embedding_sources: Sequence[str] = DEFAULT_SET_EMBEDDING_SOURCES,
 ) -> float:
     embedding_score = float(
         np.mean(
             [
                 _bounded(float(candidate.vectors[key] @ seed.vectors[key]))
-                for key in REQUIRED_EMBEDDINGS
+                for key in embedding_sources
             ]
         )
     )
@@ -2236,23 +2398,33 @@ def _diversity_score(
     candidate: _Candidate,
     selected: list[_Candidate],
     ranges: dict[str, tuple[float, float]],
+    embedding_sources: Sequence[str],
 ) -> float:
     if not selected:
         return 0.5
     nearest = max(
-        _fast_diversity_similarity(candidate, item, ranges) for item in selected
+        _fast_diversity_similarity(
+            candidate,
+            item,
+            ranges,
+            embedding_sources,
+        )
+        for item in selected
     )
     return _bounded(1.0 - nearest)
 
 
 def _fast_diversity_similarity(
-    candidate: _Candidate, selected: _Candidate, ranges: dict[str, tuple[float, float]]
+    candidate: _Candidate,
+    selected: _Candidate,
+    ranges: dict[str, tuple[float, float]],
+    embedding_sources: Sequence[str],
 ) -> float:
     embedding_score = float(
         np.mean(
             [
                 _bounded(float(candidate.vectors[key] @ selected.vectors[key]))
-                for key in REQUIRED_EMBEDDINGS
+                for key in embedding_sources
             ]
         )
     )
@@ -2291,11 +2463,15 @@ def _reason(
     return "similar_to_seed"
 
 
-def _seed_breakdown(transition: dict[str, object]) -> dict[str, float]:
+def _seed_breakdown(
+    transition: dict[str, object],
+    embedding_sources: Sequence[str],
+) -> dict[str, float]:
     return {
-        "mert": 1.0,
-        "maest_embedding": 1.0,
-        "clap_audio": 1.0,
+        **{
+            SET_EMBEDDING_BREAKDOWN_KEYS[source]: 1.0
+            for source in embedding_sources
+        },
         "sonara_broad": 1.0,
         "classifier_preference": 0.0,
         "classifier_confidence": 1.0,

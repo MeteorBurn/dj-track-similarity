@@ -145,10 +145,11 @@ MAEST/MERT/MuQ/CLAP также находятся в отдельных табл
 | `--limit` | число результатов `1..500` |
 | `--min-similarity` | необязательный порог |
 | `--device` | `auto`, `cpu` или `cuda` для текстового эмбеддинга CLAP |
-| `--use-ann-index` | явно включить постоянный индекс CLAP |
+| `--use-ann-index` | требовать постоянный индекс CLAP вместо точного поиска |
 | `--index-dir` | нестандартный каталог индекса |
 
-Если индекс недоступен, команда предупреждает и выполняет точный поиск.
+Если индекс отсутствует, устарел или не поддерживается, команда завершается ошибкой. Не указывайте
+`--use-ann-index`, когда нужен точный поиск без вспомогательного индекса.
 
 ## Команды постоянных индексов
 
@@ -181,6 +182,10 @@ dj-sim index clear --model clap --db .\data\library.sqlite
 - `sweep-risk-penalty`.
 
 Команды требуют актуальную схему SQLite и работают с локальной базой и файлами отчётов.
+Команды экспорта кандидатов и профилирования источников принимают повторяемый `--source` со
+значениями `mert`, `maest`, `muq`, `sonara`, `clap`. Без параметра используются все пять.
+Стандартная выборка только с полным анализом теперь требует актуальное покрытие SONARA, MERT,
+MAEST, MuQ и CLAP. Если полный набор не нужен, используйте `--allow-partial-analysis`.
 
 ## Диагностика классификаторов
 
@@ -212,6 +217,15 @@ python tools\audio-doctor\audio_doctor_cli.py --db .\data\library.sqlite
 
 ```powershell
 python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music --preset safe
+```
+
+Стандартные источники эмбеддингов — `mert`, `maest`, `muq`, `clap`, их исходные веса — `0.43`,
+`0.32`, `0.12`, `0.04`. Повторите `--source`, чтобы выбрать подмножество, а при переопределении
+весов передайте по одному `--weight FAMILY=VALUE` для каждого включённого источника. Следующий
+пример явно отключает MuQ и использует прежний набор:
+
+```powershell
+python tools\audio-dedup\audio_dedup_cli.py --db .\data\library.sqlite --root D:\Music --source mert --source maest --source clap --weight mert=0.43 --weight maest=0.32 --weight clap=0.04
 ```
 
 Оптимизация базы:

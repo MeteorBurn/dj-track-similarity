@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 _SOURCE_OUTPUT_KEYS = {
     "maest": ("maest", "embedding"),
     "mert": ("mert", "embedding"),
+    "muq": ("muq", "embedding"),
     "clap": ("clap", "embedding"),
     "sonara": ("sonara", "core"),
 }

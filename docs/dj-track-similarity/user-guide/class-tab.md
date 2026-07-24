@@ -27,7 +27,8 @@ question will return across many sessions.
 The backend reads promoted local profiles only when their manifest is valid and compatible with
 current scoring inputs. The React frontend has not yet been ported to v7, so the CLASS tab behaviors
 described below are design intent, not a verified current UI contract. Use the CLI or direct API for
-current scoring.
+current scoring. MuQ support is also backend-first: the static Rhythm Lab UI has no dedicated MuQ
+controls yet.
 
 ## How a promoted classifier is stored
 
@@ -44,7 +45,10 @@ Promotion verifies and syncs both generation files before atomically switching
 `current.json`. Discovery rejects an incomplete generation or any pointer,
 manifest, or model hash mismatch.
 
-The manifest describes the classifier key, labels, model id, calibration status, required inputs, and optional Hybrid signal metadata. Version `2` also requires the exact SONARA analysis signature for any SONARA-dependent feature set.
+The manifest describes the classifier key, labels, model id, calibration status, required inputs,
+and optional Hybrid signal metadata. Version `2` records exact ordered `required_outputs`. This
+includes the exact SONARA contract for a SONARA-dependent feature set and the current MuQ embedding
+contract and dimension for `muq:<index>` features.
 
 The promoted artifacts currently checked into `models/classifiers/` use manifest version `1`.
 Runtime discovery keeps them visible with a blocker, but scoring requires retraining and promotion
@@ -60,7 +64,7 @@ Missing classifier scores do not pass a positive minimum filter. In SET and Hybr
 
 The play button on a classifier row resets and rescans that one classifier key. The UI calls the reset path first, then starts `/api/classifiers/{classifier_key}/analyze`.
 
-Classifier scoring is database-only. It reads exactly the SONARA and MAEST/MERT/CLAP inputs declared
+Classifier scoring is database-only. It reads exactly the SONARA and MAEST/MERT/CLAP/MuQ inputs declared
 by the promoted manifest and writes Core `classifier_scores`. It never decodes audio and never runs
 inside a SONARA or ML job.
 

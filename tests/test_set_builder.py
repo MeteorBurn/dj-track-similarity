@@ -113,6 +113,7 @@ def _summary(
             sonara_core=True,
             maest_embedding=True,
             mert=True,
+            muq=True,
             clap=True,
         ),
         classifier_scores=(),
@@ -179,13 +180,13 @@ class _Repository:
             ("sonara", "core"): AnalysisOutput(contracts.core),
             **{
                 (family, "embedding"): current_embedding_analysis_output(family)
-                for family in ("mert", "maest", "clap")
+                for family in ("mert", "maest", "muq", "clap")
             },
         }
         self.summaries: dict[int, TrackSummary] = {}
         self.sonara_rows: dict[int, SonaraFeatureRow] = {}
         self.vectors: dict[str, dict[int, np.ndarray]] = {
-            family: {} for family in ("mert", "maest", "clap")
+            family: {} for family in ("mert", "maest", "muq", "clap")
         }
 
     def add(
@@ -212,7 +213,7 @@ class _Repository:
                 energy=energy,
                 danceability=danceability,
             )
-        for family in ("mert", "maest", "clap"):
+        for family in ("mert", "maest", "muq", "clap"):
             if family not in missing:
                 output = self.outputs[(family, "embedding")]
                 self.vectors[family][track_id] = _embedding_vector(
@@ -233,7 +234,7 @@ class _Repository:
             maest_analysis=0,
             maest_embedding=len(self.vectors["maest"]),
             mert=len(self.vectors["mert"]),
-            muq=0,
+            muq=len(self.vectors["muq"]),
             clap=len(self.vectors["clap"]),
             liked=0,
             classifiers=0,
@@ -285,7 +286,7 @@ class _Repository:
 def _analysis_outputs(repository: _Repository) -> dict[str, AnalysisOutput]:
     return {
         family: repository.outputs[(family, "embedding")]
-        for family in ("mert", "maest", "clap")
+        for family in ("mert", "maest", "muq", "clap")
     }
 
 
@@ -447,6 +448,115 @@ def test_set_builder_excludes_tracks_missing_required_analysis() -> None:
     assert 3 not in _track_ids(result)
     assert result["coverage"]["eligible_tracks"] == 2
     assert result["coverage"]["missing_clap"] == 1
+
+
+def test_default_set_sources_use_normalized_muq_weight() -> None:
+    repository = _Repository()
+    repository.add(1)
+    repository.add(2)
+
+    result = _builder(repository).generate(
+        SetBuilderConfig(
+            seed_track_ids=[1],
+            limit=2,
+            random_seed=0,
+        )
+    )
+
+    assert result["sources"] == ["mert", "maest", "muq", "clap"]
+    assert result["weights_used"] == pytest.approx(
+        {
+            "mert": 0.30 / 1.15,
+            "maest": 0.18 / 1.15,
+            "muq": 0.15 / 1.15,
+            "clap": 0.22 / 1.15,
+            "sonara_broad": 0.30 / 1.15,
+        }
+    )
+    assert result["items"][0]["score_breakdown"]["muq"] == 1.0
+
+
+def test_set_muq_changes_ranking_and_can_be_disabled_cleanly() -> None:
+    repository = _Repository()
+    repository.add(1)
+    repository.add(2)
+    repository.add(3)
+    repository.vectors["muq"][2] = _embedding_vector(
+        repository.outputs[("muq", "embedding")],
+        (0.0, 1.0),
+    )
+    repository.vectors["muq"][3] = _embedding_vector(
+        repository.outputs[("muq", "embedding")],
+        (1.0, 0.0),
+    )
+
+    muq_only = _builder(repository).generate(
+        SetBuilderConfig(
+            seed_track_ids=[1],
+            sources=("muq",),
+            weights={"muq": 1.0, "sonara_broad": 0.0},
+            mode="similar_crate",
+            limit=3,
+            random_seed=0,
+        )
+    )
+
+    assert _track_ids(muq_only) == [1, 3, 2]
+    assert "muq" in muq_only["items"][1]["score_breakdown"]
+
+    repository.outputs.pop(("muq", "embedding"))
+    repository.vectors["muq"].clear()
+    without_muq = SmartSetBuilder(
+        repository,
+        analysis_outputs={
+            family: repository.outputs[(family, "embedding")]
+            for family in ("mert", "maest", "clap")
+        },
+    ).generate(
+        SetBuilderConfig(
+            seed_track_ids=[1],
+            sources=("mert", "maest", "clap"),
+            mode="similar_crate",
+            limit=3,
+            random_seed=0,
+        )
+    )
+
+    assert without_muq["weights_used"] == {
+        "mert": 0.30,
+        "maest": 0.18,
+        "clap": 0.22,
+        "sonara_broad": 0.30,
+    }
+    assert all(
+        "muq" not in item["score_breakdown"] for item in without_muq["items"]
+    )
+
+
+@pytest.mark.parametrize(
+    "weights",
+    (
+        {"muq": -0.1, "sonara_broad": 1.1},
+        {"muq": float("nan"), "sonara_broad": 1.0},
+        {"muq": 0.0, "sonara_broad": 0.0},
+        {"muq": 1.0},
+        {"muq": 1.0, "sonara_broad": 0.0, "clap": 0.0},
+    ),
+)
+def test_set_rejects_invalid_custom_weights(weights: dict[str, float]) -> None:
+    repository = _Repository()
+    repository.add(1)
+    repository.add(2)
+
+    with pytest.raises(ValueError, match="weights"):
+        _builder(repository).generate(
+            SetBuilderConfig(
+                seed_track_ids=[1],
+                sources=("muq",),
+                weights=weights,
+                limit=2,
+            )
+        )
 
 
 def test_set_builder_does_not_repeat_known_artist() -> None:

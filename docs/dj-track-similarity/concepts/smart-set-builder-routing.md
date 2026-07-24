@@ -8,7 +8,16 @@ Smart Set Builder works from eligible tracks. Anchors and candidate scores feed 
 
 ## Eligibility
 
-A track must have SONARA, MERT, MAEST, and CLAP data to be eligible. The response reports total and missing coverage so you know whether the library is ready.
+SONARA broad analysis is always required. A track must also have every enabled embedding source.
+The defaults enable MERT, MAEST, MuQ, and CLAP. Disabling a source removes it from eligibility,
+loading, centroids, and diversity calculations.
+
+The exact legacy source selection of `mert`, `maest`, and `clap` does not require MuQ. It preserves
+the previous effective MERT, MAEST, CLAP, and SONARA broad weights of `0.30`, `0.18`, `0.22`, and
+`0.30`. The response reports enabled sources, effective weights, and total and missing coverage.
+
+Source and weight selection is available through the backend contract. Matching controls in the
+schema-v7 React frontend remain deferred.
 
 ## Manual and auto anchors
 
@@ -21,12 +30,23 @@ The backend clamps auto anchors to `1..5` and requires enough eligible tracks.
 Base candidate scoring combines:
 
 - MERT embedding similarity,
-- CLAP audio embedding similarity,
 - MAEST embedding similarity,
+- MuQ embedding similarity,
+- CLAP audio embedding similarity,
 - broad SONARA similarity,
 - optional classifier preference and confidence.
 
 Mode controls shift the balance between close similarity, discovery, weird adjacent matches, and flow.
+
+Default raw weights are `0.30` for `mert`, `0.18` for `maest`, `0.15` for `muq`, `0.22` for `clap`,
+and `0.30` for `sonara_broad`. SET normalizes over enabled embeddings plus SONARA broad, so the
+five-signal default divides each raw value by `1.15`.
+
+## Hybrid defaults
+
+Hybrid search defaults to `mert`, `maest`, `muq`, `sonara`, and `clap`, each with an effective weight
+of `0.20`. MuQ contributes through the same rank-fusion breakdown, diagnostics, and recorded source
+contract hashes as the other embedding sources.
 
 ## Ordering
 

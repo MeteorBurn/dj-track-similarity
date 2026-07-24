@@ -141,8 +141,22 @@ def test_database_switch_bootstraps_clean_selected_v7_bundle(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(api_module, "require_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.chdir(tmp_path)
     client = TestClient(api_module.create_app())
     core_path = tmp_path / "selected.sqlite"
+
+    current = client.get("/api/database/current")
+
+    assert current.status_code == 200
+    assert current.json() == {
+        "path": None,
+        "artifacts_path": None,
+        "evaluation_path": None,
+        "catalog_uuid": None,
+        "selected": False,
+    }
+    assert not (tmp_path / "dj-track-similarity.sqlite").exists()
+    assert not (tmp_path / "dj-track-similarity.artifacts.sqlite").exists()
 
     response = client.post(
         "/api/database/switch",

@@ -27,8 +27,14 @@ dj-sim analyze --models maest,mert,muq,clap --db .\data\library.sqlite
 Запустить бэкенд:
 
 ```powershell
+dj-sim serve --host 127.0.0.1 --port 8765
 dj-sim serve --host 127.0.0.1 --port 8765 --db .\data\library.sqlite
 ```
+
+Без `--db` команда `serve` запускается без выбранной базы и не создаёт файлы SQLite. После запуска
+базу можно открыть или создать через диалог выбора либо `/api/database/switch`. С параметром `--db`
+сервер до запуска Uvicorn открывает существующий совместимый комплект v7 или создаёт новую пару Core
+и Artifacts по указанному пути.
 
 Клиент React ещё не перенесён на API v7. Не считайте существующую сборку `frontend/dist`
 проверенным интерфейсом для v7.

@@ -87,7 +87,58 @@ def test_serve_reports_missing_ffmpeg_without_traceback(
     assert "Traceback" not in result.output
 
 
-def test_serve_opens_selected_v7_database_and_passes_log_config(
+def test_serve_without_database_starts_unselected_and_creates_no_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import uvicorn
+
+    log_path = tmp_path / "app.log"
+    captured: dict[str, object] = {}
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli, "require_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(
+        cli,
+        "configure_logging",
+        lambda **_kwargs: log_path,
+    )
+    monkeypatch.setattr(
+        cli,
+        "_db",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("_db must not run without --db")
+        ),
+    )
+
+    def fake_create_app(db_path: Path | None, **kwargs: object) -> object:
+        captured["db_path"] = db_path
+        captured["create_app_kwargs"] = kwargs
+        return object()
+
+    monkeypatch.setattr(api, "create_app", fake_create_app)
+    monkeypatch.setattr(
+        uvicorn,
+        "run",
+        lambda application, **kwargs: captured.update(
+            application=application,
+            uvicorn_kwargs=kwargs,
+        ),
+    )
+
+    result = CliRunner().invoke(cli.app, ["serve", "--port", "8877"])
+
+    assert result.exit_code == 0
+    assert captured["db_path"] is None
+    assert captured["create_app_kwargs"] == {
+        "log_level": "info",
+        "log_track_events": False,
+    }
+    assert not (tmp_path / "dj-track-similarity.sqlite").exists()
+    assert not (tmp_path / "dj-track-similarity.artifacts.sqlite").exists()
+    assert captured["uvicorn_kwargs"]["port"] == 8877
+
+
+def test_serve_creates_selected_v7_database_and_passes_log_config(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -102,7 +153,16 @@ def test_serve_opens_selected_v7_database_and_passes_log_config(
         "configure_logging",
         lambda **_kwargs: log_path,
     )
-    monkeypatch.setattr(api, "create_app", lambda *args, **kwargs: object())
+
+    def fake_create_app(
+        selected_path: Path | None,
+        **kwargs: object,
+    ) -> object:
+        captured["db_path"] = selected_path
+        captured["create_app_kwargs"] = kwargs
+        return object()
+
+    monkeypatch.setattr(api, "create_app", fake_create_app)
 
     def fake_run(application: object, **kwargs: object) -> None:
         captured["application"] = application
@@ -116,12 +176,48 @@ def test_serve_opens_selected_v7_database_and_passes_log_config(
     )
 
     assert result.exit_code == 0
-    assert LibraryDatabase(db_path).path == db_path.resolve()
+    assert db_path.is_file()
+    assert db_path.with_suffix(".artifacts.sqlite").is_file()
+    assert captured["db_path"] == db_path.resolve()
     kwargs = captured["kwargs"]
     assert kwargs["port"] == 8877
     log_config = kwargs["log_config"]
     assert log_config["formatters"]["default"]["format"] == "[%(asctime)s] [%(levelname)s] %(message)s"
     assert log_config["handlers"]["file"]["filename"] == str(log_path.resolve())
+
+
+def test_serve_opens_existing_selected_v7_database(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import uvicorn
+
+    db_path = tmp_path / "library.sqlite"
+    database = LibraryDatabase(db_path)
+    catalog_uuid = database.catalog_uuid
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(cli, "require_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(
+        cli,
+        "configure_logging",
+        lambda **_kwargs: tmp_path / "app.log",
+    )
+
+    def fake_create_app(
+        selected_path: Path | None,
+        **_kwargs: object,
+    ) -> object:
+        captured["db_path"] = selected_path
+        return object()
+
+    monkeypatch.setattr(api, "create_app", fake_create_app)
+    monkeypatch.setattr(uvicorn, "run", lambda *_args, **_kwargs: None)
+
+    result = CliRunner().invoke(cli.app, ["serve", "--db", str(db_path)])
+
+    assert result.exit_code == 0
+    assert captured["db_path"] == db_path.resolve()
+    assert LibraryDatabase(db_path).catalog_uuid == catalog_uuid
 
 
 def test_relocate_library_cli_applies_typed_v7_path_update(

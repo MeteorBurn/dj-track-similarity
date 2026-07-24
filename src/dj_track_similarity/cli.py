@@ -1312,7 +1312,14 @@ def prepare_sonara_release(
 def serve(
     host: str = typer.Option("127.0.0.1", "--host"),
     port: int = typer.Option(8765, "--port"),
-    db_path: Optional[Path] = typer.Option(None, "--db"),
+    db_path: Optional[Path] = typer.Option(
+        None,
+        "--db",
+        help=(
+            "Open an existing v7 Core database or create a new bundle at this "
+            "path. Omit to start with no database selected."
+        ),
+    ),
     log_level: str = typer.Option("info", "--log-level", help="File log level: debug, info, warning, error, critical."),
     log_track_events: bool = typer.Option(
         False,
@@ -1330,18 +1337,23 @@ def serve(
     except (RuntimeError, ValueError) as error:
         typer.secho(str(error), err=True, fg=typer.colors.RED)
         raise typer.Exit(1) from error
-    database = _db(db_path, configure_file_logging=False)
+    selected_database_path: Path | None = None
+    if db_path is not None:
+        selected_database_path = _db(
+            db_path,
+            configure_file_logging=False,
+        ).path
     LOGGER.info(
         "Server starting host=%s port=%s db_path=%s log_path=%s",
         host,
         port,
-        database.path,
+        selected_database_path,
         log_path,
     )
     LOGGER.debug("ffmpeg available path=%s", ffmpeg_path)
     uvicorn.run(
         create_app(
-            database.path,
+            selected_database_path,
             log_level=log_level,
             log_track_events=log_track_events,
         ),

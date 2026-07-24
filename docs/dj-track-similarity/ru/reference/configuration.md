@@ -16,7 +16,8 @@
 
 | Состояние | Путь по умолчанию или обычный путь |
 | --- | --- |
-| База CLI по умолчанию | `dj-track-similarity.sqlite`, если `--db` не указан |
+| База по умолчанию для команд CLI, кроме сервера | `dj-track-similarity.sqlite`, если `--db` не указан |
+| Начальная база `serve` | Не выбрана, если `--db` не указан |
 | Пример базы проекта | `.\data\library.sqlite` |
 | Локальная ручная база Windows | `C:\db\abstracted.sqlite` |
 | Журналы выполнения | `logs/` |
@@ -49,21 +50,25 @@
 Только локально:
 
 ```powershell
-dj-sim serve --host 127.0.0.1 --port 8765 --db .\data\library.sqlite
+dj-sim serve --host 127.0.0.1 --port 8765
 ```
 
 Локальная сеть:
 
 ```powershell
-dj-sim serve --host 0.0.0.0 --port 8765 --db .\data\library.sqlite
+dj-sim serve --host 0.0.0.0 --port 8765
 ```
 
 Скрипт Windows:
 
 ```powershell
-run_server.cmd local --db .\data\library.sqlite
-run_server.cmd lan --db .\data\library.sqlite
+run_server.cmd local
+run_server.cmd lan
 ```
+
+Добавьте `--db .\data\library.sqlite` к любой команде сервера, чтобы до запуска открыть существующий
+совместимый комплект v7 или создать новый. Без `--db` сервер не создаёт базу и ожидает выбора через
+API или диалог.
 
 ## Команды сборки
 

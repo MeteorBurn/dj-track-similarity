@@ -26,8 +26,14 @@ dj-sim analyze --models maest,mert,muq,clap --db .\data\library.sqlite
 Serve the backend:
 
 ```powershell
+dj-sim serve --host 127.0.0.1 --port 8765
 dj-sim serve --host 127.0.0.1 --port 8765 --db .\data\library.sqlite
 ```
+
+Without `--db`, `serve` starts with no selected database and creates no SQLite files. Select or
+create a database later through the database picker or `/api/database/switch`. With `--db`, the
+server opens an existing compatible v7 bundle or creates a new Core plus Artifacts pair at the
+specified path before starting Uvicorn.
 
 The checked-in React client has not yet been ported to the v7 API. Do not treat an existing
 `frontend/dist` bundle as a verified v7 UI.

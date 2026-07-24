@@ -16,7 +16,8 @@ If the variable is set but points to a missing file, server startup fails clearl
 
 | State | Default or common path |
 | --- | --- |
-| Default CLI database | `dj-track-similarity.sqlite` when `--db` is omitted |
+| Default non-server CLI database | `dj-track-similarity.sqlite` when `--db` is omitted |
+| Initial `serve` database | None when `--db` is omitted |
 | Example project database | `.\data\library.sqlite` |
 | Local manual Windows database | `C:\db\abstracted.sqlite` |
 | Runtime logs | `logs/` |
@@ -49,21 +50,25 @@ Check for existing listeners before starting another fixed-port process.
 Local-only:
 
 ```powershell
-dj-sim serve --host 127.0.0.1 --port 8765 --db .\data\library.sqlite
+dj-sim serve --host 127.0.0.1 --port 8765
 ```
 
 LAN:
 
 ```powershell
-dj-sim serve --host 0.0.0.0 --port 8765 --db .\data\library.sqlite
+dj-sim serve --host 0.0.0.0 --port 8765
 ```
 
 Windows helper:
 
 ```powershell
-run_server.cmd local --db .\data\library.sqlite
-run_server.cmd lan --db .\data\library.sqlite
+run_server.cmd local
+run_server.cmd lan
 ```
+
+Add `--db .\data\library.sqlite` to any server command to open an existing compatible v7 bundle or
+create a new one before startup. Without `--db`, the server creates no database and waits for a
+selection through the database API or picker.
 
 ## Build commands
 

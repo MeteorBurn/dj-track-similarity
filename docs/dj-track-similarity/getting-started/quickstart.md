@@ -79,18 +79,26 @@ whole library, but that control is not currently available for v7.
 ## 4. Start the v7 backend API
 
 ```powershell
-dj-sim serve --host 127.0.0.1 --port 8765 --db .\data\library.sqlite
+dj-sim serve --host 127.0.0.1 --port 8765
 ```
+
+Without `--db`, the server starts with no selected database and creates no SQLite files. Use the
+database picker to select an existing compatible v7 bundle or choose a new `.sqlite` path. Selecting
+a new path creates the Core database and its mandatory adjacent Artifacts database.
+
+To select the database before the server starts, pass `--db .\data\library.sqlite`. An existing
+compatible bundle is opened. A wholly missing bundle is created.
 
 If you use the Windows launcher:
 
 ```powershell
-run_server.cmd local --db .\data\library.sqlite
+run_server.cmd local
 ```
 
-Use `run_server.cmd lan --db .\data\library.sqlite` only when you want the server reachable from
-other devices on the local network. The server command keeps its terminal occupied. Run later CLI
-jobs in a second activated terminal.
+Use `run_server.cmd lan` only when you want the server reachable from other devices on the local
+network. Both launcher modes accept `--db .\data\library.sqlite` when you want to preselect a
+database. The server command keeps its terminal occupied. Run later CLI jobs in a second activated
+terminal.
 
 Do not treat the page served at `http://127.0.0.1:8765/` as a validated v7 frontend. The active
 surface is the backend API.

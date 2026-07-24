@@ -299,12 +299,17 @@ Start the backend:
 dj-sim serve --host 127.0.0.1 --port 8765 --db ./data/library.sqlite
 ```
 
+Supplying `--db` opens an existing compatible v7 bundle or creates a new Core plus Artifacts pair at
+that path. If you omit `--db`, the server starts without a selected database and does not create any
+SQLite file. You can then choose an existing database or create a new one with the database picker.
+
 The root mount may serve an existing `frontend/dist`, but that client has not been ported to the v7
 API. Use CLI commands or direct API calls for the current contract.
 
 There is also a Windows launcher that activates `.venv` and forwards remaining arguments to `dj-sim serve`:
 
 ```powershell
+run_server.cmd local
 run_server.cmd local --db C:/db/abstracted.sqlite
 run_server.cmd lan --db C:/db/abstracted.sqlite
 ```

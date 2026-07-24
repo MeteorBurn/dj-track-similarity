@@ -123,9 +123,13 @@ echo   run_server.cmd local [dj-sim serve options]
 echo   run_server.cmd lan [dj-sim serve options]
 echo.
 echo Examples:
+echo   run_server.cmd local
 echo   run_server.cmd local --db C:\db\abstracted.sqlite
 echo   run_server.cmd lan --db C:\db\abstracted.sqlite
 echo   run_server.cmd local --help
+echo.
+echo Without --db, the server starts without a selected database.
+echo Choose or create a database through the UI.
 exit /b 0
 
 :setup_error

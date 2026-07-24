@@ -36,6 +36,7 @@ test("classifier availability includes manifest and live readiness blockers", as
     classifierIsAvailable,
     classifierProfileStatus,
     classifierScoringBlockedReason,
+    filterAvailableClassifierValues,
   } = await loadClassifierCompatibility();
 
   const unsupported = classifier("legacy", {
@@ -69,6 +70,13 @@ test("classifier availability includes manifest and live readiness blockers", as
   );
   assert.equal(classifierIsAvailable(available), true);
   assert.equal(classifierProfileStatus(available), "available");
+  assert.deepEqual(
+    filterAvailableClassifierValues(
+      [unsupported, runtimeBlocked, available],
+      { legacy: 0.75, runtime: -0.25, ready: 0.5, removed: 1 },
+    ),
+    { ready: 0.5 },
+  );
 });
 
 test("classifier profiles keep promotion creation order with stable fallback", async () => {

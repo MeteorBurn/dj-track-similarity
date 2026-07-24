@@ -122,6 +122,32 @@ test("nested SET tabs are independently labelled and switching only updates tab 
   assert.doesNotMatch(panelSource, /onClick=\{\(\) => \{[\s\S]*setActiveSetWorkflowTab\(tab\)[\s\S]*api\./);
 });
 
+test("SET BPM trajectory controls stay visible outside the Advanced disclosure", () => {
+  const bpmGridIndex = panelSource.indexOf('className="search-filter-grid set-builder-grid set-builder-bpm-grid"');
+  const secondaryGridIndex = panelSource.indexOf('className="search-filter-grid set-builder-grid set-builder-secondary-grid"');
+  const advancedHeaderIndex = panelSource.indexOf('className="set-builder-advanced-header"');
+  const advancedControlsIndex = panelSource.indexOf('className="set-builder-advanced-controls"');
+  const advancedActionsIndex = panelSource.indexOf('className="set-builder-actions"');
+  const bpmGrid = panelSource.slice(bpmGridIndex, advancedHeaderIndex);
+  const secondaryGrid = panelSource.slice(secondaryGridIndex, advancedHeaderIndex);
+  const advancedControls = panelSource.slice(advancedControlsIndex, advancedActionsIndex);
+  const bpmGridRule = cssRule(".search-workflow-section .set-builder-bpm-grid");
+
+  assert.notEqual(bpmGridIndex, -1);
+  assert.ok(bpmGridIndex < secondaryGridIndex);
+  assert.ok(secondaryGridIndex < advancedHeaderIndex);
+  assert.match(bpmGrid, />\s*BPM mode\s*</);
+  assert.match(bpmGrid, />\s*BPM change\s*</);
+  assert.match(bpmGrid, />\s*Start BPM\s*</);
+  assert.match(bpmGrid, />\s*Target BPM\s*</);
+  assert.match(secondaryGrid, />\s*Track limit\s*</);
+  assert.match(secondaryGrid, />\s*Diversity\s*</);
+  assert.match(bpmGridRule, /align-items:\s*end/);
+  assert.match(bpmGridRule, /grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/);
+  assert.doesNotMatch(advancedControls, />\s*(?:BPM mode|BPM change|Start BPM|Target BPM)\s*</);
+  assert.match(advancedControls, />\s*Random seed\s*</);
+});
+
 test("SET source controls share the compact application checkbox and field treatment", () => {
   const hiddenCheckboxRule = cssRule('.set-check-toggle input[type="checkbox"]');
   const checkboxRule = cssRule(".set-control-checkbox");
@@ -142,10 +168,59 @@ test("SET source controls share the compact application checkbox and field treat
   assert.match(styles, /\.hybrid-source-row \.hybrid-source-toggle\.active\s*\{/);
 });
 
-test("narrow layout stacks SET and Hybrid source controls into one column", () => {
+test("SET classifier controls mirror CLASS availability and keep Flow compact", () => {
+  const setClassifierStart = panelSource.indexOf("{orderedClassifierProfiles.length ? (");
+  const setClassifierEnd = panelSource.indexOf('className="set-builder-reset-sliders-button"', setClassifierStart);
+  const setClassifierBlock = panelSource.slice(setClassifierStart, setClassifierEnd);
+  const classifierGridRule = cssRule(".set-classifier-grid");
+  const flowRule = cssRule(".set-builder-controls .set-classifier-flow-control select");
+
+  assert.match(setClassifierBlock, /orderedClassifierProfiles\.map\(\(classifier\)/);
+  assert.match(setClassifierBlock, /classifierScoringBlockedReason\(classifier\)/);
+  assert.match(setClassifierBlock, /if \(blockedReason\)/);
+  assert.match(setClassifierBlock, /classifierProfileStatus\(classifier\)/);
+  assert.match(setClassifierBlock, /className="classifier-profile unavailable"/);
+  assert.match(setClassifierBlock, /classifier-profile-status-reason/);
+  assert.match(setClassifierBlock, /classifier-profile available set-classifier-profile/);
+  assert.match(setClassifierBlock, /available \{availableClassifierCount\} · blocked \{blockedClassifierCount\}/);
+  assert.match(setClassifierBlock, /ready \{classifier\.ready \|\| 0\} · not ready \{classifier\.not_ready \|\| 0\}/);
+  assert.match(setClassifierBlock, /className="set-classifier-flow-control"/);
+  assert.match(panelSource, /filterAvailableClassifierValues\(\s*availableClassifierProfiles,\s*setClassifierPreferences/s);
+  assert.match(panelSource, /compactSignedScoreMap\(availableSetClassifierPreferences\)/);
+  assert.match(classifierGridRule, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s*minmax\(86px,\s*96px\)/);
+  assert.match(flowRule, /min-height:\s*26px/);
+  assert.match(flowRule, /font-size:\s*11px/);
+});
+
+test("Hybrid Preview uses the compact workbench sizing and neutral surface", () => {
+  const panelRule = cssRule(".hybrid-preview-panel");
+  const sourceGridRule = cssRule(".hybrid-source-grid");
+  const sourceRowRule = cssRule(".hybrid-source-row");
+  const previewGridRule = cssRule(".search-workflow-section .hybrid-preview-grid");
+  const previewButtonRule = cssRule(".hybrid-preview-panel .hybrid-preview-button");
+
+  assert.match(panelRule, /background:\s*var\(--surface\)/);
+  assert.match(panelRule, /border:\s*1px solid var\(--border-soft\)/);
+  assert.match(panelRule, /gap:\s*6px/);
+  assert.match(panelRule, /padding:\s*7px/);
+  assert.doesNotMatch(panelRule, /gradient|box-shadow/);
+  assert.match(sourceGridRule, /minmax\(86px,\s*1fr\)/);
+  assert.match(sourceRowRule, /grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  assert.match(sourceRowRule, /padding:\s*4px/);
+  assert.match(previewGridRule, /repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(styles, /\.hybrid-custom-weights-toggle\s*\{[^}]*min-height:\s*28px/s);
+  assert.match(previewButtonRule, /min-height:\s*32px/);
+  assert.match(previewButtonRule, /margin-bottom:\s*0/);
+});
+
+test("responsive layout keeps SET sources stacked and reserves Hybrid pairs for phones", () => {
   assert.match(
     styles,
-    /@media \(max-width: 720px\)[\s\S]*?\.set-source-grid,\s*\.hybrid-source-grid\s*\{[\s\S]*?grid-template-columns:\s*1fr;/
+    /@media \(max-width: 720px\)[\s\S]*?\.set-source-grid\s*\{[\s\S]*?grid-template-columns:\s*1fr;/
+  );
+  assert.match(
+    styles,
+    /@media \(max-width: 480px\)[\s\S]*?\.hybrid-source-grid,\s*\.search-workflow-section \.set-builder-bpm-grid,\s*\.search-workflow-section \.hybrid-preview-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/
   );
 });
 

@@ -125,6 +125,11 @@ Promoted classifiers can add a SET preference:
 - **Preference** ranges from `-1.00` to `1.00`.
 - **Flow** can be flat, rise, or fall.
 
+SET follows the same classifier availability state as CLASS. An unavailable profile remains listed
+with its status and blocker reason, but it exposes no **Preference** or **Flow** control and its
+values are omitted from the SET request. An available profile shows its readiness counts and both
+controls.
+
 Missing classifier scores stay neutral. Classifier controls read stored scores. They do not train or decode audio.
 
 ## Hybrid preview

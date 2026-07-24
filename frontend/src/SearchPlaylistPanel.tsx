@@ -1,4 +1,4 @@
-import { Dispatch, Fragment, KeyboardEvent, SetStateAction, useEffect, useRef, useState } from "react";
+import { Dispatch, KeyboardEvent, SetStateAction, useEffect, useRef, useState } from "react";
 import { Download, FolderOpen, ListFilter, ListMusic, ListPlus, Pause, Play, RotateCcw, Search, Tags, Trash2, X } from "lucide-react";
 import { AnalysisJobStatus, api, EmbeddingSource, HybridClassifierSignal, HybridMatchAxis, HybridSearchResult, HybridSearchSource, PromotedClassifier, SearchResult, SetBuilderBpmChange, SetBuilderBpmMode, SetBuilderClassifierFlow, SetBuilderEnergyCurve, SetBuilderGenerateResult, SetBuilderMode, SetBuilderSeedMode, SonaraMixerWeights, SonaraModifiers, SonaraSearchMode, Track } from "./api";
 import type { EvaluationPairFeedbackResult, EvaluationPairFeedbackState, EvaluationPairReasonTag } from "./api";
@@ -7,6 +7,7 @@ import {
   classifierIsAvailable,
   classifierProfileStatus,
   classifierScoringBlockedReason,
+  filterAvailableClassifierValues,
   orderPromotedClassifiers,
 } from "./classifierCompatibility";
 import type { ClapPromptPreset } from "./clapPrompt";
@@ -137,17 +138,17 @@ const setEnergyCurveOptions: Array<SelectOption<SetBuilderEnergyCurve>> = [
 const setBpmModeOptions: Array<SelectOption<SetBuilderBpmMode>> = [
   {
     value: "general",
-    label: "General BPM - transition",
+    label: "General",
     title: "General BPM: не задает отдельную BPM-драматургию. Темп используется только как обычная soft transition compatibility вместе с key."
   },
   {
     value: "low_to_high",
-    label: "Low to high - climb",
+    label: "Low to high",
     title: "Low to high: строит сет от более низкого BPM к более высокому. Start/Target BPM можно оставить пустыми для авто-вывода."
   },
   {
     value: "high_to_low",
-    label: "High to low - descend",
+    label: "High to low",
     title: "High to low: строит сет от более высокого BPM к более низкому. Start/Target BPM можно оставить пустыми для авто-вывода."
   }
 ];
@@ -155,17 +156,17 @@ const setBpmModeOptions: Array<SelectOption<SetBuilderBpmMode>> = [
 const setBpmChangeOptions: Array<SelectOption<SetBuilderBpmChange>> = [
   {
     value: "slow",
-    label: "Slow - late change",
+    label: "Slow",
     title: "Slow: BPM меняется осторожно в начале и сильнее ближе к концу."
   },
   {
     value: "medium",
-    label: "Medium - linear",
+    label: "Medium",
     title: "Medium: BPM меняется примерно равномерно по всей последовательности."
   },
   {
     value: "fast",
-    label: "Fast - early change",
+    label: "Fast",
     title: "Fast: BPM быстрее сдвигается к целевому диапазону в первой части сета."
   }
 ];
@@ -550,8 +551,17 @@ export function SearchPlaylistPanel({
   const customSonaraDisabled = filters.sonaraMode !== "custom";
   const hybridClassifierOptions = hybridClassifierSignalOptions(classifiers);
   const orderedClassifierProfiles = orderPromotedClassifiers(classifiers);
-  const availableClassifierCount = orderedClassifierProfiles.filter(classifierIsAvailable).length;
+  const availableClassifierProfiles = orderedClassifierProfiles.filter(classifierIsAvailable);
+  const availableClassifierCount = availableClassifierProfiles.length;
   const blockedClassifierCount = orderedClassifierProfiles.length - availableClassifierCount;
+  const availableSetClassifierPreferences = filterAvailableClassifierValues(
+    availableClassifierProfiles,
+    setClassifierPreferences,
+  );
+  const availableSetClassifierFlows = filterAvailableClassifierValues(
+    availableClassifierProfiles,
+    setClassifierFlows,
+  );
   const setBuilderDraft: SetBuilderDraft = {
     databasePath,
     databaseIdentity,
@@ -569,8 +579,8 @@ export function SearchPlaylistPanel({
     bpmChange: setBpmChange,
     bpmStart: optionalNumberInput(setBpmStart),
     bpmTarget: optionalNumberInput(setBpmTarget),
-    classifierPreferences: compactSignedScoreMap(setClassifierPreferences),
-    classifierFlows: compactClassifierFlows(setClassifierFlows, setClassifierPreferences),
+    classifierPreferences: compactSignedScoreMap(availableSetClassifierPreferences),
+    classifierFlows: compactClassifierFlows(availableSetClassifierFlows, availableSetClassifierPreferences),
     randomSeed: optionalIntegerInput(setRandomSeed)
   };
   const setBuilderPayload = buildSetBuilderPayload(setBuilderDraft);
@@ -1038,6 +1048,34 @@ export function SearchPlaylistPanel({
                       ))}
                     </select>
                   </label>
+                </div>
+                <div className="search-filter-grid set-builder-grid set-builder-bpm-grid">
+                  <label title={setBpmModeTitle}>
+                    BPM mode
+                    <select value={setBpmMode} title={setBpmModeTitle} onChange={(event) => setSetBpmMode(event.target.value as SetBuilderBpmMode)}>
+                      {setBpmModeOptions.map((option) => (
+                        <option key={option.value} value={option.value} title={option.title}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label title={setBpmChangeTitle}>
+                    BPM change
+                    <select value={setBpmChange} title={setBpmChangeTitle} disabled={bpmControlsDisabled} onChange={(event) => setSetBpmChange(event.target.value as SetBuilderBpmChange)}>
+                      {setBpmChangeOptions.map((option) => (
+                        <option key={option.value} value={option.value} title={option.title}>{option.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label title={setBpmStartTitle}>
+                    Start BPM
+                    <input type="number" value={setBpmStart} min={20} max={300} step={1} placeholder="auto" title={setBpmStartTitle} disabled={bpmControlsDisabled} onChange={(event) => setSetBpmStart(event.target.value)} />
+                  </label>
+                  <label title={setBpmTargetTitle}>
+                    Target BPM
+                    <input type="number" value={setBpmTarget} min={20} max={300} step={1} placeholder="auto" title={setBpmTargetTitle} disabled={bpmControlsDisabled} onChange={(event) => setSetBpmTarget(event.target.value)} />
+                  </label>
+                </div>
+                <div className="search-filter-grid set-builder-grid set-builder-secondary-grid">
                   <label title={setBuilderLimitTitle}>
                     Track limit
                     <input type="number" value={setBuilderLimit} min={1} max={500} title={setBuilderLimitTitle} onChange={(event) => {
@@ -1057,7 +1095,7 @@ export function SearchPlaylistPanel({
                   className="set-builder-advanced-toggle-button"
                   type="button"
                   aria-expanded={setAdvancedControlsOpen}
-                  title="Показать или скрыть расширенные настройки SET: BPM trajectory, classifier sliders и reset."
+                  title="Показать или скрыть расширенные настройки SET: acoustic sources, classifier sliders, random seed и reset."
                   onClick={() => setSetAdvancedControlsOpen((current) => !current)}
                 >
                   <ListFilter size={17} />
@@ -1067,30 +1105,6 @@ export function SearchPlaylistPanel({
               {setAdvancedControlsOpen ? (
                 <div className="set-builder-advanced-controls">
                   <div className="search-filter-grid set-builder-grid set-builder-advanced-grid">
-                    <label title={setBpmModeTitle}>
-                      BPM mode
-                      <select value={setBpmMode} title={setBpmModeTitle} onChange={(event) => setSetBpmMode(event.target.value as SetBuilderBpmMode)}>
-                        {setBpmModeOptions.map((option) => (
-                          <option key={option.value} value={option.value} title={option.title}>{option.label}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label title={setBpmChangeTitle}>
-                      BPM change
-                      <select value={setBpmChange} title={setBpmChangeTitle} disabled={bpmControlsDisabled} onChange={(event) => setSetBpmChange(event.target.value as SetBuilderBpmChange)}>
-                        {setBpmChangeOptions.map((option) => (
-                          <option key={option.value} value={option.value} title={option.title}>{option.label}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label title={setBpmStartTitle}>
-                      Start BPM
-                      <input type="number" value={setBpmStart} min={20} max={300} step={1} placeholder="auto" title={setBpmStartTitle} disabled={bpmControlsDisabled} onChange={(event) => setSetBpmStart(event.target.value)} />
-                    </label>
-                    <label title={setBpmTargetTitle}>
-                      Target BPM
-                      <input type="number" value={setBpmTarget} min={20} max={300} step={1} placeholder="auto" title={setBpmTargetTitle} disabled={bpmControlsDisabled} onChange={(event) => setSetBpmTarget(event.target.value)} />
-                    </label>
                     <label title="Optional deterministic integer seed. Leave empty for backend random behavior.">
                       Random seed
                       <input type="number" value={setRandomSeed} step={1} placeholder="random" onChange={(event) => setSetRandomSeed(event.target.value)} />
@@ -1150,22 +1164,46 @@ export function SearchPlaylistPanel({
                       </div>
                     </div>
                   </div>
-                  {classifiers.length ? (
+                  {orderedClassifierProfiles.length ? (
                     <div className="classifier-controls set-classifier-controls">
-                      {classifiers.map((classifier) => {
+                      <div className="classifier-profile-summary" role="status">
+                        available {availableClassifierCount} · blocked {blockedClassifierCount}
+                      </div>
+                      {orderedClassifierProfiles.map((classifier) => {
+                        const blockedReason = classifierScoringBlockedReason(classifier);
+                        if (blockedReason) {
+                          const status = classifierProfileStatus(classifier);
+                          return (
+                            <div
+                              className="classifier-profile unavailable"
+                              key={classifier.classifier_key}
+                              title={blockedReason}
+                            >
+                              <div className="classifier-profile-status-heading">
+                                <span>{classifier.name}</span>
+                                <span className="classifier-profile-status-badge">{status}</span>
+                              </div>
+                              <span className="classifier-profile-status-reason">{blockedReason}</span>
+                            </div>
+                          );
+                        }
                         const preference = setClassifierPreferences[classifier.classifier_key] || 0;
                         const flow = setClassifierFlows[classifier.classifier_key] || setBuilderDefaultFlow;
                         return (
-                          <Fragment key={classifier.classifier_key}>
+                          <div className="classifier-profile available set-classifier-profile" key={classifier.classifier_key}>
                             <div className="custom-control-header" title={setClassifierHelp(classifier)}>
                               <span>{classifier.name}</span>
+                              <span className="classifier-profile-status-badge available">available</span>
                             </div>
+                            <span className="classifier-profile-readiness">
+                              ready {classifier.ready || 0} · not ready {classifier.not_ready || 0}
+                            </span>
                             <div className="range-grid set-classifier-grid">
                               <label className="range-control" title={setClassifierPreferenceHelp(classifier)}>
                                 <span><strong>Preference</strong><em>{formatSigned(preference)}</em></span>
                                 <input type="range" min={-1} max={1} step={0.05} value={preference} title={setClassifierPreferenceHelp(classifier)} onChange={(event) => setSetBuilderClassifierPreference(classifier.classifier_key, Number(event.target.value))} />
                               </label>
-                              <label title={setClassifierFlowHelp(classifier)}>
+                              <label className="set-classifier-flow-control" title={setClassifierFlowHelp(classifier)}>
                                 Flow
                                 <select value={flow} title={setClassifierFlowHelp(classifier)} onChange={(event) => setSetBuilderClassifierFlow(classifier.classifier_key, event.target.value as SetBuilderClassifierFlow)}>
                                   {setClassifierFlowOptions.map((option) => (
@@ -1174,7 +1212,7 @@ export function SearchPlaylistPanel({
                                 </select>
                               </label>
                             </div>
-                          </Fragment>
+                          </div>
                         );
                       })}
                     </div>
@@ -1251,6 +1289,11 @@ export function SearchPlaylistPanel({
               <div className="custom-control-header">
                 <span>Hybrid Preview</span>
                 <div className="hybrid-header-actions">
+                  <label className={`toggle set-check-toggle hybrid-custom-weights-toggle${hybridUseCustomWeights ? " active" : ""}`} title="When off, Hybrid sends weights null and displays the actual normalized weights returned by the backend.">
+                    <input type="checkbox" checked={hybridUseCustomWeights} onChange={(event) => setHybridUseCustomWeights(event.target.checked)} />
+                    <span className="set-control-checkbox" aria-hidden="true" />
+                    <span>Custom weights</span>
+                  </label>
                   <span className="hybrid-diagnostic-chip" title={hybridDiagnosticTitle}>Score info</span>
                   <button type="button" className="hybrid-source-reset-button" onClick={resetHybridSourceDefaults} title="Restore all five backend-default sources and stop sending custom weights.">
                     <RotateCcw size={15} />
@@ -1259,13 +1302,8 @@ export function SearchPlaylistPanel({
                 </div>
               </div>
               <p className="hybrid-preview-note">
-                Uses stored MERT, MAEST, MuQ, SONARA, and CLAP audio evidence. CLAP text prompts are not used here. Preview generation stays independent from Set Builder.
+                Stored MERT, MAEST, MuQ, SONARA, and CLAP audio evidence; independent from Set Builder. CLAP text prompts are not used here.
               </p>
-              <label className={`toggle set-check-toggle hybrid-custom-weights-toggle${hybridUseCustomWeights ? " active" : ""}`} title="When off, Hybrid sends weights null and displays the actual normalized weights returned by the backend.">
-                <input type="checkbox" checked={hybridUseCustomWeights} onChange={(event) => setHybridUseCustomWeights(event.target.checked)} />
-                <span className="set-control-checkbox" aria-hidden="true" />
-                <span>Custom weights</span>
-              </label>
               <div className="hybrid-source-grid">
                 {hybridSourceOptions.map((source) => (
                   <div className={`hybrid-source-row${hybridSources[source.key] ? " enabled" : ""}`} key={source.key}>

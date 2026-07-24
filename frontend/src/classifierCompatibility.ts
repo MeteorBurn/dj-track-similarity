@@ -25,6 +25,20 @@ export function classifierProfileStatus(classifier: PromotedClassifier): string 
   return "blocked";
 }
 
+export function filterAvailableClassifierValues<T>(
+  classifiers: PromotedClassifier[],
+  values: Record<string, T>,
+): Record<string, T> {
+  const availableKeys = new Set(
+    classifiers
+      .filter(classifierIsAvailable)
+      .map((classifier) => classifier.classifier_key),
+  );
+  return Object.fromEntries(
+    Object.entries(values).filter(([classifierKey]) => availableKeys.has(classifierKey)),
+  );
+}
+
 export function orderPromotedClassifiers(classifiers: PromotedClassifier[]): PromotedClassifier[] {
   return classifiers
     .map((classifier, index) => ({

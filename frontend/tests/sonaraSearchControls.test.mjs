@@ -21,7 +21,10 @@ test("SONARA mode, similarity, and limit share one compact styled row", () => {
     /\.search-workflow-section \.sonara-search-filter-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1\.4fr\)\s*repeat\(2,\s*minmax\(0,\s*0\.8fr\)\)/s,
   );
   assert.match(stylesSource, /\.sonara-mode-select\s*\{[^}]*appearance:\s*none/s);
-  assert.match(stylesSource, /\.sonara-mode-select\s*\{[^}]*background-color:\s*var\(--surface-muted\)/s);
+  assert.match(stylesSource, /\.sonara-mode-select\s*\{[^}]*background-color:\s*var\(--accent-strong-bg\)/s);
+  assert.match(stylesSource, /\.sonara-mode-select\s*\{[^}]*border-color:\s*var\(--accent-border\)/s);
+  assert.match(stylesSource, /\.sonara-mode-select\s*\{[^}]*box-shadow:\s*none/s);
+  assert.match(stylesSource, /\.sonara-mode-select\s*\{[^}]*color:\s*var\(--accent-active-text\)/s);
   assert.match(stylesSource, /\.sonara-mode-select:hover:not\(:disabled\)/);
   assert.match(stylesSource, /\.sonara-mode-select:focus-visible/);
 });

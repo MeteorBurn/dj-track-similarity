@@ -83,6 +83,8 @@ test("set and export is a closed disclosure with 20-track pagination", () => {
   assert.match(disclosure, /playlist-page-next-button/);
   assert.doesNotMatch(panelSource, /playlistWindowStart|playlistVirtualHeight|playlist-list-virtualized/);
   assert.match(disclosureRule, /flex:\s*0 0 auto/);
+  assert.match(disclosureRule, /margin-bottom:\s*2px/);
+  assert.match(disclosureRule, /margin-top:\s*auto/);
   assert.match(listRule, /max-height:\s*min\(360px,\s*34vh\)/);
   assert.match(listRule, /overflow-y:\s*auto/);
   assert.match(listRule, /scrollbar-gutter:\s*stable/);
@@ -150,11 +152,12 @@ test("narrow layout stacks SET and Hybrid source controls into one column", () =
 test("Left Right Home End navigation wraps for both tablists", async () => {
   const { primarySearchTabs, setWorkflowTabs, tabAfterKey } = await loadSearchSurfaceState();
 
-  assert.deepEqual(primarySearchTabs, ["set", "sonara", "mert", "muq", "clap", "class", "lab"]);
-  assert.equal(tabAfterKey(primarySearchTabs, "set", "ArrowLeft"), "lab");
-  assert.equal(tabAfterKey(primarySearchTabs, "lab", "ArrowRight"), "set");
+  assert.deepEqual(primarySearchTabs, ["set", "lab", "sonara", "mert", "muq", "clap", "class"]);
+  assert.equal(tabAfterKey(primarySearchTabs, "set", "ArrowLeft"), "class");
+  assert.equal(tabAfterKey(primarySearchTabs, "set", "ArrowRight"), "lab");
+  assert.equal(tabAfterKey(primarySearchTabs, "lab", "ArrowRight"), "sonara");
   assert.equal(tabAfterKey(primarySearchTabs, "muq", "Home"), "set");
-  assert.equal(tabAfterKey(primarySearchTabs, "muq", "End"), "lab");
+  assert.equal(tabAfterKey(primarySearchTabs, "muq", "End"), "class");
   assert.equal(tabAfterKey(setWorkflowTabs, "builder", "ArrowRight"), "hybrid");
   assert.equal(tabAfterKey(setWorkflowTabs, "hybrid", "ArrowRight"), "builder");
   assert.equal(tabAfterKey(setWorkflowTabs, "hybrid", "Enter"), null);

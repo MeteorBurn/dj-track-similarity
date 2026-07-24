@@ -3,7 +3,12 @@ import { Download, FolderOpen, ListFilter, ListMusic, ListPlus, Pause, Play, Rot
 import { AnalysisJobStatus, api, EmbeddingSource, HybridClassifierSignal, HybridMatchAxis, HybridSearchResult, HybridSearchSource, PromotedClassifier, SearchResult, SetBuilderBpmChange, SetBuilderBpmMode, SetBuilderClassifierFlow, SetBuilderEnergyCurve, SetBuilderGenerateResult, SetBuilderMode, SetBuilderSeedMode, SonaraMixerWeights, SonaraModifiers, SonaraSearchMode, Track } from "./api";
 import type { EvaluationPairFeedbackResult, EvaluationPairFeedbackState, EvaluationPairReasonTag } from "./api";
 import { ClapSearchTab } from "./ClapSearchTab";
-import { classifierScoringBlockedReason } from "./classifierCompatibility";
+import {
+  classifierIsAvailable,
+  classifierProfileStatus,
+  classifierScoringBlockedReason,
+  orderPromotedClassifiers,
+} from "./classifierCompatibility";
 import type { ClapPromptPreset } from "./clapPrompt";
 import { EmbeddingSearchTab } from "./EmbeddingSearchTab";
 import { playlistPage } from "./playlistView";
@@ -544,6 +549,9 @@ export function SearchPlaylistPanel({
   const bpmControlsDisabled = setBpmMode === "general";
   const customSonaraDisabled = filters.sonaraMode !== "custom";
   const hybridClassifierOptions = hybridClassifierSignalOptions(classifiers);
+  const orderedClassifierProfiles = orderPromotedClassifiers(classifiers);
+  const availableClassifierCount = orderedClassifierProfiles.filter(classifierIsAvailable).length;
+  const blockedClassifierCount = orderedClassifierProfiles.length - availableClassifierCount;
   const setBuilderDraft: SetBuilderDraft = {
     databasePath,
     databaseIdentity,
@@ -1459,10 +1467,11 @@ export function SearchPlaylistPanel({
                 ))}
               </div>
             </div>
-            <div className="search-filter-grid">
+            <div className="search-filter-grid sonara-search-filter-grid">
               <label title={sonaraModeTitle}>
                 Mode
                 <select
+                  className="sonara-mode-select"
                   value={filters.sonaraMode}
                   title={sonaraModeTitle}
                   onChange={(event) => {
@@ -1534,28 +1543,53 @@ export function SearchPlaylistPanel({
         )}
         {activeSearchTab === "class" && (
           <div id="search-panel-class" className="search-tab-panel" role="tabpanel" aria-labelledby="search-tab-class">
-            {classifiers.length ? (
+            {orderedClassifierProfiles.length ? (
               <div className="classifier-controls">
-                {classifiers.map((classifier) => {
+                <div className="classifier-profile-summary" role="status">
+                  available {availableClassifierCount} · blocked {blockedClassifierCount}
+                </div>
+                {orderedClassifierProfiles.map((classifier) => {
                   const title = classifierHelp(classifier);
                   const value = classifierMinScores[classifier.classifier_key] || 0;
                   const blockedReason = classifierScoringBlockedReason(classifier);
-                  const rescoreTitle = blockedReason ? `Cannot rescore ${classifier.name}: ${blockedReason}` : `Reset and rescore all ${classifier.name} classifier results`;
+                  if (blockedReason) {
+                    const status = classifierProfileStatus(classifier);
+                    return (
+                      <div
+                        className="classifier-profile unavailable"
+                        key={classifier.classifier_key}
+                        title={blockedReason}
+                      >
+                        <div className="classifier-profile-status-heading">
+                          <span>{classifier.name}</span>
+                          <span className="classifier-profile-status-badge">{status}</span>
+                        </div>
+                        <span className="classifier-profile-status-reason">{blockedReason}</span>
+                      </div>
+                    );
+                  }
+                  const rescoreTitle = `Reset and rescore all ${classifier.name} classifier results`;
                   return (
-                    <Fragment key={classifier.classifier_key}>
+                    <div className="classifier-profile available" key={classifier.classifier_key}>
                       <div className="custom-control-header" title={title}>
                         <span>{classifier.name}</span>
-                        <button
-                          className="icon-button classifier-analyze-button"
-                          title={rescoreTitle}
-                          aria-label={rescoreTitle}
-                          disabled={busy || Boolean(blockedReason)}
-                          onClick={() => onAnalyzeClassifier(classifier)}
-                          type="button"
-                        >
-                          <Play size={15} />
-                        </button>
+                        <div className="classifier-profile-actions">
+                          <span className="classifier-profile-status-badge available">available</span>
+                          <button
+                            className="icon-button classifier-analyze-button"
+                            title={rescoreTitle}
+                            aria-label={rescoreTitle}
+                            disabled={busy}
+                            onClick={() => onAnalyzeClassifier(classifier)}
+                            type="button"
+                          >
+                            <Play size={15} />
+                          </button>
+                        </div>
                       </div>
+                      <span className="classifier-profile-readiness">
+                        ready {classifier.ready || 0} · not ready {classifier.not_ready || 0}
+                      </span>
                       <label className="range-control" title={title}>
                         <span>
                           <em>{value.toFixed(2)}</em>
@@ -1570,7 +1604,7 @@ export function SearchPlaylistPanel({
                           onChange={(event) => onClassifierMinScoreChange(classifier.classifier_key, Number(event.target.value))}
                         />
                       </label>
-                    </Fragment>
+                    </div>
                   );
                 })}
                 {classifierJob && classifierJob.failed > 0 ? (

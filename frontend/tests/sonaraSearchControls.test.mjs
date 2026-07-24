@@ -4,12 +4,26 @@ import test from "node:test";
 
 const panelSource = readFileSync(new URL("../src/SearchPlaylistPanel.tsx", import.meta.url), "utf8");
 const embeddingTabSource = readFileSync(new URL("../src/EmbeddingSearchTab.tsx", import.meta.url), "utf8");
+const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 
 test("SONARA tab exposes backend modes and custom vocalness modifier", () => {
   assert.match(panelSource, /sonaraModeOptions/);
   assert.match(panelSource, /value=\{filters\.sonaraMode\}/);
   assert.match(panelSource, /key: "vocalness", label: "Vocal"/);
   assert.match(panelSource, /handleSonaraSearch/);
+});
+
+test("SONARA mode, similarity, and limit share one compact styled row", () => {
+  assert.match(panelSource, /className="search-filter-grid sonara-search-filter-grid"/);
+  assert.match(panelSource, /className="sonara-mode-select"/);
+  assert.match(
+    stylesSource,
+    /\.search-workflow-section \.sonara-search-filter-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1\.4fr\)\s*repeat\(2,\s*minmax\(0,\s*0\.8fr\)\)/s,
+  );
+  assert.match(stylesSource, /\.sonara-mode-select\s*\{[^}]*appearance:\s*none/s);
+  assert.match(stylesSource, /\.sonara-mode-select\s*\{[^}]*background-color:\s*var\(--surface-muted\)/s);
+  assert.match(stylesSource, /\.sonara-mode-select:hover:not\(:disabled\)/);
+  assert.match(stylesSource, /\.sonara-mode-select:focus-visible/);
 });
 
 test("MERT and MUQ use one typed generic embedding search component and handler", () => {

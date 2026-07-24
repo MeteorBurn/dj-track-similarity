@@ -50,7 +50,7 @@ export function ReferenceComparePanel({
   onPreview,
   onDetails,
 }: ReferenceComparePanelProps) {
-  const [limit, setLimit] = useState(8);
+  const [limit, setLimit] = useState(10);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [compare, setCompare] = useState<ReferenceCompareResponse | null>(null);

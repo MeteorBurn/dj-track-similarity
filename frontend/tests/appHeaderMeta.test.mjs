@@ -49,20 +49,22 @@ test("analysis model rows render summary counts near each model", () => {
   assert.match(badgeRule, /min-height:\s*22px/);
   assert.match(badgeRule, /padding:\s*3px 7px/);
   assert.match(nameRule, /display:\s*grid/);
-  assert.match(nameRule, /grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  assert.match(nameRule, /grid-template-columns:\s*max-content\s+minmax\(0,\s*1fr\)/);
   assert.match(nameRule, /align-content:\s*center/);
-  assert.match(nameRule, /min-height:\s*44px/);
+  assert.match(nameRule, /height:\s*34px/);
+  assert.match(nameRule, /min-height:\s*34px/);
   assert.match(nameTextRule, /text-overflow:\s*ellipsis/);
   assert.match(titleRule, /font-size:\s*13px/);
   assert.match(titleRule, /font-weight:\s*760/);
   assert.match(descriptionRule, /text-align:\s*left/);
-  assert.match(descriptionRule, /white-space:\s*normal/);
+  assert.match(descriptionRule, /white-space:\s*nowrap/);
   assert.match(descriptionRule, /line-height:\s*12px/);
   assert.match(countRule, /justify-self:\s*end/);
   assert.match(countRule, /color:\s*var\(--text-strong\)/);
   assert.match(countRule, /font-size:\s*13px/);
   assert.match(countRule, /font-weight:\s*800/);
   assert.match(countRule, /font-variant-numeric:\s*tabular-nums/);
+  assert.match(countRule, /min-width:\s*76px/);
 });
 
 test("topbar log and process controls are separate actions", () => {

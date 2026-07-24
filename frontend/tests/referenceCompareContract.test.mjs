@@ -103,6 +103,7 @@ test("reference compare verdict client stores MuQ verdict with exact v7 identiti
 test("reference panel uses v7 ids, exact verdict identities, notes, and stale guards", () => {
   const referencePanelSource = readFileSync(join(srcDir, "ReferenceComparePanel.tsx"), "utf8");
 
+  assert.match(referencePanelSource, /const \[limit, setLimit\] = useState\(10\)/);
   assert.match(referencePanelSource, /referenceCompareVerdictOptions/);
   assert.match(referencePanelSource, /api\.referenceCompare\(/);
   assert.match(referencePanelSource, /api\.referenceCompareVerdict\(/);

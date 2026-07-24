@@ -255,7 +255,7 @@ export function LibraryPanel({
         <div className="analysis-actions classifiers-analysis-block">
           <div className="analysis-model-row">
             <span className="analysis-model-check"><input className="analysis-model-checkbox" type="checkbox" aria-label="CLASSIFIERS selected" checked={classifiersSelected} disabled={busy || stageRunning} onChange={() => onToggleAnalysisModel("classifiers")} /></span>
-            <span className="analysis-model-name"><span className="analysis-model-title">CLASSIFIERS</span><span className="analysis-model-description">Отдельный анализ по локальным профилям · ready {readyClassifiers} · not ready {notReadyClassifiers}{blockerCount ? ` · blockers ${blockerCount}` : ""}</span></span>
+            <span className="analysis-model-name"><span className="analysis-model-title">CLASSIFIERS</span><span className="analysis-model-description">ready {readyClassifiers} · not ready {notReadyClassifiers}{blockerCount ? ` · blockers ${blockerCount}` : ""}</span></span>
             <span className="analysis-model-count">{analysisCounts.classifiers || 0}</span>
             <button className="icon-button stop-button analysis-reset-button classifiers-reset-button" title="Сбросить CLASSIFIERS" disabled={analysisDisabled} onClick={onResetClassifiers} type="button"><Trash2 size={16} /></button>
           </div>

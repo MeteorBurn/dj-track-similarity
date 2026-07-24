@@ -22,7 +22,7 @@ import { analysisSelectionOrder, defaultAnalysisSelections, isAudioAnalysisModel
 import { AudioDedupDialog } from "./AudioDedupDialog";
 import { AudioDoctorDialog } from "./AudioDoctorDialog";
 import { clapPromptPresets, defaultClapPromptPresetKey, promptQueriesFromText } from "./clapPrompt";
-import { classifierScoringBlockedReason } from "./classifierCompatibility";
+import { classifierIsAvailable, classifierScoringBlockedReason } from "./classifierCompatibility";
 import { ConfirmationDialog, LogFrameDialog } from "./dialogs";
 import { exportDirectoryError } from "./exportView";
 import { helpText } from "./helpText";
@@ -180,7 +180,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [filters, setFilters] = useState<SearchFiltersState>({
     minSimilarity: 0,
-    limit: 10,
+    limit: 20,
     sonaraMode: "custom",
     sonaraMixer: {
       timbre: 1,
@@ -325,6 +325,7 @@ export function App() {
         setScanJob(job);
         if (["completed", "cancelled", "failed"].includes(job.state || "")) {
           void refreshLibrary(0, { refreshSummary: true });
+          refreshClassifierProfilesInBackground();
           if (job.state === "completed") {
             appendActivity("ok", "Сканирование завершено", scanSummary(job));
           }
@@ -347,6 +348,7 @@ export function App() {
         setAnalysisJob(job);
         if (["completed", "cancelled", "failed"].includes(job.state)) {
           void refreshLibrary(0, { refreshSummary: true });
+          refreshClassifierProfilesInBackground();
         }
       }).catch((error) => {
         setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
@@ -372,6 +374,7 @@ export function App() {
         }
         if (["completed", "cancelled", "failed"].includes(job.state)) {
           void refreshLibrary(0, { refreshSummary: true });
+          refreshClassifierProfilesInBackground();
         }
       }).catch((error) => {
         setNotice({ kind: "error", text: error instanceof Error ? error.message : String(error) });
@@ -464,11 +467,7 @@ export function App() {
         refreshSummary: true
       });
       const promotedClassifiers = await promotedClassifiersRequest;
-      setClassifiers(promotedClassifiers);
-      setClassifierMinScores((current) => {
-        const keys = new Set(promotedClassifiers.map((classifier) => classifier.classifier_key));
-        return Object.fromEntries(Object.entries(current).filter(([key]) => keys.has(key)));
-      });
+      adoptClassifierProfiles(promotedClassifiers);
       await loadLatestJobs(promotedClassifiers);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -524,6 +523,33 @@ export function App() {
         }
       }).catch(() => undefined)
     ]);
+  }
+
+  function adoptClassifierProfiles(promotedClassifiers: PromotedClassifier[]) {
+    setClassifiers(promotedClassifiers);
+    setClassifierMinScores((current) => {
+      const availableKeys = new Set(
+        promotedClassifiers
+          .filter(classifierIsAvailable)
+          .map((classifier) => classifier.classifier_key)
+      );
+      return Object.fromEntries(
+        Object.entries(current).filter(([key]) => availableKeys.has(key))
+      );
+    });
+  }
+
+  async function refreshClassifierProfiles() {
+    const promotedClassifiers = await api.classifiers();
+    adoptClassifierProfiles(promotedClassifiers);
+    return promotedClassifiers;
+  }
+
+  function refreshClassifierProfilesInBackground() {
+    void refreshClassifierProfiles().catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      appendActivity("warn", "Не удалось обновить CLASS profiles", message);
+    });
   }
 
   function resetDatabaseScopedState() {
@@ -618,8 +644,11 @@ export function App() {
     setGenericSearchPending(false);
   }
 
-  function handlePrimarySearchTabChange(_tab: PrimarySearchTab) {
+  function handlePrimarySearchTabChange(tab: PrimarySearchTab) {
     cancelGenericSearchRequest();
+    if (tab === "class" && databasePath) {
+      refreshClassifierProfilesInBackground();
+    }
   }
 
   function cancelTrackDetailRequest() {
@@ -781,7 +810,7 @@ export function App() {
     await run(
       async () => {
         const promotedClassifiers = await api.classifiers();
-        setClassifiers(promotedClassifiers);
+        adoptClassifierProfiles(promotedClassifiers);
         const currentClassifier = promotedClassifiers.find((candidate) => candidate.classifier_key === classifier.classifier_key);
         if (!currentClassifier) {
           throw new Error(`Cannot rescore ${classifier.name}: Classifier profile is no longer available.`);
@@ -895,11 +924,7 @@ export function App() {
         refreshSummary: true
       });
       const promotedClassifiers = await promotedClassifiersRequest;
-      setClassifiers(promotedClassifiers);
-      setClassifierMinScores((current) => {
-        const keys = new Set(promotedClassifiers.map((classifier) => classifier.classifier_key));
-        return Object.fromEntries(Object.entries(current).filter(([key]) => keys.has(key)));
-      });
+      adoptClassifierProfiles(promotedClassifiers);
       await loadLatestJobs(promotedClassifiers);
       appendActivity("ok", "База выбрана", value.path);
       setNotice({ kind: "ok", text: value.path });
@@ -958,7 +983,7 @@ export function App() {
 
   function compatibleClassifierKeys() {
     return classifiers
-      .filter((classifier) => classifier.is_scoring_compatible !== false)
+      .filter(classifierIsAvailable)
       .map((classifier) => classifier.classifier_key);
   }
 

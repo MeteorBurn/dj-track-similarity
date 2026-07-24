@@ -169,8 +169,8 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.match(source, /analysis-limit-increment-button/);
   assert.match(source, /analysisLimit >= 100000/);
   assert.doesNotMatch(source, /FFmpeg decode/);
-  assert.match(source, /Отдельный анализ по локальным профилям/);
-  assert.match(source, /ready \{readyClassifiers\}/);
+  assert.doesNotMatch(source, /Отдельный анализ по локальным профилям/);
+  assert.match(source, /ready \{readyClassifiers\} · not ready \{notReadyClassifiers\}\{blockerCount \? ` · blockers \$\{blockerCount\}` : ""\}/);
   assert.doesNotMatch(source, /visibleClassifierBlockers|className="analysis-muted" key=\{item\.key\}/);
   assert.match(source, /selectedAnalysisModels/);
   assert.doesNotMatch(source, /Run SONARA|Run ML|Run CLASSIFIERS|Run selected pipeline/);
@@ -186,7 +186,7 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.match(styles, /\.sonara-output-row\s*{[\s\S]*?display:\s*flex[\s\S]*?flex-wrap:\s*nowrap[\s\S]*?overflow-x:\s*auto/);
   assert.match(styles, /\.sonara-output-options input\s*{[\s\S]*?height:\s*12px[\s\S]*?min-height:\s*0[\s\S]*?width:\s*12px/);
   assert.match(styles, /\.sonara-output-options label span\s*{[\s\S]*?display:\s*block[\s\S]*?white-space:\s*nowrap/);
-  assert.match(styles, /\.analysis-model-count\s*{[\s\S]*?align-self:\s*stretch[\s\S]*?height:\s*auto[\s\S]*?min-height:\s*44px/);
+  assert.match(styles, /\.analysis-model-count\s*{[\s\S]*?align-self:\s*center[\s\S]*?height:\s*34px[\s\S]*?min-height:\s*34px/);
   assert.doesNotMatch(source, /Active SONARA release|Prepare release|sonaraAnalysisBlockedReason/);
   assert.match(appSource, /const childJobId = currentStage \? job\.stages\[currentStage\]\?\.child_job_id : null/);
   assert.match(appSource, /currentStage === "classifiers"[\s\S]*?api\.aggregateClassifierJob\(childJobId\)[\s\S]*?api\.analysisJob\(childJobId\)/);
@@ -294,7 +294,12 @@ test("class tab exposes per-classifier missing-score analysis controls", () => {
   assert.match(searchSource, /onClassifierMinScoreChange/);
   assert.match(searchSource, /classifier-analyze-button/);
   assert.match(searchSource, /onAnalyzeClassifier/);
-  assert.match(searchSource, /classifiers\.length \? \(/);
+  assert.match(searchSource, /orderedClassifierProfiles\.length \? \(/);
+  assert.match(searchSource, /orderPromotedClassifiers\(classifiers\)/);
+  assert.match(searchSource, /classifierScoringBlockedReason\(classifier\)/);
+  assert.match(searchSource, /className="classifier-profile unavailable"/);
+  assert.match(searchSource, /classifier-profile-status-reason/);
+  assert.match(searchSource, /available \{availableClassifierCount\} · blocked \{blockedClassifierCount\}/);
   assert.match(searchSource, /empty-state classifier-empty-state/);
   assert.match(searchSource, /No promoted classifier profiles found/);
   assert.match(searchSource, /models\/classifiers\/<profile>\//);
@@ -302,7 +307,8 @@ test("class tab exposes per-classifier missing-score analysis controls", () => {
   assert.match(appSource, /compatibleClassifierKeys/);
   assert.match(appSource, /analysisPipelineStart/);
   assert.match(appSource, /useState<AnalysisSelection\[]>\(defaultAnalysisSelections\)/);
-  assert.match(appSource, /is_scoring_compatible !== false/);
+  assert.match(appSource, /\.filter\(classifierIsAvailable\)/);
+  assert.match(appSource, /tab === "class" && databasePath[\s\S]*refreshClassifierProfilesInBackground/);
   assert.match(appSource, /api\.analyzeClassifier/);
   assert.doesNotMatch(appSource, /classifierRequiredModels/);
   assert.doesNotMatch(appSource, /setPendingClassifierAfterAnalysis/);
@@ -393,7 +399,7 @@ test("analysis model reset buttons fit inside a full-width row", () => {
   assert.doesNotMatch(resetButtonBlock, />\s*Reset\s*</);
   assert.match(actionsRule, /align-self:\s*stretch/);
   assert.match(actionsRule, /width:\s*100%/);
-  assert.match(rowRule, /grid-template-columns:\s*34px\s+minmax\(0,\s*1fr\)\s+minmax\(42px,\s*max-content\)\s+34px/);
+  assert.match(rowRule, /grid-template-columns:\s*34px\s+minmax\(0,\s*1fr\)\s+minmax\(76px,\s*max-content\)\s+34px/);
   assert.match(rowRule, /width:\s*100%/);
   assert.doesNotMatch(rowRule, /82px/);
   assert.doesNotMatch(resetRule, /min-width:\s*96px/);
@@ -412,11 +418,11 @@ test("frontend analysis api uses unified job endpoints only", () => {
   assert.doesNotMatch(source, /\/api\/analyze"/);
 });
 
-test("model search default limit is ten", () => {
+test("model search UI defaults to twenty while API fallbacks remain ten", () => {
   const appSource = readFileSync(join(srcDir, "App.tsx"), "utf8");
   const schemaSource = readFileSync(join(srcDir, "..", "..", "src", "dj_track_similarity", "api_schemas.py"), "utf8");
 
-  assert.match(appSource, /limit:\s*10/);
+  assert.match(appSource, /const \[filters, setFilters\] = useState<SearchFiltersState>\(\{[\s\S]*?limit:\s*20/);
   assert.match(schemaSource, /class SearchRequest[\s\S]*limit:\s*int\s*=\s*Field\(default=10/);
   assert.match(schemaSource, /class SonaraSearchRequest[\s\S]*limit:\s*int\s*=\s*Field\(default=10/);
   assert.match(schemaSource, /class TextSearchRequest[\s\S]*limit:\s*int\s*=\s*Field\(default=10/);
@@ -472,6 +478,9 @@ test("class search tab shows classifier threshold and scoped analysis controls",
   assert.match(classPanel, /classifier-controls/);
   assert.match(classPanel, /type="range"/);
   assert.match(classPanel, /classifier-analyze-button/);
+  assert.match(classPanel, /if \(blockedReason\)/);
+  assert.match(classPanel, /classifier-profile unavailable/);
+  assert.match(classPanel, /classifier-profile-status-badge/);
   assert.doesNotMatch(classPanel, /classifier-reset-button/);
   assert.doesNotMatch(classPanel, /classifier-action-row/);
   assert.doesNotMatch(classPanel, />\s*Reset\s*</);

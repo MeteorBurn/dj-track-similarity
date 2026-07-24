@@ -18,12 +18,12 @@ export type TabNavigationKey = "ArrowLeft" | "ArrowRight" | "Home" | "End";
 
 export const primarySearchTabs: readonly PrimarySearchTab[] = [
   "set",
+  "lab",
   "sonara",
   "mert",
   "muq",
   "clap",
-  "class",
-  "lab"
+  "class"
 ];
 
 export const setWorkflowTabs: readonly SetWorkflowTab[] = ["builder", "hybrid"];

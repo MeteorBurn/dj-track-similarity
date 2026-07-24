@@ -1,485 +1,391 @@
 from __future__ import annotations
 
-import ast
+import hashlib
 import json
 from pathlib import Path
 
-import joblib
-import numpy as np
-import pytest
-from fastapi.testclient import TestClient
-from typer.testing import CliRunner
-
-import dj_track_similarity.api as api
-import dj_track_similarity.cli as cli
-from dj_track_similarity.classifier_production import build_classifier_calibration_report, suggest_classifier_labels
-from dj_track_similarity.classifier_scoring import ClassifierScorer, promoted_classifiers
-from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature, feature_set_uses_sonara
-
-
-class FixedProbabilityModel:
-    classes_ = np.asarray(["broken", "straight"])
-
-    def predict_proba(self, matrix):
-        return np.tile(np.asarray([[0.8, 0.2]], dtype=np.float64), (matrix.shape[0], 1))
-
-
-def test_promoted_classifiers_report_valid_and_invalid_manifest_status(tmp_path: Path) -> None:
-    root = tmp_path / "models" / "classifiers"
-    valid_dir = root / "break-energy"
-    invalid_dir = root / "bad-profile"
-    legacy_dir = root / "legacy-profile"
-    valid_dir.mkdir(parents=True)
-    invalid_dir.mkdir(parents=True)
-    legacy_dir.mkdir(parents=True)
-    (valid_dir / "model.joblib").write_bytes(b"model")
-    (invalid_dir / "model.joblib").write_bytes(b"model")
-    (legacy_dir / "model.joblib").write_bytes(b"model")
-    _write_manifest(valid_dir / "model.json", classifier_key="break_energy")
-    (invalid_dir / "model.json").write_text(json.dumps({"classifier_key": "bad_profile"}), encoding="utf-8")
-
-    payloads = {payload["classifier_key"]: payload for payload in promoted_classifiers(root)}
-
-    assert payloads["break_energy"]["manifest_status"] == "valid"
-    assert payloads["break_energy"]["is_scoring_compatible"] is True
-    # bad_profile has no manifest_version → ManifestVersionError → "unsupported"
-    assert payloads["bad_profile"]["manifest_status"] == "unsupported"
-    assert payloads["bad_profile"]["is_scoring_compatible"] is False
-    assert payloads["bad_profile"]["manifest_errors"]
-    assert payloads["legacy_profile"]["manifest_status"] == "legacy"
-    assert payloads["legacy_profile"]["manifest_warnings"]
+from dj_track_similarity.analysis_model_runners import (
+    current_embedding_analysis_output,
+)
+from dj_track_similarity.analysis_models import (
+    AnalysisOutput,
+    classifier_required_outputs_hash,
+)
+from dj_track_similarity.classifier_manifest import (
+    classifier_feature_manifest_hash,
+)
+from dj_track_similarity.classifier_production import (
+    build_classifier_calibration_report,
+    suggest_classifier_labels,
+)
+from dj_track_similarity.classifier_scoring import promoted_classifiers
+from dj_track_similarity.library_models import (
+    AnalysisCoverage,
+    ClassifierScoreDetail,
+    ClassifierScoreSummary,
+    FileTechnical,
+    OptionalOutputs,
+    TrackDetail,
+    TrackSummary,
+)
 
 
-def test_promoted_classifiers_accept_non_combined_required_inputs(tmp_path: Path) -> None:
-    root = tmp_path / "models" / "classifiers"
-    profile_dir = root / "break-energy"
-    profile_dir.mkdir(parents=True)
-    (profile_dir / "model.joblib").write_bytes(b"model")
-    _write_manifest(
-        profile_dir / "model.json",
-        classifier_key="break_energy",
-        feature_set="mert+clap",
-        feature_count=2,
-        required_inputs=["mert", "clap"],
-    )
-
-    payload = promoted_classifiers(root)[0]
-
-    assert payload["manifest_status"] == "valid"
-    assert payload["is_scoring_compatible"] is True
-    assert payload["feature_set"] == "mert+clap"
-    assert payload["required_inputs"] == ["mert", "clap"]
+_NOW = "2026-07-24T12:00:00.000000Z"
+_ARTIFACT_BYTES = b"fixture"
+_ARTIFACT_HASH = f"sha256:{hashlib.sha256(_ARTIFACT_BYTES).hexdigest()}"
 
 
-def test_promoted_classifiers_accept_sonara2_feature_set_aliases(tmp_path: Path) -> None:
-    root = tmp_path / "models" / "classifiers"
-    profile_dir = root / "voice-presence"
-    profile_dir.mkdir(parents=True)
-    (profile_dir / "model.joblib").write_bytes(b"model")
-    _write_manifest(
-        profile_dir / "model.json",
-        classifier_key="voice_presence",
-        feature_set="sonara2vocal+maest+clap",
-        feature_count=4,
-        required_inputs=["sonara", "maest", "clap"],
-    )
-
-    payload = promoted_classifiers(root)[0]
-
-    assert payload["manifest_status"] == "valid"
-    assert payload["is_scoring_compatible"] is True
-    assert payload["feature_set"] == "sonara2vocal+maest+clap"
-    assert payload["required_inputs"] == ["sonara", "maest", "clap"]
+def _mert_output() -> AnalysisOutput:
+    return current_embedding_analysis_output("mert", device="cpu")
 
 
-def test_promoted_classifiers_expose_hybrid_signal_manifest_metadata(tmp_path: Path) -> None:
-    root = tmp_path / "models" / "classifiers"
-    profile_dir = root / "deep-groove"
-    profile_dir.mkdir(parents=True)
-    (profile_dir / "model.joblib").write_bytes(b"model")
-    _write_manifest(
-        profile_dir / "model.json",
-        classifier_key="deep_groove",
-        hybrid_signal={
-            "role": "preference_boost",
-            "axis": "groove",
-            "label": "Boost deep groove",
-            "description": "Uses stored deep_groove scores as a groove preference.",
-            "default_preference": 0.55,
-            "allowed_modes": ["hybrid", "set"],
-            "missing_score_policy": "neutral",
+def _manifest_payload(
+    classifier_key: str,
+    output: AnalysisOutput,
+    *,
+    model_id: str | None = None,
+    hybrid_signal: dict[str, object] | None = None,
+) -> dict[str, object]:
+    feature_names = ("mert:0",)
+    payload: dict[str, object] = {
+        "manifest_version": 2,
+        "classifier_key": classifier_key,
+        "profile_name": classifier_key.replace("_", " ").title(),
+        "model_id": model_id or f"{classifier_key}-model",
+        "artifact_hash": _ARTIFACT_HASH,
+        "feature_set": "mert-contract",
+        "feature_names": list(feature_names),
+        "feature_count": len(feature_names),
+        "feature_manifest_hash": classifier_feature_manifest_hash(feature_names),
+        "label_order": ["negative", "positive"],
+        "negative_label": "negative",
+        "positive_label": "positive",
+        "production": {
+            "score_semantics": "positive_label_probability",
+            "required_outputs": [
+                {
+                    "contract_hash": output.contract_hash,
+                    "canonical_payload": output.contract.canonical_payload,
+                }
+            ],
+            "calibration": {"status": "uncalibrated"},
         },
-    )
-
-    payload = promoted_classifiers(root)[0]
-
-    assert payload["classifier_key"] == "deep_groove"
-    assert payload["hybrid_signal"] == {
-        "role": "preference_boost",
-        "axis": "groove",
-        "label": "Boost deep groove",
-        "description": "Uses stored deep_groove scores as a groove preference.",
-        "default_preference": 0.55,
-        "allowed_modes": ["hybrid", "set"],
-        "missing_score_policy": "neutral",
     }
-    assert payload["hybrid_signal_source"] == "manifest"
+    if hybrid_signal is not None:
+        payload["hybrid_signal"] = hybrid_signal
+    return payload
 
 
-def test_classifier_scorer_rejects_manifest_payload_mismatch(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    model_path = _write_model(tmp_path / "models" / "classifiers" / "break-energy" / "model.joblib")
-    _write_manifest(model_path.with_name("model.json"), classifier_key="break_energy", positive_label="other")
-
-    with pytest.raises(ValueError, match="positive_label"):
-        ClassifierScorer(db, classifier="break_energy", model_path=model_path)
-
-
-def test_sonara_classifier_manifest_without_analysis_signature_is_invalid(tmp_path: Path) -> None:
-    root = tmp_path / "models" / "classifiers"
-    profile_dir = root / "old-sonara"
-    profile_dir.mkdir(parents=True)
-    (profile_dir / "model.joblib").write_bytes(b"model")
-    manifest_path = profile_dir / "model.json"
-    _write_manifest(manifest_path, classifier_key="old_sonara", feature_set="sonara", required_inputs=["sonara"])
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["production"].pop("sonara_analysis_signature")
-    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-
-    payload = promoted_classifiers(root)[0]
-
-    assert payload["is_scoring_compatible"] is False
-    assert any("sonara_analysis_signature" in error for error in payload["manifest_errors"])
-
-
-def test_classifier_scorer_requires_matching_track_signature_and_present_sonara_value(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_id = _track(db, tmp_path, "track.wav")
-    signature = expected_sonara_analysis_signature([])
-    model_path = tmp_path / "models" / "classifiers" / "sonara-only" / "model.joblib"
-    model_path.parent.mkdir(parents=True)
-    joblib.dump(
-        {
-            "model": FixedProbabilityModel(),
-            "feature_set": "sonara",
-            "feature_names": ["sonara:bpm"],
-            "label_order": ["broken", "straight"],
-            "classifier_key": "sonara_only",
-            "positive_label": "broken",
-            "sonara_analysis_signature": signature,
-        },
-        model_path,
+def _write_promoted(
+    root: Path,
+    classifier_key: str,
+    output: AnalysisOutput,
+    *,
+    payload: dict[str, object] | None = None,
+) -> dict[str, object]:
+    artifact_dir = root / classifier_key.replace("_", "-")
+    artifact_dir.mkdir(parents=True)
+    model_path = artifact_dir / "model.joblib"
+    metadata_path = artifact_dir / "model.json"
+    model_path.write_bytes(_ARTIFACT_BYTES)
+    metadata_path.write_text(
+        json.dumps(payload or _manifest_payload(classifier_key, output)),
+        encoding="utf-8",
     )
-    _write_manifest(
-        model_path.with_name("model.json"),
-        classifier_key="sonara_only",
-        feature_set="sonara",
-        feature_count=1,
-        required_inputs=["sonara"],
-    )
-    scorer = ClassifierScorer(db, classifier="sonara_only", model_path=model_path)
-
-    db.save_sonara_features(
-        track_id,
-        {"bpm": {"value": 128.0}},
-        analysis_signature=signature,
-    )
-    assert scorer.score_track(db.get_track(track_id)) == {"broken": 0.8, "straight": 0.2}
-
-    db.save_sonara_features(
-        track_id,
-        {"energy": {"value": 0.5}},
-        analysis_signature=signature,
-    )
-    assert scorer.score_track(db.get_track(track_id)) is None
-
-    mismatched = expected_sonara_analysis_signature(["vocalness"])
-    db.save_sonara_features(
-        track_id,
-        {"bpm": {"value": 128.0}},
-        analysis_signature=mismatched,
-    )
-    assert scorer.score_track(db.get_track(track_id)) is None
-
-
-def test_classifier_calibration_report_is_insufficient_without_feedback(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    scored_id = _track(db, tmp_path, "scored.wav")
-    _track(db, tmp_path, "unscored.wav")
-    _save_score(db, scored_id, "break_energy", 0.72)
-    classifier_info = _classifier_info(tmp_path, "break_energy")
-
-    report = build_classifier_calibration_report(db, "break_energy", classifier_info=classifier_info)
-
-    assert report["status"] == "insufficient_data"
-    assert report["coverage"]["tracks_total"] == 2
-    assert report["coverage"]["tracks_scored"] == 1
-    assert report["available_labels_feedback"]["candidate_feedback_count"] == 0
-    assert report["status_gate"]["calibrated_probability_available"] is False
-
-
-def test_classifier_calibration_report_marks_scores_stale_when_model_identity_changes(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_id = _track(db, tmp_path, "scored.wav")
-    _save_score(db, track_id, "break_energy", 0.72)
-    classifier_info = _classifier_info(tmp_path, "break_energy", model_id="new-model-identity")
-
-    report = build_classifier_calibration_report(db, "break_energy", classifier_info=classifier_info)
-
-    assert report["status"] == "stale"
-    assert report["coverage"]["tracks_scored"] == 1
-    assert report["coverage"]["stale_scores"] == 1
-    assert report["coverage"]["fresh_scores"] == 0
-    assert report["status_gate"]["calibrated_probability_available"] is False
-    assert "stale" in report["status_gate"]["decision"].lower()
-
-
-def test_classifier_label_suggestions_prioritize_uncertain_unlabeled_scores(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    low_id = _track(db, tmp_path, "low.wav")
-    uncertain_id = _track(db, tmp_path, "uncertain.wav")
-    nearest_id = _track(db, tmp_path, "nearest.wav")
-    high_id = _track(db, tmp_path, "high.wav")
-    _save_score(db, low_id, "break_energy", 0.10)
-    _save_score(db, uncertain_id, "break_energy", 0.52)
-    _save_score(db, nearest_id, "break_energy", 0.49)
-    _save_score(db, high_id, "break_energy", 0.90)
-    classifier_info = _classifier_info(tmp_path, "break_energy")
-
-    report = suggest_classifier_labels(
-        db,
-        "break_energy",
-        mode="uncertainty",
-        limit=3,
-        random_seed=99,
-        classifier_info=classifier_info,
-    )
-
-    assert [item["track"]["id"] for item in report["suggestions"]] == [nearest_id, uncertain_id, low_id]
-    assert report["suggestions"][0]["label_status"] == "unlabeled"
-
-
-def test_classifier_reports_and_suggestions_are_scoped_by_classifier_key(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    break_id = _track(db, tmp_path, "break.wav")
-    live_id = _track(db, tmp_path, "live.wav")
-    _save_score(db, break_id, "break_energy", 0.51)
-    _save_score(db, live_id, "live_instrumentation", 0.50)
-    classifier_info = _classifier_info(tmp_path, "break_energy")
-
-    report = build_classifier_calibration_report(db, "break_energy", classifier_info=classifier_info)
-    suggestions = suggest_classifier_labels(db, "break_energy", classifier_info=classifier_info)
-
-    assert report["coverage"]["tracks_scored"] == 1
-    assert [item["track"]["id"] for item in suggestions["suggestions"]] == [break_id]
-
-
-def test_classifier_cli_calibration_report_outputs_json(tmp_path: Path) -> None:
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    track_id = _track(db, tmp_path, "scored.wav")
-    _save_score(db, track_id, "break_energy", 0.61)
-
-    result = CliRunner().invoke(
-        cli.app,
-        ["classifier", "calibration-report", "--classifier", "break_energy", "--db", str(db_path)],
-    )
-
-    assert result.exit_code == 0
-    payload = json.loads(_cli_output_text(result.output))
-    assert payload["classifier_key"] == "break_energy"
-    assert payload["status"] == "invalid_manifest"
-    assert payload["manifest"]["is_scoring_compatible"] is False
-    assert payload["manifest"]["manifest_errors"]
-
-
-def test_classifier_cli_suggest_labels_outputs_ordered_json(tmp_path: Path) -> None:
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    far_id = _track(db, tmp_path, "far.wav")
-    near_id = _track(db, tmp_path, "near.wav")
-    _save_score(db, far_id, "break_energy", 0.9)
-    _save_score(db, near_id, "break_energy", 0.48)
-
-    result = CliRunner().invoke(
-        cli.app,
-        ["classifier", "suggest-labels", "--classifier", "break_energy", "--db", str(db_path), "--limit", "2"],
-    )
-
-    assert result.exit_code == 0
-    payload = json.loads(_cli_output_text(result.output))
-    assert payload["status"] == "invalid_manifest"
-    assert payload["suggestions"] == []
-
-
-def test_classifier_api_rejects_invalid_manifest_for_scoring(monkeypatch, tmp_path: Path) -> None:
-    db_path = tmp_path / "library.sqlite"
-    LibraryDatabase(db_path)
-    monkeypatch.setattr(
-        api,
-        "promoted_classifiers",
-        lambda: [
-            {
-                "classifier_key": "break_energy",
-                "is_scoring_compatible": False,
-                "manifest_errors": ["model.json positive_label is required"],
-            }
-        ],
-    )
-    client = TestClient(api.create_app(db_path))
-
-    response = client.post("/api/classifiers/break_energy/analyze", json={})
-
-    assert response.status_code == 400
-    assert "positive_label" in response.json()["detail"]
-
-
-def test_classifier_api_rejects_unknown_classifier_for_scoring(monkeypatch, tmp_path: Path) -> None:
-    db_path = tmp_path / "library.sqlite"
-    LibraryDatabase(db_path)
-    monkeypatch.setattr(api, "promoted_classifiers", lambda: [])
-    client = TestClient(api.create_app(db_path))
-
-    response = client.post("/api/classifiers/missing_profile/analyze", json={})
-
-    assert response.status_code == 400
-    assert "missing_profile" in response.json()["detail"]
-
-
-def test_classifier_api_returns_label_suggestions(monkeypatch, tmp_path: Path) -> None:
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    near_id = _track(db, tmp_path, "near.wav")
-    far_id = _track(db, tmp_path, "far.wav")
-    _save_score(db, near_id, "break_energy", 0.49)
-    _save_score(db, far_id, "break_energy", 0.95)
-    classifier_info = _classifier_info(tmp_path, "break_energy")
-    monkeypatch.setattr(api, "promoted_classifiers", lambda: [classifier_info])
-    client = TestClient(api.create_app(db_path))
-
-    response = client.get("/api/classifiers/break_energy/label-suggestions?mode=uncertainty&limit=2&random_seed=7")
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert [item["track"]["id"] for item in payload["suggestions"]] == [near_id, far_id]
-
-
-def test_classifier_api_returns_calibration_report(monkeypatch, tmp_path: Path) -> None:
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    track_id = _track(db, tmp_path, "scored.wav")
-    _save_score(db, track_id, "break_energy", 0.62)
-    classifier_info = _classifier_info(tmp_path, "break_energy")
-    monkeypatch.setattr(api, "promoted_classifiers", lambda: [classifier_info])
-    client = TestClient(api.create_app(db_path))
-
-    response = client.get("/api/classifiers/break_energy/calibration-report")
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "insufficient_data"
-    assert payload["coverage"]["tracks_scored"] == 1
-
-
-def _track(db: LibraryDatabase, tmp_path: Path, filename: str) -> int:
-    path = tmp_path / filename
-    path.write_bytes(b"audio")
-    return db.upsert_track(path=path, size=path.stat().st_size, mtime=1.0, metadata={"title": filename})
-
-
-def _save_score(db: LibraryDatabase, track_id: int, classifier: str, score: float) -> None:
-    db.save_classifier_score(
-        track_id,
-        classifier=classifier,
-        score=score,
-        label="high" if score >= 0.8 else "medium" if score >= 0.5 else "low",
-        confidence=max(score, 1.0 - score),
-        probabilities={"broken": score, "straight": 1.0 - score},
-        feature_set="combined",
-        model_id="model.joblib",
-    )
-
-
-def _cli_output_text(output: str) -> str:
-    text = output[3:] if output.startswith("b''") else output
-    if not text.startswith("b'"):
-        return text
-    raw = ast.literal_eval(text)
-    if isinstance(raw, bytes):
-        return raw.decode("utf-8")
-    raise AssertionError("Expected CLI output bytes literal")
-
-
-def _classifier_info(tmp_path: Path, classifier_key: str, *, model_id: str | None = None) -> dict[str, object]:
-    model_path = tmp_path / "models" / "classifiers" / classifier_key.replace("_", "-") / "model.joblib"
-    model_path.parent.mkdir(parents=True, exist_ok=True)
-    model_path.write_bytes(b"model")
-    metadata_path = model_path.with_name("model.json")
-    _write_manifest(metadata_path, classifier_key=classifier_key, model_id=model_id)
     return {
         "classifier_key": classifier_key,
         "model_path": str(model_path),
         "metadata_path": str(metadata_path),
-        "is_scoring_compatible": True,
     }
 
 
-def _write_model(path: Path) -> Path:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(
-        {
-            "model": FixedProbabilityModel(),
-            "feature_set": "combined",
-            "feature_names": ["sonara:bpm", "mert:0", "maest:0"],
-            "label_order": ["broken", "straight"],
-            "classifier_key": "break_energy",
-            "positive_label": "broken",
-            "sonara_analysis_signature": expected_sonara_analysis_signature([]),
-        },
-        path,
-    )
-    return path
-
-
-def _write_manifest(
-    path: Path,
-    *,
+def _score_detail(
     classifier_key: str,
-    positive_label: str = "broken",
+    *,
+    score: float,
     model_id: str | None = None,
-    hybrid_signal: dict[str, object] | None = None,
-    feature_set: str = "combined",
-    feature_count: int = 3,
-    required_inputs: list[str] | None = None,
-) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(
-            {
-                "classifier_key": classifier_key,
-                "manifest_version": 2,
-                "profile_name": classifier_key.replace("_", " ").title(),
-                "profile_type": "binary",
-                "feature_set": feature_set,
-                "feature_count": feature_count,
-                "label_order": ["broken", "straight"],
-                "positive_label": positive_label,
-                "negative_label": "straight",
-                **({"model_id": model_id} if model_id is not None else {}),
-                **({"hybrid_signal": hybrid_signal} if hybrid_signal is not None else {}),
-                "trained_label_counts": {"broken": 10, "straight": 10},
-                "production": {
-                    "score_semantics": "positive_label_probability",
-                    "required_inputs": required_inputs or ["sonara", "mert", "maest"],
-                    "calibration": {"status": "uncalibrated", "method": None, "report": None},
-                    **(
-                        {"sonara_analysis_signature": expected_sonara_analysis_signature([])}
-                        if feature_set_uses_sonara(feature_set)
-                        else {}
-                    ),
-                },
-            }
+    feature_manifest_hash: str | None = None,
+    required_outputs_hash: str | None = None,
+) -> ClassifierScoreDetail:
+    probabilities = {
+        "negative": 1.0 - score,
+        "positive": score,
+    }
+    predicted = "positive" if score > 0.5 else "negative"
+    return ClassifierScoreDetail(
+        classifier_key=classifier_key,
+        score=score,
+        predicted_class=predicted,
+        score_bucket=("high" if score >= 0.7 else "medium" if score >= 0.3 else "low"),
+        confidence=max(probabilities.values()),
+        probabilities=probabilities,
+        feature_set="mert-contract",
+        feature_manifest_hash=(
+            feature_manifest_hash or classifier_feature_manifest_hash(("mert:0",))
         ),
-        encoding="utf-8",
+        required_outputs_hash=(
+            required_outputs_hash or classifier_required_outputs_hash((_mert_output(),))
+        ),
+        model_id=model_id or f"{classifier_key}-model",
+        uses_sonara=False,
+        sonara_release_hash=None,
+        positive_label="positive",
+        analyzed_at=_NOW,
+    )
+
+
+def _track(
+    track_id: int,
+    *scores: ClassifierScoreDetail,
+) -> tuple[TrackSummary, TrackDetail]:
+    summaries = tuple(
+        ClassifierScoreSummary(
+            classifier_key=score.classifier_key,
+            score=score.score,
+            predicted_class=score.predicted_class,
+            score_bucket=score.score_bucket,
+            confidence=score.confidence,
+        )
+        for score in scores
+    )
+    summary = TrackSummary(
+        track_id=track_id,
+        catalog_uuid="catalog-v7",
+        track_uuid=f"track-{track_id}",
+        content_generation=1,
+        file_path=f"C:/music/{track_id}.wav",
+        title=f"Track {track_id}",
+        artist="Artist",
+        album="Album",
+        tag_bpm=128.0,
+        tag_key="8A",
+        audio_duration_seconds=300.0,
+        liked=False,
+        analysis_coverage=AnalysisCoverage(),
+        classifier_scores=summaries,
+    )
+    detail = TrackDetail(
+        **summary.__dict__,
+        file=FileTechnical(
+            file_size_bytes=1024,
+            file_modified_ns=123456789,
+            audio_format="wav",
+            audio_codec="pcm_s16le",
+            sample_rate_hz=44_100,
+            channel_count=2,
+            bit_rate_bps=1_411_200,
+            audio_duration_seconds=300.0,
+            last_scanned_at=_NOW,
+            missing_since=None,
+        ),
+        file_tags=None,
+        sonara_core=None,
+        maest=None,
+        embeddings=(),
+        classifier_scores_detail=tuple(scores),
+        optional_outputs=OptionalOutputs(
+            timeline_fields=(),
+            sonara_embedding_available=False,
+            audio_fingerprint_available=False,
+        ),
+    )
+    return summary, detail
+
+
+class _PublicClassifierReader:
+    """Classifier production reader with no SQLite/direct-SQL surface."""
+
+    def __init__(
+        self,
+        tracks: list[tuple[TrackSummary, TrackDetail]],
+    ) -> None:
+        self._summaries = [summary for summary, _detail in tracks]
+        self._details = {detail.track_id: detail for _summary, detail in tracks}
+
+    def list_track_summaries(self) -> list[TrackSummary]:
+        return list(self._summaries)
+
+    def get_track_detail(self, track_id: int) -> TrackDetail:
+        return self._details[track_id]
+
+    def list_liked_track_ids(self) -> list[int]:
+        return []
+
+    def get_pair_feedback_map(
+        self,
+    ) -> dict[tuple[int, int, str], dict[str, object]]:
+        return {}
+
+    def count_evaluation_rows(self) -> dict[str, int]:
+        return {"transition_feedback": 0}
+
+
+def test_promoted_classifiers_expose_only_v7_contract_manifest_fields(
+    tmp_path: Path,
+) -> None:
+    output = _mert_output()
+    _write_promoted(tmp_path, "valid_classifier", output)
+    v1_payload = {"manifest_version": 1}
+    _write_promoted(
+        tmp_path,
+        "old_classifier",
+        output,
+        payload=v1_payload,
+    )
+
+    by_key = {item["classifier_key"]: item for item in promoted_classifiers(tmp_path)}
+
+    valid = by_key["valid_classifier"]
+    assert valid["manifest_status"] == "valid"
+    assert valid["required_inputs"] == ["mert"]
+    assert valid["required_outputs"] == [
+        {
+            "contract_hash": output.contract_hash,
+            "canonical_payload": output.contract.canonical_payload,
+        }
+    ]
+    assert "sonara_analysis_signature" not in valid
+    assert "embedding_key" not in valid
+
+    unsupported = by_key["old_classifier"]
+    assert unsupported["manifest_status"] == "unsupported"
+    assert not unsupported["is_scoring_compatible"]
+    assert "no longer supported" in unsupported["manifest_errors"][0]
+
+
+def test_hybrid_signal_is_manifest_only_without_legacy_fallback(
+    tmp_path: Path,
+) -> None:
+    output = _mert_output()
+    _write_promoted(
+        tmp_path,
+        "manifest_signal",
+        output,
+        payload=_manifest_payload(
+            "manifest_signal",
+            output,
+            hybrid_signal={
+                "role": "preference_boost",
+                "axis": "groove",
+                "label": "Boost groove",
+                "missing_score_policy": "neutral",
+            },
+        ),
+    )
+    _write_promoted(tmp_path, "break_energy", output)
+
+    by_key = {item["classifier_key"]: item for item in promoted_classifiers(tmp_path)}
+
+    assert by_key["manifest_signal"]["hybrid_signal"] == {
+        "role": "preference_boost",
+        "axis": "groove",
+        "label": "Boost groove",
+        "missing_score_policy": "neutral",
+    }
+    assert by_key["manifest_signal"]["hybrid_signal_source"] == "manifest"
+    assert by_key["break_energy"]["hybrid_signal"] is None
+    assert by_key["break_energy"]["hybrid_signal_source"] is None
+    assert all("legacy_hybrid_signal" not in item for item in by_key.values())
+
+
+def test_reports_use_public_v7_readers_and_scope_by_classifier_key(
+    tmp_path: Path,
+) -> None:
+    output = _mert_output()
+    first_info = _write_promoted(tmp_path, "classifier_one", output)
+    second_info = _write_promoted(tmp_path, "classifier_two", output)
+    first = _score_detail("classifier_one", score=0.52)
+    second_on_first = _score_detail("classifier_two", score=0.91)
+    second_on_second = _score_detail("classifier_two", score=0.12)
+    reader = _PublicClassifierReader(
+        [
+            _track(1, first, second_on_first),
+            _track(2, second_on_second),
+        ]
+    )
+
+    report = build_classifier_calibration_report(
+        reader,
+        "classifier_one",
+        classifier_info=first_info,
+        min_feedback=1,
+    )
+    suggestions = suggest_classifier_labels(
+        reader,
+        "classifier_one",
+        classifier_info=first_info,
+        limit=10,
+    )
+
+    assert report["coverage"]["tracks_total"] == 2
+    assert report["coverage"]["tracks_scored"] == 1
+    assert report["coverage"]["fresh_scores"] == 1
+    assert report["coverage"]["stale_scores"] == 0
+    assert report["score_distribution"]["count"] == 1
+    assert suggestions["status"] == "ok"
+    assert [row["track"]["id"] for row in suggestions["suggestions"]] == [1]
+
+    second_report = build_classifier_calibration_report(
+        reader,
+        "classifier_two",
+        classifier_info=second_info,
+        min_feedback=1,
+    )
+    assert second_report["coverage"]["tracks_scored"] == 2
+
+
+def test_report_freshness_uses_full_persisted_classifier_identity(
+    tmp_path: Path,
+) -> None:
+    output = _mert_output()
+    info = _write_promoted(tmp_path, "test_classifier", output)
+    stale_hash = _score_detail(
+        "test_classifier",
+        score=0.8,
+        feature_manifest_hash="sha256:" + "f" * 64,
+    )
+    stale_model = _score_detail(
+        "test_classifier",
+        score=0.2,
+        model_id="old-model",
+    )
+    stale_outputs = _score_detail(
+        "test_classifier",
+        score=0.6,
+        required_outputs_hash="sha256:" + "e" * 64,
+    )
+    reader = _PublicClassifierReader(
+        [
+            _track(1, stale_hash),
+            _track(2, stale_model),
+            _track(3, stale_outputs),
+        ]
+    )
+
+    report = build_classifier_calibration_report(
+        reader,
+        "test_classifier",
+        classifier_info=info,
+        min_feedback=1,
+    )
+    suggestions = suggest_classifier_labels(
+        reader,
+        "test_classifier",
+        classifier_info=info,
+    )
+
+    assert report["status"] == "stale"
+    assert report["coverage"]["fresh_scores"] == 0
+    assert report["coverage"]["stale_scores"] == 3
+    assert report["coverage"]["stale_model_ids"] == {"old-model": 1}
+    assert report["coverage"]["stale_identity_fields"] == {
+        "feature_manifest_hash": 1,
+        "model_id": 1,
+        "required_outputs_hash": 1,
+    }
+    assert suggestions["status"] == "insufficient_data"
+    assert suggestions["suggestions"] == []
+    assert any(
+        "current full classifier identity" in warning
+        for warning in suggestions["warnings"]
     )

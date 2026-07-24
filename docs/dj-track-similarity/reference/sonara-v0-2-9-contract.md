@@ -10,79 +10,84 @@
 | --- | --- |
 | SONARA package | `0.2.9` |
 | Upstream result schema | `4` |
-| Project feature revision | `5` |
+| Project feature revision | `6` |
 | Mode | `playlist` |
 | Decoder backend | `sonara-symphonia` |
 | Execution path | `analyze_batch` |
 | Requested sample rate | `22050 Hz` |
+| Analysis hop | `512` samples |
 | BPM range | `70..180` |
-| Core vocalness model | bundled `sonara-vocalness-v2` |
+| Core vocalness model | bundled `sonara-vocalness-v2` selector |
 
 The SONARA job passes ordered path chunks directly to `sonara.analyze_batch()`. SONARA's Symphonia
 path owns file decoding. The production job does not call the project's FFmpeg loader,
 `DecodedAudio`, `analyze_signal`, or `analyze_file`, and it has no fallback to those paths. ML,
-preview, and other non-SONARA functions retain their existing FFmpeg dependency.
+preview, and other non-SONARA functions retain their FFmpeg dependency.
 
-## Independent outputs
+## Four independent outputs
 
-- **Core** requests the complete lightweight feature profile and stores scalar or compact fixed-vector
-  results in the main database. Contrast, MFCC, and Chroma retain all 7, 13, and 12 components.
-  The Full-only `time_signature` metrogram is excluded: it is not a production ranking or classifier
-  input, and Beatgrid uses SONARA's 4/4 fallback rather than a zero-confidence meter estimate.
-- **Timeline** stores complete beats, onsets, chord sequence/events, tempo and energy curves,
-  downbeats, structure segments, and loudness curve in `*.timeline.sqlite`.
-- **Representations** stores the SONARA 48-dimensional embedding and fingerprint in
-  `*.representations.sqlite`.
+| Output kind | Contents | Storage |
+| --- | --- | --- |
+| `core` | scalar and compact fixed-vector features, including full Contrast, MFCC, and Chroma vectors | Core `sonara` |
+| `timeline` | complete beats, onsets, chord sequence/events, tempo, energy, and loudness curves, downbeats, and structure segments | Artifacts `sonara_timeline` |
+| `embedding` | 48-dimensional float32 little-endian vector, version `2`, no normalization | Artifacts `sonara_similarity_embeddings` |
+| `fingerprint` | version `1` uint32 little-endian fingerprint | Artifacts `sonara_fingerprints` |
 
-Selecting multiple outputs still performs one SONARA call. Persistence splits the returned object;
-it does not duplicate the decode or Rust analysis.
+`core` is always included. Selecting several output kinds performs one SONARA call; persistence
+splits the returned object into contract-owned tables without repeating decode or Rust analysis.
 
-## Signature
+The Full-only `time_signature` metrogram is excluded from `core`. It is not a production ranking or
+classifier input, and Beatgrid uses SONARA's normal 4/4 fallback rather than an untrusted meter
+estimate.
 
-Every output signature hashes these fields:
+## Contract and release identity
 
-```json
-{
-  "sonara_version": "0.2.9",
-  "schema_version": 4,
-  "mode": "playlist",
-  "sample_rate": 22050,
-  "bpm_range": [70, 180],
-  "requested_features": ["output-specific", "sorted", "feature", "names"],
-  "project_feature_revision": 5,
-  "decoder_backend": "sonara-symphonia",
-  "execution_path": "analyze_batch",
-  "signature_id": "sha256:..."
-}
+All four `ContractIdentity` values are derived from the loaded package. Callers cannot supply a
+release hash. Common parameters include:
+
+- package version and build identity;
+- schema, mode, sample rate, hop size, and BPM bounds;
+- project feature revision `6`;
+- decoder and execution path;
+- unit-interval clamp policy and affected fields;
+- selected vocalness model identity;
+- the sorted, output-specific requested feature set.
+
+Embedding and fingerprint contracts also include their encoding and version details. Canonical
+contract JSON is hashed into a `contract_hash`; the complete runtime identity produces one
+`release_hash` shared by all four output contracts. Analyzer provenance is validated during
+ingestion, but the runtime does not promise to preserve the raw provenance payload for round-trip
+display.
+
+## Storage boundary
+
+A fresh catalog is schema-v7 Core plus mandatory Artifacts, bound by one `catalog_uuid`. Evaluation
+is an optional third database created only by evaluation workflows. Missing, mismatched, or
+cross-catalog sidecars fail closed.
+
+Normal track reads expose v7 analysis coverage and compact summaries. The explicit timeline route
+loads only the current signed `timeline` row. The React frontend has not yet been ported to these v7
+responses, so this contract does not claim that the current browser UI can display them.
+
+## Release preparation
+
+Run this before analysis under a new or unprepared SONARA runtime:
+
+```powershell
+dj-sim prepare-sonara-release --db .\data\library.sqlite --backup-dir .\backup --confirm "PREPARE SONARA RELEASE"
 ```
 
-Core keeps the signature in `tracks.metadata_json`. Timeline stores both signature JSON and digest
-with its row. The SONARA embedding and fingerprint each store the Representations digest. Scheduling
-requires all selected rows to match their expected digest.
+The command derives exactly `core`, `timeline`, `embedding`, and `fingerprint`; verifies a Core plus
+Artifacts backup pair; and advances an ordered, receipt-backed activation. An interrupted operation
+can resume, while mismatched receipt, backup, catalog, or runtime identity is rejected. Prior SONARA
+rows and SONARA-dependent classifier scores are removed before the new contracts become active.
 
-## Storage and UI boundary
-
-The three files share `storage.catalog_id`; mixing side databases from different catalogs is an
-error. Normal track reads expose `timeline_fields` and `representation_fields` only. The metadata
-dialog displays full Core values, then a presence marker and exact field names for Timeline and
-Representations. It never loads their payload values.
-
-## Compatibility policy
-
-Schema v6 does not preserve old SONARA analysis results. Its v5 migration retains catalog metadata,
-MAEST metadata, MAEST/MERT/MuQ/CLAP embeddings, likes, feedback, evaluation rows, and classifier
-scores that do not depend on SONARA. It clears old SONARA features and curves and invalidates only
-SONARA-dependent classifier scores. Schema v4 and older databases are rejected. Reanalyze SONARA
-tracks with the current contract.
-
-Project feature revision `5` invalidates every earlier project decode or feature contract. Before the first
-native job, any old Core, Timeline, or Representations signature is a blocker. The application never
-adapts, mixes, or automatically deletes old results. Back up the catalog before the explicit SONARA
-reset, then reanalyze. Reset also removes SONARA-dependent classifier scores while preserving
-labels, feedback, and ML-only results.
+This is not schema migration. The runtime accepts only clean v7 bundles, and the removed
+`migrate-v7` and `migrate-schema-v7` commands are unavailable.
 
 ## Scoring boundary
 
-Current search, SET, Hybrid, and classifiers use signed Core features only. Timeline and SONARA
-Representations are retained for future functions. MERT and CLAP remain the active similarity/search
-embeddings.
+Current search, SET, Hybrid, and classifiers use signed `core` features. The `timeline`, SONARA
+embedding, and fingerprint remain stored evidence for narrower or future workflows. MERT and CLAP
+remain active similarity/search embeddings. Every result is a ranking or diagnostic signal, not an
+automatic DJ decision.

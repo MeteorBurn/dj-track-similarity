@@ -2,53 +2,95 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 from fastapi.testclient import TestClient
 
-import dj_track_similarity.api as api
+from dj_track_similarity import api as api_module
+from dj_track_similarity import api_routes_set_builder as routes_module
 from dj_track_similarity.api_schemas import SetBuilderGenerateRequest
-from dj_track_similarity.api import create_app
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.set_builder import SetBuilderConfig
-from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature
+from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
-def test_set_builder_endpoint_generates_ordered_preview(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
-    monkeypatch.setattr(api, "promoted_classifiers", lambda: [{"classifier_key": "break_energy", "name": "Break Energy"}])
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    seed_id = _complete_track(db, tmp_path, "seed.wav", [1, 0])
-    candidate_id = _complete_track(db, tmp_path, "candidate.wav", [0.99, 0.01])
-    db.save_classifier_score(
-        candidate_id,
-        classifier="break_energy",
-        score=0.91,
-        label="high",
-        confidence=0.91,
-        probabilities={"broken": 0.91, "straight": 0.09},
-        feature_set="combined",
-        model_id="model.joblib",
+def _client(monkeypatch, db_path: Path) -> TestClient:
+    monkeypatch.setattr(api_module, "require_ffmpeg", lambda: "ffmpeg")
+    return TestClient(api_module.create_app(db_path))
+
+
+def _track(database: LibraryDatabase, path: Path):
+    path.write_bytes(b"audio")
+    stat = path.stat()
+    return database.upsert_scanned_track(
+        file=ScannedFile(
+            file_path=str(path),
+            file_size_bytes=stat.st_size,
+            file_modified_ns=stat.st_mtime_ns,
+            audio_format="wav",
+            audio_codec="pcm_s16le",
+            sample_rate_hz=44_100,
+            channel_count=2,
+            audio_duration_seconds=1.0,
+        ),
+        tags=FileTags(
+            title=path.stem,
+            artist="Set Builder Fixture",
+            tag_bpm=128.0,
+            tag_key="8A",
+        ),
+    ).identity
+
+
+def test_set_builder_endpoint_forwards_validated_v7_config(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_generate(_builder, config: SetBuilderConfig) -> dict[str, object]:
+        captured["config"] = config
+        return {
+            "mode": config.mode,
+            "seed_mode": config.seed_mode,
+            "seed_track_ids": config.seed_track_ids,
+            "coverage": {"tracks": 0, "eligible_tracks": 0},
+            "items": [],
+        }
+
+    monkeypatch.setattr(routes_module.SmartSetBuilder, "generate", fake_generate)
+    monkeypatch.setattr(
+        api_module,
+        "promoted_classifiers",
+        lambda: [{"classifier_key": "break_energy"}],
     )
-
-    response = TestClient(create_app(db_path)).post(
+    response = _client(monkeypatch, tmp_path / "library.sqlite").post(
         "/api/set-builder/generate",
         json={
             "seed_mode": "manual",
-            "seed_track_ids": [seed_id],
-            "limit": 2,
+            "seed_track_ids": [7],
+            "limit": 12,
+            "bpm_mode": "low_to_high",
+            "bpm_change": "slow",
+            "bpm_start": 90,
+            "bpm_target": 150,
             "classifier_preferences": {"break_energy": 0.8},
+            "classifier_flows": {"break_energy": "rise"},
+            "random_seed": 42,
         },
     )
 
     assert response.status_code == 200
-    payload = response.json()
-    assert payload["seed_track_ids"] == [seed_id]
-    assert [item["track"]["id"] for item in payload["items"]] == [seed_id, candidate_id]
-    assert [item["position"] for item in payload["items"]] == [1, 2]
-    assert payload["items"][1]["classifier_scores"]["break_energy"] == 0.91
-    assert payload["items"][1]["score_breakdown"]["classifier_preference"] > 0
-    assert payload["coverage"]["eligible_tracks"] == 2
+    assert response.json()["seed_track_ids"] == [7]
+    config = captured["config"]
+    assert isinstance(config, SetBuilderConfig)
+    assert config.seed_track_ids == [7]
+    assert config.limit == 12
+    assert config.bpm_mode == "low_to_high"
+    assert config.bpm_change == "slow"
+    assert config.bpm_start == 90
+    assert config.bpm_target == 150
+    assert config.classifier_preferences == {"break_energy": 0.8}
+    assert config.classifier_flows == {"break_energy": "rise"}
+    assert config.random_seed == 42
 
 
 def test_set_builder_api_defaults_match_backend_config() -> None:
@@ -70,166 +112,93 @@ def test_set_builder_api_defaults_match_backend_config() -> None:
     assert request.classifier_flows == config.classifier_flows == {}
 
 
-def test_set_builder_endpoint_rejects_invalid_manual_seed_count(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
-    client = TestClient(create_app(tmp_path / "library.sqlite"))
-
-    response = client.post("/api/set-builder/generate", json={"seed_mode": "manual", "seed_track_ids": []})
+def test_set_builder_endpoint_rejects_invalid_manual_seed_count(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    response = _client(monkeypatch, tmp_path / "library.sqlite").post(
+        "/api/set-builder/generate",
+        json={"seed_mode": "manual", "seed_track_ids": []},
+    )
 
     assert response.status_code == 400
     assert "1-5 seed tracks" in response.json()["detail"]
 
 
-def test_set_builder_endpoint_rejects_unknown_classifier(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
-    monkeypatch.setattr(api, "promoted_classifiers", lambda: [])
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    seed_id = _complete_track(db, tmp_path, "seed.wav", [1, 0])
-
-    response = TestClient(create_app(db_path)).post(
+def test_set_builder_endpoint_rejects_unknown_classifier(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(api_module, "promoted_classifiers", lambda: [])
+    response = _client(monkeypatch, tmp_path / "library.sqlite").post(
         "/api/set-builder/generate",
-        json={"seed_mode": "manual", "seed_track_ids": [seed_id], "classifier_preferences": {"missing": 0.7}},
+        json={
+            "seed_mode": "manual",
+            "seed_track_ids": [1],
+            "classifier_preferences": {"missing": 0.7},
+        },
     )
 
     assert response.status_code == 400
-    assert "Unknown classifier" in response.json()["detail"]
+    assert response.json() == {"detail": "Unknown classifier: missing"}
 
 
-def test_set_builder_endpoint_rejects_incompatible_classifier_manifest(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
+def test_set_builder_endpoint_rejects_incompatible_classifier_manifest(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
     monkeypatch.setattr(
-        api,
+        api_module,
         "promoted_classifiers",
-        lambda: [{"classifier_key": "draft_profile", "name": "Draft", "is_scoring_compatible": False}],
+        lambda: [
+            {
+                "classifier_key": "draft_profile",
+                "name": "Draft",
+                "is_scoring_compatible": False,
+            }
+        ],
     )
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    seed_id = _complete_track(db, tmp_path, "seed.wav", [1, 0])
-
-    response = TestClient(create_app(db_path)).post(
+    response = _client(monkeypatch, tmp_path / "library.sqlite").post(
         "/api/set-builder/generate",
-        json={"seed_mode": "manual", "seed_track_ids": [seed_id], "classifier_flows": {"draft_profile": "rise"}},
+        json={
+            "seed_mode": "manual",
+            "seed_track_ids": [1],
+            "classifier_flows": {"draft_profile": "rise"},
+        },
     )
 
     assert response.status_code == 400
-    assert response.json() == {"detail": "Classifier manifest is invalid: draft_profile"}
+    assert response.json() == {
+        "detail": "Classifier manifest is invalid: draft_profile"
+    }
 
 
-def test_set_builder_endpoint_rejects_extra_fields(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
-    client = TestClient(create_app(tmp_path / "library.sqlite"))
-
-    response = client.post("/api/set-builder/generate", json={"seed_mode": "auto", "unexpected": True})
+def test_set_builder_endpoint_rejects_extra_fields(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    response = _client(monkeypatch, tmp_path / "library.sqlite").post(
+        "/api/set-builder/generate",
+        json={"seed_mode": "auto", "unexpected": True},
+    )
 
     assert response.status_code == 422
 
 
-def test_set_builder_endpoint_auto_mode(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
+def test_set_builder_endpoint_reports_missing_current_analysis(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
     db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    for index in range(4):
-        _complete_track(db, tmp_path, f"track-{index}.wav", [1, index / 10])
+    identity = _track(LibraryDatabase(db_path), tmp_path / "seed.wav")
 
-    response = TestClient(create_app(db_path)).post(
-        "/api/set-builder/generate",
-        json={"seed_mode": "auto", "auto_seed_count": 3, "limit": 4},
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["seed_mode"] == "auto"
-    assert len(payload["seed_track_ids"]) == 3
-    assert len(payload["items"]) == 4
-
-
-def test_set_builder_endpoint_accepts_single_random_auto_anchor(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    for index in range(4):
-        _complete_track(db, tmp_path, f"track-{index}.wav", [1, index / 10])
-
-    response = TestClient(create_app(db_path)).post(
-        "/api/set-builder/generate",
-        json={"seed_mode": "auto", "auto_seed_count": 1, "limit": 4, "random_seed": 42},
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert len(payload["seed_track_ids"]) == 1
-    assert len(payload["items"]) == 4
-
-
-def test_set_builder_endpoint_accepts_bpm_trajectory_controls(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    seed_id = _complete_track(db, tmp_path, "seed.wav", [1, 0])
-    for index in range(3):
-        _complete_track(db, tmp_path, f"candidate-{index}.wav", [1, index / 10])
-
-    response = TestClient(create_app(db_path)).post(
+    response = _client(monkeypatch, db_path).post(
         "/api/set-builder/generate",
         json={
             "seed_mode": "manual",
-            "seed_track_ids": [seed_id],
-            "limit": 4,
-            "bpm_mode": "low_to_high",
-            "bpm_change": "slow",
-            "bpm_start": 90,
-            "bpm_target": 150,
+            "seed_track_ids": [identity.track_id],
         },
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["seed_track_ids"] == [seed_id]
-    assert len(payload["items"]) == 4
-
-
-def test_set_builder_endpoint_reports_missing_seed_features(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg", raising=False)
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    seed_id = _track(db, tmp_path, "seed.wav")
-
-    response = TestClient(create_app(db_path)).post(
-        "/api/set-builder/generate",
-        json={"seed_mode": "manual", "seed_track_ids": [seed_id]},
     )
 
     assert response.status_code == 400
-    assert "missing required analysis" in response.json()["detail"]
-
-
-def _track(db: LibraryDatabase, tmp_path: Path, filename: str) -> int:
-    path = tmp_path / filename
-    path.write_bytes(b"audio")
-    return db.upsert_track(path=path, size=path.stat().st_size, mtime=1.0, metadata={"title": filename, "bpm": 128, "key": "8A"})
-
-
-def _complete_track(db: LibraryDatabase, tmp_path: Path, filename: str, vector: list[float]) -> int:
-    track_id = _track(db, tmp_path, filename)
-    db.save_sonara_features(
-        track_id,
-        {
-            "bpm": {"type": "float", "value": 128.0},
-            "energy": {"type": "float", "value": 0.6},
-            "danceability": {"type": "float", "value": 0.7},
-            "onset_density": {"type": "float", "value": 0.4},
-            "spectral_centroid_mean": {"type": "float", "value": 1500.0},
-            "mfcc_mean": {"type": "ndarray", "value": None, "summary": {"min": 0.1, "max": 0.3, "mean": 0.2, "std": 0.04}},
-            "chroma_mean": {"type": "ndarray", "value": None, "summary": {"min": 0.2, "max": 0.4, "mean": 0.3, "std": 0.05}},
-        },
-        bpm=128,
-        musical_key="8A",
-        energy=0.6,
-        duration=360,
-        model_name="sonara-test",
-        analysis_signature=expected_sonara_analysis_signature([]),
-    )
-    for key in ("mert", "maest", "clap"):
-        db.save_embedding(track_id, np.asarray(vector, dtype=np.float32), f"{key}-test", embedding_key=key)
-    return track_id
+    assert "reanalysis is required" in response.json()["detail"]

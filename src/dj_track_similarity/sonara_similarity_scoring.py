@@ -1,95 +1,100 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+import math
+
 import numpy as np
 
-from .models import Track
-from .sonara_contract import current_sonara_features
-from .tempo_resolution import confidence_aware_tempo_score, measured_tempo_score, resolve_tempo_evidence
+from .analysis_models import AnalysisTarget
+from .tempo_resolution import (
+    confidence_aware_tempo_score,
+    measured_tempo_score,
+    resolve_tempo_evidence_v7,
+)
 from .track_resolution import attenuate_harmonic_score, camelot_compatibility
 
 
 @dataclass(frozen=True)
 class ComparableTrack:
-    track: Track
-    features: dict[str, object]
+    target: AnalysisTarget
+    features: Mapping[str, object]
 
 
 VIBE_WEIGHTS = {
-    "energy": 3.0,
-    "danceability": 3.0,
-    "valence": 1.4,
-    "acousticness": 1.0,
-    "loudness_lufs": 0.8,
+    "energy_score": 3.0,
+    "danceability_score": 3.0,
+    "valence_score": 1.4,
+    "acousticness_score": 1.0,
+    "integrated_loudness_lufs": 0.8,
     "dynamic_range_db": 0.8,
-    "onset_density": 0.8,
+    "onset_density_per_second": 0.8,
     "rms_mean": 0.6,
 }
 SOUND_WEIGHTS = {
-    "mfcc_mean": 1.8,
-    "spectral_centroid_mean": 1.0,
-    "spectral_bandwidth_mean": 1.0,
-    "spectral_rolloff_mean": 1.0,
-    "spectral_flatness_mean": 0.9,
-    "spectral_contrast_mean": 0.9,
+    "mfcc_mean_blob": 1.8,
+    "spectral_centroid_hz": 1.0,
+    "spectral_bandwidth_hz": 1.0,
+    "spectral_rolloff_hz": 1.0,
+    "spectral_flatness": 0.9,
+    "spectral_contrast_mean_blob": 0.9,
     "zero_crossing_rate": 0.8,
     "rms_mean": 0.8,
     "rms_max": 0.5,
 }
 DJ_NUMERIC_WEIGHTS = {
-    "bpm": 3.0,
-    "onset_density": 2.0,
-    "energy": 1.3,
-    "danceability": 1.3,
-    "chord_change_rate": 1.0,
-    "dissonance": 1.0,
+    "detected_bpm": 3.0,
+    "onset_density_per_second": 2.0,
+    "energy_score": 1.3,
+    "danceability_score": 1.3,
+    "chord_changes_per_second": 1.0,
+    "dissonance_score": 1.0,
 }
 TONAL_TEXT_WEIGHTS = {
-    "key": 4.0,
-    "key_camelot": 3.0,
+    "detected_key_name": 4.0,
+    "detected_key_camelot": 3.0,
     "predominant_chord": 3.0,
 }
 BALANCED_WEIGHTS = {
     **{key: weight * 0.9 for key, weight in VIBE_WEIGHTS.items()},
     **{key: weight * 0.7 for key, weight in SOUND_WEIGHTS.items()},
-    "bpm": 1.0,
-    "chord_change_rate": 0.7,
-    "dissonance": 0.7,
+    "detected_bpm": 1.0,
+    "chord_changes_per_second": 0.7,
+    "dissonance_score": 0.7,
 }
 CUSTOM_GROUP_WEIGHTS = {
     "timbre": {
-        "mfcc_mean": 1.7,
-        "spectral_centroid_mean": 1.0,
-        "spectral_bandwidth_mean": 0.9,
-        "spectral_rolloff_mean": 0.9,
-        "spectral_flatness_mean": 0.9,
-        "spectral_contrast_mean": 0.8,
+        "mfcc_mean_blob": 1.7,
+        "spectral_centroid_hz": 1.0,
+        "spectral_bandwidth_hz": 0.9,
+        "spectral_rolloff_hz": 0.9,
+        "spectral_flatness": 0.9,
+        "spectral_contrast_mean_blob": 0.8,
     },
     "rhythm": {
-        "onset_density": 1.4,
+        "onset_density_per_second": 1.4,
         "zero_crossing_rate": 0.9,
-        "danceability": 0.9,
-        "chord_change_rate": 0.4,
+        "danceability_score": 0.9,
+        "chord_changes_per_second": 0.4,
     },
     "dynamics": {
-        "energy": 1.2,
+        "energy_score": 1.2,
         "energy_level": 0.7,
         "rms_mean": 1.0,
         "rms_max": 0.7,
-        "loudness_lufs": 0.9,
-        "loudness_momentary_max_db": 0.8,
+        "integrated_loudness_lufs": 0.9,
+        "max_momentary_loudness_lufs": 0.8,
         "loudness_range_lu": 0.8,
         "dynamic_range_db": 0.8,
     },
     "harmonic": {
-        "chroma_mean": 1.2,
-        "dissonance": 0.9,
-        "chord_change_rate": 0.8,
+        "chroma_mean_blob": 1.2,
+        "dissonance_score": 0.9,
+        "chord_changes_per_second": 0.8,
     },
     "tempo": {
-        "bpm": 1.0,
+        "detected_bpm": 1.0,
     },
 }
 DEFAULT_CUSTOM_MIXER_WEIGHTS = {
@@ -100,37 +105,83 @@ DEFAULT_CUSTOM_MIXER_WEIGHTS = {
     "tempo": 0.35,
 }
 CUSTOM_MODIFIER_FIELDS = {
-    "energy": "energy",
-    "valence": "valence",
-    "acousticness": "acousticness",
-    "brightness": "spectral_centroid_mean",
-    "rhythm_density": "onset_density",
+    "energy": "energy_score",
+    "valence": "valence_score",
+    "acousticness": "acousticness_score",
+    "brightness": "spectral_centroid_hz",
+    "rhythm_density": "onset_density_per_second",
     "dynamic_range": "dynamic_range_db",
-    "loudness": "loudness_lufs",
-    "vocalness": "vocalness",
+    "loudness": "integrated_loudness_lufs",
+    "vocalness": "vocal_probability",
 }
 # The custom Harmonic knob should reflect harmonic color (chroma, dissonance, chord movement), not
 # act as an exact-key gate. Standard modes weight exact key/chord text at 4.0/3.0; in the custom
 # harmonic group we keep tonal-text agreement as a lighter nudge so a matching key helps without
 # dominating the group.
 CUSTOM_HARMONIC_TONAL_WEIGHTS = {
-    "key": 0.9,
-    "key_camelot": 0.9,
+    "detected_key_name": 0.9,
+    "detected_key_camelot": 0.9,
     "predominant_chord": 0.6,
 }
 # A modifier is a deliberate directional push. Give it enough weight that a maxed knob is actually
 # felt in the final ranking instead of being averaged away by the mixer-group weights, while still
 # staying bounded so it cannot completely override sonic similarity.
 MODIFIER_GAIN = 2.5
-KEY_TONAL_FIELDS = {"key", "key_camelot"}
+KEY_TONAL_FIELDS = {"detected_key_name", "detected_key_camelot"}
 KEY_CONFIDENCE_CONTEXT = "_key_confidence"
 TonalContext = dict[str, set[str] | float]
+SONARA_SIMILARITY_EMBEDDING_DIM = 48
 
 
-def sonara_features(track: Track) -> dict[str, object] | None:
-    metadata = track.metadata or {}
-    features = current_sonara_features(metadata)
-    return features if isinstance(features, dict) else None
+def _scaled_weighted_euclidean_distance(
+    left: np.ndarray,
+    right: np.ndarray,
+    *,
+    scales: np.ndarray,
+    weights: np.ndarray,
+) -> float:
+    """Distance for the data-only SONARA 48-d representation.
+
+    The representation contract explicitly uses ``normalization='none'``.
+    Consequently, it must never be compared with cosine similarity. A caller
+    that eventually promotes this data-only output to a search surface must
+    supply versioned positive per-dimension scales and non-negative weights.
+    """
+
+    expected_shape = (SONARA_SIMILARITY_EMBEDDING_DIM,)
+    left_vector = np.asarray(left, dtype=np.float64).reshape(-1)
+    right_vector = np.asarray(right, dtype=np.float64).reshape(-1)
+    scale_vector = np.asarray(scales, dtype=np.float64).reshape(-1)
+    weight_vector = np.asarray(weights, dtype=np.float64).reshape(-1)
+    for field_name, vector in (
+        ("left", left_vector),
+        ("right", right_vector),
+        ("scales", scale_vector),
+        ("weights", weight_vector),
+    ):
+        if vector.shape != expected_shape:
+            raise ValueError(
+                f"SONARA {field_name} must have shape {expected_shape}"
+            )
+        if not bool(np.all(np.isfinite(vector))):
+            raise ValueError(
+                f"SONARA {field_name} contains non-finite values"
+            )
+    if bool(np.any(scale_vector <= 0.0)):
+        raise ValueError("SONARA per-dimension scales must be positive")
+    if bool(np.any(weight_vector < 0.0)):
+        raise ValueError("SONARA per-dimension weights must be non-negative")
+    total_weight = float(np.sum(weight_vector))
+    if not math.isfinite(total_weight) or total_weight <= 0.0:
+        raise ValueError(
+            "SONARA per-dimension weights must include a positive value"
+        )
+    scaled_delta = (left_vector - right_vector) / scale_vector
+    squared_distance = float(
+        np.dot(weight_vector, np.square(scaled_delta))
+        / total_weight
+    )
+    return math.sqrt(max(0.0, squared_distance))
 
 
 def numeric_weights_for_mode(mode: str) -> dict[str, float]:
@@ -189,7 +240,10 @@ def _robust_range(observed: list[float]) -> tuple[float, float]:
     return lower, upper
 
 
-def feature_values(features: dict[str, object], field: str) -> list[tuple[tuple[str, int | None], float]]:
+def feature_values(
+    features: Mapping[str, object],
+    field: str,
+) -> list[tuple[tuple[str, int | None], float]]:
     value = unwrap_feature_value(features.get(field))
     if isinstance(value, (list, tuple)):
         pairs: list[tuple[tuple[str, int | None], float]] = []
@@ -240,7 +294,7 @@ def score_candidate(
         raw_value = feature_value(item.features, field, index)
         if raw_value is None:
             continue
-        if field == "bpm":
+        if field == "detected_bpm":
             score = _tempo_similarity(item, tempo_context) if tempo_context else None
             if score is None:
                 score = tempo_score(raw_value, denormalize_feature(feature_centroid[key], ranges[key]))
@@ -358,7 +412,7 @@ def score_custom_group(
         raw_value = feature_value(item.features, field, index)
         if raw_value is None:
             continue
-        if field == "bpm":
+        if field == "detected_bpm":
             score = _tempo_similarity(item, tempo_context) if tempo_context else None
             if score is None:
                 score = tempo_score(raw_value, denormalize_feature(feature_centroid[key], ranges[key]))
@@ -489,7 +543,11 @@ def _tonal_similarity(
     return attenuate_harmonic_score(measured_score, candidate_confidence, context_confidence)
 
 
-def feature_value(features: dict[str, object], field: str, index: int | None) -> float | None:
+def feature_value(
+    features: Mapping[str, object],
+    field: str,
+    index: int | None,
+) -> float | None:
     value = unwrap_feature_value(features.get(field))
     if index is not None:
         if not isinstance(value, (list, tuple)) or index >= len(value):
@@ -514,9 +572,9 @@ def denormalize_feature(value: float, value_range: tuple[float, float]) -> float
 
 
 def optional_float(value: object) -> float | None:
-    if value is None or value == "":
+    if value is None or isinstance(value, bool):
         return None
-    if not isinstance(value, (str, bytes, int, float, np.integer, np.floating)):
+    if not isinstance(value, (int, float, np.integer, np.floating)):
         return None
     try:
         number = float(value)
@@ -529,15 +587,15 @@ def optional_float(value: object) -> float | None:
 
 def normalize_text(value: object) -> str | None:
     value = unwrap_feature_value(value)
-    if value is None:
+    if not isinstance(value, str):
         return None
-    text = str(value).strip().casefold()
+    text = value.strip().casefold()
     return text or None
 
 
 def unwrap_feature_value(value: object) -> object:
-    if isinstance(value, dict) and "value" in value:
-        return value.get("value")
+    """Return a typed v7 column value without legacy wrapper fallback."""
+
     return value
 
 
@@ -548,10 +606,13 @@ def tempo_score(candidate_bpm: float, centroid_bpm: float) -> float:
 def _tempo_similarity(item: ComparableTrack, context: list[ComparableTrack] | None) -> float | None:
     if not context:
         return None
-    candidate = resolve_tempo_evidence(item.track, sonara_features=item.features)
+    candidate = resolve_tempo_evidence_v7(dict(item.features), None)
     scores: list[float] = []
     for reference_item in context:
-        reference = resolve_tempo_evidence(reference_item.track, sonara_features=reference_item.features)
+        reference = resolve_tempo_evidence_v7(
+            dict(reference_item.features),
+            None,
+        )
         score = confidence_aware_tempo_score(candidate, reference)
         if score is not None:
             scores.append(score)

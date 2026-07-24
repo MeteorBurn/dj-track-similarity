@@ -8,10 +8,13 @@ import math
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ..models import Track
 from ..tempo_resolution import resolve_tempo_evidence
 from ..track_resolution import resolve_track_camelot, resolve_track_energy, resolve_track_key
-from ..transition_diagnostics import TRANSITION_RISK_V2, compute_transition_diagnostics
+from ..transition_diagnostics import (
+    TRANSITION_RISK_V2,
+    TransitionTrack,
+    compute_transition_diagnostics,
+)
 from .candidates import (
     ALLOWED_CANDIDATE_SOURCES,
     DEFAULT_FEEDBACK_SOURCE,
@@ -59,8 +62,8 @@ WEIGHTED_CANDIDATE_COLUMNS = (
 
 @dataclass(frozen=True)
 class WeightedCandidateRow:
-    seed_track: Track
-    candidate_track: Track
+    seed_track: TransitionTrack
+    candidate_track: TransitionTrack
     profile_rank: int
     profile_score: float
     adjusted_score: float
@@ -75,11 +78,11 @@ class WeightedCandidateRow:
 
     @property
     def seed_track_id(self) -> int:
-        return self.seed_track.id
+        return self.seed_track.identity.track_id
 
     @property
     def candidate_track_id(self) -> int:
-        return self.candidate_track.id
+        return self.candidate_track.identity.track_id
 
     @property
     def source_count(self) -> int:
@@ -94,7 +97,17 @@ class WeightedCandidateRow:
         return json.dumps(dict(sorted(self.score_profile_weights.items())), ensure_ascii=False, sort_keys=True)
 
     def csv_row(self) -> CsvRow:
-        candidate_key = resolve_track_camelot(self.candidate_track) or resolve_track_key(self.candidate_track)
+        seed = self.seed_track.summary
+        candidate = self.candidate_track.summary
+        candidate_key = resolve_track_camelot(
+            self.candidate_track.identity,
+            candidate,
+            self.candidate_track.sonara,
+        ) or resolve_track_key(
+            self.candidate_track.identity,
+            candidate,
+            self.candidate_track.sonara,
+        )
         return {
             "seed_track_id": self.seed_track_id,
             "candidate_track_id": self.candidate_track_id,
@@ -109,14 +122,26 @@ class WeightedCandidateRow:
             "reason_tags": "",
             "notes": "",
             "source": self.feedback_source,
-            "seed_artist": _optional_text(self.seed_track.artist),
-            "seed_title": _optional_text(self.seed_track.title),
-            "candidate_artist": _optional_text(self.candidate_track.artist),
-            "candidate_title": _optional_text(self.candidate_track.title),
-            "candidate_album": _optional_text(self.candidate_track.album),
-            "candidate_bpm": _optional_number(resolve_tempo_evidence(self.candidate_track).bpm),
+            "seed_artist": _optional_text(seed.artist),
+            "seed_title": _optional_text(seed.title),
+            "candidate_artist": _optional_text(candidate.artist),
+            "candidate_title": _optional_text(candidate.title),
+            "candidate_album": _optional_text(candidate.album),
+            "candidate_bpm": _optional_number(
+                resolve_tempo_evidence(
+                    self.candidate_track.identity,
+                    candidate,
+                    self.candidate_track.sonara,
+                ).bpm
+            ),
             "candidate_musical_key": _optional_text(candidate_key),
-            "candidate_energy": _optional_number(resolve_track_energy(self.candidate_track)),
+            "candidate_energy": _optional_number(
+                resolve_track_energy(
+                    self.candidate_track.identity,
+                    candidate,
+                    self.candidate_track.sonara,
+                )
+            ),
             "source_count": self.source_count,
             "sources_json": self.sources_json,
             "score_profile_name": self.score_profile_name,
@@ -291,17 +316,29 @@ def _scored_candidates_for_seed(
         row.candidate_track_id: _weighted_rrf_score(row.source_contributions, profile, request.rrf_k)
         for row in rows
     }
-    max_raw_score = max(raw_scores.values(), default=0.0)
-    max_source_count = _effective_source_count(rows, request.sources)
+    eligible_rows = tuple(
+        row for row in rows if raw_scores[row.candidate_track_id] > 0.0
+    )
+    max_raw_score = max(
+        (raw_scores[row.candidate_track_id] for row in eligible_rows),
+        default=0.0,
+    )
+    transition_sources = tuple(
+        source
+        for source in request.sources
+        if float(profile.weights.get(source, 0.0)) > 0.0
+    )
+    max_source_count = _effective_source_count(eligible_rows, transition_sources)
     scored_candidates = [
         _scored_candidate(
             row,
             raw_rrf_score=raw_scores[row.candidate_track_id],
             max_raw_score=max_raw_score,
             max_source_count=max_source_count,
+            transition_sources=transition_sources,
             request=request,
         )
-        for row in rows
+        for row in eligible_rows
     ]
     if request.transition_risk_weight > 0:
         return tuple(
@@ -324,12 +361,15 @@ def _scored_candidate(
     raw_rrf_score: float,
     max_raw_score: float,
     max_source_count: int,
+    transition_sources: Sequence[str],
     request: WeightedCandidatePoolRequest,
 ) -> _ScoredCandidate:
     transition_diagnostics = compute_transition_diagnostics(
         row.seed_track,
         row.candidate_track,
-        source_count=len(row.source_contributions),
+        source_count=sum(
+            source in row.source_contributions for source in transition_sources
+        ),
         max_source_count=max_source_count,
     )
     normalized_rrf_score = _normalized_response_score(raw_rrf_score, max_raw_score)
@@ -374,10 +414,15 @@ def _record_weighted_candidate_sessions(
         seed_rows = sorted(rows_by_seed.get(seed_track_id, ()), key=lambda row: row.profile_rank)
         if not seed_rows:
             continue
+        source_contract_hashes = _source_contract_hashes(seed_rows)
         session_id = db.create_search_session(
             WEIGHTED_CANDIDATE_SESSION_MODE,
             [seed_track_id],
             {
+                "catalog_uuid": seed_rows[0].seed_track.identity.catalog_uuid,
+                "seed_identities": [
+                    _identity_payload(seed_rows[0].seed_track)
+                ],
                 "sources": list(request.sources),
                 "per_source": request.per_source,
                 "random_seed": request.random_seed,
@@ -389,6 +434,7 @@ def _record_weighted_candidate_sessions(
                 "score_profile_name": profile.name,
                 "score_profile_weights": dict(sorted(profile.weights.items())),
                 "candidate_count": len(seed_rows),
+                "source_contract_hashes": source_contract_hashes,
             },
         )
         for row in seed_rows:
@@ -418,6 +464,8 @@ def _score_breakdown(row: WeightedCandidateRow, profile: ScoreProfile, rrf_k: in
         "rrf_k": rrf_k,
         "score_profile_name": profile.name,
         "profile_weights": dict(sorted(profile.weights.items())),
+        "candidate_identity": _identity_payload(row.candidate_track),
+        "source_contract_hashes": _source_contract_hashes((row,)),
         "source_ranks": {source: component["rank"] for source, component in components.items()},
         "weighted_rrf": {
             "score": row.profile_score,
@@ -491,10 +539,42 @@ def _profile_sources(profile: ScoreProfile) -> tuple[str, ...]:
     return tuple(str(source).strip().lower() for source in profile.sources)
 
 
-def _source_contribution_payload(contributions: Mapping[str, CandidateSourceContribution]) -> dict[str, dict[str, float | int]]:
+def _source_contribution_payload(
+    contributions: Mapping[str, CandidateSourceContribution],
+) -> dict[str, dict[str, float | int | str]]:
     return {
-        source: {"rank": contribution.rank, "score": contribution.score}
+        source: {
+            "rank": contribution.rank,
+            "score": contribution.score,
+            "contract_hash": contribution.contract_hash,
+        }
         for source, contribution in sorted(contributions.items())
+    }
+
+
+def _source_contract_hashes(
+    rows: Sequence[WeightedCandidateRow],
+) -> dict[str, str]:
+    hashes: dict[str, str] = {}
+    for row in rows:
+        for source, contribution in row.source_contributions.items():
+            existing = hashes.get(source)
+            if existing is not None and existing != contribution.contract_hash:
+                raise ValueError(
+                    "Weighted candidate rows contain multiple contract hashes "
+                    f"for source={source}"
+                )
+            hashes[source] = contribution.contract_hash
+    return dict(sorted(hashes.items()))
+
+
+def _identity_payload(track: TransitionTrack) -> dict[str, object]:
+    identity = track.identity
+    return {
+        "catalog_uuid": identity.catalog_uuid,
+        "track_id": identity.track_id,
+        "track_uuid": identity.track_uuid,
+        "content_generation": identity.content_generation,
     }
 
 

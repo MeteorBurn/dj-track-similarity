@@ -21,11 +21,14 @@ and SET previews.
 
 ## How the catalog is stored
 
-One library uses three adjacent SQLite files. The selected Core file stores paths, tags, light
-SONARA values, MAEST/MERT/MuQ/CLAP embeddings, flags, likes, feedback, and optional classifier
-scores. SONARA Timeline arrays go to `*.timeline.sqlite`. The optional SONARA embedding and
-fingerprint go to `*.representations.sqlite`. The app creates and links both side databases
-automatically.
+The current Python runtime is a greenfield schema-v7 bundle. The selected Core file stores track
+identity, paths, tags, small analysis rows, likes, and classifier scores. Its required companion is
+`*.artifacts.sqlite`, which holds large embeddings, SONARA Timeline payloads, and fingerprints. The
+two files must carry the same `catalog_uuid`. The runtime validates that binding before use.
+
+`*.evaluation.sqlite` is an optional adjacent database for evaluation data. It is not created just
+by resolving its path. Earlier v5/v6 layouts, including `*.timeline.sqlite` and
+`*.representations.sqlite`, are not migrated by the v7 runtime.
 
 ## Choose or create a database
 
@@ -35,9 +38,8 @@ From the CLI, pass `--db`:
 dj-sim scan D:\Music --db .\data\library.sqlite
 ```
 
-From the UI, use the database button in **1. Database and analysis**. The native dialog can choose an existing `.sqlite` file or set the path for a new one.
-
-If the app starts without a selected database, the UI asks you to choose one before scan, search, or analysis can work.
+The frontend v7 port is deferred. Do not rely on the current browser controls for a v7 library;
+use the CLI or API contracts while the UI is being ported.
 
 ## Scan a folder
 
@@ -47,12 +49,8 @@ CLI:
 dj-sim scan D:\Music --db .\data\library.sqlite
 ```
 
-UI:
-
-1. Choose the Core SQLite database. The app opens its matching Timeline and Representations files automatically.
-2. Enter or pick the music root.
-3. Set **Scan workers**. The current measured default is `8`.
-4. Click **Load tracks into database**.
+The verified v7 scan surface is the CLI command above. It creates a fresh, bound Core + Artifacts
+pair when neither file exists. It does not convert an older database.
 
 Scan supports these extensions:
 
@@ -70,16 +68,18 @@ If a tag cannot be read, scan still creates a minimal metadata row with the file
 
 ## What scan writes
 
-Scan writes the Core SQLite file only. It upserts tracks by path and updates rows when file size or modification time changes. It does not write audio tags.
+Scan writes Core track and tag rows only. It updates a track when file size or modification time
+changes and does not write audio tags.
 
-The UI scan job shows progress, events, current path, counts, and cancellation state. The CLI prints added, updated, unchanged, and skipped counts.
+The CLI prints added, updated, unchanged, and skipped counts.
 
 ## Refresh Tags
 
-Use **Refresh Tags** when files already exist in the library and you only want to reread file tags. This updates selected metadata fields in SQLite for existing tracks. It does not rerun SONARA, MAEST, MERT, MuQ, or CLAP.
+The v7 backend can reread file tags for existing tracks without rerunning SONARA, MAEST, MERT,
+MuQ, or CLAP. Its browser control is deferred with the frontend port, so use the current CLI/API
+surface rather than treating the old UI instructions as available.
 
 ## Browse after scan
 
-The library browser uses server-side pagination. It supports `like` or FTS search mode, liked-track filtering, syncopated rhythm filtering, and classifier score filters when promoted classifiers exist.
-
-Open a track details dialog only when you need full metadata. The list view stays lightweight for larger libraries.
+The v7 backend/API has typed library queries, but the frontend controls are not yet v7-compatible.
+Treat existing browser instructions as deferred until the frontend port lands.

@@ -1,45 +1,20 @@
-# Maintain a library safely
+# Maintain a v7 library safely
 
-> Audience: Users keeping a local library and SQLite database healthy.
-> Goal: Give a routine that avoids accidental audio edits.
+> Audience: Users keeping local music state healthy.
+> Goal: Maintain the v7 bundle without changing source audio.
 > Type: workflow
 
-## Routine checks
+1. Scan after adding files. Scan updates Core tracks and tags without writing audio.
+2. Keep Core and mandatory `*.artifacts.sqlite` together. They are bound by `catalog_uuid`.
+3. Treat `*.evaluation.sqlite` as optional evaluation state.
+4. Use relocation preview before apply. Apply changes stored `tracks.file_path` only; it never moves,
+   copies, deletes, or retags audio.
+5. Run Audio Doctor and Audio Dedup in report mode before their confirmation-gated apply modes.
 
-1. **Scan** after adding new files. Scan updates SQLite rows for changed file stats and reads tags.
-2. **Refresh Tags** after editing tags externally. It rereads selected Mutagen tags for existing tracks.
-3. **Analyze missing data** only for the models and SONARA output blocks you need.
-4. **Reset selectively** when you intentionally want one analysis model recomputed.
-5. **Export** review crates and sets rather than editing audio files.
+For changed SONARA identity, do not attempt a v5/v6 migration or mix releases. Run the ordered,
+crash-resumable `prepare-sonara-release` workflow with backups, then reanalyze and rebuild every
+SONARA-dependent classifier. It is not a distributed atomic transaction.
 
-## Moving a library
-
-Use relocation preview first. Apply only after the preview has no conflicts and no missing target files. Relocation apply updates stored SQLite paths only.
-
-CLI:
-
-```powershell
-dj-sim relocate-library D:\Music E:\Music --db .\data\library.sqlite
-```
-
-Apply:
-
-```powershell
-dj-sim relocate-library D:\Music E:\Music --apply --db .\data\library.sqlite
-```
-
-## Reports before repairs
-
-Use Audio Doctor in dry-run mode before repair. Use Audio Dedup in report mode before delete. Review XLSX reports before any apply mode.
-
-## Database maintenance
-
-Run database optimization only on a local SQLite catalog you control. For a library, the script validates and backs up Core, Timeline, and Representations, then runs integrity checks before and after maintenance on all three.
-
-```powershell
-python scripts\optimize_database.py --db .\data\library.sqlite
-```
-
-## Do not use apply modes as tests
-
-Audio Doctor apply and Audio Dedup apply are real file operations. Do not run them as routine verification.
+Use `python scripts\optimize_database.py --db .\data\library.sqlite` only for a local bundle you
+control. It validates and backs up Core + Artifacts before maintenance. The frontend v7 port is
+deferred, so use CLI/API workflows rather than current browser controls.

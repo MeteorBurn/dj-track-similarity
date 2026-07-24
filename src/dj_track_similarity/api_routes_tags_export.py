@@ -5,7 +5,11 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 
-from .api_schemas import ExportRequest, GenreTagRequest
+from .api_schemas import (
+    ExportRequest,
+    GenreTagApplyResultV7,
+    GenreTagRequest,
+)
 from .api_state import AppDatabaseState
 from .exporter import export_tracks
 from .tags import apply_genre_tags_to_tracks
@@ -21,23 +25,42 @@ def register_tags_export_routes(
     def export(request: ExportRequest):
         db = state.require_db()
         try:
-            tracks = [db.get_track(track_id) for track_id in request.track_ids]
+            tracks = db.export_track_rows(request.track_ids)
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         path = export_tracks(request.name, tracks, request.output_dir, request.format)
         return {"path": str(path)}
 
-    @app.post("/api/tags/genres/apply")
-    def genre_tags_apply(request: GenreTagRequest):
-        db = state.require_db()
-        if request.track_ids is not None:
-            raise HTTPException(status_code=400, detail="Writing MAEST genres to specific tracks is no longer supported")
-        return apply_genre_tags_to_tracks(db, db.list_tracks_with_maest_genres())
+    @app.post(
+        "/api/tags/genres/apply",
+        response_model=list[GenreTagApplyResultV7],
+    )
+    def genre_tags_apply(_request: GenreTagRequest):
+        with state.exclusive_db("write genre tags") as database:
+            candidates = database.list_genre_tag_candidates()
+            results = apply_genre_tags_to_tracks(database, candidates)
+        candidate_by_id = {
+            candidate.track_id: candidate for candidate in candidates
+        }
+        return [
+            {
+                "catalog_uuid": candidate_by_id[result.track_id].catalog_uuid,
+                "track_id": result.track_id,
+                "track_uuid": candidate_by_id[result.track_id].track_uuid,
+                "content_generation": candidate_by_id[
+                    result.track_id
+                ].content_generation,
+                "file_path": result.path,
+                "tags": result.tags,
+                "status": result.status,
+                "message": result.message,
+                "error": result.error,
+            }
+            for result in results
+        ]
 
     @app.post("/api/tags/genres/jobs")
-    def genre_tags_job_start(request: GenreTagRequest):
-        if request.track_ids is not None:
-            raise HTTPException(status_code=400, detail="Writing MAEST genres to specific tracks is no longer supported")
+    def genre_tags_job_start(_request: GenreTagRequest):
         return state.require_genre_tag_jobs().start()
 
     @app.get("/api/tags/genres/jobs/latest")

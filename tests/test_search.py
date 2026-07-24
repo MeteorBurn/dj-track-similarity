@@ -1,302 +1,189 @@
+from __future__ import annotations
+
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from dj_track_similarity.analysis_model_runners import (
+    current_embedding_analysis_output,
+)
+from dj_track_similarity.analysis_models import (
+    AnalysisOutput,
+    AnalysisTarget,
+    EmbeddingOutput,
+    EmbeddingWrite,
+)
 from dj_track_similarity.database import LibraryDatabase
-import dj_track_similarity.search as search_module
 from dj_track_similarity.search import SearchFilters, SimilaritySearch
-from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature
+from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
-def _add_track(db: LibraryDatabase, name: str, embedding: list[float], bpm: float | None = None, key: str | None = None, energy: float | None = None) -> int:
-    path = Path("C:/music") / name
-    track_id = db.upsert_track(
-        path=path,
-        size=100,
-        mtime=1,
-        metadata={"title": name, "artist": "Test"},
-        bpm=bpm,
-        musical_key=key,
-        energy=energy,
-    )
-    db.save_embedding(track_id, np.array(embedding, dtype=np.float32), "fake-model", 3)
-    return track_id
+_NOW = "2026-07-24T12:00:00.000000Z"
 
 
-def _add_track_with_embedding_key(db: LibraryDatabase, name: str, embedding: list[float], embedding_key: str) -> int:
-    path = Path("C:/music") / name
-    track_id = db.upsert_track(path=path, size=100, mtime=1, metadata={"title": name, "artist": "Test"})
-    db.save_embedding(track_id, np.array(embedding, dtype=np.float32), f"{embedding_key}-model", 3, embedding_key=embedding_key)
-    return track_id
+def test_search_uses_multi_seed_centroid_and_excludes_seed_tracks(
+    tmp_path: Path,
+) -> None:
+    db, output = _library(tmp_path, "mert")
+    seed_a = _add_track(db, tmp_path, output, "seed-a.wav", [1.0, 0.0, 0.0])
+    seed_b = _add_track(db, tmp_path, output, "seed-b.wav", [0.0, 1.0, 0.0])
+    bridge = _add_track(db, tmp_path, output, "bridge.wav", [0.7, 0.7, 0.0])
+    far = _add_track(db, tmp_path, output, "far.wav", [0.0, 0.0, 1.0])
 
+    results = SimilaritySearch(
+        db,
+        "mert",
+        analysis_output=output,
+    ).search((seed_a, seed_b), limit=5)
 
-def _add_track_with_tag_and_sonara_bpm(
-    db: LibraryDatabase,
-    name: str,
-    embedding: list[float],
-    *,
-    tag_bpm: float,
-    sonara_bpm: float,
-    bpm_confidence: float = 0.9,
-) -> int:
-    path = Path("C:/music") / name
-    track_id = db.upsert_track(
-        path=path,
-        size=100,
-        mtime=1,
-        metadata={
-            "title": name,
-            "artist": "Test",
-            "bpm": tag_bpm,
-            "sonara_features": {
-                "bpm": {"type": "float", "value": sonara_bpm},
-                "bpm_confidence": {"type": "float", "value": bpm_confidence},
-            },
-            "sonara_analysis_signature": expected_sonara_analysis_signature([]),
-        },
-        bpm=tag_bpm,
-    )
-    db.save_embedding(track_id, np.array(embedding, dtype=np.float32), "fake-model", 3)
-    return track_id
-
-
-def test_search_uses_multi_seed_centroid_and_excludes_seed_tracks(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    seed_a = _add_track(db, "seed-a.wav", [1.0, 0.0, 0.0])
-    seed_b = _add_track(db, "seed-b.wav", [0.0, 1.0, 0.0])
-    bridge = _add_track(db, "bridge.wav", [0.7, 0.7, 0.0])
-    far = _add_track(db, "far.wav", [0.0, 0.0, 1.0])
-
-    results = SimilaritySearch(db).search([seed_a, seed_b], limit=5)
-
-    assert [result.track.id for result in results] == [bridge, far]
+    assert [result.target.track_id for result in results] == [
+        bridge.track_id,
+        far.track_id,
+    ]
     assert results[0].score > results[1].score
 
 
-def test_search_applies_bpm_half_double_key_energy_and_threshold_filters(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    seed = _add_track(db, "seed.wav", [1.0, 0.0, 0.0], bpm=128, key="8A", energy=0.5)
-    compatible_half_time = _add_track(db, "half.wav", [0.99, 0.01, 0.0], bpm=64, key="8B", energy=0.52)
-    incompatible_key = _add_track(db, "bad-key.wav", [0.98, 0.02, 0.0], bpm=128, key="2A", energy=0.51)
-    too_low = _add_track(db, "low.wav", [0.1, 0.9, 0.0], bpm=128, key="8A", energy=0.5)
+def test_search_epsilon_keeps_only_candidates_near_the_best_score(
+    tmp_path: Path,
+) -> None:
+    db, output = _library(tmp_path, "mert")
+    seed = _add_track(db, tmp_path, output, "seed.wav", [1.0, 0.0, 0.0])
+    near = _add_track(db, tmp_path, output, "near.wav", [0.99, 0.01, 0.0])
+    far = _add_track(db, tmp_path, output, "far.wav", [0.7, 0.3, 0.0])
 
-    results = SimilaritySearch(db).search(
-        [seed],
-        filters=SearchFilters(
-            bpm_tolerance=2,
-            key_compatibility="compatible",
-            energy_min=0.45,
-            energy_max=0.6,
-            min_similarity=0.7,
-        ),
-        limit=10,
+    results = SimilaritySearch(db, "mert", analysis_output=output).search(
+        (seed,), filters=SearchFilters(epsilon=0.02), limit=10
     )
 
-    assert [result.track.id for result in results] == [compatible_half_time]
-    assert incompatible_key not in {result.track.id for result in results}
-    assert too_low not in {result.track.id for result in results}
-
-
-def test_search_bpm_filter_prefers_sonara_bpm_over_tag_bpm(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    seed = _add_track_with_tag_and_sonara_bpm(
-        db,
-        "seed.wav",
-        [1.0, 0.0, 0.0],
-        tag_bpm=100,
-        sonara_bpm=128,
-    )
-    sonara_match = _add_track_with_tag_and_sonara_bpm(
-        db,
-        "sonara-match.wav",
-        [0.99, 0.01, 0.0],
-        tag_bpm=116,
-        sonara_bpm=130,
-    )
-    tag_only_match = _add_track_with_tag_and_sonara_bpm(
-        db,
-        "tag-only-match.wav",
-        [0.98, 0.02, 0.0],
-        tag_bpm=102,
-        sonara_bpm=155,
-    )
-
-    results = SimilaritySearch(db).search([seed], filters=SearchFilters(bpm_tolerance=3), limit=10)
-
-    assert [result.track.id for result in results] == [sonara_match]
-    assert tag_only_match not in {result.track.id for result in results}
-
-
-def test_search_bpm_filter_does_not_reject_low_confidence_sonara_tempo(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    seed = _add_track_with_tag_and_sonara_bpm(
-        db,
-        "seed.wav",
-        [1.0, 0.0, 0.0],
-        tag_bpm=128,
-        sonara_bpm=128,
-    )
-    uncertain = _add_track_with_tag_and_sonara_bpm(
-        db,
-        "uncertain.wav",
-        [0.99, 0.01, 0.0],
-        tag_bpm=110,
-        sonara_bpm=155,
-        bpm_confidence=0.2,
-    )
-    reliable_mismatch = _add_track_with_tag_and_sonara_bpm(
-        db,
-        "reliable-mismatch.wav",
-        [0.98, 0.02, 0.0],
-        tag_bpm=110,
-        sonara_bpm=155,
-        bpm_confidence=0.9,
-    )
-
-    results = SimilaritySearch(db).search([seed], filters=SearchFilters(bpm_tolerance=3), limit=10)
-
-    assert uncertain in {result.track.id for result in results}
-    assert reliable_mismatch not in {result.track.id for result in results}
-
-
-def test_search_key_filter_uses_tag_camelot_instead_of_denormalized_column(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-
-    def add(name: str, tag_key: str, column_key: str, embedding: list[float]) -> int:
-        track_id = db.upsert_track(
-            path=Path("C:/music") / name,
-            size=100,
-            mtime=1,
-            metadata={"title": name, "key": [tag_key]},
-            musical_key=column_key,
-        )
-        db.save_embedding(track_id, np.asarray(embedding, dtype=np.float32), "fake-model", 3)
-        return track_id
-
-    seed = add("seed-key.wav", "8A", "2A", [1.0, 0.0, 0.0])
-    good = add("good-key.wav", "8B", "12B", [0.99, 0.01, 0.0])
-    bad = add("bad-key.wav", "2B", "2B", [0.98, 0.02, 0.0])
-
-    results = SimilaritySearch(db).search(
-        [seed],
-        filters=SearchFilters(key_compatibility="compatible"),
-        limit=10,
-    )
-
-    assert [result.track.id for result in results] == [good]
-    assert bad not in {result.track.id for result in results}
-
-
-def test_search_energy_filter_ignores_column_left_by_current_empty_sonara_result(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    stale_id = _add_track(db, "stale-energy.wav", [1.0, 0.0, 0.0], energy=0.9)
-    valid_id = _add_track(db, "valid-energy.wav", [0.99, 0.01, 0.0], energy=0.5)
-    db.save_sonara_features(
-        stale_id,
-        {},
-        energy=None,
-        analysis_signature=expected_sonara_analysis_signature([]),
-    )
-
-    results = SimilaritySearch(db).search_vector(
-        np.asarray([1.0, 0.0, 0.0], dtype=np.float32),
-        filters=SearchFilters(energy_max=0.6),
-        limit=10,
-    )
-
-    assert [result.track.id for result in results] == [valid_id]
-
-
-def test_every_filter_that_resolves_tags_or_sonara_requests_metadata() -> None:
-    assert search_module._needs_filter_metadata(SearchFilters(bpm_tolerance=2.0))
-    assert search_module._needs_filter_metadata(SearchFilters(key_compatibility="compatible"))
-    assert search_module._needs_filter_metadata(SearchFilters(energy_min=0.2))
-    assert search_module._needs_filter_metadata(SearchFilters(energy_max=0.8))
-    assert not search_module._needs_filter_metadata(SearchFilters(min_similarity=0.5))
-
-
-def test_search_epsilon_keeps_only_candidates_near_the_best_score(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    seed = _add_track(db, "seed.wav", [1.0, 0.0, 0.0])
-    near = _add_track(db, "near.wav", [0.99, 0.01, 0.0])
-    far = _add_track(db, "far.wav", [0.7, 0.3, 0.0])
-
-    results = SimilaritySearch(db).search([seed], filters=SearchFilters(epsilon=0.02), limit=10)
-
-    assert [result.track.id for result in results] == [near]
-    assert far not in {result.track.id for result in results}
+    assert [result.target.track_id for result in results] == [near.track_id]
+    assert far not in {result.target for result in results}
 
 
 def test_search_uses_only_seed_tracks_as_context(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    seed = _add_track(db, "seed.wav", [1.0, 0.0, 0.0])
-    bridge = _add_track(db, "bridge.wav", [0.7, 0.7, 0.0])
-    seed_clone = _add_track(db, "seed-clone.wav", [1.0, 0.0, 0.0])
+    db, output = _library(tmp_path, "mert")
+    seed = _add_track(db, tmp_path, output, "seed.wav", [1.0, 0.0, 0.0])
+    bridge = _add_track(db, tmp_path, output, "bridge.wav", [0.7, 0.7, 0.0])
+    seed_clone = _add_track(db, tmp_path, output, "seed-clone.wav", [1.0, 0.0, 0.0])
 
-    results = SimilaritySearch(db).search([seed], limit=10)
+    results = SimilaritySearch(
+        db,
+        "mert",
+        analysis_output=output,
+    ).search((seed,), limit=10)
 
-    assert [result.track.id for result in results[:2]] == [seed_clone, bridge]
+    assert [result.target.track_id for result in results[:2]] == [
+        seed_clone.track_id,
+        bridge.track_id,
+    ]
 
 
-def test_search_noise_changes_near_tie_ranking_but_keeps_similarity_scores(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    seed = _add_track(db, "seed.wav", [1.0, 0.0, 0.0])
-    first = _add_track(db, "first.wav", [0.99, 0.01, 0.0])
-    second = _add_track(db, "second.wav", [0.98, 0.02, 0.0])
+def test_search_noise_changes_near_tie_ranking_but_keeps_similarity_scores(
+    tmp_path: Path,
+) -> None:
+    db, output = _library(tmp_path, "mert")
+    seed = _add_track(db, tmp_path, output, "seed.wav", [1.0, 0.0, 0.0])
+    first = _add_track(db, tmp_path, output, "first.wav", [0.99, 0.01, 0.0])
+    second = _add_track(db, tmp_path, output, "second.wav", [0.98, 0.02, 0.0])
 
-    plain = SimilaritySearch(db).search([seed], limit=2)
-    noisy = SimilaritySearch(db).search([seed], filters=SearchFilters(noise=0.2), limit=2)
+    plain = SimilaritySearch(
+        db,
+        "mert",
+        analysis_output=output,
+    ).search((seed,), limit=2)
+    noisy = SimilaritySearch(db, "mert", analysis_output=output).search(
+        (seed,), filters=SearchFilters(noise=0.2), limit=2
+    )
 
-    assert [result.track.id for result in plain] == [first, second]
-    assert [result.track.id for result in noisy] == [second, first]
-    assert noisy[0].score < plain[0].score
+    assert [result.target for result in plain] == [first, second]
+    assert {result.target for result in noisy} == {first, second}
+    assert {result.target: result.score for result in noisy} == pytest.approx(
+        {result.target: result.score for result in plain}
+    )
 
 
 def test_search_vector_uses_requested_embedding_space(tmp_path: Path) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    mert_track = _add_track_with_embedding_key(db, "mert.wav", [1.0, 0.0, 0.0], "mert")
-    clap_near = _add_track_with_embedding_key(db, "clap-near.wav", [0.0, 1.0, 0.0], "clap")
-    clap_far = _add_track_with_embedding_key(db, "clap-far.wav", [1.0, 0.0, 0.0], "clap")
+    mert = _output("mert")
+    clap = _output("clap")
+    db.register_analysis_outputs((mert, clap))
+    mert_track = _add_track(db, tmp_path, mert, "mert.wav", [1.0, 0.0, 0.0])
+    clap_near = _add_track(db, tmp_path, clap, "clap-near.wav", [0.0, 1.0, 0.0])
+    clap_far = _add_track(db, tmp_path, clap, "clap-far.wav", [1.0, 0.0, 0.0])
 
-    results = SimilaritySearch(db, embedding_key="clap").search_vector(np.array([0.0, 1.0, 0.0], dtype=np.float32), limit=5)
+    results = SimilaritySearch(
+        db,
+        "clap",
+        analysis_output=clap,
+    ).search_vector(
+        _query(clap, [0.0, 1.0, 0.0]), limit=5
+    )
 
-    assert [result.track.id for result in results] == [clap_near, clap_far]
-    assert mert_track not in {result.track.id for result in results}
+    assert [result.target.track_id for result in results] == [
+        clap_near.track_id,
+        clap_far.track_id,
+    ]
+    assert mert_track not in {result.target for result in results}
 
 
-def test_search_contrast_vectors_rank_positive_over_negative_match(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    positive_match = _add_track_with_embedding_key(db, "positive.wav", [0.0, 1.0, 0.0], "clap")
-    mixed_match = _add_track_with_embedding_key(db, "mixed.wav", [0.7, 0.7, 0.0], "clap")
-    negative_match = _add_track_with_embedding_key(db, "negative.wav", [1.0, 0.0, 0.0], "clap")
+def test_search_contrast_vectors_rank_positive_over_negative_match(
+    tmp_path: Path,
+) -> None:
+    db, output = _library(tmp_path, "clap")
+    positive_match = _add_track(db, tmp_path, output, "positive.wav", [0.0, 1.0, 0.0])
+    mixed_match = _add_track(db, tmp_path, output, "mixed.wav", [0.7, 0.7, 0.0])
+    negative_match = _add_track(db, tmp_path, output, "negative.wav", [1.0, 0.0, 0.0])
 
-    results = SimilaritySearch(db, embedding_key="clap").search_contrast_vectors(
-        positive_vectors=[np.array([0.0, 1.0, 0.0], dtype=np.float32)],
-        negative_vectors=[np.array([1.0, 0.0, 0.0], dtype=np.float32)],
+    results = SimilaritySearch(
+        db,
+        "clap",
+        analysis_output=output,
+    ).search_contrast_vectors(
+        positive_vectors=[_query(output, [0.0, 1.0, 0.0])],
+        negative_vectors=[_query(output, [1.0, 0.0, 0.0])],
         limit=5,
     )
 
-    assert [result.track.id for result in results] == [positive_match, mixed_match, negative_match]
+    assert [result.target.track_id for result in results] == [
+        positive_match.track_id,
+        mixed_match.track_id,
+        negative_match.track_id,
+    ]
     assert results[0].score > results[1].score > results[2].score
-    assert results[0].score_breakdown == {"positive": 1.0, "negative": 0.0, "contrast": 1.0, "negative_weight": 0.35}
+    assert results[0].score_breakdown == {
+        "positive": 1.0,
+        "negative": 0.0,
+        "contrast": 1.0,
+        "negative_weight": 0.35,
+    }
 
 
-def test_search_contrast_vectors_use_hard_negative_margin_not_probability(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    positive_match = _add_track_with_embedding_key(db, "positive.wav", [1.0, 0.0, 0.0], "clap")
-    margin_match = _add_track_with_embedding_key(db, "margin.wav", [0.70710677, 0.0, 0.70710677], "clap")
+def test_search_contrast_vectors_use_hard_negative_margin_not_probability(
+    tmp_path: Path,
+) -> None:
+    db, output = _library(tmp_path, "clap")
+    positive_match = _add_track(db, tmp_path, output, "positive.wav", [1.0, 0.0, 0.0])
+    margin_match = _add_track(
+        db, tmp_path, output, "margin.wav", [0.70710677, 0.0, 0.70710677]
+    )
 
-    results = SimilaritySearch(db, embedding_key="clap").search_contrast_vectors(
-        positive_vectors=[np.array([1.0, 0.0, 0.0], dtype=np.float32)],
+    results = SimilaritySearch(
+        db,
+        "clap",
+        analysis_output=output,
+    ).search_contrast_vectors(
+        positive_vectors=[_query(output, [1.0, 0.0, 0.0])],
         negative_vectors=[
-            np.array([0.0, 1.0, 0.0], dtype=np.float32),
-            np.array([0.0, 0.0, 1.0], dtype=np.float32),
+            _query(output, [0.0, 1.0, 0.0]),
+            _query(output, [0.0, 0.0, 1.0]),
         ],
         limit=5,
     )
 
-    assert [result.track.id for result in results] == [positive_match, margin_match]
+    assert [result.target.track_id for result in results] == [
+        positive_match.track_id,
+        margin_match.track_id,
+    ]
     assert results[1].score == pytest.approx(0.4596194)
     assert results[1].score_breakdown == {
         "positive": pytest.approx(0.70710677),
@@ -304,3 +191,64 @@ def test_search_contrast_vectors_use_hard_negative_margin_not_probability(tmp_pa
         "contrast": pytest.approx(0.4596194),
         "negative_weight": 0.35,
     }
+
+
+def _library(root: Path, family: str) -> tuple[LibraryDatabase, AnalysisOutput]:
+    db = LibraryDatabase(root / "library.sqlite")
+    output = _output(family)
+    db.register_analysis_outputs((output,))
+    return db, output
+
+
+def _add_track(
+    db: LibraryDatabase,
+    root: Path,
+    output: AnalysisOutput,
+    name: str,
+    values: list[float],
+) -> AnalysisTarget:
+    path = root / name
+    path.write_bytes(name.encode("utf-8"))
+    stat = path.stat()
+    identity = db.upsert_scanned_track(
+        file=ScannedFile(
+            file_path=str(path),
+            file_size_bytes=stat.st_size,
+            file_modified_ns=stat.st_mtime_ns,
+            audio_format="wav",
+        ),
+        tags=FileTags(title=name, artist="Test"),
+        scanned_at=_NOW,
+    ).identity
+    target = AnalysisTarget(
+        identity.catalog_uuid,
+        identity.track_id,
+        identity.track_uuid,
+        identity.content_generation,
+    )
+    result = db.save_embedding_results(
+        (
+            EmbeddingWrite(
+                target=target,
+                output=EmbeddingOutput(
+                    contract=output.contract,
+                    vector=_query(output, values),
+                    analyzed_at=_NOW,
+                ),
+            ),
+        )
+    )[0]
+    assert result.ok, result.error
+    return target
+
+
+def _query(output: AnalysisOutput, values: list[float]) -> np.ndarray:
+    vector = np.zeros(output.contract.dim, dtype=np.float32)
+    vector[: len(values)] = values
+    return vector / np.linalg.norm(vector)
+
+
+def _output(family: str) -> AnalysisOutput:
+    if family not in {"mert", "clap"}:
+        raise ValueError(f"Unsupported fixture family: {family}")
+    return current_embedding_analysis_output(family)

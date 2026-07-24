@@ -1,21 +1,22 @@
+"""V7 track-search FTS maintenance.
+
+The FTS index contains only text a person can reasonably search for. Analysis
+hashes, model identifiers, numeric features, and binary payloads are excluded.
+Missing tracks remain indexed so returning files can reuse the same row; search
+queries apply ``tracks.missing_since IS NULL`` when selecting visible results.
+"""
+
 from __future__ import annotations
 
 import json
 import re
 import sqlite3
+from collections.abc import Iterable
 
 
 SEARCH_MODES = {"like", "fts"}
 _TOKEN_PATTERN = re.compile(r"\w+", flags=re.UNICODE)
-
 _BATCH_SIZE = 500
-
-
-def normalize_search_mode(search_mode: str) -> str:
-    mode = (search_mode or "like").strip().lower()
-    if mode not in SEARCH_MODES:
-        raise ValueError(f"Unknown track search mode: {search_mode}")
-    return mode
 
 
 def fts_match_query(query: str) -> str:
@@ -23,234 +24,179 @@ def fts_match_query(query: str) -> str:
     return " ".join(f'"{token}"' for token in tokens)
 
 
-def create_track_search_fts(connection: sqlite3.Connection) -> None:
-    connection.execute(
+def _file_genres_text(value: object) -> str:
+    if not isinstance(value, str) or not value:
+        return ""
+    try:
+        items = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return ""
+    if not isinstance(items, list):
+        return ""
+    return ", ".join(str(item) for item in items if isinstance(item, str) and item)
+
+
+def _maest_genres_text(value: object) -> str:
+    if not isinstance(value, str) or not value:
+        return ""
+    try:
+        items = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return ""
+    if not isinstance(items, list):
+        return ""
+
+    names: list[str] = []
+    for item in items:
+        if isinstance(item, str) and item:
+            names.append(item)
+        elif isinstance(item, dict):
+            name = item.get("genre_name")
+            if isinstance(name, str) and name:
+                names.append(name)
+    return ", ".join(names)
+
+
+def _track_search_row(
+    connection: sqlite3.Connection,
+    track_id: int,
+) -> tuple[object, ...] | None:
+    row = connection.execute(
         """
-        CREATE VIRTUAL TABLE IF NOT EXISTS track_search_fts USING fts5(
-            track_id UNINDEXED,
-            search_text,
-            tokenize = 'unicode61'
-        )
-        """
+        SELECT
+            t.track_id,
+            t.file_path,
+            ft.title,
+            ft.artist,
+            ft.album,
+            ft.comment,
+            ft.label,
+            ft.catalog_number,
+            ft.country,
+            ft.isrc,
+            ft.year,
+            ft.track_number,
+            ft.disc_number,
+            ft.genres_json AS file_genres_json,
+            ms.genres_json AS maest_genres_json
+        FROM tracks AS t
+        LEFT JOIN file_tags AS ft
+          ON ft.track_id = t.track_id
+        LEFT JOIN maest_scores AS ms
+          ON ms.track_id = t.track_id
+         AND ms.content_generation = t.content_generation
+        WHERE t.track_id = ?
+        """,
+        (int(track_id),),
+    ).fetchone()
+    if row is None:
+        return None
+
+    values = tuple(row)
+    return (
+        int(values[0]),
+        int(values[0]),
+        values[1] or "",
+        values[2] or "",
+        values[3] or "",
+        values[4] or "",
+        values[5] or "",
+        values[6] or "",
+        values[7] or "",
+        values[8] or "",
+        values[9] or "",
+        str(values[10]) if values[10] is not None else "",
+        values[11] or "",
+        values[12] or "",
+        _file_genres_text(values[13]),
+        _maest_genres_text(values[14]),
     )
 
 
-def upsert_track_search_fts(connection: sqlite3.Connection, track_id: int) -> None:
-    connection.execute("DELETE FROM track_search_fts WHERE rowid = ?", (int(track_id),))
+def delete_track_search_fts(
+    connection: sqlite3.Connection,
+    track_id: int,
+) -> None:
+    """Delete one track from the live FTS index without committing."""
+
     connection.execute(
-        """
-        INSERT INTO track_search_fts(rowid, track_id, search_text)
-        SELECT
-            t.id,
-            t.id,
-            COALESCE(t.artist, '') || ' ' ||
-            COALESCE(t.title, '') || ' ' ||
-            COALESCE(t.album, '') || ' ' ||
-            t.path || ' ' ||
-            t.metadata_json
-        FROM tracks t
-        WHERE t.id = ?
-        """,
+        "DELETE FROM track_search_fts WHERE rowid = ?",
         (int(track_id),),
     )
 
 
-def rebuild_track_search_fts(connection: sqlite3.Connection) -> int:
-    connection.execute("DELETE FROM track_search_fts")
+def upsert_track_search_fts(
+    connection: sqlite3.Connection,
+    track_id: int,
+) -> None:
+    """Refresh one track's human-text FTS row without committing."""
+
+    delete_track_search_fts(connection, track_id)
+    row = _track_search_row(connection, track_id)
+    if row is None:
+        return
     connection.execute(
         """
-        INSERT INTO track_search_fts(rowid, track_id, search_text)
-        SELECT
-            t.id,
-            t.id,
-            COALESCE(t.artist, '') || ' ' ||
-            COALESCE(t.title, '') || ' ' ||
-            COALESCE(t.album, '') || ' ' ||
-            t.path || ' ' ||
-            t.metadata_json
-        FROM tracks t
-        ORDER BY t.id
-        """
+        INSERT INTO track_search_fts(
+            rowid,
+            track_id,
+            file_path,
+            title,
+            artist,
+            album,
+            comment,
+            label,
+            catalog_number,
+            country,
+            isrc,
+            year,
+            track_number,
+            disc_number,
+            file_genres,
+            maest_genres
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        row,
     )
-    return int(connection.execute("SELECT COUNT(*) FROM track_search_fts").fetchone()[0])
 
 
-# ---------------------------------------------------------------------------
-# v7 FTS rebuild — human-readable sources only
-# ---------------------------------------------------------------------------
-
-def _parse_file_genres(genres_json: str | None) -> str:
-    """Parse a JSON array of genre strings from file_tags.genres_json.
-
-    Returns a comma-joined string of genre names, or empty string on failure.
-    """
-    if not genres_json:
-        return ""
-    try:
-        items = json.loads(genres_json)
-        if isinstance(items, list):
-            return ", ".join(str(g) for g in items if g)
-    except (json.JSONDecodeError, TypeError):
-        pass
-    return ""
-
-
-def _parse_maest_genres(genres_json: str | None) -> str:
-    """Parse a JSON array of MAEST genre objects from maest_scores.genres_json.
-
-    Each element is expected to be an object with a ``genre_name`` key.
-    Returns a comma-joined string of genre names, or empty string on failure.
-    """
-    if not genres_json:
-        return ""
-    try:
-        items = json.loads(genres_json)
-        if isinstance(items, list):
-            names = []
-            for item in items:
-                if isinstance(item, dict):
-                    name = item.get("genre_name")
-                    if name:
-                        names.append(str(name))
-                elif isinstance(item, str) and item:
-                    # Tolerate plain-string arrays too
-                    names.append(item)
-            return ", ".join(names)
-    except (json.JSONDecodeError, TypeError):
-        pass
-    return ""
-
-
-def rebuild_track_search_fts_v7(core_conn: sqlite3.Connection) -> int:
-    """Rebuild ``track_search_fts`` for a v7 Core schema database.
-
-    Populates the FTS5 virtual table exclusively from human-readable sources:
-
-    * ``tracks.file_path``
-    * ``file_tags``: title, artist, album, comment, label, catalog_number,
-      country, isrc, year (as text), track_number, disc_number
-    * ``file_tags.genres_json`` — JSON array of genre strings → ``file_genres``
-    * ``maest_scores.genres_json`` — JSON array of ``{genre_name, ...}`` objects
-      → ``maest_genres``
-
-    Numeric SONARA features, contract hashes, model IDs, and BLOB content are
-    intentionally excluded.
-
-    The rebuild runs inside a single transaction using batched deletes + inserts
-    so that a partial failure leaves the table in a consistent state.
-
-    Args:
-        core_conn: An open :class:`sqlite3.Connection` to a v7 Core database.
-
-    Returns:
-        The number of rows inserted into ``track_search_fts``.
-    """
-    # Fetch all track IDs ordered for deterministic batching
-    track_ids: list[int] = [
-        row[0]
-        for row in core_conn.execute("SELECT track_id FROM tracks ORDER BY track_id").fetchall()
+def _track_id_batches(
+    connection: sqlite3.Connection,
+) -> Iterable[list[int]]:
+    track_ids = [
+        int(row[0])
+        for row in connection.execute(
+            "SELECT track_id FROM tracks ORDER BY track_id"
+        )
     ]
+    for start in range(0, len(track_ids), _BATCH_SIZE):
+        yield track_ids[start : start + _BATCH_SIZE]
 
-    with core_conn:
-        # Clear existing FTS content in one shot
-        core_conn.execute("DELETE FROM track_search_fts")
 
-        for batch_start in range(0, len(track_ids), _BATCH_SIZE):
-            batch = track_ids[batch_start : batch_start + _BATCH_SIZE]
-            placeholders = ",".join("?" * len(batch))
+def rebuild_track_search_fts(connection: sqlite3.Connection) -> int:
+    """Rebuild the v7 human-text FTS index atomically.
 
-            rows = core_conn.execute(
-                f"""
-                SELECT
-                    t.track_id,
-                    t.file_path,
-                    ft.title,
-                    ft.artist,
-                    ft.album,
-                    ft.comment,
-                    ft.label,
-                    ft.catalog_number,
-                    ft.country,
-                    ft.isrc,
-                    ft.year,
-                    ft.track_number,
-                    ft.disc_number,
-                    ft.genres_json        AS file_genres_json,
-                    ms.genres_json        AS maest_genres_json
-                FROM tracks t
-                LEFT JOIN file_tags   ft ON ft.track_id = t.track_id
-                LEFT JOIN maest_scores ms ON ms.track_id = t.track_id
-                WHERE t.track_id IN ({placeholders})
-                ORDER BY t.track_id
-                """,
-                batch,
-            ).fetchall()
+    If the caller already owns a transaction, the rebuild participates in that
+    transaction. Otherwise it obtains a Core write reservation itself.
+    """
 
-            insert_rows = []
-            for row in rows:
-                (
-                    track_id,
-                    file_path,
-                    title,
-                    artist,
-                    album,
-                    comment,
-                    label,
-                    catalog_number,
-                    country,
-                    isrc,
-                    year,
-                    track_number,
-                    disc_number,
-                    file_genres_json,
-                    maest_genres_json,
-                ) = row
-
-                file_genres = _parse_file_genres(file_genres_json)
-                maest_genres = _parse_maest_genres(maest_genres_json)
-                year_text = str(year) if year is not None else ""
-
-                insert_rows.append((
-                    track_id,   # rowid
-                    track_id,   # track_id UNINDEXED
-                    file_path or "",
-                    title or "",
-                    artist or "",
-                    album or "",
-                    comment or "",
-                    label or "",
-                    catalog_number or "",
-                    country or "",
-                    isrc or "",
-                    year_text,
-                    track_number or "",
-                    disc_number or "",
-                    file_genres,
-                    maest_genres,
-                ))
-
-            core_conn.executemany(
-                """
-                INSERT INTO track_search_fts(
-                    rowid,
-                    track_id,
-                    file_path,
-                    title,
-                    artist,
-                    album,
-                    comment,
-                    label,
-                    catalog_number,
-                    country,
-                    isrc,
-                    year,
-                    track_number,
-                    disc_number,
-                    file_genres,
-                    maest_genres
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                """,
-                insert_rows,
-            )
-
-    return int(core_conn.execute("SELECT COUNT(*) FROM track_search_fts").fetchone()[0])
+    owns_transaction = not connection.in_transaction
+    if owns_transaction:
+        connection.execute("BEGIN IMMEDIATE")
+    try:
+        connection.execute("DELETE FROM track_search_fts")
+        for batch in _track_id_batches(connection):
+            for track_id in batch:
+                upsert_track_search_fts(connection, track_id)
+        count = int(
+            connection.execute(
+                "SELECT COUNT(*) FROM track_search_fts"
+            ).fetchone()[0]
+        )
+        if owns_transaction:
+            connection.commit()
+        return count
+    except BaseException:
+        if owns_transaction and connection.in_transaction:
+            connection.rollback()
+        raise

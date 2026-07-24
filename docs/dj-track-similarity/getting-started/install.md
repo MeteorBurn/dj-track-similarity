@@ -32,7 +32,9 @@ After activation, use `python` and `dj-sim` directly in commands.
 python -m pip install -e ".[dev]"
 ```
 
-The base package installs the core app dependencies: NumPy, Mutagen, Pydantic, Typer, FastAPI, Uvicorn, Joblib, and dev test tools. This is enough for scan, browse, serve, export, database selection, and existing data.
+The base package installs the core app dependencies: NumPy, Mutagen, Pydantic, Typer, FastAPI,
+Uvicorn, Joblib, and dev test tools. This is enough for the v7 scan, CLI, backend API, export, and
+database-selection paths. The React frontend is a separate deferred port.
 
 ## Optional extras
 
@@ -46,14 +48,19 @@ The `sonara` extra installs pinned SONARA `v0.2.9`. On Windows x64, pip builds t
 distribution when a compatible wheel is unavailable. Other platforms install the same package
 version.
 
-Verify the runtime before reanalyzing an existing library:
+Verify the runtime before analyzing a fresh library or preparing a new SONARA release:
 
 ```powershell
 python -c "import sonara; print(sonara.__version__)"
 ```
 
-The command must print `0.2.9`. Existing schema v5 databases should then follow the
-[split SONARA storage workflow](../workflows/reanalyze-sonara-split-storage.md).
+The command must print `0.2.9`. The runtime creates fresh schema-v7 Core plus mandatory Artifacts
+bundles and rejects older schemas. There is no migration command. Follow
+[Prepare and rebuild a SONARA release](../workflows/reanalyze-sonara-split-storage.md).
+
+The `ml` extra pins the loader stack, including `transformers==5.13.0` and
+`huggingface-hub==1.22.0`. Model-adapter preflight fails closed when installed package identity does
+not match the locked analysis contract.
 
 - `sonara`: SONARA feature extraction.
 - `ml`: PyTorch, Torchaudio, Torchvision, TorchCodec, nnaudio, Transformers, Hugging Face Hub, LAION CLAP, MAEST, and MuQ inference packages.
@@ -73,6 +80,9 @@ python -m pip install -e ".[rhythm-lab,dev]"
 ```
 
 ## Build the frontend bundle
+
+The React client has not yet been ported to the v7 API. The commands below build the current source,
+but the result is not a verified v7 UI.
 
 The backend serves `frontend/dist` when it exists. Create that bundle with:
 
@@ -111,7 +121,7 @@ The default fixed ports are:
 
 | Tool | Port | Notes |
 | --- | ---: | --- |
-| Main backend/UI | `8765` | `dj-sim serve` |
+| Main backend | `8765` | `dj-sim serve` |
 | Vite frontend dev server | `5173` | `npm run dev` in `frontend/` |
 | Rhythm Lab | `8777` | standalone labeling/training UI |
 

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import logging
 import threading
 import time
 import uuid
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-import logging
 from pathlib import Path
-from typing import cast
+from typing import Protocol, cast
 
 from mutagen import File as MutagenFile
 from mutagen.aiff import AIFF
@@ -15,15 +16,33 @@ from mutagen.id3 import ID3, ID3NoHeaderError, TCON
 from mutagen.mp4 import MP4
 from mutagen.wave import WAVE
 
-from .database import LibraryDatabase
 from .job_runtime import JobStore
+from .library_models import GenreTagCandidate
 from .logging_config import exception_summary, log_failure, log_job_event
-from .models import GenreTagApplyResult, Track
-from .scanner import MUTAGEN_METADATA_KEYS, read_audio_metadata
+from .scanner import file_tags_from_metadata, read_audio_metadata
+from .track_models import FileTags, TrackFileState, TrackIdentity
 from .wave_tags import set_audio_id3_genre, write_wave_genre_tag
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+class _GenreTagRepository(Protocol):
+    def list_genre_tag_candidates(
+        self,
+        *,
+        include_missing: bool = False,
+    ) -> tuple[GenreTagCandidate, ...]: ...
+
+    def apply_self_tag_write(
+        self,
+        expected: TrackFileState,
+        *,
+        write_source: Callable[[Path], None],
+        read_source_tags: Callable[[Path], FileTags],
+        validate_readback: Callable[[FileTags], None],
+        tags_read_at: str | None = None,
+    ) -> TrackIdentity: ...
 
 
 @dataclass(frozen=True)
@@ -40,6 +59,16 @@ class GenreTagError:
     track_id: int
     path: str
     error: str
+
+
+@dataclass(frozen=True)
+class GenreTagApplyResult:
+    track_id: int
+    path: str
+    tags: dict[str, str]
+    status: str
+    message: str
+    error: str | None = None
 
 
 @dataclass
@@ -61,15 +90,19 @@ class GenreTagJobStatus:
 
 
 class GenreTagJobManager:
-    def __init__(self, db: LibraryDatabase) -> None:
-        self.db = db
+    def __init__(self, repository: _GenreTagRepository) -> None:
+        self.repository = repository
         self._store = JobStore(self._copy_status, unknown_label="genre tag job")
 
     def create_job(self) -> str:
-        tracks = self.db.list_tracks_with_maest_genres()
+        candidates = self.repository.list_genre_tag_candidates()
         job_id = str(uuid.uuid4())
-        status = GenreTagJobStatus(job_id=job_id, state="queued", total=len(tracks))
-        self._store.add(job_id, status, payload=tracks)
+        status = GenreTagJobStatus(
+            job_id=job_id,
+            state="queued",
+            total=len(candidates),
+        )
+        self._store.add(job_id, status, payload=candidates)
         self._append_event(job_id, "info", "Genre tag apply queued")
         return job_id
 
@@ -85,7 +118,10 @@ class GenreTagJobManager:
 
     def run_job(self, job_id: str) -> GenreTagJobStatus:
         status = self.get(job_id)
-        tracks = cast(list[Track], self._store.payload(job_id) or [])
+        candidates = cast(
+            tuple[GenreTagCandidate, ...],
+            self._store.payload(job_id) or (),
+        )
         if status.cancel_requested:
             self._update(job_id, state="cancelled", finished_at=time.time())
             self._append_event(job_id, "warn", "Genre tag apply cancelled")
@@ -94,12 +130,20 @@ class GenreTagJobManager:
         started = time.time()
         self._update(job_id, state="running", started_at=started)
         self._append_event(job_id, "info", "Genre tag apply started")
-        for track in tracks:
+        for candidate in candidates:
             if self.get(job_id).cancel_requested:
-                self._update(job_id, state="cancelled", finished_at=time.time(), current_path=None)
+                self._update(
+                    job_id,
+                    state="cancelled",
+                    finished_at=time.time(),
+                    current_path=None,
+                )
                 self._append_event(job_id, "warn", "Genre tag apply cancelled")
                 return self.get(job_id)
-            result = _apply_genre_tag_to_track(self.db, track)
+            result = _apply_genre_tag_to_candidate(
+                self.repository,
+                candidate,
+            )
             self._record_result(job_id, result)
 
         finished = time.time()
@@ -135,7 +179,13 @@ class GenreTagJobManager:
                 status.skipped += 1
             else:
                 status.failed += 1
-                status.errors.append(GenreTagError(track_id=result.track_id, path=result.path, error=result.error or result.message))
+                status.errors.append(
+                    GenreTagError(
+                        track_id=result.track_id,
+                        path=result.path,
+                        error=result.error or result.message,
+                    )
+                )
             if status.started_at and status.processed:
                 status.avg_seconds_per_track = (time.time() - status.started_at) / status.processed
         level = "ok" if result.status == "applied" else "warn" if result.status == "skipped" else "error"
@@ -186,21 +236,29 @@ class GenreTagJobManager:
         return copy
 
 
-def apply_genre_tags_to_tracks(db: LibraryDatabase, tracks: list[Track]) -> list[GenreTagApplyResult]:
+def apply_genre_tags_to_tracks(
+    repository: _GenreTagRepository,
+    candidates: Sequence[GenreTagCandidate],
+) -> list[GenreTagApplyResult]:
     results: list[GenreTagApplyResult] = []
-    LOGGER.info("Genre tag apply started tracks=%s", len(tracks))
-    for track in tracks:
-        results.append(_apply_genre_tag_to_track(db, track))
+    LOGGER.info("Genre tag apply started tracks=%s", len(candidates))
+    for candidate in candidates:
+        results.append(
+            _apply_genre_tag_to_candidate(repository, candidate)
+        )
     LOGGER.info("Genre tag apply finished %s", genre_tag_apply_summary(results))
     return results
 
 
-def _apply_genre_tag_to_track(db: LibraryDatabase, track: Track) -> GenreTagApplyResult:
-    genre_tags = _genre_tags_for_track(track)
+def _apply_genre_tag_to_candidate(
+    repository: _GenreTagRepository,
+    candidate: GenreTagCandidate,
+) -> GenreTagApplyResult:
+    genre_tags = _genre_tags_for_candidate(candidate)
     if not genre_tags:
         result = GenreTagApplyResult(
-            track_id=track.id,
-            path=track.path,
+            track_id=candidate.track_id,
+            path=candidate.file_path,
             tags=genre_tags,
             status="skipped",
             message="No MAEST genres to write",
@@ -209,26 +267,42 @@ def _apply_genre_tag_to_track(db: LibraryDatabase, track: Track) -> GenreTagAppl
             LOGGER,
             "info",
             "Genre tag write skipped track_id=%s path=%s reason=%s",
-            track.id,
-            track.path,
+            candidate.track_id,
+            candidate.file_path,
             result.message,
             track_event=True,
         )
         return result
 
-    path = Path(track.path)
+    path = Path(candidate.file_path)
     try:
-        _write_genre_tag(path, list(genre_tags.values())[0])
-        db.refresh_track_file_metadata(
-            track.id,
-            size=path.stat().st_size,
-            mtime=path.stat().st_mtime,
-            metadata=read_audio_metadata(path),
-            replace_metadata_keys=MUTAGEN_METADATA_KEYS,
+        genre_text = genre_tags["GENRE"]
+        expected = TrackFileState(
+            catalog_uuid=candidate.catalog_uuid,
+            track_id=candidate.track_id,
+            track_uuid=candidate.track_uuid,
+            file_path=candidate.file_path,
+            file_size_bytes=candidate.expected_file_size_bytes,
+            file_modified_ns=candidate.expected_file_modified_ns,
+            content_generation=candidate.content_generation,
+            missing_since=None,
+        )
+        repository.apply_self_tag_write(
+            expected,
+            write_source=lambda source_path: _write_genre_tag(
+                source_path,
+                genre_text,
+            ),
+            read_source_tags=_read_file_tags,
+            validate_readback=lambda refreshed_tags: _verify_genre_readback(
+                path,
+                expected_genre=genre_text,
+                refreshed_tags=refreshed_tags,
+            ),
         )
         result = GenreTagApplyResult(
-            track_id=track.id,
-            path=track.path,
+            track_id=candidate.track_id,
+            path=candidate.file_path,
             tags=genre_tags,
             status="applied",
             message="Genre tag written",
@@ -237,8 +311,8 @@ def _apply_genre_tag_to_track(db: LibraryDatabase, track: Track) -> GenreTagAppl
             LOGGER,
             "ok",
             "Genre tags applied track_id=%s path=%s tags=%s",
-            track.id,
-            track.path,
+            candidate.track_id,
+            candidate.file_path,
             genre_tags,
             track_event=True,
         )
@@ -246,8 +320,8 @@ def _apply_genre_tag_to_track(db: LibraryDatabase, track: Track) -> GenreTagAppl
     except Exception as error:
         summary = exception_summary(error)
         result = GenreTagApplyResult(
-            track_id=track.id,
-            path=track.path,
+            track_id=candidate.track_id,
+            path=candidate.file_path,
             tags=genre_tags,
             status="failed",
             message="Genre tag write failed",
@@ -256,8 +330,8 @@ def _apply_genre_tag_to_track(db: LibraryDatabase, track: Track) -> GenreTagAppl
         log_failure(
             LOGGER,
             "Genre tag apply failed track_id=%s path=%s error=%s",
-            track.id,
-            track.path,
+            candidate.track_id,
+            candidate.file_path,
             summary,
         )
         return result
@@ -270,12 +344,41 @@ def genre_tag_apply_summary(results: list[GenreTagApplyResult]) -> str:
     return f"applied={applied} skipped={skipped} failed={failed} total={len(results)}"
 
 
-def _genre_tags_for_track(track: Track) -> dict[str, str]:
-    if not track.genres:
+def _genre_tags_for_candidate(
+    candidate: GenreTagCandidate,
+) -> dict[str, str]:
+    if not candidate.genres:
         return {}
-    genres = [_clean_genre_label(genre) for genre in track.genres]
+    genres = [_clean_genre_label(genre) for genre in candidate.genres]
     genres = [genre for genre in genres if genre]
     return {"GENRE": "; ".join(genres)} if genres else {}
+
+
+def _read_file_tags(path: Path) -> FileTags:
+    return file_tags_from_metadata(path, read_audio_metadata(path))
+
+
+def _verify_genre_readback(
+    path: Path,
+    *,
+    expected_genre: str,
+    refreshed_tags: FileTags,
+) -> None:
+    expected_values = _split_genre_values((expected_genre,))
+    actual_values = _split_genre_values(refreshed_tags.genres)
+    if actual_values != expected_values:
+        raise RuntimeError(
+            f"Genre tag readback mismatch after save: {path}"
+        )
+
+
+def _split_genre_values(values: Sequence[str]) -> tuple[str, ...]:
+    return tuple(
+        cleaned
+        for value in values
+        for cleaned in (part.strip() for part in value.split(";"))
+        if cleaned
+    )
 
 
 def _clean_genre_label(genre: str) -> str:

@@ -5,18 +5,26 @@ import pytest
 from fastapi.testclient import TestClient
 
 import dj_track_similarity.api as api
+from dj_track_similarity.analysis_model_runners import (
+    current_embedding_analysis_output,
+)
+from dj_track_similarity.analysis_models import (
+    AnalysisOutput,
+    AnalysisTarget,
+    EmbeddingOutput,
+    EmbeddingWrite,
+)
 from dj_track_similarity.api import create_app
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.embedding import ClapEmbeddingAdapter
+from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
-class FakeClapAdapter:
-    embedding_key = "clap"
-    model_name = "fake-clap"
-    dim = 3
+class FakeClapAdapter(ClapEmbeddingAdapter):
     queries: list[str] = []
 
     def __init__(self, device: str = "auto") -> None:
-        self.device = device
+        super().__init__(device=device)
 
     def embed_text(self, query: str):
         self.queries.append(query)
@@ -28,7 +36,10 @@ class FakeClapAdapter:
             "syncopated percussion.": [0.0, 1.0, 0.0],
             "straight house groove.": [0.0, 0.0, 1.0],
         }
-        return np.array(vectors[query], dtype=np.float32)
+        return _typed_vector(
+            current_embedding_analysis_output("clap"),
+            vectors[query],
+        )
 
 
 def test_text_search_uses_clap_embedding_space(monkeypatch, tmp_path: Path) -> None:
@@ -47,7 +58,7 @@ def test_text_search_uses_clap_embedding_space(monkeypatch, tmp_path: Path) -> N
 
     assert response.status_code == 200
     payload = response.json()
-    assert [item["track"]["id"] for item in payload] == [near_id, far_id]
+    assert [item["track"]["track_id"] for item in payload] == [near_id, far_id]
     assert payload[0]["score"] > payload[1]["score"]
     assert FakeClapAdapter.queries == ["dark rolling techno"]
 
@@ -75,7 +86,11 @@ def test_text_search_supports_adaptive_contrast_prompts(monkeypatch, tmp_path: P
 
     assert response.status_code == 200
     payload = response.json()
-    assert [item["track"]["id"] for item in payload] == [positive_id, mixed_id, negative_id]
+    assert [item["track"]["track_id"] for item in payload] == [
+        positive_id,
+        mixed_id,
+        negative_id,
+    ]
     assert payload[0]["score"] > payload[1]["score"] > payload[2]["score"]
     assert payload[0]["score_breakdown"] == {"positive": 1.0, "negative": 0.0, "contrast": 1.0, "negative_weight": 0.35}
     assert FakeClapAdapter.queries == ["track with vocals and speech", "instrumental track without voices"]
@@ -101,7 +116,10 @@ def test_text_search_mean_pools_positive_prompt_bank(monkeypatch, tmp_path: Path
 
     assert response.status_code == 200
     payload = response.json()
-    assert [item["track"]["id"] for item in payload] == [bank_match_id, single_prompt_id]
+    assert [item["track"]["track_id"] for item in payload] == [
+        bank_match_id,
+        single_prompt_id,
+    ]
     assert payload[0]["score"] > payload[1]["score"]
     assert FakeClapAdapter.queries == ["broken drums.", "syncopated percussion."]
 
@@ -128,7 +146,10 @@ def test_text_search_uses_weighted_hard_negative_margin(monkeypatch, tmp_path: P
 
     assert response.status_code == 200
     payload = response.json()
-    assert [item["track"]["id"] for item in payload] == [positive_id, negative_aligned_id]
+    assert [item["track"]["track_id"] for item in payload] == [
+        positive_id,
+        negative_aligned_id,
+    ]
     assert payload[1]["score"] == pytest.approx(0.4596194)
     assert payload[1]["score_breakdown"] == {
         "positive": pytest.approx(0.70710677),
@@ -161,7 +182,10 @@ def test_text_search_disabled_adaptive_contrast_uses_single_positive_prompt(monk
 
     assert response.status_code == 200
     payload = response.json()
-    assert [item["track"]["id"] for item in payload] == [direct_id, bank_id]
+    assert [item["track"]["track_id"] for item in payload] == [
+        direct_id,
+        bank_id,
+    ]
     assert payload[0]["score_breakdown"] is None
     assert FakeClapAdapter.queries == ["broken drums."]
 
@@ -189,8 +213,52 @@ def test_text_search_rejects_unknown_contract_fields(tmp_path: Path) -> None:
     assert response.status_code == 422
 
 
-def _track_with_embedding(db: LibraryDatabase, name: str, embedding: list[float], embedding_key: str) -> int:
-    path = Path("C:/music") / name
-    track_id = db.upsert_track(path=path, size=100, mtime=1, metadata={"title": name})
-    db.save_embedding(track_id, np.array(embedding, dtype=np.float32), f"{embedding_key}-model", 3, embedding_key=embedding_key)
-    return track_id
+def _track_with_embedding(
+    db: LibraryDatabase,
+    name: str,
+    embedding: list[float],
+    embedding_key: str,
+) -> int:
+    output = current_embedding_analysis_output(embedding_key)
+    db.register_analysis_outputs((output,))
+    path = Path(db.path).parent / name
+    path.write_bytes(name.encode("utf-8"))
+    stat = path.stat()
+    identity = db.upsert_scanned_track(
+        file=ScannedFile(
+            file_path=str(path),
+            file_size_bytes=stat.st_size,
+            file_modified_ns=stat.st_mtime_ns,
+            audio_format="wav",
+        ),
+        tags=FileTags(title=name, artist="Test"),
+    ).identity
+    target = AnalysisTarget(
+        identity.catalog_uuid,
+        identity.track_id,
+        identity.track_uuid,
+        identity.content_generation,
+    )
+    result = db.save_embedding_results(
+        (
+            EmbeddingWrite(
+                target=target,
+                output=EmbeddingOutput(
+                    contract=output.contract,
+                    vector=_typed_vector(output, embedding),
+                    analyzed_at="2026-07-24T12:00:00.000000Z",
+                ),
+            ),
+        )
+    )[0]
+    assert result.ok, result.error
+    return target.track_id
+
+
+def _typed_vector(
+    output: AnalysisOutput,
+    values: list[float],
+) -> np.ndarray:
+    vector = np.zeros(output.contract.dim, dtype=np.float32)
+    vector[: len(values)] = values
+    return vector / np.linalg.norm(vector)

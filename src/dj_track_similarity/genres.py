@@ -1,22 +1,50 @@
 from __future__ import annotations
 
 from collections import defaultdict
-import re
+import hashlib
+from importlib.metadata import PackageNotFoundError, version as distribution_version
 from pathlib import Path
 import time
 
 import numpy as np
 
+from .analysis_models import (
+    MAEST_ADAPTER_REVISION,
+    MAEST_CHECKPOINT_ID,
+    MAEST_MODEL_NAME,
+    MAEST_MODEL_VERSION,
+    MAEST_PREPROCESSING,
+)
 from .audio_loader import DecodedAudio, load_audio_mono, torch_compatible_audio
 from .runtime import select_torch_device
+from .verified_assets import VerifiedAssetBinding, bind_verified_file
 
 
 class MaestGenreAdapter:
     embedding_key = "maest"
-    model_name = "discogs-maest-30s-pw-129e-519l"
-    dim: int | None = None
+    adapter_revision = MAEST_ADAPTER_REVISION
+    model_name = MAEST_MODEL_NAME
+    package_name = "maest-infer"
+    package_version = "0.1.0"
+    package_wheel_sha256 = "1638ad5b6590ffecadbd9b71f7d4f0e0a9beb5d3862dde0ee447323a1e693e6e"
+    checkpoint_release = "v0.0.0-beta"
+    checkpoint_filename = "discogs-maest-30s-pw-129e-519l-swa.ckpt"
+    checkpoint_url = (
+        "https://github.com/palonso/MAEST/releases/download/"
+        f"{checkpoint_release}/{checkpoint_filename}"
+    )
+    checkpoint_id = MAEST_CHECKPOINT_ID
+    checkpoint_sha256 = checkpoint_id.removeprefix("sha256:")
+    model_version = MAEST_MODEL_VERSION
+    preprocessing = MAEST_PREPROCESSING
+    dim = 768
+    target_rate = 16_000
+    input_seconds = 30.0
     analysis_offset_seconds = 60.0
     analysis_window_ratios = (0.38, 0.72)
+    pooling = "distilled-token-mean+window-mean+l2"
+    encoding = "float32-le"
+    normalization = "l2"
 
     def __init__(self, device: str | None = None, top_k: int = 3, inference_batch_size: int = 8) -> None:
         self.requested_device = device or "auto"
@@ -30,8 +58,37 @@ class MaestGenreAdapter:
         self._embeddings_by_path: dict[str, np.ndarray] = {}
         self.last_batch_timing: dict[str, float | int] = {}
 
+    def contract_parameters(self) -> dict[str, object]:
+        return {
+            "adapter_revision": self.adapter_revision,
+            "sample_rate_hz": self.target_rate,
+            "input_seconds": self.input_seconds,
+            "analysis_offset_seconds": self.analysis_offset_seconds,
+            "analysis_window_ratios": self.analysis_window_ratios,
+            "top_k": self.top_k,
+            "pooling": self.pooling,
+            "channel_downmix": "arithmetic-mean",
+            "decoder": "shared-load-audio-mono-v1",
+            "resampler": "torchaudio",
+            "window_selection": "offset60s+duration-ratios-0.38,0.72-clamped-dedup-1s",
+            "short_audio": "right-zero-pad-to-30s",
+            "model_input": "raw-waveform-melspectrogram-input-false",
+            "score_activation": "sigmoid-logits",
+            "score_pooling": "window-mean-then-top-k",
+            "dtype": "float32",
+            "device_precision": "float32-eval",
+            "loader_package": f"{self.package_name}=={self.package_version}",
+            "package_wheel_sha256": self.package_wheel_sha256,
+            "checkpoint_release": self.checkpoint_release,
+        }
+
     def predict(self, path: str | Path) -> list[dict[str, float | str]]:
         return self.predict_batch([path])[0]
+
+    def preflight(self) -> None:
+        """Verify and construct the pinned loader before contract activation."""
+
+        self._load_model()
 
     def predict_batch(self, paths: list[str | Path]) -> list[list[dict[str, float | str]]]:
         self._load_model()
@@ -129,24 +186,24 @@ class MaestGenreAdapter:
         torchaudio = self._torchaudio
         assert torch is not None
         audio = torch.from_numpy(torch_compatible_audio(audio_values)).unsqueeze(0)
-        if sample_rate != 16000:
+        if sample_rate != self.target_rate:
             if torchaudio is None:
                 raise RuntimeError(f"MAEST shared-audio analysis requires torchaudio resampling: {path}")
-            audio = torchaudio.transforms.Resample(sample_rate, 16000)(audio)
+            audio = torchaudio.transforms.Resample(sample_rate, self.target_rate)(audio)
         audio = audio.squeeze(0)
-        target_samples = int(16000 * maest_input_seconds(self.model_name))
+        target_samples = int(self.target_rate * self.input_seconds)
         if audio.numel() < target_samples:
             return [torch.nn.functional.pad(audio, (0, target_samples - audio.numel()))]
 
         starts = _analysis_window_starts(
-            audio.numel() / 16000,
-            maest_input_seconds(self.model_name),
+            audio.numel() / self.target_rate,
+            self.input_seconds,
             self.analysis_offset_seconds,
             self.analysis_window_ratios,
         )
         windows = []
         for start_seconds in starts:
-            start = max(0, int(16000 * start_seconds))
+            start = max(0, int(self.target_rate * start_seconds))
             segment = audio[start : start + target_samples]
             if segment.numel() < target_samples:
                 segment = torch.nn.functional.pad(segment, (0, target_samples - segment.numel()))
@@ -160,11 +217,24 @@ class MaestGenreAdapter:
         import torchaudio
         from maest_infer import get_maest
 
+        _require_distribution_version(self.package_name, self.package_version)
         self._torch = torch
         self._torchaudio = torchaudio
         self.device = self._device()
-        self._model = get_maest(arch=self.model_name)
-        self._model = self._model.to(self.device).eval()
+        binding = _verified_maest_checkpoint(
+            torch,
+            checkpoint_url=self.checkpoint_url,
+            checkpoint_filename=self.checkpoint_filename,
+            expected_sha256=self.checkpoint_sha256,
+        )
+        with binding as verified:
+            model = get_maest(
+                arch=self.model_name,
+                pretrained=False,
+                checkpoint=str(verified.path),
+                checkpoint_swa_weigts=True,
+            )
+        self._model = model.to(self.device).eval()
         _move_maest_runtime_modules(self._model, self.device)
 
     def _device(self) -> str:
@@ -190,13 +260,74 @@ class MaestGenreAdapter:
             vector = np.mean(np.vstack(track_rows), axis=0).astype(np.float32)
             if not np.isfinite(vector).all():
                 raise ValueError(f"MAEST model produced non-finite embeddings: {path}")
-            self.dim = int(vector.shape[0])
             embeddings_by_path[str(path)] = vector
         return embeddings_by_path
 
 
-def genre_adapter_factories():
-    return {"maest": MaestGenreAdapter}
+def _require_distribution_version(distribution: str, expected: str) -> None:
+    try:
+        actual = distribution_version(distribution)
+    except PackageNotFoundError as error:
+        raise RuntimeError(
+            f"Pinned model loader is not installed: {distribution}=={expected}"
+        ) from error
+    if actual != expected:
+        raise RuntimeError(
+            f"Pinned model loader version mismatch for {distribution}: "
+            f"expected {expected}, got {actual}"
+        )
+
+
+def _verified_maest_checkpoint(
+    torch_module,
+    *,
+    checkpoint_url: str,
+    checkpoint_filename: str,
+    expected_sha256: str,
+) -> VerifiedAssetBinding:
+    checkpoint_dir = Path(torch_module.hub.get_dir()) / "checkpoints"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_path = checkpoint_dir / checkpoint_filename
+    if not checkpoint_path.exists():
+        torch_module.hub.download_url_to_file(
+            checkpoint_url,
+            str(checkpoint_path),
+            hash_prefix=expected_sha256,
+            progress=True,
+        )
+    _verify_checkpoint_sha256(
+        checkpoint_path,
+        expected_sha256=expected_sha256,
+        description=checkpoint_url,
+    )
+    return bind_verified_file(
+        checkpoint_path,
+        expected_sha256=expected_sha256,
+        description=checkpoint_url,
+    )
+
+
+def _verify_checkpoint_sha256(
+    path: str | Path,
+    *,
+    expected_sha256: str,
+    description: str,
+) -> None:
+    checkpoint_path = Path(path)
+    if not checkpoint_path.is_file():
+        raise RuntimeError(
+            f"Pinned checkpoint is unavailable after download: {description} ({checkpoint_path})"
+        )
+    digest = hashlib.sha256()
+    with checkpoint_path.open("rb") as checkpoint:
+        for chunk in iter(lambda: checkpoint.read(1024 * 1024), b""):
+            digest.update(chunk)
+    actual_sha256 = digest.hexdigest()
+    if actual_sha256 != expected_sha256:
+        raise RuntimeError(
+            f"Pinned checkpoint SHA-256 mismatch for {description}: "
+            f"expected {expected_sha256}, got {actual_sha256}"
+        )
 
 
 def _move_maest_runtime_modules(model: object, device: str) -> None:
@@ -208,11 +339,6 @@ def _move_maest_runtime_modules(model: object, device: str) -> None:
         move = getattr(module, "to", None)
         if callable(move):
             move(device)
-
-
-def maest_input_seconds(model_name: str) -> float:
-    match = re.search(r"-(5|10|20|30)s-", model_name)
-    return float(match.group(1)) if match else 30.0
 
 
 def _analysis_window_starts(

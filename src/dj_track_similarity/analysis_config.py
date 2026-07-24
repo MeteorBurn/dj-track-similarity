@@ -3,11 +3,16 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from .sonara_contract import (
+    DEFAULT_SONARA_OUTPUTS as SONARA_DEFAULT_OUTPUTS,
+    SONARA_OUTPUT_KINDS,
+    normalize_sonara_outputs as normalize_sonara_output_kinds,
+)
 
 ML_ANALYSIS_MODEL_ORDER = ("maest", "mert", "muq", "clap")
 ANALYSIS_MODEL_ORDER = ("sonara", *ML_ANALYSIS_MODEL_ORDER)
-SONARA_OUTPUTS = ("core", "timeline", "representations")
-DEFAULT_SONARA_OUTPUTS = ("core",)
+SONARA_OUTPUTS = SONARA_OUTPUT_KINDS
+DEFAULT_SONARA_OUTPUTS = SONARA_DEFAULT_OUTPUTS
 ANALYSIS_DEVICE_CHOICES = ("auto", "cpu", "cuda")
 ANALYSIS_DEVICE_PATTERN = "^(auto|cpu|cuda)$"
 DEFAULT_ANALYSIS_DEVICE = "auto"
@@ -50,12 +55,16 @@ def normalize_analysis_models(models: Sequence[str] | None) -> tuple[str, ...]:
         raise ValueError("At least one analysis model must be selected")
     normalized = tuple(model for model in ANALYSIS_MODEL_ORDER if model in selected)
     if "sonara" in normalized and len(normalized) != 1:
-        raise ValueError("SONARA analysis must run alone and cannot be combined with ML models")
+        raise ValueError(
+            "SONARA analysis must run alone and cannot be combined with ML models"
+        )
     return normalized
 
 
 def parse_analysis_models_text(value: str) -> tuple[str, ...]:
-    return normalize_analysis_models([item.strip() for item in value.split(",") if item.strip()])
+    return normalize_analysis_models(
+        [item.strip() for item in value.split(",") if item.strip()]
+    )
 
 
 def normalize_analysis_device(device: str | None) -> str:
@@ -68,14 +77,7 @@ def normalize_analysis_device(device: str | None) -> str:
 def normalize_sonara_outputs(outputs: Sequence[str] | None) -> tuple[str, ...]:
     if not outputs:
         raise ValueError("At least one SONARA output must be selected")
-    selected: list[str] = []
-    for output in outputs:
-        text = str(output).strip().lower()
-        if text not in SONARA_OUTPUTS:
-            raise ValueError(f"Unknown SONARA output: {output}")
-        if text not in selected:
-            selected.append(text)
-    return tuple(output for output in SONARA_OUTPUTS if output in selected)
+    return normalize_sonara_output_kinds(outputs)
 
 
 def build_analysis_job_config(
@@ -90,19 +92,29 @@ def build_analysis_job_config(
     sonara_outputs: Sequence[str] | None = None,
     allow_empty_models: bool = False,
 ) -> AnalysisJobConfig:
-    normalized_models = () if allow_empty_models and models is not None and not models else normalize_analysis_models(models)
+    normalized_models = (
+        ()
+        if allow_empty_models and models is not None and not models
+        else normalize_analysis_models(models)
+    )
     if "sonara" not in normalized_models and sonara_outputs:
-        raise ValueError("SONARA outputs can only be used with a SONARA-only analysis job")
+        raise ValueError(
+            "SONARA outputs can only be used with a SONARA-only analysis job"
+        )
     normalized_sonara_outputs = (
-        normalize_sonara_outputs(DEFAULT_SONARA_OUTPUTS if sonara_outputs is None else sonara_outputs)
+        normalize_sonara_outputs(
+            DEFAULT_SONARA_OUTPUTS if sonara_outputs is None else sonara_outputs
+        )
         if "sonara" in normalized_models
         else ()
     )
     return AnalysisJobConfig(
         models=normalized_models,
-        limit=limit,
+        limit=_normalize_limit(limit),
         device=normalize_analysis_device(device),
-        top_k=_int_in_range(top_k, name="top_k", minimum=MIN_ANALYSIS_TOP_K, maximum=MAX_ANALYSIS_TOP_K),
+        top_k=_int_in_range(
+            top_k, name="top_k", minimum=MIN_ANALYSIS_TOP_K, maximum=MAX_ANALYSIS_TOP_K
+        ),
         track_batch_size=_int_in_range(
             track_batch_size,
             name="track_batch_size",
@@ -129,4 +141,15 @@ def _int_in_range(value: int, *, name: str, minimum: int, maximum: int) -> int:
     integer = int(value)
     if integer < minimum or integer > maximum:
         raise ValueError(f"{name} must be between {minimum} and {maximum}")
+    return integer
+
+
+def _normalize_limit(value: int | None) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError("limit must be a non-negative integer or None")
+    integer = int(value)
+    if integer < 0:
+        raise ValueError("limit must be a non-negative integer or None")
     return integer

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import sqlite3
 import sys
 import time
 from pathlib import Path
 import zipfile
+
+from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
 def _load_repair_module():
@@ -667,12 +669,17 @@ def test_db_mode_collects_existing_tracks_with_root_remap(monkeypatch, tmp_path:
     missing = file_root / "Album" / "missing.wav"
     existing.parent.mkdir()
     existing.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
-    con = sqlite3.connect(db_path)
-    con.execute("create table tracks (id integer primary key, path text not null)")
-    con.execute("insert into tracks (path) values (?)", (str(db_root / "Album" / "track.wav"),))
-    con.execute("insert into tracks (path) values (?)", (str(db_root / "Album" / "missing.wav"),))
-    con.commit()
-    con.close()
+    existing_stat = existing.stat()
+    database = LibraryDatabase(db_path)
+    for database_path in (db_root / "Album" / "track.wav", db_root / "Album" / "missing.wav"):
+        database.upsert_scanned_track(
+            file=ScannedFile(
+                file_path=str(database_path),
+                file_size_bytes=existing_stat.st_size,
+                file_modified_ns=existing_stat.st_mtime_ns,
+            ),
+            tags=FileTags(),
+        )
     processed: list[Path] = []
 
     def fake_repair_file(path: Path, **_kwargs):
@@ -707,11 +714,16 @@ def test_db_mode_state_skips_checked_files(monkeypatch, tmp_path: Path, capsys) 
     audio_path = tmp_path / "track.wav"
     state_path = tmp_path / "state.json"
     audio_path.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
-    con = sqlite3.connect(db_path)
-    con.execute("create table tracks (path text not null)")
-    con.execute("insert into tracks (path) values (?)", (str(audio_path),))
-    con.commit()
-    con.close()
+    audio_stat = audio_path.stat()
+    database = LibraryDatabase(db_path)
+    database.upsert_scanned_track(
+        file=ScannedFile(
+            file_path=str(audio_path),
+            file_size_bytes=audio_stat.st_size,
+            file_modified_ns=audio_stat.st_mtime_ns,
+        ),
+        tags=FileTags(),
+    )
     processed: list[Path] = []
 
     def fake_repair_file(path: Path, **_kwargs):

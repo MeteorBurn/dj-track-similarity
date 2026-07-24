@@ -52,13 +52,13 @@ dj-sim analyze --models maest,mert --db .\data\library.sqlite
 читают сохранённые признаки SONARA. Вариант `sonara2vocal` добавляет `vocalness` в набор
 признаков-кандидатов.
 
-Команды выше используют актуальный SONARA Core, как и значения по умолчанию в браузере и прямом API.
-Timeline и Representations не входят в классификаторы. Точный профиль Core становится частью
-подписи артефакта.
+Команды выше используют актуальный результат SONARA `core`, как и значения по умолчанию в CLI и
+прямом API. `timeline`, `embedding` и `fingerprint` не входят в классификаторы. Точный контракт
+`core` становится частью идентичности зависимого артефакта.
 
 ## 2. Запустите Rhythm Lab
 
-В основном интерфейсе нажмите значок колбы. Либо запустите приложение вручную:
+Перенос интерфейса React на v7 отложен. Запустите Rhythm Lab напрямую:
 
 ```powershell
 python tools\rhythm-lab\rhythm_lab_cli.py serve --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
@@ -160,22 +160,22 @@ python tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation
 ```
 
 Публикация копирует выбранный исполняемый артефакт в
-`models/classifiers/<artifact-prefix>/`.
+неизменяемое поколение внутри `models/classifiers/<artifact-prefix>/`, а затем
+атомарно переключает `current.json` после проверки хэшей модели и манифеста.
 
-## 8. Рассчитайте оценки в основном приложении
+## 8. Рассчитайте оценки через актуальный бэкенд
 
-Используйте вкладку CLASS или CLI:
+Используйте CLI:
 
 ```powershell
 dj-sim analyze-classifier live_instrumentation --db .\data\library.sqlite
 ```
 
-После переобучения и публикации того же ключа вне миграции ревизии признаков сбросьте только его
-старые оценки, затем рассчитайте заново. Кнопка запуска в CLASS выполняет этот сценарий. Клиент API
-может явно сбросить ключ:
+После переобучения и публикации того же ключа сбросьте только его старые оценки, затем рассчитайте
+заново. Клиент API может явно сбросить ключ:
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:8765/api/classifiers/reset -Method Post -ContentType 'application/json' -Body '{"classifiers":["live_instrumentation"]}'
+Invoke-RestMethod http://127.0.0.1:8765/api/classifiers/reset -Method Post -ContentType 'application/json' -Body '{"classifier_keys":["live_instrumentation"]}'
 dj-sim analyze-classifier live_instrumentation --db .\data\library.sqlite
 ```
 
@@ -184,9 +184,12 @@ dj-sim analyze-classifier live_instrumentation --db .\data\library.sqlite
 SONARA, затем переобучите и опубликуйте затронутые профили. Устаревший опубликованный артефакт
 остаётся заблокированным: подпись его манифеста не позволяет оценивать актуальные треки.
 
-Если изменился контракт исходного анализа, следуйте полному
-[сценарию раздельного хранения SONARA](./reanalyze-sonara-split-storage.md). Его ревизия и проверки
-на уровне трека уже удаляют зависимые оценки.
+Если изменился контракт исходного анализа, используйте
+[подготовку и пересоздание релиза SONARA](./reanalyze-sonara-split-storage.md).
+
+Рабочая среда принимает манифест версии `2`. Текущие опубликованные `model.json` в
+`models/classifiers/` всё ещё используют версию `1`, поэтому они заблокированы до переобучения и
+новой публикации.
 
 ## Безопасность
 

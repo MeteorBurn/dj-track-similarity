@@ -48,13 +48,13 @@ dj-sim analyze --models maest,mert --db .\data\library.sqlite
 
 Benchmark variants can also use CLAP when CLAP embeddings already exist. SONARA 2.0 benchmark variants still read stored SONARA features. The `sonara2vocal` variant adds `vocalness` to the candidate feature set.
 
-The command above uses current SONARA Core, matching the browser and direct API defaults. Timeline
-and Representations are not classifier inputs. The exact Core profile becomes part of the artifact
-signature.
+The command above uses the current SONARA `core` output, matching the CLI and direct API defaults.
+The `timeline`, `embedding`, and `fingerprint` outputs are not classifier inputs. The exact `core`
+contract becomes part of a SONARA-dependent artifact identity.
 
 ## 2. Start Rhythm Lab
 
-From the main UI, use the flask icon to launch Rhythm Lab. Or start it manually:
+The React frontend's v7 port is deferred. Start Rhythm Lab directly:
 
 ```powershell
 python tools\rhythm-lab\rhythm_lab_cli.py serve --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
@@ -160,22 +160,22 @@ python tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation
 ```
 
 Promotion copies the selected runtime artifact into
-`models/classifiers/<artifact-prefix>/`.
+an immutable generation under `models/classifiers/<artifact-prefix>/`, then
+atomically switches `current.json` after the model and manifest hashes pass.
 
-## 8. Score in the main app
+## 8. Score through the current backend
 
-Use the CLASS tab or CLI:
+Use the CLI:
 
 ```powershell
 dj-sim analyze-classifier live_instrumentation --db .\data\library.sqlite
 ```
 
-After retraining and promoting the same classifier key outside a feature-revision migration, reset
-only that classifier's old scores before rescoring. In the CLASS tab, the classifier play action
-performs that reset-and-rescore flow. API clients can reset the key explicitly:
+After retraining and promoting the same classifier key, reset only that classifier's old scores
+before rescoring. API clients can reset the key explicitly:
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:8765/api/classifiers/reset -Method Post -ContentType 'application/json' -Body '{"classifiers":["live_instrumentation"]}'
+Invoke-RestMethod http://127.0.0.1:8765/api/classifiers/reset -Method Post -ContentType 'application/json' -Body '{"classifier_keys":["live_instrumentation"]}'
 dj-sim analyze-classifier live_instrumentation --db .\data\library.sqlite
 ```
 
@@ -184,8 +184,12 @@ invalidated while labels and feedback remain. Reanalyze SONARA, then retrain and
 profiles. A stale promoted artifact stays blocked because its manifest signature cannot score current
 tracks.
 
-Use the complete [split SONARA storage workflow](./reanalyze-sonara-split-storage.md) when the source
-analysis contract changed. Its revision and per-track guards already remove dependent scores.
+Use [Prepare and rebuild a SONARA release](./reanalyze-sonara-split-storage.md) when the source
+analysis contract changes.
+
+The runtime accepts manifest version `2`. The promoted `model.json` files currently in
+`models/classifiers/` still declare version `1`, so they are blocked until their profiles are
+retrained and promoted.
 
 ## Safety
 

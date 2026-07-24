@@ -7,10 +7,10 @@ from pathlib import Path
 import random
 from typing import TYPE_CHECKING
 
-from ..metadata_payload import metadata_from_json
-from ..models import Track
 from ..track_resolution import resolve_track_bpm, resolve_track_energy, resolve_track_key
+from ..transition_diagnostics import TransitionTrack
 from .csv_io import CsvRow, write_csv_rows
+from .track_views import load_all_transition_tracks
 
 if TYPE_CHECKING:
     from ..database import LibraryDatabase
@@ -24,10 +24,11 @@ SEED_SAMPLE_COLUMNS = (
     "bpm",
     "musical_key",
     "energy",
-    "has_sonara_analysis",
-    "has_mert_embedding",
-    "has_clap_embedding",
-    "has_maest_embedding",
+    "sonara_core",
+    "mert_embedding",
+    "clap_embedding",
+    "maest_analysis",
+    "maest_embedding",
     "bucket",
 )
 
@@ -41,10 +42,11 @@ class SeedSampleTrack:
     bpm: float | None
     musical_key: str | None
     energy: float | None
-    has_sonara_analysis: bool
-    has_mert_embedding: bool
-    has_clap_embedding: bool
-    has_maest_embedding: bool
+    sonara_core: bool
+    mert_embedding: bool
+    clap_embedding: bool
+    maest_analysis: bool
+    maest_embedding: bool
     bucket: str
 
     @property
@@ -67,10 +69,11 @@ class SeedSampleTrack:
             "bpm": _optional_number(self.bpm),
             "musical_key": _optional_text(self.musical_key),
             "energy": _optional_number(self.energy),
-            "has_sonara_analysis": _analysis_flag(self.has_sonara_analysis),
-            "has_mert_embedding": _analysis_flag(self.has_mert_embedding),
-            "has_clap_embedding": _analysis_flag(self.has_clap_embedding),
-            "has_maest_embedding": _analysis_flag(self.has_maest_embedding),
+            "sonara_core": _analysis_flag(self.sonara_core),
+            "mert_embedding": _analysis_flag(self.mert_embedding),
+            "clap_embedding": _analysis_flag(self.clap_embedding),
+            "maest_analysis": _analysis_flag(self.maest_analysis),
+            "maest_embedding": _analysis_flag(self.maest_embedding),
             "bucket": self.bucket,
         }
 
@@ -115,19 +118,17 @@ def load_seed_sample_eligible_tracks(
     *,
     require_complete_analysis: bool = True,
 ) -> tuple[SeedSampleTrack, ...]:
-    where_sql = _complete_analysis_where_sql() if require_complete_analysis else ""
-    with db.connect() as connection:
-        rows = connection.execute(
-            f"""
-            SELECT id, path, size, mtime, artist, title, album, bpm, musical_key, energy, metadata_json,
-                   sonara_analysis_is_current(metadata_json) AS has_sonara_analysis,
-                   has_mert_embedding, has_clap_embedding, has_maest_embedding
-            FROM tracks
-            {where_sql}
-            ORDER BY id
-            """,
-        ).fetchall()
-    return tuple(_row_to_seed_sample_track(row) for row in rows)
+    views = load_all_transition_tracks(db)
+    tracks = tuple(
+        _transition_track_to_seed_sample_track(view)
+        for view in sorted(
+            views.values(),
+            key=lambda item: item.identity.track_id,
+        )
+    )
+    if not require_complete_analysis:
+        return tracks
+    return tuple(track for track in tracks if _has_complete_analysis(track))
 
 
 def sample_seed_tracks(
@@ -151,48 +152,41 @@ def write_seed_sample_csv(path: str | Path, rows: Sequence[SeedSampleTrack]) -> 
     write_csv_rows(path, SEED_SAMPLE_COLUMNS, rows)
 
 
-def _complete_analysis_where_sql() -> str:
-    return """
-            WHERE has_sonara_analysis = 1
-              AND sonara_analysis_is_current(metadata_json) = 1
-              AND has_mert_embedding = 1
-              AND has_clap_embedding = 1
-              AND has_maest_embedding = 1
-            """
-
-
-def _row_to_seed_sample_track(row: Mapping[str, object]) -> SeedSampleTrack:
-    has_sonara = bool(row["has_sonara_analysis"])
-    metadata = metadata_from_json(row["metadata_json"])
-    track = Track(
-        id=int(row["id"]),
-        path=str(row["path"]),
-        size=int(row["size"]),
-        mtime=float(row["mtime"]),
-        artist=_optional_text_or_none(row["artist"]),
-        title=_optional_text_or_none(row["title"]),
-        album=_optional_text_or_none(row["album"]),
-        bpm=_optional_float(row["bpm"]),
-        musical_key=_optional_text_or_none(row["musical_key"]),
-        energy=_optional_float(row["energy"]),
-        metadata=metadata,
-    )
-    bpm = resolve_track_bpm(track)
-    energy = resolve_track_energy(track)
-    musical_key = resolve_track_key(track)
+def _transition_track_to_seed_sample_track(
+    track: TransitionTrack,
+) -> SeedSampleTrack:
+    identity = track.identity
+    summary = track.summary
+    sonara = track.sonara
+    bpm = resolve_track_bpm(identity, summary, sonara)
+    energy = resolve_track_energy(identity, summary, sonara)
+    musical_key = resolve_track_key(identity, summary, sonara)
+    coverage = summary.analysis_coverage
     return SeedSampleTrack(
-        track_id=int(row["id"]),
-        artist=_optional_text_or_none(row["artist"]),
-        title=_optional_text_or_none(row["title"]),
-        album=_optional_text_or_none(row["album"]),
+        track_id=summary.track_id,
+        artist=summary.artist,
+        title=summary.title,
+        album=summary.album,
         bpm=bpm,
         musical_key=musical_key,
         energy=energy,
-        has_sonara_analysis=has_sonara,
-        has_mert_embedding=bool(row["has_mert_embedding"]),
-        has_clap_embedding=bool(row["has_clap_embedding"]),
-        has_maest_embedding=bool(row["has_maest_embedding"]),
+        sonara_core=sonara is not None,
+        mert_embedding=coverage.mert,
+        clap_embedding=coverage.clap,
+        maest_analysis=coverage.maest_analysis,
+        maest_embedding=coverage.maest_embedding,
         bucket=_bucket_for_values(bpm, energy),
+    )
+
+
+def _has_complete_analysis(track: SeedSampleTrack) -> bool:
+    return all(
+        (
+            track.sonara_core,
+            track.mert_embedding,
+            track.clap_embedding,
+            track.maest_embedding,
+        )
     )
 
 
@@ -339,49 +333,10 @@ def _optional_text(value: object) -> str:
     return str(value)
 
 
-def _optional_text_or_none(value: object) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
-
-
 def _optional_number(value: object) -> str:
     if value is None:
         return ""
     return str(float(value))
-
-
-def _optional_float(value: object) -> float | None:
-    if value is None:
-        return None
-    try:
-        clean_value = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(clean_value):
-        return None
-    return clean_value
-
-
-def _metadata_first_float(value: object) -> float | None:
-    if isinstance(value, (list, tuple)):
-        for item in value:
-            number = _optional_float(item)
-            if number is not None:
-                return number
-        return None
-    return _optional_float(value)
-
-
-def _metadata_first_text(value: object) -> str | None:
-    if isinstance(value, (list, tuple)):
-        for item in value:
-            text = _optional_text_or_none(item)
-            if text is not None:
-                return text
-        return None
-    return _optional_text_or_none(value)
 
 
 def _analysis_flag(value: bool) -> int:

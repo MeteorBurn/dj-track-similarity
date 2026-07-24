@@ -13,15 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.db_artifacts import (
     ARTIFACTS_SCHEMA_VERSION,
     create_artifacts_sidecar_schema,
-)
-from dj_track_similarity.db_schema import (
-    SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY,
-    SONARA_CLASSIFIER_RELEASE_HASH_SETTING_KEY,
-    SONARA_CLASSIFIER_REVISION_SETTING_KEY,
 )
 from dj_track_similarity.db_schema_v7 import (
     SCHEMA_VERSION,
@@ -36,6 +30,7 @@ from dj_track_similarity.db_schema_v7 import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _open_v7() -> sqlite3.Connection:
     """Return an in-memory connection with the v7 schema applied."""
@@ -64,6 +59,7 @@ def _user_version(conn: sqlite3.Connection) -> int:
 # ---------------------------------------------------------------------------
 # Primary acceptance test
 # ---------------------------------------------------------------------------
+
 
 def test_new_database_matches_approved_v7_contract() -> None:
     """Full contract check for the v7 Core schema."""
@@ -110,13 +106,17 @@ def test_new_database_matches_approved_v7_contract() -> None:
     assert "metadata_json" not in track_cols, "tracks must NOT have 'metadata_json'"
 
     # --- tracks does NOT have has_sonara_analysis ---
-    assert "has_sonara_analysis" not in track_cols, "tracks must NOT have 'has_sonara_analysis'"
+    assert "has_sonara_analysis" not in track_cols, (
+        "tracks must NOT have 'has_sonara_analysis'"
+    )
 
     # --- sonara has the three required BLOB columns ---
     sonara_cols = _columns(conn, "sonara")
     assert "mfcc_mean_blob" in sonara_cols, "sonara missing 'mfcc_mean_blob'"
     assert "chroma_mean_blob" in sonara_cols, "sonara missing 'chroma_mean_blob'"
-    assert "spectral_contrast_mean_blob" in sonara_cols, "sonara missing 'spectral_contrast_mean_blob'"
+    assert "spectral_contrast_mean_blob" in sonara_cols, (
+        "sonara missing 'spectral_contrast_mean_blob'"
+    )
 
     # --- transition_feedback has source column ---
     tf_cols = _columns(conn, "transition_feedback")
@@ -128,6 +128,7 @@ def test_new_database_matches_approved_v7_contract() -> None:
 # ---------------------------------------------------------------------------
 # Additional structural tests
 # ---------------------------------------------------------------------------
+
 
 def test_create_v7_schema_from_path_string(tmp_path: pytest.TempPathFactory) -> None:
     """create_v7_schema() accepts a path string and creates the schema."""
@@ -161,12 +162,153 @@ def test_library_catalog_singleton_constraint() -> None:
     conn.close()
 
 
+def test_library_catalog_is_immutable_even_for_insert_or_replace() -> None:
+    conn = _open_v7()
+    conn.execute("PRAGMA recursive_triggers = OFF")
+    original = (
+        1,
+        "uuid-a",
+        "2026-01-01T00:00:00.000000Z",
+        "2026-01-01T00:00:00.000000Z",
+    )
+    insert_sql = (
+        "INSERT OR REPLACE INTO library_catalog("
+        "singleton_id, catalog_uuid, created_at, updated_at"
+        ") VALUES (?, ?, ?, ?)"
+    )
+    conn.execute(insert_sql, original)
+    conn.commit()
+
+    conn.execute(insert_sql, original)
+    conn.commit()
+    with pytest.raises(sqlite3.IntegrityError, match=r"(?i)immutable"):
+        conn.execute(insert_sql, (1, "uuid-swapped", original[2], original[3]))
+    conn.rollback()
+
+    assert tuple(conn.execute("SELECT * FROM library_catalog").fetchone()) == original
+    conn.close()
+
+
+def test_library_catalog_update_and_delete_are_rejected() -> None:
+    conn = _open_v7()
+    conn.execute(
+        """
+        INSERT INTO library_catalog(
+            singleton_id, catalog_uuid, created_at, updated_at
+        ) VALUES (1, 'uuid-a', 'created', 'updated')
+        """
+    )
+    conn.commit()
+
+    with pytest.raises(sqlite3.IntegrityError, match=r"(?i)immutable"):
+        conn.execute(
+            "UPDATE library_catalog SET catalog_uuid = 'uuid-swapped' "
+            "WHERE singleton_id = 1"
+        )
+    conn.rollback()
+    with pytest.raises(sqlite3.IntegrityError, match=r"(?i)immutable"):
+        conn.execute("DELETE FROM library_catalog WHERE singleton_id = 1")
+    conn.rollback()
+
+    assert (
+        conn.execute(
+            "SELECT catalog_uuid FROM library_catalog WHERE singleton_id = 1"
+        ).fetchone()[0]
+        == "uuid-a"
+    )
+    conn.close()
+
+
+def test_contract_registry_is_append_only_even_for_insert_or_replace() -> None:
+    conn = _open_v7()
+    conn.execute("PRAGMA recursive_triggers = OFF")
+    original = (
+        "sha256:contract",
+        "mert",
+        "embedding",
+        "mert-model",
+        None,
+        None,
+        "{}",
+        "2026-01-01T00:00:00.000000Z",
+    )
+    insert_sql = (
+        "INSERT OR REPLACE INTO contracts("
+        "contract_hash, analysis_family, output_kind, model_name, "
+        "model_version, release_hash, canonical_payload_json, created_at"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+    conn.execute(insert_sql, original)
+    conn.commit()
+
+    conn.execute(insert_sql, original)
+    conn.commit()
+    changed = (*original[:3], "replaced-model", *original[4:])
+    with pytest.raises(sqlite3.IntegrityError, match=r"(?i)append-only"):
+        conn.execute(insert_sql, changed)
+    conn.rollback()
+
+    assert tuple(conn.execute("SELECT * FROM contracts").fetchone()) == original
+    conn.close()
+
+
+def test_contract_registry_update_and_delete_are_rejected() -> None:
+    conn = _open_v7()
+    conn.execute(
+        """
+        INSERT INTO contracts(
+            contract_hash, analysis_family, output_kind, model_name,
+            canonical_payload_json, created_at
+        ) VALUES ('sha256:contract', 'mert', 'embedding', 'mert-model', '{}', 'created')
+        """
+    )
+    conn.commit()
+
+    with pytest.raises(sqlite3.IntegrityError, match=r"(?i)append-only"):
+        conn.execute(
+            "UPDATE contracts SET model_name = 'replaced-model' "
+            "WHERE contract_hash = 'sha256:contract'"
+        )
+    conn.rollback()
+    with pytest.raises(sqlite3.IntegrityError, match=r"(?i)append-only"):
+        conn.execute("DELETE FROM contracts WHERE contract_hash = 'sha256:contract'")
+    conn.rollback()
+
+    assert (
+        conn.execute(
+            "SELECT model_name FROM contracts WHERE contract_hash = 'sha256:contract'"
+        ).fetchone()[0]
+        == "mert-model"
+    )
+    conn.close()
+
+
+def test_library_settings_remains_mutable() -> None:
+    conn = _open_v7()
+    conn.execute(
+        "INSERT INTO library_settings(setting_key, setting_value, updated_at) "
+        "VALUES ('key', 'one', 'created')"
+    )
+    conn.execute(
+        "UPDATE library_settings SET setting_value = 'two', updated_at = 'updated' "
+        "WHERE setting_key = 'key'"
+    )
+    assert (
+        conn.execute(
+            "SELECT setting_value FROM library_settings WHERE setting_key = 'key'"
+        ).fetchone()[0]
+        == "two"
+    )
+    conn.execute("DELETE FROM library_settings WHERE setting_key = 'key'")
+    assert conn.execute("SELECT COUNT(*) FROM library_settings").fetchone()[0] == 0
+    conn.close()
+
+
 def test_tracks_file_modified_ns_is_integer() -> None:
     """file_modified_ns column info shows INTEGER affinity."""
     conn = _open_v7()
     col_info = {
-        row["name"]: row
-        for row in conn.execute("PRAGMA table_info(tracks)").fetchall()
+        row["name"]: row for row in conn.execute("PRAGMA table_info(tracks)").fetchall()
     }
     assert col_info["file_modified_ns"]["type"].upper() == "INTEGER"
     conn.close()
@@ -218,9 +360,10 @@ def test_classifier_scores_score_bucket_constraint() -> None:
         conn.execute(
             "INSERT INTO classifier_scores("
             "track_id, classifier_key, content_generation, model_id, feature_set, "
-            "feature_manifest_hash, uses_sonara, positive_label, predicted_class, "
+            "feature_manifest_hash, required_outputs_hash, uses_sonara, "
+            "positive_label, predicted_class, "
             "score_bucket, score, confidence, probabilities_json, analyzed_at"
-            ") VALUES (1,'k',1,'m','f','h',0,'pos','pos','invalid',0.5,0.5,'{}','2026-01-01T00:00:00.000000Z')"
+            ") VALUES (1,'k',1,'m','f','h','r',0,'pos','pos','invalid',0.5,0.5,'{}','2026-01-01T00:00:00.000000Z')"
         )
     conn.close()
 
@@ -328,20 +471,54 @@ def test_all_sonara_scalar_columns_present() -> None:
     conn = _open_v7()
     cols = _columns(conn, "sonara")
     expected_scalars = {
-        "detected_bpm", "raw_bpm", "bpm_confidence", "onset_density_per_second",
-        "beat_count", "tempo_variability", "beat_grid_offset_seconds", "beat_grid_stability",
-        "detected_key_name", "detected_key_camelot", "key_confidence", "predominant_chord",
-        "chord_changes_per_second", "energy_score", "energy_level", "danceability_score",
-        "valence_score", "acousticness_score", "dissonance_score", "spectral_centroid_hz",
-        "spectral_bandwidth_hz", "spectral_rolloff_hz", "spectral_flatness",
-        "zero_crossing_rate", "rms_mean", "rms_max", "integrated_loudness_lufs",
-        "dynamic_range_db", "true_peak_dbtp", "replay_gain_db", "max_momentary_loudness_lufs",
-        "loudness_range_lu", "analyzed_duration_seconds", "intro_end_seconds",
-        "outro_start_seconds", "leading_silence_seconds", "trailing_silence_seconds",
-        "energy_curve_hop_seconds", "energy_curve_sample_count", "energy_curve_min",
-        "energy_curve_max", "energy_curve_mean", "energy_curve_stddev",
-        "vocal_probability", "mood_happy_score", "mood_aggressive_score",
-        "mood_relaxed_score", "mood_sad_score",
+        "detected_bpm",
+        "raw_bpm",
+        "bpm_confidence",
+        "onset_density_per_second",
+        "beat_count",
+        "tempo_variability",
+        "beat_grid_offset_seconds",
+        "beat_grid_stability",
+        "detected_key_name",
+        "detected_key_camelot",
+        "key_confidence",
+        "predominant_chord",
+        "chord_changes_per_second",
+        "energy_score",
+        "energy_level",
+        "danceability_score",
+        "valence_score",
+        "acousticness_score",
+        "dissonance_score",
+        "spectral_centroid_hz",
+        "spectral_bandwidth_hz",
+        "spectral_rolloff_hz",
+        "spectral_flatness",
+        "zero_crossing_rate",
+        "rms_mean",
+        "rms_max",
+        "integrated_loudness_lufs",
+        "dynamic_range_db",
+        "true_peak_dbtp",
+        "replay_gain_db",
+        "max_momentary_loudness_lufs",
+        "loudness_range_lu",
+        "analyzed_duration_seconds",
+        "intro_end_seconds",
+        "outro_start_seconds",
+        "leading_silence_seconds",
+        "trailing_silence_seconds",
+        "energy_curve_hop_seconds",
+        "energy_curve_sample_count",
+        "energy_curve_min",
+        "energy_curve_max",
+        "energy_curve_mean",
+        "energy_curve_stddev",
+        "vocal_probability",
+        "mood_happy_score",
+        "mood_aggressive_score",
+        "mood_relaxed_score",
+        "mood_sad_score",
     }
     missing = expected_scalars - cols
     assert not missing, f"sonara table missing scalar columns: {sorted(missing)}"
@@ -362,9 +539,21 @@ def test_fts5_table_columns() -> None:
     conn = _open_v7()
     fts_cols = _columns(conn, "track_search_fts")
     required_fts_cols = {
-        "track_id", "file_path", "title", "artist", "album", "comment",
-        "label", "catalog_number", "country", "isrc", "year",
-        "track_number", "disc_number", "file_genres", "maest_genres",
+        "track_id",
+        "file_path",
+        "title",
+        "artist",
+        "album",
+        "comment",
+        "label",
+        "catalog_number",
+        "country",
+        "isrc",
+        "year",
+        "track_number",
+        "disc_number",
+        "file_genres",
+        "maest_genres",
     }
     missing = required_fts_cols - fts_cols
     assert not missing, f"track_search_fts missing columns: {missing}"
@@ -374,6 +563,7 @@ def test_fts5_table_columns() -> None:
 # ---------------------------------------------------------------------------
 # Artifacts sidecar schema tests (db_artifacts.py — Todo 12)
 # ---------------------------------------------------------------------------
+
 
 def _open_artifacts(catalog_uuid: str = "test-uuid") -> sqlite3.Connection:
     """Return an in-memory connection with the artifacts sidecar schema applied."""
@@ -416,17 +606,21 @@ def test_artifacts_sidecar_schema() -> None:
     assert violations == [], f"Foreign key violations: {violations}"
 
     # --- storage_metadata singleton row is present with matching catalog_uuid ---
-    row = conn.execute("SELECT * FROM storage_metadata WHERE singleton_id = 1").fetchone()
+    row = conn.execute(
+        "SELECT * FROM storage_metadata WHERE singleton_id = 1"
+    ).fetchone()
     assert row is not None, "storage_metadata singleton row missing"
     assert row["catalog_uuid"] == "test-uuid", (
         f"Expected catalog_uuid='test-uuid', got {row['catalog_uuid']!r}"
     )
-    assert row["schema_version"] == 1, f"Expected schema_version=1, got {row['schema_version']}"
+    assert row["schema_version"] == 1, (
+        f"Expected schema_version=1, got {row['schema_version']}"
+    )
 
     # --- BLOB length CHECK: wrong-length embedding_blob raises IntegrityError ---
     dim = 4
-    good_blob = b"\x00" * (dim * 4)   # 16 bytes — correct
-    bad_blob  = b"\x00" * (dim * 4 - 1)  # 15 bytes — wrong
+    good_blob = b"\x00" * (dim * 4)  # 16 bytes — correct
+    bad_blob = b"\x00" * (dim * 4 - 1)  # 15 bytes — wrong
 
     base_emb = (
         "INSERT INTO maest_embeddings"
@@ -456,15 +650,61 @@ def test_artifacts_sidecar_schema() -> None:
     conn.close()
 
 
-def test_artifacts_sidecar_no_catalog_uuid() -> None:
-    """create_artifacts_sidecar_schema() without catalog_uuid leaves storage_metadata empty."""
+@pytest.mark.parametrize(
+    "catalog_uuid",
+    [None, "", "   ", True, 123, b"catalog-uuid"],
+    ids=["none", "empty", "whitespace", "bool", "int", "bytes"],
+)
+def test_artifacts_sidecar_requires_catalog_uuid_without_mutation(
+    catalog_uuid: object,
+    tmp_path: Path,
+) -> None:
+    """Invalid bindings are rejected before mutating a connection or path."""
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
-    create_artifacts_sidecar_schema(conn, catalog_uuid=None)
+    conn.executescript(
+        """
+        PRAGMA user_version = 17;
+        CREATE TABLE sentinel(value TEXT NOT NULL);
+        INSERT INTO sentinel(value) VALUES ('preserve-me');
+        """
+    )
+    conn.commit()
+    schema_before = conn.execute(
+        """
+        SELECT type, name, sql
+        FROM sqlite_master
+        WHERE name NOT LIKE 'sqlite_%'
+        ORDER BY type, name
+        """
+    ).fetchall()
 
-    row = conn.execute("SELECT * FROM storage_metadata WHERE singleton_id = 1").fetchone()
-    assert row is None, "storage_metadata must be empty when catalog_uuid is not provided"
+    with pytest.raises(ValueError, match=r"(?i)catalog_uuid"):
+        create_artifacts_sidecar_schema(
+            conn,
+            catalog_uuid=catalog_uuid,  # type: ignore[arg-type]
+        )
+
+    schema_after = conn.execute(
+        """
+        SELECT type, name, sql
+        FROM sqlite_master
+        WHERE name NOT LIKE 'sqlite_%'
+        ORDER BY type, name
+        """
+    ).fetchall()
+    assert schema_after == schema_before
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 17
+    assert conn.execute("SELECT value FROM sentinel").fetchone()[0] == "preserve-me"
     conn.close()
+
+    db_path = tmp_path / "invalid-artifacts.sqlite"
+    with pytest.raises(ValueError, match=r"(?i)catalog_uuid"):
+        create_artifacts_sidecar_schema(
+            str(db_path),
+            catalog_uuid=catalog_uuid,  # type: ignore[arg-type]
+        )
+    assert not db_path.exists()
 
 
 def test_artifacts_sidecar_from_path_string(tmp_path: pytest.TempPathFactory) -> None:
@@ -475,7 +715,9 @@ def test_artifacts_sidecar_from_path_string(tmp_path: pytest.TempPathFactory) ->
     conn.row_factory = sqlite3.Row
     uv = int(conn.execute("PRAGMA user_version").fetchone()[0])
     assert uv == 1
-    row = conn.execute("SELECT catalog_uuid FROM storage_metadata WHERE singleton_id = 1").fetchone()
+    row = conn.execute(
+        "SELECT catalog_uuid FROM storage_metadata WHERE singleton_id = 1"
+    ).fetchone()
     assert row is not None and row["catalog_uuid"] == "path-uuid"
     conn.close()
 
@@ -485,7 +727,7 @@ def test_artifacts_sonara_fingerprint_blob_length_check() -> None:
     conn = _open_artifacts()
     word_count = 3
     good_fp = b"\x00" * (word_count * 4)  # 12 bytes
-    bad_fp  = b"\x00" * (word_count * 4 + 1)  # 13 bytes — wrong
+    bad_fp = b"\x00" * (word_count * 4 + 1)  # 13 bytes — wrong
 
     base_fp = (
         "INSERT INTO sonara_fingerprints"
@@ -520,12 +762,12 @@ def test_artifacts_sonara_timeline_payload_json_check() -> None:
 
     # JSON array — must fail (json_type must be 'object')
     with pytest.raises(sqlite3.IntegrityError):
-        conn.execute(base_tl, ('[1, 2, 3]',))
+        conn.execute(base_tl, ("[1, 2, 3]",))
     conn.rollback()
 
     # Invalid JSON — must fail
     with pytest.raises(sqlite3.IntegrityError):
-        conn.execute(base_tl, ('not-json',))
+        conn.execute(base_tl, ("not-json",))
     conn.rollback()
 
     conn.close()
@@ -542,163 +784,67 @@ def test_artifacts_storage_metadata_singleton_constraint() -> None:
     conn.close()
 
 
-# ---------------------------------------------------------------------------
-# BUG-C2 regression tests — release-hash gating in _ensure_sonara_classifier_feature_revision
-# ---------------------------------------------------------------------------
-
-def _v6_track(db: LibraryDatabase, tmp_path: Path, name: str) -> int:
-    path = tmp_path / name
-    path.write_bytes(b"audio")
-    return db.upsert_track(path=path, size=path.stat().st_size, mtime=1.0, metadata={"title": name})
-
-
-def _v6_save_score(db: LibraryDatabase, track_id: int, classifier: str, *, feature_set: str) -> None:
-    db.save_classifier_score(
-        track_id,
-        classifier=classifier,
-        score=0.75,
-        label="high",
-        confidence=0.75,
-        probabilities={"yes": 0.75, "no": 0.25},
-        feature_set=feature_set,
-        model_id="test-model",
-    )
-
-
-def _set_active_release_hash(db: LibraryDatabase, release_hash: str) -> None:
-    """Write sonara.active_release_hash into library_settings."""
-    with db.connect() as connection:
-        connection.execute(
+def test_artifacts_storage_metadata_is_immutable_even_for_insert_or_replace() -> None:
+    conn = _open_artifacts(catalog_uuid="uuid-a")
+    conn.execute("PRAGMA recursive_triggers = OFF")
+    original = tuple(
+        conn.execute(
             """
-            INSERT INTO library_settings (key, value, updated_at)
-            VALUES (?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(key) DO UPDATE SET
-                value = excluded.value,
-                updated_at = CURRENT_TIMESTAMP
-            """,
-            (SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY, release_hash),
-        )
-
-
-def test_release_hash_mismatch_blocks_analyze(tmp_path: Path) -> None:
-    """BUG-C2: A SONARA release-hash change must invalidate SONARA-dependent
-    classifier scores even when SONARA_PROJECT_FEATURE_REVISION is unchanged.
-
-    Scenario:
-    1. DB is created; scores are saved and the active_release_hash is recorded.
-    2. The stored active_release_hash is changed to a different value (simulating
-       a SONARA package/decoder upgrade without a feature-revision bump).
-    3. Re-opening the DB triggers ensure_schema → _ensure_sonara_classifier_feature_revision.
-    4. SONARA-dependent scores must be deleted; non-SONARA scores must survive.
-    """
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-
-    track_id = _v6_track(db, tmp_path, "track.wav")
-
-    # SONARA-dependent score (uses_sonara=True via feature_set)
-    _v6_save_score(db, track_id, "sonara_profile", feature_set="sonara+maest")
-    # Non-SONARA score — must survive
-    _v6_save_score(db, track_id, "embedding_only", feature_set="mert+maest")
-
-    # Record the "current" release hash as if SONARA analysis was done and
-    # classifier scoring completed against that release.
-    _set_active_release_hash(db, "sha256:aabbccdd")
-    # Simulate the gating sentinel being in sync (scores were valid at this hash).
-    with db.connect() as connection:
-        connection.execute(
+            SELECT singleton_id, catalog_uuid, schema_version, created_at, updated_at
+            FROM storage_metadata
             """
-            INSERT INTO library_settings (key, value, updated_at)
-            VALUES (?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(key) DO UPDATE SET
-                value = excluded.value,
-                updated_at = CURRENT_TIMESTAMP
-            """,
-            (SONARA_CLASSIFIER_RELEASE_HASH_SETTING_KEY, "sha256:aabbccdd"),
-        )
-
-    # Now simulate a SONARA release upgrade: change the active hash to a new value.
-    _set_active_release_hash(db, "sha256:deadbeef")
-
-    # Re-open the DB — this triggers ensure_schema → _ensure_sonara_classifier_feature_revision.
-    db2 = LibraryDatabase(db_path)
-
-    # SONARA-dependent score must be gone
-    assert db2.classifier_score(track_id, "sonara_profile") is None, (
-        "SONARA-dependent score must be deleted when release hash changes"
+        ).fetchone()
     )
-    # Non-SONARA score must survive
-    assert db2.classifier_score(track_id, "embedding_only") is not None, (
-        "Non-SONARA score must not be deleted on release hash change"
+    insert_sql = (
+        "INSERT OR REPLACE INTO storage_metadata("
+        "singleton_id, catalog_uuid, schema_version, created_at, updated_at"
+        ") VALUES (?, ?, ?, ?, ?)"
     )
 
+    conn.execute(insert_sql, original)
+    conn.commit()
+    changed = (1, "uuid-swapped", *original[2:])
+    with pytest.raises(sqlite3.IntegrityError, match=r"(?i)immutable"):
+        conn.execute(insert_sql, changed)
+    conn.rollback()
 
-def test_matching_release_hash_preserves_scores(tmp_path: Path) -> None:
-    """When the stored release hash matches the active hash, scores must be preserved."""
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
+    assert tuple(conn.execute("SELECT * FROM storage_metadata").fetchone()) == original
+    conn.close()
 
-    track_id = _v6_track(db, tmp_path, "track.wav")
-    _v6_save_score(db, track_id, "sonara_profile", feature_set="sonara+maest")
-    _v6_save_score(db, track_id, "embedding_only", feature_set="mert+maest")
 
-    # Set the same hash in both active and scored sentinels — no mismatch.
-    _set_active_release_hash(db, "sha256:aabbccdd")
-    with db.connect() as connection:
-        connection.execute(
-            """
-            INSERT INTO library_settings (key, value, updated_at)
-            VALUES (?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(key) DO UPDATE SET
-                value = excluded.value,
-                updated_at = CURRENT_TIMESTAMP
-            """,
-            (SONARA_CLASSIFIER_RELEASE_HASH_SETTING_KEY, "sha256:aabbccdd"),
+def test_artifacts_storage_metadata_update_and_delete_are_rejected() -> None:
+    conn = _open_artifacts(catalog_uuid="uuid-a")
+
+    with pytest.raises(sqlite3.IntegrityError, match=r"(?i)immutable"):
+        conn.execute(
+            "UPDATE storage_metadata SET catalog_uuid = 'uuid-swapped' "
+            "WHERE singleton_id = 1"
         )
+    conn.rollback()
+    with pytest.raises(sqlite3.IntegrityError, match=r"(?i)immutable"):
+        conn.execute("DELETE FROM storage_metadata WHERE singleton_id = 1")
+    conn.rollback()
 
-    # Re-open — gating should see matching hash and leave scores alone.
-    db2 = LibraryDatabase(db_path)
-
-    assert db2.classifier_score(track_id, "sonara_profile") is not None, (
-        "SONARA-dependent score must be preserved when release hash matches"
+    assert (
+        conn.execute(
+            "SELECT catalog_uuid FROM storage_metadata WHERE singleton_id = 1"
+        ).fetchone()[0]
+        == "uuid-a"
     )
-    assert db2.classifier_score(track_id, "embedding_only") is not None
-
-
-def test_no_active_release_hash_setting_preserves_existing_behaviour(tmp_path: Path) -> None:
-    """When sonara.active_release_hash is absent, the existing feature-revision
-    check must still work (backward-compat: no regression on v6 DBs)."""
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-
-    track_id = _v6_track(db, tmp_path, "track.wav")
-    _v6_save_score(db, track_id, "sonara_profile", feature_set="combined")
-    _v6_save_score(db, track_id, "embedding_only", feature_set="mert+maest")
-
-    # Wipe the feature-revision setting to force re-check on next open.
-    with db.connect() as connection:
-        connection.execute(
-            "DELETE FROM library_settings WHERE key = ?",
-            (SONARA_CLASSIFIER_REVISION_SETTING_KEY,),
-        )
-    # Do NOT set active_release_hash — simulates a v6 DB without the new setting.
-
-    db2 = LibraryDatabase(db_path)
-
-    # Feature-revision check should still delete SONARA-dependent scores.
-    assert db2.classifier_score(track_id, "sonara_profile") is None
-    assert db2.classifier_score(track_id, "embedding_only") is not None
+    conn.close()
 
 
 # ---------------------------------------------------------------------------
 # Evaluation sidecar schema tests (Todo 13)
 # ---------------------------------------------------------------------------
 
+
 def test_evaluation_sidecar_schema() -> None:
     """Full contract check for the evaluation sidecar schema."""
     from dj_track_similarity.db_evaluation_sidecar import (
         SIDECAR_SCHEMA_VERSION,
         create_evaluation_sidecar_schema,
+        validate_evaluation_sidecar_schema,
     )
 
     conn = sqlite3.connect(":memory:")
@@ -732,10 +878,19 @@ def test_evaluation_sidecar_schema() -> None:
     assert violations == [], f"Foreign key violations: {violations}"
 
     # --- storage_metadata singleton was inserted ---
-    meta = conn.execute("SELECT * FROM storage_metadata WHERE singleton_id = 1").fetchone()
+    meta = conn.execute(
+        "SELECT * FROM storage_metadata WHERE singleton_id = 1"
+    ).fetchone()
     assert meta is not None, "storage_metadata singleton row missing"
     assert meta["catalog_uuid"] == "test-catalog-uuid"
     assert meta["schema_version"] == 1
+    assert (
+        validate_evaluation_sidecar_schema(
+            conn,
+            expected_catalog_uuid="test-catalog-uuid",
+        )
+        == "test-catalog-uuid"
+    )
 
     # --- JSON CHECK on search_sessions.request_json rejects invalid JSON ---
     with pytest.raises(sqlite3.IntegrityError):
@@ -757,12 +912,12 @@ def test_evaluation_sidecar_schema() -> None:
         conn.execute(
             "INSERT INTO search_result_events("
             "session_id, rank, track_id, track_uuid, content_generation, "
-            "snapshot_state, total_score, score_breakdown_json, created_at"
-            ") VALUES (1, 0, 1, 'uuid-a', 1, 'current', 0.9, 'bad-json', '2026-01-01T00:00:00.000000Z')"
+            "total_score, score_breakdown_json, created_at"
+            ") VALUES (1, 0, 1, 'uuid-a', 1, 0.9, 'bad-json', '2026-01-01T00:00:00.000000Z')"
         )
     conn.rollback()
 
-    # --- snapshot_state CHECK rejects invalid values ---
+    # --- Track snapshots require a positive content generation ---
     conn.execute(
         "INSERT INTO search_sessions(mode, request_json, created_at) "
         "VALUES ('sonara', '{}', '2026-01-01T00:00:00.000000Z')"
@@ -771,24 +926,9 @@ def test_evaluation_sidecar_schema() -> None:
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute(
             "INSERT INTO search_session_seeds("
-            "session_id, position, track_id, track_uuid, content_generation, snapshot_state"
-            ") VALUES (?, 0, 1, 'uuid-b', 1, 'unknown')",
+            "session_id, position, track_id, track_uuid, content_generation"
+            ") VALUES (?, 0, 1, 'uuid-b', 0)",
             (session_id,),
-        )
-    conn.rollback()
-
-    # --- cross-column CHECK: missing state requires content_generation = 0 ---
-    conn.execute(
-        "INSERT INTO search_sessions(mode, request_json, created_at) "
-        "VALUES ('sonara', '{}', '2026-01-01T00:00:00.000000Z')"
-    )
-    session_id2 = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-    with pytest.raises(sqlite3.IntegrityError):
-        conn.execute(
-            "INSERT INTO search_session_seeds("
-            "session_id, position, track_id, track_uuid, content_generation, snapshot_state"
-            ") VALUES (?, 0, 1, 'uuid-c', 1, 'missing')",
-            (session_id2,),
         )
     conn.rollback()
 
@@ -822,7 +962,9 @@ def test_no_sidecar_without_recording(tmp_path: Path) -> None:
     import inspect
 
     from dj_track_similarity import db_evaluation_sidecar
-    from dj_track_similarity.db_evaluation_sidecar import create_evaluation_sidecar_schema
+    from dj_track_similarity.db_evaluation_sidecar import (
+        create_evaluation_sidecar_schema,
+    )
 
     # 1. The function is callable.
     assert callable(create_evaluation_sidecar_schema)

@@ -17,15 +17,20 @@ dj-sim scan D:\Music --db .\data\library.sqlite
 Analyze selected families:
 
 ```powershell
-dj-sim analyze --models sonara --db .\data\library.sqlite
+mkdir .\backup
+dj-sim prepare-sonara-release --db .\data\library.sqlite --backup-dir .\backup --confirm "PREPARE SONARA RELEASE"
+dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --db .\data\library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --db .\data\library.sqlite
 ```
 
-Serve the UI:
+Serve the backend:
 
 ```powershell
 dj-sim serve --host 127.0.0.1 --port 8765 --db .\data\library.sqlite
 ```
+
+The checked-in React client has not yet been ported to the v7 API. Do not treat an existing
+`frontend/dist` bundle as a verified v7 UI.
 
 Run CLAP text search:
 
@@ -72,6 +77,23 @@ Runtime diagnostic:
 dj-sim doctor
 ```
 
+## Bundle and release maintenance
+
+The Python runtime accepts only clean schema-v7 bundles. A fresh database path creates Core plus the
+mandatory adjacent Artifacts database. It does not upgrade an existing v6 database. The former
+`migrate-v7` and `migrate-schema-v7` commands are gone.
+
+Prepare the selected bundle for the loaded SONARA release:
+
+```powershell
+dj-sim prepare-sonara-release --db .\data\library.sqlite --backup-dir .\backup --confirm "PREPARE SONARA RELEASE"
+```
+
+This command requires an existing writable backup directory and the exact confirmation phrase. It
+derives the loaded runtime's four contracts and release hash. It also verifies a Core plus Artifacts
+backup pair and records a crash-recoverable receipt. There are no raw identity or output-selection
+options.
+
 ## Analysis options
 
 `dj-sim analyze` supports:
@@ -85,27 +107,27 @@ dj-sim doctor
 | `--track-batch-size` | `1..64` decoded tracks per job batch; default `8` |
 | `--inference-batch-size` | `1..128` model samples per forward pass; default `16` |
 | `--diagnostics` | file-log decoder and batch timing diagnostics |
-| `--sonara-outputs` | comma-separated `core`, `timeline`, `representations`; default `core` |
+| `--sonara-outputs` | comma-separated `core`, `timeline`, `embedding`, `fingerprint`; default `core` |
 | `--sonara-batch-size` | `1..16` concurrent native paths; default `8` |
 
-Plain SONARA analysis writes Core only. Use
-`--sonara-outputs core,timeline,representations` for all three stores, or select only the missing
-optional output when extending an existing analysis. Core is stored in the selected main database;
-Timeline uses the adjacent `*.timeline.sqlite`; embeddings and fingerprints use
-`*.representations.sqlite`. These two representation values are SONARA outputs; the searchable
-MAEST/MERT/MuQ/CLAP embeddings remain in Core. The metadata dialog reads Core values and only field-name manifests for
-the two side databases.
+Plain SONARA analysis materializes `core` only, but the active release always contains four
+immutable contracts. Use `--sonara-outputs core,timeline,embedding,fingerprint` to materialize all
+four outputs. A later job can select another missing output from the same active release without
+changing its identity. `core` is stored in Core. The other three outputs are stored in dedicated
+tables in the mandatory Artifacts database. MAEST/MERT/MuQ/CLAP embeddings also live in dedicated
+Artifacts tables.
 
 Each output's exact request profile and native decoder/execution path are part of its SONARA analysis
-signature. Old-contract rows block the first native job until the database is backed up and SONARA
-is explicitly reset. Current partial native coverage can then resume by output signature.
+signature. An inactive or unprepared release blocks the native job with a preparation-required
+conflict. Run `prepare-sonara-release` before analysis; current partial coverage can then resume by
+output signature.
 
 `analyze-classifiers` forms a separate database-only job. An omitted `--classifiers` list means all
 scoring-compatible promoted artifacts. `analyze-pipeline` accepts the same stage-specific settings
 and always executes selected stages as SONARA, ML, CLASSIFIERS; `--ml-models` cannot contain SONARA.
 
-For a schema v5 database, follow
-[Reanalyze with split SONARA storage](../workflows/reanalyze-sonara-split-storage.md).
+For the complete release sequence, follow
+[Prepare and rebuild a SONARA release](../workflows/reanalyze-sonara-split-storage.md).
 
 ## Text search options
 
@@ -125,13 +147,14 @@ If the sidecar is unavailable, the command warns and uses exact search.
 ## Persistent index commands
 
 ```powershell
-dj-sim index build --adapter clap --db .\data\library.sqlite
-dj-sim index verify --adapter clap --db .\data\library.sqlite
-dj-sim index benchmark --adapter clap --db .\data\library.sqlite
-dj-sim index clear --adapter clap --db .\data\library.sqlite
+dj-sim index build --model clap --db .\data\library.sqlite
+dj-sim index verify --model clap --db .\data\library.sqlite
+dj-sim index benchmark --model clap --db .\data\library.sqlite
+dj-sim index clear --model clap --db .\data\library.sqlite
 ```
 
-Adapters are `mert`, `maest`, or `clap`.
+Models are `maest`, `mert`, `muq`, or `clap`. The `build`, `verify`, and `benchmark` commands require
+`--model`; `clear` omits it only when clearing every generated index.
 
 ## Evaluation commands
 

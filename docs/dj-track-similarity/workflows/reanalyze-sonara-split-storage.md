@@ -1,94 +1,97 @@
-# Reanalyze SONARA with split storage
+# Prepare and rebuild a SONARA release
 
-> Audience: Users opening a schema v6 library with the current application.
-> Goal: Move to Core and Artifacts storage and rebuild analysis cleanly.
+> Audience: Users activating the current SONARA contract in a schema-v7 library.
+> Goal: Back up the bundle, activate one strict release, and rebuild SONARA-dependent results.
 > Type: workflow
 
-## 1. Back up the catalog
+This workflow starts from a fresh schema-v7 bundle. It is not a path for upgrading a v6 database:
+the runtime rejects non-v7 schemas, and the former `migrate-v7` and `migrate-schema-v7` commands are
+gone.
 
-Stop the server and copy the main database plus any existing adjacent side databases. After analysis
-begins, copy both files together because they form one catalog.
+## 1. Confirm the bundle
 
-## 2. Open the main database
-
-Open the existing schema v6 `.sqlite` file with the current app. Migration to schema v7 runs once
-and creates:
+Selecting a new Core path creates:
 
 ```text
 library.sqlite
 library.artifacts.sqlite
 ```
 
-The migration deliberately clears old SONARA data and invalidates SONARA-dependent classifier
-scores. Existing MAEST/MERT/MuQ/CLAP embeddings, MAEST metadata, their analysis flags,
-embedding-only classifier scores, tracks, file tags, likes, feedback, and evaluation records remain.
-Databases older than schema v6 are not adapted; scan the audio library into a fresh current database
-instead.
+The optional `library.evaluation.sqlite` file appears only when an evaluation workflow needs it.
+Core and Artifacts are mandatory and share one `catalog_uuid`.
 
-## 3. Prepare the SONARA release
+## 2. Fix runtime preflight first
 
-If you are moving to a new SONARA release or migrating from v6, use the explicit prepare command. This command backs up the database and clears old SONARA data before setting the active release hash.
+SONARA and model adapters fail closed when their loaded identity differs from the locked contract.
+The ML extra pins `transformers==5.13.0` and `huggingface-hub==1.22.0`. Synchronize the environment
+before ML analysis. Do not bypass the preflight.
 
-```powershell
-dj-sim prepare-sonara-release --db CORE --backup-dir DIR --sonara-outputs core,timeline,embedding,fingerprint --confirm "PREPARE SONARA RELEASE"
-```
-
-This protocol is not atomic across files. A crash between steps leaves the system in a recoverable state.
-
-## 4. Analyze SONARA
-
-Use the UI checkboxes or CLI. Core only is the default:
+Verify SONARA separately:
 
 ```powershell
-dj-sim analyze --models sonara --db C:\db\library.sqlite
+python -c "import sonara; print(sonara.__version__)"
 ```
 
-For all current SONARA data:
+The expected package version is `0.2.9`.
+
+## 3. Prepare the release
+
+Create an existing writable backup directory, stop competing work on the selected database, and run:
 
 ```powershell
-dj-sim analyze --models sonara --sonara-outputs core,timeline,representations --db C:\db\library.sqlite
+dj-sim prepare-sonara-release --db .\data\library.sqlite --backup-dir .\backup --confirm "PREPARE SONARA RELEASE"
 ```
 
-You can add optional outputs later:
+The command derives the loaded runtime identity and all four outputs: `core`, `timeline`,
+`embedding`, and `fingerprint`. It does not accept a caller-provided release hash or output subset.
+It verifies a Core plus Artifacts backup pair and advances an ordered, receipt-backed activation.
+Interrupted work can resume; mismatched catalog, backup, receipt, or runtime identity fails closed.
+
+Preparation removes previous SONARA rows and SONARA-dependent classifier scores before activating
+the new contracts. It preserves non-SONARA embeddings, labels, feedback, likes, and audio files.
+
+## 4. Run a bounded pilot
+
+Start with familiar files:
 
 ```powershell
-dj-sim analyze --models sonara --sonara-outputs timeline,representations --db C:\db\library.sqlite
+dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --limit 100 --db .\data\library.sqlite
 ```
 
-The default native batch size is `8`. Use `--sonara-batch-size 1..16` when needed. Complete the
-full Core pass before retraining SONARA-dependent classifiers. Timeline and Representations require
-their own full pass only when explicitly selected.
+The current contract is SONARA `0.2.9`, upstream schema `4`, playlist mode, sample rate `22050`, BPM
+range `70..180`, and project feature revision `6`. The default native batch size is `8`;
+`--sonara-batch-size` accepts `1..16`.
 
-## 5. Analyze missing ML models separately
+A successful pilot is a stop point for review, not permission to start a full-library run. Review
+job failures and representative search results. Then verify database integrity before deciding
+whether to continue.
+
+## 5. Complete the selected outputs
+
+After explicit approval for the larger run, omit `--limit`:
 
 ```powershell
-dj-sim analyze --models maest,mert,muq,clap --db C:\db\library.sqlite
+dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --db .\data\library.sqlite
 ```
 
-SONARA cannot be combined with those models or with classifiers in the same job.
-The migration does not require these models to be rerun when their existing embeddings are present.
+`core` is always included. Optional outputs can be requested later, and scheduling checks each exact
+contract independently.
 
-## 6. Retrain, promote, and score classifiers separately
+## 6. Retrain and promote classifiers
 
-Retrain and promote every SONARA-dependent classifier only after required Core and ML coverage is
-complete. Then run:
+The runtime accepts classifier manifest version `2`. The promoted artifacts currently checked into
+`models/classifiers/` use version `1`, so scoring is blocked. After required analysis coverage is
+complete, retrain and promote each affected profile, then run:
 
 ```powershell
-dj-sim analyze-classifiers --db C:\db\library.sqlite
+dj-sim analyze-classifiers --db .\data\library.sqlite
 ```
 
-The job scores only tracks with each manifest's complete current input set. Tracks that become ready
-later are picked up by a repeated classifier job.
+The scoring job reads stored inputs only and writes compatible classifier-track pairs. It does not
+decode or modify audio.
 
-## 7. Verify in metadata
+## 7. Use the current surface
 
-Open a track's metadata dialog:
-
-- Core should list calculated values and SONARA `0.2.9`/schema `4` provenance.
-- Timeline should say data is present and list its stored field names.
-- Representations should say data is present and list the SONARA `embedding` and `fingerprint`.
-
-Verify classifier readiness and blockers in the CLASSIFIERS block, then confirm expected score
-coverage. Use a 100-file native pilot after backup/reset. Do not continue to the full Core run until
-the pilot completes without failures under native signatures and SQLite returns a successful
-integrity check.
+The backend and CLI use the v7 contract. The React frontend port is explicitly deferred, so
+do not use current UI behavior as proof that the v7 API is ready. Validate with CLI output, API
+responses, focused tests, and direct SQLite integrity checks.

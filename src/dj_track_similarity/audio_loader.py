@@ -16,7 +16,6 @@ from .logging_config import analysis_diagnostics_enabled
 
 LOGGER = logging.getLogger(__name__)
 INVALID_AUDIO_STREAM_MESSAGE = "Invalid audio stream: ffmpeg could not decode audio"
-SONARA_DECODE_SAMPLE_RATE = 22_050
 # FFmpeg's default stereo -> mono matrix uses equal-power coefficients and can
 # raise correlated stereo material by about 3 dB. The pan filter's ``<`` form
 # renormalizes the active input terms, so every present channel contributes
@@ -43,12 +42,6 @@ def load_decoded_audio(path: str | Path) -> DecodedAudio:
         except Exception as error:
             _log_decoder_failure("wave", audio_path, error)
     audio, sample_rate, detail = _load_with_ffmpeg(audio_path)
-    return DecodedAudio(path=str(path), audio=audio, sample_rate=sample_rate, detail=detail)
-
-
-def load_sonara_decoded_audio(path: str | Path) -> DecodedAudio:
-    """Decode the standalone SONARA job directly to its required mono PCM rate."""
-    audio, sample_rate, detail = _load_with_ffmpeg(Path(path), target_sample_rate=SONARA_DECODE_SAMPLE_RATE)
     return DecodedAudio(path=str(path), audio=audio, sample_rate=sample_rate, detail=detail)
 
 

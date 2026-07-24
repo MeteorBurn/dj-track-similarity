@@ -11,7 +11,7 @@ Standalone classifier labeling / training / promotion UI + CLI. Independent safe
 
 ## Source Database Boundary
 
-- The main library SQLite is opened via `source_db.py` MOSTLY READ-ONLY. The one exception is the explicit liked-track toggle, which updates `track_likes` on the source DB. No other write path to the main DB.
+- The main library SQLite is opened via `source_db.py` MOSTLY READ-ONLY. The one exception is the explicit liked-track toggle, which updates `likes` on the source DB. No other write path to the main DB.
 - All labels, predictions, training queue rows, checkpoints, metrics, and calibration data live in the lab DB at `tools/rhythm-lab/data/rhythm_lab.sqlite`.
 - Do not add other main-DB write paths from any Rhythm Lab code.
 
@@ -26,7 +26,7 @@ Standalone classifier labeling / training / promotion UI + CLI. Independent safe
 
 - Training artifacts stay under `tools/rhythm-lab/artifacts/<profile>/` (gitignored). Never commit.
 - Promotion copies `model.joblib` + `model.json` to `models/classifiers/<profile>/` (also gitignored). These are read by `src/dj_track_similarity/classifier_scoring.py`.
-- Promoted classifier scoring in the main app is scoped by `classifier_key` and writes only that classifier's rows in `track_classifier_scores`. Rhythm Lab must not touch other classifiers' scores.
+- Promoted classifier scoring in the main app is scoped by `classifier_key` and writes only that classifier's rows in `classifier_scores`. Rhythm Lab must not touch other classifiers' scores.
 
 ## Profile Delete
 

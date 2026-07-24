@@ -4,11 +4,28 @@
 > Goal: Move from seed tracks to export without treating the preview as final truth.
 > Type: workflow
 
+::: warning v7 frontend status
+The React workflow below documents the deferred frontend. It has not been ported to the schema-v7
+API, so these UI steps are not currently validated or available for v7. Use the backend CLI or API
+alternative below.
+:::
+
 Use this workflow when you have a few tracks that define a direction but do not yet have a useful
 route between them. The result is an editable sequence of candidates: enough structure to begin
 rehearsing or crate preparation, without pretending the order is final.
 
-This workflow uses the main UI. Expect to remove, replace, and reorder tracks after listening.
+## Current v7 alternative
+
+Use `POST /api/search` or `POST /api/search/sonara` to expand the anchors, then send the chosen track
+IDs to `POST /api/set-builder/generate`. Audition returned candidates through
+`GET /media/{track_id}`. After listening and manual selection, send the final IDs to
+`POST /api/export`. CLAP text search is also available through `dj-sim text-search`. The current
+contracts are in the [API reference](../reference/api.md).
+
+## Deferred frontend workflow
+
+The remaining workflow uses the deferred main UI. Expect to remove, replace, and reorder tracks
+after listening when the React port becomes available.
 
 ## 1. Start with a scanned and analyzed library
 

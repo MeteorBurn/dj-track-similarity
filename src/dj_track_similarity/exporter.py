@@ -1,13 +1,21 @@
+"""Playlist export for typed v7 library rows."""
+
 from __future__ import annotations
 
 import csv
 import re
+from collections.abc import Sequence
 from pathlib import Path
 
-from .models import Track
+from .library_models import ExportTrackRow
 
 
-def export_tracks(name: str, tracks: list[Track], output_dir: str | Path, format: str) -> Path:
+def export_tracks(
+    name: str,
+    tracks: Sequence[ExportTrackRow],
+    output_dir: str | Path,
+    format: str,
+) -> Path:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     safe_name = _safe_filename(name)
@@ -23,36 +31,48 @@ def export_tracks(name: str, tracks: list[Track], output_dir: str | Path, format
     raise ValueError("format must be 'm3u' or 'csv'")
 
 
-def _write_m3u(path: Path, tracks: list[Track]) -> None:
+def _write_m3u(path: Path, tracks: Sequence[ExportTrackRow]) -> None:
     lines = ["#EXTM3U"]
     for track in tracks:
-        display = _display_name(track)
-        lines.append(f"#EXTINF:-1,{display}")
-        lines.append(track.path)
+        lines.append(f"#EXTINF:-1,{track.display_name}")
+        lines.append(track.file_path)
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def _write_csv(path: Path, tracks: list[Track]) -> None:
+def _write_csv(path: Path, tracks: Sequence[ExportTrackRow]) -> None:
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["artist", "title", "bpm", "key", "energy", "path"])
+        writer.writerow(
+            [
+                "artist",
+                "title",
+                "album",
+                "tag_bpm",
+                "tag_key",
+                "sonara_bpm",
+                "sonara_key",
+                "sonara_energy",
+                "file_path",
+            ]
+        )
         for track in tracks:
             writer.writerow(
                 [
                     track.artist or "",
                     track.title or "",
-                    track.bpm if track.bpm is not None else "",
-                    track.musical_key or "",
-                    track.energy if track.energy is not None else "",
-                    track.path,
+                    track.album or "",
+                    track.tag_bpm if track.tag_bpm is not None else "",
+                    track.tag_key or "",
+                    track.sonara_bpm
+                    if track.sonara_bpm is not None
+                    else "",
+                    track.sonara_key or "",
+                    track.sonara_energy
+                    if track.sonara_energy is not None
+                    else "",
+                    track.file_path,
                 ]
             )
-
-
-def _display_name(track: Track) -> str:
-    if track.artist and track.title:
-        return f"{track.artist} - {track.title}"
-    return track.title or Path(track.path).stem
 
 
 def _safe_filename(value: str) -> str:

@@ -1,509 +1,823 @@
-"""End-to-end QA harness for a migrated v7 library.
+"""Read-only QA for one clean v7 library bundle.
 
 Usage:
-    python scripts/qa_schema_v7.py --db PATH [--artifacts-db PATH] [--evaluation-db PATH]
+    python scripts/qa_schema_v7.py --db PATH [--artifacts-db PATH]
+        [--evaluation-db PATH]
 
-Exit codes:
-    0  QA PASSED
-    1  FAIL: <reason>
-
-All diagnostic/error output goes to stderr.
-The primary result line (QA PASSED or FAIL: ...) goes to stdout.
+The Artifacts sidecar is required.  Its canonical default is derived by
+``storage_database_paths`` (for example, ``library.sqlite`` binds to
+``library.artifacts.sqlite``).  The Evaluation sidecar is optional and is
+validated only when its file exists.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import sqlite3
+import struct
 import sys
+from collections.abc import Callable, Mapping, Sequence
+from contextlib import ExitStack
 from pathlib import Path
-from typing import Optional
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
-CORE_USER_VERSION = 7
-SIDECAR_USER_VERSION = 1
+from dj_track_similarity.analysis_contracts import (  # noqa: E402
+    FLOAT32_LE_ENCODING,
+    ContractIdentity,
+    ContractRegistryError,
+    read_registered_contract,
+)
+from dj_track_similarity.analysis_models import (  # noqa: E402
+    ACTIVE_CONTRACT_SETTING_PREFIX,
+    AnalysisOutput,
+    active_classifier_required_outputs_hashes,
+)
+from dj_track_similarity.db_artifacts import (  # noqa: E402
+    validate_artifacts_sidecar_schema,
+)
+from dj_track_similarity.db_evaluation_sidecar import (  # noqa: E402
+    validate_evaluation_sidecar_schema,
+)
+from dj_track_similarity.db_schema import (  # noqa: E402
+    SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY,
+    validate_core_schema,
+)
+from dj_track_similarity.db_storage import storage_database_paths  # noqa: E402
 
-REQUIRED_CORE_TABLES = {
-    "tracks",
-    "file_tags",
-    "contracts",
-    "sonara",
-    "maest_scores",
-    "classifier_scores",
-    "likes",
-    "pair_feedback",
-    "transition_feedback",
-    "library_catalog",
-    "library_settings",
-    "track_search_fts",
+
+_EMBEDDING_TABLE_FAMILIES: Mapping[str, str] = {
+    "maest_embeddings": "maest",
+    "mert_embeddings": "mert",
+    "muq_embeddings": "muq",
+    "clap_embeddings": "clap",
+    "sonara_similarity_embeddings": "sonara",
 }
+_ARTIFACT_TABLE_CONTRACTS: Mapping[str, tuple[str, str]] = {
+    **{
+        table: (family, "embedding")
+        for table, family in _EMBEDDING_TABLE_FAMILIES.items()
+    },
+    "sonara_timeline": ("sonara", "timeline"),
+    "sonara_fingerprints": ("sonara", "fingerprint"),
+}
+_SONARA_SHORT_VECTORS: Mapping[str, int] = {
+    "mfcc_mean_blob": 13,
+    "chroma_mean_blob": 12,
+    "spectral_contrast_mean_blob": 7,
+}
+_PROBABILITY_TOLERANCE = 1e-6
+_L2_RELATIVE_TOLERANCE = 1e-4
+_L2_ABSOLUTE_TOLERANCE = 1e-5
 
-ARTIFACTS_SIDECAR_TABLES = [
-    "maest_embeddings",
-    "mert_embeddings",
-    "muq_embeddings",
-    "clap_embeddings",
-    "sonara_similarity_embeddings",
-    "sonara_timeline",
-    "sonara_fingerprints",
-]
 
-SCORE_BUCKET_HIGH = 0.7
-SCORE_BUCKET_MEDIUM = 0.3
-FLOAT_TOLERANCE = 1e-6
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+class QAError(RuntimeError):
+    """A user-facing v7 QA failure."""
 
 
 def _fail(reason: str) -> int:
-    """Print FAIL line to stdout and return exit code 1."""
     print(f"FAIL: {reason}", flush=True)
     return 1
 
 
-def _open_ro(path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(path))
-    conn.row_factory = sqlite3.Row
-    return conn
+def _resolved(path: str | Path) -> Path:
+    return Path(path).expanduser().resolve(strict=False)
 
 
-def _get_user_version(conn: sqlite3.Connection) -> int:
-    return conn.execute("PRAGMA user_version").fetchone()[0]
+def _open_read_only(path: Path, label: str) -> sqlite3.Connection:
+    if not path.is_file():
+        raise QAError(f"{label} database not found: {path}")
+    try:
+        connection = sqlite3.connect(
+            f"{path.as_uri()}?mode=ro",
+            uri=True,
+        )
+    except sqlite3.Error as error:
+        raise QAError(f"cannot open {label} database {path}: {error}") from error
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute("PRAGMA query_only = ON")
+    return connection
 
 
-def _integrity_check(conn: sqlite3.Connection) -> Optional[str]:
-    """Return None if ok, else the first non-ok result line."""
-    rows = conn.execute("PRAGMA integrity_check").fetchall()
-    for row in rows:
-        val = row[0]
-        if val != "ok":
-            return val
-    return None
+def _quick_check(connection: sqlite3.Connection, label: str) -> None:
+    rows = connection.execute("PRAGMA quick_check").fetchall()
+    failures = [str(row[0]) for row in rows if str(row[0]).lower() != "ok"]
+    if failures or not rows:
+        detail = failures[0] if failures else "no result"
+        raise QAError(f"{label} quick_check failed: {detail}")
 
 
-def _foreign_key_check(conn: sqlite3.Connection) -> Optional[str]:
-    """Return None if no violations, else a description of the first violation."""
-    rows = conn.execute("PRAGMA foreign_key_check").fetchall()
+def _foreign_key_check(connection: sqlite3.Connection, label: str) -> None:
+    rows = connection.execute("PRAGMA foreign_key_check").fetchall()
     if rows:
-        r = rows[0]
-        return f"table={r[0]} rowid={r[1]} parent={r[2]} fkid={r[3]}"
-    return None
+        row = rows[0]
+        raise QAError(
+            f"{label} foreign-key violation: "
+            f"table={row[0]} rowid={row[1]} parent={row[2]} fkid={row[3]}"
+        )
 
 
-def _get_table_names(conn: sqlite3.Connection) -> set[str]:
-    rows = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type IN ('table','shadow') AND name NOT LIKE 'sqlite_%'"
+def _canonical_schema(
+    validator: Callable[..., str],
+    connection: sqlite3.Connection,
+    label: str,
+    *,
+    expected_catalog_uuid: str | None = None,
+) -> str:
+    try:
+        if expected_catalog_uuid is None:
+            result = validator(connection)
+        else:
+            result = validator(
+                connection,
+                expected_catalog_uuid=expected_catalog_uuid,
+            )
+    except (RuntimeError, ValueError, sqlite3.Error) as error:
+        raise QAError(f"{label} schema validation failed: {error}") from error
+    return str(result)
+
+
+def _load_contract_registry(
+    core: sqlite3.Connection,
+) -> dict[str, ContractIdentity]:
+    contracts: dict[str, ContractIdentity] = {}
+    rows = core.execute(
+        "SELECT contract_hash FROM contracts ORDER BY contract_hash"
     ).fetchall()
-    return {r[0] for r in rows}
+    for row in rows:
+        contract_hash = row["contract_hash"]
+        if not isinstance(contract_hash, str) or not contract_hash:
+            raise QAError("Core contracts contains an invalid contract_hash")
+        try:
+            identity = read_registered_contract(core, contract_hash)
+        except ContractRegistryError as error:
+            raise QAError(f"Core contract registry invalid: {error}") from error
+        if identity is None:
+            raise QAError(f"Core contract registry lookup failed for {contract_hash!r}")
+        contracts[contract_hash] = identity
+    return contracts
+
+
+def _required_contract(
+    contracts: Mapping[str, ContractIdentity],
+    contract_hash: object,
+    *,
+    context: str,
+    family: str,
+    output_kind: str,
+) -> ContractIdentity:
+    if not isinstance(contract_hash, str):
+        raise QAError(f"{context}: contract_hash is not text")
+    identity = contracts.get(contract_hash)
+    if identity is None:
+        raise QAError(f"{context}: unregistered contract_hash {contract_hash!r}")
+    if identity.analysis_family != family or identity.output_kind != output_kind:
+        raise QAError(
+            f"{context}: contract {contract_hash!r} has identity "
+            f"{identity.analysis_family}/{identity.output_kind}, expected "
+            f"{family}/{output_kind}"
+        )
+    return identity
+
+
+def _active_sonara_release(core: sqlite3.Connection) -> str | None:
+    row = core.execute(
+        """
+        SELECT setting_value
+        FROM library_settings
+        WHERE setting_key = ?
+        """,
+        (SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY,),
+    ).fetchone()
+    if row is None:
+        return None
+    value = row["setting_value"]
+    if not isinstance(value, str) or not value.strip():
+        raise QAError(
+            f"Core library_settings[{SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY!r}] "
+            "must be non-empty"
+        )
+    return value.strip()
+
+
+def _require_active_sonara_contract(
+    identity: ContractIdentity,
+    active_release: str | None,
+    context: str,
+) -> None:
+    if active_release is None:
+        raise QAError(
+            f"{context}: SONARA data exists but "
+            f"library_settings[{SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY!r}] "
+            "is missing"
+        )
+    if identity.release_hash != active_release:
+        raise QAError(
+            f"{context}: SONARA release mismatch; "
+            f"contract={identity.release_hash!r}, active={active_release!r}"
+        )
+
+
+def _track_identities(
+    core: sqlite3.Connection,
+) -> dict[int, tuple[str, int]]:
+    tracks: dict[int, tuple[str, int]] = {}
+    for row in core.execute(
+        """
+        SELECT track_id, track_uuid, content_generation
+        FROM tracks
+        ORDER BY track_id
+        """
+    ):
+        track_id = int(row["track_id"])
+        track_uuid = row["track_uuid"]
+        generation = int(row["content_generation"])
+        if not isinstance(track_uuid, str) or not track_uuid.strip():
+            raise QAError(f"Core tracks track_id={track_id}: invalid track_uuid")
+        if generation < 1:
+            raise QAError(
+                f"Core tracks track_id={track_id}: invalid content_generation"
+            )
+        tracks[track_id] = (track_uuid, generation)
+    return tracks
+
+
+def _require_current_track(
+    tracks: Mapping[int, tuple[str, int]],
+    *,
+    track_id: object,
+    track_uuid: object | None,
+    content_generation: object,
+    context: str,
+) -> None:
+    if isinstance(track_id, bool) or not isinstance(track_id, int):
+        raise QAError(f"{context}: invalid track_id")
+    current = tracks.get(track_id)
+    if current is None:
+        raise QAError(f"{context}: orphan track_id={track_id}")
+    current_uuid, current_generation = current
+    if track_uuid is not None and track_uuid != current_uuid:
+        raise QAError(
+            f"{context}: track_uuid mismatch for track_id={track_id}; "
+            f"artifact={track_uuid!r}, Core={current_uuid!r}"
+        )
+    if (
+        isinstance(content_generation, bool)
+        or not isinstance(content_generation, int)
+        or content_generation != current_generation
+    ):
+        raise QAError(
+            f"{context}: content_generation mismatch for track_id={track_id}; "
+            f"stored={content_generation!r}, Core={current_generation}"
+        )
+
+
+def _float32_values(blob: object, dim: int, context: str) -> list[float]:
+    if not isinstance(blob, (bytes, bytearray, memoryview)):
+        raise QAError(f"{context}: BLOB value is not bytes")
+    raw = bytes(blob)
+    expected_length = dim * 4
+    if len(raw) != expected_length:
+        raise QAError(
+            f"{context}: BLOB length mismatch; "
+            f"stored={len(raw)}, expected={expected_length}"
+        )
+    try:
+        values = [value for (value,) in struct.iter_unpack("<f", raw)]
+    except struct.error as error:
+        raise QAError(f"{context}: invalid float32-le BLOB") from error
+    if len(values) != dim:
+        raise QAError(
+            f"{context}: decoded dimension mismatch; "
+            f"stored={len(values)}, expected={dim}"
+        )
+    if not all(math.isfinite(value) for value in values):
+        raise QAError(f"{context}: BLOB contains non-finite float32 values")
+    return values
+
+
+def _validate_core_analysis(
+    core: sqlite3.Connection,
+    tracks: Mapping[int, tuple[str, int]],
+    contracts: Mapping[str, ContractIdentity],
+    active_release: str | None,
+) -> set[int]:
+    current_sonara_tracks: set[int] = set()
+    for row in core.execute("SELECT * FROM sonara ORDER BY track_id"):
+        track_id = row["track_id"]
+        context = f"Core sonara track_id={track_id}"
+        _require_current_track(
+            tracks,
+            track_id=track_id,
+            track_uuid=None,
+            content_generation=row["content_generation"],
+            context=context,
+        )
+        identity = _required_contract(
+            contracts,
+            row["contract_hash"],
+            context=context,
+            family="sonara",
+            output_kind="core",
+        )
+        _require_active_sonara_contract(identity, active_release, context)
+        for column, dim in _SONARA_SHORT_VECTORS.items():
+            _float32_values(row[column], dim, f"{context}.{column}")
+        current_sonara_tracks.add(int(track_id))
+
+    for row in core.execute("SELECT * FROM maest_scores ORDER BY track_id"):
+        track_id = row["track_id"]
+        context = f"Core maest_scores track_id={track_id}"
+        _require_current_track(
+            tracks,
+            track_id=track_id,
+            track_uuid=None,
+            content_generation=row["content_generation"],
+            context=context,
+        )
+        _required_contract(
+            contracts,
+            row["contract_hash"],
+            context=context,
+            family="maest",
+            output_kind="analysis",
+        )
+    return current_sonara_tracks
+
+
+def _non_empty_classifier_text(row: sqlite3.Row, field: str, context: str) -> str:
+    value = row[field]
+    if not isinstance(value, str) or not value.strip():
+        raise QAError(f"{context}: {field} must be non-empty text")
+    return value
+
+
+def _classifier_probability(
+    value: object,
+    *,
+    label: str,
+    context: str,
+) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise QAError(f"{context}: probability for {label!r} is not numeric")
+    probability = float(value)
+    if not math.isfinite(probability):
+        raise QAError(f"{context}: probability for {label!r} is non-finite")
+    if probability < 0.0 or probability > 1.0:
+        raise QAError(f"{context}: probability for {label!r} is outside [0, 1]")
+    return probability
+
+
+def _finite_unit_interval(value: object, field: str, context: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise QAError(f"{context}: {field} is not numeric")
+    result = float(value)
+    if not math.isfinite(result):
+        raise QAError(f"{context}: {field} is non-finite")
+    if result < 0.0 or result > 1.0:
+        raise QAError(f"{context}: {field} is outside [0, 1]")
+    return result
 
 
 def _score_bucket(score: float) -> str:
-    if score >= SCORE_BUCKET_HIGH:
+    if score >= 0.7:
         return "high"
-    if score >= SCORE_BUCKET_MEDIUM:
+    if score >= 0.3:
         return "medium"
     return "low"
 
 
-# ---------------------------------------------------------------------------
-# Check functions — each returns (ok: bool, reason: str | None)
-# ---------------------------------------------------------------------------
-
-
-def check_core_user_version(core_conn: sqlite3.Connection, db_path: Path) -> tuple[bool, Optional[str]]:
-    uv = _get_user_version(core_conn)
-    if uv != CORE_USER_VERSION:
-        return False, f"Core user_version={uv}, expected {CORE_USER_VERSION} (path: {db_path})"
-    return True, None
-
-
-def check_sidecar_user_version(conn: sqlite3.Connection, label: str, path: Path) -> tuple[bool, Optional[str]]:
-    uv = _get_user_version(conn)
-    if uv != SIDECAR_USER_VERSION:
-        return False, f"{label} user_version={uv}, expected {SIDECAR_USER_VERSION} (path: {path})"
-    return True, None
-
-
-def check_integrity(conn: sqlite3.Connection, label: str) -> tuple[bool, Optional[str]]:
-    result = _integrity_check(conn)
-    if result is not None:
-        return False, f"{label} integrity_check failed: {result}"
-    return True, None
-
-
-def check_foreign_keys(conn: sqlite3.Connection, label: str) -> tuple[bool, Optional[str]]:
-    result = _foreign_key_check(conn)
-    if result is not None:
-        return False, f"{label} foreign_key_check violation: {result}"
-    return True, None
-
-
-def check_required_tables(core_conn: sqlite3.Connection) -> tuple[bool, Optional[str]]:
-    present = _get_table_names(core_conn)
-    missing = REQUIRED_CORE_TABLES - present
-    if missing:
-        return False, f"Core missing tables: {sorted(missing)}"
-    return True, None
-
-
-def check_library_catalog_singleton(core_conn: sqlite3.Connection) -> tuple[bool, Optional[str]]:
-    count = core_conn.execute("SELECT COUNT(*) FROM library_catalog").fetchone()[0]
-    if count != 1:
-        return False, f"library_catalog has {count} rows, expected exactly 1"
-    return True, None
-
-
-def check_catalog_uuid_binding(
-    core_conn: sqlite3.Connection,
-    sidecar_conn: sqlite3.Connection,
-    sidecar_label: str,
-) -> tuple[bool, Optional[str]]:
-    core_row = core_conn.execute(
-        "SELECT catalog_uuid FROM library_catalog WHERE singleton_id = 1"
-    ).fetchone()
-    if core_row is None:
-        return False, "library_catalog singleton missing in Core"
-    core_uuid = core_row["catalog_uuid"]
-
-    meta_row = sidecar_conn.execute(
-        "SELECT catalog_uuid FROM storage_metadata WHERE singleton_id = 1"
-    ).fetchone()
-    if meta_row is None:
-        return False, f"{sidecar_label} storage_metadata singleton missing"
-    sidecar_uuid = meta_row["catalog_uuid"]
-
-    if core_uuid != sidecar_uuid:
-        return False, (
-            f"{sidecar_label} catalog_uuid mismatch: "
-            f"Core={core_uuid!r} vs sidecar={sidecar_uuid!r}"
-        )
-    return True, None
-
-
-def check_orphan_rows(
-    artifacts_conn: sqlite3.Connection,
-    core_conn: sqlite3.Connection,
-) -> tuple[bool, Optional[str]]:
-    """Check every artifacts sidecar table for orphaned track_id / contract_hash."""
-    # Collect valid sets from Core
-    valid_track_ids: set[int] = {
-        r[0] for r in core_conn.execute("SELECT track_id FROM tracks").fetchall()
-    }
-    valid_contract_hashes: set[str] = {
-        r[0] for r in core_conn.execute("SELECT contract_hash FROM contracts").fetchall()
-    }
-
-    present_tables = _get_table_names(artifacts_conn)
-
-    for table in ARTIFACTS_SIDECAR_TABLES:
-        if table not in present_tables:
-            continue
-
-        # Check track_id orphans
-        rows = artifacts_conn.execute(f"SELECT track_id, contract_hash FROM {table}").fetchall()  # noqa: S608
-        orphan_track_count = sum(1 for r in rows if r["track_id"] not in valid_track_ids)
-        if orphan_track_count > 0:
-            return False, f"orphaned {table} rows: {orphan_track_count} (track_id not in Core tracks)"
-
-        # Check contract_hash orphans
-        orphan_contract_count = sum(1 for r in rows if r["contract_hash"] not in valid_contract_hashes)
-        if orphan_contract_count > 0:
-            return False, f"orphaned {table} rows: {orphan_contract_count} (contract_hash not in Core contracts)"
-
-    return True, None
-
-
-def check_fts_integrity(core_conn: sqlite3.Connection) -> tuple[bool, Optional[str]]:
-    """FTS row count must be <= tracks row count."""
-    track_count = core_conn.execute("SELECT COUNT(*) FROM tracks").fetchone()[0]
-    fts_count = core_conn.execute("SELECT COUNT(*) FROM track_search_fts").fetchone()[0]
-
-    if track_count > 0 and fts_count == 0:
-        return False, f"track_search_fts is empty but Core has {track_count} tracks"
-    if fts_count > track_count:
-        return False, f"track_search_fts has {fts_count} rows but tracks has only {track_count}"
-    return True, None
-
-
-def check_classifier_invariants(core_conn: sqlite3.Connection) -> tuple[bool, Optional[str]]:
-    """Verify semantic invariants for every classifier_scores row."""
-    rows = core_conn.execute(
-        """
-        SELECT track_id, classifier_key, positive_label, predicted_class,
-               score_bucket, score, confidence, probabilities_json
-        FROM classifier_scores
-        """
+def _validate_classifier_scores(
+    core: sqlite3.Connection,
+    tracks: Mapping[int, tuple[str, int]],
+    active_release: str | None,
+    current_sonara_tracks: set[int],
+    active_required_outputs_hashes: frozenset[str],
+) -> None:
+    identities: dict[str, tuple[object, ...]] = {}
+    rows = core.execute(
+        "SELECT * FROM classifier_scores ORDER BY classifier_key, track_id"
     ).fetchall()
-
     for row in rows:
         track_id = row["track_id"]
-        classifier_key = row["classifier_key"]
-        ctx = f"classifier_scores track_id={track_id} classifier_key={classifier_key!r}"
+        classifier_key = _non_empty_classifier_text(
+            row,
+            "classifier_key",
+            f"Core classifier_scores track_id={track_id}",
+        )
+        context = (
+            f"Core classifier_scores track_id={track_id} "
+            f"classifier_key={classifier_key!r}"
+        )
+        _require_current_track(
+            tracks,
+            track_id=track_id,
+            track_uuid=None,
+            content_generation=row["content_generation"],
+            context=context,
+        )
+        model_id = _non_empty_classifier_text(row, "model_id", context)
+        feature_set = _non_empty_classifier_text(row, "feature_set", context)
+        feature_manifest_hash = _non_empty_classifier_text(
+            row,
+            "feature_manifest_hash",
+            context,
+        )
+        required_outputs_hash = _non_empty_classifier_text(
+            row,
+            "required_outputs_hash",
+            context,
+        )
+        if required_outputs_hash not in active_required_outputs_hashes:
+            raise QAError(
+                f"{context}: required_outputs_hash does not match active "
+                "analysis contracts"
+            )
+        positive_label = _non_empty_classifier_text(
+            row,
+            "positive_label",
+            context,
+        )
+        predicted_class = _non_empty_classifier_text(
+            row,
+            "predicted_class",
+            context,
+        )
 
-        # Parse probabilities
+        uses_sonara = row["uses_sonara"]
+        if uses_sonara not in (0, 1):
+            raise QAError(f"{context}: uses_sonara must be 0 or 1")
+        release_hash = row["sonara_release_hash"]
+        if uses_sonara:
+            if active_release is None:
+                raise QAError(
+                    f"{context}: SONARA-dependent score exists without an "
+                    "active SONARA release"
+                )
+            if release_hash != active_release:
+                raise QAError(
+                    f"{context}: sonara_release_hash mismatch; "
+                    f"stored={release_hash!r}, active={active_release!r}"
+                )
+            if track_id not in current_sonara_tracks:
+                raise QAError(
+                    f"{context}: SONARA-dependent score has no current SONARA Core row"
+                )
+        elif release_hash is not None:
+            raise QAError(f"{context}: non-SONARA score has sonara_release_hash")
+
+        identity = (
+            model_id,
+            feature_set,
+            feature_manifest_hash,
+            required_outputs_hash,
+            int(uses_sonara),
+            release_hash,
+            positive_label,
+        )
+        previous = identities.setdefault(classifier_key, identity)
+        if previous != identity:
+            raise QAError(
+                f"{context}: mixed classifier identity for one classifier_key"
+            )
+
         try:
-            probs: dict[str, float] = json.loads(row["probabilities_json"])
-        except (json.JSONDecodeError, TypeError) as exc:
-            return False, f"{ctx}: invalid probabilities_json: {exc}"
-
-        if not probs:
-            return False, f"{ctx}: probabilities_json is empty"
-
-        # Check predicted_class is the argmax (accept ties — just must be a max-value key)
-        max_prob = max(probs.values())
-        if probs.get(row["predicted_class"]) is None:
-            return False, f"{ctx}: predicted_class={row['predicted_class']!r} not in probabilities_json keys"
-        if abs(probs[row["predicted_class"]] - max_prob) > FLOAT_TOLERANCE:
-            return False, (
-                f"{ctx}: predicted_class={row['predicted_class']!r} has prob "
-                f"{probs[row['predicted_class']]} but max is {max_prob}"
+            raw_probabilities = json.loads(row["probabilities_json"])
+        except (TypeError, json.JSONDecodeError) as error:
+            raise QAError(f"{context}: invalid probabilities_json") from error
+        if not isinstance(raw_probabilities, dict) or not raw_probabilities:
+            raise QAError(f"{context}: probabilities_json must be a non-empty object")
+        probabilities: dict[str, float] = {}
+        for label, value in raw_probabilities.items():
+            if not isinstance(label, str) or not label.strip():
+                raise QAError(f"{context}: probability labels must be non-empty text")
+            probabilities[label] = _classifier_probability(
+                value,
+                label=label,
+                context=context,
             )
+        if not math.isclose(
+            math.fsum(probabilities.values()),
+            1.0,
+            rel_tol=0.0,
+            abs_tol=_PROBABILITY_TOLERANCE,
+        ):
+            raise QAError(f"{context}: probabilities do not sum to 1")
 
-        # Check score_bucket
-        expected_bucket = _score_bucket(row["score"])
+        if positive_label not in probabilities:
+            raise QAError(
+                f"{context}: positive_label is absent from probabilities_json"
+            )
+        if predicted_class not in probabilities:
+            raise QAError(
+                f"{context}: predicted_class is absent from probabilities_json"
+            )
+        max_probability = max(probabilities.values())
+        if not math.isclose(
+            probabilities[predicted_class],
+            max_probability,
+            rel_tol=0.0,
+            abs_tol=_PROBABILITY_TOLERANCE,
+        ):
+            raise QAError(f"{context}: predicted_class is not an argmax")
+
+        score = _finite_unit_interval(row["score"], "score", context)
+        confidence = _finite_unit_interval(
+            row["confidence"],
+            "confidence",
+            context,
+        )
+        if not math.isclose(
+            score,
+            probabilities[positive_label],
+            rel_tol=0.0,
+            abs_tol=_PROBABILITY_TOLERANCE,
+        ):
+            raise QAError(
+                f"{context}: score does not equal the positive-label probability"
+            )
+        if not math.isclose(
+            confidence,
+            max_probability,
+            rel_tol=0.0,
+            abs_tol=_PROBABILITY_TOLERANCE,
+        ):
+            raise QAError(f"{context}: confidence does not equal max(probabilities)")
+        expected_bucket = _score_bucket(score)
         if row["score_bucket"] != expected_bucket:
-            return False, (
-                f"{ctx}: score_bucket={row['score_bucket']!r} but score={row['score']} "
-                f"implies bucket={expected_bucket!r}"
+            raise QAError(
+                f"{context}: score_bucket={row['score_bucket']!r}, "
+                f"expected={expected_bucket!r}"
             )
 
-        # Check score == probabilities_json[positive_label]
-        positive_label = row["positive_label"]
-        if positive_label not in probs:
-            return False, f"{ctx}: positive_label={positive_label!r} not in probabilities_json keys"
-        expected_score = probs[positive_label]
-        if abs(row["score"] - expected_score) > FLOAT_TOLERANCE:
-            return False, (
-                f"{ctx}: score={row['score']} != probabilities_json[{positive_label!r}]={expected_score}"
+
+def _validate_embedding_row(
+    row: sqlite3.Row,
+    identity: ContractIdentity,
+    context: str,
+) -> None:
+    dim = row["dim"]
+    if isinstance(dim, bool) or not isinstance(dim, int) or dim <= 0:
+        raise QAError(f"{context}: dim must be a positive integer")
+    if identity.dim != dim:
+        raise QAError(f"{context}: dim mismatch; row={dim}, contract={identity.dim}")
+    if identity.encoding != FLOAT32_LE_ENCODING:
+        raise QAError(f"{context}: contract encoding is not {FLOAT32_LE_ENCODING!r}")
+    normalization = row["normalization"]
+    if normalization != identity.normalization:
+        raise QAError(
+            f"{context}: normalization mismatch; "
+            f"row={normalization!r}, contract={identity.normalization!r}"
+        )
+    values = _float32_values(row["embedding_blob"], dim, context)
+    if normalization == "l2":
+        norm = math.sqrt(math.fsum(value * value for value in values))
+        if not math.isclose(
+            norm,
+            1.0,
+            rel_tol=_L2_RELATIVE_TOLERANCE,
+            abs_tol=_L2_ABSOLUTE_TOLERANCE,
+        ):
+            raise QAError(
+                f"{context}: l2 embedding is not unit-normalized; norm={norm}"
             )
 
-        # Check confidence == max(probabilities_json.values())
-        expected_confidence = max_prob
-        if abs(row["confidence"] - expected_confidence) > FLOAT_TOLERANCE:
-            return False, (
-                f"{ctx}: confidence={row['confidence']} != max(probabilities)={expected_confidence}"
+
+def _validate_artifacts(
+    artifacts: sqlite3.Connection,
+    tracks: Mapping[int, tuple[str, int]],
+    contracts: Mapping[str, ContractIdentity],
+    active_release: str | None,
+) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for table, (family, output_kind) in _ARTIFACT_TABLE_CONTRACTS.items():
+        rows = artifacts.execute(
+            f'SELECT * FROM "{table}" ORDER BY track_id'
+        ).fetchall()
+        counts[table] = len(rows)
+        for row in rows:
+            track_id = row["track_id"]
+            context = f"Artifacts {table} track_id={track_id}"
+            _require_current_track(
+                tracks,
+                track_id=track_id,
+                track_uuid=row["track_uuid"],
+                content_generation=row["content_generation"],
+                context=context,
+            )
+            identity = _required_contract(
+                contracts,
+                row["contract_hash"],
+                context=context,
+                family=family,
+                output_kind=output_kind,
+            )
+            if family == "sonara":
+                _require_active_sonara_contract(
+                    identity,
+                    active_release,
+                    context,
+                )
+
+            if output_kind == "embedding":
+                _validate_embedding_row(row, identity, context)
+            elif output_kind == "timeline":
+                try:
+                    payload = json.loads(row["payload_json"])
+                except (TypeError, json.JSONDecodeError) as error:
+                    raise QAError(f"{context}: invalid payload_json") from error
+                if not isinstance(payload, dict):
+                    raise QAError(f"{context}: payload_json must contain an object")
+            else:
+                word_count = row["word_count"]
+                if (
+                    isinstance(word_count, bool)
+                    or not isinstance(word_count, int)
+                    or word_count < 0
+                ):
+                    raise QAError(
+                        f"{context}: word_count must be a non-negative integer"
+                    )
+                if row["byte_order"] != "little":
+                    raise QAError(f"{context}: byte_order must be 'little'")
+                blob = row["fingerprint_blob"]
+                if not isinstance(blob, (bytes, bytearray, memoryview)):
+                    raise QAError(f"{context}: fingerprint_blob is not bytes")
+                if len(blob) != word_count * 4:
+                    raise QAError(f"{context}: fingerprint BLOB length mismatch")
+    return counts
+
+
+def _run_qa(
+    db_path: Path,
+    artifacts_db_path: Path | None,
+    evaluation_db_path: Path | None,
+) -> int:
+    core_path = _resolved(db_path)
+    defaults = storage_database_paths(core_path)
+    artifacts_path = (
+        _resolved(artifacts_db_path)
+        if artifacts_db_path is not None
+        else defaults.artifacts
+    )
+    evaluation_path = (
+        _resolved(evaluation_db_path)
+        if evaluation_db_path is not None
+        else defaults.evaluation
+    )
+
+    with ExitStack() as stack:
+        core = _open_read_only(core_path, "Core")
+        stack.callback(core.close)
+        _quick_check(core, "Core")
+        catalog_uuid = _canonical_schema(
+            validate_core_schema,
+            core,
+            "Core",
+        )
+        _foreign_key_check(core, "Core")
+
+        tracks = _track_identities(core)
+        contracts = _load_contract_registry(core)
+        active_release = _active_sonara_release(core)
+        active_outputs: list[AnalysisOutput] = []
+        for row in core.execute(
+            """
+            SELECT setting_value
+            FROM library_settings
+            WHERE setting_key LIKE ?
+            ORDER BY setting_key
+            """,
+            (f"{ACTIVE_CONTRACT_SETTING_PREFIX}.%",),
+        ):
+            identity = contracts.get(str(row["setting_value"]))
+            if identity is None:
+                raise QAError("active analysis setting references an unknown contract")
+            if (
+                identity.analysis_family == "sonara"
+                and identity.release_hash != active_release
+            ):
+                raise QAError(
+                    "active SONARA contract release mismatch with active release"
+                )
+            active_outputs.append(AnalysisOutput(identity))
+        active_required_outputs_hashes = active_classifier_required_outputs_hashes(
+            active_outputs
+        )
+        current_sonara_tracks = _validate_core_analysis(
+            core,
+            tracks,
+            contracts,
+            active_release,
+        )
+        _validate_classifier_scores(
+            core,
+            tracks,
+            active_release,
+            current_sonara_tracks,
+            active_required_outputs_hashes,
+        )
+
+        artifacts = _open_read_only(artifacts_path, "required Artifacts")
+        stack.callback(artifacts.close)
+        _quick_check(artifacts, "Artifacts")
+        _canonical_schema(
+            validate_artifacts_sidecar_schema,
+            artifacts,
+            "Artifacts",
+            expected_catalog_uuid=catalog_uuid,
+        )
+        _foreign_key_check(artifacts, "Artifacts")
+        artifact_counts = _validate_artifacts(
+            artifacts,
+            tracks,
+            contracts,
+            active_release,
+        )
+
+        evaluation_present = evaluation_path.is_file()
+        evaluation_sessions = 0
+        if evaluation_path.exists() and not evaluation_present:
+            raise QAError(f"Evaluation sidecar path is not a file: {evaluation_path}")
+        if evaluation_present:
+            evaluation = _open_read_only(evaluation_path, "Evaluation")
+            stack.callback(evaluation.close)
+            _quick_check(evaluation, "Evaluation")
+            _canonical_schema(
+                validate_evaluation_sidecar_schema,
+                evaluation,
+                "Evaluation",
+                expected_catalog_uuid=catalog_uuid,
+            )
+            _foreign_key_check(evaluation, "Evaluation")
+            evaluation_sessions = int(
+                evaluation.execute("SELECT COUNT(*) FROM search_sessions").fetchone()[0]
             )
 
-    return True, None
+        track_count = len(tracks)
+        contract_count = len(contracts)
 
-
-# ---------------------------------------------------------------------------
-# Main QA runner
-# ---------------------------------------------------------------------------
+    print("QA PASSED", flush=True)
+    print(
+        f"Core: {core_path}, tracks={track_count}, contracts={contract_count}",
+        flush=True,
+    )
+    artifact_summary = ", ".join(
+        f"{table}={artifact_counts[table]}" for table in _ARTIFACT_TABLE_CONTRACTS
+    )
+    print(
+        f"Artifacts: {artifacts_path}, {artifact_summary}",
+        flush=True,
+    )
+    if evaluation_present:
+        print(
+            f"Evaluation: {evaluation_path}, search_sessions={evaluation_sessions}",
+            flush=True,
+        )
+    else:
+        print(f"Evaluation: not present ({evaluation_path})", flush=True)
+    return 0
 
 
 def run_qa(
     db_path: Path,
-    artifacts_db_path: Optional[Path],
-    evaluation_db_path: Optional[Path],
+    artifacts_db_path: Path | None,
+    evaluation_db_path: Path | None,
 ) -> int:
-    """Run all QA checks. Returns 0 on pass, 1 on fail."""
-
-    # Derive sidecar paths from Core path if not provided
-    if artifacts_db_path is None:
-        artifacts_db_path = db_path.parent / (db_path.name + ".artifacts.sqlite")
-    if evaluation_db_path is None:
-        evaluation_db_path = db_path.parent / (db_path.name + ".evaluation.sqlite")
-
-    # --- Open Core ---
-    if not db_path.exists():
-        return _fail(f"Core database not found: {db_path}")
+    """Run v7 QA without creating or changing any database file."""
 
     try:
-        core_conn = _open_ro(db_path)
-    except sqlite3.Error as exc:
-        return _fail(f"Cannot open Core database {db_path}: {exc}")
-
-    # --- Schema integrity: Core ---
-    ok, reason = check_core_user_version(core_conn, db_path)
-    if not ok:
-        core_conn.close()
-        return _fail(reason)  # type: ignore[arg-type]
-
-    ok, reason = check_integrity(core_conn, "Core")
-    if not ok:
-        core_conn.close()
-        return _fail(reason)  # type: ignore[arg-type]
-
-    ok, reason = check_foreign_keys(core_conn, "Core")
-    if not ok:
-        core_conn.close()
-        return _fail(reason)  # type: ignore[arg-type]
-
-    ok, reason = check_required_tables(core_conn)
-    if not ok:
-        core_conn.close()
-        return _fail(reason)  # type: ignore[arg-type]
-
-    ok, reason = check_library_catalog_singleton(core_conn)
-    if not ok:
-        core_conn.close()
-        return _fail(reason)  # type: ignore[arg-type]
-
-    # --- FTS integrity ---
-    ok, reason = check_fts_integrity(core_conn)
-    if not ok:
-        core_conn.close()
-        return _fail(reason)  # type: ignore[arg-type]
-
-    # --- Classifier semantic invariants ---
-    ok, reason = check_classifier_invariants(core_conn)
-    if not ok:
-        core_conn.close()
-        return _fail(reason)  # type: ignore[arg-type]
-
-    # Gather Core stats for output
-    track_count = core_conn.execute("SELECT COUNT(*) FROM tracks").fetchone()[0]
-    contract_count = core_conn.execute("SELECT COUNT(*) FROM contracts").fetchone()[0]
-
-    # --- Artifacts sidecar ---
-    artifacts_present = artifacts_db_path.exists()
-    artifacts_conn: Optional[sqlite3.Connection] = None
-    artifacts_stats: dict[str, int] = {}
-
-    if artifacts_present:
-        try:
-            artifacts_conn = _open_ro(artifacts_db_path)
-        except sqlite3.Error as exc:
-            core_conn.close()
-            return _fail(f"Cannot open artifacts sidecar {artifacts_db_path}: {exc}")
-
-        ok, reason = check_sidecar_user_version(artifacts_conn, "Artifacts sidecar", artifacts_db_path)
-        if not ok:
-            artifacts_conn.close()
-            core_conn.close()
-            return _fail(reason)  # type: ignore[arg-type]
-
-        ok, reason = check_integrity(artifacts_conn, "Artifacts sidecar")
-        if not ok:
-            artifacts_conn.close()
-            core_conn.close()
-            return _fail(reason)  # type: ignore[arg-type]
-
-        ok, reason = check_foreign_keys(artifacts_conn, "Artifacts sidecar")
-        if not ok:
-            artifacts_conn.close()
-            core_conn.close()
-            return _fail(reason)  # type: ignore[arg-type]
-
-        ok, reason = check_catalog_uuid_binding(core_conn, artifacts_conn, "Artifacts sidecar")
-        if not ok:
-            artifacts_conn.close()
-            core_conn.close()
-            return _fail(reason)  # type: ignore[arg-type]
-
-        ok, reason = check_orphan_rows(artifacts_conn, core_conn)
-        if not ok:
-            artifacts_conn.close()
-            core_conn.close()
-            return _fail(reason)  # type: ignore[arg-type]
-
-        # Gather stats
-        present_tables = _get_table_names(artifacts_conn)
-        for table in ARTIFACTS_SIDECAR_TABLES:
-            if table in present_tables:
-                artifacts_stats[table] = artifacts_conn.execute(
-                    f"SELECT COUNT(*) FROM {table}"  # noqa: S608
-                ).fetchone()[0]
-
-        artifacts_conn.close()
-
-    # --- Evaluation sidecar ---
-    evaluation_present = evaluation_db_path.exists()
-    evaluation_conn: Optional[sqlite3.Connection] = None
-    evaluation_stats: dict[str, int] = {}
-
-    if evaluation_present:
-        try:
-            evaluation_conn = _open_ro(evaluation_db_path)
-        except sqlite3.Error as exc:
-            core_conn.close()
-            return _fail(f"Cannot open evaluation sidecar {evaluation_db_path}: {exc}")
-
-        ok, reason = check_sidecar_user_version(evaluation_conn, "Evaluation sidecar", evaluation_db_path)
-        if not ok:
-            evaluation_conn.close()
-            core_conn.close()
-            return _fail(reason)  # type: ignore[arg-type]
-
-        ok, reason = check_integrity(evaluation_conn, "Evaluation sidecar")
-        if not ok:
-            evaluation_conn.close()
-            core_conn.close()
-            return _fail(reason)  # type: ignore[arg-type]
-
-        ok, reason = check_foreign_keys(evaluation_conn, "Evaluation sidecar")
-        if not ok:
-            evaluation_conn.close()
-            core_conn.close()
-            return _fail(reason)  # type: ignore[arg-type]
-
-        ok, reason = check_catalog_uuid_binding(core_conn, evaluation_conn, "Evaluation sidecar")
-        if not ok:
-            evaluation_conn.close()
-            core_conn.close()
-            return _fail(reason)  # type: ignore[arg-type]
-
-        # Gather stats
-        evaluation_stats["search_sessions"] = evaluation_conn.execute(
-            "SELECT COUNT(*) FROM search_sessions"
-        ).fetchone()[0]
-        evaluation_conn.close()
-
-    core_conn.close()
-
-    # --- All checks passed — print summary ---
-    print("QA PASSED", flush=True)
-    print(f"Core: {db_path}, tracks={track_count}, contracts={contract_count}", flush=True)
-
-    if artifacts_present:
-        stats_str = ", ".join(f"{t}={artifacts_stats.get(t, 0)}" for t in ARTIFACTS_SIDECAR_TABLES)
-        print(f"Artifacts sidecar: {artifacts_db_path}, {stats_str}", flush=True)
-    else:
-        print(f"Artifacts sidecar: not present ({artifacts_db_path})", flush=True)
-
-    if evaluation_present:
-        print(
-            f"Evaluation sidecar: {evaluation_db_path}, "
-            f"search_sessions={evaluation_stats.get('search_sessions', 0)}",
-            flush=True,
+        return _run_qa(
+            db_path,
+            artifacts_db_path,
+            evaluation_db_path,
         )
-    else:
-        print(f"Evaluation sidecar: not present ({evaluation_db_path})", flush=True)
-
-    return 0
-
-
-# ---------------------------------------------------------------------------
-# CLI entry point
-# ---------------------------------------------------------------------------
+    except (QAError, sqlite3.Error, OSError, TypeError, ValueError) as error:
+        return _fail(str(error))
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="QA harness for a migrated v7 library database.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Read-only QA for a clean v7 library bundle.",
     )
     parser.add_argument(
         "--db",
         required=True,
         metavar="PATH",
-        help="Path to the v7 Core SQLite database (required).",
+        help="Path to the v7 Core SQLite database.",
     )
     parser.add_argument(
         "--artifacts-db",
         metavar="PATH",
         default=None,
         help=(
-            "Path to the artifacts sidecar SQLite database. "
-            "Defaults to <db>.artifacts.sqlite adjacent to --db."
+            "Required Artifacts sidecar path. By default, library.sqlite "
+            "uses adjacent library.artifacts.sqlite."
         ),
     )
     parser.add_argument(
@@ -511,22 +825,24 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         default=None,
         help=(
-            "Path to the evaluation sidecar SQLite database. "
-            "Defaults to <db>.evaluation.sqlite adjacent to --db."
+            "Optional Evaluation sidecar path. By default, library.sqlite "
+            "uses adjacent library.evaluation.sqlite and absence is allowed."
         ),
     )
     return parser
 
 
-def main(argv: Optional[list[str]] = None) -> int:
-    parser = _build_parser()
-    args = parser.parse_args(argv)
-
-    db_path = Path(args.db)
-    artifacts_db_path = Path(args.artifacts_db) if args.artifacts_db else None
-    evaluation_db_path = Path(args.evaluation_db) if args.evaluation_db else None
-
-    return run_qa(db_path, artifacts_db_path, evaluation_db_path)
+def main(argv: Sequence[str] | None = None) -> int:
+    args = _build_parser().parse_args(argv)
+    return run_qa(
+        db_path=Path(args.db),
+        artifacts_db_path=(
+            Path(args.artifacts_db) if args.artifacts_db is not None else None
+        ),
+        evaluation_db_path=(
+            Path(args.evaluation_db) if args.evaluation_db is not None else None
+        ),
+    )
 
 
 if __name__ == "__main__":

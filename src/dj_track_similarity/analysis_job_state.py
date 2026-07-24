@@ -9,7 +9,7 @@ from .analysis_config import (
     DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
     DEFAULT_SONARA_BATCH_SIZE,
 )
-from .models import Track
+from .analysis_models import AnalysisCandidate
 
 
 @dataclass(frozen=True)
@@ -51,7 +51,6 @@ class AnalysisJobStatus:
     job_id: str
     state: str
     adapter_name: str = "multi"
-    embedding_key: str = "multi"
     models: list[str] = field(default_factory=lambda: list(ANALYSIS_MODEL_ORDER))
     current_model: str | None = None
     model_progress: dict[str, AnalysisModelProgress] = field(default_factory=dict)
@@ -90,13 +89,20 @@ def initial_model_progress(
 
 
 def initial_track_outcomes(
-    tracks: Sequence[Track],
+    candidates: Sequence[AnalysisCandidate],
     targets_by_track: Mapping[int, tuple[str, ...]],
 ) -> dict[int, AnalysisTrackOutcome]:
-    return {track.id: AnalysisTrackOutcome(target_count=len(targets_by_track[track.id])) for track in tracks}
+    return {
+        candidate.target.track_id: AnalysisTrackOutcome(
+            target_count=len(targets_by_track[candidate.target.track_id])
+        )
+        for candidate in candidates
+    }
 
 
-def record_track_model_result(outcome: AnalysisTrackOutcome | None, *, failed: bool) -> None:
+def record_track_model_result(
+    outcome: AnalysisTrackOutcome | None, *, failed: bool
+) -> None:
     if outcome is None:
         return
     if failed:
@@ -111,7 +117,9 @@ def record_model_success(status: AnalysisJobStatus, model: str) -> None:
     progress.analyzed += 1
 
 
-def record_model_failure(status: AnalysisJobStatus, model: str, error: AnalysisTrackError) -> None:
+def record_model_failure(
+    status: AnalysisJobStatus, model: str, error: AnalysisTrackError
+) -> None:
     progress = status.model_progress[model]
     progress.processed += 1
     progress.failed += 1
@@ -149,7 +157,6 @@ def copy_analysis_status(status: AnalysisJobStatus) -> AnalysisJobStatus:
         job_id=status.job_id,
         state=status.state,
         adapter_name=status.adapter_name,
-        embedding_key=status.embedding_key,
         models=list(status.models),
         current_model=status.current_model,
         model_progress={

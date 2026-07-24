@@ -1,11 +1,17 @@
 # Quickstart: scan, analyze, search
 
 > Audience: New users who want one working pass before reading details.
-> Goal: Create a database, open the UI, and make the first useful search.
+> Goal: Create a database, start the v7 backend, and make the first useful search.
 > Type: tutorial
 
-The commands below create a local catalog and analyze 25 tracks so the browser UI has real search
-results. Keep this first batch small while you verify setup and compare search surfaces.
+::: warning v7 frontend status
+The React workflow below documents the deferred frontend. It has not been ported to the schema-v7
+API, so these UI steps are not currently validated or available for v7. Use the backend CLI or API
+alternative below.
+:::
+
+The commands below create a local catalog and analyze 25 tracks so the active backend has real
+search data. Keep this first batch small while you verify setup and compare search surfaces.
 
 At the end, choose a familiar track and listen to the candidates the app places near it. That first
 shortlist is the useful result of the quickstart.
@@ -18,7 +24,8 @@ These commands assume the Python environment is active.
 python -m pip install -e ".[dev]"
 ```
 
-The base install supports scanning, browsing, serving the UI, exporting, database operations, and existing SQLite analysis data. For new analysis jobs, install the optional extras later:
+The base install supports scanning, backend API serving, exporting, database operations, and
+existing SQLite analysis data. For new analysis jobs, install the optional extras later:
 
 ```powershell
 python -m pip install -e ".[sonara,ml,dev]"
@@ -46,9 +53,15 @@ files.
 Install analysis extras first if you have not done so. Then run a small batch:
 
 ```powershell
-dj-sim analyze --models sonara --limit 25 --db .\data\library.sqlite
+mkdir .\backups
+dj-sim prepare-sonara-release --db .\data\library.sqlite --backup-dir .\backups --confirm "PREPARE SONARA RELEASE"
+dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --limit 25 --db .\data\library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --limit 25 --db .\data\library.sqlite
 ```
+
+Fresh v7 bundles must activate the loaded immutable SONARA release before the first SONARA job.
+Preparation derives all four `core`, `timeline`, `embedding`, and `fingerprint` contracts, verifies
+the Core and Artifacts backups, and records a resumable receipt.
 
 A small limit confirms the model stack before you analyze every track. It also lets you hear what
 each search approach returns before spending time on full-library analysis.
@@ -60,19 +73,13 @@ each search approach returns before spending time on full-library analysis.
 - MuQ is only used by LAB Reference Compare in this release. You can omit it when you only want seed
   search, SET, Hybrid, or text search.
 
-In the CLI, omit `--limit` for the whole library. In the UI, `Analyze limit = 0` means the whole
-library.
+In the CLI, omit `--limit` for the whole library. The deferred UI uses `Analyze limit = 0` for the
+whole library, but that control is not currently available for v7.
 
-## 4. Start the UI
+## 4. Start the v7 backend API
 
 ```powershell
 dj-sim serve --host 127.0.0.1 --port 8765 --db .\data\library.sqlite
-```
-
-Open:
-
-```text
-http://127.0.0.1:8765/
 ```
 
 If you use the Windows launcher:
@@ -81,9 +88,32 @@ If you use the Windows launcher:
 run_server.cmd local --db .\data\library.sqlite
 ```
 
-Use `run_server.cmd lan --db .\data\library.sqlite` only when you want the server reachable from other devices on the local network. The server command keeps its terminal occupied. Run later CLI jobs in a second activated terminal or use the UI analysis controls.
+Use `run_server.cmd lan --db .\data\library.sqlite` only when you want the server reachable from
+other devices on the local network. The server command keeps its terminal occupied. Run later CLI
+jobs in a second activated terminal.
 
-## 5. Try the UI flow
+Do not treat the page served at `http://127.0.0.1:8765/` as a validated v7 frontend. The active
+surface is the backend API.
+
+## 5. Check the current v7 backend
+
+In a second PowerShell terminal, read the library summary and the first 25 track rows:
+
+```powershell
+Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/library/summary'
+Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/tracks?limit=25'
+```
+
+For a first text shortlist, use the CLI after CLAP analysis:
+
+```powershell
+dj-sim text-search "dark hypnotic techno, rolling bass, no vocals" --limit 20 --db .\data\library.sqlite
+```
+
+Seed search, SONARA search, SET, and export are available through the current backend endpoints
+documented in the [API reference](../reference/api.md).
+
+## Deferred frontend flow
 
 1. In **Database and analysis**, confirm the SQLite path and music root.
 2. In **Library**, search or page to a track.
@@ -94,8 +124,8 @@ Use `run_server.cmd lan --db .\data\library.sqlite` only when you want the serve
 6. Preview candidates by ear before adding them to the current set.
 7. Export the set as M3U or CSV when it is useful.
 
-You now have a working loop: start from an idea, get a shortlist, listen, keep the useful tracks,
-and export only when the list has earned it.
+After the React port, this flow is intended to provide the same listening-led loop: start from an
+idea, get a shortlist, listen, keep the useful tracks, and export only when the list has earned it.
 
 ## If something fails
 

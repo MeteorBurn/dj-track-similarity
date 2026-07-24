@@ -10,7 +10,7 @@
 flowchart LR
     CLI[Typer CLI] --> DB[LibraryDatabase]
     API[FastAPI backend] --> DB
-    UI[React frontend] --> API
+    UI["React frontend (v7 port deferred)"] -.-> API
     Audio[Audio files] --> Sonara[SONARA / Symphonia]
     Audio --> FFmpeg[FFmpeg shared ML decode]
     Sonara --> Queue[Sequential analysis queue]
@@ -24,7 +24,7 @@ flowchart LR
 
 ## Code map
 
-- `database.py`, `db_schema.py`, `db_storage.py`, and `db_analysis*.py` cover the Core and attached sidecar schemas. These modules also handle analysis persistence, signature queries, caches, resets, and clear.
+- `database.py`, `db_connection.py`, `db_schema_v7.py`, `db_artifacts.py`, `db_evaluation_sidecar.py`, `db_storage.py`, and `db_analysis*.py` cover Core, required Artifacts, and optional Evaluation. These modules also handle analysis persistence, contract queries, resets, and clear.
 - `scanner.py`: supported audio discovery and Mutagen metadata reads.
 - `analysis_queue.py`: one sequential worker shared by manual and pipeline analysis stages.
 - `analysis_jobs.py` and `sonara_features.py`: separate ML jobs, native batched SONARA capture, and
@@ -35,11 +35,11 @@ flowchart LR
 - `search.py`, `sonara_similarity*.py`, `set_builder.py`, and `transition_diagnostics.py`: search, SET ordering, and transition-risk logic.
 - `classifier_manifest.py`, `classifier_scoring.py`, and `classifier_jobs.py`: promoted artifact validation, manifest-specific readiness, aggregate progress, and database-only scoring.
 - `api_routes_*.py`: FastAPI route groups.
-- `frontend/src/`: API mirror and UI panels.
+- `frontend/src/`: pre-v7 API mirror and UI panels. The v7 port is deferred.
 
-The selected `library.sqlite` file is Core. It keeps the MAEST, MERT, MuQ, and CLAP embeddings used
-by search and ranking in one indexed `embeddings` table. Complete SONARA time arrays live in
-`library.timeline.sqlite`; the optional SONARA embedding and fingerprint live in
-`library.representations.sqlite`. Every connection attaches the matching pair and verifies one shared
-catalog ID. Hot search rows keep lightweight SONARA fields and two field-name manifests; search, SET,
-and classifier scoring never load Timeline payloads.
+Selecting a fresh `library.sqlite` path creates schema-v7 Core and mandatory
+`library.artifacts.sqlite`, bound by one `catalog_uuid`. Optional
+`library.evaluation.sqlite` is created only by evaluation workflows. Core stores catalog, track,
+tags, contracts, compact analysis rows, scores, likes, feedback, and FTS. Artifacts stores dedicated
+MAEST/MERT/MuQ/CLAP embeddings plus SONARA `timeline`, `embedding`, and `fingerprint` outputs. A
+non-v7 or incomplete bundle fails closed. There is no runtime migration path.

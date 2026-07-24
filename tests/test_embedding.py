@@ -1,4 +1,8 @@
+# ruff: noqa: E402
+
 import logging
+import hashlib
+from pathlib import Path
 import sys
 import types
 
@@ -21,11 +25,27 @@ from dj_track_similarity.embedding import (
 from dj_track_similarity.logging_config import configure_logging
 
 
-def test_clap_adapter_uses_music_checkpoint() -> None:
+def test_clap_adapter_uses_immutable_music_checkpoint_identity() -> None:
     assert ClapEmbeddingAdapter.embedding_key == "clap"
     assert ClapEmbeddingAdapter.checkpoint_repo == "lukewys/laion_clap"
-    assert ClapEmbeddingAdapter.checkpoint_filename == "music_audioset_epoch_15_esc_90.14.pt"
-    assert ClapEmbeddingAdapter.model_name == "lukewys/laion_clap/music_audioset_epoch_15_esc_90.14.pt"
+    assert (
+        ClapEmbeddingAdapter.checkpoint_filename
+        == "music_audioset_epoch_15_esc_90.14.pt"
+    )
+    assert (
+        ClapEmbeddingAdapter.model_name
+        == "lukewys/laion_clap/music_audioset_epoch_15_esc_90.14.pt"
+    )
+    assert (
+        ClapEmbeddingAdapter.model_revision
+        == "b3708341862f581175dba5c356a4ebf74a9b6651"
+    )
+    assert (
+        ClapEmbeddingAdapter.checkpoint_sha256
+        == "fae3e9c087f2909c28a09dc31c8dfcdacbc42ba44c70e972b58c1bd1caf6dedd"
+    )
+    assert ClapEmbeddingAdapter.loader_version == "1.1.7"
+    assert ClapEmbeddingAdapter.hub_version == "1.22.0"
 
 
 def test_muq_adapter_uses_official_large_msd_checkpoint() -> None:
@@ -62,8 +82,16 @@ def test_muq_adapter_rejects_requested_cuda_when_unavailable() -> None:
         adapter._device()
 
 
-def test_clap_text_embedding_loads_laion_music_checkpoint(monkeypatch) -> None:
+def test_clap_text_embedding_preflights_pinned_verified_checkpoint_once(
+    monkeypatch, tmp_path
+) -> None:
     calls: dict[str, object] = {}
+    checkpoint = tmp_path / "checkpoint.pt"
+    checkpoint.write_bytes(b"stub checkpoint")
+    text_snapshot = tmp_path / "roberta-snapshot"
+    text_snapshot.mkdir()
+    for file_name in ClapEmbeddingAdapter.text_snapshot_files:
+        (text_snapshot / file_name).write_bytes(file_name.encode())
 
     torch_module = types.ModuleType("torch")
 
@@ -86,17 +114,71 @@ def test_clap_text_embedding_loads_laion_music_checkpoint(monkeypatch) -> None:
     torchaudio_module = types.ModuleType("torchaudio")
     hf_module = types.ModuleType("huggingface_hub")
 
-    def fake_hf_hub_download(repo_id, filename):
-        calls["download"] = (repo_id, filename)
-        return "checkpoint.pt"
+    def fake_hf_hub_download(*, repo_id, filename, revision):
+        calls.setdefault("downloads", []).append((repo_id, filename, revision))
+        return str(checkpoint)
 
     hf_module.hf_hub_download = fake_hf_hub_download
 
+    def fake_snapshot_download(*, repo_id, revision, allow_patterns):
+        calls["text_download"] = (repo_id, revision, allow_patterns)
+        return str(text_snapshot)
+
+    hf_module.snapshot_download = fake_snapshot_download
+
+    class ExactTokenizerLoader:
+        @staticmethod
+        def from_pretrained(source, **kwargs):
+            calls["tokenizer_load"] = (source, kwargs)
+            (text_snapshot / "config.json").write_bytes(b"mutated source")
+            assert (Path(source) / "config.json").read_bytes() == b"config.json"
+            return object()
+
+    class ExactModelLoader:
+        @staticmethod
+        def from_pretrained(source, **kwargs):
+            calls["model_load"] = (source, kwargs)
+            assert (Path(source) / "config.json").read_bytes() == b"config.json"
+            return object()
+
+    transformers_module = types.ModuleType("transformers")
+    transformers_module.RobertaTokenizer = ExactTokenizerLoader
+    transformers_module.RobertaModel = ExactModelLoader
+
     laion_module = types.ModuleType("laion_clap")
+    hook_module = types.ModuleType("laion_clap.hook")
+    clap_model_module = types.ModuleType("clap_module.model")
+
+    class FloatingTokenizerLoader:
+        @staticmethod
+        def from_pretrained(*_args, **_kwargs):
+            raise AssertionError("floating tokenizer load was not redirected")
+
+    class FloatingModelLoader:
+        @staticmethod
+        def from_pretrained(*_args, **_kwargs):
+            raise AssertionError("floating model load was not redirected")
+
+    class FakeInternalClap:
+        pass
+
+    FakeInternalClap.__module__ = "clap_module.model"
+
+    def create_model_template():
+        return None
+
+    hook_module.create_model = types.FunctionType(
+        create_model_template.__code__,
+        {"CLAP": FakeInternalClap},
+    )
+    hook_module.RobertaTokenizer = FloatingTokenizerLoader
+    clap_model_module.RobertaModel = FloatingModelLoader
 
     class FakeClapModule:
-        def __init__(self, *, enable_fusion, amodel, device):
-            calls["module"] = (enable_fusion, amodel, device)
+        def __init__(self, *, enable_fusion, amodel, tmodel, device):
+            calls["module"] = (enable_fusion, amodel, tmodel, device)
+            hook_module.RobertaTokenizer.from_pretrained("roberta-base")
+            clap_model_module.RobertaModel.from_pretrained("roberta-base")
 
         def load_ckpt(self, checkpoint_path):
             calls["checkpoint"] = checkpoint_path
@@ -105,24 +187,102 @@ def test_clap_text_embedding_loads_laion_music_checkpoint(monkeypatch) -> None:
             calls["texts"] = (texts, use_tensor)
             return np.array([[0.0, 2.0, 0.0]], dtype=np.float32)
 
+    FakeClapModule.__module__ = "laion_clap.hook"
+    hook_module.CLAP_Module = FakeClapModule
     laion_module.CLAP_Module = FakeClapModule
 
     monkeypatch.setitem(sys.modules, "torch", torch_module)
     monkeypatch.setitem(sys.modules, "torchaudio", torchaudio_module)
     monkeypatch.setitem(sys.modules, "huggingface_hub", hf_module)
+    monkeypatch.setitem(sys.modules, "transformers", transformers_module)
     monkeypatch.setitem(sys.modules, "laion_clap", laion_module)
+    monkeypatch.setitem(sys.modules, "laion_clap.hook", hook_module)
+    monkeypatch.setitem(sys.modules, "clap_module.model", clap_model_module)
+    monkeypatch.setattr(
+        embedding,
+        "_require_distribution_version",
+        lambda distribution, version: calls.setdefault("versions", []).append(
+            (distribution, version)
+        ),
+    )
 
-    vector = ClapEmbeddingAdapter(device="cpu").embed_text("warm minimal house")
+    def verify(path, *, expected_sha256, description):
+        calls["verify"] = (path, expected_sha256, description)
 
-    assert calls["download"] == ("lukewys/laion_clap", "music_audioset_epoch_15_esc_90.14.pt")
-    assert calls["module"] == (False, "HTSAT-base", "device:cpu")
-    assert calls["checkpoint"] == "checkpoint.pt"
+    monkeypatch.setattr(embedding, "_verify_checkpoint_sha256", verify)
+
+    adapter = ClapEmbeddingAdapter(device="cpu")
+    adapter.checkpoint_sha256 = hashlib.sha256(b"stub checkpoint").hexdigest()
+    adapter.text_snapshot_sha256 = tuple(
+        (
+            file_name,
+            hashlib.sha256(file_name.encode()).hexdigest(),
+        )
+        for file_name in adapter.text_snapshot_files
+    )
+    adapter.text_checkpoint_sha256 = dict(adapter.text_snapshot_sha256)[
+        adapter.text_checkpoint_filename
+    ]
+    adapter.preflight()
+    adapter.preflight()
+    vector = adapter.embed_text("warm minimal house")
+
+    assert calls["versions"] == [
+        ("laion-clap", "1.1.7"),
+        ("transformers", "5.13.0"),
+        ("huggingface-hub", "1.22.0"),
+    ]
+    assert calls["downloads"] == [
+        (
+            "lukewys/laion_clap",
+            "music_audioset_epoch_15_esc_90.14.pt",
+            "b3708341862f581175dba5c356a4ebf74a9b6651",
+        )
+    ]
+    assert calls["verify"] == (
+        text_snapshot / adapter.text_checkpoint_filename,
+        adapter.text_checkpoint_sha256,
+        (
+            "roberta-base@"
+            "e2da8e2f811d1448a5b465c236feacd80ffbac7b/"
+            "model.safetensors"
+        ),
+    )
+    assert calls["text_download"] == (
+        "roberta-base",
+        "e2da8e2f811d1448a5b465c236feacd80ffbac7b",
+        list(adapter.text_snapshot_files),
+    )
+    assert calls["module"] == (
+        False,
+        "HTSAT-base",
+        "roberta",
+        "device:cpu",
+    )
+    assert calls["checkpoint"] != str(checkpoint)
+    tokenizer_path, tokenizer_kwargs = calls["tokenizer_load"]
+    model_path, model_kwargs = calls["model_load"]
+    assert tokenizer_path == model_path
+    assert tokenizer_path != "roberta-base"
+    assert not Path(tokenizer_path).exists()
+    assert tokenizer_kwargs == {"local_files_only": True}
+    assert model_kwargs == {"local_files_only": True}
+    assert hook_module.RobertaTokenizer is FloatingTokenizerLoader
+    assert clap_model_module.RobertaModel is FloatingModelLoader
     assert calls["texts"] == (["warm minimal house"], False)
     assert vector.tolist() == [0.0, 1.0, 0.0]
 
 
-def test_clap_model_load_stdout_and_stderr_are_written_to_app_log(monkeypatch, tmp_path) -> None:
+def test_clap_model_load_stdout_and_stderr_are_written_to_app_log(
+    monkeypatch, tmp_path
+) -> None:
     log_path = tmp_path / "app.log"
+    checkpoint = tmp_path / "checkpoint.pt"
+    checkpoint.write_bytes(b"stub checkpoint")
+    text_snapshot = tmp_path / "roberta-snapshot"
+    text_snapshot.mkdir()
+    for file_name in ClapEmbeddingAdapter.text_snapshot_files:
+        (text_snapshot / file_name).write_bytes(file_name.encode())
     monkeypatch.setenv("DJ_TRACK_SIMILARITY_LOG", str(log_path))
     configure_logging()
 
@@ -146,12 +306,18 @@ def test_clap_model_load_stdout_and_stderr_are_written_to_app_log(monkeypatch, t
 
     torchaudio_module = types.ModuleType("torchaudio")
     hf_module = types.ModuleType("huggingface_hub")
-    hf_module.hf_hub_download = lambda repo_id, filename: "checkpoint.pt"
+    hf_module.hf_hub_download = lambda *, repo_id, filename, revision: str(checkpoint)
+    hf_module.snapshot_download = (
+        lambda *, repo_id, revision, allow_patterns: str(text_snapshot)
+    )
+    transformers_module = types.ModuleType("transformers")
+    transformers_module.RobertaModel = object()
+    transformers_module.RobertaTokenizer = object()
 
     laion_module = types.ModuleType("laion_clap")
 
     class FakeClapModule:
-        def __init__(self, *, enable_fusion, amodel, device):
+        def __init__(self, *, enable_fusion, amodel, tmodel, device):
             print("[transformers] RobertaModel LOAD REPORT from: roberta-base")
 
         def load_ckpt(self, checkpoint_path):
@@ -166,15 +332,49 @@ def test_clap_model_load_stdout_and_stderr_are_written_to_app_log(monkeypatch, t
     monkeypatch.setitem(sys.modules, "torch", torch_module)
     monkeypatch.setitem(sys.modules, "torchaudio", torchaudio_module)
     monkeypatch.setitem(sys.modules, "huggingface_hub", hf_module)
+    monkeypatch.setitem(sys.modules, "transformers", transformers_module)
     monkeypatch.setitem(sys.modules, "laion_clap", laion_module)
+    monkeypatch.setattr(
+        embedding,
+        "_require_distribution_version",
+        lambda *_args: None,
+    )
+    monkeypatch.setattr(
+        embedding,
+        "_verify_checkpoint_sha256",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        embedding,
+        "_construct_clap_module_with_pinned_text_model",
+        lambda clap_module_type, **kwargs: clap_module_type(
+            enable_fusion=kwargs["enable_fusion"],
+            amodel=kwargs["amodel"],
+            tmodel=kwargs["tmodel"],
+            device=kwargs["device"],
+        ),
+    )
 
-    ClapEmbeddingAdapter(device="cpu").embed_text("warm minimal house")
+    adapter = ClapEmbeddingAdapter(device="cpu")
+    adapter.checkpoint_sha256 = hashlib.sha256(b"stub checkpoint").hexdigest()
+    adapter.text_snapshot_sha256 = tuple(
+        (
+            file_name,
+            hashlib.sha256(file_name.encode()).hexdigest(),
+        )
+        for file_name in adapter.text_snapshot_files
+    )
+    adapter.text_checkpoint_sha256 = dict(adapter.text_snapshot_sha256)[
+        adapter.text_checkpoint_filename
+    ]
+    adapter.embed_text("warm minimal house")
 
     for handler in logging.getLogger("dj_track_similarity").handlers:
         handler.flush()
     contents = log_path.read_text(encoding="utf-8")
     assert "[transformers] RobertaModel LOAD REPORT from: roberta-base" in contents
-    assert "Load the specified checkpoint checkpoint.pt from users." in contents
+    assert "Load the specified checkpoint " in contents
+    assert "djts-verified-model-" in contents
     assert "CLAP warning from stderr" in contents
 
 

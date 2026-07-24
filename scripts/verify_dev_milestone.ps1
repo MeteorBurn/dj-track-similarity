@@ -354,12 +354,10 @@ if (-not $SkipDocs) {
 if (-not $SkipBenchmark) {
     $benchmarkOutputPath = Get-BenchmarkOutputPath $BenchmarkOutput
     $benchmarkTrackCount = 1000
-    $benchmarkEmbeddingDim = 128
     $benchmarkSeedCount = 20
     $benchmarkPerSource = 30
     if ($Smoke) {
         $benchmarkTrackCount = 25
-        $benchmarkEmbeddingDim = 8
         $benchmarkSeedCount = 3
         $benchmarkPerSource = 5
     }
@@ -371,7 +369,6 @@ if (-not $SkipBenchmark) {
             "scripts\benchmark_search.py",
             "--output", $benchmarkOutputPath,
             "--track-count", "$benchmarkTrackCount",
-            "--embedding-dim", "$benchmarkEmbeddingDim",
             "--seed-count", "$benchmarkSeedCount",
             "--per-source", "$benchmarkPerSource",
             "--vector-backend", "exact"

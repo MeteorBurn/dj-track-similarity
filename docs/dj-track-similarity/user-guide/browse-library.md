@@ -4,6 +4,27 @@
 > Goal: Find tracks, inspect metadata, preview audio, and build seeds or a temporary set.
 > Type: guide
 
+::: warning v7 frontend status
+The React workflow below documents the deferred frontend. It has not been ported to the schema-v7
+API, so these UI steps are not currently validated or available for v7. Use the backend API
+alternative below.
+:::
+
+## Current v7 alternative
+
+Start the backend on `127.0.0.1`, then use the paginated library endpoints directly:
+
+```powershell
+Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/library/summary'
+Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/tracks?limit=25'
+```
+
+Use `GET /api/tracks/{track_id}` for full metadata and `GET /media/{track_id}` for preview audio.
+The current response shapes and filter query parameters are in the
+[API reference](../reference/api.md).
+
+## Deferred frontend behavior
+
 The library panel reads `/api/tracks` with server-side pagination. It does not load the entire SQLite library into the browser.
 
 ## Main controls

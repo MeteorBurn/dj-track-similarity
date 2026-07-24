@@ -26,7 +26,9 @@ from .analysis_config import (
 EvaluationSource = Literal["mert", "maest", "sonara", "clap"]
 HybridSearchSource = Literal["mert", "maest", "sonara", "clap"]
 ReferenceCompareModel = Literal["clap", "mert", "muq", "maest", "sonara"]
-ReferenceCompareVerdict = Literal["mood", "palette", "instruments", "groove", "genre", "transition", "miss"]
+ReferenceCompareVerdict = Literal[
+    "mood", "palette", "instruments", "groove", "genre", "transition", "miss"
+]
 EvaluationPairReasonTag = Literal[
     "good_groove",
     "good_density",
@@ -44,6 +46,8 @@ EvaluationPairReasonTag = Literal[
 ]
 EvaluationTrackId = Annotated[int, Field(ge=1)]
 EvaluationTopK = Annotated[int, Field(ge=1, le=100)]
+TrackId = Annotated[int, Field(ge=1)]
+ContentGeneration = Annotated[int, Field(ge=1)]
 ClassifierPreference = Annotated[float, Field(ge=-1.0, le=1.0)]
 ClassifierRiskWeight = Annotated[float, Field(ge=0.0, le=1.0)]
 
@@ -67,13 +71,27 @@ class DatabaseSwitchRequest(BaseModel):
     path: str
 
 
+class DatabaseStateResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str | None
+    artifacts_path: str | None
+    evaluation_path: str | None
+    catalog_uuid: str | None
+    selected: bool
+
+
 class AnalysisJobRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     limit: int | None = None
     models: list[str] = Field(default_factory=lambda: list(ML_ANALYSIS_MODEL_ORDER))
-    device: str = Field(default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN)
-    top_k: int = Field(default=DEFAULT_ANALYSIS_TOP_K, ge=MIN_ANALYSIS_TOP_K, le=MAX_ANALYSIS_TOP_K)
+    device: str = Field(
+        default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN
+    )
+    top_k: int = Field(
+        default=DEFAULT_ANALYSIS_TOP_K, ge=MIN_ANALYSIS_TOP_K, le=MAX_ANALYSIS_TOP_K
+    )
     track_batch_size: int = Field(
         default=DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
         ge=MIN_ANALYSIS_TRACK_BATCH_SIZE,
@@ -138,17 +156,33 @@ class SonaraPipelineSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     outputs: list[str] = Field(default_factory=lambda: ["core"])
-    batch_size: int = Field(default=DEFAULT_SONARA_BATCH_SIZE, ge=MIN_SONARA_BATCH_SIZE, le=MAX_SONARA_BATCH_SIZE)
+    batch_size: int = Field(
+        default=DEFAULT_SONARA_BATCH_SIZE,
+        ge=MIN_SONARA_BATCH_SIZE,
+        le=MAX_SONARA_BATCH_SIZE,
+    )
 
 
 class MlPipelineSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     models: list[str] = Field(default_factory=lambda: list(ML_ANALYSIS_MODEL_ORDER))
-    device: str = Field(default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN)
-    top_k: int = Field(default=DEFAULT_ANALYSIS_TOP_K, ge=MIN_ANALYSIS_TOP_K, le=MAX_ANALYSIS_TOP_K)
-    track_batch_size: int = Field(default=DEFAULT_ANALYSIS_TRACK_BATCH_SIZE, ge=MIN_ANALYSIS_TRACK_BATCH_SIZE, le=MAX_ANALYSIS_TRACK_BATCH_SIZE)
-    inference_batch_size: int = Field(default=DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE, ge=MIN_ANALYSIS_INFERENCE_BATCH_SIZE, le=MAX_ANALYSIS_INFERENCE_BATCH_SIZE)
+    device: str = Field(
+        default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN
+    )
+    top_k: int = Field(
+        default=DEFAULT_ANALYSIS_TOP_K, ge=MIN_ANALYSIS_TOP_K, le=MAX_ANALYSIS_TOP_K
+    )
+    track_batch_size: int = Field(
+        default=DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
+        ge=MIN_ANALYSIS_TRACK_BATCH_SIZE,
+        le=MAX_ANALYSIS_TRACK_BATCH_SIZE,
+    )
+    inference_batch_size: int = Field(
+        default=DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
+        ge=MIN_ANALYSIS_INFERENCE_BATCH_SIZE,
+        le=MAX_ANALYSIS_INFERENCE_BATCH_SIZE,
+    )
 
 
 class ClassifierPipelineSettings(BaseModel):
@@ -164,34 +198,37 @@ class AnalysisPipelineRequest(BaseModel):
     limit: int | None = None
     sonara: SonaraPipelineSettings = Field(default_factory=SonaraPipelineSettings)
     ml: MlPipelineSettings = Field(default_factory=MlPipelineSettings)
-    classifiers: ClassifierPipelineSettings = Field(default_factory=ClassifierPipelineSettings)
+    classifiers: ClassifierPipelineSettings = Field(
+        default_factory=ClassifierPipelineSettings
+    )
 
 
 class ClassifierResetRequest(BaseModel):
-    classifiers: list[str] = Field(default_factory=list)
+    model_config = ConfigDict(extra="forbid")
+
+    classifier_keys: list[str] = Field(min_length=1)
 
 
 class AnalysisResetRequest(BaseModel):
-    adapter: str = Field(pattern="^(sonara|maest|mert|muq|clap)$")
+    model_config = ConfigDict(extra="forbid")
+
+    analysis_family: Literal["sonara", "maest", "mert", "muq", "clap"]
 
 
 class SearchRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    model_config = ConfigDict(extra="forbid")
 
-    seed_track_ids: list[int]
+    analysis_family: Literal["maest", "mert", "muq", "clap"] = "mert"
+    seed_track_ids: list[TrackId] = Field(min_length=1, max_length=5)
     limit: int = Field(default=10, ge=1, le=500)
-    bpm_tolerance: float | None = Field(default=None, ge=0.0)
-    key_compatibility: str | None = None
-    energy_min: float | None = Field(default=None, ge=0.0, le=1.0)
-    energy_max: float | None = Field(default=None, ge=0.0, le=1.0)
     min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
-    epsilon: float | None = Field(default=None, alias="Epsilon", ge=0.0)
+    epsilon: float | None = Field(default=None, ge=0.0)
     noise: float = Field(default=0.0, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
-    def reject_inverted_energy_bounds(self) -> "SearchRequest":
-        if self.energy_min is not None and self.energy_max is not None and self.energy_min > self.energy_max:
-            raise ValueError("energy_min must be less than or equal to energy_max")
+    def reject_duplicate_seed_track_ids(self) -> "SearchRequest":
+        if len(set(self.seed_track_ids)) != len(self.seed_track_ids):
+            raise ValueError("seed_track_ids must be unique")
         return self
 
 
@@ -219,7 +256,9 @@ class SonaraSearchRequest(BaseModel):
 
     seed_track_ids: list[int]
     limit: int = Field(default=10, ge=1, le=500)
-    mode: str = Field(default="balanced", pattern="^(balanced|vibe|sound|dj_transition|custom)$")
+    mode: str = Field(
+        default="balanced", pattern="^(balanced|vibe|sound|dj_transition|custom)$"
+    )
     min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
     mixer_weights: SonaraMixerWeights | None = None
     modifiers: SonaraModifiers | None = None
@@ -235,14 +274,20 @@ class TextSearchRequest(BaseModel):
     preset: str | None = None
     limit: int = Field(default=10, ge=1, le=500)
     min_similarity: float | None = None
-    device: str = Field(default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN)
+    device: str = Field(
+        default=DEFAULT_ANALYSIS_DEVICE, pattern=ANALYSIS_DEVICE_PATTERN
+    )
 
 
 class HybridSearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     seed_track_ids: list[EvaluationTrackId] = Field(min_length=1, max_length=5)
-    sources: list[HybridSearchSource] = Field(default_factory=lambda: ["mert", "maest", "sonara", "clap"], min_length=1, max_length=4)
+    sources: list[HybridSearchSource] = Field(
+        default_factory=lambda: ["mert", "maest", "sonara", "clap"],
+        min_length=1,
+        max_length=4,
+    )
     weights: dict[str, float] | None = None
     score_profile: dict[str, Any] | None = None
     per_source: int = Field(default=30, ge=1, le=100)
@@ -251,8 +296,12 @@ class HybridSearchRequest(BaseModel):
     random_seed: int = 123
     transition_risk_weight: float = Field(default=0.0, ge=0.0, le=1.0)
     transition_risk_version: Literal["v1", "v2"] = "v2"
-    classifier_preferences: dict[str, ClassifierPreference] = Field(default_factory=dict)
-    classifier_risk_weights: dict[str, ClassifierRiskWeight] = Field(default_factory=dict)
+    classifier_preferences: dict[str, ClassifierPreference] = Field(
+        default_factory=dict
+    )
+    classifier_risk_weights: dict[str, ClassifierRiskWeight] = Field(
+        default_factory=dict
+    )
     include_diagnostics: bool = True
     record_session: bool = False
 
@@ -269,7 +318,11 @@ class ReferenceCompareRequest(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     seed_track_id: EvaluationTrackId
-    models: list[ReferenceCompareModel] = Field(default_factory=lambda: ["clap", "mert", "muq", "maest", "sonara"], min_length=1, max_length=5)
+    models: list[ReferenceCompareModel] = Field(
+        default_factory=lambda: ["clap", "mert", "muq", "maest", "sonara"],
+        min_length=1,
+        max_length=5,
+    )
     limit: int = Field(default=10, ge=1, le=100)
 
     @model_validator(mode="after")
@@ -289,55 +342,33 @@ class ReferenceCompareVerdictRequest(BaseModel):
     notes: str | None = None
 
 
-class HybridSearchResult(BaseModel):
-    track: dict[str, Any]
-    score: float
-    total_score: float
-    calibrated_score: None = None
-    adjusted_score: float
-    transition_risk: float | None = None
-    transition_risk_penalty: float
-    transition_risk_weight: float
-    raw_rrf_score: float
-    rank: int
-    score_breakdown: dict[str, dict[str, float | int]]
-    risk_breakdown: dict[str, float | None] = Field(default_factory=dict)
-    source_support: dict[str, dict[str, Any]] = Field(default_factory=dict)
-    classifier_support: dict[str, dict[str, Any]] = Field(default_factory=dict)
-    match_character: dict[str, float] = Field(default_factory=dict)
-    warnings: list[str] = Field(default_factory=list)
-    explanation: list[str] = Field(default_factory=list)
-    transition_diagnostics: dict[str, Any] = Field(default_factory=dict)
-    diagnostics: dict[str, Any] = Field(default_factory=dict)
-    feedback: dict[str, Any] | None = None
-
-
-class HybridSearchResponse(BaseModel):
-    results: list[HybridSearchResult]
-    warnings: list[str] = Field(default_factory=list)
-    weights_used: dict[str, float]
-    sources: list[HybridSearchSource]
-    limitations: list[str]
-    diagnostics: dict[str, Any] = Field(default_factory=dict)
-    session_id: int | None = None
-
-
 class SetBuilderGenerateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     seed_mode: str = Field(default="manual", pattern="^(manual|auto)$")
     seed_track_ids: list[int] = Field(default_factory=list)
     auto_seed_count: int = Field(default=5, ge=1, le=5)
-    mode: str = Field(default="balanced_set", pattern="^(similar_crate|weird_adjacent|balanced_set|discovery)$")
+    mode: str = Field(
+        default="balanced_set",
+        pattern="^(similar_crate|weird_adjacent|balanced_set|discovery)$",
+    )
     limit: int = Field(default=24, ge=1, le=500)
     diversity: float = Field(default=0.35, ge=0.0, le=1.0)
-    energy_curve: str = Field(default="balanced", pattern="^(warmup|balanced|peak|wave)$")
-    bpm_mode: str = Field(default="general", pattern="^(general|low_to_high|high_to_low)$")
+    energy_curve: str = Field(
+        default="balanced", pattern="^(warmup|balanced|peak|wave)$"
+    )
+    bpm_mode: str = Field(
+        default="general", pattern="^(general|low_to_high|high_to_low)$"
+    )
     bpm_change: str = Field(default="medium", pattern="^(slow|medium|fast)$")
     bpm_start: float | None = Field(default=None, ge=20.0, le=300.0)
     bpm_target: float | None = Field(default=None, ge=20.0, le=300.0)
-    classifier_preferences: dict[str, Annotated[float, Field(ge=-1.0, le=1.0)]] = Field(default_factory=dict)
-    classifier_flows: dict[str, Literal["flat", "rise", "fall"]] = Field(default_factory=dict)
+    classifier_preferences: dict[str, Annotated[float, Field(ge=-1.0, le=1.0)]] = Field(
+        default_factory=dict
+    )
+    classifier_flows: dict[str, Literal["flat", "rise", "fall"]] = Field(
+        default_factory=dict
+    )
     random_seed: int = 0
 
 
@@ -349,7 +380,15 @@ class FilteredTracksRequest(BaseModel):
     classifier_min_scores: dict[str, float] = Field(default_factory=dict)
 
 
-class TrackLikedRequest(BaseModel):
+class TrackMutationIdentity(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    catalog_uuid: str = Field(min_length=1)
+    track_uuid: str = Field(min_length=1)
+    expected_content_generation: ContentGeneration
+
+
+class TrackLikedRequest(TrackMutationIdentity):
     liked: bool
 
 
@@ -361,7 +400,7 @@ class ExportRequest(BaseModel):
 
 
 class GenreTagRequest(BaseModel):
-    track_ids: list[int] | None = None
+    model_config = ConfigDict(extra="forbid")
 
 
 class EvaluationPairFeedbackRequest(BaseModel):
@@ -398,9 +437,15 @@ class EvaluationSourceProfileRunRequest(BaseModel):
 
     seed_track_ids: list[EvaluationTrackId] | None = Field(default=None, max_length=200)
     sample_count: int = Field(default=50, ge=1, le=200)
-    sources: list[EvaluationSource] = Field(default_factory=lambda: ["mert", "maest", "sonara", "clap"], min_length=1, max_length=4)
+    sources: list[EvaluationSource] = Field(
+        default_factory=lambda: ["mert", "maest", "sonara", "clap"],
+        min_length=1,
+        max_length=4,
+    )
     per_source: int = Field(default=30, ge=1, le=100)
-    top_k: list[EvaluationTopK] = Field(default_factory=lambda: [10], min_length=1, max_length=5)
+    top_k: list[EvaluationTopK] = Field(
+        default_factory=lambda: [10], min_length=1, max_length=5
+    )
     random_seed: int = 123
     profile_name: str | None = None
     include_profile: bool = True
@@ -412,7 +457,9 @@ class EvaluationApplyScoreProfileRequest(BaseModel):
     profile: dict[str, Any] | None = None
     weights: dict[str, float] | None = None
     name: str | None = None
-    k: list[EvaluationTopK] = Field(default_factory=lambda: [5, 10], min_length=1, max_length=5)
+    k: list[EvaluationTopK] = Field(
+        default_factory=lambda: [5, 10], min_length=1, max_length=5
+    )
     rrf_k: int = Field(default=60, ge=1, le=1000)
 
     @model_validator(mode="after")
@@ -432,7 +479,9 @@ class EvaluationWeightedCandidatesRunRequest(BaseModel):
     name: str | None = None
     seed_track_ids: list[EvaluationTrackId] | None = Field(default=None, max_length=200)
     sample_count: int = Field(default=50, ge=1, le=200)
-    sources: list[EvaluationSource] | None = Field(default=None, min_length=1, max_length=4)
+    sources: list[EvaluationSource] | None = Field(
+        default=None, min_length=1, max_length=4
+    )
     per_source: int = Field(default=30, ge=1, le=100)
     random_seed: int = 123
     rrf_k: int = Field(default=60, ge=1, le=1000)
@@ -452,22 +501,35 @@ class EvaluationWeightedCandidatesRunRequest(BaseModel):
 class PrepareSonaraReleaseRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    db: str
     backup_dir: str
-    sonara_outputs: list[str] = Field(default_factory=lambda: ["core", "timeline", "embedding", "fingerprint"])
-    new_release_hash: str
     confirm: str
 
 
-# ---------------------------------------------------------------------------
-# v7 API models — TrackSummaryV7 / TrackDetailV7
-# These are NEW models for the v7 schema. v6 models above are NOT modified.
-# ---------------------------------------------------------------------------
+class _V7ResponseModel(BaseModel):
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
-class FileTechnicalV7(BaseModel):
-    """File-level technical facts from the v7 ``tracks`` table."""
+class AnalysisCoverageV7(_V7ResponseModel):
+    sonara_core: bool
+    timeline: bool
+    sonara_embedding: bool
+    fingerprint: bool
+    maest_analysis: bool
+    maest_embedding: bool
+    mert: bool
+    muq: bool
+    clap: bool
 
+
+class ClassifierScoreV7Summary(_V7ResponseModel):
+    classifier_key: str
+    score: float
+    predicted_class: str
+    score_bucket: Literal["low", "medium", "high"]
+    confidence: float
+
+
+class FileTechnicalV7(_V7ResponseModel):
     file_size_bytes: int
     file_modified_ns: int
     audio_format: str | None
@@ -480,9 +542,7 @@ class FileTechnicalV7(BaseModel):
     missing_since: str | None
 
 
-class FileTagsV7Model(BaseModel):
-    """Mutagen tag fields from the v7 ``file_tags`` table."""
-
+class FileTagsV7Model(_V7ResponseModel):
     title: str | None
     artist: str | None
     album: str | None
@@ -496,14 +556,16 @@ class FileTagsV7Model(BaseModel):
     isrc: str | None
     track_number: str | None
     disc_number: str | None
-    genres: list[str]  # decoded from genres_json
+    genres: list[str]
     tags_read_at: str
 
 
-class SonaraCoreV7Model(BaseModel):
-    """SONARA Core scalars from the v7 ``sonara`` table. No raw BLOB bytes."""
+class VectorSummaryV7(_V7ResponseModel):
+    vector_type: str
+    dim: int
 
-    # Rhythm
+
+class SonaraCoreV7Model(_V7ResponseModel):
     detected_bpm: float | None
     raw_bpm: float | None
     bpm_confidence: float | None
@@ -513,27 +575,23 @@ class SonaraCoreV7Model(BaseModel):
     beat_grid_offset_seconds: float | None
     beat_grid_stability: float | None
     bpm_candidates: list[dict]  # decoded from bpm_candidates_json
-    # Tonal
     detected_key_name: str | None
     detected_key_camelot: str | None
     key_confidence: float | None
     predominant_chord: str | None
     chord_changes_per_second: float | None
     key_candidates: list[dict]  # decoded from key_candidates_json
-    # Perceptual
     energy_score: float | None
     energy_level: int | None
     danceability_score: float | None
     valence_score: float | None
     acousticness_score: float | None
     dissonance_score: float | None
-    # Spectral
     spectral_centroid_hz: float | None
     spectral_bandwidth_hz: float | None
     spectral_rolloff_hz: float | None
     spectral_flatness: float | None
     zero_crossing_rate: float | None
-    # Loudness
     rms_mean: float | None
     rms_max: float | None
     integrated_loudness_lufs: float | None
@@ -542,42 +600,39 @@ class SonaraCoreV7Model(BaseModel):
     replay_gain_db: float | None
     max_momentary_loudness_lufs: float | None
     loudness_range_lu: float | None
-    # Structure
     analyzed_duration_seconds: float | None
     intro_end_seconds: float | None
     outro_start_seconds: float | None
     leading_silence_seconds: float | None
     trailing_silence_seconds: float | None
-    # Energy curve summary
     energy_curve_hop_seconds: float | None
     energy_curve_sample_count: int | None
     energy_curve_min: float | None
     energy_curve_max: float | None
     energy_curve_mean: float | None
     energy_curve_stddev: float | None
-    # Voice / Mood
     vocal_probability: float | None
     mood_happy_score: float | None
     mood_aggressive_score: float | None
     mood_relaxed_score: float | None
     mood_sad_score: float | None
-    # Timbre vector summaries (dim only — no raw bytes)
-    vector_summaries: list[dict]  # [{vector_type, dim}]
-    # Provenance
+    vector_summaries: list[VectorSummaryV7]
     analyzed_at: str
 
 
-class MaestV7Model(BaseModel):
-    """MAEST scores from the v7 ``maest_scores`` table."""
+class MaestGenreV7(_V7ResponseModel):
+    rank: int
+    genre_name: str
+    score: float
 
+
+class MaestV7Model(_V7ResponseModel):
     syncopated_rhythm: bool | None
-    genres: list[dict]  # [{rank, genre_name, score}] decoded from genres_json
+    genres: list[MaestGenreV7]
     analyzed_at: str
 
 
-class EmbeddingV7Summary(BaseModel):
-    """Summary of one embedding row — no raw bytes."""
-
+class EmbeddingV7Summary(_V7ResponseModel):
     analysis_family: str
     model_name: str
     model_version: str | None
@@ -586,42 +641,23 @@ class EmbeddingV7Summary(BaseModel):
     analyzed_at: str
 
 
-class ClassifierScoreV7Detail(BaseModel):
-    """Full classifier score detail from the v7 ``classifier_scores`` table."""
-
-    classifier_key: str
-    score: float
-    predicted_class: str
-    score_bucket: str
-    confidence: float
-    probabilities: dict[str, float]  # decoded from probabilities_json
+class ClassifierScoreV7Detail(ClassifierScoreV7Summary):
+    probabilities: dict[str, float]
     feature_set: str
+    feature_manifest_hash: str
+    required_outputs_hash: str
     model_id: str
+    uses_sonara: bool
+    sonara_release_hash: str | None
+    positive_label: str
     analyzed_at: str
 
 
-class TrackSummaryV7(BaseModel):
-    """v7 track summary — no metadata_json, no has_* flags, no raw embeddings."""
-
+class TrackSummaryV7(_V7ResponseModel):
     track_id: int
-    file_path: str
-    # Identity tags (nullable — from file_tags if present)
-    title: str | None
-    artist: str | None
-    album: str | None
-    tag_bpm: float | None
-    tag_key: str | None
-    audio_duration_seconds: float | None
-    liked: bool
-    analysis_coverage: dict[str, bool]  # keys: sonara_core, timeline, sonara_embedding, fingerprint, maest, mert, muq, clap
-    classifier_scores: list[dict]  # [{classifier_key, score, predicted_class, score_bucket, confidence}]
-
-
-class TrackDetailV7(BaseModel):
-    """v7 track detail — extends TrackSummaryV7 with full sub-models."""
-
-    # Summary fields (duplicated for a flat top-level shape)
-    track_id: int
+    catalog_uuid: str
+    track_uuid: str
+    content_generation: int
     file_path: str
     title: str | None
     artist: str | None
@@ -630,13 +666,105 @@ class TrackDetailV7(BaseModel):
     tag_key: str | None
     audio_duration_seconds: float | None
     liked: bool
-    analysis_coverage: dict[str, bool]
-    classifier_scores: list[dict]
-    # Detail sub-models
+    analysis_coverage: AnalysisCoverageV7
+    classifier_scores: list[ClassifierScoreV7Summary]
+
+
+class OptionalOutputsV7(_V7ResponseModel):
+    timeline_fields: list[str]
+    sonara_embedding_available: bool
+    audio_fingerprint_available: bool
+
+
+class TrackDetailV7(TrackSummaryV7):
     file: FileTechnicalV7
     file_tags: FileTagsV7Model | None
     sonara_core: SonaraCoreV7Model | None
     maest: MaestV7Model | None
     embeddings: list[EmbeddingV7Summary]
     classifier_scores_detail: list[ClassifierScoreV7Detail]
-    optional_outputs: dict  # {timeline_fields: list[str], sonara_embedding_available: bool, audio_fingerprint_available: bool}
+    optional_outputs: OptionalOutputsV7
+
+
+class TrackPageV7(_V7ResponseModel):
+    items: list[TrackSummaryV7]
+    total: int
+    limit: int
+    offset: int
+
+
+class LibrarySummaryV7(_V7ResponseModel):
+    tracks: int
+    sonara: int
+    maest_analysis: int
+    maest_embedding: int
+    mert: int
+    muq: int
+    clap: int
+    liked: int
+    classifiers: int
+
+
+class AnalysisResetResponse(_V7ResponseModel):
+    core_rows_deleted: int
+    artifact_rows_deleted: int
+    classifier_rows_deleted: int
+
+
+class ClearLibraryResponse(_V7ResponseModel):
+    tracks_deleted: int
+    embeddings_deleted: int
+    artifacts_deleted: int
+    evaluation_rows_deleted: int
+
+
+class GenreTagApplyResultV7(_V7ResponseModel):
+    catalog_uuid: str
+    track_id: int
+    track_uuid: str
+    content_generation: int
+    file_path: str
+    tags: dict[str, str]
+    status: Literal["applied", "skipped", "failed"]
+    message: str
+    error: str | None = None
+
+
+class SimilaritySearchResultV7(_V7ResponseModel):
+    track: TrackSummaryV7
+    score: float
+    score_breakdown: dict[str, float] | None = None
+
+
+class HybridSearchResult(_V7ResponseModel):
+    track: TrackSummaryV7
+    score: float
+    total_score: float
+    calibrated_score: None = None
+    adjusted_score: float
+    transition_risk: float | None = None
+    transition_risk_penalty: float
+    transition_risk_weight: float
+    raw_rrf_score: float
+    rank: int
+    score_breakdown: dict[str, dict[str, float | int]]
+    risk_breakdown: dict[str, float | None] = Field(default_factory=dict)
+    source_support: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    classifier_support: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    match_character: dict[str, float] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+    explanation: list[str] = Field(default_factory=list)
+    transition_diagnostics: dict[str, Any] = Field(default_factory=dict)
+    diagnostics: dict[str, Any] = Field(default_factory=dict)
+    feedback: dict[str, Any] | None = None
+
+
+class HybridSearchResponse(_V7ResponseModel):
+    results: list[HybridSearchResult]
+    warnings: list[str] = Field(default_factory=list)
+    weights_used: dict[str, float]
+    sources: list[HybridSearchSource]
+    limitations: list[str]
+    diagnostics: dict[str, Any] = Field(default_factory=dict)
+    session_id: int | None = None
+    source_contract_hashes: dict[str, str] = Field(default_factory=dict)

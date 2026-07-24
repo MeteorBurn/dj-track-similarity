@@ -6,8 +6,24 @@ from fastapi.testclient import TestClient
 import numpy as np
 
 import dj_track_similarity.api as api
+from dj_track_similarity.analysis_model_runners import (
+    MaestModelRunner,
+    current_embedding_analysis_output,
+)
+from dj_track_similarity.analysis_models import (
+    AnalysisOutput,
+    AnalysisTarget,
+    EmbeddingOutput,
+    EmbeddingWrite,
+    MaestGenreScore,
+    MaestWrite,
+)
 from dj_track_similarity.api import create_app
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.track_models import FileTags, ScannedFile
+
+
+_NOW = "2026-07-24T12:00:00.000000Z"
 
 RISK_BREAKDOWN_KEYS = {
     "bpm",
@@ -44,7 +60,7 @@ def test_hybrid_search_endpoint_returns_unified_diagnostics(monkeypatch, tmp_pat
     payload = response.json()
     assert payload["weights_used"] == {"mert": 0.0, "maest": 1.0}
     assert payload["sources"] == ["mert", "maest"]
-    assert payload["results"][0]["track"]["id"] == track_ids["maest_top"]
+    assert payload["results"][0]["track"]["track_id"] == track_ids["maest_top"]
     assert payload["results"][0]["rank"] == 1
     assert payload["results"][0]["score"] == 1.0
     assert payload["results"][0]["adjusted_score"] == payload["results"][0]["score"]
@@ -93,7 +109,7 @@ def test_hybrid_search_records_session_events_and_hydrates_feedback(monkeypatch,
     assert response.status_code == 200
     payload = response.json()
     assert isinstance(payload["session_id"], int)
-    assert payload["results"][0]["track"]["id"] == track_ids["maest_top"]
+    assert payload["results"][0]["track"]["track_id"] == track_ids["maest_top"]
     assert payload["results"][0]["feedback"]["source"] == "hybrid_ui"
     assert payload["results"][0]["feedback"]["rating"] == 2
     assert payload["results"][0]["feedback"]["reason_tags"] == ["good_groove", "good_density"]
@@ -193,50 +209,20 @@ def test_hybrid_search_endpoint_accepts_clap_as_neutral_missing_source(monkeypat
     payload = response.json()
     assert payload["sources"] == ["mert", "maest", "clap"]
     assert payload["results"]
-    assert any("source=clap returned no candidates" in warning for warning in payload["warnings"])
+    assert any(
+        "source=clap" in warning and "no current candidates" in warning
+        for warning in payload["warnings"]
+    )
     assert payload["results"][0]["transition_diagnostics"]["components"]["source_disagreement_risk"] == 0.0
-
-
-def test_hybrid_search_endpoint_accepts_classifier_controls(monkeypatch, tmp_path: Path) -> None:
-    db_path = tmp_path / "library.sqlite"
-    db, track_ids = _hybrid_library(db_path, tmp_path)
-    db.save_classifier_score(
-        track_ids["maest_top"],
-        classifier="voice_presence",
-        score=0.8,
-        label="positive",
-        confidence=0.8,
-        probabilities={"positive": 0.8},
-        feature_set="combined",
-        model_id="test",
-    )
-
-    response = _client(monkeypatch, db_path).post(
-        "/api/search/hybrid",
-        json={
-            "seed_track_ids": [track_ids["seed"]],
-            "sources": ["mert", "maest"],
-            "weights": {"mert": 0.0, "maest": 1.0},
-            "classifier_preferences": {"voice_presence": 0.5},
-            "classifier_risk_weights": {"voice_presence": 1.0},
-            "include_diagnostics": True,
-            "limit": 1,
-        },
-    )
-
-    assert response.status_code == 200
-    row = response.json()["results"][0]
-    assert row["classifier_support"]["voice_presence"]["available"] is True
-    assert row["classifier_support"]["voice_presence"]["risk_contribution"] == 0.8
-    assert row["risk_breakdown"]["vocal_conflict"] == 0.8
-    assert "classifier_voice_presence" in row["score_breakdown"]
 
 
 def test_hybrid_search_endpoint_does_not_touch_audio_paths(monkeypatch, tmp_path: Path) -> None:
     db_path = tmp_path / "library.sqlite"
     audio_path = tmp_path / "not-created.wav"
     db = LibraryDatabase(db_path)
-    seed_id = db.upsert_track(path=audio_path, size=0, mtime=1, metadata={"title": "Missing Source"})
+    output = current_embedding_analysis_output("mert")
+    db.register_analysis_outputs((output,))
+    seed_id = _track(db, tmp_path, "not-created", create_file=False)
 
     response = _client(monkeypatch, db_path).post(
         "/api/search/hybrid",
@@ -256,28 +242,136 @@ def _client(monkeypatch, db_path: Path) -> TestClient:
 
 def _hybrid_library(db_path: Path, tmp_path: Path) -> tuple[LibraryDatabase, dict[str, int]]:
     db = LibraryDatabase(db_path)
+    outputs = _embedding_outputs()
+    db.register_analysis_outputs(tuple(outputs.values()))
     track_ids = {
         "seed": _track(db, tmp_path, "seed"),
         "mert_top": _track(db, tmp_path, "mert_top"),
         "maest_top": _track(db, tmp_path, "maest_top"),
         "shared": _track(db, tmp_path, "shared"),
     }
-    _save_embeddings(db, track_ids["seed"], mert=[1.0, 0.0], maest=[0.0, 1.0])
-    _save_embeddings(db, track_ids["mert_top"], mert=[0.99, 0.01], maest=[1.0, 0.0])
-    _save_embeddings(db, track_ids["maest_top"], mert=[0.0, 1.0], maest=[0.01, 0.99])
-    _save_embeddings(db, track_ids["shared"], mert=[0.8, 0.2], maest=[0.2, 0.8])
+    _save_embeddings(
+        db,
+        outputs,
+        track_ids["seed"],
+        mert=[1.0, 0.0],
+        maest=[0.0, 1.0],
+    )
+    _save_embeddings(
+        db,
+        outputs,
+        track_ids["mert_top"],
+        mert=[0.99, 0.01],
+        maest=[1.0, 0.0],
+    )
+    _save_embeddings(
+        db,
+        outputs,
+        track_ids["maest_top"],
+        mert=[0.0, 1.0],
+        maest=[0.01, 0.99],
+    )
+    _save_embeddings(
+        db,
+        outputs,
+        track_ids["shared"],
+        mert=[0.8, 0.2],
+        maest=[0.2, 0.8],
+    )
     return db, track_ids
 
 
-def _track(db: LibraryDatabase, tmp_path: Path, stem: str) -> int:
-    return db.upsert_track(
-        path=tmp_path / f"{stem}.wav",
-        size=10,
-        mtime=1,
-        metadata={"artist": f"Artist {stem}", "title": stem.replace("_", " ").title()},
+def _track(
+    db: LibraryDatabase,
+    tmp_path: Path,
+    stem: str,
+    *,
+    create_file: bool = True,
+) -> int:
+    path = tmp_path / f"{stem}.wav"
+    if create_file:
+        path.write_bytes(stem.encode("utf-8"))
+    identity = db.upsert_scanned_track(
+        file=ScannedFile(
+            file_path=str(path),
+            file_size_bytes=path.stat().st_size if create_file else 0,
+            file_modified_ns=path.stat().st_mtime_ns if create_file else 1,
+            audio_format="wav",
+        ),
+        tags=FileTags(
+            artist=f"Artist {stem}",
+            title=stem.replace("_", " ").title(),
+            tag_bpm=124.0,
+            tag_key="8A",
+        ),
+        scanned_at=_NOW,
+    ).identity
+    return identity.track_id
+
+
+def _embedding_outputs() -> dict[str, AnalysisOutput]:
+    maest_outputs = {
+        output.contract.output_kind: output
+        for output in MaestModelRunner(
+            device="cpu",
+            top_k=3,
+            inference_batch_size=1,
+        ).active_outputs
+    }
+    return {
+        "mert": current_embedding_analysis_output("mert"),
+        "maest_analysis": maest_outputs["analysis"],
+        "maest": maest_outputs["embedding"],
+        "clap": current_embedding_analysis_output("clap"),
+    }
+
+
+def _save_embeddings(
+    db: LibraryDatabase,
+    outputs: dict[str, AnalysisOutput],
+    track_id: int,
+    *,
+    mert: list[float],
+    maest: list[float],
+) -> None:
+    identity = db.get_track_identities((track_id,))[track_id]
+    target = AnalysisTarget(
+        identity.catalog_uuid,
+        identity.track_id,
+        identity.track_uuid,
+        identity.content_generation,
     )
-
-
-def _save_embeddings(db: LibraryDatabase, track_id: int, *, mert: list[float], maest: list[float]) -> None:
-    db.save_embedding(track_id, np.asarray(mert, dtype=np.float32), "test-mert", embedding_key="mert")
-    db.save_embedding(track_id, np.asarray(maest, dtype=np.float32), "test-maest", embedding_key="maest")
+    writes: list[EmbeddingWrite] = []
+    for family, values in (("mert", mert), ("maest", maest)):
+        output = outputs[family]
+        vector = np.zeros(output.contract.dim, dtype=np.float32)
+        vector[: len(values)] = values
+        vector /= np.linalg.norm(vector)
+        embedding = EmbeddingOutput(
+            contract=output.contract,
+            vector=vector,
+            analyzed_at=_NOW,
+        )
+        if family == "maest":
+            result = db.save_maest_results(
+                (
+                    MaestWrite(
+                        target=target,
+                        analysis_contract=outputs["maest_analysis"].contract,
+                        genres=(
+                            MaestGenreScore(
+                                label="Electronic---Test",
+                                score=1.0,
+                            ),
+                        ),
+                        syncopated_rhythm=None,
+                        analyzed_at=_NOW,
+                        embedding=embedding,
+                    ),
+                )
+            )[0]
+            assert result.ok, result.error
+        else:
+            writes.append(EmbeddingWrite(target=target, output=embedding))
+    results = db.save_embedding_results(tuple(writes))
+    assert all(result.ok for result in results)

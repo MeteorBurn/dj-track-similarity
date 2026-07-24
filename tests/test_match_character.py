@@ -2,9 +2,19 @@ from __future__ import annotations
 
 import math
 
-from dj_track_similarity.hybrid_explanation import MATCH_CHARACTER_AXES, build_hybrid_explanation
-from dj_track_similarity.models import Track
-from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature
+from dj_track_similarity.analysis_contracts import ContractIdentity
+from dj_track_similarity.analysis_models import (
+    AnalysisOutput,
+    AnalysisTarget,
+    SonaraFeatureRow,
+)
+from dj_track_similarity.hybrid_explanation import (
+    MATCH_CHARACTER_AXES,
+    build_hybrid_explanation,
+)
+from dj_track_similarity.library_models import AnalysisCoverage, TrackSummary
+from dj_track_similarity.track_models import TrackIdentity
+from dj_track_similarity.transition_diagnostics import TransitionTrack
 
 
 FORBIDDEN_COPY = ("confidence", "probability", "guaranteed", "perfect transition")
@@ -21,22 +31,65 @@ RISK_BREAKDOWN_KEYS = {
     "source_disagreement",
     "confidence_missingness",
 }
+_CORE_OUTPUT = AnalysisOutput(
+    ContractIdentity(
+        analysis_family="sonara",
+        output_kind="core",
+        model_name="test-sonara",
+        model_version="1",
+        release_hash="sha256:" + "1" * 64,
+        checkpoint_id="test-checkpoint",
+        preprocessing="test-preprocessing",
+        parameters={"fixture": "match-character"},
+    )
+)
 
 
 def test_match_character_axes_are_finite_unit_values() -> None:
-    seed = _track(1, bpm=124.0, energy=0.45, features={"bpm": 124.0, "onset_density": 0.6, "danceability": 0.8, "energy": 0.45})
-    candidate = _track(2, bpm=126.0, energy=0.5, features={"bpm": 126.0, "onset_density": 0.58, "danceability": 0.75, "energy": 0.5})
+    seed = _track(
+        1,
+        bpm=124.0,
+        energy=0.45,
+        features={
+            "detected_bpm": 124.0,
+            "onset_density_per_second": 0.6,
+            "danceability_score": 0.8,
+            "energy_score": 0.45,
+        },
+    )
+    candidate = _track(
+        2,
+        bpm=126.0,
+        energy=0.5,
+        features={
+            "detected_bpm": 126.0,
+            "onset_density_per_second": 0.58,
+            "danceability_score": 0.75,
+            "energy_score": 0.5,
+        },
+    )
 
     explanation = build_hybrid_explanation(
         candidate_track=candidate,
         seed_tracks=[seed],
         source_contributions={"mert": object(), "sonara": object()},
-        source_seed_diagnostics={"mert": {"supporting_seed_track_ids": [1]}, "sonara": {"supporting_seed_track_ids": [1]}},
+        source_seed_diagnostics={
+            "mert": {"supporting_seed_track_ids": [1]},
+            "sonara": {"supporting_seed_track_ids": [1]},
+        },
         score_breakdown={
             "mert": {"rank": 1, "score": 0.9, "weight": 0.5, "contribution": 0.008},
             "sonara": {"rank": 2, "score": 0.86, "weight": 0.5, "contribution": 0.007},
         },
-        transition_diagnostics={"components": {"bpm_risk": 0.05, "key_risk": 0.0, "energy_jump_risk": 0.05, "source_disagreement_risk": 0.0}, "warnings": []},
+        transition_diagnostics={
+            "components": {
+                "bpm_risk": 0.05,
+                "key_risk": 0.0,
+                "energy_jump_risk": 0.05,
+                "source_disagreement_risk": 0.0,
+            },
+            "warnings": [],
+        },
         sources=["mert", "sonara"],
         total_score=0.95,
     )
@@ -64,7 +117,15 @@ def test_missing_axis_data_is_neutral_and_marked_unavailable() -> None:
         source_contributions={"mert": object()},
         source_seed_diagnostics={"mert": {"supporting_seed_track_ids": [1]}},
         score_breakdown={"mert": {"rank": 1, "score": 0.8, "weight": 1.0, "contribution": 0.02}},
-        transition_diagnostics={"components": {"bpm_risk": None, "key_risk": None, "energy_jump_risk": None, "source_disagreement_risk": 0.0}, "warnings": ["missing_bpm"]},
+        transition_diagnostics={
+            "components": {
+                "bpm_risk": None,
+                "key_risk": None,
+                "energy_jump_risk": None,
+                "source_disagreement_risk": 0.0,
+            },
+            "warnings": ["missing_bpm"],
+        },
         sources=["mert", "maest", "sonara", "clap"],
         total_score=1.0,
     )
@@ -82,7 +143,15 @@ def test_warnings_are_severity_sorted_and_avoid_forbidden_copy() -> None:
         source_contributions={"mert": object()},
         source_seed_diagnostics={"mert": {"supporting_seed_track_ids": [1]}},
         score_breakdown={"mert": {"rank": 1, "score": 0.8, "weight": 1.0, "contribution": 0.02}},
-        transition_diagnostics={"components": {"bpm_risk": 0.9, "key_risk": 0.5, "energy_jump_risk": 0.1, "source_disagreement_risk": 0.0}, "warnings": []},
+        transition_diagnostics={
+            "components": {
+                "bpm_risk": 0.9,
+                "key_risk": 0.5,
+                "energy_jump_risk": 0.1,
+                "source_disagreement_risk": 0.0,
+            },
+            "warnings": [],
+        },
         sources=["mert"],
         total_score=1.0,
     )
@@ -93,19 +162,47 @@ def test_warnings_are_severity_sorted_and_avoid_forbidden_copy() -> None:
     assert not any(forbidden in copy for forbidden in FORBIDDEN_COPY)
 
 
-def _track(track_id: int, *, bpm: float | None = None, energy: float | None = None, features: dict[str, object] | None = None) -> Track:
-    metadata: dict[str, object] = {"artist": f"Artist {track_id}", "title": f"Track {track_id}"}
-    if features is not None:
-        metadata["sonara_features"] = features
-        metadata["sonara_analysis_signature"] = expected_sonara_analysis_signature([])
-    return Track(
-        id=track_id,
-        path=f"/tmp/{track_id}.wav",
-        size=10,
-        mtime=1.0,
-        artist=f"Artist {track_id}",
-        title=f"Track {track_id}",
-        bpm=bpm,
-        energy=energy,
-        metadata=metadata,
+def _track(
+    track_id: int,
+    *,
+    bpm: float | None = None,
+    energy: float | None = None,
+    features: dict[str, object] | None = None,
+) -> TransitionTrack:
+    identity = TrackIdentity(
+        catalog_uuid="fixture-catalog",
+        track_id=track_id,
+        track_uuid=f"fixture-track-{track_id}",
+        content_generation=1,
     )
+    summary = TrackSummary(
+        track_id=identity.track_id,
+        catalog_uuid=identity.catalog_uuid,
+        track_uuid=identity.track_uuid,
+        content_generation=identity.content_generation,
+        file_path=f"C:/fixture/{track_id}.wav",
+        title=f"Track {track_id}",
+        artist=f"Artist {track_id}",
+        album=None,
+        tag_bpm=bpm,
+        tag_key=None,
+        audio_duration_seconds=None,
+        liked=False,
+        analysis_coverage=AnalysisCoverage(sonara_core=features is not None),
+        classifier_scores=(),
+    )
+    sonara = None
+    if features is not None:
+        values = dict(features)
+        values.setdefault("energy_score", energy)
+        sonara = SonaraFeatureRow(
+            target=AnalysisTarget(
+                catalog_uuid=identity.catalog_uuid,
+                track_id=identity.track_id,
+                track_uuid=identity.track_uuid,
+                content_generation=identity.content_generation,
+            ),
+            output=_CORE_OUTPUT,
+            values=values,
+        )
+    return TransitionTrack(identity=identity, summary=summary, sonara=sonara)

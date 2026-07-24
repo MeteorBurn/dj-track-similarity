@@ -1,275 +1,301 @@
 from __future__ import annotations
 
-from pathlib import Path
+import inspect
+from dataclasses import replace
 
-from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_schema import SONARA_CLASSIFIER_REVISION_SETTING_KEY
+import pytest
+
+from dj_track_similarity.analysis_contracts import ContractIdentityError
+from dj_track_similarity.analysis_models import validate_production_contract
 from dj_track_similarity.sonara_contract import (
-    SONARA_ANALYSIS_SIGNATURE_KEY,
-    build_sonara_analysis_signature,
-    expected_sonara_analysis_signature,
-    feature_set_uses_sonara,
-    sonara_analysis_signature_id,
-    sonara_analysis_signature_errors,
-    sonara_analysis_signatures_match,
+    SONARA_ANALYSIS_HOP_SAMPLES,
+    SONARA_EMBEDDING_DIM,
+    SONARA_EXPECTED_SCHEMA_VERSION,
+    SONARA_EXPECTED_VERSION,
+    SONARA_FINGERPRINT_VERSION,
+    SONARA_OUTPUT_KINDS,
+    SONARA_PROJECT_FEATURE_REVISION,
+    SONARA_UNIT_INTERVAL_CLAMP_EPSILON,
+    SONARA_UNIT_INTERVAL_CLAMP_FIELDS,
+    SONARA_UNIT_INTERVAL_CLAMP_POLICY,
+    SonaraRuntimeIdentityError,
+    build_sonara_contracts,
+    normalize_sonara_outputs,
+    resolve_sonara_runtime_identity,
+    sonara_requested_features,
+    sonara_runtime_contracts,
 )
-from dj_track_similarity.sonara_features import sonara_analysis_signatures_for_outputs
 
 
-def test_analysis_signature_is_deterministic_and_sorts_requested_profile() -> None:
-    provenance = {
-        "package_version": "0.2.9",
-        "schema_version": 4,
-        "mode": "playlist",
-        "sample_rate": 22_050,
-        "decoder_backend": "sonara-symphonia",
-        "execution_path": "analyze_batch",
+_BUILD_A = "sha256:" + "1" * 64
+_BUILD_B = "sha256:" + "2" * 64
+_VOCAL_BUILD_A = "sha256:" + "3" * 64
+_VOCAL_BUILD_B = "sha256:" + "4" * 64
+
+
+class FakeSonara:
+    __version__ = SONARA_EXPECTED_VERSION
+    SIMILARITY_VERSION = 2
+    __sonara_build_id__ = _BUILD_A
+    __sonara_vocalness_model_id__ = "sonara-vocalness-v2"
+    __sonara_vocalness_model_build_id__ = _VOCAL_BUILD_A
+
+
+def test_runtime_factory_returns_complete_four_output_release() -> None:
+    contracts = sonara_runtime_contracts(FakeSonara)
+
+    assert contracts.release_hash.startswith("sha256:")
+    assert tuple(
+        (identity.analysis_family, identity.output_kind)
+        for identity in contracts.identities
+    ) == (
+        ("sonara", "core"),
+        ("sonara", "timeline"),
+        ("sonara", "embedding"),
+        ("sonara", "fingerprint"),
+    )
+    assert {identity.release_hash for identity in contracts.identities} == {
+        contracts.release_hash
     }
-
-    first = build_sonara_analysis_signature(
-        requested_features=["vocalness", "bpm", "bpm", "structure"],
-        provenance=provenance,
+    assert contracts.runtime.schema_version == SONARA_EXPECTED_SCHEMA_VERSION
+    assert contracts.runtime.analysis_hop_samples == SONARA_ANALYSIS_HOP_SAMPLES
+    assert contracts.runtime.project_feature_revision == 6
+    assert (
+        contracts.runtime.unit_interval_clamp_policy
+        == SONARA_UNIT_INTERVAL_CLAMP_POLICY
     )
-    second = build_sonara_analysis_signature(
-        requested_features=["structure", "bpm", "vocalness"],
-        provenance=provenance,
+    assert (
+        contracts.runtime.unit_interval_clamp_epsilon
+        == SONARA_UNIT_INTERVAL_CLAMP_EPSILON
     )
-
-    assert first == second
-    assert first["requested_features"] == ["bpm", "structure", "vocalness"]
-    assert first["bpm_range"] == [70, 180]
-    assert first["project_feature_revision"] == 5
-    assert str(first["signature_id"]).startswith("sha256:")
-    assert sonara_analysis_signature_errors(first) == ()
-
-
-def test_analysis_signature_rejects_stale_contract_and_tampered_digest() -> None:
-    signature = expected_sonara_analysis_signature([])
-    stale = {**signature, "sonara_version": "0.2.3"}
-    tampered = {**signature, "requested_features": ["vocalness"]}
-
-    assert any("sonara_version" in error for error in sonara_analysis_signature_errors(stale))
-    assert any("signature_id" in error for error in sonara_analysis_signature_errors(tampered))
-    assert not sonara_analysis_signatures_match(signature, stale)
-
-
-def test_sonara_feature_set_detection_covers_variants_and_combined() -> None:
-    assert feature_set_uses_sonara("sonara")
-    assert feature_set_uses_sonara("sonara2vocal+maest+clap")
-    assert feature_set_uses_sonara("sonara_custom+mert")
-    assert feature_set_uses_sonara("combined")
-    assert not feature_set_uses_sonara("mert+maest+clap")
-
-
-def test_profile_signature_mismatch_makes_sonara_analysis_candidate_stale(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_id = _track(db, tmp_path, "track.wav")
-    base_signature = sonara_analysis_signatures_for_outputs(["core"])["core"]
-    full_signature = expected_sonara_analysis_signature(["structure", "vocalness"])
-    db.save_sonara_features(
-        track_id,
-        {"bpm": {"value": 128.0}},
-        analysis_signature=base_signature,
+    assert (
+        contracts.runtime.unit_interval_clamp_fields
+        == SONARA_UNIT_INTERVAL_CLAMP_FIELDS
     )
-
-    assert db.list_analysis_candidates(
-        ["sonara"],
-        expected_sonara_signatures={"core": base_signature},
-    ) == []
-    stale = db.list_analysis_candidates(
-        ["sonara"],
-        expected_sonara_signatures={"core": full_signature},
+    assert contracts.embedding.dim == SONARA_EMBEDDING_DIM
+    assert contracts.embedding.encoding == "float32-le"
+    assert contracts.embedding.normalization == "none"
+    assert (
+        dict(contracts.fingerprint.parameters)["fingerprint_version"]
+        == SONARA_FINGERPRINT_VERSION
     )
-
-    assert [(candidate.id, candidate.missing_models, candidate.analyses) for candidate in stale] == [
-        (track_id, ("sonara",), ()),
-    ]
+    assert dict(contracts.fingerprint.parameters)["fingerprint_encoding"] == "uint32-le"
+    assert dict(contracts.fingerprint.parameters)["fingerprint_byte_order"] == "little"
 
 
-def test_scheduler_rejects_tampered_or_featureless_rows_even_with_expected_signature_id(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    tampered_id = _track(db, tmp_path, "tampered.wav")
-    featureless_id = _track(db, tmp_path, "featureless.wav")
-    signature = sonara_analysis_signatures_for_outputs(["core"])["core"]
-    for track_id in (tampered_id, featureless_id):
-        db.save_sonara_features(track_id, {"bpm": {"value": 128.0}}, analysis_signature=signature)
-    with db.connect() as connection:
-        connection.execute(
-            """
-            UPDATE tracks
-            SET metadata_json = json_set(
-                metadata_json,
-                '$.sonara_analysis_signature.sonara_version',
-                '0.2.3'
-            )
-            WHERE id = ?
-            """,
-            (tampered_id,),
-        )
-        connection.execute(
-            "UPDATE tracks SET metadata_json = json_remove(metadata_json, '$.sonara_features') WHERE id = ?",
-            (featureless_id,),
-        )
+def test_fake_runtime_has_golden_release_and_contract_hashes() -> None:
+    contracts = sonara_runtime_contracts(FakeSonara)
 
-    stale = db.list_analysis_candidates(["sonara"], expected_sonara_signatures={"core": signature})
-
-    assert [(candidate.id, candidate.missing_models, candidate.analyses) for candidate in stale] == [
-        (featureless_id, ("sonara",), ()),
-        (tampered_id, ("sonara",), ()),
-    ]
-
-
-def test_sonara_hot_rows_include_current_signature_and_exclude_stale_revision(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    current_id = _track(db, tmp_path, "current.wav")
-    stale_id = _track(db, tmp_path, "stale.wav")
-    current_signature = sonara_analysis_signatures_for_outputs(["core"])["core"]
-    stale_signature = {**current_signature, "project_feature_revision": 0}
-    stale_signature["signature_id"] = sonara_analysis_signature_id(stale_signature)
-    db.save_sonara_features(
-        current_id,
-        {"bpm": {"value": 128.0}},
-        analysis_signature=current_signature,
+    assert contracts.release_hash == (
+        "sha256:c8e479af204bc7a39d931f3719c4a720868b8859cbfdeff9f9bd4a0c5a86881e"
     )
-    db.save_sonara_features(
-        stale_id,
-        {"bpm": {"value": 129.0}},
-        analysis_signature=stale_signature,
-    )
-
-    tracks, feature_rows = db.load_sonara_feature_rows()
-
-    assert [track.id for track in tracks] == [current_id]
-    assert feature_rows == [{"bpm": {"value": 128.0}}]
-
-
-def test_core_and_timeline_outputs_are_persisted_and_replaced_independently(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_id = _track(db, tmp_path, "track.wav")
-    core_signature = sonara_analysis_signatures_for_outputs(["core"])["core"]
-    timeline_signature = sonara_analysis_signatures_for_outputs(["timeline"])["timeline"]
-    db.save_sonara_features(
-        track_id,
-        {"bpm": {"value": 128.0}},
-        analysis_signature=core_signature,
-    )
-    db.save_sonara_timeline(
-        track_id,
-        {"energy_curve": {"value": [0.1, 0.2]}},
-        provenance={"package_version": "0.2.9"},
-        analysis_signature=timeline_signature,
-    )
-
-    db.save_sonara_features(
-        track_id,
-        {"bpm": {"value": 129.0}},
-        analysis_signature=core_signature,
-    )
-
-    assert db.get_track(track_id).metadata["sonara_features"] == {"bpm": {"value": 129.0}}
-    assert db.load_sonara_timeline(track_id) == {"energy_curve": {"value": [0.1, 0.2]}}
-
-    db.save_sonara_timeline(
-        track_id,
-        {"energy_curve": {"value": [0.3]}, "downbeats": {"value": [1.0]}},
-        provenance=None,
-        analysis_signature=timeline_signature,
-    )
-
-    assert db.get_track(track_id).metadata["sonara_features"] == {"bpm": {"value": 129.0}}
-    assert db.load_sonara_timeline(track_id) == {
-        "energy_curve": {"value": [0.3]},
-        "downbeats": {"value": [1.0]},
+    assert {
+        identity.output_kind: identity.contract_hash
+        for identity in contracts.identities
+    } == {
+        "core": "sha256:549df36a051f8c96b07c795b4c15a0143693ee7e649677b8aef388ccd677dcd2",
+        "timeline": "sha256:055b14b5b9024bb039d1221ac461c90eb188ce8c9b810c2a91c78c37bc74f8e1",
+        "embedding": "sha256:b2fe36a33da0e7fb214f3d5b3d4f97a87f9c956b2fc58aa610ba02751ffc2e9a",
+        "fingerprint": "sha256:2f3803c483ade1676ece0ecd89ef078212a43ff9fbd7ad9b9f8d9ab5557a8155",
     }
 
 
-def test_sonara_reanalysis_invalidates_only_dependent_track_scores(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_id = _track(db, tmp_path, "track.wav")
-    signature = expected_sonara_analysis_signature([])
-    db.save_sonara_features(track_id, {"bpm": {"value": 128.0}}, analysis_signature=signature)
-    _save_score(db, track_id, "sonara_profile", feature_set="combined")
-    _save_score(db, track_id, "embedding_profile", feature_set="mert+maest")
+def test_every_contract_has_strict_production_identity() -> None:
+    contracts = sonara_runtime_contracts(FakeSonara)
 
-    db.save_sonara_features(track_id, {"bpm": {"value": 129.0}}, analysis_signature=signature)
-
-    assert db.classifier_score(track_id, "sonara_profile") is None
-    assert db.classifier_score(track_id, "embedding_profile") is not None
-
-
-def test_sonara_reset_invalidates_dependent_scores_but_preserves_feedback(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    first_id = _track(db, tmp_path, "first.wav")
-    second_id = _track(db, tmp_path, "second.wav")
-    signature = expected_sonara_analysis_signature([])
-    db.save_sonara_features(first_id, {"bpm": {"value": 128.0}}, analysis_signature=signature)
-    _save_score(db, first_id, "sonara_profile", feature_set="sonara2vocal+maest")
-    _save_score(db, first_id, "embedding_profile", feature_set="mert+maest")
-    _save_pair_feedback(db, first_id, second_id)
-
-    result = db.reset_analysis("sonara")
-
-    assert result["classifier_scores_deleted"] == 1
-    assert db.classifier_score(first_id, "sonara_profile") is None
-    assert db.classifier_score(first_id, "embedding_profile") is not None
-    assert SONARA_ANALYSIS_SIGNATURE_KEY not in db.get_track(first_id).metadata
-    with db.connect() as connection:
-        assert connection.execute("SELECT COUNT(*) FROM track_pair_feedback").fetchone()[0] == 1
+    for identity in contracts.identities:
+        validate_production_contract(identity)
+        parameters = dict(identity.parameters)
+        assert identity.model_name == "sonara-playlist"
+        assert identity.model_version == SONARA_EXPECTED_VERSION
+        assert identity.checkpoint_id == _BUILD_A
+        assert identity.preprocessing
+        assert parameters["identity_factory"] == "sonara-runtime-v1"
+        assert parameters["package_build_id"] == _BUILD_A
+        assert parameters["vocalness_model_id"] == "sonara-vocalness-v2"
+        assert parameters["vocalness_model_build_id"] == _VOCAL_BUILD_A
+        assert tuple(parameters["requested_features"])
 
 
-def test_database_revision_migration_invalidates_old_scores_once_without_feedback_loss(tmp_path: Path) -> None:
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    first_id = _track(db, tmp_path, "first.wav")
-    second_id = _track(db, tmp_path, "second.wav")
-    _save_score(db, first_id, "old_sonara", feature_set="combined")
-    _save_score(db, first_id, "embedding_only", feature_set="mert+maest")
-    _save_pair_feedback(db, first_id, second_id)
-    with db.connect() as connection:
-        connection.execute(
-            "DELETE FROM library_settings WHERE key = ?",
-            (SONARA_CLASSIFIER_REVISION_SETTING_KEY,),
-        )
-
-    migrated = LibraryDatabase(db_path)
-
-    assert migrated.classifier_score(first_id, "old_sonara") is None
-    assert migrated.classifier_score(first_id, "embedding_only") is not None
-    with migrated.connect() as connection:
-        assert connection.execute("SELECT COUNT(*) FROM track_pair_feedback").fetchone()[0] == 1
-        revision = connection.execute(
-            "SELECT value FROM library_settings WHERE key = ?",
-            (SONARA_CLASSIFIER_REVISION_SETTING_KEY,),
-        ).fetchone()[0]
-    assert revision == "5"
+def test_release_hash_cannot_be_supplied_by_factory_caller() -> None:
+    assert "release_hash" not in inspect.signature(sonara_runtime_contracts).parameters
+    assert "release_hash" not in inspect.signature(build_sonara_contracts).parameters
 
 
-def _track(db: LibraryDatabase, tmp_path: Path, name: str) -> int:
-    path = tmp_path / name
-    path.write_bytes(b"audio")
-    return db.upsert_track(path=path, size=path.stat().st_size, mtime=1.0, metadata={"title": name})
+@pytest.mark.parametrize(
+    ("field_name", "replacement"),
+    [
+        ("package_version", "0.2.9+different-build"),
+        ("package_build_id", _BUILD_B),
+        ("schema_version", 5),
+        ("mode", "full"),
+        ("sample_rate_hz", 44_100),
+        ("bpm_min", 69),
+        ("bpm_max", 181),
+        ("project_feature_revision", SONARA_PROJECT_FEATURE_REVISION + 1),
+        ("decoder_backend", "another-decoder"),
+        ("execution_path", "analyze_file"),
+        ("analysis_hop_samples", 256),
+        ("unit_interval_clamp_policy", "another-clamp-policy"),
+        ("unit_interval_clamp_epsilon", 0.002),
+        ("vocalness_model_id", "another-vocalness-model"),
+        ("vocalness_model_build_id", _VOCAL_BUILD_B),
+        ("embedding_version", 3),
+        ("embedding_dim", 49),
+        ("embedding_normalization", "l2"),
+        ("fingerprint_version", 2),
+        ("fingerprint_encoding", "uint64-le"),
+        ("fingerprint_byte_order", "big"),
+    ],
+)
+def test_every_runtime_field_changes_release_and_contract_hashes(
+    field_name: str,
+    replacement: object,
+) -> None:
+    runtime = resolve_sonara_runtime_identity(FakeSonara)
+    baseline = build_sonara_contracts(runtime)
+    changed = build_sonara_contracts(replace(runtime, **{field_name: replacement}))
 
-
-def _save_score(db: LibraryDatabase, track_id: int, classifier: str, *, feature_set: str) -> None:
-    db.save_classifier_score(
-        track_id,
-        classifier=classifier,
-        score=0.75,
-        label="high",
-        confidence=0.75,
-        probabilities={"yes": 0.75, "no": 0.25},
-        feature_set=feature_set,
-        model_id="test-model",
+    assert changed.release_hash != baseline.release_hash
+    assert {identity.contract_hash for identity in changed.identities}.isdisjoint(
+        identity.contract_hash for identity in baseline.identities
     )
 
 
-def _save_pair_feedback(db: LibraryDatabase, first_id: int, second_id: int) -> None:
-    with db.connect() as connection:
-        connection.execute(
-            """
-            INSERT INTO track_pair_feedback (
-                seed_track_id, candidate_track_id, rating, reason_tags_json, notes, source
-            ) VALUES (?, ?, 3, '[]', 'keep me', 'test')
-            """,
-            (first_id, second_id),
+def test_clamp_field_list_changes_release_and_every_output_contract() -> None:
+    runtime = resolve_sonara_runtime_identity(FakeSonara)
+    baseline = build_sonara_contracts(runtime)
+    changed = build_sonara_contracts(
+        replace(
+            runtime,
+            unit_interval_clamp_fields=(
+                *runtime.unit_interval_clamp_fields,
+                "another_unit_interval_field",
+            ),
         )
+    )
+
+    assert changed.release_hash != baseline.release_hash
+    assert {identity.contract_hash for identity in changed.identities}.isdisjoint(
+        identity.contract_hash for identity in baseline.identities
+    )
+
+
+def test_unsupported_embedding_encoding_changes_release_but_is_not_activatable() -> (
+    None
+):
+    runtime = resolve_sonara_runtime_identity(FakeSonara)
+    changed = replace(runtime, embedding_encoding="float64-le")
+
+    assert changed.release_hash != runtime.release_hash
+    with pytest.raises(ContractIdentityError, match="embedding encoding"):
+        build_sonara_contracts(changed)
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "core_requested_features",
+        "timeline_requested_features",
+        "embedding_requested_features",
+        "fingerprint_requested_features",
+    ],
+)
+def test_each_output_feature_set_changes_release_and_contracts(
+    field_name: str,
+) -> None:
+    runtime = resolve_sonara_runtime_identity(FakeSonara)
+    baseline = build_sonara_contracts(runtime)
+    changed_features = (*getattr(runtime, field_name), "future_feature")
+    changed = build_sonara_contracts(replace(runtime, **{field_name: changed_features}))
+
+    assert changed.release_hash != baseline.release_hash
+    assert tuple(identity.contract_hash for identity in changed.identities) != tuple(
+        identity.contract_hash for identity in baseline.identities
+    )
+
+
+def test_feature_order_does_not_create_a_spurious_release() -> None:
+    runtime = resolve_sonara_runtime_identity(FakeSonara)
+    reordered = replace(
+        runtime,
+        core_requested_features=tuple(reversed(runtime.core_requested_features)),
+    )
+
+    assert reordered.release_hash == runtime.release_hash
+
+
+def test_runtime_factory_rejects_unpinned_package_and_embedding_versions() -> None:
+    class WrongPackage(FakeSonara):
+        __version__ = "0.3.0"
+
+    class WrongEmbedding(FakeSonara):
+        SIMILARITY_VERSION = 3
+
+    with pytest.raises(SonaraRuntimeIdentityError, match="0.2.9 is required"):
+        resolve_sonara_runtime_identity(WrongPackage)
+    with pytest.raises(SonaraRuntimeIdentityError, match="similarity version"):
+        resolve_sonara_runtime_identity(WrongEmbedding)
+
+
+def test_runtime_factory_rejects_missing_or_malformed_build_identity() -> None:
+    class MissingBuild:
+        __version__ = SONARA_EXPECTED_VERSION
+        SIMILARITY_VERSION = 2
+        __sonara_vocalness_model_id__ = "sonara-vocalness-v2"
+        __sonara_vocalness_model_build_id__ = _VOCAL_BUILD_A
+
+    class MalformedBuild(MissingBuild):
+        __sonara_build_id__ = "not-a-hash"
+
+    with pytest.raises(SonaraRuntimeIdentityError, match="build_id"):
+        resolve_sonara_runtime_identity(MissingBuild)
+    with pytest.raises(SonaraRuntimeIdentityError, match="sha256"):
+        resolve_sonara_runtime_identity(MalformedBuild)
+
+
+def test_canonical_outputs_have_no_representations_alias() -> None:
+    assert normalize_sonara_outputs(None) == ("core",)
+    assert normalize_sonara_outputs(("fingerprint", "timeline", "embedding")) == (
+        "core",
+        "timeline",
+        "embedding",
+        "fingerprint",
+    )
+    with pytest.raises(ValueError, match="unsupported SONARA output"):
+        normalize_sonara_outputs(("representations",))
+
+
+def test_native_analysis_request_is_sorted_union_of_all_four_contracts() -> None:
+    runtime = resolve_sonara_runtime_identity(FakeSonara)
+    requested = sonara_requested_features(runtime=runtime)
+    expected = tuple(
+        sorted(
+            {
+                feature
+                for output in SONARA_OUTPUT_KINDS
+                for feature in runtime.requested_features_by_output[output]
+            }
+        )
+    )
+
+    assert requested == expected
+    assert tuple(inspect.signature(sonara_requested_features).parameters) == (
+        "runtime",
+    )
+    assert "embedding" in requested
+    assert "fingerprint" in requested
+    assert "vocalness" in requested
+    assert len(requested) == len(set(requested))
+    assert "instrumentalness" not in requested
+
+
+def test_installed_sonara_runtime_can_be_identified_when_available() -> None:
+    pytest.importorskip("sonara")
+
+    contracts = sonara_runtime_contracts()
+
+    assert contracts.runtime.package_version == SONARA_EXPECTED_VERSION
+    assert contracts.runtime.package_build_id.startswith("sha256:")
+    assert contracts.runtime.vocalness_model_id == "sonara-vocalness-v2"
+    assert contracts.runtime.vocalness_model_build_id.startswith("sha256:")

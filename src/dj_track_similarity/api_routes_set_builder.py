@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from fastapi import FastAPI, HTTPException
 
+from .analysis_model_runners import current_embedding_analysis_output
 from .api_schemas import SetBuilderGenerateRequest
 from .api_state import AppDatabaseState
 from .set_builder import SetBuilderConfig, SmartSetBuilder
@@ -35,8 +36,14 @@ def register_set_builder_routes(
             random_seed=request.random_seed,
         )
         try:
-            return SmartSetBuilder(state.require_db()).generate(config)
-        except ValueError as error:
+            return SmartSetBuilder(
+                state.require_db(),
+                analysis_outputs={
+                    family: current_embedding_analysis_output(family)
+                    for family in ("mert", "maest", "clap")
+                },
+            ).generate(config)
+        except (RuntimeError, ValueError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
 

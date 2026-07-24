@@ -1,215 +1,397 @@
+from __future__ import annotations
+
+from dataclasses import replace
+import json
+import uuid
 from pathlib import Path
 
 import numpy as np
+import pytest
 
+import dj_track_similarity.classifier_jobs as classifier_jobs_module
+from dj_track_similarity.analysis_model_runners import (
+    current_embedding_analysis_output,
+)
+from dj_track_similarity.analysis_models import (
+    AnalysisOutput,
+    AnalysisTarget,
+    ClassifierFeatureRow,
+    ClassifierScoreWrite,
+    ClassifierSpecification,
+    EmbeddingOutput,
+    EmbeddingWrite,
+    classifier_required_outputs_hash,
+)
 from dj_track_similarity.classifier_jobs import ClassifierJobManager
+from dj_track_similarity.classifier_manifest import (
+    ClassifierManifestSummary,
+    classifier_feature_manifest_hash,
+)
 from dj_track_similarity.classifier_scoring import ClassifierRequirements
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.sonara_features import sonara_analysis_signatures_for_outputs
+from dj_track_similarity.db_schema_v7 import ClassifierScoreV7
 
 
-def _track(db: LibraryDatabase, tmp_path: Path, name: str) -> int:
-    path = tmp_path / name
-    path.write_bytes(b"audio")
-    return db.upsert_track(path=path, size=path.stat().st_size, mtime=1, metadata={})
+_NOW = "2026-07-24T11:00:00.000000Z"
+_ARTIFACT_HASH = "sha256:" + "a" * 64
 
 
-def _sonara(db: LibraryDatabase, track_id: int) -> None:
-    db.save_sonara_features(
-        track_id,
-        {"bpm": {"value": 128.0}},
-        analysis_signature=sonara_analysis_signatures_for_outputs(["core"])["core"],
+def _mert_output(*, model_version: str = "active") -> AnalysisOutput:
+    current = current_embedding_analysis_output("mert")
+    if model_version in {"active", "revision-1"}:
+        return current
+    if model_version != "inactive":
+        raise ValueError(f"Unsupported test MERT identity: {model_version}")
+    stale_version = (
+        "0" * 40
+        if current.contract.model_version != "0" * 40
+        else "f" * 40
+    )
+    return AnalysisOutput(
+        replace(
+            current.contract,
+            model_version=stale_version,
+        )
     )
 
 
-def _embedding(db: LibraryDatabase, track_id: int, key: str) -> None:
-    db.save_embedding(track_id, np.asarray([0.1, 0.2], dtype=np.float32), f"fake-{key}", embedding_key=key)
+def _insert_track(db: LibraryDatabase) -> AnalysisTarget:
+    track_uuid = str(uuid.uuid4())
+    with db.connect() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO tracks (
+                track_uuid, file_path, file_size_bytes, file_modified_ns,
+                content_generation, last_scanned_at, created_at, updated_at
+            ) VALUES (?, ?, 1024, 123456789, 1, ?, ?, ?)
+            """,
+            (
+                track_uuid,
+                f"C:/music/{track_uuid}.wav",
+                _NOW,
+                _NOW,
+                _NOW,
+            ),
+        )
+        track_id = int(cursor.lastrowid)
+    return AnalysisTarget(
+        catalog_uuid=db.catalog_uuid,
+        track_id=track_id,
+        track_uuid=track_uuid,
+        content_generation=1,
+    )
 
 
-def _requirement(key: str, inputs: tuple[str, ...], model_id: str | None = None) -> ClassifierRequirements:
+def _write_embedding(
+    db: LibraryDatabase,
+    target: AnalysisTarget,
+    output: AnalysisOutput,
+) -> None:
+    vector = np.zeros(int(output.contract.dim), dtype=np.float32)
+    vector[0] = 1.0
+    result = db.save_embedding_results(
+        (
+            EmbeddingWrite(
+                target=target,
+                output=EmbeddingOutput(
+                    contract=output.contract,
+                    vector=vector,
+                    analyzed_at=_NOW,
+                ),
+            ),
+        )
+    )[0]
+    assert result.ok
+
+
+def _requirements(
+    classifier_key: str,
+    output: AnalysisOutput,
+    *,
+    model_id: str | None = None,
+) -> ClassifierRequirements:
+    feature_names = ("mert:0",)
+    feature_hash = classifier_feature_manifest_hash(feature_names)
+    specification = ClassifierSpecification(
+        classifier_key=classifier_key,
+        model_id=model_id or f"{classifier_key}-model",
+        feature_set="mert-contract",
+        feature_manifest_hash=feature_hash,
+        required_outputs_hash=classifier_required_outputs_hash((output,)),
+        feature_names=feature_names,
+        required_outputs=(output,),
+        label_order=("negative", "positive"),
+        positive_label="positive",
+    )
+    manifest = ClassifierManifestSummary(
+        classifier_key=classifier_key,
+        metadata_path=Path(f"{classifier_key}.json"),
+        model_path=Path(f"{classifier_key}.joblib"),
+        status="valid",
+        feature_set=specification.feature_set,
+        feature_names=feature_names,
+        feature_count=1,
+        feature_manifest_hash=feature_hash,
+        required_outputs=(output,),
+        label_order=("negative", "positive"),
+        positive_label="positive",
+        negative_label="negative",
+        manifest_version=2,
+        model_id=specification.model_id,
+        artifact_hash=_ARTIFACT_HASH,
+    )
     return ClassifierRequirements(
-        classifier_key=key,
-        model_path=Path(f"{key}.joblib"),
-        model_id=model_id or f"{key}-v2",
-        feature_set="+".join(inputs),
-        feature_names=tuple("sonara:bpm" if source == "sonara" else f"{source}:0" for source in inputs),
-        required_inputs=inputs,
-        sonara_analysis_signature=(
-            sonara_analysis_signatures_for_outputs(["core"])["core"] if "sonara" in inputs else None
-        ),
+        manifest=manifest,
+        specification=specification,
+        model_path=manifest.model_path,
+        artifact_hash=_ARTIFACT_HASH,
+        label_order=manifest.label_order,
     )
 
 
-class FakeScorer:
-    manifest_warnings = ()
+class _FakeScorer:
+    manifest_warnings: tuple[str, ...] = ()
 
-    def __init__(self, db: LibraryDatabase, key: str, model_id: str, feature_set: str) -> None:
-        self.db = db
-        self.key = key
-        self.model_id = model_id
-        self.feature_set = feature_set
-        self.model_name = key
+    def __init__(self, requirements: ClassifierRequirements) -> None:
+        self.specification = requirements.specification
+        self.model_name = str(requirements.model_path)
 
-    def score_track(self, track):
-        return {"positive": 0.8, "negative": 0.2}
-
-    def save_score(self, track, probabilities) -> None:
-        self.db.save_classifier_score(
-            track.id,
-            classifier=self.key,
-            score=probabilities["positive"],
-            label="positive",
-            confidence=probabilities["positive"],
-            probabilities=probabilities,
-            feature_set=self.feature_set,
-            model_id=self.model_id,
+    def score_row(
+        self,
+        row: ClassifierFeatureRow,
+    ) -> ClassifierScoreWrite:
+        score = 0.8
+        return ClassifierScoreWrite(
+            target=row.target,
+            specification=self.specification,
+            score=ClassifierScoreV7(
+                track_id=row.target.track_id,
+                classifier_key=self.specification.classifier_key,
+                content_generation=row.target.content_generation,
+                model_id=self.specification.model_id,
+                feature_set=self.specification.feature_set,
+                feature_manifest_hash=self.specification.feature_manifest_hash,
+                required_outputs_hash=(self.specification.required_outputs_hash),
+                uses_sonara=0,
+                sonara_release_hash=None,
+                positive_label="positive",
+                predicted_class="positive",
+                score_bucket="high",
+                score=score,
+                confidence=score,
+                probabilities_json=json.dumps(
+                    {"negative": 0.2, "positive": 0.8},
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                analyzed_at=_NOW,
+            ),
         )
 
 
-def test_manifest_specific_readiness_filters_before_aggregate_total(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    all_ready = _track(db, tmp_path, "all.wav")
-    sonara_only = _track(db, tmp_path, "sonara.wav")
-    mert_only = _track(db, tmp_path, "mert.wav")
-    _track(db, tmp_path, "none.wav")
-    for track_id in (all_ready, sonara_only):
-        _sonara(db, track_id)
-    for track_id in (all_ready, mert_only):
-        _embedding(db, track_id, "mert")
-    requirements = {
-        "sonara_only": _requirement("sonara_only", ("sonara",)),
-        "mert_only": _requirement("mert_only", ("mert",)),
-        "combined": _requirement("combined", ("sonara", "mert")),
-    }
+def _score_count(db: LibraryDatabase, classifier_key: str) -> int:
+    with db.connect() as connection:
+        return int(
+            connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM classifier_scores
+                WHERE classifier_key = ?
+                """,
+                (classifier_key,),
+            ).fetchone()[0]
+        )
 
+
+def test_aggregate_limit_caps_track_classifier_pairs_on_v7_rows(
+    tmp_path: Path,
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    output = _mert_output()
+    db.register_analysis_outputs((output,))
+    for _ in range(3):
+        target = _insert_track(db)
+        _write_embedding(db, target, output)
+    requirements = {
+        key: _requirements(key, output) for key in ("classifier_one", "classifier_two")
+    }
     manager = ClassifierJobManager(
         db,
         requirements_loader=requirements.__getitem__,
-        scorer_factory=lambda key, path: FakeScorer(db, key, requirements[key].model_id, requirements[key].feature_set),
+        scorer_factory=_FakeScorer,
     )
-    job_id = manager.create_job(classifiers=list(requirements))
+
+    job_id = manager.create_job(
+        classifiers=("classifier_one", "classifier_two"),
+        limit=4,
+    )
     queued = manager.get(job_id)
 
-    assert queued.total == 5
-    assert queued.not_ready == 7
-    assert queued.events[0].message == "CLASSIFIERS queued · profiles 3"
-    assert queued.readiness["sonara_only"] == {"candidates": 4, "ready": 2, "not_ready": 2, "selected": 2}
-    assert queued.readiness["combined"] == {"candidates": 4, "ready": 1, "not_ready": 3, "selected": 1}
-
-    status = manager.run_job(job_id)
-    assert status.state == "completed"
-    assert status.analyzed == status.processed == 5
-    assert [progress.analyzed for progress in status.model_progress.values()] == [2, 2, 1]
-
-
-def test_aggregate_limit_caps_pairs_across_the_classifier_stage(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    for name in ("one.wav", "two.wav"):
-        track_id = _track(db, tmp_path, name)
-        _embedding(db, track_id, "mert")
-    requirements = {
-        key: _requirement(key, ("mert",))
-        for key in ("first", "second")
+    assert queued.total == 4
+    assert queued.required_families == ("mert",)
+    assert not hasattr(queued, "embedding_key")
+    assert queued.readiness["classifier_one"] == {
+        "candidates": 3,
+        "ready": 3,
+        "not_ready": 0,
+        "selected": 3,
     }
-    manager = ClassifierJobManager(db, requirements_loader=requirements.__getitem__)
+    assert queued.readiness["classifier_two"]["selected"] == 1
 
-    job_id = manager.create_job(classifiers=list(requirements), limit=2)
-    status = manager.get(job_id)
+    completed = manager.run_job(job_id)
 
-    assert status.total == 2
-    assert status.readiness["first"]["selected"] == 2
-    assert status.readiness["second"]["selected"] == 0
+    assert completed.state == "completed"
+    assert completed.processed == 4
+    assert completed.analyzed == 4
+    assert completed.failed == 0
+    assert _score_count(db, "classifier_one") == 3
+    assert _score_count(db, "classifier_two") == 1
 
 
-def test_stale_model_id_is_candidate_but_current_score_is_not(tmp_path: Path) -> None:
+def test_not_ready_outputs_are_excluded_before_job_total(
+    tmp_path: Path,
+) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    stale = _track(db, tmp_path, "stale.wav")
-    current = _track(db, tmp_path, "current.wav")
-    for track_id in (stale, current):
-        _embedding(db, track_id, "mert")
-    for track_id, model_id in ((stale, "old-model"), (current, "mert-only-v2")):
-        db.save_classifier_score(
-            track_id,
-            classifier="mert_only",
-            score=0.5,
-            label="positive",
-            confidence=0.5,
-            probabilities={"positive": 0.5},
-            feature_set="mert",
-            model_id=model_id,
-        )
-    requirement = _requirement("mert_only", ("mert",), model_id="mert-only-v2")
+    output = _mert_output()
+    db.register_analysis_outputs((output,))
+    ready_target = _insert_track(db)
+    _write_embedding(db, ready_target, output)
+    _insert_track(db)
+    requirements = _requirements("test_classifier", output)
     manager = ClassifierJobManager(
         db,
-        requirements_loader=lambda key: requirement,
-        scorer_factory=lambda key, path: FakeScorer(db, key, requirement.model_id, requirement.feature_set),
+        requirements_loader=lambda _key: requirements,
+        scorer_factory=_FakeScorer,
     )
 
-    job_id = manager.create_job(classifiers=["mert_only"])
+    readiness = manager.readiness(("test_classifier",))
+    job_id = manager.create_job(classifier="test_classifier")
+
+    assert readiness["test_classifier"] == {
+        "candidates": 2,
+        "ready": 1,
+        "not_ready": 1,
+        "blockers": [],
+    }
     assert manager.get(job_id).total == 1
-    status = manager.run_job(job_id)
-
-    assert status.analyzed == 1
-    assert db.classifier_score(stale, "mert_only")["model_id"] == "mert-only-v2"
-    assert db.classifier_score(current, "mert_only")["model_id"] == "mert-only-v2"
+    completed = manager.run_job(job_id)
+    assert completed.analyzed == 1
+    assert completed.failed == 0
 
 
-def test_classifier_job_never_decodes_audio_and_not_ready_is_not_failure(tmp_path: Path) -> None:
+def test_all_contracts_are_preflighted_before_any_stale_cleanup(
+    tmp_path: Path,
+) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    _track(db, tmp_path, "not-ready.wav")
-    requirement = _requirement("combined", ("sonara", "mert"))
-    manager = ClassifierJobManager(db, requirements_loader=lambda key: requirement)
-
-    job_id = manager.create_job(classifiers=["combined"])
-    status = manager.run_job(job_id)
-
-    assert status.state == "completed"
-    assert status.total == status.failed == status.processed == 0
-    assert status.not_ready == 1
-
-
-def test_missing_manifest_sonara_field_is_not_ready_before_job_total(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_id = _track(db, tmp_path, "missing-vocalness.wav")
-    _sonara(db, track_id)
-    base = _requirement("vocalness", ("sonara",))
-    requirement = ClassifierRequirements(
-        **{**base.__dict__, "feature_names": ("sonara:bpm", "sonara:vocalness")}
+    active = _mert_output(model_version="active")
+    inactive = _mert_output(model_version="inactive")
+    db.register_analysis_outputs((active,))
+    target = _insert_track(db)
+    stale = _requirements("classifier_one", active, model_id="old-model")
+    stale_write = _FakeScorer(stale).score_row(
+        ClassifierFeatureRow(
+            target=target,
+            specification=stale.specification,
+            vector=np.asarray([1.0], dtype=np.float32),
+        )
     )
-    manager = ClassifierJobManager(db, requirements_loader=lambda key: requirement)
-
-    job_id = manager.create_job(classifiers=["vocalness"])
-    status = manager.run_job(job_id)
-
-    assert status.total == status.processed == status.failed == 0
-    assert status.not_ready == 1
-
-
-def test_classifier_readiness_counts_in_one_query_without_materializing_tracks(tmp_path: Path) -> None:
-    class CountingDatabase(LibraryDatabase):
-        connect_calls = 0
-
-        def connect(self):
-            self.connect_calls += 1
-            return super().connect()
-
-        def list_classifier_candidates(self, *args, **kwargs):
-            raise AssertionError("readiness must not materialize candidate tracks")
-
-    db = CountingDatabase(tmp_path / "library.sqlite")
-    ready_id = _track(db, tmp_path, "ready.wav")
-    _track(db, tmp_path, "not-ready.wav")
-    _sonara(db, ready_id)
-    requirement = _requirement("sonara_only", ("sonara",))
-    db.connect_calls = 0
-
-    counts = db.classifier_candidate_readiness(
-        "sonara_only",
-        model_id=requirement.model_id,
-        required_inputs=requirement.required_inputs,
-        sonara_signature=requirement.sonara_analysis_signature,
-        feature_names=requirement.feature_names,
+    assert db.save_classifier_scores((stale_write,))[0].ok
+    requirements = {
+        "classifier_one": _requirements("classifier_one", active),
+        "classifier_two": _requirements("classifier_two", inactive),
+    }
+    manager = ClassifierJobManager(
+        db,
+        requirements_loader=requirements.__getitem__,
+        scorer_factory=_FakeScorer,
     )
 
-    assert counts == {"candidates": 2, "ready": 1, "not_ready": 1}
-    assert db.connect_calls == 1
+    with pytest.raises(
+        RuntimeError,
+        match="does not match the current adapter identity",
+    ):
+        manager.create_job(
+            classifiers=("classifier_one", "classifier_two"),
+        )
+
+    assert _score_count(db, "classifier_one") == 1
+
+
+def test_job_write_rejects_track_uuid_changed_after_queueing(
+    tmp_path: Path,
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    output = _mert_output()
+    db.register_analysis_outputs((output,))
+    target = _insert_track(db)
+    _write_embedding(db, target, output)
+    requirements = _requirements("test_classifier", output)
+    manager = ClassifierJobManager(
+        db,
+        requirements_loader=lambda _key: requirements,
+        scorer_factory=_FakeScorer,
+    )
+    job_id = manager.create_job(classifier="test_classifier")
+    with db.connect() as connection:
+        connection.execute(
+            """
+            UPDATE tracks
+            SET track_uuid = ?, updated_at = ?
+            WHERE track_id = ?
+            """,
+            (str(uuid.uuid4()), _NOW, target.track_id),
+        )
+
+    completed = manager.run_job(job_id)
+
+    assert completed.state == "completed"
+    assert completed.analyzed == 0
+    assert completed.failed == 1
+    assert "track_uuid mismatch" in completed.errors[0].error
+    assert _score_count(db, "test_classifier") == 0
+
+
+def test_custom_model_path_calls_v7_requirements_loader_with_database(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    output = _mert_output()
+    db.register_analysis_outputs((output,))
+    requirements = _requirements("test_classifier", output)
+    calls: list[tuple[object, str, Path | None]] = []
+
+    def fake_load(
+        database: LibraryDatabase,
+        classifier: str,
+        *,
+        model_path: str | Path | None = None,
+    ) -> ClassifierRequirements:
+        calls.append(
+            (
+                database,
+                classifier,
+                None if model_path is None else Path(model_path),
+            )
+        )
+        return requirements
+
+    monkeypatch.setattr(
+        classifier_jobs_module,
+        "load_classifier_requirements",
+        fake_load,
+    )
+    manager = ClassifierJobManager(
+        db,
+        scorer_factory=_FakeScorer,
+    )
+    custom_path = tmp_path / "custom.joblib"
+
+    job_id = manager.create_job(
+        classifier="test_classifier",
+        model_path=custom_path,
+        limit=0,
+    )
+
+    assert calls == [(db, "test_classifier", custom_path)]
+    assert manager.get(job_id).total == 0

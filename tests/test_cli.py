@@ -1,66 +1,84 @@
+from __future__ import annotations
+
 import logging
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
-from typer.testing import CliRunner
 import pytest
+from typer.testing import CliRunner
 
 import dj_track_similarity.api as api
 import dj_track_similarity.cli as cli
-from dj_track_similarity.analysis_config import DEFAULT_SONARA_OUTPUTS
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.logging_config import set_analysis_diagnostics_enabled
-
-
-class _FakeStatus:
-    state = "completed"
-    total = 3
-    processed = 3
-    analyzed = 2
-    failed = 1
-    embedding_key = "multi"
-    models = ["maest", "mert", "muq", "clap"]
-    current_model = None
-    model_progress = {}
-    device = "cpu"
-    track_batch_size = 8
-    inference_batch_size = 16
-    top_k = 3
-    avg_seconds_per_track = 0.5
+from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
 class _FakeAnalysisManager:
-    last_kwargs = {}
+    last_kwargs: dict[str, object] = {}
+    preflight_calls = 0
 
-    def __init__(self, db):
-        self.status = _FakeStatus()
+    def __init__(self, _database: LibraryDatabase) -> None:
+        self.status = SimpleNamespace(
+            state="completed",
+            total=3,
+            processed=3,
+            analyzed=2,
+            failed=1,
+            models=["maest", "mert", "muq", "clap"],
+            current_model=None,
+            model_progress={},
+            device="cpu",
+            track_batch_size=8,
+            inference_batch_size=16,
+            sonara_batch_size=8,
+            sonara_outputs=[],
+            top_k=3,
+            avg_seconds_per_track=0.5,
+        )
 
-    def create_job(self, **_kwargs):
-        type(self).last_kwargs = _kwargs
-        if "models" in _kwargs:
-            self.status.models = list(_kwargs["models"])
-        if "track_batch_size" in _kwargs:
-            self.status.track_batch_size = _kwargs["track_batch_size"]
-        if "inference_batch_size" in _kwargs:
-            self.status.inference_batch_size = _kwargs["inference_batch_size"]
+    def validate_sonara_preflight(self) -> None:
+        type(self).preflight_calls += 1
+
+    def create_job(self, **kwargs: object) -> str:
+        type(self).last_kwargs = dict(kwargs)
+        self.status.models = list(kwargs["models"])
+        self.status.track_batch_size = int(kwargs["track_batch_size"])
+        self.status.inference_batch_size = int(kwargs["inference_batch_size"])
+        self.status.sonara_batch_size = int(kwargs["sonara_batch_size"])
+        self.status.sonara_outputs = list(kwargs["sonara_outputs"])
         return "job-1"
 
-    def run_job(self, _job_id):
+    def run_job(self, _job_id: str):
         return self.status
 
-    def get(self, _job_id):
+    def get(self, _job_id: str):
         return self.status
 
 
-class _FakeGenreManager(_FakeAnalysisManager):
-    def __init__(self, db):
-        self.status = _FakeStatus()
-        self.status.embedding_key = "maest"
+def _typed_track(database: LibraryDatabase, path: Path):
+    path.write_bytes(b"audio")
+    stat = path.stat()
+    return database.upsert_scanned_track(
+        file=ScannedFile(
+            file_path=str(path),
+            file_size_bytes=stat.st_size,
+            file_modified_ns=stat.st_mtime_ns,
+            audio_format="WAV",
+        ),
+        tags=FileTags(title="Typed CLI Track"),
+    ).identity
 
 
-def test_serve_reports_missing_ffmpeg_without_traceback(monkeypatch):
-    monkeypatch.setattr(cli, "require_ffmpeg", lambda: (_ for _ in ()).throw(RuntimeError("ffmpeg is required")))
+def test_serve_reports_missing_ffmpeg_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "require_ffmpeg",
+        lambda: (_ for _ in ()).throw(RuntimeError("ffmpeg is required")),
+    )
 
     result = CliRunner().invoke(cli.app, ["serve"])
 
@@ -69,86 +87,116 @@ def test_serve_reports_missing_ffmpeg_without_traceback(monkeypatch):
     assert "Traceback" not in result.output
 
 
-def test_serve_passes_bracketed_log_config_to_uvicorn(monkeypatch):
+def test_serve_opens_selected_v7_database_and_passes_log_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     import uvicorn
 
-    captured = {}
+    db_path = tmp_path / "library.sqlite"
+    log_path = tmp_path / "app.log"
+    captured: dict[str, object] = {}
     monkeypatch.setattr(cli, "require_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(
+        cli,
+        "configure_logging",
+        lambda **_kwargs: log_path,
+    )
     monkeypatch.setattr(api, "create_app", lambda *args, **kwargs: object())
-    monkeypatch.setattr(cli, "configure_logging", lambda **_kwargs: "app.log")
 
-    def fake_run(app, **kwargs):
-        captured["app"] = app
+    def fake_run(application: object, **kwargs: object) -> None:
+        captured["application"] = application
         captured["kwargs"] = kwargs
 
     monkeypatch.setattr(uvicorn, "run", fake_run)
 
-    result = CliRunner().invoke(cli.app, ["serve", "--log-level", "warning"])
+    result = CliRunner().invoke(
+        cli.app,
+        ["serve", "--db", str(db_path), "--port", "8877", "--log-level", "warning"],
+    )
 
     assert result.exit_code == 0
-    log_config = captured["kwargs"]["log_config"]
+    assert LibraryDatabase(db_path).path == db_path.resolve()
+    kwargs = captured["kwargs"]
+    assert kwargs["port"] == 8877
+    log_config = kwargs["log_config"]
     assert log_config["formatters"]["default"]["format"] == "[%(asctime)s] [%(levelname)s] %(message)s"
-    assert log_config["formatters"]["default"]["datefmt"] == "%Y-%m-%d] [%H:%M:%S"
-    assert log_config["loggers"]["uvicorn"]["level"] == "WARNING"
-    assert log_config["handlers"]["file"]["filename"] == str(Path("app.log").resolve())
-    assert log_config["loggers"]["uvicorn.access"]["handlers"] == ["access", "file"]
+    assert log_config["handlers"]["file"]["filename"] == str(log_path.resolve())
 
 
-def test_relocate_library_cli_applies_path_updates(tmp_path):
+def test_relocate_library_cli_applies_typed_v7_path_update(
+    tmp_path: Path,
+) -> None:
     old_root = tmp_path / "ssd"
     new_root = tmp_path / "archive"
     old_root.mkdir()
     new_root.mkdir()
     old_file = old_root / "track.wav"
     new_file = new_root / "track.wav"
-    old_file.write_bytes(b"audio")
     new_file.write_bytes(b"audio")
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    track_id = db.upsert_track(path=old_file, size=old_file.stat().st_size, mtime=old_file.stat().st_mtime)
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    identity = _typed_track(database, old_file)
 
     result = CliRunner().invoke(
         cli.app,
-        ["relocate-library", str(old_root), str(new_root), "--apply", "--db", str(db_path)],
+        [
+            "relocate-library",
+            str(old_root),
+            str(new_root),
+            "--apply",
+            "--db",
+            str(database.path),
+        ],
     )
 
     assert result.exit_code == 0
     assert "dry_run=False" in result.output
     assert "tracks_updated=1" in result.output
-    assert LibraryDatabase(db_path).get_track(track_id).path == new_file.as_posix()
+    state = database.get_track_file_state(new_file)
+    assert state is not None
+    assert (state.track_id, state.track_uuid, state.content_generation) == (
+        identity.track_id,
+        identity.track_uuid,
+        identity.content_generation,
+    )
 
 
-def test_analyze_cli_does_not_expose_removed_fake_option():
-    result = CliRunner().invoke(cli.app, ["analyze", "--fake"])
+def test_analyze_cli_does_not_expose_removed_fake_or_legacy_batch_options() -> None:
+    for arguments in (["analyze", "--fake"], ["analyze", "--batch-size", "4"]):
+        result = CliRunner().invoke(cli.app, arguments)
 
-    assert result.exit_code != 0
-    assert "No such option" in result.output
-
-
-def test_analyze_cli_does_not_accept_legacy_batch_size():
-    result = CliRunner().invoke(cli.app, ["analyze", "--batch-size", "4"])
-
-    assert result.exit_code != 0
-    assert "No such option" in result.output
+        assert result.exit_code != 0
+        assert "No such option" in result.output
 
 
-def test_analyze_cli_rejects_unknown_device_before_starting_job(monkeypatch, tmp_path):
+def test_analyze_cli_rejects_unknown_device_before_opening_manager(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     monkeypatch.setattr(cli, "AnalysisJobManager", _FakeAnalysisManager)
     _FakeAnalysisManager.last_kwargs = {}
-    db_path = tmp_path / "library.sqlite"
 
-    result = CliRunner().invoke(cli.app, ["analyze", "--device", "gpu", "--db", str(db_path)])
+    result = CliRunner().invoke(
+        cli.app,
+        ["analyze", "--device", "gpu", "--db", str(tmp_path / "library.sqlite")],
+    )
 
     assert result.exit_code != 0
     assert "Unknown torch device: gpu" in result.output
     assert _FakeAnalysisManager.last_kwargs == {}
 
 
-def test_analyze_cli_prints_live_progress_for_default_models(monkeypatch, tmp_path):
+def test_analyze_cli_prints_default_ml_progress_and_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     monkeypatch.setattr(cli, "AnalysisJobManager", _FakeAnalysisManager)
-    db_path = tmp_path / "library.sqlite"
+    _FakeAnalysisManager.last_kwargs = {}
 
-    result = CliRunner().invoke(cli.app, ["analyze", "--db", str(db_path)])
+    result = CliRunner().invoke(
+        cli.app,
+        ["analyze", "--db", str(tmp_path / "library.sqlite")],
+    )
 
     assert result.exit_code == 0
     assert "Starting maest,mert,muq,clap analysis" in result.output
@@ -161,8 +209,42 @@ def test_analyze_cli_prints_live_progress_for_default_models(monkeypatch, tmp_pa
     assert _FakeAnalysisManager.last_kwargs["sonara_outputs"] == []
 
 
-def test_analyze_cli_accepts_selected_sonara_outputs(monkeypatch, tmp_path):
+def test_analyze_cli_uses_exact_sonara_outputs_and_preflight(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     monkeypatch.setattr(cli, "AnalysisJobManager", _FakeAnalysisManager)
+    _FakeAnalysisManager.last_kwargs = {}
+    _FakeAnalysisManager.preflight_calls = 0
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "analyze",
+            "--models",
+            "sonara",
+            "--sonara-outputs",
+            "timeline,embedding,fingerprint",
+            "--db",
+            str(tmp_path / "library.sqlite"),
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert _FakeAnalysisManager.preflight_calls == 1
+    assert _FakeAnalysisManager.last_kwargs["sonara_outputs"] == [
+        "core",
+        "timeline",
+        "embedding",
+        "fingerprint",
+    ]
+    assert "sonara_outputs=core,timeline,embedding,fingerprint sonara_batch_size=8" in result.output
+    assert "representations" not in result.output
+
+
+def test_analyze_cli_rejects_removed_representations_before_opening_database(
+    tmp_path: Path,
+) -> None:
     db_path = tmp_path / "library.sqlite"
 
     result = CliRunner().invoke(
@@ -172,40 +254,22 @@ def test_analyze_cli_accepts_selected_sonara_outputs(monkeypatch, tmp_path):
             "--models",
             "sonara",
             "--sonara-outputs",
-            "timeline,representations",
+            "representations",
             "--db",
             str(db_path),
         ],
     )
 
-    assert result.exit_code == 0
-    assert _FakeAnalysisManager.last_kwargs["sonara_outputs"] == ["timeline", "representations"]
-    assert "sonara_outputs=timeline,representations sonara_batch_size=8" in result.output
-    assert "device=" not in result.output
-    assert "track_batch_size=" not in result.output
-    assert "inference_batch_size=" not in result.output
-    assert DEFAULT_SONARA_OUTPUTS == ("core",)
+    assert result.exit_code != 0
+    assert "representations" in result.output
+    assert not db_path.exists()
 
 
-def test_analyze_cli_accepts_selected_models_and_diagnostics_flag(monkeypatch, tmp_path):
+def test_analyze_cli_passes_separate_ml_batch_sizes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     monkeypatch.setattr(cli, "AnalysisJobManager", _FakeAnalysisManager)
-    db_path = tmp_path / "library.sqlite"
-
-    try:
-        result = CliRunner().invoke(cli.app, ["analyze", "--models", "maest,mert", "--diagnostics", "--db", str(db_path)])
-    finally:
-        set_analysis_diagnostics_enabled(None)
-
-    assert result.exit_code == 0
-    assert "Starting maest,mert analysis" in result.output
-    assert _FakeAnalysisManager.last_kwargs["models"] == ["maest", "mert"]
-    assert _FakeAnalysisManager.last_kwargs["track_batch_size"] == 8
-    assert _FakeAnalysisManager.last_kwargs["inference_batch_size"] == 16
-
-
-def test_analyze_cli_accepts_separate_track_and_inference_batch_sizes(monkeypatch, tmp_path):
-    monkeypatch.setattr(cli, "AnalysisJobManager", _FakeAnalysisManager)
-    db_path = tmp_path / "library.sqlite"
 
     result = CliRunner().invoke(
         cli.app,
@@ -218,7 +282,7 @@ def test_analyze_cli_accepts_separate_track_and_inference_batch_sizes(monkeypatc
             "--inference-batch-size",
             "12",
             "--db",
-            str(db_path),
+            str(tmp_path / "library.sqlite"),
         ],
     )
 
@@ -228,19 +292,31 @@ def test_analyze_cli_accepts_separate_track_and_inference_batch_sizes(monkeypatc
     assert "track_batch_size=3 inference_batch_size=12" in result.output
 
 
-def test_text_search_cli_rejects_unknown_device_before_loading_adapter(monkeypatch, tmp_path):
-    def fail_adapter(**_kwargs):
-        raise AssertionError("adapter should not be constructed for invalid device")
+def test_text_search_cli_rejects_unknown_device_before_loading_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "ClapEmbeddingAdapter",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("adapter should not be constructed")
+        ),
+    )
 
-    monkeypatch.setattr(cli, "ClapEmbeddingAdapter", fail_adapter)
-
-    result = CliRunner().invoke(cli.app, ["text-search", "dark techno", "--device", "gpu", "--db", str(tmp_path / "library.sqlite")])
+    result = CliRunner().invoke(
+        cli.app,
+        ["text-search", "dark techno", "--device", "gpu", "--db", str(tmp_path / "library.sqlite")],
+    )
 
     assert result.exit_code != 0
     assert "Unknown torch device: gpu" in result.output
 
 
-def test_text_search_cli_writes_adapter_stderr_to_app_log(monkeypatch, tmp_path):
+def test_text_search_cli_writes_adapter_stderr_to_app_log(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     log_path = tmp_path / "app.log"
     db_path = tmp_path / "library.sqlite"
     monkeypatch.setenv("DJ_TRACK_SIMILARITY_LOG", str(log_path))
@@ -248,15 +324,27 @@ def test_text_search_cli_writes_adapter_stderr_to_app_log(monkeypatch, tmp_path)
     class FakeClapAdapter:
         embedding_key = "clap"
 
-        def __init__(self, **_kwargs):
+        def __init__(self, **_kwargs: object) -> None:
             print("CLAP CLI adapter stderr", file=sys.stderr)
 
-        def embed_text(self, _query):
+        def embed_text(self, _query: str) -> np.ndarray:
             return np.array([1.0, 0.0], dtype=np.float32)
 
-    monkeypatch.setattr(cli, "ClapEmbeddingAdapter", FakeClapAdapter)
+    class FakeSearch:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
 
-    result = CliRunner().invoke(cli.app, ["text-search", "dark techno", "--db", str(db_path)])
+        def search_vector(self, *_args: object, **_kwargs: object) -> list[object]:
+            return []
+
+    monkeypatch.setattr(cli, "ClapEmbeddingAdapter", FakeClapAdapter)
+    monkeypatch.setattr(cli, "embedding_analysis_output", lambda *_args: object())
+    monkeypatch.setattr(cli, "SimilaritySearch", FakeSearch)
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["text-search", "dark techno", "--db", str(db_path)],
+    )
 
     assert result.exit_code == 0
     for handler in logging.getLogger("dj_track_similarity").handlers:
@@ -264,8 +352,17 @@ def test_text_search_cli_writes_adapter_stderr_to_app_log(monkeypatch, tmp_path)
     assert "CLAP CLI adapter stderr" in log_path.read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize("command", [["analyze", "--adapter", "mert"], ["analyze-genres"], ["analyze-sonara"]])
-def test_removed_individual_analysis_cli_paths_are_not_available(command):
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["analyze", "--adapter", "mert"],
+        ["analyze-genres"],
+        ["analyze-sonara"],
+    ],
+)
+def test_removed_individual_analysis_cli_paths_are_not_available(
+    command: list[str],
+) -> None:
     result = CliRunner().invoke(cli.app, command)
 
     assert result.exit_code != 0

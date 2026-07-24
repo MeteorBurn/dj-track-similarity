@@ -30,10 +30,10 @@ ml = [
   "torchvision==0.26.0",
   "torchcodec==0.13.0",
   "nnaudio",
-  "transformers",
-  "huggingface-hub",
-  "laion-clap>=1.1.7",
-  "maest-infer",
+  "transformers==5.13.0",
+  "huggingface-hub==1.22.0",
+  "laion-clap==1.1.7",
+  "maest-infer==0.1.0",
   "muq==0.1.0",
 ]
 rhythm-lab = [

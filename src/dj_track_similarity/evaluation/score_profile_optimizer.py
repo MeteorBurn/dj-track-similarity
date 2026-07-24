@@ -18,6 +18,7 @@ from .judged import (
     session_seed_track_ids,
 )
 from .metrics import bad_suggestion_rate_at_k, ndcg_at_k, precision_at_k
+from .recorded_sessions import load_current_evaluation_sessions
 from .reports import RELEVANCE_THRESHOLD
 
 if TYPE_CHECKING:
@@ -111,7 +112,7 @@ def build_score_profile_optimizer_report(
         grid_step=grid_step,
         bootstrap_samples=bootstrap_samples,
     )
-    sessions = db.list_search_sessions_with_events()
+    sessions = load_current_evaluation_sessions(db)
     feedback_map = db.get_pair_feedback_map()
     judged_gate = build_judged_label_gate(sessions, feedback_map, judged_only=True)
     examples = _matched_optimizer_examples(sessions, feedback_map)

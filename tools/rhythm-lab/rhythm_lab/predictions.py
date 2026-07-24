@@ -5,11 +5,9 @@ from pathlib import Path
 
 import numpy as np
 
-from dj_track_similarity.sonara_contract import feature_set_uses_sonara, sonara_analysis_signature_errors
-
+from .artifact_io import load_verified_artifact
 from .features import build_unlabeled_feature_matrix
 from .lab_db import RhythmLabDatabase
-from .source_db import SourceDatabase
 
 
 def apply_model_to_lab(
@@ -19,38 +17,31 @@ def apply_model_to_lab(
     *,
     classifier_key: str | None = None,
 ) -> dict[str, int | str]:
-    import joblib
-
     artifact = Path(artifact_path)
-    payload = joblib.load(artifact)
+    payload = load_verified_artifact(artifact).payload
     resolved_classifier_key = str(classifier_key or payload.get("classifier_key") or "").strip()
     if not resolved_classifier_key:
         raise ValueError("classifier_key is required for prediction artifacts that do not declare one")
     model = payload["model"]
     feature_set = str(payload["feature_set"])
     label_order = [str(label) for label in payload.get("label_order", getattr(model, "classes_", []))]
-    sonara_signature = payload.get("sonara_analysis_signature")
-    if feature_set_uses_sonara(feature_set):
-        signature_errors = sonara_analysis_signature_errors(sonara_signature)
-        if signature_errors:
-            raise ValueError(
-                "SONARA-dependent prediction artifact has no compatible analysis signature: "
-                + "; ".join(signature_errors)
-            )
+    required_outputs = payload.get("required_outputs")
     features = build_unlabeled_feature_matrix(
         source_db_path,
         feature_set,
-        expected_sonara_signature=dict(sonara_signature) if isinstance(sonara_signature, dict) else None,
+        expected_required_outputs=required_outputs,
     )
     if features.matrix.shape[0] == 0:
-        return {"feature_set": feature_set, "predicted": 0, "skipped": len(features.skipped_track_ids)}
+        return {
+            "feature_set": feature_set,
+            "predicted": 0,
+            "skipped": len(features.skipped_identities),
+        }
 
     predictions = model.predict(features.matrix)
     probabilities = _predict_probabilities(model, features.matrix, label_order)
     labels_db = RhythmLabDatabase(labels_db_path, classifier_key=resolved_classifier_key)
-    source = SourceDatabase(source_db_path)
-    for index, track_id in enumerate(features.track_ids):
-        track = source.get_track(track_id)
+    for index, track in enumerate(features.tracks):
         label = str(predictions[index])
         row_probabilities = probabilities[index]
         confidence = float(row_probabilities.get(label, 0.0))
@@ -64,8 +55,8 @@ def apply_model_to_lab(
         )
     return {
         "feature_set": feature_set,
-        "predicted": len(features.track_ids),
-        "skipped": len(features.skipped_track_ids),
+        "predicted": len(features.tracks),
+        "skipped": len(features.skipped_identities),
     }
 
 
@@ -84,20 +75,22 @@ def export_predictions_csv(
         key=lambda row: (
             -(_probability(row, sort_label) if sort_label is not None else float(row["confidence"])),
             -float(row["confidence"]),
-            str(row["path"]),
+            str(row["selected_path"]),
         ),
     )
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
     fields = [
-        "source_track_id",
+        "catalog_uuid",
+        "track_uuid",
+        "content_generation",
         "label",
         "confidence",
         *[f"probability_{label}" for label in probability_labels],
         "feature_set",
         "artist",
         "title",
-        "path",
+        "selected_path",
         "model_artifact",
         "probabilities",
     ]
@@ -107,14 +100,16 @@ def export_predictions_csv(
         for row in rows:
             writer.writerow(
                 {
-                    "source_track_id": row["source_track_id"],
+                    "catalog_uuid": row["catalog_uuid"],
+                    "track_uuid": row["track_uuid"],
+                    "content_generation": row["content_generation"],
                     "label": row["label"],
                     "confidence": row["confidence"],
                     **{f"probability_{label}": _probability(row, label) for label in probability_labels},
                     "feature_set": row["feature_set"],
                     "artist": row["artist"],
                     "title": row["title"],
-                    "path": row["path"],
+                    "selected_path": row["selected_path"],
                     "model_artifact": row["model_artifact"],
                     "probabilities": row["probabilities"],
                 }
@@ -123,12 +118,16 @@ def export_predictions_csv(
 
 
 def latest_predictions_by_track(rows: list[dict[str, object]]) -> list[dict[str, object]]:
-    latest: dict[int, dict[str, object]] = {}
+    latest: dict[tuple[str, str, int], dict[str, object]] = {}
     for row in rows:
-        track_id = int(row["source_track_id"])
-        current = latest.get(track_id)
+        identity = (
+            str(row["catalog_uuid"]),
+            str(row["track_uuid"]),
+            int(row["content_generation"]),
+        )
+        current = latest.get(identity)
         if current is None or _prediction_sort_key(row) > _prediction_sort_key(current):
-            latest[track_id] = row
+            latest[identity] = row
     return list(latest.values())
 
 

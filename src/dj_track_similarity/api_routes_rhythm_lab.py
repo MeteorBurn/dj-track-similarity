@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from .api_state import AppDatabaseState
-from .rhythm_lab_collections import RhythmLabCollections, default_rhythm_lab_labels_path
+from .rhythm_lab_collections import (
+    RhythmLabCollections,
+    build_rhythm_lab_collection_selection,
+    default_rhythm_lab_labels_path,
+)
+from .rhythm_lab_launcher import RhythmLabSourceBinding
 
 
 class RhythmLabCollectionSaveRequest(BaseModel):
@@ -22,7 +26,10 @@ def register_rhythm_lab_routes(
     app: FastAPI,
     state: AppDatabaseState,
     *,
-    launch_rhythm_lab: Callable[[Path | None], dict[str, object]],
+    launch_rhythm_lab: Callable[
+        [RhythmLabSourceBinding | None],
+        dict[str, object],
+    ],
     stop_rhythm_lab: Callable[[], dict[str, object]],
     rhythm_lab_status: Callable[[], dict[str, object]],
 ) -> None:
@@ -32,9 +39,15 @@ def register_rhythm_lab_routes(
 
     @app.post("/api/rhythm-lab/launch")
     def launch_rhythm_lab_server():
-        source_db = state.db_path
+        source = None
+        if state.db_path is not None:
+            db = state.require_db()
+            source = RhythmLabSourceBinding(
+                source_db=db.path,
+                catalog_uuid=db.catalog_uuid,
+            )
         try:
-            return launch_rhythm_lab(source_db)
+            return launch_rhythm_lab(source)
         except RuntimeError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
 
@@ -49,11 +62,13 @@ def register_rhythm_lab_routes(
     def save_rhythm_lab_collection(request: RhythmLabCollectionSaveRequest):
         try:
             db = state.require_db()
-            for track_id in request.track_ids:
-                db.get_track(int(track_id))
+            selection = build_rhythm_lab_collection_selection(
+                db,
+                request.track_ids,
+            )
             collection = RhythmLabCollections(default_rhythm_lab_labels_path()).save_collection(
                 request.name,
-                request.track_ids,
+                selection,
                 source=request.source,
                 note=request.note,
                 mode=request.mode,

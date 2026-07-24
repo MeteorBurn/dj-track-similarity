@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.evaluation.score_profiles import (
     LABEL_POLICY,
     ScoreProfile,
@@ -15,6 +14,7 @@ from dj_track_similarity.evaluation.score_profiles import (
     save_score_profile,
     validate_score_profile,
 )
+from evaluation_v7_fixtures import EvaluationRepository
 
 
 def test_score_profile_builds_from_ok_source_profile_report() -> None:
@@ -81,27 +81,31 @@ def test_score_profile_save_load_round_trip(tmp_path: Path) -> None:
     assert output_path.read_text(encoding="utf-8").startswith('{"')
 
 
-def test_score_profile_metrics_preserve_unjudged_rank_positions(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    seed_id = _track(db, tmp_path, "seed")
-    unjudged_candidate_id = _track(db, tmp_path, "unjudged")
-    relevant_candidate_id = _track(db, tmp_path, "relevant")
-    session_id = db.create_search_session("evaluation_candidate_pool", [seed_id], {"feedback_source": "manual"})
-    db.record_search_result_event(
-        session_id,
-        unjudged_candidate_id,
-        rank=1,
-        total_score=0.0,
-        score_breakdown={"sources": {"mert": {"rank": 1}}},
+def test_score_profile_metrics_preserve_unjudged_rank_positions() -> None:
+    db = EvaluationRepository()
+    seed_id = 1
+    unjudged_candidate_id = 2
+    relevant_candidate_id = 3
+    db.add_session(
+        seed_track_id=seed_id,
+        events=(
+            {
+                "candidate_track_id": unjudged_candidate_id,
+                "rank": 1,
+                "sources": {"mert": {"rank": 1}},
+            },
+            {
+                "candidate_track_id": relevant_candidate_id,
+                "rank": 2,
+                "sources": {"mert": {"rank": 2}},
+            },
+        ),
     )
-    db.record_search_result_event(
-        session_id,
+    db.add_feedback(
         relevant_candidate_id,
-        rank=2,
-        total_score=0.0,
-        score_breakdown={"sources": {"mert": {"rank": 2}}},
+        3,
+        seed_track_id=seed_id,
     )
-    db.upsert_track_pair_feedback(seed_id, relevant_candidate_id, 3, source="manual")
     profile = _score_profile(weights={"mert": 1.0})
 
     report = build_score_profile_application_report(db, profile, k_values=[1, 2], rrf_k=60)
@@ -118,16 +122,6 @@ def test_score_profile_metrics_preserve_unjudged_rank_positions(tmp_path: Path) 
     assert report["metrics"]["hit_rate_at_2"] == 1.0
     assert report["label_status"] == "insufficient_data"
     assert report["metrics"]["mean_strong_match_rate_at_2"] == 0.5
-
-
-def _track(db: LibraryDatabase, tmp_path: Path, stem: str) -> int:
-    return db.upsert_track(
-        path=tmp_path / f"{stem}.wav",
-        size=10,
-        mtime=1,
-        metadata={"artist": f"Artist {stem}", "title": stem.title()},
-    )
-
 
 def _score_profile(weights: dict[str, float]) -> ScoreProfile:
     return build_score_profile_from_source_report(_source_profile_report(weights), name="auto")

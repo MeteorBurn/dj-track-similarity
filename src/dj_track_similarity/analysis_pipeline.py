@@ -2,17 +2,36 @@ from __future__ import annotations
 
 import time
 import uuid
-from dataclasses import dataclass, field
-from typing import cast
+from dataclasses import dataclass
+from typing import Protocol, cast
 
-from .analysis_config import DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE, DEFAULT_ANALYSIS_TRACK_BATCH_SIZE
+from .analysis_config import (
+    DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
+    DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
+)
 from .analysis_jobs import AnalysisJobManager
 from .analysis_queue import AnalysisStageQueue
-from .classifier_jobs import ClassifierJobManager
 from .job_runtime import JobStore
 
 
 PIPELINE_STAGE_ORDER = ("sonara", "ml", "classifiers")
+
+
+class _ChildJobStatus(Protocol):
+    state: str
+
+
+class ClassifierJobs(Protocol):
+    def create_job(
+        self,
+        *,
+        classifiers: list[str] | None,
+        limit: int | None,
+    ) -> str: ...
+
+    def run_job(self, job_id: str) -> _ChildJobStatus: ...
+
+    def cancel(self, job_id: str) -> _ChildJobStatus: ...
 
 
 @dataclass
@@ -47,7 +66,7 @@ class AnalysisPipelineManager:
     def __init__(
         self,
         analysis_jobs: AnalysisJobManager,
-        classifier_jobs: ClassifierJobManager,
+        classifier_jobs: ClassifierJobs,
         stage_queue: AnalysisStageQueue,
     ) -> None:
         self.analysis_jobs = analysis_jobs
@@ -110,18 +129,26 @@ class AnalysisPipelineManager:
                 child_id, child_state = self._run_stage(job_id, stage, payload)
             except Exception as error:
                 self._set_stage(job_id, stage, state="failed", error=str(error))
-                self._update(job_id, state="failed", finished_at=time.time(), current_stage=None)
+                self._update(
+                    job_id, state="failed", finished_at=time.time(), current_stage=None
+                )
                 return self.get(job_id)
             self._set_stage(job_id, stage, state=child_state, child_job_id=child_id)
             if child_state == "cancelled":
                 return self._finish_cancelled(job_id)
             if child_state == "failed":
-                self._update(job_id, state="failed", finished_at=time.time(), current_stage=None)
+                self._update(
+                    job_id, state="failed", finished_at=time.time(), current_stage=None
+                )
                 return self.get(job_id)
-        self._update(job_id, state="completed", finished_at=time.time(), current_stage=None)
+        self._update(
+            job_id, state="completed", finished_at=time.time(), current_stage=None
+        )
         return self.get(job_id)
 
-    def _run_stage(self, parent_job_id: str, stage: str, payload: _PipelinePayload) -> tuple[str, str]:
+    def _run_stage(
+        self, parent_job_id: str, stage: str, payload: _PipelinePayload
+    ) -> tuple[str, str]:
         if stage == "sonara":
             job_id = self.analysis_jobs.create_job(
                 models=["sonara"],
@@ -140,8 +167,14 @@ class AnalysisPipelineManager:
                 limit=payload.limit,
                 device=str(payload.ml.get("device") or "auto"),
                 top_k=int(payload.ml.get("top_k") or 3),
-                track_batch_size=int(payload.ml.get("track_batch_size") or DEFAULT_ANALYSIS_TRACK_BATCH_SIZE),
-                inference_batch_size=int(payload.ml.get("inference_batch_size") or DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE),
+                track_batch_size=int(
+                    payload.ml.get("track_batch_size")
+                    or DEFAULT_ANALYSIS_TRACK_BATCH_SIZE
+                ),
+                inference_batch_size=int(
+                    payload.ml.get("inference_batch_size")
+                    or DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE
+                ),
             )
             self._set_stage(parent_job_id, stage, state="running", child_job_id=job_id)
             if self.get(parent_job_id).cancel_requested:
@@ -170,7 +203,9 @@ class AnalysisPipelineManager:
                 status.state = "cancelled"
                 status.finished_at = time.time()
             current_stage = status.current_stage
-            child_id = status.stages[current_stage].child_job_id if current_stage else None
+            child_id = (
+                status.stages[current_stage].child_job_id if current_stage else None
+            )
         if current_stage and child_id:
             if current_stage == "classifiers":
                 self.classifier_jobs.cancel(child_id)

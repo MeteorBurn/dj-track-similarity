@@ -8,11 +8,16 @@ from collections.abc import Sequence
 
 import numpy as np
 
-from dj_track_similarity.models import Track
+from dj_track_similarity.analysis_contracts import ContractIdentity
 
-from .features import ABLATION_FEATURE_SETS, build_feature_matrix, feature_sources
-from .lab_db import ClassifierProfile, RhythmLabDatabase
-from .source_db import SourceDatabase
+from .features import (
+    ABLATION_FEATURE_SETS,
+    build_feature_matrix,
+    feature_sources,
+    required_outputs_payload,
+)
+from .lab_db import ClassifierProfile, RhythmLabDatabase, TrackIdentity
+from .source_db import SourceDatabase, SourceTrack
 from .training import train_feature_set
 
 
@@ -80,19 +85,19 @@ def benchmark_profile_ablation(
     labels_db = RhythmLabDatabase(labels_db_path, classifier_key=profile_key)
     profile = labels_db.get_profile()
     label_counts = labels_db.label_counts()
-    labels_by_track = labels_db.training_labels()
+    labels_by_identity = labels_db.training_labels()
     source = SourceDatabase(source_db_path)
-    tracks_by_id = {track.id: track for track in source.list_tracks()}
-    embedding_vectors: dict[str, dict[int, np.ndarray]] = {}
+    tracks = tuple(source.list_tracks())
+    embedding_cache: dict[str, tuple[ContractIdentity, dict[int, np.ndarray]]] = {}
     result_rows: list[dict[str, object]] = []
     artifact_root = Path(artifact_dir)
     for feature_set in feature_sets:
         result_rows.append(
             _train_feature_set_row(
                 source,
-                labels_by_track,
-                tracks_by_id,
-                embedding_vectors,
+                labels_by_identity,
+                tracks,
+                embedding_cache,
                 profile,
                 artifact_root,
                 feature_set,
@@ -105,9 +110,9 @@ def benchmark_profile_ablation(
     if calibrate_finalist and winner is not None:
         calibrated_finalist = _train_feature_set_row(
             source,
-            labels_by_track,
-            tracks_by_id,
-            embedding_vectors,
+            labels_by_identity,
+            tracks,
+            embedding_cache,
             profile,
             artifact_root,
             str(winner["feature_set"]),
@@ -156,9 +161,9 @@ def cli_summary(report: dict[str, object]) -> dict[str, object]:
 
 def _train_feature_set_row(
     source: SourceDatabase,
-    labels_by_track: dict[int, str],
-    tracks_by_id: dict[int, Track],
-    embedding_vectors: dict[str, dict[int, np.ndarray]],
+    labels_by_identity: dict[TrackIdentity, str],
+    tracks: tuple[SourceTrack, ...],
+    embedding_cache: dict[str, tuple[ContractIdentity, dict[int, np.ndarray]]],
     profile: ClassifierProfile,
     artifact_dir: Path,
     feature_set: str,
@@ -172,9 +177,9 @@ def _train_feature_set_row(
         features = build_feature_matrix(
             source,
             feature_set,
-            labels_by_track=labels_by_track,
-            tracks_by_id=tracks_by_id,
-            embedding_vectors=embedding_vectors,
+            labels_by_identity=labels_by_identity,
+            tracks=tracks,
+            embedding_cache=embedding_cache,
         )
         result = train_feature_set(
             features.matrix,
@@ -188,7 +193,7 @@ def _train_feature_set_row(
             classifier_key=profile.classifier_key,
             random_state=random_state,
             calibrate=calibrate,
-            sonara_analysis_signature=features.sonara_analysis_signature,
+            required_outputs=required_outputs_payload(features.required_outputs),
         )
     except ValueError as error:
         return {
@@ -197,7 +202,7 @@ def _train_feature_set_row(
             "status": "skipped",
             "error": str(error),
             "available_rows": int(features.matrix.shape[0]) if features is not None else 0,
-            "skipped_rows": len(features.skipped_track_ids) if features is not None else 0,
+            "skipped_rows": len(features.skipped_identities) if features is not None else 0,
             "feature_count": len(features.feature_names) if features is not None else 0,
             "calibrated": bool(calibrate),
             "elapsed_seconds": _elapsed_seconds(started),
@@ -210,7 +215,7 @@ def _train_feature_set_row(
         "artifact_path": str(result.artifact_path.expanduser().resolve(strict=False)),
         "metrics_path": str(result.metrics_path.expanduser().resolve(strict=False)),
         "trained_rows": result.trained_rows,
-        "skipped_rows": len(features.skipped_track_ids) if features is not None else 0,
+        "skipped_rows": len(features.skipped_identities) if features is not None else 0,
         "feature_count": len(features.feature_names) if features is not None else 0,
         "calibrated": bool(calibrate),
         "metrics": metrics,

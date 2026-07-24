@@ -20,13 +20,17 @@ Search and SET scores are ranking signals. CLAP text scores, MERT seed scores, S
 
 Smart Set Builder requires SONARA plus MERT, MAEST, and CLAP embeddings. A partly analyzed library can browse and search in other tabs, but SET eligible counts will be low.
 
-## SONARA current coverage is broader than one profile
+## SONARA readiness uses exact active contracts
 
-The library summary counts any signed SONARA profile that matches the current version, schema, mode,
-sample rate, BPM range, and project revision. It does not prove that every row has the exact full
-profile. Check analysis jobs and sample signatures when validating a migration. The project full
-profile means all supported adapter audio families; it does not request SONARA tags or its genre
-model. See the [SONARA v0.2.9 project contract](../reference/sonara-v0-2-9-contract.md).
+The library summary counts a SONARA Core row only when it matches the exact active `core` contract
+and release. Per-track coverage validates `timeline`, `embedding`, and `fingerprint` independently
+against their exact active contracts and the current track identity. The active release is one
+prepared four-contract set. A missing or stale output is not ready for that output.
+
+Because v7 is a greenfield schema rather than an in-place migration target, the workflow prepares
+and activates the loaded release's four contracts before reanalyzing from a clean SONARA state. This
+full project set does not request SONARA tags or its genre model. See the
+[SONARA v0.2.9 project contract](../reference/sonara-v0-2-9-contract.md).
 
 ## Browser preview depends on files still existing
 

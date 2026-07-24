@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
-from dj_track_similarity.models import Track
-from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature
+from dj_track_similarity.analysis_contracts import ContractIdentity
+from dj_track_similarity.analysis_models import (
+    AnalysisOutput,
+    AnalysisTarget,
+    SonaraFeatureRow,
+)
+from dj_track_similarity.library_models import AnalysisCoverage, TrackSummary
 from dj_track_similarity.tempo_resolution import (
     TempoEvidence,
     confidence_aware_target_score,
@@ -12,11 +19,69 @@ from dj_track_similarity.tempo_resolution import (
     tempo_filter_compatible,
     tempo_pair_reliability,
 )
+from dj_track_similarity.track_models import TrackIdentity
+
+
+_CORE_OUTPUT = AnalysisOutput(
+    ContractIdentity(
+        analysis_family="sonara",
+        output_kind="core",
+        model_name="test-sonara",
+        model_version="1",
+        release_hash="sha256:" + "1" * 64,
+        checkpoint_id="test-checkpoint",
+        preprocessing="test-preprocessing",
+        parameters={"fixture": "tempo-resolution"},
+    )
+)
 
 
 def _evidence(bpm: float, confidence: float, *, grid: float | None = None) -> TempoEvidence:
     reliability = confidence if grid is None else (confidence * grid) ** 0.5
     return TempoEvidence(bpm, (bpm,), confidence, grid, reliability, "sonara")
+
+
+def _resolved(
+    track_id: int,
+    *,
+    tag_bpm: float | None = None,
+    sonara_values: dict[str, object] | None = None,
+) -> TempoEvidence:
+    identity = TrackIdentity(
+        catalog_uuid="fixture-catalog",
+        track_id=track_id,
+        track_uuid=f"fixture-track-{track_id}",
+        content_generation=1,
+    )
+    summary = TrackSummary(
+        track_id=identity.track_id,
+        catalog_uuid=identity.catalog_uuid,
+        track_uuid=identity.track_uuid,
+        content_generation=identity.content_generation,
+        file_path=f"C:/fixture/{track_id}.wav",
+        title=f"Track {track_id}",
+        artist="Fixture Artist",
+        album=None,
+        tag_bpm=tag_bpm,
+        tag_key=None,
+        audio_duration_seconds=None,
+        liked=False,
+        analysis_coverage=AnalysisCoverage(sonara_core=sonara_values is not None),
+        classifier_scores=(),
+    )
+    sonara = None
+    if sonara_values is not None:
+        sonara = SonaraFeatureRow(
+            target=AnalysisTarget(
+                catalog_uuid=identity.catalog_uuid,
+                track_id=identity.track_id,
+                track_uuid=identity.track_uuid,
+                content_generation=identity.content_generation,
+            ),
+            output=_CORE_OUTPUT,
+            values=sonara_values,
+        )
+    return resolve_tempo_evidence(identity, summary, sonara)
 
 
 def test_pair_reliability_uses_geometric_mean_and_neutral_blend() -> None:
@@ -37,18 +102,14 @@ def test_grid_stability_is_a_secondary_reliability_signal() -> None:
 
 
 def test_low_confidence_uses_tag_confirmed_by_sonara_candidate() -> None:
-    evidence = resolve_tempo_evidence(
-        {
-            "bpm": 126.0,
-            "metadata": {
-                "bpm": [95.0],
-                "sonara_features": {
-                    "bpm": {"value": 126.0},
-                    "bpm_confidence": {"value": 0.3},
-                    "bpm_candidates": {"value": [[190.0, 3.2], [126.0, 3.0]]},
-                },
-            },
-        }
+    evidence = _resolved(
+        1,
+        tag_bpm=95.0,
+        sonara_values={
+            "detected_bpm": 126.0,
+            "bpm_confidence": 0.3,
+            "bpm_candidates_json": json.dumps([[190.0, 3.2], [126.0, 3.0]]),
+        },
     )
 
     assert evidence.bpm == 95.0
@@ -79,10 +140,8 @@ def test_set_trajectory_target_uses_direct_bpm_not_half_double_match() -> None:
     assert confidence_aware_target_score(candidate, 120.0, 12.0) == 0.0
 
 
-def test_old_sonara_analysis_without_confidence_is_neutral_not_trusted() -> None:
-    stale = resolve_tempo_evidence(
-        {"metadata": {"sonara_features": {"bpm": {"value": 90.0}}}}
-    )
+def test_sonara_analysis_without_confidence_is_neutral_not_trusted() -> None:
+    stale = _resolved(1, sonara_values={"detected_bpm": 90.0})
     current = _evidence(128.0, 1.0)
 
     assert stale.reliability == 0.0
@@ -90,79 +149,48 @@ def test_old_sonara_analysis_without_confidence_is_neutral_not_trusted() -> None
 
 
 def test_sonara_bpm_with_null_confidence_stays_neutral_not_tag_fallback() -> None:
-    """BUG-R3 regression: NULL bpm_confidence must NOT promote tag BPM with reliability=1.0."""
-    evidence = resolve_tempo_evidence(
-        {
-            "bpm": 155.0,
-            "metadata": {
-                "bpm": [128.0],
-                "sonara_features": {"bpm": {"value": 155.0}},
-            },
-        }
+    evidence = _resolved(
+        1,
+        tag_bpm=128.0,
+        sonara_values={"detected_bpm": 155.0},
     )
 
-    # SONARA BPM is kept; tag BPM is NOT used as scoring input
     assert evidence.bpm == 155.0
     assert evidence.source == "sonara_low_confidence"
     assert evidence.reliability == 0.0
 
 
 def test_null_confidence_yields_neutral() -> None:
-    """BUG-R3: SONARA BPM present but bpm_confidence=None → reliability=0.0, score=0.5."""
-    evidence = resolve_tempo_evidence(
-        {
-            "metadata": {
-                "bpm": [128.0],
-                "sonara_features": {
-                    "bpm": {"value": 126.0},
-                    # bpm_confidence intentionally absent → None
-                },
-            },
-        }
+    evidence = _resolved(
+        1,
+        tag_bpm=128.0,
+        sonara_values={"detected_bpm": 126.0},
     )
     reference = _evidence(128.0, 1.0)
 
-    assert evidence.reliability == 0.0, f"expected reliability=0.0, got {evidence.reliability}"
-    score = confidence_aware_tempo_score(evidence, reference)
-    assert score == pytest.approx(0.5), f"expected neutral score=0.5, got {score}"
+    assert evidence.reliability == 0.0
+    assert confidence_aware_tempo_score(evidence, reference) == pytest.approx(0.5)
 
 
 def test_tag_only_tempo_preserves_measured_matching_behavior() -> None:
-    candidate = resolve_tempo_evidence({"metadata": {"bpm": [128.0]}})
-    reference = resolve_tempo_evidence({"metadata": {"bpm": [130.0]}})
+    candidate = _resolved(1, tag_bpm=128.0)
+    reference = _resolved(2, tag_bpm=130.0)
 
     assert candidate.source == "tag"
     assert tempo_pair_reliability(candidate, reference) == 1.0
     assert confidence_aware_tempo_score(candidate, reference) == pytest.approx(0.875)
 
 
-def test_persisted_tempo_ignores_unsigned_sonara_but_accepts_current_signature() -> None:
-    metadata = {
-        "bpm": [128.0],
-        "sonara_features": {"bpm": {"value": 90.0}, "bpm_confidence": {"value": 1.0}},
-    }
-    stale = Track(id=1, path="stale.wav", size=1, mtime=1.0, bpm=90.0, metadata=dict(metadata))
-    current = Track(
-        id=2,
-        path="current.wav",
-        size=1,
-        mtime=1.0,
-        bpm=90.0,
-        metadata={**metadata, "sonara_analysis_signature": expected_sonara_analysis_signature([])},
+def test_persisted_tempo_uses_current_identity_bound_sonara_core() -> None:
+    evidence = _resolved(
+        1,
+        tag_bpm=128.0,
+        sonara_values={"detected_bpm": 90.0, "bpm_confidence": 1.0},
     )
 
-    assert resolve_tempo_evidence(stale).bpm == 128.0
-    assert resolve_tempo_evidence(stale).source == "tag"
-    assert resolve_tempo_evidence(current).bpm == 90.0
-    assert resolve_tempo_evidence(current).source == "sonara"
+    assert evidence.bpm == 90.0
+    assert evidence.source == "sonara"
 
-    no_tag = Track(
-        id=3,
-        path="stale-no-tag.wav",
-        size=1,
-        mtime=1.0,
-        bpm=90.0,
-        metadata={"sonara_features": metadata["sonara_features"]},
-    )
-    assert resolve_tempo_evidence(no_tag).bpm is None
-    assert resolve_tempo_evidence(no_tag).reliability == 0.0
+    no_tag = _resolved(2, sonara_values={"detected_bpm": 90.0})
+    assert no_tag.bpm == 90.0
+    assert no_tag.reliability == 0.0

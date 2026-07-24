@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_schema import CURRENT_SCHEMA_VERSION
-from dj_track_similarity.db_storage import sidecar_database_paths
+from dj_track_similarity.db_storage import storage_database_paths
+from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "optimize_database.py"
@@ -28,70 +28,69 @@ def test_optimize_database_script_optimizes_current_schema_without_project_impor
     module = _load_script()
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
-    track_id = db.upsert_track(
-        path=tmp_path / "track.wav",
-        size=10,
-        mtime=1,
-        metadata={
-            "title": "Track",
-            "sonara_features": {},
-            "maest_genres": [{"label": "Breakbeat"}],
-            "maest_syncopated_rhythm": True,
-        },
+    mutation = db.upsert_scanned_track(
+        file=ScannedFile(
+            file_path=str(tmp_path / "track.wav"),
+            file_size_bytes=10,
+            file_modified_ns=1,
+            audio_format="wav",
+        ),
+        tags=FileTags(title="Track", artist="Artist", genres=("Breakbeat",)),
     )
-    db.save_embedding(track_id, [1.0], "mert-model", 1, embedding_key="mert")
+    evaluation = db.connect_evaluation(create=True)
+    assert evaluation is not None
+    evaluation.close()
 
     summary = module.optimize_database(db_path)
 
     assert all(path.exists() for path in summary.backup_paths)
-    assert [item.role for item in summary.files] == ["core", "timeline", "representations"]
+    assert [item.role for item in summary.files] == ["core", "artifacts", "evaluation"]
     assert summary.database_kind == "library"
     assert summary.integrity_before == "ok"
     assert summary.integrity_after == "ok"
     with sqlite3.connect(db_path) as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-        track_indexes = {row[1] for row in connection.execute("PRAGMA index_list(tracks)").fetchall()}
-        classifier_indexes = {
-            row[1] for row in connection.execute("PRAGMA index_list(track_classifier_scores)").fetchall()
-        }
-        embedding_indexes = {row[1] for row in connection.execute("PRAGMA index_list(embeddings)").fetchall()}
-        embedding_keys = [row[0] for row in connection.execute("SELECT embedding_key FROM embeddings ORDER BY embedding_key")]
+        stored_track = connection.execute(
+            "SELECT track_uuid, content_generation FROM tracks WHERE track_id = ?",
+            (mutation.identity.track_id,),
+        ).fetchone()
+        core_catalog_uuid = connection.execute(
+            "SELECT catalog_uuid FROM library_catalog WHERE singleton_id = 1"
+        ).fetchone()[0]
         integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
 
-    sidecars = sidecar_database_paths(db_path)
-    with sqlite3.connect(sidecars.representations) as connection:
-        sonara_representation_keys = [
-            row[0] for row in connection.execute("SELECT embedding_key FROM embeddings ORDER BY embedding_key")
-        ]
-        representations_integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
-    with sqlite3.connect(sidecars.timeline) as connection:
-        timeline_tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-        timeline_integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
+    sidecars = storage_database_paths(db_path)
+    with sqlite3.connect(sidecars.artifacts) as connection:
+        artifacts_tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        artifacts_catalog_uuid = connection.execute(
+            "SELECT catalog_uuid FROM storage_metadata WHERE singleton_id = 1"
+        ).fetchone()[0]
+        artifacts_integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
+    with sqlite3.connect(sidecars.evaluation) as connection:
+        evaluation_catalog_uuid = connection.execute(
+            "SELECT catalog_uuid FROM storage_metadata WHERE singleton_id = 1"
+        ).fetchone()[0]
+        evaluation_integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
 
-    assert version == CURRENT_SCHEMA_VERSION
+    assert version == 7
+    assert stored_track == (
+        mutation.identity.track_uuid,
+        mutation.identity.content_generation,
+    )
     assert "library_settings" in tables
-    assert "track_classifier_scores" in tables
-    assert embedding_keys == ["mert"]
-    assert sonara_representation_keys == []
-    assert {
-        "idx_tracks_sort_artist_title_path",
-        "idx_tracks_syncopated_sort",
-        "idx_tracks_missing_sonara_flag_sort",
-        "idx_tracks_missing_maest_embedding_flag_sort",
-        "idx_tracks_missing_mert_embedding_flag_sort",
-        "idx_tracks_missing_clap_embedding_flag_sort",
-        "idx_tracks_present_sonara_flag",
-        "idx_tracks_present_maest_embedding_flag",
-        "idx_tracks_present_mert_embedding_flag",
-        "idx_tracks_present_clap_embedding_flag",
-    }.issubset(track_indexes)
-    assert "idx_embeddings_key_track" in embedding_indexes
-    assert "idx_classifier_scores_lookup" in classifier_indexes
+    assert "classifier_scores" in tables
+    assert "mert_embeddings" in artifacts_tables
+    assert "sonara_timeline" in artifacts_tables
+    assert core_catalog_uuid == artifacts_catalog_uuid == evaluation_catalog_uuid
     assert integrity == "ok"
-    assert "sonara_timeline" in timeline_tables
-    assert representations_integrity == "ok"
-    assert timeline_integrity == "ok"
+    assert artifacts_integrity == "ok"
+    assert evaluation_integrity == "ok"
 
 
 def test_optimize_database_script_optimizes_rhythm_lab_database(tmp_path: Path) -> None:
@@ -104,29 +103,56 @@ def test_optimize_database_script_optimizes_rhythm_lab_database(tmp_path: Path) 
                 classifier_key TEXT PRIMARY KEY,
                 name TEXT NOT NULL
             );
+            CREATE TABLE classifier_profile_labels (
+                classifier_key TEXT NOT NULL,
+                label_key TEXT NOT NULL,
+                PRIMARY KEY(classifier_key, label_key)
+            );
             CREATE TABLE classifier_labels (
                 classifier_key TEXT NOT NULL,
-                source_track_id INTEGER NOT NULL,
+                catalog_uuid TEXT NOT NULL,
+                track_uuid TEXT NOT NULL,
+                content_generation INTEGER NOT NULL,
                 label TEXT NOT NULL,
-                PRIMARY KEY(classifier_key, source_track_id)
+                PRIMARY KEY(
+                    classifier_key,
+                    catalog_uuid,
+                    track_uuid,
+                    content_generation
+                )
             );
             CREATE TABLE classifier_predictions (
                 classifier_key TEXT NOT NULL,
-                source_track_id INTEGER NOT NULL,
+                catalog_uuid TEXT NOT NULL,
+                track_uuid TEXT NOT NULL,
+                content_generation INTEGER NOT NULL,
                 feature_set TEXT NOT NULL,
                 model_artifact TEXT NOT NULL,
                 label TEXT NOT NULL,
                 confidence REAL NOT NULL,
                 probabilities_json TEXT NOT NULL,
-                PRIMARY KEY(classifier_key, source_track_id, feature_set, model_artifact)
+                PRIMARY KEY(
+                    classifier_key,
+                    catalog_uuid,
+                    track_uuid,
+                    content_generation,
+                    feature_set,
+                    model_artifact
+                )
             );
             CREATE TABLE classifier_training_checkpoints (
                 classifier_key TEXT PRIMARY KEY,
                 counts_json TEXT NOT NULL
             );
             INSERT INTO classifier_profiles(classifier_key, name) VALUES ('break_energy', 'Break Energy');
-            INSERT INTO classifier_labels(classifier_key, source_track_id, label)
-            VALUES ('break_energy', 1, 'broken');
+            INSERT INTO classifier_labels(
+                classifier_key,
+                catalog_uuid,
+                track_uuid,
+                content_generation,
+                label
+            )
+            VALUES ('break_energy', 'catalog-1', 'track-1', 1, 'broken');
             """
         )
 

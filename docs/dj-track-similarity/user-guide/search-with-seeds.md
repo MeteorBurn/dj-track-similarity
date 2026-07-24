@@ -4,12 +4,27 @@
 > Goal: Use MERT, SONARA, and Reference Compare search without confusing their scores.
 > Type: guide
 
+::: warning v7 frontend status
+The React workflow below documents the deferred frontend. It has not been ported to the schema-v7
+API, so these UI steps are not currently validated or available for v7. Use the backend API
+alternative below.
+:::
+
 Seed search is useful when a real track communicates your intention better than tags or words. The
 app compares stored analysis around that reference and returns candidates to audition. It does not
 claim that the candidates will mix or belong in the same genre.
 
 Use one seed for a focused neighborhood or several seeds for a blended target. The result is a
 ranked listening list, not an automatic crate.
+
+## Current v7 alternative
+
+Use `POST /api/search` for `maest`, `mert`, `muq`, or `clap` seed search and
+`POST /api/search/sonara` for SONARA seed search. `POST /api/reference/compare` exposes the
+per-model comparison without the React tabs. Request fields, limits, and response identity are
+documented in the [API reference](../reference/api.md).
+
+## Deferred frontend workflow
 
 ## Choose the kind of neighborhood
 

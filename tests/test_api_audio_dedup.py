@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import sqlite3
 
 from fastapi.testclient import TestClient
 
@@ -9,6 +8,50 @@ import dj_track_similarity.api as api
 import dj_track_similarity.api_state as api_state
 import dj_track_similarity.audio_dedup_jobs as audio_dedup_jobs
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.track_models import FileTags, ScannedFile, TrackIdentity
+
+
+_SCANNED_AT = "2026-07-24T00:00:00.000000Z"
+
+
+def _scan(
+    database: LibraryDatabase,
+    path: Path,
+    *,
+    title: str,
+) -> TrackIdentity:
+    stat = path.stat()
+    return database.upsert_scanned_track(
+        file=ScannedFile(
+            file_path=str(path),
+            file_size_bytes=stat.st_size,
+            file_modified_ns=stat.st_mtime_ns,
+            audio_duration_seconds=1.0,
+        ),
+        tags=FileTags(title=title),
+        scanned_at=_SCANNED_AT,
+    ).identity
+
+
+def _candidate(
+    database: LibraryDatabase,
+    identity: TrackIdentity,
+    *,
+    decision: str = "delete_candidate",
+    safe_to_delete: str = "true_candidate",
+) -> dict[str, object]:
+    state = database.get_track_file_states_by_ids((identity.track_id,))[0]
+    return {
+        "track_id": identity.track_id,
+        "catalog_uuid": identity.catalog_uuid,
+        "track_uuid": identity.track_uuid,
+        "content_generation": identity.content_generation,
+        "path": state.file_path,
+        "size": state.file_size_bytes,
+        "file_modified_ns": state.file_modified_ns,
+        "decision": decision,
+        "safe_to_delete": safe_to_delete,
+    }
 
 
 class SynchronousAudioDedupManager:
@@ -178,45 +221,41 @@ def test_audio_dedup_apply_deletes_only_safe_temp_fixture_candidate(tmp_path: Pa
     outside_path.write_bytes(b"outside")
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
-    keep_id = db.upsert_track(path=keep_path, size=keep_path.stat().st_size, mtime=1, metadata={"title": "Keep"})
-    delete_id = db.upsert_track(path=delete_path, size=delete_path.stat().st_size, mtime=1, metadata={"title": "Delete"})
-    outside_id = db.upsert_track(path=outside_path, size=outside_path.stat().st_size, mtime=1, metadata={"title": "Outside"})
+    keep = _scan(db, keep_path, title="Keep")
+    delete = _scan(db, delete_path, title="Delete")
+    outside = _scan(db, outside_path, title="Outside")
     payload = {
         "groups": [
             {
                 "candidate_deletes": [
-                    {
-                        "track_id": delete_id,
-                        "path": str(delete_path),
-                        "decision": "delete_candidate",
-                        "safe_to_delete": "true_candidate",
-                    },
-                    {
-                        "track_id": outside_id,
-                        "path": str(outside_path),
-                        "decision": "delete_candidate",
-                        "safe_to_delete": "true_candidate",
-                    },
-                    {
-                        "track_id": keep_id,
-                        "path": str(keep_path),
-                        "decision": "review",
-                        "safe_to_delete": "false",
-                    },
+                    _candidate(db, delete),
+                    _candidate(db, outside),
+                    _candidate(
+                        db,
+                        keep,
+                        decision="review",
+                        safe_to_delete="false",
+                    ),
                 ]
             }
         ]
     }
+    delete_state = db.get_track_file_states_by_ids((delete.track_id,))[0]
 
-    result = core.apply_duplicate_deletions(db_path=db_path, root=audio_dir, payload=payload, rhythm_lab_db=tmp_path / "missing-lab.sqlite")
+    result = core.apply_duplicate_deletions(
+        database=db,
+        root=audio_dir,
+        payload=payload,
+        rhythm_lab_db=tmp_path / "missing-lab.sqlite",
+    )
 
-    assert result.deleted_track_ids == (delete_id,)
-    assert result.deleted_paths == (str(delete_path),)
-    assert result.skipped == (f"track_id={outside_id}: path outside root",)
+    assert result.deleted_track_ids == (delete.track_id,)
+    assert result.deleted_paths == (delete_state.file_path,)
+    assert result.skipped == (f"track_id={outside.track_id}: path outside root",)
     assert result.failed == ()
     assert keep_path.exists()
     assert outside_path.exists()
     assert not delete_path.exists()
-    with sqlite3.connect(db_path) as connection:
-        remaining_ids = [row[0] for row in connection.execute("SELECT id FROM tracks ORDER BY id")]
-    assert remaining_ids == [keep_id, outside_id]
+    assert db.get_track_identity(delete.track_id) is None
+    assert db.get_track_identity(keep.track_id) == keep
+    assert db.get_track_identity(outside.track_id) == outside

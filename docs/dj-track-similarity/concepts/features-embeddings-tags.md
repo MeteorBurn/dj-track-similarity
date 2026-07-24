@@ -34,20 +34,38 @@ These are source-file tags. They can be incomplete or inconsistent. The app stor
 
 SONARA produces explainable audio features and derived working fields such as BPM, key, duration, and energy. SONARA features support the SONARA tab and help Smart Set Builder reason about rhythm, dynamics, timbre, tonal content, energy flow, and transition compatibility.
 
-Newer SONARA analysis adds optional Camelot key, vocalness, mood, instrumentalness, loudness, beat-grid, structure, and silence fields. Treat these analysis estimates as inspectable evidence. Only fields wired into a scorer affect ranking.
+Newer SONARA analysis adds optional Camelot key, vocalness, mood, loudness, beat-grid, structure,
+and silence fields. Treat these analysis estimates as inspectable evidence. Only fields wired into
+a scorer affect ranking.
 
-Mood affinities and instrumentalness are shown as analysis data and retained for possible future workflows. They are not current similarity, SET, Hybrid, or classifier inputs. True peak and ReplayGain are also retained for possible loudness-management features rather than direct SONARA similarity. Loudness scalars can enter the `sonara2` classifier variant. The existing SONARA dynamics comparison uses momentary loudness maximum and loudness range. Vocalness is available through an explicit search modifier and the optional `sonara2vocal` variant.
+Mood affinities are shown as analysis data and retained for possible future workflows. They are not
+current similarity, SET, Hybrid, or classifier inputs. True peak and ReplayGain are also retained
+for possible loudness-management features rather than direct SONARA similarity. Loudness scalars
+can enter the `sonara2` classifier variant. The existing SONARA dynamics comparison uses momentary
+loudness maximum and loudness range. Vocalness is available through an explicit search modifier
+and the optional `sonara2vocal` variant.
 
-Complete beat positions, onset positions, chord labels/events, tempo curves, energy curves, structure segments, loudness curves, and downbeat arrays live in the `sonara_timeline` table in the `library.artifacts.sqlite` sidecar. The optional SONARA embedding and fingerprint also live in the Artifacts sidecar. The metadata dialog shows that Artifacts data exists without expanding the main Core database by displaying only field-name manifests instead of loading the actual values. Time signature, time-signature confidence, tempo variability, and compact curve summaries stay in Core metadata. The actively searched MAEST, MERT, MuQ, and CLAP vectors also live in the Artifacts sidecar in dedicated tables.
+Complete beat positions, onset positions, chord labels/events, tempo curves, energy curves, structure
+segments, loudness curves, and downbeat arrays live in Artifacts `sonara_timeline`. The SONARA
+embedding and fingerprint use separate Artifacts tables. MAEST, MERT, MuQ, and CLAP vectors also use
+dedicated tables in the mandatory Artifacts database. Compact SONARA scalars and fixed vectors stay
+in Core.
 
 SONARA values are analysis results, not copied file tags. Tempo-aware workflows use current signed
 SONARA tempo evidence first. Below `0.45` confidence, they also inspect ranked tempo candidates and
 the Mutagen BPM tag. Beat-grid stability can weaken reliability, and unreliable evidence moves
 toward a neutral score rather than creating similarity.
 
-SONARA v0.2.9 Core also stores `bpm_confidence` beside raw BPM, tempo candidates, and Camelot key. The confidence value records how strongly SONARA supports its working BPM estimate. Saved provenance records schema 4 and the installed package version, so results can be traced to the configuration that produced them.
+SONARA v0.2.9 `core` also stores `bpm_confidence` beside raw BPM, tempo candidates, and Camelot key.
+The confidence value records how strongly SONARA supports its working BPM estimate. The canonical
+contract registry records schema `4`, package/build identity, requested features, and other runtime
+parameters as canonical JSON plus hashes. Raw analyzer provenance is validated but is not promised
+as a round-trip stored payload.
 
-UI, CLI, and API default to Core. Timeline and Representations are independent opt-in outputs. A deterministic signature identifies each output, so a missing or mismatched side output is queued without invalidating current Core data.
+CLI and API default to `core`. `timeline`, `embedding`, and `fingerprint` are independent output
+kinds. A deterministic contract identifies each output, so a missing current optional output is
+queued without invalidating current `core` data. The React frontend has not yet been ported to the v7
+payloads.
 
 The exact field and scoring boundaries are in the
 [SONARA v0.2.9 project contract](../reference/sonara-v0-2-9-contract.md).

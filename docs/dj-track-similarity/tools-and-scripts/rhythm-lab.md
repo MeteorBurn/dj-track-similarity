@@ -1,183 +1,74 @@
 # Rhythm Lab
 
 > Audience: Users creating local classifier profiles.
-> Goal: Label, train, promote, and send collections without losing source boundaries.
+> Goal: Label, train, review, and promote without crossing source-audio boundaries.
 > Type: guide
 
-Rhythm Lab is a separate labeling and training app. The main UI can launch it, and the search panel can save the current set as a Rhythm Lab collection.
-
-New labels databases do not create a built-in classifier profile. Create a profile in the UI, or pass the intended `--profile` to profile-specific CLI commands.
-
-## Start the UI
-
-From the main UI, click the flask icon. The backend starts or reuses Rhythm Lab at port `8777`.
-
-Manual command:
+Rhythm Lab is a separate local labeling and training tool. Its labels, predictions, checkpoints, and
+artifacts stay under `tools/rhythm-lab/`. It reads the main v7 library mostly read-only. The explicit
+liked-track toggle is the narrow main-database write path. Rhythm Lab does not rewrite source audio.
 
 ```powershell
 python tools\rhythm-lab\rhythm_lab_cli.py serve --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
 ```
 
-Open:
+Create and label a profile, train it from its declared inputs, review its predictions, and promote a
+chosen artifact. Promotion makes a database-only scoring artifact available to the main runtime.
+Scoring does not decode audio and writes only its own `classifier_key` rows.
 
-```text
-http://127.0.0.1:8777/
-```
+Only classifier manifest version `2` is scoring-compatible. Checked-in version `1` or unversioned
+artifacts are blocked until retrained and promoted. SONARA-dependent profiles must match current
+SONARA contracts and feature revision `6`. Missing inputs are incompatible rather than zero-filled.
 
-## Main CLI commands
+For a changed SONARA release, first run the ordered, crash-resumable `prepare-sonara-release` flow
+for the main Core + Artifacts pair, then reanalyze, retrain, promote, and rescore affected profiles.
+It is not a distributed atomic transaction. The frontend v7 port is deferred, so do not rely on
+current browser launch or CLASS-tab instructions for v7 operation.
 
-Train:
+## Recover labels from a preserved legacy database
 
-```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
-```
+The transfer tool accepts sealed bundle format version `3`. Keep the original byte-for-byte legacy
+Lab database backup together with its matching `-wal` and `-shm` files. That SQLite set remains the
+source recovery artifact. Exported JSON bundles and reports are derived working files, not
+replacements for the preserved database set.
 
-Predict:
-
-```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py predict tools\rhythm-lab\artifacts\live_instrumentation\combined\model.joblib --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite
-```
-
-Promote:
-
-```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
-```
-
-Calibration report:
+Run the commands from `tools/rhythm-lab/`. Export uses one fixed read-only SQLite snapshot,
+including committed WAL frames. SQL `NULL` values remain null, and labels that share a duplicate
+path remain separate records:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py calibration-report --profile live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
+python -m rhythm_lab.label_transfer export --lab-db <legacy-lab.sqlite> --output <export.json>
+python -m rhythm_lab.label_transfer preview --bundle <export.json> --core-db <current-v7-core.sqlite> --output <preview.json>
+python -m rhythm_lab.label_transfer rebound --bundle <export.json> --preview <preview.json> --output <rebound.json>
 ```
 
-Calibrated training is explicit. The Training UI does not expose these actions:
+Restore has this command shape:
 
 ```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py train --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --calibrate
+python -m rhythm_lab.label_transfer restore --bundle <rebound.json> --core-db <current-v7-core.sqlite> --lab-db <target-lab.sqlite> --report <report.json> [--accept-record-id sha256:...] [--apply] [--force]
 ```
 
-```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --profile live_instrumentation --calibrate-finalists --output tools\rhythm-lab\artifacts\ablation-calibrated.json
-```
+The square brackets mark optional flags and are not literal command text. Run without `--apply`
+first. That default writes a report only and does not create or modify the target Lab database.
+Strong matches are eligible automatically. A weak match remains a recovery row unless you review it
+and pass its stable ID through `--accept-record-id`. Repeat the option to accept more than one.
 
-To promote a calibrated artifact intentionally, require calibration:
+Immediately before planning either a preview or an apply, restore reopens the current v7 Core
+database read-only. It requires the rebound target to still match the exact `catalog_uuid`,
+`track_uuid`, `content_generation`, selected path, file size, and mtime. A changed binding becomes an
+unresolved recovery record instead of being written as a label.
 
-```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py promote --profile live_instrumentation --feature-set 'mert+maest' --require-calibration --labels tools\rhythm-lab\data\rhythm_lab.sqlite
-```
+Apply writes unresolved rows to `classifier_label_recovery`, including unaccepted weak matches,
+unmatched or ambiguous paths, changed file facts, stale bindings, and conflict losers. Conflict
+resolution is deterministic: the latest source `updated_at` wins; equal timestamps use the
+lexicographically smallest `record_id`. No source label record is silently discarded.
 
-Suggest labels:
+Before changing an existing target, apply copies the target Lab database and any existing `-wal`
+and `-shm` companions into a timestamped backup directory. Applying the same rebound bundle again
+is data-idempotent because bound labels and recovery rows are upserted. `--force` only allows the
+JSON report to replace an existing file. It does not override matching, conflict, or Core
+revalidation.
 
-```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py suggest-labels --profile live_instrumentation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --limit 25
-```
-
-## Collections
-
-The main UI can save the current set as a Rhythm Lab collection. The CLI can also create or update a collection:
-
-```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py collection-save --labels tools\rhythm-lab\data\rhythm_lab.sqlite --name "review pile" --track-id 123 --track-id 456
-```
-
-List collections:
-
-```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py collection-list --labels tools\rhythm-lab\data\rhythm_lab.sqlite
-```
-
-## Liked tracks
-
-Track rows include a heart button for the shared liked state. The Liked count in
-the Coverage strip opens the liked-track view for the current source database.
-This updates the main library SQLite `track_likes` table only; it does not write
-audio files or tags.
-
-## Active-learning queue
-
-The CLI can list, export, mark, and clear queue rows with `queue`, `queue-export`, `queue-mark`, and `queue-clear`. Queue commands are profile-scoped and require `--profile`.
-
-## Delete profile
-
-Profile deletion is explicit and confirmation-gated. In the UI, the `Delete`
-button asks you to type the profile name or key before it removes Rhythm Lab
-labels, predictions, queue rows, training checkpoints, metrics, and local
-training artifacts for that profile. Promoted runtime models under
-`models/classifiers/` are not removed.
-
-The CLI uses the same exact-confirmation rule:
-
-```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py delete-profile --profile live_instrumentation --confirm live_instrumentation --labels tools\rhythm-lab\data\rhythm_lab.sqlite
-```
-
-## Ablation benchmarks
-
-Run a benchmark when you want local evidence for feature-source variants on one
-classifier profile:
-
-```powershell
-python tools\rhythm-lab\rhythm_lab_cli.py benchmark-ablation --source .\data\library.sqlite --labels tools\rhythm-lab\data\rhythm_lab.sqlite --profile live_instrumentation --output tools\rhythm-lab\artifacts\ablation.json
-```
-
-The command reads the source library without writes. Experimental artifacts stay
-under the profile artifact folder, and the benchmark output is a JSON report. It
-does not promote models or write classifier scores.
-
-The default ablation matrix includes embedding-only combinations, the original
-SONARA playlist feature set, and two SONARA 2.0 variants:
-
-- `sonara2` adds numeric SONARA 2.0 opt-in fields such as structure, loudness,
-  beatgrid, and silence summary values, but excludes `vocalness`, the four
-  `mood_*` affinities, and `instrumentalness`.
-- `sonara2vocal` uses the same fields and also includes `vocalness`.
-
-Both variants still require only stored SONARA features at scoring time. Compare
-them per classifier profile before promotion; `vocalness` can help or hurt
-depending on what that profile's labels mean.
-
-SONARA-dependent training accepts only tracks with one current, identical analysis
-signature. Training artifacts and promoted manifest version `2` retain that signature.
-Prediction, promotion, and main-app scoring reject a missing or mismatched signature,
-so a model trained on older danceability, acousticness, or vocalness semantics cannot silently score
-current schema-v6 Core rows. Missing required Core fields are incompatible data, not numeric zeroes.
-Embedding-only feature sets do not require a SONARA signature.
-
-After the SONARA feature revision changes, retrain and promote the affected profiles.
-Opening the main library invalidates dependent classifier scores; opening the Rhythm Lab labels
-database invalidates dependent predictions. Embedding-only predictions, source labels, and feedback
-remain available. Reset SONARA clears dependent main-library scores but does not delete Rhythm Lab
-labels; old promoted model files remain recoverable on disk but are blocked until a current signed
-artifact replaces them.
-
-Mood and instrumentalness stay available in the library for inspection and future
-feature-set experiments. Neither enters the current classifier matrices. Complete
-beat/onset positions, chord labels/events, tempo, energy, and loudness curves, downbeat arrays, and
-the SONARA embedding and fingerprint are stored out-of-band and are never loaded as classifier
-features.
-
-The Training tab has the same active-profile workflow: collect labels, train,
-review candidates, run a benchmark, choose a promotion variant, and promote.
-`Train` retrains from current labels and refreshes candidates automatically.
-The Training UI does not expose calibration for now. Promotion from the UI uses
-uncalibrated artifacts and ignores calibrated finalists. Use the API or CLI when
-you intentionally want calibration.
-
-API calibration is available on a running Rhythm Lab server:
-
-```text
-POST /api/profiles/{profile_key}/training/calibrate
-{"feature_set": "mert+maest"}
-```
-
-Omit `feature_set` to use the current default promotion variant.
-
-## Safety
-
-Rhythm Lab does not rewrite source audio. Its normal data stays under
-`tools/rhythm-lab/data/` and `tools/rhythm-lab/artifacts/`. The explicit
-liked-track toggle updates the main library SQLite liked state. Profile deletion
-can remove Rhythm Lab database rows and local training artifacts for one
-profile. Promoted runtime models live under `models/classifiers/`, are not
-removed by profile deletion, and should not be committed unless you
-intentionally change that policy.
+Export, preview, rebound, and restore do not write the v7 Core database, source audio, or promoted
+model files. Only `--apply` writes the target Lab database; the commands also create their requested
+JSON files and the apply-time target backup.

@@ -47,7 +47,10 @@ Rhythm Lab does not create a built-in starter profile. Existing profiles, includ
 
 ## Training inputs
 
-Training can benchmark SONARA, MERT, MAEST, CLAP, combined, and SONARA 2.0 feature-source variants. Combined training requires existing SONARA features plus MERT and MAEST embeddings. Variants that include CLAP require stored CLAP audio embeddings. The `sonara2` and `sonara2vocal` variants still require stored SONARA features at scoring time.
+Training uses the feature families declared by the selected profile artifact. Combined training
+requires current SONARA Core features plus MERT and MAEST embeddings; a feature set that includes
+CLAP also requires stored CLAP audio embeddings. Missing required values make a track ineligible;
+they are not zero-imputed.
 
 SONARA inputs must share one current analysis signature. Training skips stale or mixed profiles. A row missing a requested opt-in field is also skipped rather than zero-imputed.
 
@@ -69,12 +72,14 @@ models/classifiers/<artifact-prefix>/model.joblib
 models/classifiers/<artifact-prefix>/model.json
 ```
 
-The main app discovers promoted profiles from those manifests. Manifest version `2` records the exact SONARA training signature whenever the feature set depends on SONARA. Older SONARA artifacts must be retrained and promoted again.
+The main app discovers promoted profiles from those manifests. Manifest version `2` records the
+exact training inputs, including the SONARA contract when needed. Checked-in version `1` or
+unversioned artifacts are blocked from scoring: retrain and promote a v2 artifact instead.
 
 ## Scoring
 
 Promoted classifier scoring is database-only. Each manifest identifies the exact current SONARA and
-MERT/MAEST/CLAP inputs it needs. The aggregate job writes `track_classifier_scores` for every
+MERT/MAEST/CLAP inputs it needs. The aggregate job writes `classifier_scores` for every
 selected compatible classifier-track pair without reading audio.
 
 Readiness is computed before the job total. Missing manifest inputs make a track not ready, not
@@ -84,21 +89,15 @@ are never executed.
 
 Adding or promoting one classifier does not delete scores for other classifier keys. After retraining the same classifier key, reset that classifier's old scores before rescoring. Reanalyzing a track with SONARA invalidates that track's SONARA-dependent scores. A full SONARA reset invalidates all such scores but preserves labels and feedback.
 
-The project SONARA feature-revision guard also invalidates SONARA-dependent main-library scores when
-the main database opens and Rhythm Lab predictions when the labels database opens. Embedding-only derived rows,
-labels, and feedback are preserved. Stale promoted artifacts remain visible for recovery but cannot
-score until the profile is retrained and promoted with the current signed manifest.
+The current project SONARA feature revision is `6`. A changed SONARA contract or revision requires
+the ordered `prepare-sonara-release` workflow, then reanalysis, retraining, promotion, and
+rescoring for affected profiles. Preparation makes verified Core + Artifacts backups and records a
+durable receipt so an interrupted operation can resume. It is ordered and crash-resumable, not a
+distributed atomic transaction. Labels, feedback, and embedding-only artifacts remain available;
+stale promoted artifacts are visible but cannot score until replaced.
 
-For the SONARA `0.2.9`/schema-v6 transition, follow the ordered
-[split-storage workflow](../workflows/reanalyze-sonara-split-storage.md) before retraining or rescoring.
+## Current UI status
 
-## Main UI use
-
-Promoted scores can appear in:
-
-- the CLASS tab as filter sliders,
-- the library metadata dialog,
-- SET classifier preference and flow controls,
-- Hybrid preview preference/risk diagnostics.
-
-Missing scores stay neutral in SET and Hybrid. Malformed manifests block scoring with a clear status.
+The backend exposes promoted classifier scores, but the frontend v7 port is deferred. Do not treat
+the current CLASS-tab controls or browser workflows as v7-compatible. Missing scores remain neutral
+where a backend workflow consumes them. Malformed manifests block scoring with a clear status.

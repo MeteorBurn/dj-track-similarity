@@ -8,12 +8,90 @@ import wave
 import pytest
 
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.analysis_model_runners import MaestModelRunner
+from dj_track_similarity.analysis_models import (
+    AnalysisTarget,
+    MaestGenreScore,
+    MaestWrite,
+)
 from dj_track_similarity import tags, wave_tags
 from dj_track_similarity.api import create_app
-from dj_track_similarity.tags import GenreTagJobManager, apply_genre_tags_to_tracks, genre_tag_apply_summary
+from dj_track_similarity.tags import (
+    GenreTagJobManager,
+    apply_genre_tags_to_tracks,
+    genre_tag_apply_summary,
+)
 from fastapi.testclient import TestClient
 from mutagen import File as MutagenFile
 from mutagen.id3 import ID3, TALB, TCON, TIT2, TPE1
+from dj_track_similarity.track_models import FileTags, ScannedFile, TrackIdentity
+
+
+_ANALYZED_AT = "2026-07-24T00:00:00.000000Z"
+
+
+def _scan_track(
+    database: LibraryDatabase,
+    path: Path,
+    *,
+    title: str,
+    artist: str | None = None,
+    album: str | None = None,
+    tag_bpm: float | None = None,
+    tag_key: str | None = None,
+    genres: tuple[str, ...] = (),
+) -> TrackIdentity:
+    stat = path.stat()
+    return database.upsert_scanned_track(
+        file=ScannedFile(
+            file_path=str(path),
+            file_size_bytes=stat.st_size,
+            file_modified_ns=stat.st_mtime_ns,
+            audio_format=path.suffix.lstrip(".") or None,
+        ),
+        tags=FileTags(
+            title=title,
+            artist=artist,
+            album=album,
+            tag_bpm=tag_bpm,
+            tag_key=tag_key,
+            genres=genres,
+        ),
+        scanned_at=_ANALYZED_AT,
+    ).identity
+
+
+def _save_maest_genres(
+    database: LibraryDatabase,
+    identity: TrackIdentity,
+    *labels: str,
+) -> None:
+    output = MaestModelRunner(
+        device="cpu",
+        top_k=5,
+        inference_batch_size=1,
+    ).active_outputs[0]
+    database.register_analysis_outputs((output,))
+    target = AnalysisTarget(
+        catalog_uuid=identity.catalog_uuid,
+        track_id=identity.track_id,
+        track_uuid=identity.track_uuid,
+        content_generation=identity.content_generation,
+    )
+    result = database.save_maest_results(
+        (
+            MaestWrite(
+                target=target,
+                analysis_contract=output.contract,
+                genres=tuple(
+                    MaestGenreScore(label=label, score=0.9) for label in labels
+                ),
+                syncopated_rhythm=None,
+                analyzed_at=_ANALYZED_AT,
+            ),
+        )
+    )[0]
+    assert result.ok, result.error
 
 
 def _wave_chunk_payload(path: Path, chunk_id: bytes = b"data") -> bytes:
@@ -112,20 +190,23 @@ def test_custom_tag_api_is_not_available(tmp_path: Path) -> None:
     audio_path.write_bytes(b"fake audio")
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
-    track_id = db.upsert_track(
-        path=audio_path,
-        size=audio_path.stat().st_size,
-        mtime=audio_path.stat().st_mtime,
-        metadata={"artist": "A", "title": "T"},
-        bpm=128,
-        musical_key="8A",
-        energy=0.73,
+    identity = _scan_track(
+        db,
+        audio_path,
+        title="T",
+        artist="A",
+        tag_bpm=128.0,
+        tag_key="8A",
     )
 
     client = TestClient(create_app(db_path))
 
-    assert client.post("/api/tags/preview", json={"track_ids": [track_id]}).status_code in {404, 405}
-    assert client.post("/api/tags/apply", json={"track_ids": [track_id]}).status_code in {404, 405}
+    assert client.post(
+        "/api/tags/preview", json={"track_ids": [identity.track_id]}
+    ).status_code in {404, 405}
+    assert client.post(
+        "/api/tags/apply", json={"track_ids": [identity.track_id]}
+    ).status_code in {404, 405}
 
 
 def test_genre_tag_specific_track_helpers_are_not_part_of_runtime_contract() -> None:
@@ -133,21 +214,25 @@ def test_genre_tag_specific_track_helpers_are_not_part_of_runtime_contract() -> 
     assert not hasattr(tags, "apply_genre_tags")
 
 
-def test_apply_genre_tags_overwrites_standard_genre_tag(monkeypatch, tmp_path: Path) -> None:
+def test_apply_genre_tags_overwrites_standard_genre_tag(
+    monkeypatch, tmp_path: Path
+) -> None:
     audio_path = tmp_path / "track.flac"
     audio_path.write_bytes(b"fake audio")
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_id = db.upsert_track(
-        path=audio_path,
-        size=audio_path.stat().st_size,
-        mtime=audio_path.stat().st_mtime,
-        metadata={"title": "T"},
-    )
-    db.save_genres(track_id, [{"label": "House", "score": 0.9}], model_name="maest")
+    identity = _scan_track(db, audio_path, title="T")
+    _save_maest_genres(db, identity, "House")
     written: list[tuple[Path, str]] = []
-    monkeypatch.setattr(tags, "_write_genre_tag", lambda path, genre: written.append((path, genre)))
+    monkeypatch.setattr(
+        tags, "_write_genre_tag", lambda path, genre: written.append((path, genre))
+    )
+    monkeypatch.setattr(
+        tags,
+        "_read_file_tags",
+        lambda _path: FileTags(genres=("House",)),
+    )
 
-    result = apply_genre_tags_to_tracks(db, [db.get_track(track_id)])
+    result = apply_genre_tags_to_tracks(db, db.list_genre_tag_candidates())
 
     assert result[0].tags == {"GENRE": "House"}
     assert result[0].status == "applied"
@@ -155,16 +240,18 @@ def test_apply_genre_tags_overwrites_standard_genre_tag(monkeypatch, tmp_path: P
     assert written == [(audio_path, "House")]
 
 
-def test_apply_genre_tags_reports_failures_and_continues(monkeypatch, tmp_path: Path, caplog) -> None:
+def test_apply_genre_tags_reports_failures_and_continues(
+    monkeypatch, tmp_path: Path, caplog
+) -> None:
     first_path = tmp_path / "first.flac"
     second_path = tmp_path / "second.flac"
     first_path.write_bytes(b"fake audio")
     second_path.write_bytes(b"fake audio")
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    first_id = db.upsert_track(path=first_path, size=first_path.stat().st_size, mtime=1, metadata={"title": "First"})
-    second_id = db.upsert_track(path=second_path, size=second_path.stat().st_size, mtime=1, metadata={"title": "Second"})
-    db.save_genres(first_id, [{"label": "House", "score": 0.9}], model_name="maest")
-    db.save_genres(second_id, [{"label": "Minimal", "score": 0.8}], model_name="maest")
+    first = _scan_track(db, first_path, title="First")
+    second = _scan_track(db, second_path, title="Second")
+    _save_maest_genres(db, first, "House")
+    _save_maest_genres(db, second, "Minimal")
     written: list[Path] = []
 
     def fake_write(path: Path, genre: str) -> None:
@@ -173,53 +260,70 @@ def test_apply_genre_tags_reports_failures_and_continues(monkeypatch, tmp_path: 
         written.append(path)
 
     monkeypatch.setattr(tags, "_write_genre_tag", fake_write)
+    monkeypatch.setattr(
+        tags, "_read_file_tags", lambda _path: FileTags(genres=("Minimal",))
+    )
 
     with caplog.at_level("INFO", logger="dj_track_similarity.tags"):
-        result = apply_genre_tags_to_tracks(db, [db.get_track(first_id), db.get_track(second_id)])
+        result = apply_genre_tags_to_tracks(db, db.list_genre_tag_candidates())
 
     assert [item.status for item in result] == ["failed", "applied"]
     assert result[0].error == "permission denied"
     assert written == [second_path]
     assert genre_tag_apply_summary(result) == "applied=1 skipped=0 failed=1 total=2"
     assert "Genre tag apply failed" in caplog.text
-    assert "Genre tag apply finished applied=1 skipped=0 failed=1 total=2" in caplog.text
+    assert (
+        "Genre tag apply finished applied=1 skipped=0 failed=1 total=2" in caplog.text
+    )
 
 
-def test_genre_tags_apply_api_rejects_specific_track_ids(monkeypatch, tmp_path: Path) -> None:
+def test_genre_tags_apply_api_rejects_specific_track_ids(
+    monkeypatch, tmp_path: Path
+) -> None:
     audio_path = tmp_path / "track.flac"
     audio_path.write_bytes(b"fake audio")
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
-    track_id = db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": "Track"})
-    db.save_genres(track_id, [{"label": "House", "score": 0.9}], model_name="maest")
+    identity = _scan_track(db, audio_path, title="Track")
+    _save_maest_genres(db, identity, "House")
     written: list[Path] = []
-    monkeypatch.setattr(tags, "_write_genre_tag", lambda path, genre: written.append(path))
+    monkeypatch.setattr(
+        tags, "_write_genre_tag", lambda path, genre: written.append(path)
+    )
 
-    response = TestClient(create_app(db_path)).post("/api/tags/genres/apply", json={"track_ids": [track_id]})
+    response = TestClient(create_app(db_path)).post(
+        "/api/tags/genres/apply", json={"track_ids": [identity.track_id]}
+    )
 
-    assert response.status_code == 400
-    assert response.json()["detail"] == "Writing MAEST genres to specific tracks is no longer supported"
+    assert response.status_code == 422
     assert written == []
 
 
-def test_genre_tag_job_api_rejects_specific_track_ids(monkeypatch, tmp_path: Path) -> None:
+def test_genre_tag_job_api_rejects_specific_track_ids(
+    monkeypatch, tmp_path: Path
+) -> None:
     audio_path = tmp_path / "track.flac"
     audio_path.write_bytes(b"fake audio")
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
-    track_id = db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": "Track"})
-    db.save_genres(track_id, [{"label": "House", "score": 0.9}], model_name="maest")
+    identity = _scan_track(db, audio_path, title="Track")
+    _save_maest_genres(db, identity, "House")
     written: list[Path] = []
-    monkeypatch.setattr(tags, "_write_genre_tag", lambda path, genre: written.append(path))
+    monkeypatch.setattr(
+        tags, "_write_genre_tag", lambda path, genre: written.append(path)
+    )
 
-    response = TestClient(create_app(db_path)).post("/api/tags/genres/jobs", json={"track_ids": [track_id]})
+    response = TestClient(create_app(db_path)).post(
+        "/api/tags/genres/jobs", json={"track_ids": [identity.track_id]}
+    )
 
-    assert response.status_code == 400
-    assert response.json()["detail"] == "Writing MAEST genres to specific tracks is no longer supported"
+    assert response.status_code == 422
     assert written == []
 
 
-def test_genre_tags_apply_api_can_apply_all_maest_tracks(monkeypatch, tmp_path: Path) -> None:
+def test_genre_tags_apply_api_can_apply_all_maest_tracks(
+    monkeypatch, tmp_path: Path
+) -> None:
     first_path = tmp_path / "first.flac"
     second_path = tmp_path / "second.flac"
     third_path = tmp_path / "third.flac"
@@ -227,37 +331,57 @@ def test_genre_tags_apply_api_can_apply_all_maest_tracks(monkeypatch, tmp_path: 
         path.write_bytes(b"fake audio")
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
-    first_id = db.upsert_track(path=first_path, size=first_path.stat().st_size, mtime=1, metadata={"title": "First"})
-    second_id = db.upsert_track(path=second_path, size=second_path.stat().st_size, mtime=1, metadata={"title": "Second"})
-    db.upsert_track(path=third_path, size=third_path.stat().st_size, mtime=1, metadata={"title": "Third"})
-    db.save_genres(first_id, [{"label": "House", "score": 0.9}], model_name="maest")
-    db.save_genres(second_id, [{"label": "Techno", "score": 0.8}], model_name="maest")
+    first = _scan_track(db, first_path, title="First")
+    second = _scan_track(db, second_path, title="Second")
+    _scan_track(db, third_path, title="Third")
+    _save_maest_genres(db, first, "House")
+    _save_maest_genres(db, second, "Techno")
     written: list[Path] = []
-    monkeypatch.setattr(tags, "_write_genre_tag", lambda path, genre: written.append(path))
+    monkeypatch.setattr(
+        tags, "_write_genre_tag", lambda path, genre: written.append(path)
+    )
+    monkeypatch.setattr(
+        tags,
+        "_read_file_tags",
+        lambda path: FileTags(
+            genres=("Techno",) if path == second_path else ("House",)
+        ),
+    )
 
     response = TestClient(create_app(db_path)).post("/api/tags/genres/apply", json={})
 
     assert response.status_code == 200
     payload = response.json()
-    assert [item["track_id"] for item in payload] == [first_id, second_id]
+    assert [item["track_id"] for item in payload] == [first.track_id, second.track_id]
     assert [item["status"] for item in payload] == ["applied", "applied"]
     assert written == [first_path, second_path]
 
 
-def test_genre_tag_job_processes_all_maest_tracks_without_page_ids(monkeypatch, tmp_path: Path) -> None:
+def test_genre_tag_job_processes_all_maest_tracks_without_page_ids(
+    monkeypatch, tmp_path: Path
+) -> None:
     first_path = tmp_path / "first.flac"
     second_path = tmp_path / "second.flac"
     third_path = tmp_path / "third.flac"
     for path in (first_path, second_path, third_path):
         path.write_bytes(b"fake audio")
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    first_id = db.upsert_track(path=first_path, size=first_path.stat().st_size, mtime=1, metadata={"title": "First"})
-    second_id = db.upsert_track(path=second_path, size=second_path.stat().st_size, mtime=1, metadata={"title": "Second"})
-    db.upsert_track(path=third_path, size=third_path.stat().st_size, mtime=1, metadata={"title": "Third"})
-    db.save_genres(first_id, [{"label": "House", "score": 0.9}], model_name="maest")
-    db.save_genres(second_id, [{"label": "Techno", "score": 0.8}], model_name="maest")
+    first = _scan_track(db, first_path, title="First")
+    second = _scan_track(db, second_path, title="Second")
+    _scan_track(db, third_path, title="Third")
+    _save_maest_genres(db, first, "House")
+    _save_maest_genres(db, second, "Techno")
     written: list[Path] = []
-    monkeypatch.setattr(tags, "_write_genre_tag", lambda path, genre: written.append(path))
+    monkeypatch.setattr(
+        tags, "_write_genre_tag", lambda path, genre: written.append(path)
+    )
+    monkeypatch.setattr(
+        tags,
+        "_read_file_tags",
+        lambda path: FileTags(
+            genres=("Techno",) if path == second_path else ("House",)
+        ),
+    )
 
     result = GenreTagJobManager(db).run_sync()
 
@@ -282,9 +406,12 @@ def test_genre_tag_job_api_returns_job_status(monkeypatch, tmp_path: Path) -> No
     audio_path.write_bytes(b"fake audio")
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
-    track_id = db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": "Track"})
-    db.save_genres(track_id, [{"label": "House", "score": 0.9}], model_name="maest")
+    identity = _scan_track(db, audio_path, title="Track")
+    _save_maest_genres(db, identity, "House")
     monkeypatch.setattr(tags, "_write_genre_tag", lambda path, genre: None)
+    monkeypatch.setattr(
+        tags, "_read_file_tags", lambda _path: FileTags(genres=("House",))
+    )
 
     client = TestClient(create_app(db_path))
     response = client.post("/api/tags/genres/jobs", json={})
@@ -296,7 +423,9 @@ def test_genre_tag_job_api_returns_job_status(monkeypatch, tmp_path: Path) -> No
     assert payload["state"] in {"queued", "running", "completed"}
 
 
-def test_write_genre_tag_replaces_common_audio_genre_field(monkeypatch, tmp_path: Path) -> None:
+def test_write_genre_tag_replaces_common_audio_genre_field(
+    monkeypatch, tmp_path: Path
+) -> None:
     class FakeAudio:
         def __init__(self) -> None:
             self.tags = {"GENRE": ["Old"]}
@@ -339,7 +468,9 @@ def test_write_genre_tag_handles_id3_tags_inside_wave(tmp_path: Path) -> None:
         assert handle.getnframes() == 44_100
 
 
-def test_write_genre_tag_uses_wave_loader_when_generic_mutagen_detects_no_tags(monkeypatch, tmp_path: Path) -> None:
+def test_write_genre_tag_uses_wave_loader_when_generic_mutagen_detects_no_tags(
+    monkeypatch, tmp_path: Path
+) -> None:
     class FakeWave:
         def __init__(self, path: Path) -> None:
             self.path = path
@@ -368,7 +499,9 @@ def test_write_genre_tag_uses_wave_loader_when_generic_mutagen_detects_no_tags(m
     assert fake_wave.tags["TCON"].text == ["Minimal"]
 
 
-def test_write_genre_tag_persists_to_wave_and_preserves_existing_id3_tags(tmp_path: Path) -> None:
+def test_write_genre_tag_persists_to_wave_and_preserves_existing_id3_tags(
+    tmp_path: Path,
+) -> None:
     audio_path = tmp_path / "track.wav"
     with wave.open(str(audio_path), "wb") as handle:
         handle.setnchannels(1)
@@ -394,7 +527,9 @@ def test_write_genre_tag_persists_to_wave_and_preserves_existing_id3_tags(tmp_pa
         assert handle.getnframes() == 44_100
 
 
-def test_write_genre_tag_allows_mutagen_readable_wave_with_trailing_padding(tmp_path: Path) -> None:
+def test_write_genre_tag_allows_mutagen_readable_wave_with_trailing_padding(
+    tmp_path: Path,
+) -> None:
     audio_path = tmp_path / "padded.wav"
     with wave.open(str(audio_path), "wb") as handle:
         handle.setnchannels(1)
@@ -437,7 +572,9 @@ def test_write_genre_tag_fails_invalid_wave_without_rewriting(tmp_path: Path) ->
     assert audio_path.read_bytes() == before
 
 
-def test_apply_genre_tags_reports_failed_invalid_wave_and_continues(tmp_path: Path, caplog) -> None:
+def test_apply_genre_tags_reports_failed_invalid_wave_and_continues(
+    tmp_path: Path, caplog
+) -> None:
     malformed_path = tmp_path / "malformed.wav"
     with wave.open(str(malformed_path), "wb") as handle:
         handle.setnchannels(1)
@@ -457,35 +594,35 @@ def test_apply_genre_tags_reports_failed_invalid_wave_and_continues(tmp_path: Pa
         handle.writeframes(b"\x00\x00" * 44_100)
 
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    malformed_id = db.upsert_track(
-        path=malformed_path,
-        size=malformed_path.stat().st_size,
-        mtime=malformed_path.stat().st_mtime,
-        metadata={"title": "Malformed"},
-    )
-    valid_id = db.upsert_track(
-        path=valid_path,
-        size=valid_path.stat().st_size,
-        mtime=valid_path.stat().st_mtime,
-        metadata={"title": "Valid"},
-    )
-    db.save_genres(malformed_id, [{"label": "Tech House", "score": 0.9}], model_name="maest")
-    db.save_genres(valid_id, [{"label": "Minimal", "score": 0.8}], model_name="maest")
+    malformed = _scan_track(db, malformed_path, title="Malformed")
+    valid = _scan_track(db, valid_path, title="Valid")
+    _save_maest_genres(db, malformed, "Tech House")
+    _save_maest_genres(db, valid, "Minimal")
 
     with caplog.at_level("ERROR", logger="dj_track_similarity.tags"):
-        previews = apply_genre_tags_to_tracks(db, [db.get_track(malformed_id), db.get_track(valid_id)])
+        previews = apply_genre_tags_to_tracks(
+            db,
+            db.list_genre_tag_candidates(),
+        )
 
     assert malformed_path.read_bytes() == malformed_before
     assert MutagenFile(valid_path).tags["TCON"].text == ["Minimal"]
-    assert [preview.track_id for preview in previews] == [malformed_id, valid_id]
+    assert [preview.track_id for preview in previews] == [
+        malformed.track_id,
+        valid.track_id,
+    ]
     assert [preview.status for preview in previews] == ["failed", "applied"]
     assert previews[0].message == "Genre tag write failed"
     assert previews[0].error
     assert "Genre tag apply failed" in caplog.text
 
 
-@pytest.mark.parametrize("old_genres", [[], ["Old Genre"], ["One", "Two", "Three", "Four", "Five"]])
-def test_write_genre_tag_upserts_wave_genre_field_without_touching_audio(tmp_path: Path, old_genres: list[str]) -> None:
+@pytest.mark.parametrize(
+    "old_genres", [[], ["Old Genre"], ["One", "Two", "Three", "Four", "Five"]]
+)
+def test_write_genre_tag_upserts_wave_genre_field_without_touching_audio(
+    tmp_path: Path, old_genres: list[str]
+) -> None:
     audio_path = tmp_path / "track.wav"
     with wave.open(str(audio_path), "wb") as handle:
         handle.setnchannels(1)
@@ -514,7 +651,9 @@ def test_write_genre_tag_upserts_wave_genre_field_without_touching_audio(tmp_pat
 
 
 @pytest.mark.parametrize("old_genres", [[], ["One", "Two", "Three", "Four", "Five"]])
-def test_write_genre_tag_upserts_mp3_genre_field_without_touching_audio(tmp_path: Path, old_genres: list[str]) -> None:
+def test_write_genre_tag_upserts_mp3_genre_field_without_touching_audio(
+    tmp_path: Path, old_genres: list[str]
+) -> None:
     audio_path = tmp_path / "track.mp3"
     _make_tone(audio_path, ["-codec:a", "libmp3lame", "-q:a", "4"])
     old_tags = ID3(audio_path)
@@ -539,7 +678,12 @@ def test_write_genre_tag_upserts_mp3_genre_field_without_touching_audio(tmp_path
     ("suffix", "codec_args", "old_key", "expected_getter"),
     [
         (".flac", ["-codec:a", "flac"], "GENRE", lambda audio: audio.get("GENRE")),
-        (".m4a", ["-codec:a", "aac", "-b:a", "128k"], "\xa9gen", lambda audio: audio.get("\xa9gen")),
+        (
+            ".m4a",
+            ["-codec:a", "aac", "-b:a", "128k"],
+            "\xa9gen",
+            lambda audio: audio.get("\xa9gen"),
+        ),
     ],
 )
 @pytest.mark.parametrize("old_genres", [[], ["One", "Two", "Three", "Four", "Five"]])
@@ -570,7 +714,9 @@ def test_write_genre_tag_upserts_vorbis_and_mp4_genre_fields_without_touching_au
 
 
 @pytest.mark.parametrize("old_genres", [[], ["One", "Two", "Three", "Four", "Five"]])
-def test_write_genre_tag_upserts_aiff_genre_field_without_touching_audio(tmp_path: Path, old_genres: list[str]) -> None:
+def test_write_genre_tag_upserts_aiff_genre_field_without_touching_audio(
+    tmp_path: Path, old_genres: list[str]
+) -> None:
     audio_path = tmp_path / "track.aiff"
     _make_tone(audio_path, ["-codec:a", "pcm_s16be"])
     audio = MutagenFile(audio_path)
@@ -592,7 +738,9 @@ def test_write_genre_tag_upserts_aiff_genre_field_without_touching_audio(tmp_pat
     assert _decoded_audio_md5(audio_path) == audio_md5_before
 
 
-def test_write_genre_tag_persists_to_mp3_id3_and_preserves_existing_tags(tmp_path: Path) -> None:
+def test_write_genre_tag_persists_to_mp3_id3_and_preserves_existing_tags(
+    tmp_path: Path,
+) -> None:
     audio_path = tmp_path / "track.mp3"
     id3 = ID3()
     id3.add(TPE1(encoding=3, text=["Existing Artist"]))
@@ -610,7 +758,9 @@ def test_write_genre_tag_persists_to_mp3_id3_and_preserves_existing_tags(tmp_pat
     assert saved["TALB"].text == ["Existing Album"]
 
 
-def test_apply_genre_tags_refreshes_database_metadata_and_preserves_existing_file_tags(tmp_path: Path) -> None:
+def test_apply_genre_tags_refreshes_database_metadata_and_preserves_existing_file_tags(
+    tmp_path: Path,
+) -> None:
     audio_path = tmp_path / "track.wav"
     with wave.open(str(audio_path), "wb") as handle:
         handle.setnchannels(1)
@@ -625,24 +775,27 @@ def test_apply_genre_tags_refreshes_database_metadata_and_preserves_existing_fil
     audio.tags.add(TCON(encoding=3, text=["Old Genre"]))
     audio.save()
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_id = db.upsert_track(
-        path=audio_path,
-        size=audio_path.stat().st_size,
-        mtime=audio_path.stat().st_mtime,
-        metadata={"artist": "Existing Artist", "title": "Existing Title", "album": "Existing Album", "genre": "Old Genre"},
+    identity = _scan_track(
+        db,
+        audio_path,
+        title="Existing Title",
+        artist="Existing Artist",
+        album="Existing Album",
+        genres=("Old Genre",),
     )
-    db.save_genres(track_id, [{"label": "Electronic---Tech House", "score": 0.9}], model_name="maest")
+    _save_maest_genres(db, identity, "Electronic---Tech House")
 
-    apply_genre_tags_to_tracks(db, [db.get_track(track_id)])
+    result = apply_genre_tags_to_tracks(db, db.list_genre_tag_candidates())
 
     saved = MutagenFile(audio_path)
-    track = db.get_track(track_id)
+    detail = db.get_track_detail(identity.track_id)
     assert saved["TCON"].text == ["Tech House"]
     assert saved["TPE1"].text == ["Existing Artist"]
     assert saved["TIT2"].text == ["Existing Title"]
     assert saved["TALB"].text == ["Existing Album"]
-    assert track.metadata["artist"] == "Existing Artist"
-    assert track.metadata["title"] == "Existing Title"
-    assert track.metadata["album"] == "Existing Album"
-    assert track.metadata["genre"] == "Tech House"
-    assert track.genres == ["Tech House"]
+    assert [item.status for item in result] == ["applied"]
+    assert detail.file_tags is not None
+    assert detail.file_tags.artist == "Existing Artist"
+    assert detail.file_tags.title == "Existing Title"
+    assert detail.file_tags.album == "Existing Album"
+    assert detail.file_tags.genres == ("Tech House",)

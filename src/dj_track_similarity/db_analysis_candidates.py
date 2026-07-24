@@ -1,156 +1,374 @@
+"""Current-generation candidate readiness for the v7 analysis repository."""
+
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterable, Mapping
+from collections.abc import Sequence
 
-from .metadata_payload import metadata_from_json
-from .models import AnalysisCandidate
-from .sonara_contract import sonara_analysis_is_compatible
+from .analysis_contracts import require_registered_contract
+from .analysis_models import (
+    AnalysisCandidate,
+    AnalysisOutput,
+    AnalysisTarget,
+    InactiveAnalysisOutputError,
+    SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY,
+    active_contract_setting_key,
+)
+from .db_artifacts import (
+    ArtifactTrackIdentity,
+    validate_embedding_row_payload,
+    validate_fingerprint_row_payload,
+    validate_timeline_row_payload,
+)
+from .maest_analysis_validation import (
+    MAEST_ANALYSIS_COLUMNS,
+    validate_maest_analysis_row,
+)
+from .sonara_core_validation import (
+    SONARA_CORE_COLUMNS,
+    validate_sonara_core_row,
+)
 
 
-def clean_analysis_models(models: Iterable[str]) -> list[str]:
-    allowed = {"sonara", "maest", "mert", "muq", "clap"}
-    selected: list[str] = []
-    for model in models:
-        text = str(model).strip().lower()
-        if text not in allowed or text in selected:
-            continue
-        selected.append(text)
-    return selected
+_CORE_TABLE_BY_OUTPUT = {
+    ("sonara", "core"): "sonara",
+    ("maest", "analysis"): "maest_scores",
+}
+_ARTIFACT_TABLE_BY_OUTPUT = {
+    ("maest", "embedding"): "maest_embeddings",
+    ("mert", "embedding"): "mert_embeddings",
+    ("muq", "embedding"): "muq_embeddings",
+    ("clap", "embedding"): "clap_embeddings",
+    ("sonara", "embedding"): "sonara_similarity_embeddings",
+    ("sonara", "timeline"): "sonara_timeline",
+    ("sonara", "fingerprint"): "sonara_fingerprints",
+}
 
 
-def missing_analysis_ids_sql(
-    model: str,
-    limit_sql: str,
+def normalize_analysis_outputs(
+    outputs: Sequence[AnalysisOutput],
+) -> tuple[AnalysisOutput, ...]:
+    normalized = tuple(outputs)
+    if not normalized:
+        raise ValueError("at least one analysis output is required")
+    if any(not isinstance(output, AnalysisOutput) for output in normalized):
+        raise TypeError("outputs must contain only AnalysisOutput values")
+    keys = [output.key for output in normalized]
+    if len(set(keys)) != len(keys):
+        raise ValueError(
+            "outputs must contain at most one active contract per family/output"
+        )
+    return normalized
+
+
+def artifact_table_for_output(output: AnalysisOutput) -> str | None:
+    return _ARTIFACT_TABLE_BY_OUTPUT.get(output.key)
+
+
+def core_table_for_output(output: AnalysisOutput) -> str | None:
+    return _CORE_TABLE_BY_OUTPUT.get(output.key)
+
+
+def require_active_analysis_outputs(
+    core_connection: sqlite3.Connection,
+    outputs: Sequence[AnalysisOutput],
+) -> tuple[AnalysisOutput, ...]:
+    normalized = normalize_analysis_outputs(outputs)
+    settings = {
+        str(row[0]): str(row[1])
+        for row in core_connection.execute(
+            "SELECT setting_key, setting_value FROM library_settings"
+        )
+    }
+    active_release = settings.get(SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY)
+    for output in normalized:
+        require_registered_contract(core_connection, output.contract)
+        setting_key = active_contract_setting_key(output)
+        active_hash = settings.get(setting_key)
+        if active_hash != output.contract_hash:
+            raise InactiveAnalysisOutputError(
+                "analysis output is not active: "
+                f"{output.contract.analysis_family}/{output.contract.output_kind} "
+                f"{output.contract_hash}"
+            )
+        if (
+            output.contract.analysis_family == "sonara"
+            and active_release != output.contract.release_hash
+        ):
+            raise InactiveAnalysisOutputError(
+                f"SONARA output release is not active: {output.contract.release_hash}"
+            )
+    return normalized
+
+
+def read_current_track_rows(
+    core_connection: sqlite3.Connection,
+) -> list[sqlite3.Row]:
+    return core_connection.execute(
+        """
+        SELECT track_id, track_uuid, file_path, file_size_bytes,
+               file_modified_ns, content_generation
+        FROM tracks
+        WHERE missing_since IS NULL
+        ORDER BY file_path COLLATE NOCASE, track_id
+        """
+    ).fetchall()
+
+
+def target_from_track_row(
+    row: sqlite3.Row,
     *,
-    sonara_signature_ids: Mapping[str, str] | None = None,
-) -> str:
-    if model == "sonara":
-        signature_ids = dict(sonara_signature_ids or {})
-        conditions: list[str] = []
-        if "core" in signature_ids:
-            conditions.append(
-                "(t.has_sonara_analysis = 0 "
-                "OR sonara_analysis_is_current(t.metadata_json) != 1 "
-                "OR json_extract(t.metadata_json, '$.sonara_analysis_signature.signature_id') IS NULL "
-                "OR json_extract(t.metadata_json, '$.sonara_analysis_signature.signature_id') != ?)"
+    catalog_uuid: str,
+) -> AnalysisTarget:
+    return AnalysisTarget(
+        catalog_uuid=catalog_uuid,
+        track_id=int(row["track_id"]),
+        track_uuid=str(row["track_uuid"]),
+        content_generation=int(row["content_generation"]),
+    )
+
+
+def ready_target_keys_by_output(
+    *,
+    core_connection: sqlite3.Connection,
+    artifacts_connection: sqlite3.Connection,
+    catalog_uuid: str,
+    outputs: Sequence[AnalysisOutput],
+) -> dict[tuple[str, str], set[tuple[int, str, int]]]:
+    normalized = require_active_analysis_outputs(core_connection, outputs)
+    current_tracks = {
+        int(row["track_id"]): ArtifactTrackIdentity(
+            catalog_uuid=catalog_uuid,
+            track_id=int(row["track_id"]),
+            track_uuid=str(row["track_uuid"]),
+            content_generation=int(row["content_generation"]),
+        )
+        for row in read_current_track_rows(core_connection)
+    }
+    ready: dict[tuple[str, str], set[tuple[int, str, int]]] = {}
+    for output in normalized:
+        core_table = core_table_for_output(output)
+        if output.key == ("sonara", "core"):
+            rows = _valid_sonara_core_rows(
+                core_connection,
+                output=output,
+                current_tracks=current_tracks,
             )
-        if "timeline" in signature_ids:
-            conditions.append(
-                "NOT EXISTS ("
-                "SELECT 1 FROM timeline.sonara_timeline st "
-                "WHERE st.track_id = t.id AND st.analysis_signature_id = ?"
-                ")"
+        elif output.key == ("maest", "analysis"):
+            rows = _valid_maest_analysis_rows(
+                core_connection,
+                output=output,
+                current_tracks=current_tracks,
             )
-        if "representations" in signature_ids:
-            conditions.extend(
+        elif core_table is not None:
+            rows = core_connection.execute(
+                f"""
+                SELECT stored.track_id, tracks.track_uuid,
+                       stored.content_generation
+                FROM {core_table} AS stored
+                JOIN tracks ON tracks.track_id = stored.track_id
+                WHERE stored.contract_hash = ?
+                  AND stored.content_generation = tracks.content_generation
+                  AND tracks.missing_since IS NULL
+                """,
+                (output.contract_hash,),
+            )
+        else:
+            artifact_table = artifact_table_for_output(output)
+            if artifact_table is None:
+                raise ValueError(
+                    "unsupported analysis output "
+                    f"{output.contract.analysis_family}/"
+                    f"{output.contract.output_kind}"
+                )
+            rows = _valid_artifact_rows(
+                artifacts_connection,
+                table=artifact_table,
+                output=output,
+                current_tracks=current_tracks,
+            )
+        ready[output.key] = {(int(row[0]), str(row[1]), int(row[2])) for row in rows}
+    return ready
+
+
+def _valid_sonara_core_rows(
+    connection: sqlite3.Connection,
+    *,
+    output: AnalysisOutput,
+    current_tracks: dict[int, ArtifactTrackIdentity],
+) -> tuple[tuple[int, str, int], ...]:
+    rows = connection.execute(
+        f"""
+        SELECT {", ".join(SONARA_CORE_COLUMNS)}
+        FROM sonara
+        WHERE contract_hash = ?
+        """,
+        (output.contract_hash,),
+    ).fetchall()
+    valid_rows: list[tuple[int, str, int]] = []
+    for row in rows:
+        expected_track = current_tracks.get(int(row["track_id"]))
+        if expected_track is None:
+            continue
+        valid, _reason = validate_sonara_core_row(
+            row,
+            expected_contract=output.contract,
+            expected_track_id=expected_track.track_id,
+            expected_content_generation=expected_track.content_generation,
+        )
+        if valid:
+            valid_rows.append(
                 (
-                    "NOT EXISTS ("
-                    "SELECT 1 FROM representations.embeddings se "
-                    "WHERE se.track_id = t.id AND se.embedding_key = 'sonara' "
-                    "AND se.analysis_signature_id = ?"
-                    ")",
-                    "NOT EXISTS ("
-                    "SELECT 1 FROM representations.fingerprints sf "
-                    "WHERE sf.track_id = t.id AND sf.fingerprint_key = 'fingerprint' "
-                    "AND sf.analysis_signature_id = ?"
-                    ")",
+                    expected_track.track_id,
+                    expected_track.track_uuid,
+                    expected_track.content_generation,
                 )
             )
-        if not conditions:
-            raise ValueError("SONARA candidate query requires at least one output signature")
-        where_sql = f"({' OR '.join(conditions)})"
-    elif model in {"maest", "mert", "muq", "clap"}:
-        where_sql = f"t.has_{model}_embedding = 0"
-    else:
-        raise ValueError(f"Unknown analysis model: {model}")
-    order_sql = "t.path" if model == "sonara" else "COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path"
-    return f"""
-        SELECT t.id
-        FROM tracks t
-        WHERE {where_sql}
-        ORDER BY {order_sql}
-        {limit_sql}
-        """
+    return tuple(valid_rows)
 
 
-def missing_analysis_ids_params(
-    model: str,
-    limit_params: tuple[int, ...],
+def _valid_maest_analysis_rows(
+    connection: sqlite3.Connection,
     *,
-    sonara_signature_ids: Mapping[str, str] | None = None,
-) -> tuple[object, ...]:
-    signature_params: tuple[object, ...] = ()
-    if model == "sonara":
-        signature_ids = dict(sonara_signature_ids or {})
-        values: list[str] = []
-        for output in ("core", "timeline", "representations"):
-            signature_id = signature_ids.get(output)
-            if signature_id is None:
-                continue
-            values.append(signature_id)
-            if output == "representations":
-                values.append(signature_id)
-        signature_params = tuple(values)
-    return (*signature_params, *limit_params)
-
-
-def chunk_ids(items: tuple[int, ...], size: int) -> Iterable[tuple[int, ...]]:
-    for index in range(0, len(items), size):
-        yield items[index : index + size]
-
-
-def analysis_candidate_select_sql(placeholders: str) -> str:
-    return f"""
-        SELECT
-            t.id, t.path, t.size, t.mtime, t.artist, t.title, t.album,
-            t.bpm, t.musical_key, t.energy, t.duration,
-            t.has_sonara_analysis = 1 AS has_sonara,
-            t.has_maest_embedding = 1 AS has_maest,
-            t.has_mert_embedding = 1 AS has_mert,
-            t.has_muq_embedding = 1 AS has_muq,
-            t.has_clap_embedding = 1 AS has_clap,
-            t.metadata_json
-        FROM tracks t
-        WHERE t.id IN ({placeholders})
-        """
-
-
-def row_to_analysis_candidate(
-    row: sqlite3.Row,
-    selected: Iterable[str],
-    *,
-    expected_sonara_signature: dict[str, object] | None = None,
-    force_missing_sonara: bool = False,
-) -> AnalysisCandidate:
-    has_sonara = bool(row["has_sonara"])
-    if has_sonara and expected_sonara_signature is not None:
-        has_sonara = sonara_analysis_is_compatible(
-            metadata_from_json(row["metadata_json"]),
-            expected_sonara_signature,
+    output: AnalysisOutput,
+    current_tracks: dict[int, ArtifactTrackIdentity],
+) -> tuple[tuple[int, str, int], ...]:
+    rows = connection.execute(
+        f"""
+        SELECT {", ".join(MAEST_ANALYSIS_COLUMNS)}
+        FROM maest_scores
+        WHERE contract_hash = ?
+        """,
+        (output.contract_hash,),
+    ).fetchall()
+    valid_rows: list[tuple[int, str, int]] = []
+    for row in rows:
+        expected_track = current_tracks.get(int(row["track_id"]))
+        if expected_track is None:
+            continue
+        valid, _reason = validate_maest_analysis_row(
+            row,
+            expected_contract=output.contract,
+            expected_track_id=expected_track.track_id,
+            expected_content_generation=expected_track.content_generation,
         )
-    analyses = tuple(
-        model
-        for model in ("sonara", "maest", "mert", "muq", "clap")
-        if (has_sonara if model == "sonara" else bool(row[f"has_{model}"]))
+        if valid:
+            valid_rows.append(
+                (
+                    expected_track.track_id,
+                    expected_track.track_uuid,
+                    expected_track.content_generation,
+                )
+            )
+    return tuple(valid_rows)
+
+
+def _valid_artifact_rows(
+    connection: sqlite3.Connection,
+    *,
+    table: str,
+    output: AnalysisOutput,
+    current_tracks: dict[int, ArtifactTrackIdentity],
+) -> tuple[sqlite3.Row, ...]:
+    if output.contract.output_kind == "embedding":
+        payload_fields = "dim, normalization, embedding_blob"
+    elif output.key == ("sonara", "timeline"):
+        payload_fields = "payload_json"
+    elif output.key == ("sonara", "fingerprint"):
+        payload_fields = "fingerprint_version, word_count, byte_order, fingerprint_blob"
+    else:
+        raise ValueError(
+            "unsupported artifact output "
+            f"{output.contract.analysis_family}/{output.contract.output_kind}"
+        )
+    rows = connection.execute(
+        f"""
+        SELECT track_id, track_uuid, content_generation, contract_hash,
+               {payload_fields}
+        FROM {table}
+        WHERE contract_hash = ?
+        """,
+        (output.contract_hash,),
+    ).fetchall()
+    valid: list[sqlite3.Row] = []
+    for row in rows:
+        expected_track = current_tracks.get(int(row["track_id"]))
+        if expected_track is None:
+            continue
+        if output.contract.output_kind == "embedding":
+            is_valid, _reason = validate_embedding_row_payload(
+                family=output.contract.analysis_family,
+                row=row,
+                expected_contract=output.contract,
+                expected_track=expected_track,
+            )
+        elif output.key == ("sonara", "timeline"):
+            is_valid, _reason = validate_timeline_row_payload(
+                row=row,
+                expected_contract=output.contract,
+                expected_track=expected_track,
+            )
+        else:
+            is_valid, _reason = validate_fingerprint_row_payload(
+                row=row,
+                expected_contract=output.contract,
+                expected_track=expected_track,
+            )
+        if is_valid:
+            valid.append(row)
+    return tuple(valid)
+
+
+def missing_outputs_for_target(
+    target: AnalysisTarget,
+    outputs: Sequence[AnalysisOutput],
+    ready: dict[tuple[str, str], set[tuple[int, str, int]]],
+) -> tuple[AnalysisOutput, ...]:
+    target_key = (
+        target.track_id,
+        target.track_uuid,
+        target.content_generation,
     )
-    missing = tuple(
-        model
-        for model in selected
-        if model not in analyses or (model == "sonara" and force_missing_sonara)
+    return tuple(
+        output for output in outputs if target_key not in ready.get(output.key, set())
     )
-    return AnalysisCandidate(
-        id=int(row["id"]),
-        path=str(row["path"]),
-        size=int(row["size"]),
-        mtime=float(row["mtime"]),
-        artist=row["artist"],
-        title=row["title"],
-        album=row["album"],
-        bpm=row["bpm"],
-        musical_key=row["musical_key"],
-        energy=row["energy"],
-        duration=row["duration"],
-        analyses=analyses,
-        missing_models=missing,
+
+
+def collect_analysis_candidates(
+    *,
+    core_connection: sqlite3.Connection,
+    artifacts_connection: sqlite3.Connection,
+    catalog_uuid: str,
+    outputs: Sequence[AnalysisOutput],
+    limit: int | None,
+) -> list[AnalysisCandidate]:
+    normalized = require_active_analysis_outputs(core_connection, outputs)
+    if limit is not None:
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
+            raise ValueError("limit must be a non-negative integer or None")
+        if limit == 0:
+            return []
+    ready = ready_target_keys_by_output(
+        core_connection=core_connection,
+        artifacts_connection=artifacts_connection,
+        catalog_uuid=catalog_uuid,
+        outputs=normalized,
     )
+    candidates: list[AnalysisCandidate] = []
+    for row in read_current_track_rows(core_connection):
+        target = target_from_track_row(row, catalog_uuid=catalog_uuid)
+        missing = missing_outputs_for_target(target, normalized, ready)
+        if not missing:
+            continue
+        candidates.append(
+            AnalysisCandidate(
+                target=target,
+                file_path=str(row["file_path"]),
+                file_size_bytes=int(row["file_size_bytes"]),
+                file_modified_ns=int(row["file_modified_ns"]),
+                missing_outputs=missing,
+            )
+        )
+        if limit is not None and len(candidates) >= limit:
+            break
+    return candidates

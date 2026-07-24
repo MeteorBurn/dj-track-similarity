@@ -8,13 +8,23 @@ import math
 from pathlib import Path
 import sqlite3
 import sys
-from typing import Callable, Iterable
+from typing import Callable, Iterable, TypeVar
 from xml.sax.saxutils import escape
 import zipfile
 
 import numpy as np
 
-from dj_track_similarity.db_storage import sidecar_database_paths, validate_attached_storage_catalog
+from dj_track_similarity.analysis_contracts import (
+    ContractIdentity,
+    read_registered_contract,
+)
+from dj_track_similarity.analysis_model_runners import (
+    current_embedding_analysis_output,
+)
+from dj_track_similarity.analysis_models import ACTIVE_CONTRACT_SETTING_PREFIX
+from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.db_tracks import canonical_file_path
+from dj_track_similarity.track_models import TrackIdentity
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -54,6 +64,7 @@ SCORE_SEMANTICS = {
 }
 ProgressCallback = Callable[[int, int, str], None]
 CancelCheck = Callable[[], bool]
+_T = TypeVar("_T")
 LOSSLESS_RANKS = {
     ".flac": 60,
     ".wav": 55,
@@ -109,6 +120,10 @@ class TrackRecord:
     duration: float | None
     metadata: dict[str, object]
     embeddings: dict[str, np.ndarray]
+    catalog_uuid: str = ""
+    track_uuid: str = ""
+    content_generation: int = 1
+    file_modified_ns: int = 0
 
 
 @dataclass(frozen=True)
@@ -238,7 +253,8 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 def run_report(
     *,
-    db_path: Path,
+    db_path: Path | None = None,
+    database: LibraryDatabase | None = None,
     root: Path,
     path_contains: list[str],
     preset_name: str,
@@ -250,12 +266,13 @@ def run_report(
     should_cancel: CancelCheck | None = None,
 ) -> ReportResult:
     config = resolve_preset(preset_name, min_score=min_score, min_similarity=min_similarity)
-    selected_db = Path(db_path).expanduser().resolve(strict=False)
+    selected_database = _resolve_database(database=database, db_path=db_path)
+    selected_db = selected_database.path
     _report_progress(progress_callback, 0, 0, "Reading database")
     _raise_if_cancelled(should_cancel)
-    database_track_count = count_database_tracks(selected_db)
+    database_track_count = count_database_tracks(selected_database)
     _report_progress(progress_callback, 0, database_track_count, "Loading scoped tracks")
-    tracks = load_tracks(db_path, root=root, path_contains=path_contains)
+    tracks = load_tracks(selected_database, root=root, path_contains=path_contains)
     _raise_if_cancelled(should_cancel)
     _report_progress(progress_callback, 0, max(1, len(tracks)), f"Loaded {len(tracks)} scoped tracks")
     groups = find_duplicate_groups(
@@ -278,7 +295,7 @@ def run_report(
     )
     payload["rhythm_lab"] = rhythm_lab_impact_payload(
         DEFAULT_RHYTHM_LAB_DB,
-        [int(candidate["track_id"]) for candidate in safe_delete_candidates(payload)],
+        safe_delete_candidates(payload),
     )
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -342,33 +359,92 @@ def resolve_preset(name: str, *, min_score: float | None, min_similarity: float 
     )
 
 
-def load_tracks(db_path: Path, *, root: Path, path_contains: list[str]) -> list[TrackRecord]:
-    selected = Path(db_path).expanduser().resolve(strict=False)
-    if not selected.exists():
-        raise FileNotFoundError(f"Database does not exist: {selected}")
-    root_text = normalize_path_text(root)
+def load_tracks(
+    database: LibraryDatabase | Path,
+    *,
+    root: Path,
+    path_contains: list[str],
+) -> list[TrackRecord]:
+    selected_database = (
+        database
+        if isinstance(database, LibraryDatabase)
+        else _resolve_database(database=None, db_path=database)
+    )
+    root_text = canonical_file_path(root)
     contains = [item.casefold() for item in path_contains if item.strip()]
-    connection = _connect_readonly(selected, attach_representations=True)
+    connection = selected_database.connect()
+    artifacts_connection = selected_database.connect_artifacts()
     try:
+        sonara_contract = _active_contract(
+            connection,
+            family="sonara",
+            output_kind="core",
+        )
+        sonara_contract_hash = (
+            None
+            if sonara_contract is None
+            else sonara_contract.contract_hash
+        )
         rows = connection.execute(
             """
-            SELECT id, path, size, mtime, artist, title, album, bpm, musical_key, duration, metadata_json
-            FROM tracks
-            ORDER BY id
-            """
+            SELECT
+                t.track_id,
+                t.track_uuid,
+                t.content_generation,
+                t.file_path,
+                t.file_size_bytes,
+                t.file_modified_ns,
+                t.audio_duration_seconds,
+                ft.artist,
+                ft.title,
+                ft.album,
+                ft.tag_bpm,
+                ft.tag_key,
+                ft.genres_json,
+                s.detected_bpm,
+                s.danceability_score,
+                s.energy_score,
+                s.valence_score,
+                s.acousticness_score,
+                s.spectral_centroid_hz,
+                s.onset_density_per_second,
+                s.dynamic_range_db,
+                s.integrated_loudness_lufs
+            FROM tracks AS t
+            LEFT JOIN file_tags AS ft
+              ON ft.track_id = t.track_id
+            LEFT JOIN sonara AS s
+              ON s.track_id = t.track_id
+             AND s.content_generation = t.content_generation
+             AND s.contract_hash = ?
+            WHERE t.missing_since IS NULL
+            ORDER BY t.track_id
+            """,
+            (sonara_contract_hash,),
         ).fetchall()
-        tracks = [_track_from_row(row) for row in rows if _path_matches(row["path"], root_text, contains)]
-        _attach_embeddings(connection, tracks)
+        tracks = [
+            _track_from_v7_row(row, catalog_uuid=selected_database.catalog_uuid)
+            for row in rows
+            if _path_matches(row["file_path"], root_text, contains)
+        ]
+        _attach_v7_embeddings(
+            connection,
+            artifacts_connection,
+            tracks,
+        )
     finally:
+        artifacts_connection.close()
         connection.close()
     return tracks
 
 
-def count_database_tracks(db_path: Path) -> int:
-    selected = Path(db_path).expanduser().resolve(strict=False)
-    if not selected.exists():
-        raise FileNotFoundError(f"Database does not exist: {selected}")
-    connection = _connect_readonly(selected)
+def count_database_tracks(database: LibraryDatabase | Path) -> int:
+    selected_database = (
+        database
+        if isinstance(database, LibraryDatabase)
+        else _resolve_database(database=None, db_path=database)
+    )
+    connection = selected_database.connect()
     try:
         return int(connection.execute("SELECT COUNT(*) FROM tracks").fetchone()[0])
     finally:
@@ -574,7 +650,12 @@ def build_report(
                     "decision": decision,
                     "action": "DELETE CANDIDATE" if safe else "REVIEW MANUALLY",
                     "track_id": track.track_id,
+                    "catalog_uuid": track.catalog_uuid,
+                    "track_uuid": track.track_uuid,
+                    "content_generation": track.content_generation,
                     "path": track.path,
+                    "size": track.size,
+                    "file_modified_ns": track.file_modified_ns,
                     "score_vs_keeper": _round_float(direct.score if direct else None),
                     "content_similarity_vs_keeper": _round_float(direct.content_similarity if direct else None),
                     "safe_to_delete": "true_candidate" if safe else "false",
@@ -894,7 +975,9 @@ def _rhythm_lab_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
     rows: list[list[object]] = [
         [
             "action",
-            "source_track_id",
+            "catalog_uuid",
+            "track_uuid",
+            "content_generation",
             "table_name",
             "classifier_key",
             "label",
@@ -913,7 +996,9 @@ def _rhythm_lab_sheet_rows(payload: dict[str, object]) -> list[list[object]]:
         rows.append(
             [
                 row.get("action", ""),
-                row.get("source_track_id", ""),
+                row.get("catalog_uuid", ""),
+                row.get("track_uuid", ""),
+                row.get("content_generation", ""),
                 row.get("table_name", ""),
                 row.get("classifier_key", ""),
                 row.get("label", ""),
@@ -1196,8 +1281,16 @@ def write_text_log(path: Path, payload: dict[str, object], *, apply_result: Appl
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def rhythm_lab_impact_payload(rhythm_lab_db: Path | None, track_ids: Iterable[int]) -> dict[str, object]:
-    ids = tuple(sorted({int(track_id) for track_id in track_ids}))
+def rhythm_lab_impact_payload(
+    rhythm_lab_db: Path | None,
+    candidates: Iterable[dict[str, object]],
+) -> dict[str, object]:
+    candidate_rows = tuple(candidates)
+    identities = _unique_identities(
+        _candidate_identity(candidate)
+        for candidate in candidate_rows
+    )
+    ids = tuple(sorted(identity.track_id for identity in identities))
     selected_db = Path(rhythm_lab_db).expanduser().resolve(strict=False) if rhythm_lab_db is not None else None
     payload: dict[str, object] = {
         "database_path": str(selected_db) if selected_db is not None else None,
@@ -1226,10 +1319,12 @@ def rhythm_lab_impact_payload(rhythm_lab_db: Path | None, track_ids: Iterable[in
             ).fetchall()
         ]
         wanted_columns = (
-            "source_track_id",
+            "catalog_uuid",
+            "track_uuid",
+            "content_generation",
             "classifier_key",
             "label",
-            "path",
+            "selected_path",
             "feature_set",
             "model_artifact",
             "confidence",
@@ -1237,30 +1332,34 @@ def rhythm_lab_impact_payload(rhythm_lab_db: Path | None, track_ids: Iterable[in
         for table_name in table_names:
             quoted_table = _quote_sqlite_identifier(table_name)
             table_columns = [str(row[1]) for row in connection.execute(f"PRAGMA table_info({quoted_table})").fetchall()]
-            if "source_track_id" not in table_columns:
+            if not _has_identity_columns(table_columns):
                 continue
             selected_columns = [column for column in wanted_columns if column in table_columns]
             select_sql = ", ".join(_quote_sqlite_identifier(column) for column in selected_columns)
-            for chunk in _chunks(list(ids), 800):
-                placeholders = ",".join("?" for _ in chunk)
+            for chunk in _chunks(list(identities), 200):
+                identity_sql, parameters = _identity_predicate(chunk)
                 rows = connection.execute(
                     f"""
                     SELECT {select_sql}
                     FROM {quoted_table}
-                    WHERE source_track_id IN ({placeholders})
-                    ORDER BY source_track_id
+                    WHERE {identity_sql}
+                    ORDER BY catalog_uuid, track_uuid, content_generation
                     """,
-                    tuple(chunk),
+                    parameters,
                 ).fetchall()
                 for row in rows:
                     affected_rows.append(
                         {
                             "action": "DELETE ON APPLY",
                             "table_name": table_name,
-                            "source_track_id": int(row["source_track_id"]),
+                            "catalog_uuid": str(row["catalog_uuid"]),
+                            "track_uuid": str(row["track_uuid"]),
+                            "content_generation": int(
+                                row["content_generation"]
+                            ),
                             "classifier_key": row["classifier_key"] if "classifier_key" in row.keys() else None,
                             "label": row["label"] if "label" in row.keys() else None,
-                            "path": row["path"] if "path" in row.keys() else None,
+                            "path": row["selected_path"] if "selected_path" in row.keys() else None,
                             "feature_set": row["feature_set"] if "feature_set" in row.keys() else None,
                             "model_artifact": row["model_artifact"] if "model_artifact" in row.keys() else None,
                             "confidence": _round_float(row["confidence"]) if "confidence" in row.keys() else None,
@@ -1271,7 +1370,9 @@ def rhythm_lab_impact_payload(rhythm_lab_db: Path | None, track_ids: Iterable[in
 
     affected_rows.sort(
         key=lambda row: (
-            int(row["source_track_id"]),
+            str(row["catalog_uuid"]),
+            str(row["track_uuid"]),
+            int(row["content_generation"]),
             str(row["table_name"]),
             str(row.get("classifier_key") or ""),
             str(row.get("feature_set") or ""),
@@ -1279,7 +1380,16 @@ def rhythm_lab_impact_payload(rhythm_lab_db: Path | None, track_ids: Iterable[in
         )
     )
     payload["affected_rows"] = affected_rows
-    payload["affected_track_count"] = len({int(row["source_track_id"]) for row in affected_rows})
+    payload["affected_track_count"] = len(
+        {
+            (
+                str(row["catalog_uuid"]),
+                str(row["track_uuid"]),
+                int(row["content_generation"]),
+            )
+            for row in affected_rows
+        }
+    )
     payload["affected_row_count"] = len(affected_rows)
     payload["summary"] = rhythm_lab_summary(payload)
     return payload
@@ -1349,68 +1459,94 @@ def confirm_apply(candidates: list[dict[str, object]], db_path: Path, root: Path
         response = input("> ")
     except EOFError:
         return False
-    return response.strip() == "APPLY DELETE"
+    return response == "APPLY DELETE"
 
 
 def apply_duplicate_deletions(
     *,
-    db_path: Path,
+    db_path: Path | None = None,
+    database: LibraryDatabase | None = None,
     root: Path,
     payload: dict[str, object],
     rhythm_lab_db: Path | None = None,
 ) -> ApplyResult:
-    selected_db = Path(db_path).expanduser().resolve(strict=False)
-    if not selected_db.exists():
-        raise FileNotFoundError(f"Database does not exist: {selected_db}")
-    root_text = normalize_path_text(root)
+    selected_database = _resolve_database(database=database, db_path=db_path)
+    root_text = canonical_file_path(root)
     deleted_ids: list[int] = []
     deleted_paths: list[str] = []
     skipped: list[str] = []
     failed: list[str] = []
     candidates = safe_delete_candidates(payload)
-    sidecars = sidecar_database_paths(selected_db)
-    for label, sidecar_path in (
-        ("Timeline", sidecars.timeline),
-        ("Representations", sidecars.representations),
-    ):
-        if not sidecar_path.is_file():
-            raise FileNotFoundError(f"{label} database does not exist: {sidecar_path}")
-    connection = sqlite3.connect(selected_db)
-    try:
-        connection.execute("PRAGMA busy_timeout = 30000")
-        connection.execute("ATTACH DATABASE ? AS timeline", (str(sidecars.timeline),))
-        connection.execute("ATTACH DATABASE ? AS representations", (str(sidecars.representations),))
-        validate_attached_storage_catalog(connection)
-        for candidate in candidates:
-            track_id = int(candidate["track_id"])
-            path_text = str(candidate["path"])
-            if not _path_matches(path_text, root_text, []):
-                skipped.append(f"track_id={track_id}: path outside root")
+    deleted_identities: list[TrackIdentity] = []
+    for candidate in candidates:
+        track_id = _candidate_track_id(candidate)
+        path_text = str(candidate.get("path", ""))
+        if not _path_matches(path_text, root_text, []):
+            skipped.append(f"track_id={track_id}: path outside root")
+            continue
+        try:
+            expected = _candidate_identity(candidate)
+        except (TypeError, ValueError) as error:
+            skipped.append(f"track_id={track_id}: invalid report identity ({error})")
+            continue
+        try:
+            current = selected_database.get_track_file_states_by_ids(
+                (track_id,),
+                include_missing=True,
+            )[0]
+        except (IndexError, KeyError):
+            skipped.append(f"track_id={track_id}: track identity unavailable")
+            continue
+        if (
+            current.catalog_uuid != expected.catalog_uuid
+            or current.track_uuid != expected.track_uuid
+            or current.content_generation != expected.content_generation
+            or canonical_file_path(current.file_path)
+            != canonical_file_path(path_text)
+        ):
+            skipped.append(f"track_id={track_id}: report identity is stale")
+            continue
+        try:
+            reported_size = int(candidate["size"])
+            reported_modified_ns = int(candidate["file_modified_ns"])
+        except (KeyError, TypeError, ValueError):
+            skipped.append(f"track_id={track_id}: report file facts are missing")
+            continue
+        if (
+            current.file_size_bytes != reported_size
+            or current.file_modified_ns != reported_modified_ns
+        ):
+            skipped.append(f"track_id={track_id}: report file facts are stale")
+            continue
+        file_path = Path(path_text)
+        if not file_path.exists():
+            skipped.append(f"track_id={track_id}: file missing")
+            continue
+        if not file_path.is_file():
+            skipped.append(f"track_id={track_id}: path is not a file")
+            continue
+        try:
+            file_path.unlink()
+            removal = selected_database.remove_deleted_track(
+                expected=expected,
+                file_path=path_text,
+            )
+            if not removal.removed:
+                failed.append(
+                    f"track_id={track_id}: exact database row was already absent"
+                )
                 continue
-            file_path = Path(path_text)
-            if not file_path.exists():
-                skipped.append(f"track_id={track_id}: file missing")
-                continue
-            if not file_path.is_file():
-                skipped.append(f"track_id={track_id}: path is not a file")
-                continue
-            try:
-                file_path.unlink()
-                _delete_track_from_database(connection, track_id)
-                connection.commit()
-            except OSError as error:
-                connection.rollback()
-                failed.append(f"track_id={track_id}: {error}")
-                continue
-            except sqlite3.Error:
-                connection.rollback()
-                raise
-            deleted_ids.append(track_id)
-            deleted_paths.append(path_text)
-    finally:
-        connection.close()
+        except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
+            failed.append(f"track_id={track_id}: {error}")
+            continue
+        deleted_ids.append(track_id)
+        deleted_identities.append(expected)
+        deleted_paths.append(path_text)
     selected_rhythm_lab_db = DEFAULT_RHYTHM_LAB_DB if rhythm_lab_db is None else rhythm_lab_db
-    rhythm_lab_deleted_rows = cleanup_rhythm_lab_database(selected_rhythm_lab_db, deleted_ids)
+    rhythm_lab_deleted_rows = cleanup_rhythm_lab_database(
+        selected_rhythm_lab_db,
+        deleted_identities,
+    )
     return ApplyResult(
         deleted_track_ids=tuple(deleted_ids),
         deleted_paths=tuple(deleted_paths),
@@ -1419,33 +1555,12 @@ def apply_duplicate_deletions(
         rhythm_lab_deleted_rows=rhythm_lab_deleted_rows,
     )
 
-
-def _delete_track_from_database(connection: sqlite3.Connection, track_id: int) -> None:
-    connection.execute("DELETE FROM timeline.sonara_timeline WHERE track_id = ?", (track_id,))
-    connection.execute("DELETE FROM representations.embeddings WHERE track_id = ?", (track_id,))
-    connection.execute("DELETE FROM representations.fingerprints WHERE track_id = ?", (track_id,))
-    table_names = [
-        str(row[0])
-        for row in connection.execute(
-            """
-            SELECT name
-            FROM sqlite_master
-            WHERE type = 'table'
-              AND name NOT LIKE 'sqlite_%'
-            """
-        ).fetchall()
-    ]
-    for table_name in table_names:
-        quoted_table = _quote_sqlite_identifier(table_name)
-        columns = {str(row[1]) for row in connection.execute(f"PRAGMA table_info({quoted_table})").fetchall()}
-        if table_name != "tracks" and "track_id" in columns:
-            connection.execute(f"DELETE FROM {quoted_table} WHERE track_id = ?", (track_id,))
-    connection.execute("DELETE FROM tracks WHERE id = ?", (track_id,))
-
-
-def cleanup_rhythm_lab_database(rhythm_lab_db: Path | None, track_ids: Iterable[int]) -> int:
-    ids = tuple(sorted({int(track_id) for track_id in track_ids}))
-    if not ids or rhythm_lab_db is None:
+def cleanup_rhythm_lab_database(
+    rhythm_lab_db: Path | None,
+    identities: Iterable[TrackIdentity],
+) -> int:
+    selected_identities = _unique_identities(identities)
+    if not selected_identities or rhythm_lab_db is None:
         return 0
     selected_db = Path(rhythm_lab_db).expanduser().resolve(strict=False)
     if not selected_db.exists():
@@ -1468,13 +1583,13 @@ def cleanup_rhythm_lab_database(rhythm_lab_db: Path | None, track_ids: Iterable[
         for table_name in table_names:
             quoted_table = _quote_sqlite_identifier(table_name)
             columns = {str(row[1]) for row in connection.execute(f"PRAGMA table_info({quoted_table})").fetchall()}
-            if "source_track_id" not in columns:
+            if not _has_identity_columns(columns):
                 continue
-            for chunk in _chunks(list(ids), 800):
-                placeholders = ",".join("?" for _ in chunk)
+            for chunk in _chunks(list(selected_identities), 200):
+                identity_sql, parameters = _identity_predicate(chunk)
                 cursor = connection.execute(
-                    f"DELETE FROM {quoted_table} WHERE source_track_id IN ({placeholders})",
-                    tuple(chunk),
+                    f"DELETE FROM {quoted_table} WHERE {identity_sql}",
+                    parameters,
                 )
                 deleted_rows += int(cursor.rowcount if cursor.rowcount is not None else 0)
         connection.commit()
@@ -1505,6 +1620,95 @@ def configure_stdio() -> None:
         stream = getattr(sys, stream_name)
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
+
+
+def _resolve_database(
+    *,
+    database: LibraryDatabase | None,
+    db_path: Path | None,
+) -> LibraryDatabase:
+    if database is not None:
+        if db_path is not None:
+            raise ValueError("Pass either database or db_path, not both")
+        return database
+    if db_path is None:
+        raise ValueError("Database path is required")
+    selected = Path(db_path).expanduser().resolve(strict=False)
+    if not selected.is_file():
+        raise FileNotFoundError(f"Database does not exist: {selected}")
+    return LibraryDatabase(selected)
+
+
+def _candidate_track_id(candidate: dict[str, object]) -> int:
+    try:
+        return int(candidate["track_id"])
+    except (KeyError, TypeError, ValueError):
+        return -1
+
+
+def _candidate_identity(candidate: dict[str, object]) -> TrackIdentity:
+    return TrackIdentity(
+        catalog_uuid=_candidate_text(candidate, "catalog_uuid"),
+        track_id=int(candidate["track_id"]),
+        track_uuid=_candidate_text(candidate, "track_uuid"),
+        content_generation=int(candidate["content_generation"]),
+    )
+
+
+def _candidate_text(
+    candidate: dict[str, object],
+    field_name: str,
+) -> str:
+    value = candidate[field_name]
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field_name} must be a non-empty string")
+    return value
+
+
+def _unique_identities(
+    identities: Iterable[TrackIdentity],
+) -> tuple[TrackIdentity, ...]:
+    return tuple(
+        sorted(
+            set(identities),
+            key=lambda identity: (
+                identity.catalog_uuid,
+                identity.track_uuid,
+                identity.content_generation,
+                identity.track_id,
+            ),
+        )
+    )
+
+
+def _has_identity_columns(columns: Iterable[str]) -> bool:
+    return {
+        "catalog_uuid",
+        "track_uuid",
+        "content_generation",
+    }.issubset(set(columns))
+
+
+def _identity_predicate(
+    identities: list[TrackIdentity],
+) -> tuple[str, tuple[object, ...]]:
+    if not identities:
+        raise ValueError("At least one identity is required")
+    predicates: list[str] = []
+    parameters: list[object] = []
+    for identity in identities:
+        predicates.append(
+            "(catalog_uuid = ? AND track_uuid = ? "
+            "AND content_generation = ?)"
+        )
+        parameters.extend(
+            (
+                identity.catalog_uuid,
+                identity.track_uuid,
+                identity.content_generation,
+            )
+        )
+    return " OR ".join(predicates), tuple(parameters)
 
 
 def normalize_path_text(path: str | Path) -> str:
@@ -1555,6 +1759,9 @@ def track_payload(
         "role": role,
         "decision": decision,
         "track_id": track.track_id,
+        "catalog_uuid": track.catalog_uuid,
+        "track_uuid": track.track_uuid,
+        "content_generation": track.content_generation,
         "path": track.path,
         "artist": track.artist,
         "title": track.title,
@@ -1564,6 +1771,7 @@ def track_payload(
         "musical_key": track.musical_key,
         "size": track.size,
         "mtime": track.mtime,
+        "file_modified_ns": track.file_modified_ns,
         "format_rank": format_rank(track.path),
         "size_per_second": _round_float(size_per_second(track)),
         "metadata_completeness": metadata_completeness(track),
@@ -1661,66 +1869,140 @@ def _candidate_reason_lines(
     return lines
 
 
-def _connect_readonly(path: Path, *, attach_representations: bool = False) -> sqlite3.Connection:
+def _connect_readonly(path: Path) -> sqlite3.Connection:
     connection = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
-    if attach_representations:
-        representations_path = sidecar_database_paths(path).representations
-        if not representations_path.is_file():
-            connection.close()
-            raise FileNotFoundError(f"Representations database does not exist: {representations_path}")
-        connection.execute(
-            "ATTACH DATABASE ? AS representations",
-            (f"file:{representations_path.as_posix()}?mode=ro",),
-        )
-        validate_attached_storage_catalog(connection, aliases=("representations",))
     connection.execute("PRAGMA query_only = ON")
     return connection
 
 
-def _track_from_row(row: sqlite3.Row) -> TrackRecord:
-    metadata = _metadata_from_json(row["metadata_json"])
+def _track_from_v7_row(
+    row: sqlite3.Row,
+    *,
+    catalog_uuid: str,
+) -> TrackRecord:
+    genres = _json_string_list(row["genres_json"])
+    sonara_features = {
+        key: value
+        for key, value in {
+            "bpm": row["detected_bpm"],
+            "danceability": row["danceability_score"],
+            "energy": row["energy_score"],
+            "valence": row["valence_score"],
+            "acousticness": row["acousticness_score"],
+            "spectral_centroid_mean": row["spectral_centroid_hz"],
+            "onset_density": row["onset_density_per_second"],
+            "dynamic_range_db": row["dynamic_range_db"],
+            "loudness_lufs": row["integrated_loudness_lufs"],
+        }.items()
+        if value is not None
+    }
+    metadata: dict[str, object] = {}
+    if genres:
+        metadata["genres"] = genres
+    if sonara_features:
+        metadata["sonara_features"] = sonara_features
+    modified_ns = int(row["file_modified_ns"])
     return TrackRecord(
-        track_id=int(row["id"]),
-        path=str(row["path"]),
-        size=int(row["size"]),
-        mtime=float(row["mtime"]),
+        track_id=int(row["track_id"]),
+        path=str(row["file_path"]),
+        size=int(row["file_size_bytes"]),
+        mtime=modified_ns / 1_000_000_000,
         artist=_string_or_none(row["artist"]),
         title=_string_or_none(row["title"]),
         album=_string_or_none(row["album"]),
-        bpm=_float_or_none(row["bpm"]),
-        musical_key=_string_or_none(row["musical_key"]),
-        duration=_float_or_none(row["duration"]),
+        bpm=_float_or_none(row["tag_bpm"]),
+        musical_key=_string_or_none(row["tag_key"]),
+        duration=_float_or_none(row["audio_duration_seconds"]),
         metadata=metadata,
         embeddings={},
+        catalog_uuid=catalog_uuid,
+        track_uuid=str(row["track_uuid"]),
+        content_generation=int(row["content_generation"]),
+        file_modified_ns=modified_ns,
     )
 
 
-def _attach_embeddings(connection: sqlite3.Connection, tracks: list[TrackRecord]) -> None:
+def _attach_v7_embeddings(
+    core_connection: sqlite3.Connection,
+    artifacts_connection: sqlite3.Connection,
+    tracks: list[TrackRecord],
+) -> None:
     if not tracks:
         return
+    active_contracts = _active_embedding_contracts(core_connection)
     embeddings_by_track = {track.track_id: {} for track in tracks}
+    identity_by_track = {
+        track.track_id: (
+            track.track_uuid,
+            track.content_generation,
+        )
+        for track in tracks
+    }
     track_ids = [track.track_id for track in tracks]
-    for chunk in _chunks(track_ids, 800):
-        placeholders = ",".join("?" for _ in chunk)
-        key_placeholders = ",".join("?" for _ in SUPPORTED_EMBEDDINGS)
-        rows = connection.execute(
-            f"""
-            SELECT track_id, embedding_key, vector
-            FROM embeddings
-            WHERE track_id IN ({placeholders})
-              AND embedding_key IN ({key_placeholders})
-            """,
-            (*chunk, *SUPPORTED_EMBEDDINGS),
-        ).fetchall()
-        for row in rows:
-            vector = np.frombuffer(row["vector"], dtype=np.float32).copy()
-            if vector.size == 0:
-                continue
-            norm = float(np.linalg.norm(vector))
-            if norm == 0:
-                continue
-            embeddings_by_track[int(row["track_id"])][str(row["embedding_key"])] = (vector / norm).astype(np.float32)
+    for family in SUPPORTED_EMBEDDINGS:
+        contract = active_contracts.get(family)
+        if contract is None:
+            continue
+        table = f"{family}_embeddings"
+        for chunk in _chunks(track_ids, 800):
+            placeholders = ",".join("?" for _ in chunk)
+            rows = artifacts_connection.execute(
+                f"""
+                SELECT
+                    track_id,
+                    track_uuid,
+                    content_generation,
+                    contract_hash,
+                    dim,
+                    normalization,
+                    embedding_blob
+                FROM {table}
+                WHERE track_id IN ({placeholders})
+                  AND contract_hash = ?
+                ORDER BY track_id
+                """,
+                (*chunk, contract.contract_hash),
+            ).fetchall()
+            for row in rows:
+                track_id = int(row["track_id"])
+                expected_identity = identity_by_track.get(track_id)
+                if expected_identity != (
+                    str(row["track_uuid"]),
+                    int(row["content_generation"]),
+                ):
+                    continue
+                dim = int(row["dim"])
+                if (
+                    dim != contract.dim
+                    or str(row["normalization"]) != contract.normalization
+                ):
+                    continue
+                vector = np.frombuffer(
+                    row["embedding_blob"],
+                    dtype="<f4",
+                ).copy()
+                if (
+                    vector.shape != (dim,)
+                    or not np.all(np.isfinite(vector))
+                ):
+                    continue
+                norm = float(np.linalg.norm(vector))
+                if not math.isfinite(norm) or norm <= 0:
+                    continue
+                if (
+                    contract.normalization == "l2"
+                    and not np.isclose(
+                        norm,
+                        1.0,
+                        rtol=1e-4,
+                        atol=1e-5,
+                    )
+                ):
+                    continue
+                embeddings_by_track[track_id][family] = (
+                    vector / norm
+                ).astype(np.float32)
     for index, track in enumerate(tracks):
         tracks[index] = TrackRecord(
             track_id=track.track_id,
@@ -1735,13 +2017,66 @@ def _attach_embeddings(connection: sqlite3.Connection, tracks: list[TrackRecord]
             duration=track.duration,
             metadata=track.metadata,
             embeddings=embeddings_by_track[track.track_id],
+            catalog_uuid=track.catalog_uuid,
+            track_uuid=track.track_uuid,
+            content_generation=track.content_generation,
+            file_modified_ns=track.file_modified_ns,
         )
 
 
+def _active_embedding_contracts(
+    connection: sqlite3.Connection,
+) -> dict[str, ContractIdentity]:
+    active: dict[str, ContractIdentity] = {}
+    for family in SUPPORTED_EMBEDDINGS:
+        contract = _active_contract(
+            connection,
+            family=family,
+            output_kind="embedding",
+        )
+        current = current_embedding_analysis_output(family)
+        if contract is not None and (
+            contract.contract_hash == current.contract_hash
+            and contract.canonical_payload_json
+            == current.contract.canonical_payload_json
+        ):
+            active[family] = contract
+    return active
+
+
+def _active_contract(
+    connection: sqlite3.Connection,
+    *,
+    family: str,
+    output_kind: str,
+) -> ContractIdentity | None:
+    row = connection.execute(
+        """
+        SELECT setting_value
+        FROM library_settings
+        WHERE setting_key = ?
+        """,
+        (
+            f"{ACTIVE_CONTRACT_SETTING_PREFIX}."
+            f"{family}.{output_kind}",
+        ),
+    ).fetchone()
+    if row is None:
+        return None
+    contract = read_registered_contract(connection, str(row[0]))
+    if (
+        contract is None
+        or contract.analysis_family != family
+        or contract.output_kind != output_kind
+    ):
+        return None
+    return contract
+
+
 def _path_matches(path: str, root: str, contains: list[str]) -> bool:
-    normalized = normalize_path_text(path)
+    normalized = canonical_file_path(path)
     key = normalized.casefold()
-    root_key = root.casefold()
+    root_key = canonical_file_path(root).casefold()
     if key != root_key and not key.startswith(root_key + "/"):
         return False
     return all(item in key for item in contains)
@@ -1903,12 +2238,20 @@ def _evidence_by_candidate(group: dict[str, object], keeper_id: int) -> dict[int
     return result
 
 
-def _metadata_from_json(value: str) -> dict[str, object]:
+def _json_string_list(value: object) -> list[str]:
+    if value is None:
+        return []
     try:
-        parsed = json.loads(value or "{}")
-    except json.JSONDecodeError:
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
+        parsed = json.loads(str(value))
+    except (TypeError, json.JSONDecodeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [
+        item.strip()
+        for item in parsed
+        if isinstance(item, str) and item.strip()
+    ]
 
 
 def _float_or_none(value: object) -> float | None:
@@ -1949,7 +2292,7 @@ def _unique_report_path(path: Path) -> Path:
     raise RuntimeError(f"Unable to find unique report path for {path}")
 
 
-def _chunks(values: list[int], size: int) -> Iterable[list[int]]:
+def _chunks(values: list[_T], size: int) -> Iterable[list[_T]]:
     for start in range(0, len(values), size):
         yield values[start : start + size]
 

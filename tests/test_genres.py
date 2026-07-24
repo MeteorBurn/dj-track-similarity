@@ -6,9 +6,12 @@ import pytest
 torch = pytest.importorskip("torch")
 pytestmark = pytest.mark.ml
 
-import dj_track_similarity.genres as genres
-from dj_track_similarity.audio_loader import DecodedAudio
-from dj_track_similarity.genres import MaestGenreAdapter, _move_maest_runtime_modules
+import dj_track_similarity.genres as genres  # noqa: E402
+from dj_track_similarity.audio_loader import DecodedAudio  # noqa: E402
+from dj_track_similarity.genres import (  # noqa: E402
+    MaestGenreAdapter,
+    _move_maest_runtime_modules,
+)
 
 
 class MovableModule:

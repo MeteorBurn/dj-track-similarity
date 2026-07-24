@@ -105,9 +105,9 @@ This is not a commercial recommendation service and it is not a benchmark. It is
 
 The current application already supports the practical parts of that vision:
 
-- Scan local audio files into a three-file SQLite catalog with Mutagen metadata.
-- Browse large libraries through a paginated web UI.
-- Show metadata, analysis coverage, likes, audio preview, and search/set state.
+- Create a fresh schema-v7 SQLite bundle and scan local audio files with Mutagen metadata.
+- Browse large libraries through paginated v7 API responses.
+- Read typed metadata, analysis coverage, likes, audio preview, and search/set state.
 - Run SONARA, MAEST, MERT, MuQ, and CLAP analysis jobs.
 - Search from seed tracks with MERT and SONARA.
 - Search from text prompts with CLAP after CLAP audio embeddings exist.
@@ -117,7 +117,17 @@ The current application already supports the practical parts of that vision:
 - Read promoted Rhythm Lab classifier scores for CLASS filtering, SET biasing, and Hybrid diagnostics.
 - Export the current set as M3U or CSV.
 - Run report-first helper tools for Audio Doctor, Audio Dedup, database optimization, and optional ANN sidecar indexes.
-- Migrate v6 libraries to v7 via `dj-sim migrate-schema-v7`.
+- Prepare a SONARA release with verified Core and Artifacts backups before reanalysis.
+
+The Python backend and CLI now require a greenfield schema-v7 bundle. They create a selected Core
+database plus a mandatory adjacent `*.artifacts.sqlite` database; the optional
+`*.evaluation.sqlite` database is created only when an evaluation workflow needs it. This is not a
+migration path: the former `migrate-v7` and `migrate-schema-v7` commands are not part of the current
+CLI, and older database schemas are rejected instead of being upgraded in place.
+
+The React frontend has not yet been ported to the v7 API contract. Treat the backend and CLI as the
+current production surface; do not assume the checked-in frontend source or an existing
+`frontend/dist` bundle is compatible with it.
 
 ## 🚧 The long-term direction
 
@@ -151,7 +161,7 @@ audio files -> scan tags -> SQLite library -> browse/search/export
 The app keeps evidence sources separate:
 
 - **File tags** come from Mutagen during scan and Refresh Tags.
-- **SONARA** stores audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy. Its standalone CPU/Rust job passes file paths to `sonara.analyze_batch()`, so SONARA/Symphonia owns decoding. There is no FFmpeg or signal-analysis fallback. **Core** is the default output; **Timeline** and **Representations** are explicit opt-ins. SONARA BPM analysis uses the project range `70.0..180.0`.
+- **SONARA** stores audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy. Its standalone CPU/Rust job passes file paths to `sonara.analyze_batch()`, so SONARA/Symphonia owns decoding. There is no FFmpeg or signal-analysis fallback. The four output kinds are `core`, `timeline`, `embedding`, and `fingerprint`; `core` is the default. SONARA BPM analysis uses the project range `70.0..180.0`.
 - **MAEST** stores genre labels and an audio embedding.
 - **MERT** stores an audio embedding for seed similarity.
 - **MuQ** stores a separate audio embedding. LAB Reference Compare can inspect MuQ neighbors for one seed track, but MuQ is not used by MERT/SONARA search, SET, Hybrid, Audio Dedup, or classifier scoring.
@@ -163,11 +173,21 @@ evidence. At low confidence, they also inspect SONARA candidates and the Mutagen
 `grid_stability` can weaken reliability. Unreliable tempo evidence moves toward a neutral score
 instead of earning a similarity bonus or becoming an automatic hard rejection.
 
-SONARA mood and instrumentalness values are retained for inspection and possible future audio workflows; they are not current similarity, SET, Hybrid, or classifier inputs. True peak and ReplayGain are also stored for future loudness-management work, not direct SONARA similarity scoring. Complete beat, onset, chord-event, tempo, energy, loudness, and downbeat sequences live in the `sonara_timeline` table in the `library.artifacts.sqlite` sidecar. The hot MAEST/MERT/MuQ/CLAP embeddings also live in the Artifacts sidecar in dedicated tables.
+SONARA mood values are retained for inspection and possible future audio workflows; they are not
+current similarity, SET, Hybrid, or classifier inputs. True peak and ReplayGain are also stored for
+future loudness-management work, not direct SONARA similarity scoring. Complete beat, onset,
+chord-event, tempo, energy, loudness, and downbeat sequences, the SONARA embedding and fingerprint,
+and the MAEST/MERT/MuQ/CLAP embeddings live in dedicated tables in the mandatory Artifacts database.
 
-Each SONARA result also retains analysis provenance, including the upstream schema and the installed package version when available. This makes later reanalysis and result audits easier to plan.
+The canonical contract registry records the exact SONARA output identity as canonical JSON plus its
+contract and release hashes. Raw analyzer provenance is validated during ingestion but is not
+promised as a round-trip stored payload.
 
-A deterministic signature is stored independently for each selected SONARA output. It covers SONARA `0.2.9`, schema `4`, playlist mode, sample rate, BPM range, output feature profile, project feature revision `5`, `decoder_backend="sonara-symphonia"`, and `execution_path="analyze_batch"`. A database containing an older SONARA contract is blocked before analysis until it is backed up and explicitly reset. Old and new results are never mixed.
+A deterministic signature is stored independently for each selected SONARA output. It covers SONARA `0.2.9`, schema `4`, playlist mode, sample rate, BPM range, output feature profile, project feature revision `6`, `decoder_backend="sonara-symphonia"`, and `execution_path="analyze_batch"`. `dj-sim prepare-sonara-release` derives all four current contracts and verifies a Core plus Artifacts backup pair. It then activates the release before reanalysis. Old and new results are never mixed.
+
+The current classifier runtime accepts manifest version `2`. The promoted artifacts currently
+checked into `models/classifiers/` still use manifest version `1`, so scoring is blocked until each
+affected profile is retrained and promoted again.
 
 A file genre tag, a MAEST genre label, a CLAP text score, and an audio-to-audio duplicate score answer different questions. They can all help, but they should not be treated as one universal truth scale.
 
@@ -217,7 +237,9 @@ CLAP text-search scores are not the same scale as seed-based audio-to-audio scor
 
 ### 5. 🧪 Train personal classifiers
 
-Rhythm Lab is a separate local app for turning your own listening decisions into optional classifier scores. The main UI can launch or reuse Rhythm Lab at `127.0.0.1:8777`, and it can save the current set as a Rhythm Lab review collection.
+Rhythm Lab is a separate local app for turning your own listening decisions into optional classifier
+scores. The backend has routes to launch or reuse it at `127.0.0.1:8777` and to save review
+collections. The deferred frontend port means those controls are not claimed as currently usable.
 
 A new Rhythm Lab labels database starts without a built-in classifier profile. Create or select the profile you want to train. Profile-specific CLI commands use an explicit `--profile`.
 
@@ -231,7 +253,7 @@ The normal loop is:
 
 Classifier scoring is database-only. It reads exactly the SONARA and MAEST/MERT/CLAP inputs named by each promoted manifest, then writes scores for the selected classifier key. It does not decode or retag source audio. Tracks without the complete manifest input set are reported as not ready and are not runtime failures.
 
-SONARA-dependent classifier artifacts must be retrained and promoted with the current analysis signature. Manifest version `2` and each track must match exactly before scoring. Missing opt-in values are skipped rather than imputed as `0.0`. A SONARA reset or feature-revision migration invalidates dependent main-library scores. The same feature-revision guard removes dependent Rhythm Lab predictions. Labels and feedback are preserved, and stale artifacts remain blocked until retrained and promoted.
+SONARA-dependent classifier artifacts must be retrained and promoted with the current analysis signature. Manifest version `2` and each track must match exactly before scoring. Missing opt-in values are skipped rather than imputed as `0.0`. A SONARA reset or release-contract change invalidates dependent main-library scores. The same contract guard removes dependent Rhythm Lab predictions. Labels and feedback are preserved, and stale artifacts remain blocked until retrained and promoted.
 
 Manual commands are available when you want the CLI workflow:
 
@@ -271,17 +293,14 @@ mkdir data
 dj-sim scan D:/Music --db ./data/library.sqlite
 ```
 
-Start the web UI:
+Start the backend:
 
 ```powershell
 dj-sim serve --host 127.0.0.1 --port 8765 --db ./data/library.sqlite
 ```
 
-Open:
-
-```text
-http://127.0.0.1:8765/
-```
+The root mount may serve an existing `frontend/dist`, but that client has not been ported to the v7
+API. Use CLI commands or direct API calls for the current contract.
 
 There is also a Windows launcher that activates `.venv` and forwards remaining arguments to `dj-sim serve`:
 
@@ -294,11 +313,17 @@ run_server.cmd lan --db C:/db/abstracted.sqlite
 
 ## 🧠 Add model-backed analysis
 
-The base install is enough for scan, browse, UI serving, existing SQLite data, and set export. Install optional analysis dependencies when you want the model jobs:
+The base install is enough for scan, backend serving, a fresh v7 bundle, and set export. Install
+optional analysis dependencies when you want the model jobs:
 
 ```powershell
 python -m pip install -e ".[sonara,ml,dev]"
 ```
+
+The current workspace `.venv` is not synchronized with that locked ML contract: it contains
+`transformers==5.8.1` and `huggingface-hub==1.15.0`, while `pyproject.toml` pins
+`transformers==5.13.0` and `huggingface-hub==1.22.0`. Adapter preflight fails closed until the
+environment is corrected.
 
 On Windows x64, the `sonara` extra builds the pinned SONARA `v0.2.9` source distribution. Other
 platforms install the same package version from PyPI.
@@ -306,12 +331,17 @@ platforms install the same package version from PyPI.
 Run a small first pass:
 
 ```powershell
-dj-sim analyze --models sonara --limit 25 --db ./data/library.sqlite
-dj-sim analyze --models sonara --sonara-outputs core,timeline,representations --limit 25 --db ./data/library.sqlite
+mkdir ./backups
+dj-sim prepare-sonara-release --db ./data/library.sqlite --backup-dir ./backups --confirm "PREPARE SONARA RELEASE"
+dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --limit 25 --db ./data/library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --limit 25 --db ./data/library.sqlite
 dj-sim analyze-classifiers --db ./data/library.sqlite
-dj-sim analyze-pipeline --stages sonara,ml,classifiers --db ./data/library.sqlite
+dj-sim analyze-pipeline --stages sonara,ml,classifiers --sonara-outputs core,timeline,embedding,fingerprint --db ./data/library.sqlite
 ```
+
+Fresh v7 bundles must run `prepare-sonara-release` before the first SONARA analysis. Preparation
+derives and activates the immutable release contracts for all four outputs. It also verifies the Core
+plus Artifacts backup pair and records a resumable receipt.
 
 Useful options from the current CLI and API are:
 
@@ -322,16 +352,17 @@ Useful options from the current CLI and API are:
 - `--track-batch-size 1..64`; default `8`
 - `--inference-batch-size 1..128`; default `16`
 - `--diagnostics` to write decoder and batch timing details to the file log
-- `--sonara-outputs core,timeline,representations`; omission writes Core only
+- `--sonara-outputs core,timeline,embedding,fingerprint` selects the complete four-output release;
+  omission selects `core` only, but release preparation still activates all four immutable contracts
 
-The UI exposes one checkbox-driven **Analyze** action. The API also exposes the individual stages.
-UI and API pipeline stages share one in-memory queue, so only one SONARA, ML, or CLASSIFIERS stage runs at a time. The pipeline fixes
+CLI and API pipeline stages share one in-memory queue, so only one SONARA, ML, or CLASSIFIERS stage
+runs at a time. The pipeline fixes
 the order to SONARA, then ML, then CLASSIFIERS. Per-file failures are retained in job status and do
 not stop the next stage. A fatal initialization error or cancellation does.
 
 The SONARA control limits concurrent native file analysis, including full-file reads, rather than
-neural-network inference. Each returned batch writes its selected Core, Timeline, and
-Representations results through one SQLite transaction with a per-track savepoint. The process log
+neural-network inference. Each returned batch writes its selected `core`, `timeline`, `embedding`,
+and `fingerprint` results through the v7 repositories with a per-track savepoint. The process log
 reports separate native analysis, result preparation, and database storage times plus source MiB/s.
 SONARA-only jobs traverse candidates in path order to keep adjacent HDD reads in the same folders.
 Queued-stage messages contain only settings used by that stage. SONARA reports its outputs and
@@ -340,24 +371,13 @@ reports the selected profile count.
 
 MuQ uses the optional `ml` dependencies and official `OpenMuQ/MuQ-large-msd-iter` weights. The app feeds MuQ only 24 kHz `float32` audio and supports CPU or CUDA. CUDA is recommended for full-library runs. In this release, MuQ stores embeddings and analysis status. LAB Reference Compare can use those embeddings for per-model listening checks.
 
-In the CLI, omit `--limit` to analyze the whole library. In the UI, `Analyze limit = 0` means the whole library.
+In the CLI, omit `--limit` to analyze the whole library.
 
-## 🖥️ Main UI surfaces
+## 🖥️ Frontend status
 
-The browser UI is split into three working areas:
-
-1. **Database and analysis**: choose a SQLite database, choose a music folder, scan, refresh tags, run analysis, reset analysis results, write MAEST genres, and clear the database.
-2. **Library browser**: use paginated search and row actions for metadata, preview, likes, seeds, and current-set changes.
-3. **Search and set preparation**: use SET, SONARA, MERT, CLAP, CLASS, Hybrid preview, playlist export, and Rhythm Lab collection save.
-
-The search panel uses these tabs:
-
-- **SET** builds a read-only ordered set preview. Manual mode uses selected seeds. Auto mode chooses anchors from feature-complete tracks.
-- **SONARA** searches from seed tracks with built-in modes plus feature mixer and modifier controls.
-- **MERT** searches from selected seeds in the MERT embedding space.
-- **CLAP** searches from text prompts against stored CLAP audio embeddings.
-- **CLASS** filters and rescans promoted local classifier profiles.
-- **LAB** compares CLAP, MERT, MuQ, MAEST, and SONARA result groups for the first selected seed and can save model-specific listening verdicts.
+The React source still mirrors the removed pre-v7 database and track payloads. Porting and verifying
+its database, analysis, search, set, CLASS, and metadata flows is a separate task. Until that work is
+complete, the backend and CLI are the trustworthy v7 surfaces.
 
 ## 🛠️ Maintenance tools
 
@@ -413,7 +433,7 @@ Documentation languages: [English](docs/dj-track-similarity/project-guide.md) ·
 - [Install](docs/dj-track-similarity/getting-started/install.md)
 - [First library](docs/dj-track-similarity/getting-started/first-library.md)
 - [First analysis](docs/dj-track-similarity/getting-started/first-analysis.md)
-- [Reanalyze split SONARA storage](docs/dj-track-similarity/workflows/reanalyze-sonara-split-storage.md)
+- [Prepare and rebuild a SONARA release](docs/dj-track-similarity/workflows/reanalyze-sonara-split-storage.md)
 - [Browse library](docs/dj-track-similarity/user-guide/browse-library.md)
 - [Search with seeds](docs/dj-track-similarity/user-guide/search-with-seeds.md)
 - [Smart Set Builder](docs/dj-track-similarity/user-guide/smart-set-builder.md)

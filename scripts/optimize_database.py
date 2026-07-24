@@ -1,22 +1,53 @@
 import argparse
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 import sqlite3
 
 
-SUPPORTED_DATABASE_MARKERS = {
-    "library": {"tracks", "embeddings", "library_settings"},
-    "rhythm_lab": {
-        "classifier_profiles",
-        "classifier_labels",
-        "classifier_predictions",
-        "classifier_training_checkpoints",
-    },
+CORE_SCHEMA_VERSION = 7
+SIDECAR_SCHEMA_VERSION = 1
+LIBRARY_DATABASE_MARKERS = {
+    "library_catalog",
+    "contracts",
+    "tracks",
+    "file_tags",
+    "sonara",
+    "maest_scores",
+    "classifier_scores",
+    "likes",
 }
-TIMELINE_DATABASE_MARKERS = {"storage_metadata", "sonara_timeline"}
-REPRESENTATIONS_DATABASE_MARKERS = {"storage_metadata", "embeddings", "fingerprints"}
-STORAGE_CATALOG_SETTING_KEY = "storage.catalog_id"
+ARTIFACTS_DATABASE_MARKERS = {
+    "storage_metadata",
+    "mert_embeddings",
+    "maest_embeddings",
+    "muq_embeddings",
+    "clap_embeddings",
+    "sonara_similarity_embeddings",
+    "sonara_timeline",
+    "sonara_fingerprints",
+}
+EVALUATION_DATABASE_MARKERS = {
+    "storage_metadata",
+    "search_sessions",
+    "search_session_seeds",
+    "search_result_events",
+    "calibration_runs",
+    "evaluation_settings",
+}
+RHYTHM_LAB_DATABASE_MARKERS = {
+    "classifier_profiles",
+    "classifier_profile_labels",
+    "classifier_labels",
+    "classifier_predictions",
+    "classifier_training_checkpoints",
+}
+RHYTHM_LAB_IDENTITY_COLUMNS = {
+    "catalog_uuid",
+    "track_uuid",
+    "content_generation",
+}
 
 
 @dataclass(frozen=True)
@@ -66,7 +97,7 @@ def optimize_database(db_path: str | Path) -> OptimizationSummary:
     if not path.is_file():
         raise FileNotFoundError(path)
 
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection:
         connection.row_factory = sqlite3.Row
         database_kind = _detect_supported_database(connection)
 
@@ -113,64 +144,94 @@ def _database_files(path: Path, database_kind: str) -> tuple[tuple[str, Path], .
     if database_kind != "library":
         return ((database_kind, path),)
 
-    timeline_path, representations_path = _sidecar_database_paths(path)
-    for label, selected_path in (
-        ("Timeline", timeline_path),
-        ("Representations", representations_path),
-    ):
-        if not selected_path.is_file():
-            raise FileNotFoundError(f"{label} database does not exist: {selected_path}")
+    artifacts_path, evaluation_path = _sidecar_database_paths(path)
+    if not artifacts_path.is_file():
+        raise FileNotFoundError(f"Artifacts database does not exist: {artifacts_path}")
 
-    _require_tables(timeline_path, TIMELINE_DATABASE_MARKERS, "Timeline")
-    _require_tables(representations_path, REPRESENTATIONS_DATABASE_MARKERS, "Representations")
-    _validate_catalog_ids(path, timeline_path, representations_path)
-    return (
-        ("core", path),
-        ("timeline", timeline_path),
-        ("representations", representations_path),
+    _require_schema(
+        path,
+        LIBRARY_DATABASE_MARKERS,
+        "Core",
+        expected_version=CORE_SCHEMA_VERSION,
     )
+    _require_schema(
+        artifacts_path,
+        ARTIFACTS_DATABASE_MARKERS,
+        "Artifacts",
+        expected_version=SIDECAR_SCHEMA_VERSION,
+    )
+    selected = [("core", path), ("artifacts", artifacts_path)]
+    if evaluation_path.is_file():
+        _require_schema(
+            evaluation_path,
+            EVALUATION_DATABASE_MARKERS,
+            "Evaluation",
+            expected_version=SIDECAR_SCHEMA_VERSION,
+        )
+        selected.append(("evaluation", evaluation_path))
+    _validate_catalog_uuids(path, *(selected_path for _role, selected_path in selected[1:]))
+    return tuple(selected)
 
 
 def _sidecar_database_paths(path: Path) -> tuple[Path, Path]:
-    suffix = path.suffix or ".sqlite"
     stem = path.stem if path.suffix else path.name
     return (
-        path.with_name(f"{stem}.timeline{suffix}"),
-        path.with_name(f"{stem}.representations{suffix}"),
+        path.with_name(f"{stem}.artifacts.sqlite"),
+        path.with_name(f"{stem}.evaluation.sqlite"),
     )
 
 
-def _require_tables(path: Path, required: set[str], label: str) -> None:
-    with sqlite3.connect(path) as connection:
+def _require_schema(
+    path: Path,
+    required: set[str],
+    label: str,
+    *,
+    expected_version: int,
+) -> None:
+    with closing(sqlite3.connect(path)) as connection:
         tables = _user_tables(connection)
+        version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+        foreign_key_errors = connection.execute("PRAGMA foreign_key_check").fetchall()
     if not required.issubset(tables):
         actual = ", ".join(sorted(tables)) or "none"
         expected = ", ".join(sorted(required))
         raise RuntimeError(f"{label} database has tables [{actual}], expected [{expected}]")
+    if version != expected_version:
+        raise RuntimeError(
+            f"{label} database schema version {version} is not supported; "
+            f"expected {expected_version}"
+        )
+    if foreign_key_errors:
+        raise RuntimeError(
+            f"{label} database has foreign-key violations: {foreign_key_errors[:5]}"
+        )
 
 
-def _validate_catalog_ids(core: Path, timeline: Path, representations: Path) -> None:
-    catalog_ids = {
-        "Core": _setting_value(core, "library_settings"),
-        "Timeline": _setting_value(timeline, "storage_metadata"),
-        "Representations": _setting_value(representations, "storage_metadata"),
-    }
-    if any(value is None for value in catalog_ids.values()) or len(set(catalog_ids.values())) != 1:
-        details = ", ".join(f"{label}={value or 'missing'}" for label, value in catalog_ids.items())
-        raise RuntimeError(f"Core, Timeline, and Representations catalog IDs do not match: {details}")
+def _validate_catalog_uuids(core: Path, *sidecars: Path) -> None:
+    catalog_uuids = {"Core": _catalog_uuid(core, table="library_catalog")}
+    for sidecar in sidecars:
+        catalog_uuids[sidecar.name] = _catalog_uuid(sidecar, table="storage_metadata")
+    if any(value is None for value in catalog_uuids.values()) or len(set(catalog_uuids.values())) != 1:
+        details = ", ".join(
+            f"{label}={value or 'missing'}"
+            for label, value in catalog_uuids.items()
+        )
+        raise RuntimeError(f"SQLite bundle catalog UUIDs do not match: {details}")
 
 
-def _setting_value(path: Path, table: str) -> str | None:
-    with sqlite3.connect(path) as connection:
+def _catalog_uuid(path: Path, *, table: str) -> str | None:
+    with closing(sqlite3.connect(path)) as connection:
         row = connection.execute(
-            f"SELECT value FROM {table} WHERE key = ?",
-            (STORAGE_CATALOG_SETTING_KEY,),
+            f"SELECT catalog_uuid FROM {table} WHERE singleton_id = 1",
         ).fetchone()
-    return str(row[0]) if row is not None else None
+    if row is None:
+        return None
+    value = str(row[0]).strip()
+    return value or None
 
 
 def _optimize_one_database(path: Path) -> None:
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection:
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 30000")
         connection.execute("PRAGMA journal_mode = WAL")
@@ -178,7 +239,9 @@ def _optimize_one_database(path: Path) -> None:
         connection.execute("VACUUM")
         connection.execute("ANALYZE")
         connection.execute("PRAGMA optimize")
+        connection.commit()
         connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        connection.commit()
 
 
 def _backup_database(path: Path) -> Path:
@@ -188,24 +251,37 @@ def _backup_database(path: Path) -> Path:
     while backup_path.exists():
         backup_path = path.with_name(f"{path.name}.bak-{timestamp}-{suffix}")
         suffix += 1
-    with sqlite3.connect(path) as source, sqlite3.connect(backup_path) as target:
+    with (
+        closing(sqlite3.connect(path)) as source,
+        closing(sqlite3.connect(backup_path)) as target,
+    ):
         source.backup(target)
+        target.commit()
     return backup_path
 
 
 def _integrity_check(path: Path) -> str:
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection:
         return str(connection.execute("PRAGMA integrity_check").fetchone()[0])
 
 
 def _detect_supported_database(connection: sqlite3.Connection) -> str:
     tables = _user_tables(connection)
-    for database_kind, required_tables in SUPPORTED_DATABASE_MARKERS.items():
-        if required_tables.issubset(tables):
-            return database_kind
-    markers = "; ".join(
-        f"{kind}: {', '.join(sorted(required_tables))}"
-        for kind, required_tables in SUPPORTED_DATABASE_MARKERS.items()
+    version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+    if LIBRARY_DATABASE_MARKERS.issubset(tables) and version == CORE_SCHEMA_VERSION:
+        return "library"
+    if RHYTHM_LAB_DATABASE_MARKERS.issubset(tables):
+        label_columns = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(classifier_labels)")
+        }
+        if RHYTHM_LAB_IDENTITY_COLUMNS.issubset(label_columns):
+            return "rhythm_lab"
+    markers = (
+        f"library v{CORE_SCHEMA_VERSION}: "
+        f"{', '.join(sorted(LIBRARY_DATABASE_MARKERS))}; "
+        "rhythm_lab v7 identity tables: "
+        f"{', '.join(sorted(RHYTHM_LAB_DATABASE_MARKERS))}"
     )
     actual = ", ".join(sorted(tables)) or "none"
     raise RuntimeError(f"Unsupported SQLite database: found tables [{actual}], expected markers [{markers}]")

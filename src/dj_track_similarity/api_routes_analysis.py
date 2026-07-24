@@ -5,10 +5,12 @@ from collections.abc import Callable
 from fastapi import FastAPI, HTTPException, Query
 
 from .analysis_config import build_analysis_job_config
+from .analysis_models import AnalysisOutput, AnalysisResetResult
 from .api_schemas import (
     AnalysisJobRequest,
     AnalysisPipelineRequest,
     AnalysisResetRequest,
+    AnalysisResetResponse,
     ClassifierAnalyzeRequest,
     ClassifierResetRequest,
     ClassifiersAnalyzeRequest,
@@ -16,6 +18,7 @@ from .api_schemas import (
 )
 from .api_state import AppDatabaseState
 from .classifier_production import build_classifier_calibration_report, normalize_label_suggestion_mode, suggest_classifier_labels
+from .database import LibraryDatabase
 
 
 def register_analysis_routes(
@@ -24,12 +27,24 @@ def register_analysis_routes(
     *,
     promoted_classifiers: Callable[[], list[dict[str, object]]],
 ) -> None:
-    @app.post("/api/analysis/reset")
+    @app.post(
+        "/api/analysis/reset",
+        response_model=AnalysisResetResponse,
+    )
     def reset_analysis(request: AnalysisResetRequest):
         try:
-            return state.require_db().reset_analysis(request.adapter)
+            with state.exclusive_db("reset analysis") as database:
+                outputs = _active_outputs_for_family(
+                    database,
+                    request.analysis_family,
+                )
+                if not outputs:
+                    return AnalysisResetResult()
+                return database.reset_analysis_outputs(outputs)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @app.post("/api/analysis/jobs")
     def analyze(request: AnalysisJobRequest):
@@ -47,7 +62,10 @@ def register_analysis_routes(
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         try:
-            return state.require_analysis_jobs().start(
+            manager = state.require_analysis_jobs()
+            if "sonara" in config.models:
+                manager.validate_sonara_preflight()
+            return manager.start(
                 models=list(config.models),
                 limit=config.limit,
                 track_batch_size=config.track_batch_size,
@@ -57,9 +75,13 @@ def register_analysis_routes(
                 top_k=config.top_k,
                 sonara_outputs=list(config.sonara_outputs),
             )
+        except RuntimeError as error:
+            raise HTTPException(
+                status_code=409,
+                detail=_analysis_conflict_detail(error),
+            ) from error
         except ValueError as error:
-            status_code = 409 if "older contract" in str(error) else 400
-            raise HTTPException(status_code=status_code, detail=str(error)) from error
+            raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.get("/api/classifiers")
     def classifiers():
@@ -91,7 +113,9 @@ def register_analysis_routes(
         classifier_keys = _validated_classifier_keys(request.classifier_keys, promoted_classifiers, all_when_empty=True)
         try:
             return state.require_classifier_jobs().start(classifiers=classifier_keys, limit=request.limit)
-        except (FileNotFoundError, RuntimeError, ValueError) as error:
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except (FileNotFoundError, ValueError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.post("/api/classifiers/{classifier_key}/analyze")
@@ -99,7 +123,9 @@ def register_analysis_routes(
         _require_scoring_compatible_classifier(classifier_key, promoted_classifiers)
         try:
             return state.require_classifier_jobs().start(classifier=classifier_key, limit=request.limit)
-        except (FileNotFoundError, RuntimeError, ValueError) as error:
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except (FileNotFoundError, ValueError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.post("/api/analysis/pipelines")
@@ -144,6 +170,8 @@ def register_analysis_routes(
                 if "classifiers" in request.stages
                 else []
             )
+            if "sonara" in request.stages:
+                state.require_analysis_jobs().validate_sonara_preflight()
             return state.require_analysis_pipeline_jobs().start(
                 stages=list(request.stages),
                 limit=request.limit,
@@ -151,9 +179,13 @@ def register_analysis_routes(
                 ml=ml_settings,
                 classifiers={"classifier_keys": classifier_keys},
             )
+        except RuntimeError as error:
+            raise HTTPException(
+                status_code=409,
+                detail=_analysis_conflict_detail(error),
+            ) from error
         except ValueError as error:
-            status_code = 409 if "older contract" in str(error) else 400
-            raise HTTPException(status_code=status_code, detail=str(error)) from error
+            raise HTTPException(status_code=400, detail=str(error)) from error
 
     @app.get("/api/analysis/pipelines/latest")
     def latest_pipeline_job():
@@ -203,9 +235,15 @@ def register_analysis_routes(
             classifier_info=classifier_info,
         )
 
-    @app.post("/api/classifiers/reset")
+    @app.post(
+        "/api/classifiers/reset",
+        response_model=AnalysisResetResponse,
+    )
     def reset_classifiers(request: ClassifierResetRequest):
-        return state.require_db().reset_classifier_scores(request.classifiers)
+        with state.exclusive_db("reset classifier scores") as database:
+            return database.reset_classifier_scores(
+                request.classifier_keys
+            )
 
     @app.get("/api/classifiers/{classifier_key}/analyze/jobs/latest")
     def latest_classifier_job(classifier_key: str):
@@ -269,41 +307,25 @@ def register_analysis_routes(
             LockHeldError,
             PrepareSonaraReleaseError,
             prepare_sonara_release as _prepare,
-            validate_backup_dir,
-            validate_confirm,
-            validate_sonara_outputs,
         )
 
         try:
-            validate_confirm(request.confirm)
-        except ValueError as error:
-            raise HTTPException(status_code=400, detail=str(error)) from error
-
-        backup_dir = Path(request.backup_dir)
-        try:
-            validate_backup_dir(backup_dir)
-        except ValueError as error:
-            raise HTTPException(status_code=400, detail=str(error)) from error
-
-        try:
-            validate_sonara_outputs(request.sonara_outputs)
-        except ValueError as error:
-            raise HTTPException(status_code=400, detail=str(error)) from error
-
-        db_path = Path(request.db)
-        try:
-            receipt = _prepare(
-                db_path=db_path,
-                backup_dir=backup_dir,
-                sonara_outputs=request.sonara_outputs,
-                new_release_hash=request.new_release_hash,
-            )
+            with state.exclusive_db(
+                "prepare a SONARA release"
+            ) as database:
+                receipt = _prepare(
+                    database,
+                    backup_dir=Path(request.backup_dir),
+                    confirm=request.confirm,
+                )
         except LockHeldError as error:
             raise HTTPException(
                 status_code=409,
                 detail=f"SONARA_RELEASE_PREPARATION_REQUIRED: {error}",
             ) from error
-        except (PrepareSonaraReleaseError, ValueError, RuntimeError) as error:
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except (PrepareSonaraReleaseError, RuntimeError) as error:
             raise HTTPException(status_code=500, detail=str(error)) from error
 
         return receipt
@@ -338,6 +360,39 @@ def _validated_classifier_keys(
         details = "; ".join(_classifier_manifest_error_text(available[key]) for key in incompatible)
         raise HTTPException(status_code=400, detail=details)
     return cleaned
+
+
+def _active_outputs_for_family(
+    database: LibraryDatabase,
+    analysis_family: str,
+) -> tuple[AnalysisOutput, ...]:
+    output_kinds = {
+        "sonara": ("core", "timeline", "embedding", "fingerprint"),
+        "maest": ("analysis", "embedding"),
+        "mert": ("embedding",),
+        "muq": ("embedding",),
+        "clap": ("embedding",),
+    }[analysis_family]
+    return tuple(
+        output
+        for output_kind in output_kinds
+        if (
+            output := database.active_analysis_output(
+                analysis_family,
+                output_kind,
+            )
+        )
+        is not None
+    )
+
+
+def _analysis_conflict_detail(error: Exception) -> str:
+    detail = str(error)
+    if "SONARA_RELEASE_PREPARATION_REQUIRED" in detail:
+        return detail
+    if "release" in detail.casefold():
+        return f"SONARA_RELEASE_PREPARATION_REQUIRED: {detail}"
+    return detail
 
 
 def _require_known_classifier(

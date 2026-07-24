@@ -197,11 +197,14 @@ class AudioDoctorJobManager:
         try:
             folders = [payload.folder] if payload.source_mode == "folder" and payload.folder is not None else []
             dbs = [payload.db_path] if payload.source_mode == "db" else []
-            db_paths, missing_db_files = core.collect_db_paths(
-                dbs,
-                db_roots=payload.db_roots,
-                file_root=payload.file_root,
-            )
+            if payload.source_mode == "db":
+                db_paths, missing_db_files = core.collect_repository_paths(
+                    iter(self.db.list_track_paths(include_missing=True)),
+                    db_roots=payload.db_roots,
+                    file_root=payload.file_root,
+                )
+            else:
+                db_paths, missing_db_files = [], 0
             all_paths = core.collect_paths([], [], folders=folders, db_paths=db_paths, since=None, until=None)
             if not all_paths:
                 raise ValueError("No audio paths found")

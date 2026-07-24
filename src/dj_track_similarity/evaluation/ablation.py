@@ -26,6 +26,7 @@ from .judged import (
     session_feedback_source as judged_session_feedback_source,
 )
 from .reports import RELEVANCE_THRESHOLD
+from .recorded_sessions import load_current_evaluation_sessions
 from .score_profiles import LABEL_POLICY, ScoreProfile, rank_candidates_with_profile, score_profile_to_dict
 
 if TYPE_CHECKING:
@@ -101,7 +102,7 @@ def build_source_ablation_report(
     clean_k_values = _clean_k_values(k_values)
     clean_rrf_k = _positive_int(rrf_k, "rrf_k")
     clean_score_profile = _clean_score_profile(score_profile)
-    raw_sessions = db.list_search_sessions_with_events()
+    raw_sessions = load_current_evaluation_sessions(db)
     sessions = _candidate_pool_sessions(raw_sessions)
     feedback_map = db.get_pair_feedback_map()
     judged_gate = build_judged_label_gate(raw_sessions, feedback_map, judged_only=judged_only)
@@ -478,19 +479,6 @@ def _matching_label(
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
 ) -> Mapping[str, Any] | None:
     return matched_judged_label(seed_track_ids, candidate_track_id, preferred_source, feedback_map)
-
-
-def _first_label_for_source(
-    seed_track_ids: Sequence[int],
-    candidate_track_id: int,
-    source: str,
-    feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
-) -> Mapping[str, Any] | None:
-    for seed_track_id in seed_track_ids:
-        label = feedback_map.get((seed_track_id, candidate_track_id, source))
-        if label is not None:
-            return label
-    return None
 
 
 def _first_label_for_any_source(

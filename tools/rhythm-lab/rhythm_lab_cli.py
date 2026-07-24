@@ -9,7 +9,7 @@ REPO_ROOT = LAB_ROOT.parents[1]
 sys.path.insert(0, str(LAB_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from rhythm_lab.cli import main
+from rhythm_lab.cli import main  # noqa: E402
 
 
 if __name__ == "__main__":

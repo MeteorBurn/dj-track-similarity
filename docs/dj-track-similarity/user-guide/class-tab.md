@@ -1,4 +1,4 @@
-# Use the CLASS tab
+# Classifier scores and the deferred CLASS tab
 
 > Audience: Users with promoted Rhythm Lab classifier profiles.
 > Goal: Filter, rescore, and use classifier scores without confusing them with analysis families.
@@ -24,19 +24,31 @@ question will return across many sessions.
 4. The CLASS tab can filter by the stored score.
 5. SET can prefer, avoid, raise, or lower the concept through a preview.
 
-The CLASS tab reads promoted local profiles. A profile appears only when its manifest is valid and
-compatible with current scoring inputs.
+The backend reads promoted local profiles only when their manifest is valid and compatible with
+current scoring inputs. The React frontend has not yet been ported to v7, so the CLASS tab behaviors
+described below are design intent, not a verified current UI contract. Use the CLI or direct API for
+current scoring.
 
 ## How a promoted classifier is stored
 
-A promoted classifier consists of:
+A promoted classifier uses one pointer to an immutable model and manifest
+generation:
 
 ```text
-models/classifiers/<artifact-prefix>/model.joblib
-models/classifiers/<artifact-prefix>/model.json
+models/classifiers/<artifact-prefix>/current.json
+models/classifiers/<artifact-prefix>/generations/<generation-id>/model.joblib
+models/classifiers/<artifact-prefix>/generations/<generation-id>/model.json
 ```
 
+Promotion verifies and syncs both generation files before atomically switching
+`current.json`. Discovery rejects an incomplete generation or any pointer,
+manifest, or model hash mismatch.
+
 The manifest describes the classifier key, labels, model id, calibration status, required inputs, and optional Hybrid signal metadata. Version `2` also requires the exact SONARA analysis signature for any SONARA-dependent feature set.
+
+The promoted artifacts currently checked into `models/classifiers/` use manifest version `1`.
+Runtime discovery keeps them visible with a blocker, but scoring requires retraining and promotion
+to version `2`.
 
 ## Filtering
 
@@ -49,7 +61,7 @@ Missing classifier scores do not pass a positive minimum filter. In SET and Hybr
 The play button on a classifier row resets and rescans that one classifier key. The UI calls the reset path first, then starts `/api/classifiers/{classifier_key}/analyze`.
 
 Classifier scoring is database-only. It reads exactly the SONARA and MAEST/MERT/CLAP inputs declared
-by the promoted manifest and writes `track_classifier_scores`. It never decodes audio and never runs
+by the promoted manifest and writes Core `classifier_scores`. It never decodes audio and never runs
 inside a SONARA or ML job.
 
 Scoring is blocked when the promoted artifact, manifest, and track do not share the same current SONARA signature. Retrain and promote legacy SONARA profiles after reanalysis. Labels and feedback remain available.

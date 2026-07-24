@@ -25,6 +25,10 @@
 
 It does not upload your collection. It does not decide what is a good mix. It helps you narrow a large folder into candidates worth hearing together.
 
+The Python backend and CLI now use a greenfield schema-v7 bundle with Core plus mandatory Artifacts and
+optional Evaluation. They do not migrate older schemas. The React frontend port is deferred, so use
+CLI or direct API workflows for the current v7 contract.
+
 ## The Project Idea
 
 A personal problem drives the project: a large local music folder can hide the next useful track, even when that track is already in your collection. `dj-track-similarity` tries to make that library easier to rediscover by combining tags, audio features, embeddings, text prompts, and optional personal classifiers.
@@ -75,7 +79,7 @@ The file-writing exceptions are explicit:
 - Audio Doctor apply repairs files only after dry-run state exists and exact confirmation is typed.
 - Audio Dedup apply deletes confirmed duplicate candidates only after exact confirmation is typed.
 
-Relocation apply is SQLite-only. It updates stored `tracks.path` values and does not move files.
+Relocation apply is SQLite-only. It updates stored `tracks.file_path` values and does not move files.
 
 <div class="dts-status-grid">
   <div><strong>Read-heavy by default</strong><p>Search, SET, preview, analysis, reset, and export avoid source-audio edits.</p></div>
@@ -89,7 +93,7 @@ Relocation apply is SQLite-only. It updates stored `tracks.path` values and does
 - [Install](./getting-started/install.md): prerequisites, optional ML dependencies, frontend and docs builds.
 - [First library](./getting-started/first-library.md): build the SQLite library and understand scan behavior.
 - [First analysis](./getting-started/first-analysis.md): choose analysis by the result you want.
-- [Reanalyze split SONARA storage](./workflows/reanalyze-sonara-split-storage.md): migrate schema v5 and rebuild current analysis.
+- [Prepare and rebuild a SONARA release](./workflows/reanalyze-sonara-split-storage.md): back up and activate the four current outputs before reanalysis.
 - [User guide](./user-guide/index.md): daily UI work.
 - [Workflows](./workflows/index.md): DJ task recipes.
 - [Concepts](./concepts/index.md): scores, models, safety, and routing.

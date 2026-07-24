@@ -1,18 +1,39 @@
+from __future__ import annotations
+
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 import dj_track_similarity.api as api
-from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.analysis_jobs import AnalysisJobManager
+from dj_track_similarity.analysis_pipeline import AnalysisPipelineManager
 
 
-def _client(tmp_path: Path) -> TestClient:
+def _client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
+    monkeypatch.setattr(api, "require_ffmpeg", lambda: "ffmpeg")
     return TestClient(api.create_app(tmp_path / "library.sqlite"))
 
 
-def test_api_starts_selected_ml_job_without_classifier_fields(tmp_path: Path) -> None:
-    client = _client(tmp_path)
-    response = client.post(
+def _analysis_start(calls: list[dict[str, object]]):
+    def start(_manager: AnalysisJobManager, **kwargs: object) -> dict[str, object]:
+        calls.append(dict(kwargs))
+        return {
+            "job_id": "analysis-job",
+            "state": "queued",
+            **kwargs,
+        }
+
+    return start
+
+
+def test_api_starts_selected_ml_job_without_classifier_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(AnalysisJobManager, "start", _analysis_start(calls))
+    response = _client(monkeypatch, tmp_path).post(
         "/api/analysis/jobs",
         json={
             "models": ["maest", "mert"],
@@ -25,145 +46,245 @@ def test_api_starts_selected_ml_job_without_classifier_fields(tmp_path: Path) ->
     )
 
     assert response.status_code == 200
-    payload = response.json()
-    assert payload["models"] == ["maest", "mert"]
-    assert "classifier_keys" not in payload
-    assert payload["track_batch_size"] == 5
-    assert payload["inference_batch_size"] == 18
+    assert response.json()["models"] == ["maest", "mert"]
+    assert "classifier_keys" not in response.json()
+    assert calls == [
+        {
+            "models": ["maest", "mert"],
+            "limit": 0,
+            "track_batch_size": 5,
+            "inference_batch_size": 18,
+            "sonara_batch_size": 8,
+            "device": "cpu",
+            "top_k": 4,
+            "sonara_outputs": [],
+        }
+    ]
 
 
-def test_api_rejects_classifier_scoring_inside_audio_job(tmp_path: Path) -> None:
-    response = _client(tmp_path).post(
+def test_api_rejects_classifier_scoring_inside_audio_job(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    response = _client(monkeypatch, tmp_path).post(
         "/api/analysis/jobs",
-        json={"models": ["mert"], "classifier_keys": ["break_energy"]},
+        json={"models": ["mert"], "classifier_keys": ["voice_presence"]},
     )
+
     assert response.status_code == 422
 
 
-def test_api_defaults_sonara_to_core_and_native_batch_8(tmp_path: Path) -> None:
-    response = _client(tmp_path).post(
+def test_api_normalizes_exact_sonara_outputs_and_native_batch_size(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        AnalysisJobManager,
+        "validate_sonara_preflight",
+        lambda _manager: None,
+    )
+    monkeypatch.setattr(AnalysisJobManager, "start", _analysis_start(calls))
+    client = _client(monkeypatch, tmp_path)
+
+    defaulted = client.post(
         "/api/analysis/jobs",
         json={"models": ["sonara"], "limit": 0},
     )
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["sonara_outputs"] == ["core"]
-    assert payload["sonara_batch_size"] == 8
-
-
-def test_api_passes_explicit_sonara_outputs_and_batch_size(tmp_path: Path) -> None:
-    response = _client(tmp_path).post(
+    explicit = client.post(
         "/api/analysis/jobs",
         json={
             "models": ["sonara"],
             "limit": 0,
-            "sonara_outputs": ["timeline", "representations"],
+            "sonara_outputs": ["fingerprint", "timeline", "embedding"],
             "sonara_batch_size": 12,
         },
     )
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["sonara_outputs"] == ["timeline", "representations"]
-    assert payload["sonara_batch_size"] == 12
+
+    assert defaulted.status_code == 200
+    assert defaulted.json()["sonara_outputs"] == ["core"]
+    assert defaulted.json()["sonara_batch_size"] == 8
+    assert explicit.status_code == 200
+    assert explicit.json()["sonara_outputs"] == [
+        "core",
+        "timeline",
+        "embedding",
+        "fingerprint",
+    ]
+    assert explicit.json()["sonara_batch_size"] == 12
+    assert [call["sonara_outputs"] for call in calls] == [
+        ["core"],
+        ["core", "timeline", "embedding", "fingerprint"],
+    ]
 
 
-def test_api_defaults_audio_job_to_ml_models_only(tmp_path: Path) -> None:
-    response = _client(tmp_path).post("/api/analysis/jobs", json={"limit": 0})
+def test_api_rejects_removed_representations_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    response = _client(monkeypatch, tmp_path).post(
+        "/api/analysis/jobs",
+        json={"models": ["sonara"], "sonara_outputs": ["representations"]},
+    )
+
+    assert response.status_code == 400
+    assert "representations" in response.json()["detail"]
+
+
+def test_api_defaults_audio_job_to_ml_models_only(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(AnalysisJobManager, "start", _analysis_start(calls))
+
+    response = _client(monkeypatch, tmp_path).post(
+        "/api/analysis/jobs",
+        json={"limit": 0},
+    )
+
     assert response.status_code == 200
     assert response.json()["models"] == ["maest", "mert", "muq", "clap"]
+    assert calls[0]["sonara_outputs"] == []
 
 
-def test_api_exposes_analysis_job_lookup_latest_and_cancel(tmp_path: Path) -> None:
-    client = _client(tmp_path)
-    started = client.post("/api/analysis/jobs", json={"models": ["mert"], "limit": 0}).json()
-    job_id = started["job_id"]
+def test_api_pipeline_preserves_fixed_stage_order(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: list[dict[str, object]] = []
 
-    assert client.get("/api/analysis/jobs/latest").status_code == 200
-    assert client.get(f"/api/analysis/jobs/{job_id}").status_code == 200
-    assert client.post(f"/api/analysis/jobs/{job_id}/cancel").status_code == 200
-    assert client.get("/api/analysis/jobs/missing-job").status_code == 404
+    def start(
+        _manager: AnalysisPipelineManager,
+        **kwargs: object,
+    ) -> dict[str, object]:
+        captured.append(dict(kwargs))
+        return {
+            "job_id": "pipeline-job",
+            "state": "queued",
+            "order": [
+                stage
+                for stage in ("sonara", "ml", "classifiers")
+                if stage in kwargs["stages"]
+            ],
+        }
 
-
-def test_api_aggregate_classifiers_empty_selection_requires_compatible_artifact(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(api, "promoted_classifiers", lambda: [])
-    response = _client(tmp_path).post("/api/classifiers/analyze", json={"classifier_keys": [], "limit": 0})
-    assert response.status_code == 400
-    assert "scoring-compatible" in response.json()["detail"]
-
-
-def test_api_rejects_incompatible_classifier_with_manifest_reason(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(AnalysisPipelineManager, "start", start)
     monkeypatch.setattr(
         api,
         "promoted_classifiers",
-        lambda: [{
-            "classifier_key": "break_energy",
-            "is_scoring_compatible": False,
-            "manifest_errors": ["SONARA signature is stale"],
-        }],
+        lambda: [{"classifier_key": "voice_presence"}],
     )
-    response = _client(tmp_path).post(
-        "/api/classifiers/analyze",
-        json={"classifier_keys": ["break_energy"], "limit": 0},
-    )
-    assert response.status_code == 400
-    assert "SONARA signature is stale" in response.json()["detail"]
-
-
-def test_api_pipeline_preserves_fixed_stage_order(tmp_path: Path) -> None:
-    client = _client(tmp_path)
-    response = client.post(
+    response = _client(monkeypatch, tmp_path).post(
         "/api/analysis/pipelines",
         json={
             "stages": ["classifiers", "ml"],
             "limit": 0,
-            "ml": {"models": ["mert"], "device": "cpu", "top_k": 3, "track_batch_size": 2, "inference_batch_size": 4},
-            "classifiers": {"classifier_keys": ["live_instrumentation"]},
+            "ml": {
+                "models": ["mert"],
+                "device": "cpu",
+                "top_k": 3,
+                "track_batch_size": 2,
+                "inference_batch_size": 4,
+            },
+            "classifiers": {"classifier_keys": ["voice_presence"]},
         },
     )
+
     assert response.status_code == 200
     assert response.json()["order"] == ["ml", "classifiers"]
+    assert captured[0]["ml"] == {
+        "models": ["mert"],
+        "device": "cpu",
+        "top_k": 3,
+        "track_batch_size": 2,
+        "inference_batch_size": 4,
+    }
 
 
-def test_api_pipeline_accepts_sonara_core_without_ml_models(tmp_path: Path) -> None:
-    response = _client(tmp_path).post(
-        "/api/analysis/pipelines",
-        json={
-            "stages": ["sonara"],
-            "limit": 0,
-            "sonara": {"outputs": ["core"], "batch_size": 8},
-            "ml": {"models": []},
-        },
+def test_api_sonara_preflight_returns_409_before_starting_job(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    events: list[str] = []
+
+    def reject(_manager: AnalysisJobManager) -> None:
+        events.append("preflight")
+        raise RuntimeError(
+            "SONARA_RELEASE_PREPARATION_REQUIRED: exact release is inactive"
+        )
+
+    def start(_manager: AnalysisJobManager, **_kwargs: object) -> dict[str, object]:
+        events.append("start")
+        return {"job_id": "should-not-start"}
+
+    monkeypatch.setattr(AnalysisJobManager, "validate_sonara_preflight", reject)
+    monkeypatch.setattr(AnalysisJobManager, "start", start)
+    response = _client(monkeypatch, tmp_path).post(
+        "/api/analysis/jobs",
+        json={"models": ["sonara"], "limit": 0},
     )
 
-    assert response.status_code == 200
-    assert response.json()["order"] == ["sonara"]
-
-
-def test_api_sonara_preflight_blocks_old_contract_until_reset(tmp_path: Path) -> None:
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    path = tmp_path / "old.wav"
-    path.write_bytes(b"RIFF0000WAVE")
-    track_id = db.upsert_track(path=path, size=path.stat().st_size, mtime=1, metadata={})
-    db.save_sonara_features(
-        track_id,
-        {"bpm": {"value": 128.0}},
-        analysis_signature={
-            "sonara_version": "0.2.9", "schema_version": 4, "mode": "playlist",
-            "sample_rate": 22050, "bpm_range": [70, 180], "requested_features": [],
-            "project_feature_revision": 3, "signature_id": "old",
-        },
+    assert response.status_code == 409
+    assert response.json()["detail"].startswith(
+        "SONARA_RELEASE_PREPARATION_REQUIRED:"
     )
-    client = TestClient(api.create_app(db_path))
-
-    blocked = client.post("/api/analysis/jobs", json={"models": ["sonara"], "limit": 0})
-    assert blocked.status_code == 409
-    assert "Back up the database" in blocked.json()["detail"]
-    assert client.post("/api/analysis/reset", json={"adapter": "sonara"}).status_code == 200
-    assert client.post("/api/analysis/jobs", json={"models": ["sonara"], "limit": 0}).status_code == 200
+    assert events == ["preflight"]
 
 
-def test_api_rejects_legacy_batch_size_and_unknown_device(tmp_path: Path) -> None:
-    client = _client(tmp_path)
-    assert client.post("/api/analysis/jobs", json={"models": ["mert"], "batch_size": 4}).status_code == 422
-    assert client.post("/api/analysis/jobs", json={"models": ["mert"], "device": "gpu"}).status_code == 422
+def test_api_classifier_preflight_errors_preserve_manifest_reason(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        api,
+        "promoted_classifiers",
+        lambda: [
+            {
+                "classifier_key": "voice_presence",
+                "is_scoring_compatible": False,
+                "manifest_errors": ["MERT contract is inactive"],
+            }
+        ],
+    )
+    response = _client(monkeypatch, tmp_path).post(
+        "/api/classifiers/analyze",
+        json={"classifier_keys": ["voice_presence"], "limit": 0},
+    )
+
+    assert response.status_code == 400
+    assert "MERT contract is inactive" in response.json()["detail"]
+
+
+def test_api_reset_uses_v7_analysis_family_and_rejects_legacy_payload(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    client = _client(monkeypatch, tmp_path)
+
+    reset = client.post("/api/analysis/reset", json={"analysis_family": "mert"})
+    legacy = client.post("/api/analysis/reset", json={"adapter": "mert"})
+
+    assert reset.status_code == 200
+    assert reset.json() == {
+        "core_rows_deleted": 0,
+        "artifact_rows_deleted": 0,
+        "classifier_rows_deleted": 0,
+    }
+    assert legacy.status_code == 422
+
+
+def test_api_rejects_legacy_batch_size_and_unknown_device(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    client = _client(monkeypatch, tmp_path)
+
+    assert client.post(
+        "/api/analysis/jobs",
+        json={"models": ["mert"], "batch_size": 4},
+    ).status_code == 422
+    assert client.post(
+        "/api/analysis/jobs",
+        json={"models": ["mert"], "device": "gpu"},
+    ).status_code == 422

@@ -40,6 +40,10 @@ from .analysis_config import (
     parse_analysis_models_text,
 )
 from .analysis_jobs import AnalysisJobManager
+from .analysis_model_runners import (
+    current_embedding_analysis_output,
+    embedding_analysis_output,
+)
 from .analysis_pipeline import AnalysisPipelineManager
 from .analysis_queue import AnalysisStageQueue
 from .classifier_jobs import ClassifierJobManager
@@ -47,7 +51,6 @@ from .classifier_production import build_classifier_calibration_report, normaliz
 from .classifier_scoring import analyze_classifier as run_classifier_analysis, promoted_classifiers
 from .database import LibraryDatabase
 from .db_evaluation import PROMOTED_SCORE_PROFILE_SETTING_KEY
-from .db_schema import CURRENT_SCHEMA_VERSION
 from .dependencies import require_ffmpeg
 from .embedding import ClapEmbeddingAdapter
 from .evaluation.ablation import build_source_ablation_report
@@ -78,7 +81,9 @@ from .search import SearchFilters, SimilaritySearch
 from .vector_index import VectorIndexUnavailable
 
 
-app = typer.Typer(help="Local dj-track-similarity utility.")
+app = typer.Typer(
+    help="Local dj-track-similarity utility for greenfield v7 library bundles."
+)
 eval_app = typer.Typer(help="Build local evaluation diagnostics and optional manual-feedback reports.")
 classifier_app = typer.Typer(help="Inspect promoted classifier production reports and label suggestions.")
 index_app = typer.Typer(help="Build, verify, benchmark, and clear optional persistent ANN sidecar indexes.")
@@ -88,29 +93,27 @@ app.add_typer(index_app, name="index")
 LOGGER = logging.getLogger(__name__)
 
 
-def _db(path: Optional[Path]) -> LibraryDatabase:
-    log_path = configure_logging()
+def _db(
+    path: Optional[Path],
+    *,
+    configure_file_logging: bool = True,
+) -> LibraryDatabase:
+    log_path = configure_logging() if configure_file_logging else None
     db_path = path or Path("dj-track-similarity.sqlite")
     LOGGER.info("CLI database opened db_path=%s log_path=%s", db_path, log_path)
-    return LibraryDatabase(db_path)
-
-
-def _cli_db_path(path: Optional[Path]) -> Path:
-    return (path or Path("dj-track-similarity.sqlite")).expanduser().resolve(strict=False)
+    try:
+        return LibraryDatabase(db_path)
+    except (OSError, RuntimeError, ValueError) as error:
+        typer.secho(
+            f"Cannot open v7 library database bundle at {db_path}: {error}",
+            err=True,
+            fg=typer.colors.RED,
+        )
+        raise typer.Exit(1) from error
 
 
 def _evaluation_db(path: Optional[Path]) -> LibraryDatabase:
-    try:
-        db = _db(path)
-        with db.connect() as connection:
-            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-    except RuntimeError as error:
-        typer.secho(f"Evaluation commands require SQLite schema v{CURRENT_SCHEMA_VERSION}. {error}", err=True, fg=typer.colors.RED)
-        raise typer.Exit(1) from error
-    if version != CURRENT_SCHEMA_VERSION:
-        typer.secho(f"Evaluation commands require SQLite schema v{CURRENT_SCHEMA_VERSION}; found v{version}.", err=True, fg=typer.colors.RED)
-        raise typer.Exit(1)
-    return db
+    return _db(path)
 
 
 def _write_json_report(path: Path, report: dict[str, object]) -> None:
@@ -258,10 +261,18 @@ def _parse_analysis_device(value: str | None) -> str:
 
 @index_app.command("build")
 def index_build(
-    adapter: str = typer.Option(..., "--adapter", "--embedding-key", help="Embedding adapter to index: mert, maest, or clap."),
+    model: str = typer.Option(
+        ...,
+        "--model",
+        help="Active embedding model family: maest, mert, muq, or clap.",
+    ),
     db_path: Optional[Path] = typer.Option(None, "--db"),
     index_dir: Optional[Path] = typer.Option(None, "--index-dir", file_okay=False, help="Sidecar directory. Defaults beside the selected database."),
-    backend: str = typer.Option("auto", "--backend", help="Index backend: auto, hnswlib, or exact-numpy. auto prefers hnswlib."),
+    backend: str = typer.Option(
+        "hnswlib",
+        "--backend",
+        help="Persistent ANN backend. Only hnswlib is supported.",
+    ),
     ef_construction: int = typer.Option(200, "--ef-construction", min=1, help="HNSW ef_construction setting."),
     m: int = typer.Option(16, "--m", min=1, help="HNSW M setting."),
     ef_search: int = typer.Option(100, "--ef-search", min=1, help="HNSW ef_search setting saved in the manifest."),
@@ -269,7 +280,8 @@ def index_build(
     try:
         result = build_persistent_index(
             _db(db_path),
-            adapter,
+            model,
+            analysis_output=current_embedding_analysis_output(model),
             index_dir=index_dir,
             backend=backend,
             ef_construction=ef_construction,
@@ -283,7 +295,7 @@ def index_build(
     for warning in result.warnings:
         typer.secho(f"warning: {warning}", err=True, fg=typer.colors.YELLOW)
     typer.echo(
-        f"status=ok adapter={result.adapter} backend={result.backend} tracks={result.embedding_count} "
+        f"status=ok model={result.analysis_family} backend={result.backend} tracks={result.embedding_count} "
         f"dim={result.embedding_dim} build_seconds={result.build_seconds:.3f} "
         f"index_size_bytes={result.index_size_bytes} index_dir={result.index_dir} "
         f"artifact={result.artifact_path} manifest={result.manifest_path}"
@@ -292,18 +304,27 @@ def index_build(
 
 @index_app.command("verify")
 def index_verify(
-    adapter: str = typer.Option(..., "--adapter", "--embedding-key", help="Embedding adapter to verify: mert, maest, or clap."),
+    model: str = typer.Option(
+        ...,
+        "--model",
+        help="Active embedding model family: maest, mert, muq, or clap.",
+    ),
     db_path: Optional[Path] = typer.Option(None, "--db"),
     index_dir: Optional[Path] = typer.Option(None, "--index-dir", file_okay=False, help="Sidecar directory. Defaults beside the selected database."),
 ) -> None:
     try:
-        verification = verify_persistent_index(_db(db_path), adapter, index_dir=index_dir)
+        verification = verify_persistent_index(
+            _db(db_path),
+            model,
+            analysis_output=current_embedding_analysis_output(model),
+            index_dir=index_dir,
+        )
     except (ValueError, VectorIndexUnavailable) as error:
         typer.secho(str(error), err=True, fg=typer.colors.RED)
         raise typer.Exit(1) from error
 
     output = (
-        f"status={verification.status} adapter={verification.adapter} index_dir={verification.index_dir} "
+        f"status={verification.status} model={verification.analysis_family} index_dir={verification.index_dir} "
         f"artifact={verification.artifact_path} manifest={verification.manifest_path}"
     )
     if verification.is_usable:
@@ -318,7 +339,11 @@ def index_verify(
 
 @index_app.command("benchmark")
 def index_benchmark(
-    adapter: str = typer.Option(..., "--adapter", "--embedding-key", help="Embedding adapter to benchmark: mert, maest, or clap."),
+    model: str = typer.Option(
+        ...,
+        "--model",
+        help="Active embedding model family: maest, mert, muq, or clap.",
+    ),
     db_path: Optional[Path] = typer.Option(None, "--db"),
     index_dir: Optional[Path] = typer.Option(None, "--index-dir", file_okay=False, help="Sidecar directory. Defaults beside the selected database."),
     compare: str = typer.Option("exact", "--compare", help="Comparison backend. Only exact is supported."),
@@ -334,7 +359,8 @@ def index_benchmark(
     try:
         report = benchmark_persistent_index(
             _db(db_path),
-            adapter,
+            model,
+            analysis_output=current_embedding_analysis_output(model),
             index_dir=index_dir,
             threshold=threshold,
             recall_k=recall_k,
@@ -351,7 +377,7 @@ def index_benchmark(
     primary = report["recall"][f"recall_at_{report['primary_recall_k']}"]["mean"]
     output_text = str(output_path) if output_path is not None else "not_written"
     typer.echo(
-        f"status={report['status']} adapter={report['adapter']} backend={report['backend']} "
+        f"status={report['status']} model={report['analysis_family']} backend={report['backend']} "
         f"recall_at_{report['primary_recall_k']}={float(primary):.4f} threshold={float(report['threshold']):.4f} "
         f"seeds={report['seed_count']} p50_latency_ms={float(report['p50_latency']):.3f} "
         f"p95_latency_ms={float(report['p95_latency']):.3f} index_size_bytes={report['index_size_bytes']} "
@@ -363,18 +389,28 @@ def index_benchmark(
 
 @index_app.command("clear")
 def index_clear(
-    adapter: Optional[str] = typer.Option(None, "--adapter", "--embedding-key", help="Optional adapter to clear. Omit to clear all generated sidecar index files."),
+    model: Optional[str] = typer.Option(
+        None,
+        "--model",
+        help="Optional model family to clear. Omit to clear all generated indexes.",
+    ),
     db_path: Optional[Path] = typer.Option(None, "--db"),
     index_dir: Optional[Path] = typer.Option(None, "--index-dir", file_okay=False, help="Sidecar directory. Defaults beside the selected database."),
 ) -> None:
     try:
-        resolved_index_dir = resolve_index_dir(_cli_db_path(db_path), index_dir)
-        result = clear_persistent_indexes(resolved_index_dir, adapter=adapter)
+        resolved_index_dir = resolve_index_dir(_db(db_path), index_dir)
+        result = clear_persistent_indexes(
+            resolved_index_dir,
+            analysis_family=model,
+        )
     except ValueError as error:
         typer.secho(str(error), err=True, fg=typer.colors.RED)
         raise typer.Exit(1) from error
-    adapter_text = result.adapter or "all"
-    typer.echo(f"status=ok adapter={adapter_text} deleted={result.deleted_count} index_dir={result.index_dir}")
+    model_text = result.analysis_family or "all"
+    typer.echo(
+        f"status=ok model={model_text} deleted={result.deleted_count} "
+        f"index_dir={result.index_dir}"
+    )
 
 
 @eval_app.command("export-candidates")
@@ -889,7 +925,11 @@ def classifier_suggest_labels(
 
 @app.command()
 def scan(music_root: Path, db_path: Optional[Path] = typer.Option(None, "--db")) -> None:
-    stats = scan_library(_db(db_path), music_root)
+    try:
+        stats = scan_library(_db(db_path), music_root)
+    except (FileNotFoundError, NotADirectoryError, OSError, ValueError) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
     typer.echo(f"added={stats.added} updated={stats.updated} unchanged={stats.unchanged} skipped={stats.skipped}")
 
 
@@ -950,7 +990,7 @@ def analyze(
     sonara_outputs: str = typer.Option(
         ",".join(DEFAULT_SONARA_OUTPUTS),
         "--sonara-outputs",
-        help="Comma-separated SONARA storage outputs: core,timeline,representations.",
+        help="Comma-separated SONARA outputs: core,timeline,embedding,fingerprint.",
     ),
     sonara_batch_size: int = typer.Option(
         DEFAULT_SONARA_BATCH_SIZE,
@@ -978,6 +1018,8 @@ def analyze(
         raise typer.BadParameter(str(error)) from error
     manager = AnalysisJobManager(_db(db_path))
     try:
+        if "sonara" in config.models:
+            manager.validate_sonara_preflight()
         job_id = manager.create_job(
             models=list(config.models),
             limit=config.limit,
@@ -1072,6 +1114,8 @@ def analyze_pipeline(
     classifier_manager = ClassifierJobManager(db, stage_queue=stage_queue)
     manager = AnalysisPipelineManager(audio_manager, classifier_manager, stage_queue)
     try:
+        if "sonara" in selected_stages:
+            audio_manager.validate_sonara_preflight()
         job_id = manager.create_job(
             stages=selected_stages,
             limit=limit,
@@ -1156,42 +1200,76 @@ def text_search(
     limit: int = typer.Option(50, "--limit", min=1, max=500),
     min_similarity: Optional[float] = typer.Option(None, "--min-similarity"),
     device: str = typer.Option(DEFAULT_ANALYSIS_DEVICE, "--device", help="CLAP device: auto, cpu, or cuda."),
-    use_ann_index: bool = typer.Option(False, "--use-ann-index", help="Opt in to the persistent CLAP ANN sidecar. Missing or stale indexes fall back to exact search."),
+    use_ann_index: bool = typer.Option(False, "--use-ann-index", help="Require the persistent CLAP ANN sidecar instead of exact search."),
     index_dir: Optional[Path] = typer.Option(None, "--index-dir", file_okay=False, help="Persistent index sidecar directory for --use-ann-index."),
 ) -> None:
-    device_name = _parse_analysis_device(device)
-    db = _db(db_path)
-    adapter = ClapEmbeddingAdapter(device=device_name)
-    vector = adapter.embed_text(query.strip())
-    vector_backend = None
-    if use_ann_index:
-        vector_backend = PersistentAnnVectorSearchBackend(db, embedding_key=adapter.embedding_key, index_dir=index_dir)
-    results = SimilaritySearch(db, embedding_key=adapter.embedding_key, vector_backend=vector_backend).search_vector(
-        vector,
-        filters=SearchFilters(min_similarity=min_similarity),
-        limit=limit,
-    )
-    if isinstance(vector_backend, PersistentAnnVectorSearchBackend) and vector_backend.last_fallback_reason:
-        typer.secho(f"warning: ANN sidecar unavailable; used exact search fallback: {vector_backend.last_fallback_reason}", err=True, fg=typer.colors.YELLOW)
-    for result in results:
-        typer.echo(f"{result.score:.3f}\t{result.track.id}\t{result.track.path}")
+    try:
+        device_name = _parse_analysis_device(device)
+        db = _db(db_path)
+        adapter = ClapEmbeddingAdapter(device=device_name)
+        analysis_output = embedding_analysis_output(
+            adapter.embedding_key,
+            adapter,
+        )
+        vector_backend = (
+            PersistentAnnVectorSearchBackend(
+                db,
+                analysis_family=adapter.embedding_key,
+                analysis_output=analysis_output,
+                index_dir=index_dir,
+            )
+            if use_ann_index
+            else None
+        )
+        searcher = SimilaritySearch(
+            db,
+            adapter.embedding_key,
+            analysis_output=analysis_output,
+            vector_backend=vector_backend,
+        )
+        vector = adapter.embed_text(query.strip())
+        results = searcher.search_vector(
+            vector,
+            filters=SearchFilters(min_similarity=min_similarity),
+            limit=limit,
+        )
+        tracks = db.get_track_summaries(
+            [result.target.track_id for result in results]
+        )
+        for result, track in zip(results, tracks, strict=True):
+            if (
+                track.catalog_uuid != result.target.catalog_uuid
+                or track.track_uuid != result.target.track_uuid
+                or track.content_generation
+                != result.target.content_generation
+            ):
+                raise RuntimeError(
+                    "Search result became stale before output: "
+                    f"track_id={result.target.track_id}"
+                )
+            typer.echo(
+                f"{result.score:.3f}\t{track.track_id}\t"
+                f"{track.track_uuid}\t{track.content_generation}\t"
+                f"{track.file_path}"
+            )
+    except (RuntimeError, ValueError, VectorIndexUnavailable) as error:
+        typer.secho(str(error), err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from error
 
 
 @app.command("prepare-sonara-release")
 def prepare_sonara_release(
-    db_path: Path = typer.Option(..., "--db", help="Path to the Core SQLite database."),
-    backup_dir: Path = typer.Option(..., "--backup-dir", help="Directory to write backups into (must exist and be writable)."),
-    sonara_outputs: str = typer.Option(
-        "core,timeline,embedding,fingerprint",
-        "--sonara-outputs",
-        help="Comma-separated SONARA output kinds: core,timeline,embedding,fingerprint.",
-    ),
-    new_release_hash: str = typer.Option(
+    db_path: Path = typer.Option(
         ...,
-        "--new-release-hash",
-        help="The release hash that will become active after preparation (e.g. sha256:<hex>).",
+        "--db",
+        help="Path to the selected v7 Core SQLite database.",
     ),
-    confirm: str = typer.Option(..., "--confirm", help=f'Must be exactly "PREPARE SONARA RELEASE".'),
+    backup_dir: Path = typer.Option(..., "--backup-dir", help="Directory to write backups into (must exist and be writable)."),
+    confirm: str = typer.Option(
+        ...,
+        "--confirm",
+        help='Must be exactly "PREPARE SONARA RELEASE".',
+    ),
 ) -> None:
     """Safely clear all SONARA-derived data before activating a new SONARA release.
 
@@ -1201,96 +1279,33 @@ def prepare_sonara_release(
         LockHeldError,
         PrepareSonaraReleaseError,
         prepare_sonara_release as _prepare,
-        validate_backup_dir,
-        validate_confirm,
-        validate_sonara_outputs,
     )
 
-    try:
-        validate_confirm(confirm)
-    except ValueError as error:
-        typer.secho(str(error), err=True, fg=typer.colors.RED)
-        raise typer.Exit(1) from error
-
-    try:
-        validate_backup_dir(backup_dir)
-    except ValueError as error:
-        typer.secho(str(error), err=True, fg=typer.colors.RED)
-        raise typer.Exit(1) from error
-
-    outputs = [item.strip() for item in sonara_outputs.split(",") if item.strip()]
-    try:
-        validate_sonara_outputs(outputs)
-    except ValueError as error:
-        typer.secho(str(error), err=True, fg=typer.colors.RED)
-        raise typer.Exit(1) from error
-
-    configure_logging()
+    database = _db(db_path)
     try:
         receipt = _prepare(
-            db_path=db_path,
+            database,
             backup_dir=backup_dir,
-            sonara_outputs=outputs,
-            new_release_hash=new_release_hash,
+            confirm=confirm,
         )
     except LockHeldError as error:
         typer.secho(f"SONARA_RELEASE_PREPARATION_REQUIRED: {error}", err=True, fg=typer.colors.RED)
         raise typer.Exit(1) from error
-    except (PrepareSonaraReleaseError, ValueError, RuntimeError) as error:
+    except (
+        FileNotFoundError,
+        OSError,
+        PrepareSonaraReleaseError,
+        RuntimeError,
+        ValueError,
+    ) as error:
         typer.secho(str(error), err=True, fg=typer.colors.RED)
         raise typer.Exit(1) from error
 
     typer.echo(
-        f"status=ok step={receipt['step']} "
-        f"new_release_hash={receipt['new_release_hash']} "
-        f"finalized_at={receipt['finalized_at']}"
+        f"status=ok stage={receipt['stage']} "
+        f"release_hash={receipt['release_hash']} "
+        f"completed_at={receipt['completed_at']}"
     )
-
-
-@app.command("migrate-schema-v7")
-def migrate_schema_v7(
-    source_db: Path = typer.Argument(..., help="Path to the v6 source database (opened read-only)."),
-    destination: Path = typer.Option(..., "--destination", help="Path for the new v7 Core database (must not exist)."),
-    rhythm_lab_labels: Optional[Path] = typer.Option(None, "--rhythm-lab-labels", help="Optional path to v6 Rhythm Lab labels database."),
-    rhythm_lab_destination: Optional[Path] = typer.Option(None, "--rhythm-lab-destination", help="Optional destination for migrated Rhythm Lab database."),
-    report_json: Optional[Path] = typer.Option(None, "--report", help="Optional path to write the migration report JSON."),
-) -> None:
-    """Migrate a v6 SQLite library database to v7 (side-by-side).
-
-    Opens the source read-only via SQLite URI mode=ro. Never mutates source files.
-    Writes a recovery manifest before any rename. Publishes Core LAST.
-    SONARA data is discarded per policy — run full SONARA reanalysis after migration.
-    """
-    from .migrate_v7 import MigrationError, migrate_v7
-
-    configure_logging()
-    try:
-        report = migrate_v7(
-            source=source_db,
-            destination=destination,
-            rhythm_lab_labels=rhythm_lab_labels,
-            rhythm_lab_destination=rhythm_lab_destination,
-            report_path=report_json,
-        )
-    except MigrationError as error:
-        typer.secho(str(error), err=True, fg=typer.colors.RED)
-        raise typer.Exit(1) from error
-    except (FileNotFoundError, RuntimeError, ValueError, OSError) as error:
-        typer.secho(str(error), err=True, fg=typer.colors.RED)
-        raise typer.Exit(1) from error
-
-    typer.echo(
-        f"status=ok "
-        f"tracks={report['tracks_migrated']} "
-        f"maest_scores={report['maest_scores_migrated']} "
-        f"embeddings={report['embeddings_migrated']} "
-        f"classifier_scores={report['classifier_scores_migrated']} "
-        f"discarded_fingerprints={report['discarded_v6_fingerprints']} "
-        f"mixed_contracts={report['mixed_legacy_contracts']}"
-    )
-    if report.get("warnings"):
-        for w in report["warnings"]:
-            typer.secho(f"warning: {w}", err=True, fg=typer.colors.YELLOW)
 
 
 @app.command()
@@ -1315,11 +1330,18 @@ def serve(
     except (RuntimeError, ValueError) as error:
         typer.secho(str(error), err=True, fg=typer.colors.RED)
         raise typer.Exit(1) from error
-    LOGGER.info("Server starting host=%s port=%s db_path=%s log_path=%s", host, port, db_path, log_path)
+    database = _db(db_path, configure_file_logging=False)
+    LOGGER.info(
+        "Server starting host=%s port=%s db_path=%s log_path=%s",
+        host,
+        port,
+        database.path,
+        log_path,
+    )
     LOGGER.debug("ffmpeg available path=%s", ffmpeg_path)
     uvicorn.run(
         create_app(
-            db_path,
+            database.path,
             log_level=log_level,
             log_track_events=log_track_events,
         ),

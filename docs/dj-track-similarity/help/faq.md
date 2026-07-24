@@ -1,51 +1,40 @@
 # FAQ
 
-> Audience: Users who want short answers.
-> Goal: Answer common questions with current behavior.
+> Audience: Users who want short answers about the current v7 runtime.
+> Goal: Separate safe local workflows from legacy assumptions.
 > Type: help
 
 ## Does analysis change audio files?
 
-No. SONARA, MAEST, MERT, MuQ, CLAP, and classifier scoring write SQLite data. They do not rewrite source audio.
+No. SONARA, MAEST, MERT, MuQ, CLAP, and classifier scoring write SQLite data only.
 
 ## Which actions can write audio files?
 
-MAEST genre tag apply, Audio Doctor apply, and Audio Dedup apply. Audio Dedup apply can delete files. Each is explicit and separate from normal search and analysis.
+Only MAEST genre-tag apply, Audio Doctor apply, and Audio Dedup apply. Audio Dedup apply can delete
+files; each is confirmation-gated and separate from normal scan, search, and analysis.
 
-## Does relocation move my music?
+## Can v7 migrate my old database?
 
-No. Relocation apply updates stored SQLite paths only after preview checks pass.
+No. The Python runtime is greenfield schema v7. It does not migrate v5/v6 files, adapt old SONARA
+results, or recreate Timeline/Representations sidecars. A library is Core plus mandatory
+`*.artifacts.sqlite`, bound by `catalog_uuid`; `*.evaluation.sqlite` is optional evaluation state.
 
-## How do I analyze the whole library?
+## What follows a SONARA change?
 
-From CLI, omit `--limit`:
+Run `prepare-sonara-release` with a verified backup location, then reanalyze SONARA. The operation
+uses the exact `core`, `timeline`, `embedding`, and `fingerprint` contracts, writes a durable receipt
+for crash resume, and is ordered rather than distributed-atomic. Retrain, promote, and rescore every
+SONARA-dependent classifier afterward. The project feature revision is `6`.
 
-```powershell
-dj-sim analyze --models sonara --db .\data\library.sqlite
-dj-sim analyze --models maest,mert,muq,clap --db .\data\library.sqlite
-```
+## Why are classifier artifacts blocked?
 
-In the UI, set `Analyze limit` to `0`.
+Runtime scoring requires classifier manifest version `2`. Checked-in version `1` or unversioned
+artifacts must be retrained and promoted. Their scores are not silently reused.
 
-## Do I reset SONARA after the schema v6 migration?
+## Can I use the browser UI with v7?
 
-No. The v5-to-v6 migration already invalidates all old analysis. Run Core and any optional outputs
-you want. See the [split-storage workflow](../workflows/reanalyze-sonara-split-storage.md).
-
-## Why did my SONARA classifier scores disappear?
-
-A project feature-revision change invalidates SONARA-dependent main-library scores and Rhythm Lab
-predictions. Labels and feedback are preserved. Reanalyze SONARA, retrain the profile, promote a
-manifest version `2` artifact, and rescore.
-
-## Why are CLAP text scores lower than MERT scores?
-
-CLAP text search is text-to-audio evidence. MERT seed search is audio-to-audio embedding similarity. They use different scales.
-
-## Can I use the app without model dependencies?
-
-Yes, for scan, browse, serve, export, database selection, and existing SQLite data. Install optional analysis extras when you want new SONARA, MAEST, MERT, MuQ, or CLAP results.
+No. The frontend v7 port is deferred. Use CLI or API contracts for v7 library work.
 
 ## Can I share reports or databases?
 
-Only after review. They can include local file paths, tags, model scores, and notes about your library.
+Review them first: they can contain local paths, tags, scores, and listening decisions.

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import hashlib
@@ -10,7 +10,6 @@ import json
 import os
 import re
 import shutil
-import sqlite3
 import subprocess
 import sys
 import time
@@ -18,6 +17,7 @@ import zipfile
 from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path, PureWindowsPath
+from typing import Protocol
 
 
 READBACK_FAILURE = "Genre tag was not readable after WAV save:"
@@ -139,6 +139,13 @@ class RepairError(Exception):
 
 class AudioDoctorCancelled(RuntimeError):
     pass
+
+
+class TrackPathRecord(Protocol):
+    """Typed repository projection used for database-backed path collection."""
+
+    track_id: int
+    file_path: str
 
 
 @dataclass(frozen=True)
@@ -1159,7 +1166,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         action="append",
         type=Path,
         default=[],
-        help="SQLite library database to read tracks.path values from.",
+        help="V7 SQLite library database to read tracks.file_path values from.",
     )
     parser.add_argument(
         "--db-root",
@@ -1275,31 +1282,82 @@ def collect_db_paths(dbs: list[Path], *, db_roots: list[Path], file_root: Path |
     paths: list[Path] = []
     missing = 0
     for db_path in dbs:
-        for db_track_path in paths_from_db(db_path, db_roots=db_roots, file_root=file_root):
-            if db_track_path.exists():
-                paths.append(db_track_path)
-            else:
-                missing += 1
+        database_paths, database_missing = collect_repository_paths(
+            _track_path_records_from_db(db_path),
+            db_roots=db_roots,
+            file_root=file_root,
+        )
+        paths.extend(database_paths)
+        missing += database_missing
     return paths, missing
 
 
 def paths_from_db(db_path: Path, *, db_roots: list[Path], file_root: Path | None) -> list[Path]:
-    if not db_path.exists():
-        raise RepairError(f"Database does not exist: {db_path}")
-    rows: list[str] = []
-    uri = f"{db_path.resolve().as_uri()}?mode=ro"
-    try:
-        with sqlite3.connect(uri, uri=True) as connection:
-            rows = [row[0] for row in connection.execute("SELECT path FROM tracks ORDER BY path") if isinstance(row[0], str)]
-    except sqlite3.Error as error:
-        raise RepairError(f"Could not read database tracks: {db_path}: {error}") from error
+    """Return supported v7 track paths through the canonical repository."""
+
+    return paths_from_track_records(
+        _track_path_records_from_db(db_path),
+        db_roots=db_roots,
+        file_root=file_root,
+    )
+
+
+def collect_repository_paths(
+    track_paths: Iterable[TrackPathRecord],
+    *,
+    db_roots: list[Path],
+    file_root: Path | None,
+) -> tuple[list[Path], int]:
+    """Resolve typed repository paths and count files absent on disk."""
+
+    existing: list[Path] = []
+    missing = 0
+    for path in paths_from_track_records(
+        track_paths,
+        db_roots=db_roots,
+        file_root=file_root,
+    ):
+        if path.exists():
+            existing.append(path)
+        else:
+            missing += 1
+    return existing, missing
+
+
+def paths_from_track_records(
+    track_paths: Iterable[TrackPathRecord],
+    *,
+    db_roots: list[Path],
+    file_root: Path | None,
+) -> list[Path]:
+    """Map canonical ``TrackPath.file_path`` values to local audio paths."""
 
     result: list[Path] = []
-    for path_text in rows:
-        resolved_path = remap_db_track_path(path_text, db_roots=db_roots, file_root=file_root)
-        if resolved_path is not None and resolved_path.suffix.lower() in AUDIO_EXTENSIONS:
+    for track_path in track_paths:
+        path_text = track_path.file_path
+        resolved_path = remap_db_track_path(
+            path_text,
+            db_roots=db_roots,
+            file_root=file_root,
+        )
+        if (
+            resolved_path is not None
+            and resolved_path.suffix.lower() in AUDIO_EXTENSIONS
+        ):
             result.append(resolved_path)
     return result
+
+
+def _track_path_records_from_db(db_path: Path) -> list[TrackPathRecord]:
+    if not db_path.exists():
+        raise RepairError(f"Database does not exist: {db_path}")
+    try:
+        from dj_track_similarity.database import LibraryDatabase
+
+        database = LibraryDatabase(db_path)
+        return database.list_track_paths(include_missing=True)
+    except Exception as error:
+        raise RepairError(f"Could not read database tracks: {db_path}: {error}") from error
 
 
 def remap_db_track_path(path_text: str, *, db_roots: list[Path], file_root: Path | None) -> Path | None:
@@ -2298,7 +2356,7 @@ def apply_repaired_file(
         actions.append("container verification passed")
         inspection = verify_post_write_inspection(path)
         actions.append("post-write inspection passed")
-    except Exception as error:
+    except Exception:
         restore_backup(path, backup_path, actions=actions)
         delete_backup(backup_path, actions=actions)
         raise

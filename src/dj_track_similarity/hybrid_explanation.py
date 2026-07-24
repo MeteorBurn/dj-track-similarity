@@ -5,11 +5,12 @@ from dataclasses import dataclass
 import math
 from typing import Any
 
-from .models import Track
-from .sonara_contract import current_sonara_features
-from .sonara_similarity_scoring import optional_float, unwrap_feature_value
-from .tempo_resolution import confidence_aware_tempo_score, resolve_tempo_evidence
+from .tempo_resolution import (
+    confidence_aware_tempo_score,
+    resolve_tempo_evidence,
+)
 from .track_resolution import resolve_track_energy
+from .transition_diagnostics import TransitionTrack
 
 
 MATCH_CHARACTER_AXES = (
@@ -37,7 +38,12 @@ RISK_BREAKDOWN_COMPONENTS = {
 }
 EMBEDDING_SOURCES = {"mert", "maest", "clap"}
 SONARA_GROOVE_FIELDS = ("bpm", "onset_density", "danceability")
-SONARA_DENSITY_FIELDS = ("onset_density", "rms_mean", "loudness_lufs", "dynamic_range_db")
+SONARA_DENSITY_FIELDS = (
+    "onset_density",
+    "rms_mean",
+    "loudness_lufs",
+    "dynamic_range_db",
+)
 SONARA_TEXTURE_FIELDS = (
     "mfcc_mean",
     "spectral_centroid_mean",
@@ -67,8 +73,8 @@ class HybridExplanation:
 
 def build_hybrid_explanation(
     *,
-    candidate_track: Track,
-    seed_tracks: Sequence[Track],
+    candidate_track: TransitionTrack,
+    seed_tracks: Sequence[TransitionTrack],
     source_contributions: Mapping[str, Any],
     source_seed_diagnostics: Mapping[str, Mapping[str, Any]],
     score_breakdown: Mapping[str, Mapping[str, float | int]],
@@ -80,7 +86,9 @@ def build_hybrid_explanation(
     clean_total_score = _finite_float(total_score, "total_score")
     clean_score_breakdown = _clean_score_breakdown(score_breakdown)
     clean_classifier_support = _clean_classifier_support(classifier_support or {})
-    risk_breakdown = _risk_breakdown(transition_diagnostics, classifier_support=clean_classifier_support)
+    risk_breakdown = _risk_breakdown(
+        transition_diagnostics, classifier_support=clean_classifier_support
+    )
     source_support = _source_support(
         sources,
         source_contributions=source_contributions,
@@ -119,7 +127,9 @@ def build_hybrid_explanation(
     )
 
 
-def _clean_score_breakdown(score_breakdown: Mapping[str, Mapping[str, float | int]]) -> dict[str, dict[str, float | int]]:
+def _clean_score_breakdown(
+    score_breakdown: Mapping[str, Mapping[str, float | int]],
+) -> dict[str, dict[str, float | int]]:
     return {
         str(source): {
             str(name): _finite_number(value, f"score_breakdown.{source}.{name}")
@@ -150,12 +160,16 @@ def _source_support(
             "contribution": _optional_finite_float(details.get("contribution")),
             "best_seed_track_id": _optional_int(diagnostics.get("best_seed_track_id")),
             "best_rank": _optional_int(diagnostics.get("best_rank")),
-            "supporting_seed_track_ids": _int_list(diagnostics.get("supporting_seed_track_ids")),
+            "supporting_seed_track_ids": _int_list(
+                diagnostics.get("supporting_seed_track_ids")
+            ),
         }
     return support
 
 
-def _clean_classifier_support(classifier_support: Mapping[str, Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
+def _clean_classifier_support(
+    classifier_support: Mapping[str, Mapping[str, Any]],
+) -> dict[str, dict[str, Any]]:
     support: dict[str, dict[str, Any]] = {}
     for classifier_key, details in sorted(classifier_support.items()):
         support[str(classifier_key)] = {
@@ -163,8 +177,12 @@ def _clean_classifier_support(classifier_support: Mapping[str, Mapping[str, Any]
             "score": _optional_unit_interval(details.get("score")),
             "preference": _optional_signed_unit(details.get("preference")),
             "risk_weight": _optional_unit_interval(details.get("risk_weight")),
-            "score_contribution": _optional_finite_float(details.get("score_contribution")),
-            "risk_contribution": _optional_unit_interval(details.get("risk_contribution")),
+            "score_contribution": _optional_finite_float(
+                details.get("score_contribution")
+            ),
+            "risk_contribution": _optional_unit_interval(
+                details.get("risk_contribution")
+            ),
             "fresh": _optional_bool(details.get("fresh")),
             "stale": _optional_bool(details.get("stale")),
             "stored_model_id": _optional_text(details.get("stored_model_id")),
@@ -177,6 +195,13 @@ def _clean_classifier_support(classifier_support: Mapping[str, Mapping[str, Any]
             "description": _optional_text(details.get("description")),
             "missing_score_policy": _optional_text(details.get("missing_score_policy")),
             "hybrid_signal_source": _optional_text(details.get("hybrid_signal_source")),
+            "feature_set": _optional_text(details.get("feature_set")),
+            "feature_manifest_hash": _optional_text(
+                details.get("feature_manifest_hash")
+            ),
+            "uses_sonara": _optional_bool(details.get("uses_sonara")),
+            "sonara_release_hash": _optional_text(details.get("sonara_release_hash")),
+            "positive_label": _optional_text(details.get("positive_label")),
         }
     return support
 
@@ -195,7 +220,10 @@ def _risk_breakdown(
             for component_name, stable_name in RISK_BREAKDOWN_COMPONENTS.items()
         }
     for support in classifier_support.values():
-        if support.get("available") is not True or support.get("role") != "risk_penalty":
+        if (
+            support.get("available") is not True
+            or support.get("role") != "risk_penalty"
+        ):
             continue
         risk = _optional_unit_interval(support.get("risk_contribution"))
         if risk is None:
@@ -208,12 +236,15 @@ def _risk_breakdown(
 
 def _match_character(
     *,
-    candidate_track: Track,
-    seed_tracks: Sequence[Track],
+    candidate_track: TransitionTrack,
+    seed_tracks: Sequence[TransitionTrack],
     source_support: Mapping[str, Mapping[str, Any]],
     risk_breakdown: Mapping[str, float | None],
 ) -> dict[str, float]:
-    source_scores = {source: _source_quality(source, support) for source, support in source_support.items()}
+    source_scores = {
+        source: _source_quality(source, support)
+        for source, support in source_support.items()
+    }
     values = {
         "groove": _axis_score(
             source_scores.get("mert"),
@@ -229,7 +260,9 @@ def _match_character(
             source_scores.get("mert"),
             source_scores.get("maest"),
             _sonara_similarity(seed_tracks, candidate_track, SONARA_TEXTURE_FIELDS),
-            _classifier_similarity(seed_tracks, candidate_track, TEXTURE_CLASSIFIER_KEYWORDS),
+            _classifier_similarity(
+                seed_tracks, candidate_track, TEXTURE_CLASSIFIER_KEYWORDS
+            ),
         ),
         "mood": _axis_score(
             source_scores.get("clap"),
@@ -242,7 +275,9 @@ def _match_character(
             _sonara_similarity(seed_tracks, candidate_track, SONARA_TONAL_FIELDS),
         ),
         "vocalness": _axis_score(
-            _classifier_similarity(seed_tracks, candidate_track, VOCAL_CLASSIFIER_KEYWORDS),
+            _classifier_similarity(
+                seed_tracks, candidate_track, VOCAL_CLASSIFIER_KEYWORDS
+            ),
         ),
         "energy_flow": _axis_score(
             _risk_to_match(risk_breakdown.get("energy_jump")),
@@ -283,39 +318,52 @@ def _risk_to_match(risk: float | None) -> float | None:
     return _clamp01(1.0 - risk)
 
 
-def _sonara_similarity(seed_tracks: Sequence[Track], candidate_track: Track, fields: Sequence[str]) -> float | None:
-    candidate_features = _sonara_features(candidate_track)
-    if candidate_features is None:
+def _sonara_similarity(
+    seed_tracks: Sequence[TransitionTrack],
+    candidate_track: TransitionTrack,
+    fields: Sequence[str],
+) -> float | None:
+    if candidate_track.sonara is None:
         return None
-    seed_features = [_sonara_features(track) for track in seed_tracks]
-    seed_features = [features for features in seed_features if features is not None]
-    if not seed_features:
+    comparable_seeds = [track for track in seed_tracks if track.sonara is not None]
+    if not comparable_seeds:
         return None
     similarities = [
         similarity
-        for seed_feature in seed_features
+        for seed_track in comparable_seeds
         for field in fields
-        if (similarity := _feature_similarity(seed_feature, candidate_features, field)) is not None
+        if (
+            similarity := _feature_similarity(
+                seed_track,
+                candidate_track,
+                field,
+            )
+        )
+        is not None
     ]
     return _mean_unit_values(*similarities)
 
 
-def _sonara_features(track: Track) -> Mapping[str, Any] | None:
-    metadata = track.metadata or {}
-    features = current_sonara_features(metadata)
-    return features if isinstance(features, Mapping) else None
-
-
-def _feature_similarity(seed_features: Mapping[str, Any], candidate_features: Mapping[str, Any], field: str) -> float | None:
-    seed_value = unwrap_feature_value(seed_features.get(field))
-    candidate_value = unwrap_feature_value(candidate_features.get(field))
+def _feature_similarity(
+    seed_track: TransitionTrack,
+    candidate_track: TransitionTrack,
+    field: str,
+) -> float | None:
     if field == "bpm":
-        seed_tempo = resolve_tempo_evidence({"metadata": {}}, sonara_features=seed_features)
-        candidate_tempo = resolve_tempo_evidence({"metadata": {}}, sonara_features=candidate_features)
+        seed_tempo = resolve_tempo_evidence(
+            seed_track.identity,
+            seed_track.summary,
+            seed_track.sonara,
+        )
+        candidate_tempo = resolve_tempo_evidence(
+            candidate_track.identity,
+            candidate_track.summary,
+            candidate_track.sonara,
+        )
         score = confidence_aware_tempo_score(candidate_tempo, seed_tempo)
         return _clamp01(score) if score is not None else None
-    seed_values = _numeric_values(seed_value)
-    candidate_values = _numeric_values(candidate_value)
+    seed_values = _feature_values(seed_track, field)
+    candidate_values = _feature_values(candidate_track, field)
     if not seed_values or not candidate_values:
         return None
     pair_count = min(len(seed_values), len(candidate_values))
@@ -326,20 +374,43 @@ def _feature_similarity(seed_features: Mapping[str, Any], candidate_features: Ma
     return _mean_unit_values(*pair_similarities)
 
 
-def _numeric_values(value: object) -> tuple[float, ...]:
-    value = unwrap_feature_value(value)
-    if isinstance(value, Mapping):
-        summary = value.get("summary")
-        if isinstance(summary, Mapping):
-            return tuple(
-                number
-                for key in ("mean", "std", "min", "max")
-                if (number := optional_float(summary.get(key))) is not None
-            )
+_FEATURE_COLUMNS: Mapping[str, str] = {
+    "onset_density": "onset_density_per_second",
+    "danceability": "danceability_score",
+    "rms_mean": "rms_mean",
+    "loudness_lufs": "integrated_loudness_lufs",
+    "dynamic_range_db": "dynamic_range_db",
+    "mfcc_mean": "mfcc_mean_blob",
+    "spectral_centroid_mean": "spectral_centroid_hz",
+    "spectral_bandwidth_mean": "spectral_bandwidth_hz",
+    "spectral_rolloff_mean": "spectral_rolloff_hz",
+    "spectral_flatness_mean": "spectral_flatness",
+    "spectral_contrast_mean": "spectral_contrast_mean_blob",
+    "energy": "energy_score",
+    "valence": "valence_score",
+    "acousticness": "acousticness_score",
+    "chroma_mean": "chroma_mean_blob",
+    "dissonance": "dissonance_score",
+}
+
+
+def _feature_values(
+    track: TransitionTrack,
+    field: str,
+) -> tuple[float, ...]:
+    if track.sonara is None:
         return ()
+    column = _FEATURE_COLUMNS.get(field)
+    if column is None:
+        return ()
+    value = track.sonara.values.get(column)
     if isinstance(value, (list, tuple)):
-        return tuple(number for item in value if (number := optional_float(item)) is not None)
-    number = optional_float(value)
+        return tuple(
+            number
+            for item in value
+            if (number := _optional_finite_float(item)) is not None
+        )
+    number = _optional_finite_float(value)
     return (number,) if number is not None else ()
 
 
@@ -348,14 +419,20 @@ def _numeric_similarity(seed_value: float, candidate_value: float) -> float:
     return _clamp01(1.0 - abs(candidate_value - seed_value) / scale)
 
 
-def _classifier_similarity(seed_tracks: Sequence[Track], candidate_track: Track, keywords: Sequence[str]) -> float | None:
+def _classifier_similarity(
+    seed_tracks: Sequence[TransitionTrack],
+    candidate_track: TransitionTrack,
+    keywords: Sequence[str],
+) -> float | None:
     candidate_scores = _classifier_scores(candidate_track, keywords)
     if not candidate_scores:
         return None
     seed_scores = [_classifier_scores(track, keywords) for track in seed_tracks]
     similarities: list[float] = []
     for classifier_key, candidate_score in candidate_scores.items():
-        comparable_seed_scores = [scores[classifier_key] for scores in seed_scores if classifier_key in scores]
+        comparable_seed_scores = [
+            scores[classifier_key] for scores in seed_scores if classifier_key in scores
+        ]
         if not comparable_seed_scores:
             continue
         seed_score = sum(comparable_seed_scores) / len(comparable_seed_scores)
@@ -363,16 +440,15 @@ def _classifier_similarity(seed_tracks: Sequence[Track], candidate_track: Track,
     return _mean_unit_values(*similarities)
 
 
-def _classifier_scores(track: Track, keywords: Sequence[str]) -> dict[str, float]:
-    scores = track.classifier_scores or {}
-    result: dict[str, float] = {}
-    for classifier_key, payload in scores.items():
-        if not _contains_keyword(classifier_key, keywords):
-            continue
-        score = optional_float(payload.get("score") if isinstance(payload, Mapping) else None)
-        if score is not None:
-            result[str(classifier_key)] = _clamp01(score)
-    return result
+def _classifier_scores(
+    track: TransitionTrack,
+    keywords: Sequence[str],
+) -> dict[str, float]:
+    return {
+        score.classifier_key: _clamp01(score.score)
+        for score in track.summary.classifier_scores
+        if _contains_keyword(score.classifier_key, keywords)
+    }
 
 
 def _contains_keyword(value: object, keywords: Sequence[str]) -> bool:
@@ -380,11 +456,29 @@ def _contains_keyword(value: object, keywords: Sequence[str]) -> bool:
     return any(keyword in text for keyword in keywords)
 
 
-def _track_energy_similarity(seed_tracks: Sequence[Track], candidate_track: Track) -> float | None:
-    candidate_energy = resolve_track_energy(candidate_track)
+def _track_energy_similarity(
+    seed_tracks: Sequence[TransitionTrack],
+    candidate_track: TransitionTrack,
+) -> float | None:
+    candidate_energy = resolve_track_energy(
+        candidate_track.identity,
+        candidate_track.summary,
+        candidate_track.sonara,
+    )
     if candidate_energy is None:
         return None
-    seed_energies = [energy for track in seed_tracks if (energy := resolve_track_energy(track)) is not None]
+    seed_energies = [
+        energy
+        for track in seed_tracks
+        if (
+            energy := resolve_track_energy(
+                track.identity,
+                track.summary,
+                track.sonara,
+            )
+        )
+        is not None
+    ]
     if not seed_energies:
         return None
     seed_energy = sum(seed_energies) / len(seed_energies)
@@ -392,11 +486,17 @@ def _track_energy_similarity(seed_tracks: Sequence[Track], candidate_track: Trac
 
 
 def _novelty_score(source_support: Mapping[str, Mapping[str, Any]]) -> float | None:
-    available_support = [support for support in source_support.values() if support.get("available") is True]
+    available_support = [
+        support
+        for support in source_support.values()
+        if support.get("available") is True
+    ]
     if not available_support:
         return None
     ranks = [_optional_int(support.get("rank")) for support in available_support]
-    rank_novelty = _mean_unit_values(*(_rank_novelty(rank) for rank in ranks if rank is not None))
+    rank_novelty = _mean_unit_values(
+        *(_rank_novelty(rank) for rank in ranks if rank is not None)
+    )
     multi_source_bonus = _clamp01((len(available_support) - 1) / 3.0)
     if rank_novelty is None:
         return 0.5 + 0.15 * multi_source_bonus
@@ -431,10 +531,17 @@ def _warnings(
     warning_items.extend(_classifier_warning_items(classifier_support))
     warning_items.extend(_transition_warning_items(transition_diagnostics))
     deduped = {text: severity for severity, text in warning_items}
-    return tuple(text for text, _severity in sorted(deduped.items(), key=lambda item: (item[1], item[0])))
+    return tuple(
+        text
+        for text, _severity in sorted(
+            deduped.items(), key=lambda item: (item[1], item[0])
+        )
+    )
 
 
-def _risk_warning_items(risk_breakdown: Mapping[str, float | None]) -> list[tuple[int, str]]:
+def _risk_warning_items(
+    risk_breakdown: Mapping[str, float | None],
+) -> list[tuple[int, str]]:
     labels = {
         "bpm": "BPM",
         "tonal": "tonal",
@@ -454,7 +561,9 @@ def _risk_warning_items(risk_breakdown: Mapping[str, float | None]) -> list[tupl
         if risk >= 0.75:
             warning_items.append((0, f"Risk estimate: {label} risk is elevated."))
         elif risk >= 0.45:
-            warning_items.append((1, f"Risk estimate: {label} needs a listening check."))
+            warning_items.append(
+                (1, f"Risk estimate: {label} needs a listening check.")
+            )
     return warning_items
 
 
@@ -469,14 +578,22 @@ def _axis_warning_items(match_character: Mapping[str, float]) -> list[tuple[int,
     return warning_items
 
 
-def _source_warning_items(source_support: Mapping[str, Mapping[str, Any]]) -> list[tuple[int, str]]:
-    available_sources = [source for source, support in source_support.items() if support.get("available") is True]
+def _source_warning_items(
+    source_support: Mapping[str, Mapping[str, Any]],
+) -> list[tuple[int, str]]:
+    available_sources = [
+        source
+        for source, support in source_support.items()
+        if support.get("available") is True
+    ]
     if len(available_sources) <= 1:
         return [(2, "Reason signals: source support is narrow.")]
     return []
 
 
-def _classifier_warning_items(classifier_support: Mapping[str, Mapping[str, Any]]) -> list[tuple[int, str]]:
+def _classifier_warning_items(
+    classifier_support: Mapping[str, Mapping[str, Any]],
+) -> list[tuple[int, str]]:
     warning_items: list[tuple[int, str]] = []
     for classifier_key, support in classifier_support.items():
         if support.get("available") is not True:
@@ -485,33 +602,63 @@ def _classifier_warning_items(classifier_support: Mapping[str, Mapping[str, Any]
         axis = _optional_text(support.get("axis"))
         role = _optional_text(support.get("role"))
         if support.get("stale") is True:
-            warning_items.append((1, f"Classifier signal: {label} has stale stored scores; treat it as a local listening cue."))
-        score_contribution = _optional_finite_float(support.get("score_contribution")) or 0.0
+            warning_items.append(
+                (
+                    1,
+                    f"Classifier signal: {label} has stale stored scores; treat it as a local listening cue.",
+                )
+            )
+        score_contribution = (
+            _optional_finite_float(support.get("score_contribution")) or 0.0
+        )
         risk_contribution = _optional_unit_interval(support.get("risk_contribution"))
         if risk_contribution is not None and risk_contribution >= 0.45:
             axis_text = f" {axis}" if axis else ""
-            warning_items.append((1, f"Classifier signal: {label} suggests a{axis_text} listening-risk check."))
+            warning_items.append(
+                (
+                    1,
+                    f"Classifier signal: {label} suggests a{axis_text} listening-risk check.",
+                )
+            )
         if abs(score_contribution) >= 0.08:
             direction = "supports" if score_contribution > 0 else "pulls down"
             axis_text = f" on {axis}" if axis else ""
             role_text = f" ({role.replace('_', ' ')})" if role else ""
-            warning_items.append((3, f"Classifier signal: {label} {direction} this row{axis_text}{role_text}."))
+            warning_items.append(
+                (
+                    3,
+                    f"Classifier signal: {label} {direction} this row{axis_text}{role_text}.",
+                )
+            )
     return warning_items
 
 
-def _transition_warning_items(transition_diagnostics: Mapping[str, Any]) -> list[tuple[int, str]]:
+def _transition_warning_items(
+    transition_diagnostics: Mapping[str, Any],
+) -> list[tuple[int, str]]:
     raw_warnings = transition_diagnostics.get("warnings")
     if not isinstance(raw_warnings, list):
         return []
-    missing_components = sorted(_missing_component_name(warning) for warning in raw_warnings if str(warning).startswith("missing_"))
+    missing_components = sorted(
+        _missing_component_name(warning)
+        for warning in raw_warnings
+        if str(warning).startswith("missing_")
+    )
     warning_items: list[tuple[int, str]] = []
     if missing_components:
-        warning_items.append((3, f"Unsupervised diagnostic: unavailable {', '.join(missing_components)} data kept neutral."))
+        warning_items.append(
+            (
+                3,
+                f"Unsupervised diagnostic: unavailable {', '.join(missing_components)} data kept neutral.",
+            )
+        )
     for warning in raw_warnings:
         warning_text = str(warning)
         if warning_text.startswith("missing_"):
             continue
-        warning_items.append((2, f"Unsupervised diagnostic: {warning_text.replace('_', ' ')}."))
+        warning_items.append(
+            (2, f"Unsupervised diagnostic: {warning_text.replace('_', ' ')}.")
+        )
     return warning_items
 
 
@@ -539,18 +686,26 @@ def _explanation_lines(
 def _strongest_axes(match_character: Mapping[str, float]) -> tuple[str, ...]:
     return tuple(
         axis
-        for axis, _value in sorted(match_character.items(), key=lambda item: (-item[1], item[0]))[:3]
+        for axis, _value in sorted(
+            match_character.items(), key=lambda item: (-item[1], item[0])
+        )[:3]
     )
 
 
 def _source_support_phrase(source_support: Mapping[str, Mapping[str, Any]]) -> str:
-    available_sources = [source.upper() for source, support in source_support.items() if support.get("available") is True]
+    available_sources = [
+        source.upper()
+        for source, support in source_support.items()
+        if support.get("available") is True
+    ]
     if not available_sources:
         return "no source returned a supported row"
     return f"{', '.join(available_sources)} support this row"
 
 
-def _classifier_support_phrase(classifier_support: Mapping[str, Mapping[str, Any]]) -> str:
+def _classifier_support_phrase(
+    classifier_support: Mapping[str, Mapping[str, Any]],
+) -> str:
     active = [
         _classifier_support_item(classifier_key, support)
         for classifier_key, support in classifier_support.items()
@@ -574,11 +729,15 @@ def _classifier_support_item(classifier_key: str, support: Mapping[str, Any]) ->
     axis = _optional_text(support.get("axis"))
     role = _optional_text(support.get("role"))
     if role == "risk_penalty":
-        descriptor = f"{label} increases {_axis_label(axis) if axis else 'classifier'} risk"
+        descriptor = (
+            f"{label} increases {_axis_label(axis) if axis else 'classifier'} risk"
+        )
     elif contribution is not None and contribution < 0:
         descriptor = f"{label} pulls down {_axis_label(axis) if axis else 'classifier'} preference"
     elif role in {"preference_boost", "preference_penalty"}:
-        descriptor = f"{label} supports {_axis_label(axis) if axis else 'classifier'} preference"
+        descriptor = (
+            f"{label} supports {_axis_label(axis) if axis else 'classifier'} preference"
+        )
     else:
         descriptor = f"{label} score"
     parts = [f"{descriptor} {score:.2f}"]
@@ -614,10 +773,14 @@ def _classifier_risk_breakdown_key(axis: str | None) -> str:
 
 
 def _risk_phrase(risk_breakdown: Mapping[str, float | None]) -> str:
-    available_risks = {name: risk for name, risk in risk_breakdown.items() if risk is not None}
+    available_risks = {
+        name: risk for name, risk in risk_breakdown.items() if risk is not None
+    }
     if not available_risks:
         return "risk data unavailable, neutral values used"
-    highest_name, highest_risk = max(available_risks.items(), key=lambda item: (item[1], item[0]))
+    highest_name, highest_risk = max(
+        available_risks.items(), key=lambda item: (item[1], item[0])
+    )
     return f"highest component is {_risk_label(highest_name)} at {highest_risk:.2f}"
 
 
@@ -701,7 +864,9 @@ def _optional_int(value: object) -> int | None:
 def _int_list(value: object) -> list[int]:
     if isinstance(value, (str, bytes)) or not isinstance(value, Iterable):
         return []
-    return sorted({number for item in value if (number := _optional_int(item)) is not None})
+    return sorted(
+        {number for item in value if (number := _optional_int(item)) is not None}
+    )
 
 
 def _clamp01(value: float) -> float:

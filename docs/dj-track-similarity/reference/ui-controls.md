@@ -1,88 +1,20 @@
-# UI controls reference
+# UI controls status
 
-> Audience: Users who want exact ranges and defaults for common controls.
-> Goal: Keep controls searchable without repeating every guide page.
+> Audience: Users looking for browser control ranges.
+> Goal: Prevent v7 libraries from being operated through stale frontend controls.
 > Type: reference
 
-## Database and scan
+The frontend v7 port is deferred. The current browser controls are not v7-compatible, so this page
+intentionally does not claim current checkbox states, slider ranges, batch defaults, reset actions,
+or database-selection behavior.
 
-| Control | Range or values | Notes |
-| --- | --- | --- |
-| Database path | `.sqlite` path | existing or new local database |
-| Music root | existing folder | scan source |
-| Scan workers | `1..64` API, UI caps near CPU half up to 8 | default `8` for the measured library drive; metadata scan and Refresh Tags |
+Use the current Python CLI and API contracts for schema-v7 work. The supported SONARA output names
+are `core`, `timeline`, `embedding`, and `fingerprint`; there is no `Representations` output or
+separate Timeline/Representations database control. Core and mandatory `*.artifacts.sqlite` are
+bound by `catalog_uuid`; `*.evaluation.sqlite` is optional evaluation state.
 
-## Analysis
+For analysis commands and storage boundaries, see [Analyze a library with v7](../user-guide/analyze-library.md).
+For source-file safety, see [Local-first safety](../concepts/local-first-safety.md).
 
-| Control | Range or values | Notes |
-| --- | --- | --- |
-| Model checkboxes | SONARA, MAEST, MERT, MuQ, CLAP, CLASSIFIERS | SONARA + Core is the default; SONARA, the ML group, and the standalone CLASSIFIERS stage are mutually exclusive unless FULL is used |
-| FULL | on/off | selects every model and the complete SONARA-to-ML-to-CLASSIFIERS pipeline |
-| Analyze limit | `0..100000` in UI | `0` means whole library |
-| Device | AUTO, CPU, CUDA | for MAEST/MERT/MuQ/CLAP adapters |
-| SONARA outputs | Core, Timeline, Representations | Core is default; other outputs are opt-in |
-| SONARA native batch | `1..16` | concurrent full-file paths for `analyze_batch`; default `8` |
-| Track batch size | `1..64` | decoded tracks held per job batch; measured default `8` |
-| Inference batch size | `1..128` | model samples per forward pass; measured RTX 3090 default `16` |
-| Analyze | selected models | the only run button; fixed SONARA, ML, CLASSIFIERS stage order |
-| Reset | one family | SQLite-only reset |
-
-The process log keeps settings scoped to the active stage. SONARA shows its selected outputs and
-native batch. ML shows its selected models, Device, Track batch, and Inference batch. CLASSIFIERS
-shows its profile count without ML device or batching values.
-
-## Search
-
-| Control | Range or values | Notes |
-| --- | --- | --- |
-| Similarity | `0.00..1.00` | MERT and SONARA threshold |
-| CLAP Similarity | raw text score threshold | not comparable to MERT seed scores |
-| Limit | `1..500` | search result count |
-| SONARA mode | balanced, vibe, sound, dj transition, custom mixer | custom mode enables the visible mixer and modifiers |
-| SONARA mixer | `0..5` | timbre, rhythm, dynamics, harmonic, tempo. Dynamics includes SONARA 2.0 loudness range, and harmonic includes Camelot key |
-| SONARA modifiers | `-1..1` | directional bias from seed context, including vocalness |
-| LAB Limit | `1..100` | Reference Compare candidates per model |
-| LAB verdict | mood, palette, instruments, groove, genre, transition, miss | local listening feedback for one candidate and model |
-
-Tempo-aware search filters start from current SONARA evidence. Below `0.45` confidence, they also
-check SONARA candidates and the Mutagen BPM tag. Low reliability avoids a hard rejection after the
-alternatives are checked.
-
-The LAB tab compares CLAP, MERT, MuQ, MAEST, and SONARA around the first selected seed. The groups are diagnostic and remain separate. LAB is a listening comparison surface for model families.
-
-## SET
-
-| Control | Range or values | Notes |
-| --- | --- | --- |
-| Seed source | Manual, Auto | selected seeds or automatic anchors |
-| Auto anchors | `1..5` | active only in Auto mode |
-| Set mode | similar crate, weird adjacent, balanced set, discovery | changes scoring balance |
-| Track limit | `1..500` | seeds/anchors count toward it |
-| Diversity | `0.00..1.00` | spread candidates while preserving relation |
-| Energy curve | balanced, warmup, peak, wave | ordering pressure |
-| BPM mode | general, low to high, high to low | trajectory only outside general |
-| BPM change | slow, medium, fast | active for BPM trajectory |
-| Start BPM | blank or `20..300` | auto when blank |
-| Target BPM | blank or `20..300` | auto when blank |
-| Classifier Preference | `-1.00..1.00` | missing scores stay neutral |
-| Classifier Flow | flat, rise, fall | preference shape across preview |
-
-SET BPM modes use the same confidence-aware resolver. `grid_stability` can weaken SONARA tempo
-evidence, and unreliable pairs move toward neutral `0.5` rather than earning a match bonus.
-
-## Hybrid preview
-
-| Control | Range or values | Notes |
-| --- | --- | --- |
-| Sources | MERT, MAEST, SONARA, CLAP | at least one enabled |
-| Source weight | `0.00..1.00` | ignored when source disabled |
-| Per-source | `1..100` | candidates fetched per source |
-| Result limit | `1..100` | preview rows |
-| Risk penalty | `0.00..1.00` | diagnostic transition-risk penalty |
-| Use classifier preferences | on/off | requires compatible promoted signals |
-
-## Helper dialogs
-
-Audio Doctor apply confirmation is `APPLY REPAIR`.
-
-Audio Dedup apply confirmation is `APPLY DELETE`.
+When the frontend v7 port lands, this reference should be rebuilt from `frontend/src/api.ts` and the
+active backend schemas rather than carrying forward values from the removed v5/v6 UI.

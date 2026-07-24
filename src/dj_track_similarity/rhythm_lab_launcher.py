@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+import json
 import os
 import signal
 import socket
-import sqlite3
 import subprocess
 import sys
 import threading
@@ -19,15 +20,82 @@ _LOG_MIRROR_LOCK = threading.Lock()
 _LOG_MIRROR_THREADS: dict[Path, threading.Thread] = {}
 
 
-def launch_rhythm_lab(source_db: Path | None = None) -> dict[str, Any]:
+@dataclass(frozen=True, slots=True)
+class RhythmLabSourceBinding:
+    """Exact v7 Core source selected for a Rhythm Lab process."""
+
+    source_db: Path
+    catalog_uuid: str
+
+    def __post_init__(self) -> None:
+        selected = Path(self.source_db).expanduser().resolve(strict=False)
+        catalog_uuid = self.catalog_uuid.strip()
+        if not catalog_uuid:
+            raise ValueError("Rhythm Lab source catalog_uuid is required")
+        object.__setattr__(self, "source_db", selected)
+        object.__setattr__(self, "catalog_uuid", catalog_uuid)
+
+    def as_payload(self) -> dict[str, str]:
+        return {
+            "catalog_uuid": self.catalog_uuid,
+            "database_path": str(self.source_db),
+        }
+
+
+def _validated_source_binding(
+    source: RhythmLabSourceBinding | None,
+) -> RhythmLabSourceBinding | None:
+    if source is not None and not isinstance(
+        source,
+        RhythmLabSourceBinding,
+    ):
+        raise TypeError(
+            "Expected RhythmLabSourceBinding; a database path without "
+            "catalog_uuid is not a safe Rhythm Lab source"
+        )
+    return source
+
+
+def _source_payload(
+    source: RhythmLabSourceBinding | None,
+) -> dict[str, str] | None:
+    return None if source is None else source.as_payload()
+
+
+def launch_rhythm_lab(
+    source: RhythmLabSourceBinding | None = None,
+) -> dict[str, Any]:
+    selected_source = _validated_source_binding(source)
     log_path = _log_path()
     if _port_is_open(RHYTHM_LAB_HOST, RHYTHM_LAB_PORT):
+        pid = _read_pid()
+        managed_pid = (
+            _managed_process_id(pid)
+            if pid is not None
+            else None
+        )
+        active_source = (
+            _read_source_binding()
+            if managed_pid is not None
+            else None
+        )
+        if selected_source is not None:
+            if managed_pid is None or active_source is None:
+                raise RuntimeError(
+                    "Rhythm Lab is already running, but its v7 source "
+                    "binding cannot be verified"
+                )
+            if active_source != selected_source:
+                raise RuntimeError(
+                    "Rhythm Lab is already running for a different "
+                    "database or catalog"
+                )
         _start_log_mirror(log_path, _file_size(log_path), None)
         return {
             "url": RHYTHM_LAB_URL,
             "already_running": True,
-            "managed": _read_pid() is not None,
-            "source_db": str(source_db) if source_db else None,
+            "managed": managed_pid is not None,
+            "source": _source_payload(active_source),
         }
 
     repo_root = Path(__file__).resolve().parents[2]
@@ -48,10 +116,18 @@ def launch_rhythm_lab(source_db: Path | None = None) -> dict[str, Any]:
         "--port",
         str(RHYTHM_LAB_PORT),
     ]
-    if source_db is not None:
-        command.extend(["--source", str(source_db)])
+    if selected_source is not None:
+        command.extend(
+            [
+                "--source",
+                str(selected_source.source_db),
+                "--source-catalog-uuid",
+                selected_source.catalog_uuid,
+            ]
+        )
 
     previous_pid = _read_pid()
+    previous_source = _read_source_binding()
     log_start_offset = _file_size(log_path)
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
@@ -77,12 +153,16 @@ def launch_rhythm_lab(source_db: Path | None = None) -> dict[str, Any]:
         )
     _start_log_mirror(log_path, log_start_offset, process)
     _write_pid(process.pid)
+    _write_source_binding(selected_source)
     for _ in range(20):
         if _port_is_open(RHYTHM_LAB_HOST, RHYTHM_LAB_PORT):
             break
         exit_code = process.poll()
         if exit_code is not None:
-            _restore_or_clear_pid(previous_pid)
+            _restore_or_clear_process_state(
+                previous_pid,
+                previous_source,
+            )
             detail = _tail_text(log_path)
             raise RuntimeError(f"Rhythm Lab server exited with code {exit_code}. See {log_path}. {detail}")
         time.sleep(0.25)
@@ -91,17 +171,27 @@ def launch_rhythm_lab(source_db: Path | None = None) -> dict[str, Any]:
         "already_running": False,
         "managed": True,
         "pid": process.pid,
-        "source_db": str(source_db) if source_db else None,
+        "source": _source_payload(selected_source),
     }
 
 
 def rhythm_lab_status() -> dict[str, Any]:
     running = _port_is_open(RHYTHM_LAB_HOST, RHYTHM_LAB_PORT)
     pid = _read_pid()
-    managed = running and pid is not None and _managed_process_id(pid) is not None
+    managed = (
+        running
+        and pid is not None
+        and _managed_process_id(pid) is not None
+    )
     if not running and pid is not None:
         _clear_pid()
-    return {"running": running, "managed": managed, "url": RHYTHM_LAB_URL}
+    source = _read_source_binding() if managed else None
+    return {
+        "running": running,
+        "managed": managed,
+        "url": RHYTHM_LAB_URL,
+        "source": _source_payload(source),
+    }
 
 
 def stop_rhythm_lab() -> dict[str, Any]:
@@ -131,6 +221,10 @@ def _port_is_open(host: str, port: int) -> bool:
 
 def _pid_path() -> Path:
     return Path(__file__).resolve().parents[2] / "tools" / "rhythm-lab" / "data" / "rhythm_lab.pid"
+
+
+def _source_binding_path() -> Path:
+    return _pid_path().with_name("rhythm_lab.source.json")
 
 
 def _log_path() -> Path:
@@ -187,6 +281,45 @@ def _write_pid(pid: int) -> None:
     _pid_path().write_text(str(pid), encoding="utf-8")
 
 
+def _write_source_binding(
+    source: RhythmLabSourceBinding | None,
+) -> None:
+    path = _source_binding_path()
+    if source is None:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        return
+    path.write_text(
+        json.dumps(
+            source.as_payload(),
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _read_source_binding() -> RhythmLabSourceBinding | None:
+    try:
+        payload = json.loads(
+            _source_binding_path().read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    try:
+        return RhythmLabSourceBinding(
+            source_db=Path(str(payload["database_path"])),
+            catalog_uuid=str(payload["catalog_uuid"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def _read_pid() -> int | None:
     try:
         text = _pid_path().read_text(encoding="utf-8").strip()
@@ -204,9 +337,16 @@ def _clear_pid() -> None:
         _pid_path().unlink()
     except FileNotFoundError:
         pass
+    try:
+        _source_binding_path().unlink()
+    except FileNotFoundError:
+        pass
 
 
-def _restore_or_clear_pid(pid: int | None) -> None:
+def _restore_or_clear_process_state(
+    pid: int | None,
+    source: RhythmLabSourceBinding | None,
+) -> None:
     if pid is None:
         _clear_pid()
         return
@@ -215,6 +355,7 @@ def _restore_or_clear_pid(pid: int | None) -> None:
         _clear_pid()
         return
     _write_pid(managed_pid)
+    _write_source_binding(source)
 
 
 def _managed_process_id(pid: int) -> int | None:
@@ -323,29 +464,3 @@ def _tail_text(path: Path, limit: int = 1200) -> str:
     except OSError:
         return ""
     return data[-limit:].decode("utf-8", errors="replace").strip()
-
-
-# ---------------------------------------------------------------------------
-# v7 catalog binding helpers
-# ---------------------------------------------------------------------------
-
-
-def read_v7_catalog_uuid(core_conn: sqlite3.Connection) -> str:
-    """Read the catalog_uuid from a v7 Core database.
-
-    Args:
-        core_conn: An open :class:`sqlite3.Connection` to a v7 Core database.
-
-    Returns:
-        The ``catalog_uuid`` string from the singleton ``library_catalog`` row.
-
-    Raises:
-        ValueError: If the ``library_catalog`` table does not contain exactly
-            one row (empty catalog or unexpected multi-row state).
-    """
-    rows = core_conn.execute("SELECT catalog_uuid FROM library_catalog").fetchall()
-    if len(rows) != 1:
-        raise ValueError(
-            f"Expected exactly one row in library_catalog, got {len(rows)}"
-        )
-    return str(rows[0][0])

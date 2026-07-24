@@ -2,15 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import math
 from pathlib import Path
 import re
 import sqlite3
+from collections.abc import Mapping
 from typing import Literal
 
-from dj_track_similarity.metadata_payload import metadata_to_json
-from dj_track_similarity.models import Track
 from dj_track_similarity.rhythm_lab_collections import ensure_review_collection_schema
-from dj_track_similarity.sonara_contract import SONARA_PROJECT_FEATURE_REVISION, feature_set_uses_sonara
+
+from .source_db import SourceTrack
 
 
 ClassifierLabelName = Literal["broken", "straight", "ambiguous"]
@@ -33,15 +34,118 @@ LABEL_QUEUE_STATES: tuple[str, ...] = (
     "used_for_training",
     "archived",
 )
-SONARA_PREDICTION_REVISION_SETTING_KEY = "classifier.sonara_feature_revision"
+_PROFILE_COLUMNS = {
+    "classifier_key",
+    "profile_type",
+    "name",
+    "description",
+    "artifact_dir",
+    "artifact_prefix",
+    "training_min_added",
+    "positive_label",
+    "negative_label",
+    "archived_at",
+    "created_at",
+    "updated_at",
+}
+_PROFILE_LABEL_COLUMNS = {
+    "classifier_key",
+    "label_key",
+    "display_name",
+    "description",
+    "role",
+    "position",
+    "created_at",
+    "updated_at",
+}
+_CLASSIFIER_LABEL_COLUMNS = {
+    "classifier_key",
+    "catalog_uuid",
+    "track_uuid",
+    "content_generation",
+    "selected_path",
+    "file_size_bytes",
+    "file_modified_ns",
+    "label",
+    "note",
+    "updated_at",
+}
+_CLASSIFIER_QUEUE_COLUMNS = {
+    "id",
+    "classifier_key",
+    "catalog_uuid",
+    "track_uuid",
+    "content_generation",
+    "selected_path",
+    "mode",
+    "score",
+    "priority",
+    "reason_json",
+    "state",
+    "created_at",
+    "updated_at",
+}
+_CLASSIFIER_PREDICTION_COLUMNS = {
+    "classifier_key",
+    "catalog_uuid",
+    "track_uuid",
+    "content_generation",
+    "selected_path",
+    "artist",
+    "title",
+    "feature_set",
+    "model_artifact",
+    "label",
+    "confidence",
+    "probabilities_json",
+    "updated_at",
+}
+_TRAINING_CHECKPOINT_COLUMNS = {
+    "classifier_key",
+    "counts_json",
+    "model_artifact",
+    "updated_at",
+}
 DEFAULT_TRAINING_MIN_ADDED = 50
 PROFILE_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 LABEL_KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
 @dataclass(frozen=True)
+class TrackIdentity:
+    catalog_uuid: str
+    track_uuid: str
+    content_generation: int
+    file_path: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "catalog_uuid",
+            _required_identity_text(self.catalog_uuid, "catalog_uuid"),
+        )
+        object.__setattr__(
+            self,
+            "track_uuid",
+            _required_identity_text(self.track_uuid, "track_uuid"),
+        )
+        if (
+            isinstance(self.content_generation, bool)
+            or not isinstance(self.content_generation, int)
+            or self.content_generation <= 0
+        ):
+            raise ValueError("content_generation must be a positive integer")
+        object.__setattr__(
+            self,
+            "file_path",
+            _required_identity_text(self.file_path, "file_path"),
+        )
+
+
+@dataclass(frozen=True)
 class ClassifierLabel:
-    source_track_id: int
+    identity: TrackIdentity
+    selected_path: str
     label: str
     note: str | None = None
     updated_at: str | None = None
@@ -101,21 +205,42 @@ class RhythmLabDatabase:
         with self.connect() as connection:
             _ensure_profile_tables(connection)
             _ensure_classifier_tables(connection)
-            _ensure_sonara_prediction_feature_revision(connection)
             ensure_review_collection_schema(connection)
             connection.executescript(
                 """
                 CREATE INDEX IF NOT EXISTS idx_classifier_labels_lookup
-                ON classifier_labels(classifier_key, label, updated_at);
+                ON classifier_labels(
+                    classifier_key,
+                    label,
+                    catalog_uuid,
+                    track_uuid,
+                    content_generation,
+                    selected_path
+                );
 
                 CREATE INDEX IF NOT EXISTS idx_classifier_predictions_lookup
-                ON classifier_predictions(classifier_key, label, confidence);
+                ON classifier_predictions(
+                    classifier_key,
+                    label,
+                    confidence,
+                    catalog_uuid,
+                    track_uuid,
+                    content_generation,
+                    selected_path
+                );
 
                 CREATE INDEX IF NOT EXISTS idx_classifier_label_queue_state
                 ON classifier_label_queue(classifier_key, state, priority DESC, updated_at);
 
-                CREATE INDEX IF NOT EXISTS idx_classifier_label_queue_track_mode
-                ON classifier_label_queue(classifier_key, source_track_id, mode);
+                CREATE INDEX IF NOT EXISTS idx_classifier_label_queue_identity
+                ON classifier_label_queue(
+                    classifier_key,
+                    catalog_uuid,
+                    track_uuid,
+                    content_generation,
+                    selected_path,
+                    mode
+                );
                 """
             )
 
@@ -391,14 +516,33 @@ class RhythmLabDatabase:
             _rename_checkpoint_count_key(connection, profile_key, old_label, new_label)
         return self.get_profile(profile_key)
 
-    def set_label(self, track: Track | int, label: str | None, *, note: str | None = None) -> ClassifierLabel | None:
+    def set_label(
+        self,
+        track: SourceTrack,
+        label: str | None,
+        *,
+        note: str | None = None,
+    ) -> ClassifierLabel | None:
         profile_key = self._active_profile_key()
-        source_track_id, path, size, mtime = _track_snapshot(track)
+        identity = track_identity(track)
         if label is None or not label.strip():
             with self.connect() as connection:
                 connection.execute(
-                    "DELETE FROM classifier_labels WHERE classifier_key = ? AND source_track_id = ?",
-                    (profile_key, source_track_id),
+                    """
+                    DELETE FROM classifier_labels
+                    WHERE classifier_key = ?
+                      AND catalog_uuid = ?
+                      AND track_uuid = ?
+                      AND content_generation = ?
+                      AND selected_path = ?
+                    """,
+                    (
+                        profile_key,
+                        identity.catalog_uuid,
+                        identity.track_uuid,
+                        identity.content_generation,
+                        identity.file_path,
+                    ),
                 )
             return None
         label = label.strip()
@@ -408,51 +552,88 @@ class RhythmLabDatabase:
         with self.connect() as connection:
             connection.execute(
                 """
-                INSERT INTO classifier_labels(classifier_key, source_track_id, path, size, mtime, label, note)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(classifier_key, source_track_id) DO UPDATE SET
-                    path = excluded.path,
-                    size = excluded.size,
-                    mtime = excluded.mtime,
+                INSERT INTO classifier_labels(
+                    classifier_key,
+                    catalog_uuid,
+                    track_uuid,
+                    content_generation,
+                    selected_path,
+                    file_size_bytes,
+                    file_modified_ns,
+                    label,
+                    note
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(
+                    classifier_key,
+                    catalog_uuid,
+                    track_uuid,
+                    content_generation,
+                    selected_path
+                ) DO UPDATE SET
+                    file_size_bytes = excluded.file_size_bytes,
+                    file_modified_ns = excluded.file_modified_ns,
                     label = excluded.label,
                     note = excluded.note,
                     updated_at = CURRENT_TIMESTAMP
                 """,
-                (profile_key, source_track_id, path, size, mtime, label, note),
+                (
+                    profile_key,
+                    identity.catalog_uuid,
+                    identity.track_uuid,
+                    identity.content_generation,
+                    identity.file_path,
+                    track.file_size_bytes,
+                    track.file_modified_ns,
+                    label,
+                    note,
+                ),
             )
-        return self.label_for_track(source_track_id)
+        return self.label_for_track(identity)
 
-    def label_for_track(self, source_track_id: int) -> ClassifierLabel | None:
+    def label_for_track(self, identity: TrackIdentity) -> ClassifierLabel | None:
         profile_key = self._active_profile_key()
+        clean_identity = _require_track_identity(identity)
         with self.connect() as connection:
             row = connection.execute(
                 """
-                SELECT source_track_id, label, note, updated_at
+                SELECT catalog_uuid, track_uuid, content_generation,
+                       selected_path, label, note, updated_at
                 FROM classifier_labels
-                WHERE classifier_key = ? AND source_track_id = ?
+                WHERE classifier_key = ?
+                  AND catalog_uuid = ?
+                  AND track_uuid = ?
+                  AND content_generation = ?
+                  AND selected_path = ?
                 """,
-                (profile_key, source_track_id),
+                (
+                    profile_key,
+                    clean_identity.catalog_uuid,
+                    clean_identity.track_uuid,
+                    clean_identity.content_generation,
+                    clean_identity.file_path,
+                ),
             ).fetchone()
         if row is None:
             return None
-        return ClassifierLabel(int(row["source_track_id"]), str(row["label"]), row["note"], row["updated_at"])
+        return _classifier_label_from_row(row)
 
-    def labels_by_track(self) -> dict[int, ClassifierLabel]:
+    def labels_by_identity(self) -> dict[TrackIdentity, ClassifierLabel]:
         profile_key = self._active_profile_key()
         with self.connect() as connection:
             rows = connection.execute(
                 """
-                SELECT source_track_id, label, note, updated_at
+                SELECT catalog_uuid, track_uuid, content_generation,
+                       selected_path, label, note, updated_at
                 FROM classifier_labels
                 WHERE classifier_key = ?
                 """,
                 (profile_key,),
             ).fetchall()
         return {
-            int(row["source_track_id"]): ClassifierLabel(
-                int(row["source_track_id"]), str(row["label"]), row["note"], row["updated_at"]
-            )
+            label.identity: label
             for row in rows
+            for label in (_classifier_label_from_row(row),)
         }
 
     def label_counts(self) -> dict[str, int]:
@@ -474,7 +655,7 @@ class RhythmLabDatabase:
         clean_mode = _validate_queue_mode(mode)
         rows: list[tuple[object, ...]] = []
         for item in items:
-            source_track_id = _validate_source_track_id(item.get("source_track_id", item.get("track_id")))
+            identity = _identity_from_mapping(item)
             priority = _validate_queue_priority(item.get("priority", 0.0))
             score = _optional_queue_score(item.get("score"))
             reason = item.get("reason", item.get("reason_json", {}))
@@ -482,11 +663,14 @@ class RhythmLabDatabase:
             rows.append(
                 (
                     profile_key,
-                    source_track_id,
+                    identity.catalog_uuid,
+                    identity.track_uuid,
+                    identity.content_generation,
+                    identity.file_path,
                     clean_mode,
                     score,
                     priority,
-                    metadata_to_json(reason_payload),
+                    _canonical_json(reason_payload),
                 )
             )
         if not rows:
@@ -495,10 +679,25 @@ class RhythmLabDatabase:
             connection.executemany(
                 """
                 INSERT INTO classifier_label_queue(
-                    classifier_key, source_track_id, mode, score, priority, reason_json
+                    classifier_key,
+                    catalog_uuid,
+                    track_uuid,
+                    content_generation,
+                    selected_path,
+                    mode,
+                    score,
+                    priority,
+                    reason_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(classifier_key, source_track_id, mode) DO UPDATE SET
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(
+                    classifier_key,
+                    catalog_uuid,
+                    track_uuid,
+                    content_generation,
+                    selected_path,
+                    mode
+                ) DO UPDATE SET
                     score = excluded.score,
                     priority = excluded.priority,
                     reason_json = excluded.reason_json,
@@ -518,42 +717,47 @@ class RhythmLabDatabase:
         with self.connect() as connection:
             rows = connection.execute(
                 f"""
-                SELECT id, classifier_key, source_track_id, mode, score, priority, reason_json,
-                       state, created_at, updated_at
+                SELECT id, classifier_key, catalog_uuid, track_uuid,
+                       content_generation, selected_path, mode, score, priority,
+                       reason_json, state, created_at, updated_at
                 FROM classifier_label_queue
                 WHERE classifier_key = ?
                   {state_clause}
-                ORDER BY priority DESC, updated_at DESC, source_track_id
+                ORDER BY priority DESC, updated_at DESC,
+                         catalog_uuid, track_uuid, content_generation
                 """,
                 tuple(params),
             ).fetchall()
         return [_queue_row_payload(row) for row in rows]
 
-    def mark_queue_item(self, source_track_id: int, *, mode: str, state: str) -> dict[str, object]:
+    def mark_queue_item(self, queue_id: int, *, state: str) -> dict[str, object]:
         profile_key = self._active_profile_key()
-        clean_track_id = _validate_source_track_id(source_track_id)
-        clean_mode = _validate_queue_mode(mode)
+        clean_queue_id = _positive_integer(queue_id, "queue_id")
         clean_state = _validate_queue_state(state)
         with self.connect() as connection:
             cursor = connection.execute(
                 """
                 UPDATE classifier_label_queue
                 SET state = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE classifier_key = ? AND source_track_id = ? AND mode = ?
+                WHERE id = ? AND classifier_key = ?
                 """,
-                (clean_state, profile_key, clean_track_id, clean_mode),
+                (clean_state, clean_queue_id, profile_key),
             )
             if cursor.rowcount == 0:
-                raise KeyError(f"Queue item not found for {profile_key}:{clean_track_id}:{clean_mode}")
+                raise KeyError(
+                    f"Queue item not found for {profile_key}:id={clean_queue_id}"
+                )
             row = connection.execute(
                 """
-                SELECT id, classifier_key, source_track_id, mode, score, priority, reason_json,
-                       state, created_at, updated_at
+                SELECT id, classifier_key, catalog_uuid, track_uuid,
+                       content_generation, selected_path, mode, score, priority,
+                       reason_json, state, created_at, updated_at
                 FROM classifier_label_queue
-                WHERE classifier_key = ? AND source_track_id = ? AND mode = ?
+                WHERE id = ? AND classifier_key = ?
                 """,
-                (profile_key, clean_track_id, clean_mode),
+                (clean_queue_id, profile_key),
             ).fetchone()
+        assert row is not None
         return _queue_row_payload(row)
 
     def clear_label_queue(self, *, state: str) -> int:
@@ -566,7 +770,7 @@ class RhythmLabDatabase:
             )
             return int(cursor.rowcount)
 
-    def training_labels(self) -> dict[int, str]:
+    def training_labels(self) -> dict[TrackIdentity, str]:
         profile_key = self._active_profile_key()
         training_keys = self.get_profile().training_label_keys
         if not training_keys:
@@ -575,18 +779,27 @@ class RhythmLabDatabase:
         with self.connect() as connection:
             rows = connection.execute(
                 f"""
-                SELECT source_track_id, label
+                SELECT catalog_uuid, track_uuid, content_generation,
+                       selected_path, label
                 FROM classifier_labels
                 WHERE classifier_key = ? AND label IN ({placeholders})
-                ORDER BY source_track_id
+                ORDER BY catalog_uuid, track_uuid, content_generation
                 """,
                 (profile_key, *training_keys),
             ).fetchall()
-        return {int(row["source_track_id"]): str(row["label"]) for row in rows}
+        return {
+            TrackIdentity(
+                catalog_uuid=str(row["catalog_uuid"]),
+                track_uuid=str(row["track_uuid"]),
+                content_generation=int(row["content_generation"]),
+                file_path=str(row["selected_path"]),
+            ): str(row["label"])
+            for row in rows
+        }
 
     def save_prediction(
         self,
-        track: Track,
+        track: SourceTrack,
         *,
         feature_set: str,
         model_artifact: str | Path,
@@ -597,17 +810,41 @@ class RhythmLabDatabase:
         profile_key = self._active_profile_key()
         if label not in self.get_profile().training_label_keys:
             raise ValueError(f"Unsupported predicted classifier label: {label}")
-        payload = metadata_to_json(probabilities)
+        identity = track_identity(track)
+        confidence_value = _finite_number(confidence, "confidence")
+        clean_probabilities = {
+            str(key): _finite_number(value, f"probabilities[{key!r}]")
+            for key, value in probabilities.items()
+        }
+        payload = _canonical_json(clean_probabilities)
+        tags = track.file_tags
         with self.connect() as connection:
             connection.execute(
                 """
                 INSERT INTO classifier_predictions(
-                    classifier_key, source_track_id, path, artist, title, feature_set, model_artifact,
-                    label, confidence, probabilities_json
+                    classifier_key,
+                    catalog_uuid,
+                    track_uuid,
+                    content_generation,
+                    selected_path,
+                    artist,
+                    title,
+                    feature_set,
+                    model_artifact,
+                    label,
+                    confidence,
+                    probabilities_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(classifier_key, source_track_id, feature_set, model_artifact) DO UPDATE SET
-                    path = excluded.path,
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(
+                    classifier_key,
+                    catalog_uuid,
+                    track_uuid,
+                    content_generation,
+                    selected_path,
+                    feature_set,
+                    model_artifact
+                ) DO UPDATE SET
                     artist = excluded.artist,
                     title = excluded.title,
                     label = excluded.label,
@@ -617,14 +854,16 @@ class RhythmLabDatabase:
                 """,
                 (
                     profile_key,
-                    track.id,
-                    track.path,
-                    track.artist,
-                    track.title,
+                    identity.catalog_uuid,
+                    identity.track_uuid,
+                    identity.content_generation,
+                    track.file_path,
+                    tags.artist if tags is not None else None,
+                    tags.title if tags is not None else None,
                     feature_set,
                     str(model_artifact),
                     label,
-                    float(confidence),
+                    confidence_value,
                     payload,
                 ),
             )
@@ -634,11 +873,13 @@ class RhythmLabDatabase:
         with self.connect() as connection:
             rows = connection.execute(
                 """
-                SELECT rowid AS prediction_rowid, source_track_id, feature_set, model_artifact, label, confidence,
-                       probabilities_json, path, artist, title, updated_at
+                SELECT rowid AS prediction_rowid, catalog_uuid, track_uuid,
+                       content_generation, selected_path, feature_set,
+                       model_artifact, label, confidence, probabilities_json,
+                       artist, title, updated_at
                 FROM classifier_predictions
                 WHERE classifier_key = ?
-                ORDER BY confidence ASC, path
+                ORDER BY confidence ASC, selected_path
                 """,
                 (profile_key,),
             ).fetchall()
@@ -650,15 +891,16 @@ class RhythmLabDatabase:
                 probabilities = {}
             result.append(
                 {
-                    "source_track_id": int(row["source_track_id"]),
                     "prediction_rowid": int(row["prediction_rowid"]),
-                    "track_id": int(row["source_track_id"]),
+                    "catalog_uuid": str(row["catalog_uuid"]),
+                    "track_uuid": str(row["track_uuid"]),
+                    "content_generation": int(row["content_generation"]),
                     "feature_set": str(row["feature_set"]),
                     "model_artifact": str(row["model_artifact"]),
                     "label": str(row["label"]),
                     "confidence": float(row["confidence"]),
                     "probabilities": probabilities,
-                    "path": str(row["path"]),
+                    "selected_path": str(row["selected_path"]),
                     "artist": row["artist"],
                     "title": row["title"],
                     "updated_at": row["updated_at"],
@@ -710,7 +952,9 @@ class RhythmLabDatabase:
 
     def record_training_checkpoint(self, counts: dict[str, int], *, model_artifact: str | Path) -> None:
         profile_key = self._active_profile_key()
-        payload = metadata_to_json(_training_counts_payload(counts, self.get_profile().training_label_keys))
+        payload = _canonical_json(
+            _training_counts_payload(counts, self.get_profile().training_label_keys)
+        )
         with self.connect() as connection:
             connection.execute(
                 """
@@ -725,13 +969,28 @@ class RhythmLabDatabase:
             )
 
 
-def _track_snapshot(track: Track | int) -> tuple[int, str | None, int | None, float | None]:
-    if isinstance(track, Track):
-        return track.id, track.path, track.size, track.mtime
-    return int(track), None, None, None
+def track_identity(track: SourceTrack) -> TrackIdentity:
+    if not isinstance(track, SourceTrack):
+        raise TypeError("track must be a SourceTrack")
+    return TrackIdentity(
+        catalog_uuid=track.catalog_uuid,
+        track_uuid=track.track_uuid,
+        content_generation=track.content_generation,
+        file_path=track.file_path,
+    )
 
 
 def _ensure_profile_tables(connection: sqlite3.Connection) -> None:
+    _reject_noncanonical_table(
+        connection,
+        table="classifier_profiles",
+        expected_columns=_PROFILE_COLUMNS,
+    )
+    _reject_noncanonical_table(
+        connection,
+        table="classifier_profile_labels",
+        expected_columns=_PROFILE_LABEL_COLUMNS,
+    )
     connection.executescript(
         """
         CREATE TABLE IF NOT EXISTS classifier_profiles (
@@ -763,14 +1022,6 @@ def _ensure_profile_tables(connection: sqlite3.Connection) -> None:
         );
         """
     )
-    if "profile_type" not in _columns(connection, "classifier_profiles"):
-        connection.execute(
-            "ALTER TABLE classifier_profiles ADD COLUMN profile_type TEXT NOT NULL DEFAULT 'binary'"
-        )
-    if "training_min_added" not in _columns(connection, "classifier_profiles"):
-        connection.execute(
-            "ALTER TABLE classifier_profiles ADD COLUMN training_min_added INTEGER NOT NULL DEFAULT 50"
-        )
     _ensure_unique_profile_names(connection)
 
 
@@ -798,6 +1049,17 @@ def _ensure_unique_profile_names(connection: sqlite3.Connection) -> None:
 
 
 def _ensure_classifier_tables(connection: sqlite3.Connection) -> None:
+    for table, columns in (
+        ("classifier_labels", _CLASSIFIER_LABEL_COLUMNS),
+        ("classifier_label_queue", _CLASSIFIER_QUEUE_COLUMNS),
+        ("classifier_predictions", _CLASSIFIER_PREDICTION_COLUMNS),
+        ("classifier_training_checkpoints", _TRAINING_CHECKPOINT_COLUMNS),
+    ):
+        _reject_noncanonical_table(
+            connection,
+            table=table,
+            expected_columns=columns,
+        )
     connection.execute(_classifier_labels_table_sql("classifier_labels"))
     connection.execute(_classifier_label_queue_table_sql("classifier_label_queue"))
     connection.execute(_classifier_predictions_table_sql("classifier_predictions"))
@@ -961,7 +1223,8 @@ def _rename_prediction_probability_key(
 ) -> None:
     rows = connection.execute(
         """
-        SELECT classifier_key, source_track_id, feature_set, model_artifact, probabilities_json
+        SELECT classifier_key, catalog_uuid, track_uuid, content_generation,
+               selected_path, feature_set, model_artifact, probabilities_json
         FROM classifier_predictions
         WHERE classifier_key = ?
         """,
@@ -980,12 +1243,21 @@ def _rename_prediction_probability_key(
             """
             UPDATE classifier_predictions
             SET probabilities_json = ?, updated_at = CURRENT_TIMESTAMP
-            WHERE classifier_key = ? AND source_track_id = ? AND feature_set = ? AND model_artifact = ?
+            WHERE classifier_key = ?
+              AND catalog_uuid = ?
+              AND track_uuid = ?
+              AND content_generation = ?
+              AND selected_path = ?
+              AND feature_set = ?
+              AND model_artifact = ?
             """,
             (
-                metadata_to_json(probabilities),
+                _canonical_json(probabilities),
                 row["classifier_key"],
-                row["source_track_id"],
+                row["catalog_uuid"],
+                row["track_uuid"],
+                row["content_generation"],
+                row["selected_path"],
                 row["feature_set"],
                 row["model_artifact"],
             ),
@@ -1018,7 +1290,7 @@ def _rename_checkpoint_count_key(
         SET counts_json = ?, updated_at = CURRENT_TIMESTAMP
         WHERE classifier_key = ?
         """,
-        (metadata_to_json(counts), classifier_key),
+        (_canonical_json(counts), classifier_key),
     )
 
 
@@ -1077,23 +1349,13 @@ def _validate_queue_state(state: object) -> str:
     return value
 
 
-def _validate_source_track_id(value: object) -> int:
-    if isinstance(value, bool):
-        raise ValueError("Queue source_track_id must be a positive integer")
-    try:
-        number = int(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError("Queue source_track_id must be a positive integer") from error
-    if number <= 0:
-        raise ValueError("Queue source_track_id must be a positive integer")
-    return number
-
-
 def _validate_queue_priority(value: object) -> float:
     try:
         number = float(value)
     except (TypeError, ValueError) as error:
         raise ValueError("Queue priority must be numeric") from error
+    if not math.isfinite(number):
+        raise ValueError("Queue priority must be finite")
     return number
 
 
@@ -1101,9 +1363,12 @@ def _optional_queue_score(value: object) -> float | None:
     if value is None:
         return None
     try:
-        return float(value)
+        number = float(value)
     except (TypeError, ValueError) as error:
         raise ValueError("Queue score must be numeric") from error
+    if not math.isfinite(number):
+        raise ValueError("Queue score must be finite")
+    return number
 
 
 def _queue_row_payload(row: sqlite3.Row) -> dict[str, object]:
@@ -1114,8 +1379,10 @@ def _queue_row_payload(row: sqlite3.Row) -> dict[str, object]:
     return {
         "id": int(row["id"]),
         "classifier_key": str(row["classifier_key"]),
-        "source_track_id": int(row["source_track_id"]),
-        "track_id": int(row["source_track_id"]),
+        "catalog_uuid": str(row["catalog_uuid"]),
+        "track_uuid": str(row["track_uuid"]),
+        "content_generation": int(row["content_generation"]),
+        "selected_path": str(row["selected_path"]),
         "mode": str(row["mode"]),
         "score": float(row["score"]) if row["score"] is not None else None,
         "priority": float(row["priority"]),
@@ -1144,18 +1411,123 @@ def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
     return {str(info["name"]) for info in connection.execute(f"PRAGMA table_info({table})").fetchall()}
 
 
+def _reject_noncanonical_table(
+    connection: sqlite3.Connection,
+    *,
+    table: str,
+    expected_columns: set[str],
+) -> None:
+    columns = _columns(connection, table)
+    if columns and columns != expected_columns:
+        raise RuntimeError(
+            f"Rhythm Lab database table {table!r} is not the greenfield v7 schema; "
+            "choose a new lab database path"
+        )
+
+
+def _required_identity_text(value: object, field_name: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError(f"{field_name} is required")
+    return text
+
+
+def _require_track_identity(identity: TrackIdentity) -> TrackIdentity:
+    if not isinstance(identity, TrackIdentity):
+        raise TypeError("identity must be a TrackIdentity")
+    return identity
+
+
+def _identity_from_mapping(item: Mapping[str, object]) -> TrackIdentity:
+    if not isinstance(item, Mapping):
+        raise TypeError("queue item must be a mapping")
+    generation = item.get("content_generation")
+    if isinstance(generation, bool):
+        raise ValueError("content_generation must be a positive integer")
+    try:
+        clean_generation = int(generation)
+    except (TypeError, ValueError) as error:
+        raise ValueError("content_generation must be a positive integer") from error
+    return TrackIdentity(
+        catalog_uuid=_required_identity_text(item.get("catalog_uuid"), "catalog_uuid"),
+        track_uuid=_required_identity_text(item.get("track_uuid"), "track_uuid"),
+        content_generation=clean_generation,
+        file_path=_required_identity_text(
+            item.get("selected_path", item.get("file_path")),
+            "file_path",
+        ),
+    )
+
+
+def _classifier_label_from_row(row: sqlite3.Row) -> ClassifierLabel:
+    return ClassifierLabel(
+        identity=TrackIdentity(
+            catalog_uuid=str(row["catalog_uuid"]),
+            track_uuid=str(row["track_uuid"]),
+            content_generation=int(row["content_generation"]),
+            file_path=str(row["selected_path"]),
+        ),
+        selected_path=str(row["selected_path"]),
+        label=str(row["label"]),
+        note=row["note"],
+        updated_at=row["updated_at"],
+    )
+
+
+def _positive_integer(value: object, field_name: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a positive integer")
+    try:
+        number = int(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{field_name} must be a positive integer") from error
+    if number <= 0:
+        raise ValueError(f"{field_name} must be a positive integer")
+    return number
+
+
+def _finite_number(value: object, field_name: str) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{field_name} must be numeric") from error
+    if not math.isfinite(number):
+        raise ValueError(f"{field_name} must be finite")
+    return number
+
+
+def _canonical_json(value: object) -> str:
+    try:
+        return json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError("Rhythm Lab JSON payload must contain finite JSON values") from error
+
+
 def _classifier_labels_table_sql(table: str) -> str:
     return f"""
         CREATE TABLE IF NOT EXISTS {table} (
             classifier_key TEXT NOT NULL,
-            source_track_id INTEGER NOT NULL,
-            path TEXT,
-            size INTEGER,
-            mtime REAL,
+            catalog_uuid TEXT NOT NULL,
+            track_uuid TEXT NOT NULL,
+            content_generation INTEGER NOT NULL CHECK(content_generation > 0),
+            selected_path TEXT NOT NULL,
+            file_size_bytes INTEGER NOT NULL CHECK(file_size_bytes >= 0),
+            file_modified_ns INTEGER NOT NULL CHECK(file_modified_ns >= 0),
             label TEXT NOT NULL,
             note TEXT,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY(classifier_key, source_track_id)
+            PRIMARY KEY(
+                classifier_key, catalog_uuid, track_uuid, content_generation,
+                selected_path
+            ),
+            FOREIGN KEY(classifier_key)
+                REFERENCES classifier_profiles(classifier_key) ON DELETE CASCADE
         )
     """
 
@@ -1167,7 +1539,10 @@ def _classifier_label_queue_table_sql(table: str) -> str:
         CREATE TABLE IF NOT EXISTS {table} (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             classifier_key TEXT NOT NULL,
-            source_track_id INTEGER NOT NULL,
+            catalog_uuid TEXT NOT NULL,
+            track_uuid TEXT NOT NULL,
+            content_generation INTEGER NOT NULL CHECK(content_generation > 0),
+            selected_path TEXT NOT NULL,
             mode TEXT NOT NULL CHECK(mode IN ('{modes}')),
             score REAL,
             priority REAL NOT NULL,
@@ -1175,7 +1550,10 @@ def _classifier_label_queue_table_sql(table: str) -> str:
             state TEXT NOT NULL DEFAULT 'suggested' CHECK(state IN ('{states}')),
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(classifier_key, source_track_id, mode),
+            UNIQUE(
+                classifier_key, catalog_uuid, track_uuid, content_generation,
+                selected_path, mode
+            ),
             FOREIGN KEY(classifier_key) REFERENCES classifier_profiles(classifier_key) ON DELETE CASCADE
         )
     """
@@ -1185,8 +1563,10 @@ def _classifier_predictions_table_sql(table: str) -> str:
     return f"""
         CREATE TABLE IF NOT EXISTS {table} (
             classifier_key TEXT NOT NULL,
-            source_track_id INTEGER NOT NULL,
-            path TEXT NOT NULL,
+            catalog_uuid TEXT NOT NULL,
+            track_uuid TEXT NOT NULL,
+            content_generation INTEGER NOT NULL CHECK(content_generation > 0),
+            selected_path TEXT NOT NULL,
             artist TEXT,
             title TEXT,
             feature_set TEXT NOT NULL,
@@ -1195,46 +1575,14 @@ def _classifier_predictions_table_sql(table: str) -> str:
             confidence REAL NOT NULL,
             probabilities_json TEXT NOT NULL CHECK(json_valid(probabilities_json)),
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY(classifier_key, source_track_id, feature_set, model_artifact)
+            PRIMARY KEY(
+                classifier_key, catalog_uuid, track_uuid, content_generation,
+                selected_path, feature_set, model_artifact
+            ),
+            FOREIGN KEY(classifier_key)
+                REFERENCES classifier_profiles(classifier_key) ON DELETE CASCADE
         )
     """
-
-
-def _ensure_sonara_prediction_feature_revision(connection: sqlite3.Connection) -> None:
-    """Drop stale derived predictions once while preserving labels, queues, and feedback."""
-
-    connection.execute(
-        """
-        CREATE TABLE IF NOT EXISTS rhythm_lab_settings (
-            key TEXT PRIMARY KEY,
-            value TEXT NOT NULL,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-        """
-    )
-    row = connection.execute(
-        "SELECT value FROM rhythm_lab_settings WHERE key = ?",
-        (SONARA_PREDICTION_REVISION_SETTING_KEY,),
-    ).fetchone()
-    if row is not None and str(row["value"]) == str(SONARA_PROJECT_FEATURE_REVISION):
-        return
-    predictions = connection.execute("SELECT rowid, feature_set FROM classifier_predictions").fetchall()
-    stale_rowids = [int(row["rowid"]) for row in predictions if feature_set_uses_sonara(row["feature_set"])]
-    if stale_rowids:
-        connection.executemany(
-            "DELETE FROM classifier_predictions WHERE rowid = ?",
-            ((rowid,) for rowid in stale_rowids),
-        )
-    connection.execute(
-        """
-        INSERT INTO rhythm_lab_settings (key, value, updated_at)
-        VALUES (?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(key) DO UPDATE SET
-            value = excluded.value,
-            updated_at = CURRENT_TIMESTAMP
-        """,
-        (SONARA_PREDICTION_REVISION_SETTING_KEY, str(SONARA_PROJECT_FEATURE_REVISION)),
-    )
 
 
 def _classifier_training_checkpoints_table_sql(table: str) -> str:

@@ -4,7 +4,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Protocol
 
-from .models import Track
+from .library_models import TrackSummary
 
 
 ARTIST_SET_MAX_TRACKS = 1
@@ -12,29 +12,26 @@ ARTIST_SET_MAX_TRACKS = 1
 
 class SequenceCandidate(Protocol):
     @property
-    def track(self) -> Track:
-        ...
+    def track(self) -> TrackSummary: ...
 
     @property
-    def duplicate_key(self) -> str:
-        ...
+    def duplicate_key(self) -> str: ...
 
 
 class ScoredSequenceCandidate(Protocol):
     @property
-    def candidate(self) -> SequenceCandidate:
-        ...
+    def candidate(self) -> SequenceCandidate: ...
 
 
-def duplicate_key(track: Track) -> str:
+def duplicate_key(track: TrackSummary) -> str:
     artist = (track.artist or "").strip().casefold()
     title = (track.title or "").strip().casefold()
     if artist or title:
         return f"{artist}|{title}"
-    return Path(track.path).stem.casefold()
+    return Path(track.file_path).stem.casefold()
 
 
-def artist_key(track: Track) -> str | None:
+def artist_key(track: TrackSummary) -> str | None:
     artist = (track.artist or "").strip().casefold()
     return artist or None
 
@@ -53,10 +50,16 @@ def artist_allowed(
 
 
 def pending_seed_artists(pending_seeds: list[SequenceCandidate]) -> set[str]:
-    return {artist for seed in pending_seeds if (artist := artist_key(seed.track)) is not None}
+    return {
+        artist
+        for seed in pending_seeds
+        if (artist := artist_key(seed.track)) is not None
+    }
 
 
-def uses_pending_seed_artist(candidate: SequenceCandidate, pending_seed_artists: set[str]) -> bool:
+def uses_pending_seed_artist(
+    candidate: SequenceCandidate, pending_seed_artists: set[str]
+) -> bool:
     artist = artist_key(candidate.track)
     return artist is not None and artist in pending_seed_artists
 
@@ -67,7 +70,9 @@ def record_artist(candidate: SequenceCandidate, artist_counts: Counter[str]) -> 
         artist_counts[artist] += 1
 
 
-def artist_pressure_score(candidate: SequenceCandidate, remaining: list[ScoredSequenceCandidate]) -> float:
+def artist_pressure_score(
+    candidate: SequenceCandidate, remaining: list[ScoredSequenceCandidate]
+) -> float:
     artist = artist_key(candidate.track)
     if artist is None:
         return 0.0

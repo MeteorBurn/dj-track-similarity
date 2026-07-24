@@ -1,406 +1,714 @@
-"""Tests for BUG-C6: analyze-classifier must use full 6-tuple identity and delete stale scores."""
 from __future__ import annotations
 
 import hashlib
 import json
-import sqlite3
+import sys
+import types
+import uuid
+from dataclasses import replace
 from pathlib import Path
 
-import joblib
 import numpy as np
 import pytest
 
+from dj_track_similarity.analysis_models import (
+    AnalysisOutput,
+    AnalysisTarget,
+    ClassifierScoreWrite,
+    ClassifierSpecification,
+    EmbeddingOutput,
+    EmbeddingWrite,
+    MERT_CHECKPOINT_ID,
+    MERT_MODEL_REVISION,
+    MERT_PREPROCESSING,
+    classifier_required_outputs_hash,
+    mert_embedding_output,
+)
+from dj_track_similarity.classifier_manifest import (
+    classifier_feature_manifest_hash,
+    load_classifier_manifest_summary,
+)
 from dj_track_similarity.classifier_scoring import (
+    ClassifierScorer,
     analyze_classifier,
-    _vector_value,
-    _score_bucket_from_score,
-    _argmax_with_tiebreak,
+    load_classifier_requirements,
+    promoted_classifiers,
     save_classifier_score_v7,
 )
 from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.db_schema_v7 import create_v7_schema
-from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature, feature_set_uses_sonara
+from dj_track_similarity.db_schema_v7 import ClassifierScoreV7
 
 
-# ---------------------------------------------------------------------------
-# Shared fixtures / helpers
-# ---------------------------------------------------------------------------
+_NOW = "2026-07-24T10:00:00.000000Z"
+_ARTIFACT_BYTES = b"classifier-v7-test-artifact"
 
-class FixedProbabilityModel:
-    """Minimal sklearn-compatible model that always returns fixed probabilities."""
 
-    classes_ = np.asarray(["negative", "positive"])
+class _ProbabilityModel:
+    def __init__(
+        self,
+        probabilities: tuple[float, float],
+        *,
+        feature_count: int,
+        classes: tuple[str, str] = ("negative", "positive"),
+    ) -> None:
+        self.probabilities = probabilities
+        self.n_features_in_ = feature_count
+        self.classes_ = np.asarray(classes, dtype=object)
 
     def predict_proba(self, matrix: np.ndarray) -> np.ndarray:
-        return np.tile(np.asarray([[0.3, 0.7]], dtype=np.float64), (matrix.shape[0], 1))
+        return np.tile(
+            np.asarray(self.probabilities, dtype=np.float64),
+            (matrix.shape[0], 1),
+        )
 
 
-def _track(db: LibraryDatabase, tmp_path: Path, filename: str) -> int:
-    path = tmp_path / filename
-    path.write_bytes(b"audio")
-    return db.upsert_track(path=path, size=path.stat().st_size, mtime=1.0, metadata={"title": filename})
-
-
-def _save_score(
-    db: LibraryDatabase,
-    track_id: int,
-    classifier: str,
-    *,
-    score: float = 0.5,
-    model_id: str = "model_A",
-    feature_set: str = "mert",
-) -> None:
-    db.save_classifier_score(
-        track_id,
-        classifier=classifier,
-        score=score,
-        label="medium",
-        confidence=max(score, 1.0 - score),
-        probabilities={"negative": 1.0 - score, "positive": score},
-        feature_set=feature_set,
-        model_id=model_id,
-    )
-
-
-def _write_mert_only_model(path: Path, *, classifier_key: str, model_id: str) -> Path:
-    """Write a minimal mert-only joblib artifact + model.json manifest."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(
-        {
-            "model": FixedProbabilityModel(),
-            "feature_set": "mert",
-            "feature_names": ["mert:0", "mert:1"],
-            "label_order": ["negative", "positive"],
-            "classifier_key": classifier_key,
-            "positive_label": "positive",
+def _mert_output() -> AnalysisOutput:
+    return mert_embedding_output(
+        model_version=MERT_MODEL_REVISION,
+        checkpoint_id=MERT_CHECKPOINT_ID,
+        preprocessing=MERT_PREPROCESSING,
+        sample_rate_hz=24_000,
+        window_seconds=5.0,
+        max_windows=5,
+        hidden_layers=(9, 10, 11, 12),
+        pooling="last-4-layer-mean+masked-time-mean+window-mean+l2",
+        parameters={
+            "channel_downmix": "arithmetic-mean",
+            "decoder": "shared-load-audio-mono-v1",
+            "window_selection": "10%-90%-interior-evenly-spaced-rounded",
+            "short_audio": "single-variable-length-window",
+            "processor_normalization": "wav2vec2-do-normalize",
+            "processor_padding": "right-zero-with-attention-mask",
         },
-        path,
     )
-    manifest_path = path.with_name("model.json")
-    manifest_path.write_text(
-        json.dumps(
-            {
-                "classifier_key": classifier_key,
-                "manifest_version": 2,
-                "profile_name": classifier_key.replace("_", " ").title(),
-                "profile_type": "binary",
-                "feature_set": "mert",
-                "feature_count": 2,
-                "label_order": ["negative", "positive"],
-                "positive_label": "positive",
-                "negative_label": "negative",
-                "model_id": model_id,
-                "trained_label_counts": {"negative": 10, "positive": 10},
-                "production": {
-                    "score_semantics": "positive_label_probability",
-                    "required_inputs": ["mert"],
-                    "calibration": {"status": "uncalibrated", "method": None, "report": None},
-                },
-            }
-        ),
+
+
+def _artifact_hash(data: bytes = _ARTIFACT_BYTES) -> str:
+    return f"sha256:{hashlib.sha256(data).hexdigest()}"
+
+
+def _manifest_payload(
+    output: AnalysisOutput,
+    *,
+    classifier_key: str = "test_classifier",
+    model_id: str = "model-current",
+    feature_names: tuple[str, ...] = ("mert:0",),
+    artifact_hash: str | None = None,
+    label_order: tuple[str, str] = ("negative", "positive"),
+) -> dict[str, object]:
+    return {
+        "manifest_version": 2,
+        "classifier_key": classifier_key,
+        "model_id": model_id,
+        "artifact_hash": artifact_hash or _artifact_hash(),
+        "feature_set": "mert-contract",
+        "feature_names": list(feature_names),
+        "feature_count": len(feature_names),
+        "feature_manifest_hash": classifier_feature_manifest_hash(feature_names),
+        "label_order": list(label_order),
+        "negative_label": "negative",
+        "positive_label": "positive",
+        "production": {
+            "score_semantics": "positive_label_probability",
+            "required_outputs": [
+                {
+                    "contract_hash": output.contract_hash,
+                    "canonical_payload": output.contract.canonical_payload,
+                }
+            ],
+            "calibration": {"status": "uncalibrated"},
+        },
+    }
+
+
+def _write_artifact(
+    tmp_path: Path,
+    output: AnalysisOutput,
+    **manifest_changes: object,
+) -> Path:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    model_path = tmp_path / "model.joblib"
+    model_path.write_bytes(_ARTIFACT_BYTES)
+    payload = _manifest_payload(output)
+    payload.update(manifest_changes)
+    (tmp_path / "model.json").write_text(
+        json.dumps(payload),
         encoding="utf-8",
     )
-    return path
+    return model_path
 
 
-def _insert_mert_embedding(db: LibraryDatabase, track_id: int) -> None:
-    """Insert a fake 2-dim MERT embedding so the track is ready for scoring."""
-    vector = np.asarray([0.6, 0.8], dtype=np.float32)
-    db.save_embedding(track_id, vector, model_name="mert", dim=2, embedding_key="mert")
-
-
-# ---------------------------------------------------------------------------
-# Test 1: stale scores (wrong model_id) are deleted before re-scoring
-# ---------------------------------------------------------------------------
-
-def test_stale_scores_deleted_before_rescore(tmp_path: Path) -> None:
-    """
-    BUG-C6 regression test.
-
-    Scenario:
-    - Track has a score row for classifier 'my_cls' with model_id='model_A'.
-    - A new artifact is promoted with model_id='model_B'.
-    - analyze_classifier() must:
-        1. Delete the model_A row before scoring.
-        2. Write a new model_B row.
-
-    Before the fix, analyze_classifier() called list_tracks_missing_classifier()
-    which only returned tracks with NO score row — so model_A scores were silently
-    kept and model_B never ran.
-    """
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-
-    track_id = _track(db, tmp_path, "track.wav")
-    _insert_mert_embedding(db, track_id)
-
-    # Pre-existing stale score from model_A
-    _save_score(db, track_id, "my_cls", model_id="model_A", feature_set="mert")
-
-    # Promote model_B artifact
-    model_path = tmp_path / "models" / "classifiers" / "my-cls" / "model.joblib"
-    _write_mert_only_model(model_path, classifier_key="my_cls", model_id="model_B")
-
-    # Run analyze_classifier with model_B
-    result = analyze_classifier(db, classifier="my_cls", model_path=model_path)
-
-    # model_A score must be gone
-    score_row = db.classifier_score(track_id, "my_cls")
-    assert score_row is not None, "Expected a score row after re-scoring"
-    assert score_row["model_id"] == "model_B", (
-        f"Expected model_id='model_B' but got {score_row['model_id']!r}. "
-        "Stale model_A score was not replaced — BUG-C6 not fixed."
-    )
-    assert result["scored"] >= 1, "Expected at least one track to be scored"
-
-
-# ---------------------------------------------------------------------------
-# Test 2: artifact SHA-256 mismatch is rejected before any scoring
-# ---------------------------------------------------------------------------
-
-def test_artifact_sha256_mismatch_rejected(tmp_path: Path) -> None:
-    """
-    BUG-C6 artifact integrity check.
-
-    Scenario:
-    - A valid artifact is written and its SHA-256 is recorded in model.json.
-    - One byte of the artifact is tampered with.
-    - analyze_classifier() must raise an exception containing
-      'artifact SHA-256 mismatch' before writing any score rows.
-    """
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-
-    track_id = _track(db, tmp_path, "track.wav")
-    _insert_mert_embedding(db, track_id)
-
-    model_path = tmp_path / "models" / "classifiers" / "my-cls" / "model.joblib"
-    _write_mert_only_model(model_path, classifier_key="my_cls", model_id="model_B")
-
-    # Compute the real SHA-256 of the artifact
-    real_sha256 = hashlib.sha256(model_path.read_bytes()).hexdigest()
-
-    # Write the correct hash into the manifest
-    manifest_path = model_path.with_name("model.json")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["artifact_hash"] = real_sha256
-    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-
-    # Tamper with the artifact (flip one byte)
-    raw = bytearray(model_path.read_bytes())
-    raw[-1] ^= 0xFF
-    model_path.write_bytes(bytes(raw))
-
-    # analyze_classifier must raise before scoring
-    with pytest.raises((ValueError, RuntimeError), match="(?i)artifact sha.256 mismatch|sha256 mismatch|artifact.*mismatch"):
-        analyze_classifier(db, classifier="my_cls", model_path=model_path)
-
-    # No score rows must have been written
-    score_row = db.classifier_score(track_id, "my_cls")
-    assert score_row is None, (
-        "Expected no score rows after SHA-256 mismatch rejection, "
-        f"but found: {score_row}"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Helpers for v7 schema tests
-# ---------------------------------------------------------------------------
-
-def _make_v7_db(tmp_path: Path) -> sqlite3.Connection:
-    """Create an in-memory v7 schema DB with one track row and return the connection."""
-    conn = sqlite3.connect(":memory:")
-    conn.row_factory = sqlite3.Row
-    create_v7_schema(conn)
-    now = "2026-07-22T00:00:00.000000Z"
-    conn.execute(
-        """
-        INSERT INTO tracks (
-            track_uuid, file_path, file_size_bytes, file_modified_ns,
-            content_generation, last_scanned_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        ("uuid-1", str(tmp_path / "track.wav"), 1024, 1000000000, 1, now, now, now),
-    )
-    conn.commit()
-    return conn
-
-
-def _track_id_v7(conn: sqlite3.Connection) -> int:
-    row = conn.execute("SELECT track_id FROM tracks LIMIT 1").fetchone()
-    assert row is not None
-    return int(row[0])
-
-
-# ---------------------------------------------------------------------------
-# Test 3: predicted_class is argmax with deterministic tie-break
-# ---------------------------------------------------------------------------
-
-def test_predicted_class_is_argmax(tmp_path: Path) -> None:
-    """
-    BUG-C1: save_classifier_score_v7() must write predicted_class (argmax)
-    and score_bucket atomically.
-
-    Covers:
-    - Normal case: argmax selects the highest-probability label.
-    - score_bucket thresholds: score >= 0.7 → 'high'.
-    - score and confidence columns.
-    - Tie-break: when two labels share max probability, the one with the
-      lower index in manifest_label_order wins.
-    """
-    conn = _make_v7_db(tmp_path)
-    track_id = _track_id_v7(conn)
-    now = "2026-07-22T00:00:00.000000Z"
-
-    # --- Normal case: broken=0.87, straight=0.13 ---
-    save_classifier_score_v7(
-        conn,
+def _insert_track(
+    db: LibraryDatabase,
+    *,
+    content_generation: int = 1,
+) -> AnalysisTarget:
+    track_uuid = str(uuid.uuid4())
+    with db.connect() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO tracks (
+                track_uuid, file_path, file_size_bytes, file_modified_ns,
+                content_generation, last_scanned_at, created_at, updated_at
+            ) VALUES (?, ?, 1024, 123456789, ?, ?, ?, ?)
+            """,
+            (
+                track_uuid,
+                f"C:/music/{track_uuid}.wav",
+                content_generation,
+                _NOW,
+                _NOW,
+                _NOW,
+            ),
+        )
+        track_id = int(cursor.lastrowid)
+    return AnalysisTarget(
+        catalog_uuid=db.catalog_uuid,
         track_id=track_id,
-        classifier_key="break_energy",
-        content_generation=1,
-        model_id="model-v1",
-        feature_set="mert",
-        feature_manifest_hash="sha256:aabbcc",
-        uses_sonara=0,
-        sonara_release_hash=None,
-        positive_label="broken",
-        probabilities={"broken": 0.87, "straight": 0.13},
-        manifest_label_order=["broken", "straight"],
-        analyzed_at=now,
-    )
-    conn.commit()
-
-    row = conn.execute(
-        "SELECT predicted_class, score_bucket, score, confidence FROM classifier_scores "
-        "WHERE track_id = ? AND classifier_key = ?",
-        (track_id, "break_energy"),
-    ).fetchone()
-    assert row is not None, "Expected a classifier_scores row"
-    assert row["predicted_class"] == "broken", (
-        f"Expected predicted_class='broken' (argmax), got {row['predicted_class']!r}"
-    )
-    assert row["score_bucket"] == "high", (
-        f"Expected score_bucket='high' (score=0.87 >= 0.7), got {row['score_bucket']!r}"
-    )
-    assert abs(row["score"] - 0.87) < 1e-6, f"Expected score=0.87, got {row['score']}"
-    assert abs(row["confidence"] - 0.87) < 1e-6, f"Expected confidence=0.87, got {row['confidence']}"
-
-    # --- Tie-break: a=0.5, b=0.5, manifest order = ["b", "a"] → "b" wins ---
-    save_classifier_score_v7(
-        conn,
-        track_id=track_id,
-        classifier_key="break_energy",
-        content_generation=1,
-        model_id="model-v1",
-        feature_set="mert",
-        feature_manifest_hash="sha256:aabbcc",
-        uses_sonara=0,
-        sonara_release_hash=None,
-        positive_label="b",
-        probabilities={"a": 0.5, "b": 0.5},
-        manifest_label_order=["b", "a"],
-        analyzed_at=now,
-    )
-    conn.commit()
-
-    row2 = conn.execute(
-        "SELECT predicted_class, score_bucket FROM classifier_scores "
-        "WHERE track_id = ? AND classifier_key = ?",
-        (track_id, "break_energy"),
-    ).fetchone()
-    assert row2 is not None
-    assert row2["predicted_class"] == "b", (
-        f"Tie-break: expected predicted_class='b' (lower manifest index), got {row2['predicted_class']!r}"
-    )
-    # score=0.5 → 'medium' (0.3 <= 0.5 < 0.7)
-    assert row2["score_bucket"] == "medium", (
-        f"Expected score_bucket='medium' (score=0.5), got {row2['score_bucket']!r}"
+        track_uuid=track_uuid,
+        content_generation=content_generation,
     )
 
-    conn.close()
 
-
-# ---------------------------------------------------------------------------
-# Test 4: BUG-C5 — zero-fill removed; out-of-range dim → not-ready
-# ---------------------------------------------------------------------------
-
-def test_zero_fill_removed() -> None:
-    """
-    BUG-C5: _vector_value() must return None for out-of-range indices,
-    not 0.0.  _track_feature_row() must propagate None → return None
-    (track not-ready), so no corrupted score row is written.
-    """
-    # --- Unit test: _vector_value returns None for out-of-range index ---
-    vector = np.asarray([1.0, 2.0, 3.0], dtype=np.float32)
-
-    # In-range: should return the value
-    assert _vector_value(vector, "0") == pytest.approx(1.0)
-    assert _vector_value(vector, "2") == pytest.approx(3.0)
-
-    # Out-of-range: must return None (BUG-C5 fix), NOT 0.0
-    result_high = _vector_value(vector, "3")
-    assert result_high is None, (
-        f"Expected None for index=3 on dim-3 vector (BUG-C5), got {result_high!r}"
+def _write_mert_embedding(
+    db: LibraryDatabase,
+    target: AnalysisTarget,
+    output: AnalysisOutput,
+) -> None:
+    vector = np.zeros(int(output.contract.dim), dtype=np.float32)
+    vector[0] = 1.0
+    results = db.save_embedding_results(
+        (
+            EmbeddingWrite(
+                target=target,
+                output=EmbeddingOutput(
+                    contract=output.contract,
+                    vector=vector,
+                    analyzed_at=_NOW,
+                ),
+            ),
+        )
     )
-    result_neg = _vector_value(vector, "-1")
-    assert result_neg is None, (
-        f"Expected None for index=-1 (BUG-C5), got {result_neg!r}"
+    assert len(results) == 1 and results[0].ok
+
+
+def _score_write(
+    target: AnalysisTarget,
+    *,
+    classifier_key: str,
+    model_id: str,
+    feature_manifest_hash: str = "sha256:" + "b" * 64,
+    score: float = 0.8,
+) -> ClassifierScoreWrite:
+    output = _mert_output()
+    specification = ClassifierSpecification(
+        classifier_key=classifier_key,
+        model_id=model_id,
+        feature_set="mert-contract",
+        feature_manifest_hash=feature_manifest_hash,
+        required_outputs_hash=classifier_required_outputs_hash((output,)),
+        feature_names=("mert:0",),
+        required_outputs=(output,),
+        label_order=("negative", "positive"),
+        positive_label="positive",
+    )
+    probabilities = {
+        "negative": 1.0 - score,
+        "positive": score,
+    }
+    return ClassifierScoreWrite(
+        target=target,
+        specification=specification,
+        score=ClassifierScoreV7(
+            track_id=target.track_id,
+            classifier_key=classifier_key,
+            content_generation=target.content_generation,
+            model_id=model_id,
+            feature_set="mert-contract",
+            feature_manifest_hash=feature_manifest_hash,
+            required_outputs_hash=specification.required_outputs_hash,
+            uses_sonara=0,
+            sonara_release_hash=None,
+            positive_label="positive",
+            predicted_class=("positive" if score > 0.5 else "negative"),
+            score_bucket=(
+                "high" if score >= 0.7 else "medium" if score >= 0.3 else "low"
+            ),
+            score=score,
+            confidence=max(probabilities.values()),
+            probabilities_json=json.dumps(
+                probabilities,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+            analyzed_at=_NOW,
+        ),
     )
 
-    # --- score_bucket thresholds: low boundary ---
-    assert _score_bucket_from_score(0.0) == "low"
-    assert _score_bucket_from_score(0.29) == "low"
-    assert _score_bucket_from_score(0.3) == "medium"
-    assert _score_bucket_from_score(0.69) == "medium"
-    assert _score_bucket_from_score(0.7) == "high"
-    assert _score_bucket_from_score(1.0) == "high"
+
+def _install_fake_joblib(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    payload: dict[str, object] | None = None,
+    error: Exception | None = None,
+) -> list[bytes]:
+    loaded: list[bytes] = []
+
+    def load(handle: object) -> dict[str, object]:
+        read = getattr(handle, "read")
+        loaded.append(bytes(read()))
+        if error is not None:
+            raise error
+        assert payload is not None
+        return payload
+
+    monkeypatch.setitem(sys.modules, "joblib", types.SimpleNamespace(load=load))
+    return loaded
 
 
-# ---------------------------------------------------------------------------
-# Test 5: SHA-256 mismatch rejected for v7 write path (BUG-C6 complement)
-# ---------------------------------------------------------------------------
+def _score_rows(
+    db: LibraryDatabase,
+    classifier_key: str,
+) -> list[tuple[object, ...]]:
+    with db.connect() as connection:
+        return [
+            tuple(row)
+            for row in connection.execute(
+                """
+                SELECT classifier_key, model_id, feature_manifest_hash,
+                       required_outputs_hash,
+                       predicted_class, score_bucket, score, confidence
+                FROM classifier_scores
+                WHERE classifier_key = ?
+                ORDER BY track_id
+                """,
+                (classifier_key,),
+            ).fetchall()
+        ]
 
-def test_artifact_sha256_mismatch_rejected_v7(tmp_path: Path) -> None:
-    """
-    BUG-C6 complement: artifact SHA-256 verification must fire BEFORE any
-    scoring or DB mutation, even when the v7 write path would be used.
 
-    This is a smoke test that reuses the existing analyze_classifier()
-    entry point (which calls _load_payload() with expected_artifact_hash
-    before any DB write).  The v7 write path is not reached when the
-    artifact is tampered — the check must reject first.
-    """
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
+def test_artifact_and_model_validation_precede_stale_score_deletion(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    output = _mert_output()
+    db.register_analysis_outputs((output,))
+    target = _insert_track(db)
+    _write_mert_embedding(db, target, output)
+    assert db.save_classifier_scores(
+        (
+            _score_write(
+                target,
+                classifier_key="test_classifier",
+                model_id="model-stale",
+            ),
+            _score_write(
+                target,
+                classifier_key="other_classifier",
+                model_id="other-model",
+            ),
+        )
+    )[0].ok
 
-    track_id = _track(db, tmp_path, "track_v7.wav")
-    _insert_mert_embedding(db, track_id)
-
-    model_path = tmp_path / "models" / "classifiers" / "my-cls-v7" / "model.joblib"
-    _write_mert_only_model(model_path, classifier_key="my_cls_v7", model_id="model-v7")
-
-    # Record the real SHA-256 in the manifest
-    real_sha256 = hashlib.sha256(model_path.read_bytes()).hexdigest()
-    manifest_path = model_path.with_name("model.json")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["artifact_hash"] = real_sha256
-    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-
-    # Tamper with the artifact
-    raw = bytearray(model_path.read_bytes())
-    raw[-1] ^= 0xFF
-    model_path.write_bytes(bytes(raw))
-
-    # Must raise before any scoring
-    with pytest.raises(
-        (ValueError, RuntimeError),
-        match="(?i)artifact sha.256 mismatch|sha256 mismatch|artifact.*mismatch",
-    ):
-        analyze_classifier(db, classifier="my_cls_v7", model_path=model_path)
-
-    # No score row must have been written
-    score_row = db.classifier_score(track_id, "my_cls_v7")
-    assert score_row is None, (
-        "Expected no score rows after SHA-256 mismatch rejection (v7 path), "
-        f"but found: {score_row}"
+    wrong_path = _write_artifact(
+        tmp_path / "wrong-digest",
+        output,
+        artifact_hash="sha256:" + "0" * 64,
     )
+    digest_loads = _install_fake_joblib(
+        monkeypatch,
+        payload={
+            "model": _ProbabilityModel((0.2, 0.8), feature_count=1),
+        },
+    )
+    with pytest.raises(ValueError, match="artifact SHA-256 mismatch"):
+        analyze_classifier(
+            db,
+            classifier="test_classifier",
+            model_path=wrong_path,
+        )
+    assert digest_loads == []
+    assert _score_rows(db, "test_classifier")[0][1] == "model-stale"
+
+    invalid_path = _write_artifact(tmp_path / "invalid-model", output)
+    invalid_loads = _install_fake_joblib(
+        monkeypatch,
+        error=ValueError("synthetic joblib rejection"),
+    )
+    with pytest.raises(ValueError, match="synthetic joblib rejection"):
+        analyze_classifier(
+            db,
+            classifier="test_classifier",
+            model_path=invalid_path,
+        )
+    assert invalid_loads == [_ARTIFACT_BYTES]
+    assert _score_rows(db, "test_classifier")[0][1] == "model-stale"
+
+    valid_path = _write_artifact(tmp_path / "valid-model", output)
+    valid_loads = _install_fake_joblib(
+        monkeypatch,
+        payload={
+            "model": _ProbabilityModel((0.2, 0.8), feature_count=1),
+        },
+    )
+    result = analyze_classifier(
+        db,
+        classifier="test_classifier",
+        model_path=valid_path,
+    )
+
+    assert valid_loads == [_ARTIFACT_BYTES]
+    assert result["deleted_stale"] == 1
+    assert result["scored"] == 1
+    current = _score_rows(db, "test_classifier")
+    assert current == [
+        (
+            "test_classifier",
+            "model-current",
+            classifier_feature_manifest_hash(("mert:0",)),
+            classifier_required_outputs_hash((output,)),
+            "positive",
+            "high",
+            pytest.approx(0.8),
+            pytest.approx(0.8),
+        )
+    ]
+    assert _score_rows(db, "other_classifier")[0][1] == "other-model"
+
+
+def test_requirements_reject_non_current_contract_and_out_of_range_feature(
+    tmp_path: Path,
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    active = _mert_output()
+    declared = AnalysisOutput(
+        replace(active.contract, model_version="b" * 40),
+    )
+    db.register_analysis_outputs((active,))
+    model_path = _write_artifact(tmp_path / "contract-mismatch", declared)
+
+    with pytest.raises(ValueError, match="mert model_version must be"):
+        load_classifier_requirements(
+            db,
+            "test_classifier",
+            model_path=model_path,
+        )
+
+    out_of_range = _manifest_payload(
+        active,
+        feature_names=("mert:768",),
+    )
+    range_path = tmp_path / "out-of-range"
+    range_path.mkdir()
+    (range_path / "model.joblib").write_bytes(_ARTIFACT_BYTES)
+    (range_path / "model.json").write_text(
+        json.dumps(out_of_range),
+        encoding="utf-8",
+    )
+    summary = load_classifier_manifest_summary(
+        range_path / "model.joblib",
+        expected_classifier_key="test_classifier",
+    )
+
+    assert summary.status == "invalid"
+    assert any(
+        "outside the declared contract dimension" in error for error in summary.errors
+    )
+    with pytest.raises(ValueError, match="outside the declared contract dimension"):
+        load_classifier_requirements(
+            db,
+            "test_classifier",
+            model_path=range_path / "model.joblib",
+        )
+
+
+@pytest.mark.parametrize(
+    ("positive_score", "expected_bucket"),
+    (
+        (0.29, "low"),
+        (0.30, "medium"),
+        (0.69, "medium"),
+        (0.70, "high"),
+    ),
+)
+def test_public_scorer_uses_deterministic_argmax_and_bucket_boundaries(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    positive_score: float,
+    expected_bucket: str,
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    output = _mert_output()
+    db.register_analysis_outputs((output,))
+    target = _insert_track(db)
+    _write_mert_embedding(db, target, output)
+    model_path = _write_artifact(tmp_path / "artifact", output)
+    _install_fake_joblib(
+        monkeypatch,
+        payload={
+            "model": _ProbabilityModel(
+                (1.0 - positive_score, positive_score),
+                feature_count=1,
+            ),
+        },
+    )
+    requirements = load_classifier_requirements(
+        db,
+        "test_classifier",
+        model_path=model_path,
+    )
+    scorer = ClassifierScorer(requirements)
+    feature_rows = db.load_classifier_feature_rows(
+        requirements.specification,
+        targets=(target,),
+    )
+
+    write = scorer.score_row(feature_rows[0], analyzed_at=_NOW)
+
+    expected_class = "negative" if positive_score <= 0.5 else "positive"
+    assert write.score.predicted_class == expected_class
+    assert write.score.score_bucket == expected_bucket
+    assert write.score.score == pytest.approx(positive_score)
+    assert write.score.confidence == pytest.approx(
+        max(positive_score, 1.0 - positive_score)
+    )
+
+
+def test_public_scorer_breaks_exact_ties_by_manifest_label_order(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    output = _mert_output()
+    db.register_analysis_outputs((output,))
+    target = _insert_track(db)
+    _write_mert_embedding(db, target, output)
+    payload = _manifest_payload(
+        output,
+        label_order=("positive", "negative"),
+    )
+    artifact_dir = tmp_path / "tie"
+    artifact_dir.mkdir()
+    model_path = artifact_dir / "model.joblib"
+    model_path.write_bytes(_ARTIFACT_BYTES)
+    (artifact_dir / "model.json").write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+    _install_fake_joblib(
+        monkeypatch,
+        payload={
+            "model": _ProbabilityModel(
+                (0.5, 0.5),
+                feature_count=1,
+                classes=("negative", "positive"),
+            ),
+        },
+    )
+    requirements = load_classifier_requirements(
+        db,
+        "test_classifier",
+        model_path=model_path,
+    )
+    scorer = ClassifierScorer(requirements)
+    row = db.load_classifier_feature_rows(
+        requirements.specification,
+        targets=(target,),
+    )[0]
+
+    write = scorer.score_row(row, analyzed_at=_NOW)
+
+    assert write.score.predicted_class == "positive"
+    assert write.score.score_bucket == "medium"
+    assert json.loads(write.score.probabilities_json) == {
+        "negative": 0.5,
+        "positive": 0.5,
+    }
+
+
+def test_classifier_writes_reject_wrong_uuid_and_generation(
+    tmp_path: Path,
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    target = _insert_track(db, content_generation=2)
+    base = _score_write(
+        target,
+        classifier_key="test_classifier",
+        model_id="model-current",
+    )
+
+    wrong_uuid = replace(
+        base,
+        target=replace(target, track_uuid=str(uuid.uuid4())),
+    )
+    wrong_generation_target = replace(target, content_generation=1)
+    wrong_generation = replace(
+        base,
+        target=wrong_generation_target,
+        score=replace(base.score, content_generation=1),
+    )
+
+    uuid_result = save_classifier_score_v7(db, wrong_uuid)
+    generation_result = save_classifier_score_v7(db, wrong_generation)
+
+    assert not uuid_result.ok
+    assert "track_uuid mismatch" in str(uuid_result.error)
+    assert not generation_result.ok
+    assert "generation" in str(generation_result.error)
+    assert _score_rows(db, "test_classifier") == []
+
+
+@pytest.mark.parametrize(
+    ("score_changes", "expected_error"),
+    [
+        (
+            {"predicted_class": "positive"},
+            "canonical label-order argmax",
+        ),
+        (
+            {"score": 0.4},
+            "positive-label probability",
+        ),
+        (
+            {"confidence": 0.4},
+            "max(probabilities)",
+        ),
+        (
+            {"score_bucket": "high"},
+            "score_bucket does not match",
+        ),
+    ],
+)
+def test_classifier_writer_rejects_contradictory_score_math(
+    tmp_path: Path,
+    score_changes: dict[str, object],
+    expected_error: str,
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    output = _mert_output()
+    db.register_analysis_outputs((output,))
+    target = _insert_track(db)
+    base = _score_write(
+        target,
+        classifier_key="test_classifier",
+        model_id="model-current",
+        score=0.5,
+    )
+    contradictory = replace(
+        base,
+        score=replace(base.score, **score_changes),
+    )
+
+    result = save_classifier_score_v7(db, contradictory)
+
+    assert not result.ok
+    assert expected_error in str(result.error)
+    assert _score_rows(db, "test_classifier") == []
+
+
+@pytest.mark.parametrize(
+    ("score_changes", "expected_error"),
+    [
+        (
+            {"score": "0.5"},
+            "classifier score must be a finite number",
+        ),
+        (
+            {"confidence": "0.5"},
+            "classifier confidence must be a finite number",
+        ),
+        (
+            {"probabilities_json": '{"negative":"0.5","positive":"0.5"}'},
+            "classifier probabilities must be finite numbers",
+        ),
+        (
+            {"score": True},
+            "classifier score must be a finite number",
+        ),
+        (
+            {"confidence": True},
+            "classifier confidence must be a finite number",
+        ),
+        (
+            {"probabilities_json": '{"negative":true,"positive":false}'},
+            "classifier probabilities must be finite numbers",
+        ),
+    ],
+)
+def test_classifier_writer_rejects_numeric_strings_before_persistence(
+    tmp_path: Path,
+    score_changes: dict[str, object],
+    expected_error: str,
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    output = _mert_output()
+    db.register_analysis_outputs((output,))
+    target = _insert_track(db)
+    base = _score_write(
+        target,
+        classifier_key="test_classifier",
+        model_id="model-current",
+        score=0.5,
+    )
+    malformed = replace(
+        base,
+        score=replace(base.score, **score_changes),
+    )
+
+    result = save_classifier_score_v7(db, malformed)
+
+    assert not result.ok
+    assert expected_error in str(result.error)
+    assert _score_rows(db, "test_classifier") == []
+
+
+@pytest.mark.parametrize("numeric_score", (0, 0.5, 1))
+def test_classifier_writer_valid_numbers_round_trip_through_reader(
+    tmp_path: Path,
+    numeric_score: int | float,
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    output = _mert_output()
+    db.register_analysis_outputs((output,))
+    target = _insert_track(db)
+    write = _score_write(
+        target,
+        classifier_key="test_classifier",
+        model_id="model-current",
+        score=numeric_score,
+    )
+
+    result = save_classifier_score_v7(db, write)
+    detail = db.get_track_detail(target.track_id)
+
+    assert result.ok
+    assert len(detail.classifier_scores_detail) == 1
+    stored = detail.classifier_scores_detail[0]
+    assert stored.score == pytest.approx(numeric_score)
+    assert stored.confidence == pytest.approx(
+        max(float(numeric_score), 1.0 - float(numeric_score))
+    )
+    assert stored.probabilities == {
+        "negative": pytest.approx(1.0 - float(numeric_score)),
+        "positive": pytest.approx(numeric_score),
+    }
+
+
+def test_promoted_discovery_hash_gates_scoring_compatibility(
+    tmp_path: Path,
+) -> None:
+    output = _mert_output()
+    _write_artifact(
+        tmp_path / "bad-digest",
+        output,
+        artifact_hash="sha256:" + "0" * 64,
+    )
+
+    classifiers = promoted_classifiers(tmp_path)
+
+    assert len(classifiers) == 1
+    assert classifiers[0]["manifest_status"] == "invalid"
+    assert classifiers[0]["production_status"] == "invalid"
+    assert classifiers[0]["is_scoring_compatible"] is False
+    assert "artifact SHA-256 mismatch" in " ".join(classifiers[0]["manifest_errors"])

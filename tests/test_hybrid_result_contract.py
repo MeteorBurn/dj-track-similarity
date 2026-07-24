@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-from pathlib import Path
-
-import numpy as np
-
-from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.hybrid_explanation import MATCH_CHARACTER_AXES
-from dj_track_similarity.hybrid_search import build_hybrid_search_preview
+from dj_track_similarity.hybrid_search import HybridSearchResultRow
+from dj_track_similarity.library_models import AnalysisCoverage, TrackSummary
+
 
 RISK_BREAKDOWN_KEYS = {
     "bpm",
@@ -23,15 +20,63 @@ RISK_BREAKDOWN_KEYS = {
 }
 
 
-def test_hybrid_result_rows_expose_pr22_explanation_contract(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    seed_id = _track(db, tmp_path, "seed")
-    candidate_id = _track(db, tmp_path, "candidate")
-    _save_embeddings(db, seed_id, [1.0, 0.0])
-    _save_embeddings(db, candidate_id, [0.95, 0.05])
+def _summary() -> TrackSummary:
+    return TrackSummary(
+        track_id=2,
+        catalog_uuid="00000000-0000-4000-8000-000000000001",
+        track_uuid="00000000-0000-4000-8000-000000000002",
+        content_generation=1,
+        file_path="C:/music/candidate.wav",
+        title="Candidate",
+        artist="Artist",
+        album=None,
+        tag_bpm=124.0,
+        tag_key="8A",
+        audio_duration_seconds=240.0,
+        liked=False,
+        analysis_coverage=AnalysisCoverage(mert=True),
+        classifier_scores=(),
+    )
 
-    result = build_hybrid_search_preview(db, seed_track_ids=[seed_id], sources=["mert"], limit=1)
-    row = result.results[0]
+
+def test_hybrid_result_rows_expose_explanation_contract() -> None:
+    row = HybridSearchResultRow(
+        track=_summary(),
+        score=0.8,
+        total_score=0.8,
+        calibrated_score=None,
+        adjusted_score=0.8,
+        transition_risk=0.2,
+        transition_risk_penalty=0.0,
+        transition_risk_weight=0.0,
+        raw_rrf_score=0.8,
+        rank=1,
+        score_breakdown={
+            "mert": {
+                "rank": 1,
+                "weight": 1.0,
+                "contribution": 0.8,
+                "score": 0.9,
+            }
+        },
+        risk_breakdown={key: 0.0 for key in RISK_BREAKDOWN_KEYS},
+        source_support={
+            "mert": {
+                "available": True,
+                "rank": 1,
+                "score": 0.9,
+            }
+        },
+        classifier_support={},
+        match_character={axis: 0.5 for axis in MATCH_CHARACTER_AXES},
+        warnings=(),
+        explanation=("MERT supports this candidate.",),
+        transition_diagnostics={"supporting_seed_count": 1},
+        diagnostics={"method": "weighted_rrf"},
+        feedback=None,
+    )
+
+    payload = row.api_row(include_diagnostics=True)
 
     assert row.total_score == row.score
     assert row.calibrated_score is None
@@ -40,19 +85,5 @@ def test_hybrid_result_rows_expose_pr22_explanation_contract(tmp_path: Path) -> 
     assert row.source_support["mert"]["available"] is True
     assert row.classifier_support == {}
     assert row.explanation
-
-
-def _track(db: LibraryDatabase, tmp_path: Path, stem: str) -> int:
-    return db.upsert_track(
-        path=tmp_path / f"{stem}.wav",
-        size=10,
-        mtime=1,
-        metadata={"artist": f"Artist {stem}", "title": stem},
-        bpm=124.0,
-        musical_key="8A",
-        energy=0.5,
-    )
-
-
-def _save_embeddings(db: LibraryDatabase, track_id: int, values: list[float]) -> None:
-    db.save_embedding(track_id, np.asarray(values, dtype=np.float32), "test-mert", embedding_key="mert")
+    assert payload["track"]["track_id"] == 2
+    assert payload["transition_diagnostics"]["supporting_seed_count"] == 1

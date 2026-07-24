@@ -4,6 +4,12 @@
 > Goal: Explain SET controls, requirements, Hybrid preview, and safety boundaries.
 > Type: guide
 
+::: warning v7 frontend status
+The React workflow below documents the deferred frontend. It has not been ported to the schema-v7
+API, so these UI steps are not currently validated or available for v7. Use the backend API
+alternative below.
+:::
+
 SET helps after search has found too many plausible tracks but you still need a musical direction
 and an order to review. You provide anchors or let the app choose them, then describe the desired
 closeness, diversity, energy shape, and optional tempo or classifier direction.
@@ -11,6 +17,15 @@ closeness, diversity, energy shape, and optional tempo or classifier direction.
 The result is an ordered listening draft. It is useful for discovering a possible route through
 the library and for spotting gaps, repetitions, or abrupt changes. It is not a finished performance
 plan, cue-point generator, or guarantee that adjacent tracks will mix.
+
+## Current v7 alternative
+
+Generate the ordered preview through `POST /api/set-builder/generate`. Hybrid comparison remains
+available through `POST /api/search/hybrid`. Both endpoints return data only; API clients must
+choose which track IDs to keep and call `POST /api/export` separately. The current fields and ranges
+are documented in the [API reference](../reference/api.md).
+
+## Deferred frontend workflow
 
 ## What happens when you generate
 

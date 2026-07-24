@@ -15,8 +15,8 @@
 .dj-track-similarity-indexes/
 ```
 
-Они содержат созданные файлы векторного индекса и манифесты по одному адаптеру: `mert`, `maest`
-или `clap`. Аудиофайлы не копируются, новые строки SQLite не создаются.
+Они содержат созданные файлы векторного индекса и манифесты для одного семейства моделей: `maest`,
+`mert`, `muq` или `clap`. Аудиофайлы не копируются, новые строки SQLite не создаются.
 
 ## Установите необязательный движок
 
@@ -26,31 +26,30 @@
 python -m pip install -e ".[ann,dev]"
 ```
 
-CLI поддерживает `auto`, `hnswlib` и `exact-numpy`. Режим `auto` предпочитает hnswlib, если он
-доступен.
+Постоянный движок CLI — `hnswlib`.
 
 ## Создайте и проверьте
 
 ```powershell
-dj-sim index build --adapter clap --db .\data\library.sqlite
+dj-sim index build --model clap --db .\data\library.sqlite
 ```
 
 ```powershell
-dj-sim index verify --adapter clap --db .\data\library.sqlite
+dj-sim index verify --model clap --db .\data\library.sqlite
 ```
 
-Адаптер выбирается через `--adapter` или `--embedding-key`.
+Активное семейство эмбеддингов выбирается обязательным параметром `--model`.
 
 Необязательные параметры сборки:
 
 ```powershell
-dj-sim index build --adapter clap --backend auto --ef-construction 200 --m 16 --ef-search 100 --db .\data\library.sqlite
+dj-sim index build --model clap --backend hnswlib --ef-construction 200 --m 16 --ef-search 100 --db .\data\library.sqlite
 ```
 
 ## Измерьте полноту
 
 ```powershell
-dj-sim index benchmark --adapter clap --recall-k 50 --seed-count 20 --db .\data\library.sqlite
+dj-sim index benchmark --model clap --recall-k 50 --seed-count 20 --db .\data\library.sqlite
 ```
 
 Сравнительный тест сопоставляет индекс с точным поиском и сообщает, пройден ли выбранный порог.
@@ -68,15 +67,15 @@ dj-sim text-search "warm dub techno pads" --use-ann-index --db .\data\library.sq
 
 ## Пересобирайте после изменения эмбеддингов
 
-Пересоберите индекс после анализа соответствующего адаптера, сброса эмбеддингов, замены базы или
+Пересоберите индекс после изменения анализа выбранной модели, сброса эмбеддингов, замены базы или
 перемещения каталога индекса.
 
 ## Очистите созданные файлы
 
-Один адаптер:
+Одно семейство моделей:
 
 ```powershell
-dj-sim index clear --adapter clap --db .\data\library.sqlite
+dj-sim index clear --model clap --db .\data\library.sqlite
 ```
 
 Все вспомогательные индексы в разрешённом каталоге:

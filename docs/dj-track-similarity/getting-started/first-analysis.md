@@ -29,31 +29,39 @@ which families deserve a full-library run.
 
 | Family | Writes | Unlocks |
 | --- | --- | --- |
-| SONARA | signed metadata, provenance, and Artifacts sidecar rows | feature search, confidence-aware tempo, Camelot resolution, SET ordering, transition diagnostics, classifier inputs |
-| MAEST | genre labels, syncopated rhythm data, MAEST embedding | genre display, genre tag apply, SET and Hybrid MAEST source |
-| MERT | MERT embedding | seed search, SET, Hybrid, Audio Dedup evidence |
-| MuQ | MuQ embedding | LAB Reference Compare evidence; no MERT/SONARA search, SET, or Hybrid integration |
-| CLAP | CLAP audio embedding | text search, SET, Hybrid, Audio Dedup evidence |
-| CLASSIFIERS | `track_classifier_scores` rows | CLASS filters, SET bias, Hybrid diagnostics |
+| SONARA | signed `core`, `timeline`, `embedding`, and `fingerprint` outputs | feature search, confidence-aware tempo, Camelot resolution, SET ordering, transition diagnostics, classifier inputs |
+| MAEST | Core genre/syncopation rows and an Artifacts embedding | genre display, genre tag apply, SET and Hybrid MAEST source |
+| MERT | Artifacts embedding | seed search, SET, Hybrid, Audio Dedup evidence |
+| MuQ | Artifacts embedding | LAB Reference Compare evidence; no MERT/SONARA search, SET, or Hybrid integration |
+| CLAP | Artifacts audio embedding | text search, SET, Hybrid, Audio Dedup evidence |
+| CLASSIFIERS | Core `classifier_scores` rows | CLASS filters, SET bias, Hybrid diagnostics |
 
 Classifier scoring is a separate stage. Each promoted manifest defines its exact SONARA and
 MAEST/MERT/CLAP requirements. Incomplete tracks are counted as not ready rather than failed.
 
 ## CLI analysis
 
-Install optional analysis dependencies first. Then run:
+Install optional analysis dependencies first. A fresh v7 bundle must activate the loaded SONARA
+release before its first SONARA job. Create a writable backup directory and prepare the immutable
+four-output release. Then run:
 
 ```powershell
-dj-sim analyze --models sonara --limit 25 --db .\data\library.sqlite
+mkdir .\backups
+dj-sim prepare-sonara-release --db .\data\library.sqlite --backup-dir .\backups --confirm "PREPARE SONARA RELEASE"
+dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --limit 25 --db .\data\library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --limit 25 --db .\data\library.sqlite
 dj-sim analyze-classifiers --db .\data\library.sqlite
-dj-sim analyze-pipeline --stages sonara,ml,classifiers --db .\data\library.sqlite
+dj-sim analyze-pipeline --stages sonara,ml,classifiers --sonara-outputs core,timeline,embedding,fingerprint --db .\data\library.sqlite
 ```
+
+Preparation derives and activates the exact `core`, `timeline`, `embedding`, and `fingerprint`
+contracts. It verifies Core and Artifacts backups and records a resumable receipt before analysis
+can write under that release.
 
 Useful options:
 
 ```powershell
-dj-sim analyze --models sonara --db .\data\library.sqlite
+dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --db .\data\library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --device auto --top-k 3 --track-batch-size 8 --inference-batch-size 16 --db .\data\library.sqlite
 ```
 
@@ -69,38 +77,35 @@ MuQ requires the optional `ml` dependencies and downloads the official `OpenMuQ/
 
 In the CLI, omit `--limit` for the whole library.
 
-## UI analysis
+## Frontend status
 
-In **1. Database and analysis**, use the compact model list:
+The Python backend and CLI use the v7 analysis contract. The checked-in React frontend has not
+yet been ported to the new database, track-identity, reset, and output payloads. Do not treat the
+current model controls or an existing `frontend/dist` bundle as compatible with this workflow.
 
-1. Keep the default **SONARA** + **Core** or select one or more models from the ML group. For standalone classifier scoring, select **CLASSIFIERS**. Use **FULL** only to include every stage. A normal selection change keeps one analysis family active.
-2. Choose `AUTO`, `CPU`, or `CUDA` for ML.
-3. Set **Analyze limit**. `0` means the whole library.
-4. Use the single **Analyze** button to queue exactly the checked models in fixed SONARA, ML, CLASSIFIERS order.
-
-The UI creates a job and polls progress. It also shows the current model/path and keeps a process
-log. Each stage logs only its own selected settings. The stop button requests cancellation.
-
-Core is checked by default. Timeline and Representations are optional. SONARA receives paths in
-native batches and decodes them through its Symphonia path inside `sonara.analyze_batch()`. It does
-not call the project's FFmpeg loader and has no `analyze_signal` or per-file decode fallback. ML
-models continue to share the project's FFmpeg decode.
+Use the CLI or v7 API for current execution. SONARA receives paths in native batches and decodes them
+through its Symphonia path inside `sonara.analyze_batch()`. It does not call the project's FFmpeg
+loader and has no `analyze_signal` or per-file decode fallback. ML models continue to share the
+project's FFmpeg decode.
 
 The SONARA batch value controls concurrent full-file native reads, not ML inference. Keep the
 default for a library on one HDD unless a measured pilot supports a larger value.
 
 ## Already analyzed tracks
 
-Analysis jobs target missing results for the selected families. SONARA checks Core and Artifacts signatures independently, so adding Timeline later does not replace Core. Other
-complete families are skipped. Use reset only when you intentionally want to delete stored results.
+Analysis jobs target missing results for the selected families. SONARA materializes `core`,
+`timeline`, `embedding`, and `fingerprint` independently from the same immutable four-contract
+release, so adding another active output later does not replace `core`. Other complete families are
+skipped. Use reset only when you intentionally want to delete stored results.
 
-For an existing analyzed database, a native SONARA preflight blocks old-contract rows. Back up and
-use the explicit SONARA prepare command before following the ordered
-[split SONARA storage workflow](../workflows/reanalyze-sonara-split-storage.md).
+An unprepared SONARA release fails closed. The preparation above is mandatory even for the first
+SONARA run on a fresh v7 bundle. Follow
+[Prepare and rebuild a SONARA release](../workflows/reanalyze-sonara-split-storage.md) for the full
+backup, activation, rebuild, and classifier sequence.
 
 ## Reset boundaries
 
-- Reset SONARA removes Core metadata, Artifacts rows (timeline, embedding, fingerprint), and dependent classifier scores, then restores working BPM/key/energy/duration from remaining tags when possible. Labels and feedback remain intact.
+- Reset SONARA removes active Core and Artifacts outputs plus dependent classifier scores. Labels and feedback remain intact.
 - Reset MAEST removes MAEST metadata and MAEST embeddings.
 - Reset MERT, MuQ, or CLAP deletes embeddings for that key.
 - Reset CLASSIFIERS deletes selected classifier scores only.

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -5,29 +7,65 @@ from fastapi.testclient import TestClient
 from dj_track_similarity.api import create_app
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.exporter import export_tracks
+from dj_track_similarity.track_models import FileTags, ScannedFile, TrackIdentity
 
 
-def test_export_tracks_writes_m3u_and_csv_without_saved_playlist_storage(tmp_path: Path) -> None:
+_SCANNED_AT = "2026-07-24T00:00:00.000000Z"
+
+
+def _scan_track(
+    database: LibraryDatabase,
+    path: Path,
+    *,
+    artist: str,
+    title: str,
+    tag_bpm: float | None = None,
+    tag_key: str | None = None,
+) -> TrackIdentity:
+    stat = path.stat()
+    return database.upsert_scanned_track(
+        file=ScannedFile(
+            file_path=str(path),
+            file_size_bytes=stat.st_size,
+            file_modified_ns=stat.st_mtime_ns,
+            audio_format="wav",
+        ),
+        tags=FileTags(
+            artist=artist,
+            title=title,
+            tag_bpm=tag_bpm,
+            tag_key=tag_key,
+        ),
+        scanned_at=_SCANNED_AT,
+    ).identity
+
+
+def test_export_tracks_writes_m3u_and_csv_without_saved_playlist_storage(
+    tmp_path: Path,
+) -> None:
     db = LibraryDatabase(tmp_path / "library.sqlite")
-    first = db.upsert_track(
-        path=Path("C:/music/one.wav"),
-        size=10,
-        mtime=1,
-        metadata={"artist": "A", "title": "One"},
-        bpm=124,
-        musical_key="6A",
-        energy=0.4,
+    first_path = tmp_path / "one.wav"
+    second_path = tmp_path / "two.wav"
+    first_path.write_bytes(b"one")
+    second_path.write_bytes(b"two")
+    first = _scan_track(
+        db,
+        first_path,
+        artist="A",
+        title="One",
+        tag_bpm=124.0,
+        tag_key="6A",
     )
-    second = db.upsert_track(
-        path=Path("C:/music/two.wav"),
-        size=20,
-        mtime=1,
-        metadata={"artist": "B", "title": "Two"},
-        bpm=126,
-        musical_key="7A",
-        energy=0.5,
+    second = _scan_track(
+        db,
+        second_path,
+        artist="B",
+        title="Two",
+        tag_bpm=126.0,
+        tag_key="7A",
     )
-    tracks = [db.get_track(first), db.get_track(second)]
+    tracks = db.export_track_rows((first.track_id, second.track_id))
+    source_bytes = (first_path.read_bytes(), second_path.read_bytes())
 
     m3u_path = export_tracks("seamless", tracks, tmp_path, "m3u")
     csv_path = export_tracks("seamless", tracks, tmp_path, "csv")
@@ -35,52 +73,53 @@ def test_export_tracks_writes_m3u_and_csv_without_saved_playlist_storage(tmp_pat
     assert m3u_path.read_text(encoding="utf-8").splitlines() == [
         "#EXTM3U",
         "#EXTINF:-1,A - One",
-        "C:/music/one.wav",
+        tracks[0].file_path,
         "#EXTINF:-1,B - Two",
-        "C:/music/two.wav",
+        tracks[1].file_path,
     ]
-    csv_text = csv_path.read_text(encoding="utf-8")
-    assert "artist,title,bpm,key,energy,path" in csv_text
-    assert "A,One,124.0,6A,0.4,C:/music/one.wav" in csv_text
-    assert "B,Two,126.0,7A,0.5,C:/music/two.wav" in csv_text
+    assert csv_path.read_text(encoding="utf-8").splitlines() == [
+        "artist,title,album,tag_bpm,tag_key,sonara_bpm,sonara_key,sonara_energy,file_path",
+        f"A,One,,124.0,6A,,,,{tracks[0].file_path}",
+        f"B,Two,,126.0,7A,,,,{tracks[1].file_path}",
+    ]
+    assert (first_path.read_bytes(), second_path.read_bytes()) == source_bytes
 
 
-def test_export_endpoint_writes_current_track_list_without_saving_playlist(tmp_path: Path) -> None:
+def test_export_endpoint_writes_current_track_list_without_saving_playlist(
+    tmp_path: Path,
+) -> None:
     db_path = tmp_path / "library.sqlite"
     db = LibraryDatabase(db_path)
-    first = db.upsert_track(
-        path=Path("C:/music/one.wav"),
-        size=10,
-        mtime=1,
-        metadata={"artist": "A", "title": "One"},
-    )
-    second = db.upsert_track(
-        path=Path("C:/music/two.wav"),
-        size=20,
-        mtime=1,
-        metadata={"artist": "B", "title": "Two"},
-    )
-    client = TestClient(create_app(db_path))
+    first_path = tmp_path / "one.wav"
+    second_path = tmp_path / "two.wav"
+    first_path.write_bytes(b"one")
+    second_path.write_bytes(b"two")
+    first = _scan_track(db, first_path, artist="A", title="One")
+    second = _scan_track(db, second_path, artist="B", title="Two")
 
-    response = client.post(
+    response = TestClient(create_app(db_path)).post(
         "/api/export",
-        json={"name": "live set", "track_ids": [second, first], "output_dir": str(tmp_path), "format": "m3u"},
+        json={
+            "name": "live set",
+            "track_ids": [second.track_id, first.track_id],
+            "output_dir": str(tmp_path),
+            "format": "m3u",
+        },
     )
 
     assert response.status_code == 200
     export_path = Path(response.json()["path"])
     assert export_path.name == "live_set.m3u"
+    tracks = db.export_track_rows((second.track_id, first.track_id))
     assert export_path.read_text(encoding="utf-8").splitlines() == [
         "#EXTM3U",
         "#EXTINF:-1,B - Two",
-        "C:/music/two.wav",
+        tracks[0].file_path,
         "#EXTINF:-1,A - One",
-        "C:/music/one.wav",
+        tracks[1].file_path,
     ]
-    with db.connect() as connection:
-        tables = {row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-    assert "playlists" not in tables
-    assert "playlist_tracks" not in tables
+    assert first_path.read_bytes() == b"one"
+    assert second_path.read_bytes() == b"two"
 
 
 def test_saved_playlist_endpoint_is_absent(tmp_path: Path) -> None:
@@ -88,6 +127,4 @@ def test_saved_playlist_endpoint_is_absent(tmp_path: Path) -> None:
 
     response = client.post("/api/playlists", json={"name": "old", "track_ids": []})
 
-    # Unknown POST routes may return 405 when the built frontend static mount is
-    # present; the contract here is that no saved-playlist API accepts the call.
     assert response.status_code in {404, 405}

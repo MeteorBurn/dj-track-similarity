@@ -1,15 +1,22 @@
 from __future__ import annotations
 
 import json
+import math
 from collections import Counter
-from dataclasses import dataclass, field, replace
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass, field
+from typing import Protocol
 
 import numpy as np
 
-from .database import LibraryDatabase
-from .db_schema import TRACK_CLASSIFIER_SCORES_FIELD
-from .metadata_payload import optional_float, string_or_none
-from .models import Track
+from .analysis_models import (
+    AnalysisOutput,
+    AnalysisTarget,
+    AnalysisVectorRow,
+    SonaraFeatureRow,
+)
+from .library_models import LibrarySummary, TrackSummary
+from .track_models import TrackIdentity
 from .set_sequence import (
     ARTIST_SET_MAX_TRACKS,
     artist_allowed as _artist_allowed,
@@ -20,8 +27,6 @@ from .set_sequence import (
     record_artist as _record_artist,
     uses_pending_seed_artist as _uses_pending_seed_artist,
 )
-from .sonara_similarity_scoring import unwrap_feature_value
-from .sonara_contract import SONARA_ANALYSIS_SIGNATURE_KEY, sonara_analysis_signature_errors
 from .tempo_resolution import (
     LOW_BPM_CONFIDENCE,
     TempoEvidence,
@@ -30,15 +35,51 @@ from .tempo_resolution import (
     confidence_aware_tempo_score,
     resolve_tempo_evidence,
 )
-from .transition_diagnostics import structure_transition_score
+from .transition_diagnostics import TransitionTrack, structure_transition_score
 from .track_resolution import (
     attenuate_harmonic_score,
     camelot_compatibility,
     resolve_track_camelot,
     resolve_track_energy,
-    resolve_track_key,
     resolve_track_key_confidence,
 )
+
+
+class SetBuilderRepository(Protocol):
+    def list_track_summaries(
+        self,
+        *,
+        include_missing: bool = False,
+    ) -> tuple[TrackSummary, ...]: ...
+
+    def library_summary(self) -> LibrarySummary: ...
+
+    def get_track_identities(
+        self,
+        track_ids: Sequence[int],
+        *,
+        include_missing: bool = False,
+    ) -> dict[int, TrackIdentity]: ...
+
+    def active_analysis_output(
+        self,
+        analysis_family: str,
+        output_kind: str,
+    ) -> AnalysisOutput | None: ...
+
+    def load_analysis_vectors(
+        self,
+        output: AnalysisOutput,
+        *,
+        targets: Sequence[AnalysisTarget] | None = None,
+    ) -> tuple[AnalysisVectorRow, ...]: ...
+
+    def load_sonara_feature_rows(
+        self,
+        output: AnalysisOutput,
+        *,
+        targets: Sequence[AnalysisTarget] | None = None,
+    ) -> tuple[SonaraFeatureRow, ...]: ...
 
 
 SET_BUILDER_MODES = {"similar_crate", "weird_adjacent", "balanced_set", "discovery"}
@@ -60,7 +101,6 @@ SEQUENCE_POOL_MAX = 512
 PREFILTER_POOL_FACTOR = 50
 PREFILTER_POOL_MIN = 1000
 PREFILTER_POOL_MAX = 3000
-SQLITE_IN_CHUNK_SIZE = 500
 PREFILTER_ARTIST_POOL_MULTIPLIER = 8
 SEQUENCE_ARTIST_POOL_MULTIPLIER = 4
 BPM_MIN = 20.0
@@ -71,6 +111,48 @@ BPM_CURVE_WEIGHTS = {
     "balanced_set": 0.20,
     "discovery": 0.16,
 }
+
+
+def _required_embedding_outputs(
+    outputs: Mapping[str, AnalysisOutput],
+    families: Sequence[str],
+) -> dict[str, AnalysisOutput]:
+    selected: dict[str, AnalysisOutput] = {}
+    for family in families:
+        output = outputs.get(family)
+        if not isinstance(output, AnalysisOutput):
+            raise ValueError(
+                f"analysis_outputs must include current {family}/embedding"
+            )
+        if output.key != (family, "embedding"):
+            raise ValueError(
+                "analysis_outputs contains the wrong output identity for "
+                f"{family!r}: {output.key!r}"
+            )
+        selected[family] = output
+    return selected
+
+
+def _require_current_embedding_output(
+    repository: SetBuilderRepository,
+    family: str,
+    expected: AnalysisOutput,
+) -> AnalysisOutput:
+    active = repository.active_analysis_output(family, "embedding")
+    if active is None:
+        raise RuntimeError(
+            f"No active {family!r} embedding contract; reanalysis is required"
+        )
+    if (
+        active.contract_hash != expected.contract_hash
+        or active.contract.canonical_payload_json
+        != expected.contract.canonical_payload_json
+    ):
+        raise RuntimeError(
+            "Current runtime embedding contract does not match the active "
+            f"{family!r} contract; reanalysis is required before SET building"
+        )
+    return expected
 CLASSIFIER_BIAS_WEIGHT = 0.08
 CLASSIFIER_CONFIDENCE_WEIGHT = 0.03
 ARTIST_PRESSURE_WEIGHT = 0.035
@@ -114,18 +196,6 @@ SONARA_NUMERIC_FIELDS: dict[str, tuple[str, float]] = {
     "chroma_mean.summary.mean": ("tonal", 0.7),
     "chroma_mean.summary.std": ("tonal", 0.55),
 }
-SONARA_AUXILIARY_FIELDS = (
-    "bpm_confidence",
-    "bpm_candidates",
-    "grid_stability",
-    "key_confidence",
-    "duration_sec",
-    "intro_end_sec",
-    "outro_start_sec",
-    "energy_level",
-    "segments",
-    "energy_curve_summary",
-)
 QUICK_DIVERSITY_FIELDS = (
     "energy",
     "danceability",
@@ -158,21 +228,25 @@ class SetBuilderConfig:
 
 @dataclass(frozen=True)
 class _LightCandidate:
-    track: Track
+    track: TrackSummary
     sonara_features: dict[str, object]
     sonara_values: dict[str, float]
     text_values: dict[str, str]
     duplicate_key: str
+    identity: TrackIdentity | None = None
+    sonara: SonaraFeatureRow | None = None
 
 
 @dataclass(frozen=True)
 class _Candidate:
-    track: Track
+    track: TrackSummary
     vectors: dict[str, np.ndarray]
     sonara_features: dict[str, object]
     sonara_values: dict[str, float]
     text_values: dict[str, str]
     duplicate_key: str
+    identity: TrackIdentity | None = None
+    sonara: SonaraFeatureRow | None = None
 
 
 @dataclass(frozen=True)
@@ -193,41 +267,102 @@ class _BpmPlan:
 
 
 class SmartSetBuilder:
-    def __init__(self, db: LibraryDatabase) -> None:
+    def __init__(
+        self,
+        db: SetBuilderRepository,
+        *,
+        analysis_outputs: Mapping[str, AnalysisOutput],
+    ) -> None:
         self.db = db
+        self.analysis_outputs = _required_embedding_outputs(
+            analysis_outputs,
+            REQUIRED_EMBEDDINGS,
+        )
+        self._summary_by_id: dict[int, TrackSummary] = {}
+        self._embedding_maps: dict[str, dict[int, np.ndarray]] = {
+            key: {} for key in REQUIRED_EMBEDDINGS
+        }
 
     def generate(self, config: SetBuilderConfig) -> dict[str, object]:
         cleaned = _clean_config(config)
         rng = _random_generator(cleaned.random_seed)
-        manual_seed_ids = _manual_seed_ids(cleaned.seed_track_ids) if cleaned.seed_mode == "manual" else []
+        manual_seed_ids = (
+            _manual_seed_ids(cleaned.seed_track_ids)
+            if cleaned.seed_mode == "manual"
+            else []
+        )
         light_candidates, coverage = self._load_light_candidates(cleaned)
 
-        light_by_id = {candidate.track.id: candidate for candidate in light_candidates}
+        light_by_id = {
+            candidate.track.track_id: candidate for candidate in light_candidates
+        }
         if cleaned.seed_mode == "manual":
             seed_ids = manual_seed_ids
             self._validate_manual_seeds(seed_ids, light_by_id)
             seed_light_candidates = [light_by_id[track_id] for track_id in seed_ids]
-            prefiltered, _sonara_centrality = _prefilter_light_candidates(light_candidates, seed_light_candidates, cleaned)
-            hydrate_ids = _ordered_unique([*seed_ids, *(candidate.track.id for candidate in prefiltered)])
+            prefiltered, _sonara_centrality = _prefilter_light_candidates(
+                light_candidates, seed_light_candidates, cleaned
+            )
+            hydrate_ids = _ordered_unique(
+                [
+                    *seed_ids,
+                    *(candidate.track.track_id for candidate in prefiltered),
+                ]
+            )
         else:
             if not light_candidates:
-                raise ValueError("No feature-complete tracks are available for Smart Set Builder")
+                raise ValueError(
+                    "No feature-complete tracks are available for Smart Set Builder"
+                )
             auto_start_plan = _bpm_plan(cleaned, light_candidates, [])
-            first_seed_light = _select_auto_start_candidate(light_candidates, cleaned, rng, auto_start_plan)
-            prefiltered, _sonara_centrality = _prefilter_light_candidates(light_candidates, [first_seed_light], cleaned)
-            seed_ids = [first_seed_light.track.id]
-            hydrate_ids = _ordered_unique([first_seed_light.track.id, *(candidate.track.id for candidate in prefiltered)])
-        candidates = self._hydrate_candidates([light_by_id[track_id] for track_id in hydrate_ids if track_id in light_by_id])
-        candidate_by_id = {candidate.track.id: candidate for candidate in candidates}
+            first_seed_light = _select_auto_start_candidate(
+                light_candidates, cleaned, rng, auto_start_plan
+            )
+            prefiltered, _sonara_centrality = _prefilter_light_candidates(
+                light_candidates, [first_seed_light], cleaned
+            )
+            seed_ids = [first_seed_light.track.track_id]
+            hydrate_ids = _ordered_unique(
+                [
+                    first_seed_light.track.track_id,
+                    *(candidate.track.track_id for candidate in prefiltered),
+                ]
+            )
+        candidates = self._hydrate_candidates(
+            [
+                light_by_id[track_id]
+                for track_id in hydrate_ids
+                if track_id in light_by_id
+            ]
+        )
+        candidate_by_id = {
+            candidate.track.track_id: candidate for candidate in candidates
+        }
         if cleaned.seed_mode == "auto":
             if not candidates:
-                raise ValueError("No feature-complete tracks are available for Smart Set Builder")
-            initial_seeds = [candidate_by_id[track_id] for track_id in seed_ids if track_id in candidate_by_id]
+                raise ValueError(
+                    "No feature-complete tracks are available for Smart Set Builder"
+                )
+            initial_seeds = [
+                candidate_by_id[track_id]
+                for track_id in seed_ids
+                if track_id in candidate_by_id
+            ]
             auto_bpm_plan = _bpm_plan(cleaned, candidates, initial_seeds)
-            seed_ids = self._auto_seed_ids(candidates, cleaned, rng, bpm_plan=auto_bpm_plan, initial_seeds=initial_seeds)
-        missing_hydrated_seeds = [track_id for track_id in seed_ids if track_id not in candidate_by_id]
+            seed_ids = self._auto_seed_ids(
+                candidates,
+                cleaned,
+                rng,
+                bpm_plan=auto_bpm_plan,
+                initial_seeds=initial_seeds,
+            )
+        missing_hydrated_seeds = [
+            track_id for track_id in seed_ids if track_id not in candidate_by_id
+        ]
         if missing_hydrated_seeds:
-            raise ValueError(f"Seed tracks missing required analysis: {missing_hydrated_seeds}")
+            raise ValueError(
+                f"Seed tracks missing required analysis: {missing_hydrated_seeds}"
+            )
         seeds = [candidate_by_id[track_id] for track_id in seed_ids]
         bpm_plan = _bpm_plan(cleaned, candidates, seeds)
 
@@ -236,10 +371,12 @@ class SmartSetBuilder:
         scored = [
             self._score_candidate(candidate, context, cleaned)
             for candidate in candidates
-            if candidate.track.id not in seed_ids
+            if candidate.track.track_id not in seed_ids
         ]
         scored = [item for item in scored if item is not None]
-        ordered_items = self._ordered_items(seeds, scored, cleaned, ranges, rng, bpm_plan)
+        ordered_items = self._ordered_items(
+            seeds, scored, cleaned, ranges, rng, bpm_plan
+        )
 
         return {
             "mode": cleaned.mode,
@@ -253,63 +390,67 @@ class SmartSetBuilder:
         light_candidates, coverage = self._load_light_candidates()
         return self._hydrate_candidates(light_candidates), coverage
 
-    def _load_light_candidates(self, config: SetBuilderConfig | None = None) -> tuple[list[_LightCandidate], dict[str, int]]:
+    def _load_light_candidates(
+        self,
+        _config: SetBuilderConfig | None = None,
+    ) -> tuple[list[_LightCandidate], dict[str, int]]:
         summary = self.db.library_summary()
-        classifier_scores_field = TRACK_CLASSIFIER_SCORES_FIELD if config and _uses_classifier_config(config) else "NULL AS classifier_scores_json"
-        numeric_paths, numeric_slices = _json_path_plan(SONARA_NUMERIC_FIELDS)
-        auxiliary_paths, auxiliary_slices = _json_path_plan(SONARA_AUXILIARY_FIELDS)
-        text_paths, text_slices = _json_path_plan(("predominant_chord", "key", "key_camelot"))
-        metadata_paths = ("$.bpm", "$.bpm[0]", "$.key", "$.key[0]", "$.initialkey", "$.initialkey[0]")
-        with self.db.connect() as connection:
-            rows = connection.execute(
-                f"""
-                SELECT
-                    t.id, t.path, t.size, t.mtime, t.artist, t.title, t.album,
-                    t.bpm, t.musical_key, t.energy, t.duration,
-                    EXISTS(SELECT 1 FROM track_likes tl WHERE tl.track_id = t.id) AS liked,
-                    {_json_extract_sql("t.metadata_json", numeric_paths)} AS sonara_values_json,
-                    {_json_extract_sql("t.metadata_json", auxiliary_paths)} AS sonara_auxiliary_json,
-                    {_json_extract_sql("t.metadata_json", text_paths)} AS sonara_text_json,
-                    {_json_extract_sql("t.metadata_json", metadata_paths)} AS metadata_values_json,
-                    json_extract(t.metadata_json, '$.sonara_analysis_signature') AS sonara_signature_json,
-                    {classifier_scores_field}
-                FROM tracks t
-                WHERE t.has_sonara_analysis = 1
-                  AND sonara_analysis_is_current(t.metadata_json) = 1
-                  AND t.has_mert_embedding = 1
-                  AND t.has_maest_embedding = 1
-                  AND t.has_clap_embedding = 1
-                ORDER BY COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path
-                """
-            ).fetchall()
-        candidates: list[_LightCandidate] = []
-        for row in rows:
-            signature = _json_object(row["sonara_signature_json"])
-            if sonara_analysis_signature_errors(signature):
-                continue
-            values = _values_from_json_row(row["sonara_values_json"], numeric_slices)
-            text_values, sonara_features = _text_and_feature_values_from_json_row(row["sonara_text_json"], text_slices)
-            sonara_features.update(_feature_values_from_json_row(row["sonara_auxiliary_json"], auxiliary_slices))
-            metadata = _metadata_from_json_row(row["metadata_values_json"])
-            metadata["sonara_features"] = sonara_features
-            metadata[SONARA_ANALYSIS_SIGNATURE_KEY] = signature
-            track = Track(
-                id=int(row["id"]),
-                path=str(row["path"]),
-                size=int(row["size"]),
-                mtime=float(row["mtime"]),
-                artist=row["artist"],
-                title=row["title"],
-                album=row["album"],
-                bpm=row["bpm"],
-                musical_key=row["musical_key"],
-                energy=row["energy"],
-                duration=row["duration"],
-                liked=bool(row["liked"]),
-                metadata=metadata,
-                classifier_scores=_classifier_scores_from_json(row["classifier_scores_json"]),
-                analyses=["sonara", "maest", "mert", "clap"],
+        summaries = self.db.list_track_summaries(include_missing=False)
+        self._summary_by_id = {track.track_id: track for track in summaries}
+        identities = self.db.get_track_identities(
+            tuple(self._summary_by_id),
+            include_missing=False,
+        )
+        missing_identities = sorted(set(self._summary_by_id) - set(identities))
+        if missing_identities:
+            raise RuntimeError(
+                "library repository omitted current track identities: "
+                f"{missing_identities}"
             )
+        _require_one_catalog(tuple(identities.values()))
+
+        sonara_output = self.db.active_analysis_output("sonara", "core")
+        sonara_rows = (
+            self.db.load_sonara_feature_rows(sonara_output)
+            if sonara_output is not None
+            else ()
+        )
+        sonara_by_id = _validated_sonara_rows(
+            sonara_rows,
+            self._summary_by_id,
+            identities,
+            expected_output=sonara_output,
+        )
+
+        embedding_maps: dict[str, dict[int, np.ndarray]] = {}
+        all_targets: list[AnalysisTarget] = [row.target for row in sonara_rows]
+        for family in REQUIRED_EMBEDDINGS:
+            output = _require_current_embedding_output(
+                self.db,
+                family,
+                self.analysis_outputs[family],
+            )
+            rows = self.db.load_analysis_vectors(output)
+            embedding_maps[family] = _validated_vector_rows(
+                rows,
+                self._summary_by_id,
+                identities,
+                expected_output=output,
+            )
+            all_targets.extend(row.target for row in rows)
+        _require_one_catalog(all_targets)
+        self._embedding_maps = embedding_maps
+
+        candidates: list[_LightCandidate] = []
+        for track in summaries:
+            track_id = track.track_id
+            sonara = sonara_by_id.get(track_id)
+            if sonara is None or any(
+                track_id not in embedding_maps[family] for family in REQUIRED_EMBEDDINGS
+            ):
+                continue
+            sonara_features = _sonara_features_from_row(sonara)
+            values, text_values = _sonara_values(sonara_features)
             candidates.append(
                 _LightCandidate(
                     track=track,
@@ -317,105 +458,64 @@ class SmartSetBuilder:
                     sonara_values=values,
                     text_values=text_values,
                     duplicate_key=_duplicate_key(track),
+                    identity=identities[track_id],
+                    sonara=sonara,
                 )
             )
 
         coverage = {
-            "tracks": int(summary["tracks"]),
+            "tracks": int(summary.tracks),
             "eligible_tracks": len(candidates),
-            "missing_mert": max(0, int(summary["tracks"]) - int(summary["mert"])),
-            "missing_maest": max(0, int(summary["tracks"]) - int(summary["maest"])),
-            "missing_clap": max(0, int(summary["tracks"]) - int(summary["clap"])),
-            "missing_sonara": max(0, int(summary["tracks"]) - int(summary["sonara"])),
+            "missing_mert": max(0, int(summary.tracks) - int(summary.mert)),
+            "missing_maest": max(
+                0,
+                int(summary.tracks) - int(summary.maest_embedding),
+            ),
+            "missing_clap": max(0, int(summary.tracks) - int(summary.clap)),
+            "missing_sonara": max(
+                0,
+                int(summary.tracks) - int(summary.sonara),
+            ),
         }
         return candidates, coverage
 
-    def _hydrate_candidates(self, light_candidates: list[_LightCandidate]) -> list[_Candidate]:
-        track_ids = _ordered_unique([candidate.track.id for candidate in light_candidates])
-        embedding_maps = self._load_embedding_maps_for_ids(track_ids)
-        classifier_scores_by_id = self._load_classifier_scores_for_ids(track_ids)
+    def _hydrate_candidates(
+        self, light_candidates: list[_LightCandidate]
+    ) -> list[_Candidate]:
         candidates: list[_Candidate] = []
         for light in light_candidates:
-            track_id = light.track.id
-            if not all(track_id in embedding_maps[key] for key in REQUIRED_EMBEDDINGS):
+            track_id = light.track.track_id
+            if not all(
+                track_id in self._embedding_maps[key] for key in REQUIRED_EMBEDDINGS
+            ):
                 continue
-            track = replace(
-                light.track,
-                classifier_scores=classifier_scores_by_id.get(track_id, light.track.classifier_scores),
-            )
             candidates.append(
                 _Candidate(
-                    track=track,
-                    vectors={key: embedding_maps[key][track_id] for key in REQUIRED_EMBEDDINGS},
+                    track=light.track,
+                    vectors={
+                        key: self._embedding_maps[key][track_id]
+                        for key in REQUIRED_EMBEDDINGS
+                    },
                     sonara_features=light.sonara_features,
                     sonara_values=light.sonara_values,
                     text_values=light.text_values,
                     duplicate_key=light.duplicate_key,
+                    identity=light.identity,
+                    sonara=light.sonara,
                 )
             )
         return candidates
 
-    def _load_embedding_maps_for_ids(self, track_ids: list[int]) -> dict[str, dict[int, np.ndarray]]:
-        cleaned_ids = _ordered_unique(track_ids)
-        embedding_maps: dict[str, dict[int, np.ndarray]] = {key: {} for key in REQUIRED_EMBEDDINGS}
-        if not cleaned_ids:
-            return embedding_maps
-        with self.db.connect() as connection:
-            for key in REQUIRED_EMBEDDINGS:
-                for chunk in _chunks(cleaned_ids, SQLITE_IN_CHUNK_SIZE):
-                    placeholders = ", ".join("?" for _ in chunk)
-                    rows = connection.execute(
-                        f"""
-                        SELECT track_id, vector
-                        FROM embeddings
-                        WHERE embedding_key = ?
-                          AND track_id IN ({placeholders})
-                        """,
-                        (key, *chunk),
-                    ).fetchall()
-                    for row in rows:
-                        embedding_maps[key][int(row["track_id"])] = np.frombuffer(row["vector"], dtype=np.float32).copy()
-        return embedding_maps
-
-    def _load_classifier_scores_for_ids(self, track_ids: list[int]) -> dict[int, dict[str, dict[str, object]]]:
-        cleaned_ids = _ordered_unique(track_ids)
-        scores_by_id: dict[int, dict[str, dict[str, object]]] = {}
-        if not cleaned_ids:
-            return scores_by_id
-        with self.db.connect() as connection:
-            for chunk in _chunks(cleaned_ids, SQLITE_IN_CHUNK_SIZE):
-                placeholders = ", ".join("?" for _ in chunk)
-                rows = connection.execute(
-                    f"""
-                    SELECT track_id, classifier, score, label, confidence, probabilities_json, feature_set, model_id, analyzed_at
-                    FROM track_classifier_scores
-                    WHERE track_id IN ({placeholders})
-                    """,
-                    tuple(chunk),
-                ).fetchall()
-                for row in rows:
-                    track_id = int(row["track_id"])
-                    scores_by_id.setdefault(track_id, {})[str(row["classifier"])] = {
-                        "score": float(row["score"]),
-                        "label": row["label"],
-                        "confidence": float(row["confidence"]),
-                        "probabilities": _json_object(row["probabilities_json"]),
-                        "feature_set": row["feature_set"],
-                        "model_id": row["model_id"],
-                        "analyzed_at": row["analyzed_at"],
-                    }
-        return scores_by_id
-
-    def _validate_manual_seeds(self, seed_ids: list[int], candidate_by_id: dict[int, _LightCandidate]) -> None:
+    def _validate_manual_seeds(
+        self, seed_ids: list[int], candidate_by_id: dict[int, _LightCandidate]
+    ) -> None:
         missing = [track_id for track_id in seed_ids if track_id not in candidate_by_id]
         if not missing:
             return
         unknown: list[int] = []
         missing_analysis: list[int] = []
         for track_id in missing:
-            try:
-                self.db.get_track(track_id)
-            except KeyError:
+            if track_id not in self._summary_by_id:
                 unknown.append(track_id)
             else:
                 missing_analysis.append(track_id)
@@ -435,10 +535,12 @@ class SmartSetBuilder:
     ) -> list[int]:
         count = max(1, min(5, int(config.auto_seed_count)))
         if len(candidates) < count:
-            raise ValueError(f"Auto seed mode requires at least {count} feature-complete tracks")
+            raise ValueError(
+                f"Auto seed mode requires at least {count} feature-complete tracks"
+            )
         initial_seed_list = list(initial_seeds or [])
         if len(initial_seed_list) >= count:
-            return [seed.track.id for seed in initial_seed_list[:count]]
+            return [seed.track.track_id for seed in initial_seed_list[:count]]
         ranges = _numeric_ranges(candidates)
         anchor_positions = _anchor_positions(config.limit, count)
         target_count = max(config.limit, count)
@@ -446,10 +548,22 @@ class SmartSetBuilder:
             sonara_centrality = _global_sonara_centrality_scores(candidates, ranges)
         embedding_centroids = _embedding_centroids(candidates)
         centrality = [
-            (candidate, _auto_anchor_centrality(candidate, sonara_centrality, embedding_centroids))
+            (
+                candidate,
+                _auto_anchor_centrality(
+                    candidate, sonara_centrality, embedding_centroids
+                ),
+            )
             for candidate in candidates
         ]
-        centrality.sort(key=lambda item: (-item[1], item[0].track.artist or "", item[0].track.title or "", item[0].track.path))
+        centrality.sort(
+            key=lambda item: (
+                -item[1],
+                item[0].track.artist or "",
+                item[0].track.title or "",
+                item[0].track.file_path,
+            )
+        )
         seeds: list[_Candidate] = list(initial_seed_list)
         seen_keys: set[str] = {seed.duplicate_key for seed in seeds}
         artist_counts: Counter[str] = Counter()
@@ -462,16 +576,36 @@ class SmartSetBuilder:
                 for candidate, centrality_score in centrality:
                     if candidate.duplicate_key in seen_keys:
                         continue
-                    if not _artist_allowed(candidate, seeds[-1] if seeds else None, artist_counts):
+                    if not _artist_allowed(
+                        candidate, seeds[-1] if seeds else None, artist_counts
+                    ):
                         continue
-                    if not allow_near_duplicate and seeds and max(_fast_diversity_similarity(candidate, seed, ranges) for seed in seeds) > 0.995:
+                    if (
+                        not allow_near_duplicate
+                        and seeds
+                        and max(
+                            _fast_diversity_similarity(candidate, seed, ranges)
+                            for seed in seeds
+                        )
+                        > 0.995
+                    ):
                         continue
-                    score = _auto_anchor_selection_score(candidate, centrality_score, seeds, ranges, config.mode)
-                    anchor_position = anchor_positions[len(seeds)] if len(seeds) < len(anchor_positions) else len(seeds)
+                    score = _auto_anchor_selection_score(
+                        candidate, centrality_score, seeds, ranges, config.mode
+                    )
+                    anchor_position = (
+                        anchor_positions[len(seeds)]
+                        if len(seeds) < len(anchor_positions)
+                        else len(seeds)
+                    )
                     if bpm_plan is not None:
-                        bpm_score = _bpm_curve_score(candidate, bpm_plan, anchor_position, target_count)
+                        bpm_score = _bpm_curve_score(
+                            candidate, bpm_plan, anchor_position, target_count
+                        )
                         score = score * 0.45 + bpm_score * 0.55
-                    score = _auto_anchor_classifier_adjusted_score(candidate, score, config, anchor_position, target_count)
+                    score = _auto_anchor_classifier_adjusted_score(
+                        candidate, score, config, anchor_position, target_count
+                    )
                     scored_options.append((candidate, score))
                 if scored_options or not seeds:
                     break
@@ -481,15 +615,19 @@ class SmartSetBuilder:
                 scored_options,
                 rng,
                 mode=config.mode,
-                pool_size=_auto_anchor_sample_pool_size(config.mode, count, len(scored_options)),
+                pool_size=_auto_anchor_sample_pool_size(
+                    config.mode, count, len(scored_options)
+                ),
                 force_sample=True,
             )
             seeds.append(selected)
             seen_keys.add(selected.duplicate_key)
             _record_artist(selected, artist_counts)
         if len(seeds) < count:
-            raise ValueError(f"Auto seed mode could not choose {count} artist-diverse anchors")
-        return [candidate.track.id for candidate in seeds]
+            raise ValueError(
+                f"Auto seed mode could not choose {count} artist-diverse anchors"
+            )
+        return [candidate.track.track_id for candidate in seeds]
 
     def _score_candidate(
         self,
@@ -505,7 +643,9 @@ class SmartSetBuilder:
         sonara_score, sonara_groups = _sonara_similarity(candidate, context)
         if sonara_score is None:
             return None
-        classifier_preference, classifier_confidence = _classifier_modifiers(candidate.track, config)
+        classifier_preference, classifier_confidence = _classifier_modifiers(
+            candidate.track, config
+        )
         base = (
             model_scores["mert"] * DEFAULT_MODEL_WEIGHTS["mert"]
             + model_scores["clap_audio"] * DEFAULT_MODEL_WEIGHTS["clap"]
@@ -547,36 +687,68 @@ class SmartSetBuilder:
         anchor_positions = _anchor_positions(config.limit, len(seeds))
         next_seed_index = 0
 
-        seed_artist_counts = Counter(artist for artist in (_artist_key(seed.track) for seed in seeds) if artist is not None)
+        seed_artist_counts = Counter(
+            artist
+            for artist in (_artist_key(seed.track) for seed in seeds)
+            if artist is not None
+        )
         if any(count > ARTIST_SET_MAX_TRACKS for count in seed_artist_counts.values()):
-            raise ValueError("Seed tracks violate artist spacing limits: use at most 1 track per known artist")
+            raise ValueError(
+                "Seed tracks violate artist spacing limits: use at most 1 track per known artist"
+            )
 
         seed_duplicates = {seed.duplicate_key for seed in seeds}
         pending_seeds = list(seeds)
-        scored_pool = _sequence_candidate_pool(scored_candidates, config.limit, len(seeds))
-        remaining = [item for item in scored_pool if item.candidate.duplicate_key not in seed_duplicates]
+        scored_pool = _sequence_candidate_pool(
+            scored_candidates, config.limit, len(seeds)
+        )
+        remaining = [
+            item
+            for item in scored_pool
+            if item.candidate.duplicate_key not in seed_duplicates
+        ]
         selected_sequence: list[_Candidate] = []
         target_count = max(config.limit, len(seeds))
 
         while len(items) < config.limit and (pending_seeds or remaining):
             position = len(items)
-            if pending_seeds and next_seed_index < len(anchor_positions) and position >= anchor_positions[next_seed_index]:
+            if (
+                pending_seeds
+                and next_seed_index < len(anchor_positions)
+                and position >= anchor_positions[next_seed_index]
+            ):
                 seed = pending_seeds.pop(0)
                 if not _artist_allowed(seed, previous, artist_counts):
-                    raise ValueError("Seed tracks violate artist spacing limits: use at most 1 track per known artist")
+                    raise ValueError(
+                        "Seed tracks violate artist spacing limits: use at most 1 track per known artist"
+                    )
                 transition = _transition(previous, seed)
-                items.append(_item(seed, "seed_anchor", 1.0, _seed_breakdown(transition), {}, transition))
+                items.append(
+                    _item(
+                        seed,
+                        "seed_anchor",
+                        1.0,
+                        _seed_breakdown(transition),
+                        {},
+                        transition,
+                    )
+                )
                 previous = seed
                 selected_sequence.append(seed)
                 seen_duplicates.add(seed.duplicate_key)
                 _record_artist(seed, artist_counts)
                 next_seed_index += 1
-                remaining = [item for item in remaining if item.candidate.duplicate_key not in seen_duplicates]
+                remaining = [
+                    item
+                    for item in remaining
+                    if item.candidate.duplicate_key not in seen_duplicates
+                ]
                 continue
 
             pending_seed_artists = _pending_seed_artists(pending_seeds)
             valid_remaining = [
-                item for item in remaining
+                item
+                for item in remaining
                 if _artist_allowed(item.candidate, previous, artist_counts)
                 and not _uses_pending_seed_artist(item.candidate, pending_seed_artists)
             ]
@@ -584,22 +756,47 @@ class SmartSetBuilder:
                 if pending_seeds:
                     seed = pending_seeds.pop(0)
                     if not _artist_allowed(seed, previous, artist_counts):
-                        raise ValueError("Seed tracks violate artist spacing limits: use at most 1 track per known artist")
+                        raise ValueError(
+                            "Seed tracks violate artist spacing limits: use at most 1 track per known artist"
+                        )
                     transition = _transition(previous, seed)
-                    items.append(_item(seed, "seed_anchor", 1.0, _seed_breakdown(transition), {}, transition))
+                    items.append(
+                        _item(
+                            seed,
+                            "seed_anchor",
+                            1.0,
+                            _seed_breakdown(transition),
+                            {},
+                            transition,
+                        )
+                    )
                     previous = seed
                     selected_sequence.append(seed)
                     seen_duplicates.add(seed.duplicate_key)
                     _record_artist(seed, artist_counts)
                     next_seed_index += 1
-                    remaining = [item for item in remaining if item.candidate.duplicate_key not in seen_duplicates]
+                    remaining = [
+                        item
+                        for item in remaining
+                        if item.candidate.duplicate_key not in seen_duplicates
+                    ]
                     continue
                 break
             sequence_options = [
                 (
                     item,
-                    self._sequence_score(item, previous, selected_sequence, position, target_count, config, ranges, bpm_plan)
-                    + _artist_pressure_score(item.candidate, remaining) * ARTIST_PRESSURE_WEIGHT,
+                    self._sequence_score(
+                        item,
+                        previous,
+                        selected_sequence,
+                        position,
+                        target_count,
+                        config,
+                        ranges,
+                        bpm_plan,
+                    )
+                    + _artist_pressure_score(item.candidate, remaining)
+                    * ARTIST_PRESSURE_WEIGHT,
                 )
                 for item in valid_remaining
             ]
@@ -607,29 +804,54 @@ class SmartSetBuilder:
                 sequence_options,
                 rng,
                 mode=config.mode,
-                pool_size=_sequence_sample_pool_size(config.mode, len(sequence_options)),
+                pool_size=_sequence_sample_pool_size(
+                    config.mode, len(sequence_options)
+                ),
             )
             transition = _transition(previous, selected.candidate)
-            flow_score = _classifier_flow_score(selected.candidate.track, config, position, target_count)
-            bpm_curve_score = _bpm_curve_score(selected.candidate, bpm_plan, position, target_count)
-            diversity_score = _diversity_score(selected.candidate, selected_sequence, ranges)
+            flow_score = _classifier_flow_score(
+                selected.candidate.track, config, position, target_count
+            )
+            bpm_curve_score = _bpm_curve_score(
+                selected.candidate, bpm_plan, position, target_count
+            )
+            diversity_score = _diversity_score(
+                selected.candidate, selected_sequence, ranges
+            )
             breakdown = dict(selected.breakdown)
             breakdown["transition"] = transition["confidence"]
             breakdown["classifier_flow"] = flow_score
             breakdown["bpm_curve"] = bpm_curve_score
             breakdown["diversity"] = diversity_score
             reason = _reason(selected, config, transition, flow_score)
-            items.append(_item(selected.candidate, reason, final_score, breakdown, selected.sonara_groups, transition))
+            items.append(
+                _item(
+                    selected.candidate,
+                    reason,
+                    final_score,
+                    breakdown,
+                    selected.sonara_groups,
+                    transition,
+                )
+            )
             previous = selected.candidate
             selected_sequence.append(selected.candidate)
             seen_duplicates.add(selected.candidate.duplicate_key)
             _record_artist(selected.candidate, artist_counts)
-            remaining = [item for item in remaining if item.candidate.duplicate_key not in seen_duplicates]
+            remaining = [
+                item
+                for item in remaining
+                if item.candidate.duplicate_key not in seen_duplicates
+            ]
         if pending_seeds:
-            raise ValueError("Seed tracks violate artist spacing limits: use at most 1 track per known artist")
+            raise ValueError(
+                "Seed tracks violate artist spacing limits: use at most 1 track per known artist"
+            )
         public_items: list[dict[str, object]] = []
         for index, item in enumerate(items, start=1):
-            public_item = {key: value for key, value in item.items() if key != "candidate"}
+            public_item = {
+                key: value for key, value in item.items() if key != "candidate"
+            }
             public_item["position"] = index
             public_items.append(public_item)
         return public_items
@@ -646,8 +868,12 @@ class SmartSetBuilder:
         bpm_plan: _BpmPlan | None,
     ) -> float:
         transition_score = _transition(previous, item.candidate)["confidence"]
-        curve_score = _energy_curve_score(item.candidate, config.energy_curve, position, target_count)
-        classifier_flow = _classifier_flow_score(item.candidate.track, config, position, target_count)
+        curve_score = _energy_curve_score(
+            item.candidate, config.energy_curve, position, target_count
+        )
+        classifier_flow = _classifier_flow_score(
+            item.candidate.track, config, position, target_count
+        )
         bpm_curve = _bpm_curve_score(item.candidate, bpm_plan, position, target_count)
         diversity_score = _diversity_score(item.candidate, selected_sequence, ranges)
         diversity_weight = config.diversity * 0.10
@@ -701,7 +927,9 @@ class _Context:
     chord_context: set[str] = field(default_factory=set)
 
 
-def _build_context(seeds: list[_Candidate], ranges: dict[str, tuple[float, float]]) -> _Context:
+def _build_context(
+    seeds: list[_Candidate], ranges: dict[str, tuple[float, float]]
+) -> _Context:
     return _Context(
         seeds=seeds,
         ranges=ranges,
@@ -729,7 +957,9 @@ def _clean_config(config: SetBuilderConfig) -> SetBuilderConfig:
         raise ValueError(f"Unsupported BPM change mode: {bpm_change}")
     return SetBuilderConfig(
         seed_mode=seed_mode,
-        seed_track_ids=list(dict.fromkeys(int(track_id) for track_id in config.seed_track_ids)),
+        seed_track_ids=list(
+            dict.fromkeys(int(track_id) for track_id in config.seed_track_ids)
+        ),
         auto_seed_count=max(1, min(5, int(config.auto_seed_count))),
         mode=mode,
         limit=max(1, min(500, int(config.limit))),
@@ -748,8 +978,8 @@ def _clean_config(config: SetBuilderConfig) -> SetBuilderConfig:
 def _clean_bpm_value(value: float | None, name: str) -> float | None:
     if value is None:
         return None
-    cleaned = optional_float(value)
-    if cleaned is None or not np.isfinite(cleaned):
+    cleaned = _finite_float(value)
+    if cleaned is None:
         raise ValueError(f"Invalid {name}: {value}")
     if not BPM_MIN <= cleaned <= BPM_MAX:
         raise ValueError(f"{name} must be between {BPM_MIN:g} and {BPM_MAX:g}")
@@ -812,203 +1042,235 @@ def _uses_classifier_config(config: SetBuilderConfig) -> bool:
 
 
 def _uses_classifier_flow_config(config: SetBuilderConfig) -> bool:
-    return any(config.classifier_flows.get(key, "flat") != "flat" for key in config.classifier_preferences)
+    return any(
+        config.classifier_flows.get(key, "flat") != "flat"
+        for key in config.classifier_preferences
+    )
 
 
 def _ordered_unique(values: list[int]) -> list[int]:
     return list(dict.fromkeys(int(value) for value in values))
 
 
-def _chunks(values: list[int], size: int):
-    for index in range(0, len(values), size):
-        yield values[index : index + size]
-
-
-# ---------------------------------------------------------------------------
-# v7 BLOB reader — reads MFCC/chroma/spectral_contrast from typed BLOB columns
-# in the v7 `sonara` table.  Returns 9 statistics that map directly onto the
-# keys declared in SONARA_NUMERIC_FIELDS:
-#
-#   mfcc_mean.summary.min / .max / .mean / .std   (4 values, 13 float32 vector)
-#   chroma_mean.summary.min / .max / .mean / .std (4 values, 12 float32 vector)
-#   spectral_contrast_mean                        (1 value — scalar mean of 7 float32 vector)
-#
-# The v6 JSON path reader ($.sonara_features.<field>.summary.*) is kept intact
-# for backward compatibility; it will be removed in Todo 21.
-# ---------------------------------------------------------------------------
-
 _V7_BLOB_FIELDS = (
-    # (column_name, n_elements, stat_prefix_or_scalar_key)
     ("mfcc_mean_blob", 13, "mfcc_mean"),
     ("chroma_mean_blob", 12, "chroma_mean"),
     ("spectral_contrast_mean_blob", 7, "spectral_contrast_mean"),
 )
 
 
-def _read_sonara_short_vectors_v7(
-    track_id: int,
-    connection: "sqlite3.Connection",
+def _short_vector_statistics(
+    values: Mapping[str, object],
 ) -> dict[str, float]:
-    """Read MFCC, chroma, and spectral_contrast BLOBs from the v7 ``sonara``
-    table and return the 9 statistics that feed into the SET broad score.
-
-    Returns an empty dict when the v7 ``sonara`` table does not exist or the
-    row is missing (graceful fallback to the v6 JSON path reader).
-
-    Decoding:
-    - ``mfcc_mean_blob``              → 13 × float32-le → min/max/mean/std
-    - ``chroma_mean_blob``            → 12 × float32-le → min/max/mean/std
-    - ``spectral_contrast_mean_blob`` →  7 × float32-le → scalar mean only
-
-    The returned keys match the entries in ``SONARA_NUMERIC_FIELDS``:
-    ``"mfcc_mean.summary.min"``, ``"mfcc_mean.summary.max"``,
-    ``"mfcc_mean.summary.mean"``, ``"mfcc_mean.summary.std"``,
-    ``"chroma_mean.summary.min"``, ``"chroma_mean.summary.max"``,
-    ``"chroma_mean.summary.mean"``, ``"chroma_mean.summary.std"``,
-    ``"spectral_contrast_mean"``.
-    """
-    import sqlite3 as _sqlite3
-
-    try:
-        row = connection.execute(
-            "SELECT mfcc_mean_blob, chroma_mean_blob, spectral_contrast_mean_blob"
-            " FROM sonara WHERE track_id = ?",
-            (track_id,),
-        ).fetchone()
-    except _sqlite3.OperationalError:
-        # v7 sonara table does not exist in this database — fall back silently.
-        return {}
-
-    if row is None:
-        return {}
-
     result: dict[str, float] = {}
-
-    for col_index, (col_name, n_elements, prefix) in enumerate(_V7_BLOB_FIELDS):
-        blob: bytes | None = row[col_index]
-        if blob is None or len(blob) != n_elements * 4:
+    for field_name, dimension, prefix in _V7_BLOB_FIELDS:
+        raw = values.get(field_name)
+        if isinstance(raw, bytes):
+            vector = np.frombuffer(raw, dtype="<f4")
+        elif isinstance(raw, (tuple, list, np.ndarray)):
+            vector = np.asarray(raw, dtype="<f4")
+        else:
             continue
-        vec = np.frombuffer(blob, dtype="<f4")
-        if not np.all(np.isfinite(vec)):
+        if vector.shape != (dimension,) or not bool(np.all(np.isfinite(vector))):
             continue
         if prefix == "spectral_contrast_mean":
-            # Scalar mean only — maps to the existing scalar key.
-            result[prefix] = float(np.mean(vec))
-        else:
-            # Four summary statistics — map to the .summary.* sub-keys.
-            result[f"{prefix}.summary.min"] = float(np.min(vec))
-            result[f"{prefix}.summary.max"] = float(np.max(vec))
-            result[f"{prefix}.summary.mean"] = float(np.mean(vec))
-            result[f"{prefix}.summary.std"] = float(np.std(vec))
-
+            result[prefix] = float(np.mean(vector))
+            continue
+        result[f"{prefix}.summary.min"] = float(np.min(vector))
+        result[f"{prefix}.summary.max"] = float(np.max(vector))
+        result[f"{prefix}.summary.mean"] = float(np.mean(vector))
+        result[f"{prefix}.summary.std"] = float(np.std(vector))
     return result
 
 
-def _json_path_plan(fields) -> tuple[tuple[str, ...], dict[str, slice]]:
-    paths: list[str] = []
-    slices: dict[str, slice] = {}
-    for field_name in fields:
-        start = len(paths)
-        parts = str(field_name).split(".")
-        if len(parts) == 3 and parts[1] == "summary":
-            paths.append(f"$.sonara_features.{parts[0]}.summary.{parts[2]}")
-        else:
-            paths.extend((f"$.sonara_features.{field_name}.value", f"$.sonara_features.{field_name}"))
-        slices[str(field_name)] = slice(start, len(paths))
-    return tuple(paths), slices
+def _validated_sonara_rows(
+    rows: Sequence[SonaraFeatureRow],
+    summaries: Mapping[int, TrackSummary],
+    identities: Mapping[int, TrackIdentity],
+    *,
+    expected_output: AnalysisOutput | None,
+) -> dict[int, SonaraFeatureRow]:
+    result: dict[int, SonaraFeatureRow] = {}
+    for row in rows:
+        summary = summaries.get(row.target.track_id)
+        if summary is None:
+            raise RuntimeError(
+                "analysis repository returned a SONARA row without a "
+                "current library summary"
+            )
+        _require_matching_target(
+            row.target,
+            identities[summary.track_id],
+            summary,
+        )
+        if expected_output is None or row.output != expected_output:
+            raise RuntimeError(
+                "analysis repository returned SONARA data for the wrong contract"
+            )
+        result[summary.track_id] = row
+    return result
 
 
-def _json_extract_sql(column: str, paths) -> str:
-    quoted = ", ".join(f"'{path}'" for path in paths)
-    return f"json_extract({column}, {quoted})"
+def _validated_vector_rows(
+    rows: Sequence[AnalysisVectorRow],
+    summaries: Mapping[int, TrackSummary],
+    identities: Mapping[int, TrackIdentity],
+    *,
+    expected_output: AnalysisOutput | None,
+) -> dict[int, np.ndarray]:
+    result: dict[int, np.ndarray] = {}
+    for row in rows:
+        summary = summaries.get(row.target.track_id)
+        if summary is None:
+            raise RuntimeError(
+                "analysis repository returned a vector without a current "
+                "library summary"
+            )
+        _require_matching_target(
+            row.target,
+            identities[summary.track_id],
+            summary,
+        )
+        if expected_output is None or row.output != expected_output:
+            raise RuntimeError(
+                "analysis repository returned a vector for the wrong contract"
+            )
+        track_id = row.target.track_id
+        if track_id in result:
+            raise RuntimeError(
+                "analysis repository returned duplicate embedding rows for one track"
+            )
+        vector = np.asarray(row.vector, dtype=np.float32)
+        if vector.shape != (expected_output.contract.dim,):
+            raise RuntimeError(
+                "analysis repository returned an embedding vector with a "
+                "dimension that does not match the active contract"
+            )
+        if not bool(np.all(np.isfinite(vector))):
+            raise RuntimeError(
+                "analysis repository returned an invalid embedding vector"
+            )
+        if expected_output.contract.normalization == "l2":
+            norm = float(np.linalg.norm(vector.astype(np.float64, copy=False)))
+            if not math.isfinite(norm) or not np.isclose(
+                norm,
+                1.0,
+                rtol=1e-4,
+                atol=1e-5,
+            ):
+                raise RuntimeError(
+                    "analysis repository returned an L2 embedding vector "
+                    "that is not unit-normalized"
+                )
+        result[track_id] = vector
+    return result
 
 
-def _json_array(raw: object) -> list[object]:
-    if raw is None:
-        return []
-    try:
-        parsed = json.loads(str(raw))
-    except (TypeError, json.JSONDecodeError):
-        return []
-    return parsed if isinstance(parsed, list) else [parsed]
+def _require_matching_target(
+    target: AnalysisTarget,
+    identity: TrackIdentity,
+    summary: TrackSummary,
+) -> None:
+    if (
+        identity.catalog_uuid != summary.catalog_uuid
+        or identity.track_id != summary.track_id
+        or identity.track_uuid != summary.track_uuid
+        or identity.content_generation != summary.content_generation
+        or target.catalog_uuid != identity.catalog_uuid
+        or target.track_id != identity.track_id
+        or target.track_uuid != identity.track_uuid
+        or target.content_generation != identity.content_generation
+    ):
+        raise RuntimeError("analysis target does not match the current track identity")
 
 
-def _json_object(raw: object) -> dict[str, object]:
-    if raw is None:
-        return {}
-    try:
-        parsed = json.loads(str(raw))
-    except (TypeError, json.JSONDecodeError):
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
+def _require_one_catalog(
+    targets: Sequence[AnalysisTarget | TrackIdentity],
+) -> None:
+    catalogs = {target.catalog_uuid for target in targets}
+    if len(catalogs) > 1:
+        raise RuntimeError(
+            "analysis repository returned rows from multiple library catalogs"
+        )
 
 
-def _first_present(values: list[object], value_slice: slice) -> object | None:
-    for value in values[value_slice]:
-        if value is not None:
-            return value
-    return None
+_SONARA_SCALAR_FEATURES: Mapping[str, str] = {
+    "bpm": "detected_bpm",
+    "n_beats": "beat_count",
+    "onset_density": "onset_density_per_second",
+    "rms_mean": "rms_mean",
+    "rms_max": "rms_max",
+    "loudness_lufs": "integrated_loudness_lufs",
+    "dynamic_range_db": "dynamic_range_db",
+    "energy": "energy_score",
+    "danceability": "danceability_score",
+    "valence": "valence_score",
+    "acousticness": "acousticness_score",
+    "chord_change_rate": "chord_changes_per_second",
+    "dissonance": "dissonance_score",
+    "spectral_centroid_mean": "spectral_centroid_hz",
+    "spectral_bandwidth_mean": "spectral_bandwidth_hz",
+    "spectral_rolloff_mean": "spectral_rolloff_hz",
+    "spectral_flatness_mean": "spectral_flatness",
+    "zero_crossing_rate": "zero_crossing_rate",
+    "bpm_confidence": "bpm_confidence",
+    "grid_stability": "beat_grid_stability",
+    "key_confidence": "key_confidence",
+    "duration_sec": "analyzed_duration_seconds",
+    "intro_end_sec": "intro_end_seconds",
+    "outro_start_sec": "outro_start_seconds",
+    "energy_level": "energy_level",
+}
+_SONARA_TEXT_FEATURES: Mapping[str, str] = {
+    "predominant_chord": "predominant_chord",
+    "key": "detected_key_name",
+    "key_camelot": "detected_key_camelot",
+}
 
 
-def _values_from_json_row(raw: object, slices: dict[str, slice]) -> dict[str, float]:
-    row_values = _json_array(raw)
-    values: dict[str, float] = {}
-    for key, value_slice in slices.items():
-        number = optional_float(unwrap_feature_value(_first_present(row_values, value_slice)))
-        if number is not None:
-            values[key] = number
-    return values
+def _sonara_features_from_row(
+    row: SonaraFeatureRow,
+) -> dict[str, object]:
+    source = row.values
+    features: dict[str, object] = {}
+    for feature_name, column_name in _SONARA_SCALAR_FEATURES.items():
+        value = source.get(column_name)
+        if _finite_float(value) is not None:
+            features[feature_name] = value
+    for feature_name, column_name in _SONARA_TEXT_FEATURES.items():
+        if (value := _text(source.get(column_name))) is not None:
+            features[feature_name] = value
 
+    for field_name in ("mfcc_mean_blob", "chroma_mean_blob"):
+        value = source.get(field_name)
+        if isinstance(value, (tuple, list)):
+            vector = tuple(
+                number for item in value if (number := _finite_float(item)) is not None
+            )
+            expected = 13 if field_name == "mfcc_mean_blob" else 12
+            if len(vector) == expected:
+                name = field_name.removesuffix("_blob")
+                array = np.asarray(vector, dtype=np.float32)
+                features[name] = {
+                    "value": vector,
+                    "summary": {
+                        "min": float(np.min(array)),
+                        "max": float(np.max(array)),
+                        "mean": float(np.mean(array)),
+                        "std": float(np.std(array)),
+                    },
+                }
+    features.update(_short_vector_statistics(source))
 
-def _text_and_feature_values_from_json_row(raw: object, slices: dict[str, slice]) -> tuple[dict[str, str], dict[str, object]]:
-    row_values = _json_array(raw)
-    text_values: dict[str, str] = {}
-    sonara_features: dict[str, object] = {}
-    for key, value_slice in slices.items():
-        text = string_or_none(unwrap_feature_value(_first_present(row_values, value_slice)))
-        if not text:
-            continue
-        if key == "predominant_chord":
-            text_values[key] = text.casefold()
-        elif key in {"key", "key_camelot"}:
-            sonara_features[key] = text
-    return text_values, sonara_features
-
-
-def _feature_values_from_json_row(raw: object, slices: dict[str, slice]) -> dict[str, object]:
-    row_values = _json_array(raw)
-    values: dict[str, object] = {}
-    for key, value_slice in slices.items():
-        value = _first_present(row_values, value_slice)
-        if value is not None:
-            unwrapped = unwrap_feature_value(value)
-            values[key] = value if unwrapped is None and isinstance(value, dict) else unwrapped
-    return values
-
-
-def _metadata_from_json_row(raw: object) -> dict[str, object]:
-    row_values = _json_array(raw)
-    metadata: dict[str, object] = {}
-    bpm = _first_present(row_values, slice(0, 2))
-    key = _first_present(row_values, slice(2, 4))
-    initial_key = _first_present(row_values, slice(4, 6))
-    if bpm is not None:
-        metadata["bpm"] = bpm
-    if key is not None:
-        metadata["key"] = key
-    if initial_key is not None:
-        metadata["initialkey"] = initial_key
-    return metadata
-
-
-def _classifier_scores_from_json(raw: object) -> dict[str, dict[str, object]] | None:
-    if raw is None:
-        return None
-    try:
-        parsed = json.loads(str(raw))
-    except (TypeError, json.JSONDecodeError):
-        return None
-    return parsed if isinstance(parsed, dict) and parsed else None
+    raw_candidates = source.get("bpm_candidates_json")
+    if isinstance(raw_candidates, str):
+        try:
+            parsed = json.loads(raw_candidates)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, list):
+            features["bpm_candidates"] = parsed
+    return features
 
 
 def _prefilter_light_candidates(
@@ -1019,14 +1281,21 @@ def _prefilter_light_candidates(
     if not candidates:
         return [], {}
 
-    seed_ids = {candidate.track.id for candidate in seed_candidates}
-    available = [candidate for candidate in candidates if candidate.track.id not in seed_ids]
+    seed_ids = {candidate.track.track_id for candidate in seed_candidates}
+    available = [
+        candidate
+        for candidate in candidates
+        if candidate.track.track_id not in seed_ids
+    ]
     if not available:
         return [], {}
 
     pool_size = min(
         len(available),
-        max(PREFILTER_POOL_MIN, max(config.limit, config.auto_seed_count) * PREFILTER_POOL_FACTOR),
+        max(
+            PREFILTER_POOL_MIN,
+            max(config.limit, config.auto_seed_count) * PREFILTER_POOL_FACTOR,
+        ),
         PREFILTER_POOL_MAX,
     )
     ranges = _numeric_ranges(candidates)
@@ -1044,13 +1313,13 @@ def _prefilter_light_candidates(
         )
 
         def sonara_score(candidate: _LightCandidate) -> float:
-            return seed_scores.get(candidate.track.id, 0.0)
+            return seed_scores.get(candidate.track.track_id, 0.0)
 
     else:
         sonara_centrality = _global_sonara_centrality_scores(candidates, ranges)
 
         def sonara_score(candidate: _LightCandidate) -> float:
-            return sonara_centrality.get(candidate.track.id, 0.0)
+            return sonara_centrality.get(candidate.track.track_id, 0.0)
 
     scored: list[tuple[float, _LightCandidate]] = []
     for candidate in available:
@@ -1066,18 +1335,22 @@ def _prefilter_light_candidates(
             -item[0],
             item[1].track.artist or "",
             item[1].track.title or "",
-            item[1].track.path,
+            item[1].track.file_path,
         )
     )
 
     return _select_light_pool(scored, pool_size), sonara_centrality
 
 
-def _select_light_pool(scored: list[tuple[float, _LightCandidate]], pool_size: int) -> list[_LightCandidate]:
+def _select_light_pool(
+    scored: list[tuple[float, _LightCandidate]], pool_size: int
+) -> list[_LightCandidate]:
     selected: list[_LightCandidate] = []
     seen_duplicates: set[str] = set()
     artist_counts: Counter[str] = Counter()
-    per_artist_limit = max(ARTIST_SET_MAX_TRACKS * PREFILTER_ARTIST_POOL_MULTIPLIER, pool_size // 20)
+    per_artist_limit = max(
+        ARTIST_SET_MAX_TRACKS * PREFILTER_ARTIST_POOL_MULTIPLIER, pool_size // 20
+    )
     for _score, candidate in scored:
         if candidate.duplicate_key in seen_duplicates:
             continue
@@ -1112,7 +1385,9 @@ def _numeric_ranges(candidates: list[_Candidate]) -> dict[str, tuple[float, floa
     return ranges
 
 
-def _sonara_values(features: dict[str, object]) -> tuple[dict[str, float], dict[str, str]]:
+def _sonara_values(
+    features: dict[str, object],
+) -> tuple[dict[str, float], dict[str, str]]:
     values: dict[str, float] = {}
     for key in SONARA_NUMERIC_FIELDS:
         number = _feature_number(features, key)
@@ -1120,7 +1395,7 @@ def _sonara_values(features: dict[str, object]) -> tuple[dict[str, float], dict[
             values[key] = number
     text_values: dict[str, str] = {}
     for key in ("predominant_chord",):
-        value = string_or_none(unwrap_feature_value(features.get(key)))
+        value = _text(features.get(key))
         if value:
             text_values[key] = value.casefold()
     return values, text_values
@@ -1134,8 +1409,9 @@ def _feature_number(features: dict[str, object], path: str) -> float | None:
             value = value.get(part)
         else:
             return None
-    value = unwrap_feature_value(value)
-    return optional_float(value)
+    if isinstance(value, Mapping) and "value" in value:
+        value = value.get("value")
+    return _finite_float(value)
 
 
 def _embedding_similarity(candidate: _Candidate, context: _Context, key: str) -> float:
@@ -1150,9 +1426,15 @@ def _embedding_similarity(candidate: _Candidate, context: _Context, key: str) ->
     return _bounded(float(candidate.vectors[key] @ centroid))
 
 
-def _sonara_similarity(candidate: _Candidate, context: _Context) -> tuple[float | None, dict[str, float]]:
-    seed_centroid = context.sonara_centroid or _sonara_centroid(context.seeds, context.ranges)
-    chord_context = context.chord_context or _text_context(context.seeds, "predominant_chord")
+def _sonara_similarity(
+    candidate: _Candidate, context: _Context
+) -> tuple[float | None, dict[str, float]]:
+    seed_centroid = context.sonara_centroid or _sonara_centroid(
+        context.seeds, context.ranges
+    )
+    chord_context = context.chord_context or _text_context(
+        context.seeds, "predominant_chord"
+    )
     return _sonara_similarity_to_centroid(
         candidate,
         context.ranges,
@@ -1168,7 +1450,9 @@ def _global_sonara_centrality_scores(
 ) -> dict[int, float]:
     seed_centroid = _sonara_centroid(candidates, ranges)
     chord_context = _text_context(candidates, "predominant_chord")
-    return _sonara_similarity_scores_to_centroid(candidates, ranges, seed_centroid, chord_context)
+    return _sonara_similarity_scores_to_centroid(
+        candidates, ranges, seed_centroid, chord_context
+    )
 
 
 def _sonara_similarity_scores_to_centroid(
@@ -1197,7 +1481,14 @@ def _sonara_similarity_scores_to_centroid(
                 continue
             raw_scores = np.array(
                 [
-                    score if (score := _tempo_similarity_for_candidate(candidate, tempo_context)) is not None else np.nan
+                    score
+                    if (
+                        score := _tempo_similarity_for_candidate(
+                            candidate, tempo_context
+                        )
+                    )
+                    is not None
+                    else np.nan
                     for candidate in candidates
                 ],
                 dtype=np.float32,
@@ -1257,7 +1548,11 @@ def _sonara_similarity_scores_to_centroid(
     scores: dict[int, float] = {}
     mask = weight_total > 0
     for index, candidate in enumerate(candidates):
-        scores[candidate.track.id] = _bounded(float(weighted_total[index] / weight_total[index])) if mask[index] else 0.0
+        scores[candidate.track.track_id] = (
+            _bounded(float(weighted_total[index] / weight_total[index]))
+            if mask[index]
+            else 0.0
+        )
     return scores
 
 
@@ -1269,7 +1564,9 @@ def _sonara_similarity_to_centroid(
     *,
     tempo_context: list[_Candidate] | None = None,
 ) -> tuple[float | None, dict[str, float]]:
-    group_scores: dict[str, list[tuple[float, float]]] = {group: [] for group in SONARA_GROUP_WEIGHTS}
+    group_scores: dict[str, list[tuple[float, float]]] = {
+        group: [] for group in SONARA_GROUP_WEIGHTS
+    }
     for key, value in candidate.sonara_values.items():
         if key not in seed_centroid or key not in ranges:
             continue
@@ -1287,7 +1584,9 @@ def _sonara_similarity_to_centroid(
 
     candidate_chord = candidate.text_values.get("predominant_chord")
     if chord_context and candidate_chord:
-        group_scores["tonal"].append((1.0 if candidate_chord in chord_context else 0.0, 0.35))
+        group_scores["tonal"].append(
+            (1.0 if candidate_chord in chord_context else 0.0, 0.35)
+        )
 
     collapsed: dict[str, float] = {}
     weighted_total = 0.0
@@ -1295,7 +1594,9 @@ def _sonara_similarity_to_centroid(
     for group, values in group_scores.items():
         if not values:
             continue
-        group_score = sum(score * weight for score, weight in values) / sum(weight for _score, weight in values)
+        group_score = sum(score * weight for score, weight in values) / sum(
+            weight for _score, weight in values
+        )
         collapsed[group] = _bounded(group_score)
         group_weight = SONARA_GROUP_WEIGHTS[group]
         weighted_total += collapsed[group] * group_weight
@@ -1315,7 +1616,8 @@ def _sonara_centroid(
             normalized
             for seed in seeds
             if key in seed.sonara_values
-            if (normalized := _normalize(seed.sonara_values[key], ranges[key])) is not None
+            if (normalized := _normalize(seed.sonara_values[key], ranges[key]))
+            is not None
         ]
         if values:
             centroid[key] = float(np.mean(values))
@@ -1329,13 +1631,17 @@ def _tempo_similarity_for_candidate(
     candidate_tempo = _tempo_evidence(candidate)
     scores: list[float] = []
     for reference in references:
-        score = confidence_aware_tempo_score(candidate_tempo, _tempo_evidence(reference))
+        score = confidence_aware_tempo_score(
+            candidate_tempo, _tempo_evidence(reference)
+        )
         if score is not None:
             scores.append(score)
     return float(np.mean(scores)) if scores else None
 
 
-def _text_context(seeds: list[_LightCandidate] | list[_Candidate], key: str) -> set[str]:
+def _text_context(
+    seeds: list[_LightCandidate] | list[_Candidate], key: str
+) -> set[str]:
     values = [seed.text_values.get(key) for seed in seeds if seed.text_values.get(key)]
     if not values:
         return set()
@@ -1364,7 +1670,7 @@ def _auto_anchor_centrality(
         for key, centroid in embedding_centroids.items()
     ]
     embedding_score = float(np.mean(embedding_scores)) if embedding_scores else 0.0
-    sonara_score = sonara_centrality.get(candidate.track.id, 0.0)
+    sonara_score = sonara_centrality.get(candidate.track.track_id, 0.0)
     return _bounded(embedding_score * 0.7 + sonara_score * 0.3)
 
 
@@ -1374,8 +1680,16 @@ def _select_auto_start_candidate(
     rng: np.random.Generator,
     bpm_plan: _BpmPlan | None,
 ) -> _LightCandidate:
-    scored = [(candidate, _auto_start_selection_score(candidate, config, bpm_plan)) for candidate in candidates]
-    index = _sample_ranked_index([score for _candidate, score in scored], rng, mode=config.mode, force_sample=True)
+    scored = [
+        (candidate, _auto_start_selection_score(candidate, config, bpm_plan))
+        for candidate in candidates
+    ]
+    index = _sample_ranked_index(
+        [score for _candidate, score in scored],
+        rng,
+        mode=config.mode,
+        force_sample=True,
+    )
     return scored[index][0]
 
 
@@ -1390,7 +1704,9 @@ def _auto_start_selection_score(
         score = _bounded(0.5 + preference * 0.5)
         score += (confidence - 1.0) * CLASSIFIER_CONFIDENCE_WEIGHT
     if bpm_plan is not None:
-        bpm_score = _bpm_curve_score(candidate, bpm_plan, 0, max(config.limit, config.auto_seed_count))
+        bpm_score = _bpm_curve_score(
+            candidate, bpm_plan, 0, max(config.limit, config.auto_seed_count)
+        )
         score = score * 0.55 + bpm_score * 0.45
     return _bounded(score)
 
@@ -1404,7 +1720,9 @@ def _auto_anchor_selection_score(
 ) -> float:
     if not selected:
         return _bounded(centrality_score)
-    relatedness = max(_fast_diversity_similarity(candidate, seed, ranges) for seed in selected)
+    relatedness = max(
+        _fast_diversity_similarity(candidate, seed, ranges) for seed in selected
+    )
     if mode == "similar_crate":
         score = centrality_score * 0.35 + relatedness * 0.65
     elif mode == "weird_adjacent":
@@ -1493,10 +1811,15 @@ def _sample_scored_candidate(
             -item[1],
             item[0].track.artist or "",
             item[0].track.title or "",
-            item[0].track.path,
+            item[0].track.file_path,
         ),
     )[: max(1, pool_size)]
-    index = _sample_ranked_index([score for _candidate, score in ranked], rng, mode=mode, force_sample=force_sample)
+    index = _sample_ranked_index(
+        [score for _candidate, score in ranked],
+        rng,
+        mode=mode,
+        force_sample=force_sample,
+    )
     return ranked[index][0]
 
 
@@ -1514,14 +1837,18 @@ def _sample_scored_item(
             item[0].breakdown.get("consensus", 0.0),
             item[0].candidate.track.artist or "",
             item[0].candidate.track.title or "",
-            item[0].candidate.track.path,
+            item[0].candidate.track.file_path,
         ),
     )[: max(1, pool_size)]
-    index = _sample_ranked_index([score for _item, score in ranked], rng, mode=mode, force_sample=False)
+    index = _sample_ranked_index(
+        [score for _item, score in ranked], rng, mode=mode, force_sample=False
+    )
     return ranked[index]
 
 
-def _sample_ranked_index(scores: list[float], rng: np.random.Generator, *, mode: str, force_sample: bool) -> int:
+def _sample_ranked_index(
+    scores: list[float], rng: np.random.Generator, *, mode: str, force_sample: bool
+) -> int:
     if len(scores) <= 1:
         return 0
     cleaned = np.asarray([_bounded(score) for score in scores], dtype=np.float64)
@@ -1547,7 +1874,9 @@ def _normalize(value: float, value_range: tuple[float, float]) -> float | None:
     return float(normalized)
 
 
-def _sequence_candidate_pool(scored_candidates: list[_ScoredCandidate], limit: int, seed_count: int) -> list[_ScoredCandidate]:
+def _sequence_candidate_pool(
+    scored_candidates: list[_ScoredCandidate], limit: int, seed_count: int
+) -> list[_ScoredCandidate]:
     remaining_slots = max(0, int(limit) - int(seed_count))
     if remaining_slots <= 0 or not scored_candidates:
         return []
@@ -1565,7 +1894,7 @@ def _sequence_candidate_pool(scored_candidates: list[_ScoredCandidate], limit: i
             item.breakdown.get("consensus", 0.0),
             item.candidate.track.artist or "",
             item.candidate.track.title or "",
-            item.candidate.track.path,
+            item.candidate.track.file_path,
         ),
         reverse=True,
     )
@@ -1579,13 +1908,20 @@ def _anchor_positions(limit: int, seed_count: int) -> list[int]:
     if seed_count == 1:
         return [0]
     last_position = max(0, target_count - 1)
-    return [int(round(index * last_position / (seed_count - 1))) for index in range(seed_count)]
+    return [
+        int(round(index * last_position / (seed_count - 1)))
+        for index in range(seed_count)
+    ]
 
 
-def _select_scored_pool(scored: list[_ScoredCandidate], pool_size: int) -> list[_ScoredCandidate]:
+def _select_scored_pool(
+    scored: list[_ScoredCandidate], pool_size: int
+) -> list[_ScoredCandidate]:
     selected: list[_ScoredCandidate] = []
     artist_counts: Counter[str] = Counter()
-    per_artist_limit = max(ARTIST_SET_MAX_TRACKS * SEQUENCE_ARTIST_POOL_MULTIPLIER, pool_size // 20)
+    per_artist_limit = max(
+        ARTIST_SET_MAX_TRACKS * SEQUENCE_ARTIST_POOL_MULTIPLIER, pool_size // 20
+    )
     for item in scored:
         artist_key = _artist_key(item.candidate.track)
         if artist_key and artist_counts[artist_key] >= per_artist_limit:
@@ -1604,11 +1940,14 @@ def _select_scored_pool(scored: list[_ScoredCandidate], pool_size: int) -> list[
     return selected
 
 
-def _classifier_modifiers(track: Track, config: SetBuilderConfig) -> tuple[float, float]:
-    scores = _classifier_scores(track)
+def _classifier_modifiers(
+    track: TrackSummary,
+    config: SetBuilderConfig,
+) -> tuple[float, float]:
     used_keys = set(config.classifier_preferences)
     if not used_keys:
         return 0.0, 1.0
+    scores = _classifier_scores(track)
     present = 0
     preference_scores: list[float] = []
     for key, preference in config.classifier_preferences.items():
@@ -1622,7 +1961,12 @@ def _classifier_modifiers(track: Track, config: SetBuilderConfig) -> tuple[float
     return _bounded_signed(preference), _bounded(confidence)
 
 
-def _classifier_flow_score(track: Track, config: SetBuilderConfig, position: int, target_count: int) -> float:
+def _classifier_flow_score(
+    track: TrackSummary,
+    config: SetBuilderConfig,
+    position: int,
+    target_count: int,
+) -> float:
     if not config.classifier_preferences:
         return 0.5
     scores = _classifier_scores(track)
@@ -1646,17 +1990,15 @@ def _classifier_flow_score(track: Track, config: SetBuilderConfig, position: int
     return _bounded(float(np.mean(values))) if values else 0.5
 
 
-def _classifier_scores(track: Track) -> dict[str, float]:
-    result: dict[str, float] = {}
-    for key, payload in (track.classifier_scores or {}).items():
-        if isinstance(payload, dict):
-            score = optional_float(payload.get("score"))
-            if score is not None:
-                result[str(key)] = _bounded(score)
-    return result
+def _classifier_scores(track: TrackSummary) -> dict[str, float]:
+    return {
+        score.classifier_key: _bounded(score.score) for score in track.classifier_scores
+    }
 
 
-def _energy_curve_score(candidate: _Candidate, curve: str, position: int, target_count: int) -> float:
+def _energy_curve_score(
+    candidate: _Candidate, curve: str, position: int, target_count: int
+) -> float:
     energy = _track_energy(candidate)
     if energy is None:
         return 0.5
@@ -1673,14 +2015,17 @@ def _energy_curve_score(candidate: _Candidate, curve: str, position: int, target
 
 
 def _track_energy(candidate: _Candidate) -> float | None:
-    sonara_features = dict(candidate.sonara_features)
-    if (energy := candidate.sonara_values.get("energy")) is not None:
-        sonara_features["energy"] = energy
-    value = resolve_track_energy(candidate.track, sonara_features=sonara_features)
+    value = resolve_track_energy(
+        _candidate_identity(candidate),
+        candidate.track,
+        candidate.sonara,
+    )
     return _bounded(value) if value is not None else None
 
 
-def _bpm_plan(config: SetBuilderConfig, candidates: list[_Candidate], seeds: list[_Candidate]) -> _BpmPlan | None:
+def _bpm_plan(
+    config: SetBuilderConfig, candidates: list[_Candidate], seeds: list[_Candidate]
+) -> _BpmPlan | None:
     if config.bpm_mode == "general":
         return None
     bpms = [
@@ -1701,7 +2046,12 @@ def _bpm_plan(config: SetBuilderConfig, candidates: list[_Candidate], seeds: lis
         target = config.bpm_target if config.bpm_target is not None else min(bpms)
         if target > start:
             start, target = target, start
-    return _BpmPlan(mode=config.bpm_mode, change=config.bpm_change, start=float(start), target=float(target))
+    return _BpmPlan(
+        mode=config.bpm_mode,
+        change=config.bpm_change,
+        start=float(start),
+        target=float(target),
+    )
 
 
 def _first_bpm(*values: float | None) -> float:
@@ -1717,12 +2067,16 @@ def _bpm_curve_weight(mode: str, bpm_plan: _BpmPlan | None) -> float:
     return BPM_CURVE_WEIGHTS.get(mode, 0.14)
 
 
-def _bpm_curve_score(candidate: _Candidate, bpm_plan: _BpmPlan | None, position: int, target_count: int) -> float:
+def _bpm_curve_score(
+    candidate: _Candidate, bpm_plan: _BpmPlan | None, position: int, target_count: int
+) -> float:
     if bpm_plan is None:
         return 0.5
     desired = _bpm_curve_target(bpm_plan, position, target_count)
     tolerance = _bpm_curve_tolerance(bpm_plan)
-    score = confidence_aware_target_score(_tempo_evidence(candidate), desired, tolerance)
+    score = confidence_aware_target_score(
+        _tempo_evidence(candidate), desired, tolerance
+    )
     return 0.5 if score is None else score
 
 
@@ -1756,7 +2110,9 @@ def _usable_bpm(value: float | None) -> float | None:
     return bpm
 
 
-def _transition(previous: _Candidate | None, candidate: _Candidate) -> dict[str, object]:
+def _transition(
+    previous: _Candidate | None, candidate: _Candidate
+) -> dict[str, object]:
     if previous is None:
         return {
             "from_track_id": None,
@@ -1776,13 +2132,24 @@ def _transition(previous: _Candidate | None, candidate: _Candidate) -> dict[str,
         _track_key_confidence(candidate),
         _track_key_confidence(previous),
     )
-    structure_score = structure_transition_score(_transition_track_view(previous), _transition_track_view(candidate))
+    structure_score = structure_transition_score(
+        TransitionTrack(
+            _candidate_identity(previous),
+            previous.track,
+            previous.sonara,
+        ),
+        TransitionTrack(
+            _candidate_identity(candidate),
+            candidate.track,
+            candidate.sonara,
+        ),
+    )
     if structure_score is None:
         confidence = _bounded(bpm_score * 0.6 + key_score * 0.4)
     else:
         confidence = _bounded(bpm_score * 0.5 + key_score * 0.3 + structure_score * 0.2)
     return {
-        "from_track_id": previous.track.id,
+        "from_track_id": previous.track.track_id,
         "bpm_delta": bpm_delta,
         "key_relation": key_relation,
         "structure_score": structure_score,
@@ -1796,17 +2163,10 @@ def _track_bpm(candidate: _Candidate) -> float | None:
 
 def _tempo_evidence(candidate: _LightCandidate | _Candidate) -> TempoEvidence:
     return resolve_tempo_evidence(
+        _candidate_identity(candidate),
         candidate.track,
-        sonara_values=candidate.sonara_values,
-        sonara_features=candidate.sonara_features,
+        candidate.sonara,
     )
-
-
-def _transition_track_view(candidate: _Candidate) -> dict[str, object]:
-    return {
-        "duration": candidate.track.duration,
-        "metadata": {"sonara_features": candidate.sonara_features},
-    }
 
 
 def _reliable_track_bpm(candidate: _LightCandidate | _Candidate) -> float | None:
@@ -1817,14 +2177,24 @@ def _reliable_track_bpm(candidate: _LightCandidate | _Candidate) -> float | None
 
 
 def _track_key(candidate: _Candidate) -> str | None:
-    return resolve_track_camelot(candidate.track, sonara_features=candidate.sonara_features)
+    return resolve_track_camelot(
+        _candidate_identity(candidate),
+        candidate.track,
+        candidate.sonara,
+    )
 
 
 def _track_key_confidence(candidate: _Candidate) -> float | None:
-    return resolve_track_key_confidence(candidate.track, sonara_features=candidate.sonara_features)
+    return resolve_track_key_confidence(
+        _candidate_identity(candidate),
+        candidate.track,
+        candidate.sonara,
+    )
 
 
-def _tempo_evidence_distance(candidate: TempoEvidence, previous: TempoEvidence) -> float | None:
+def _tempo_evidence_distance(
+    candidate: TempoEvidence, previous: TempoEvidence
+) -> float | None:
     if candidate.bpm is None or previous.bpm is None:
         return None
     return min(
@@ -1841,25 +2211,51 @@ def _key_relation(
     previous_confidence: float | None = None,
 ) -> tuple[str, float]:
     relation, score = camelot_compatibility(candidate_key, previous_key)
-    return relation, attenuate_harmonic_score(score, candidate_confidence, previous_confidence)
+    return relation, attenuate_harmonic_score(
+        score, candidate_confidence, previous_confidence
+    )
 
 
-def _combined_similarity(candidate: _Candidate, seed: _Candidate, ranges: dict[str, tuple[float, float]]) -> float:
-    embedding_score = float(np.mean([_bounded(float(candidate.vectors[key] @ seed.vectors[key])) for key in REQUIRED_EMBEDDINGS]))
+def _combined_similarity(
+    candidate: _Candidate, seed: _Candidate, ranges: dict[str, tuple[float, float]]
+) -> float:
+    embedding_score = float(
+        np.mean(
+            [
+                _bounded(float(candidate.vectors[key] @ seed.vectors[key]))
+                for key in REQUIRED_EMBEDDINGS
+            ]
+        )
+    )
     context = _Context(seeds=[seed], ranges=ranges)
     sonara_score, _groups = _sonara_similarity(candidate, context)
     return embedding_score * 0.7 + (sonara_score or 0.0) * 0.3
 
 
-def _diversity_score(candidate: _Candidate, selected: list[_Candidate], ranges: dict[str, tuple[float, float]]) -> float:
+def _diversity_score(
+    candidate: _Candidate,
+    selected: list[_Candidate],
+    ranges: dict[str, tuple[float, float]],
+) -> float:
     if not selected:
         return 0.5
-    nearest = max(_fast_diversity_similarity(candidate, item, ranges) for item in selected)
+    nearest = max(
+        _fast_diversity_similarity(candidate, item, ranges) for item in selected
+    )
     return _bounded(1.0 - nearest)
 
 
-def _fast_diversity_similarity(candidate: _Candidate, selected: _Candidate, ranges: dict[str, tuple[float, float]]) -> float:
-    embedding_score = float(np.mean([_bounded(float(candidate.vectors[key] @ selected.vectors[key])) for key in REQUIRED_EMBEDDINGS]))
+def _fast_diversity_similarity(
+    candidate: _Candidate, selected: _Candidate, ranges: dict[str, tuple[float, float]]
+) -> float:
+    embedding_score = float(
+        np.mean(
+            [
+                _bounded(float(candidate.vectors[key] @ selected.vectors[key]))
+                for key in REQUIRED_EMBEDDINGS
+            ]
+        )
+    )
     sonara_scores: list[float] = []
     for key in QUICK_DIVERSITY_FIELDS:
         value = candidate.sonara_values.get(key)
@@ -1876,7 +2272,12 @@ def _fast_diversity_similarity(candidate: _Candidate, selected: _Candidate, rang
     return _bounded(embedding_score * 0.8 + sonara_score * 0.2)
 
 
-def _reason(item: _ScoredCandidate, config: SetBuilderConfig, transition: dict[str, object], classifier_flow: float) -> str:
+def _reason(
+    item: _ScoredCandidate,
+    config: SetBuilderConfig,
+    transition: dict[str, object],
+    classifier_flow: float,
+) -> str:
     if item.breakdown["classifier_preference"] > 0.5:
         return "classifier_match"
     if classifier_flow > 0.75 and _uses_classifier_flow_config(config):
@@ -1917,17 +2318,15 @@ def _item(
 ) -> dict[str, object]:
     return {
         "candidate": candidate,
-        "track": replace(
-            candidate.track,
-            bpm=_track_bpm(candidate),
-            musical_key=_track_key(candidate)
-            or resolve_track_key(candidate.track, sonara_features=candidate.sonara_features),
-            energy=_track_energy(candidate),
-        ),
+        "track": asdict(candidate.track),
         "reason": reason,
         "score": _bounded(score),
-        "score_breakdown": {key: round(float(value), 6) for key, value in breakdown.items()},
-        "sonara_groups": {key: round(float(value), 6) for key, value in sonara_groups.items()},
+        "score_breakdown": {
+            key: round(float(value), 6) for key, value in breakdown.items()
+        },
+        "sonara_groups": {
+            key: round(float(value), 6) for key, value in sonara_groups.items()
+        },
         "classifier_scores": _classifier_scores(candidate.track),
         "transition": transition,
     }
@@ -1945,83 +2344,26 @@ def _bounded_signed(value: float) -> float:
     return max(-1.0, min(1.0, float(value)))
 
 
-# ---------------------------------------------------------------------------
-# v7 read-path adapter — SONARA scalar hydration from v7 Core DB (Todo 21)
-# ---------------------------------------------------------------------------
-
-# Mapping from SONARA_NUMERIC_FIELDS keys → v7 sonara table column names.
-# Keys that come from BLOBs (mfcc_mean.*, chroma_mean.*, spectral_contrast_mean)
-# are handled separately by _read_sonara_short_vectors_v7().
-# Keys that have no direct v7 column equivalent (beats.summary.*, onset_frames.summary.*)
-# are omitted — they are not stored as typed scalars in v7.
-_V7_SCALAR_FIELD_MAP: dict[str, str] = {
-    "bpm": "detected_bpm",
-    "n_beats": "beat_count",
-    "onset_density": "onset_density_per_second",
-    "rms_mean": "rms_mean",
-    "rms_max": "rms_max",
-    "loudness_lufs": "integrated_loudness_lufs",
-    "dynamic_range_db": "dynamic_range_db",
-    "energy": "energy_score",
-    "danceability": "danceability_score",
-    "valence": "valence_score",
-    "acousticness": "acousticness_score",
-    "chord_change_rate": "chord_changes_per_second",
-    "dissonance": "dissonance_score",
-    "spectral_centroid_mean": "spectral_centroid_hz",
-    "spectral_bandwidth_mean": "spectral_bandwidth_hz",
-    "spectral_rolloff_mean": "spectral_rolloff_hz",
-    "spectral_flatness_mean": "spectral_flatness",
-    "zero_crossing_rate": "zero_crossing_rate",
-}
+def _candidate_identity(
+    candidate: _LightCandidate | _Candidate,
+) -> TrackIdentity:
+    if candidate.identity is None:
+        raise RuntimeError("SET candidate is missing its current track identity")
+    return candidate.identity
 
 
-def _hydrate_v7_sonara_values(
-    core_conn: "sqlite3.Connection",
-    track_id: int,
-) -> dict[str, float]:
-    """Read SONARA scalar fields and short-vector statistics from the v7 ``sonara`` table.
-
-    Combines:
-    - Typed scalar columns mapped via ``_V7_SCALAR_FIELD_MAP`` to the keys used
-      by ``SONARA_NUMERIC_FIELDS`` (and therefore the SET Builder scoring path).
-    - The 9 short-vector statistics from ``_read_sonara_short_vectors_v7()``
-      (mfcc_mean.summary.*, chroma_mean.summary.*, spectral_contrast_mean).
-
-    Returns an empty dict when the v7 ``sonara`` table does not exist or the
-    row is missing.  NULL scalar values are silently omitted.  The returned
-    dict is compatible with the existing SET Builder ``sonara_values`` path.
-    """
-    import sqlite3 as _sqlite3
-
-    v7_columns = list(_V7_SCALAR_FIELD_MAP.values())
-    col_list = ", ".join(v7_columns)
+def _finite_float(value: object) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
     try:
-        row = core_conn.execute(
-            f"SELECT {col_list} FROM sonara WHERE track_id = ?",  # noqa: S608
-            (track_id,),
-        ).fetchone()
-    except _sqlite3.OperationalError:
-        return {}
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
 
-    if row is None:
-        return {}
 
-    result: dict[str, float] = {}
-    for field_key, col_name in _V7_SCALAR_FIELD_MAP.items():
-        col_index = v7_columns.index(col_name)
-        raw = row[col_index]
-        if raw is None:
-            continue
-        try:
-            value = float(raw)
-        except (TypeError, ValueError):
-            continue
-        if np.isfinite(value):
-            result[field_key] = value
-
-    # Merge in the 9 short-vector statistics (mfcc, chroma, spectral_contrast)
-    blob_stats = _read_sonara_short_vectors_v7(track_id, core_conn)
-    result.update(blob_stats)
-
-    return result
+def _text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text or None

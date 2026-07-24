@@ -12,11 +12,14 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
-from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.dependencies import require_ffmpeg
 from dj_track_similarity.logging_config import install_asyncio_exception_logging
 from dj_track_similarity.media_preview import requires_browser_preview_transcode, transcoded_wav_file_response
-from dj_track_similarity.rhythm_lab_collections import RhythmLabCollections
+from dj_track_similarity.rhythm_lab_collections import (
+    RhythmLabCollectionSelection,
+    RhythmLabCollections,
+    RhythmLabTrackSelection,
+)
 
 from .ablation import ABLATION_FEATURE_SETS, run_ablation_benchmark
 from .cli import DEFAULT_CLASSIFIER_TARGET_ROOT, PromotionError, promote_profile_model
@@ -193,6 +196,26 @@ def create_app(
     def collections_db() -> RhythmLabCollections:
         return RhythmLabCollections(labels_path)
 
+    def collection_selection(track_ids: list[int]) -> RhythmLabCollectionSelection:
+        source = source_state.require_source()
+        tracks_by_id = source.tracks_by_ids(track_ids)
+        if len(tracks_by_id) != len(set(track_ids)):
+            missing = sorted(set(track_ids) - set(tracks_by_id))
+            raise ValueError(f"Unknown current source track ids: {missing}")
+        return RhythmLabCollectionSelection(
+            catalog_uuid=source.catalog_uuid,
+            tracks=tuple(
+                RhythmLabTrackSelection(
+                    catalog_uuid=track.catalog_uuid,
+                    track_uuid=track.track_uuid,
+                    content_generation=track.content_generation,
+                    selected_path=track.file_path,
+                )
+                for track_id in track_ids
+                for track in (tracks_by_id[track_id],)
+            ),
+        )
+
     def profile_or_404(profile_key: str) -> ClassifierProfile:
         try:
             return profile_db(profile_key).get_profile(profile_key)
@@ -259,7 +282,7 @@ def create_app(
         try:
             collection = collections_db().save_collection(
                 request.name,
-                request.track_ids,
+                collection_selection(request.track_ids),
                 source=request.source,
                 note=request.note,
                 mode=request.mode,
@@ -280,9 +303,15 @@ def create_app(
     def append_review_collection_tracks(collection_id: int, request: CollectionTracksRequest):
         try:
             if request.mode == "replace":
-                collection = collections_db().replace_tracks(collection_id, request.track_ids)
+                collection = collections_db().replace_tracks(
+                    collection_id,
+                    collection_selection(request.track_ids),
+                )
             else:
-                collection = collections_db().append_tracks(collection_id, request.track_ids)
+                collection = collections_db().append_tracks(
+                    collection_id,
+                    collection_selection(request.track_ids),
+                )
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except ValueError as error:
@@ -292,7 +321,10 @@ def create_app(
     @app.put("/api/collections/{collection_id}/tracks")
     def replace_review_collection_tracks(collection_id: int, request: CollectionTracksRequest):
         try:
-            collection = collections_db().replace_tracks(collection_id, request.track_ids)
+            collection = collections_db().replace_tracks(
+                collection_id,
+                collection_selection(request.track_ids),
+            )
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
         except ValueError as error:
@@ -457,13 +489,22 @@ def create_app(
 
     @app.post("/api/tracks/{track_id}/liked")
     def set_track_liked(track_id: int, request: TrackLikedRequest):
-        if source_state.path is None:
-            raise HTTPException(status_code=400, detail="Source database is not selected")
         try:
-            updated = LibraryDatabase(source_state.path).set_track_liked(track_id, request.liked)
-        except KeyError as error:
+            source = source_state.require_source()
+            current = source.get_track(track_id)
+            updated = source.set_track_liked(
+                track_uuid=current.track_uuid,
+                content_generation=current.content_generation,
+                liked=request.liked,
+            )
+        except (KeyError, ValueError) as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
-        return {"track_id": updated.id, "liked": updated.liked}
+        return {
+            "track_id": updated.track_id,
+            "track_uuid": updated.track_uuid,
+            "content_generation": updated.content_generation,
+            "liked": updated.liked,
+        }
 
     @app.post("/api/profiles/{profile_key}/tracks/{track_id}/label")
     def set_profile_label(profile_key: str, track_id: int, request: LabelRequest):
@@ -727,7 +768,7 @@ def create_app(
             track = source_state.require_source().get_track(track_id)
         except (KeyError, ValueError) as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
-        path = Path(track.path)
+        path = Path(track.file_path)
         if not path.is_file():
             raise HTTPException(status_code=404, detail="Audio file is missing")
         if requires_browser_preview_transcode(path):
@@ -790,7 +831,10 @@ def _collection_payload(collection: object, *, include_tracks: bool = False) -> 
     if include_tracks:
         payload["tracks"] = [
             {
-                "track_id": track.source_track_id,
+                "catalog_uuid": track.catalog_uuid,
+                "track_uuid": track.track_uuid,
+                "content_generation": track.content_generation,
+                "selected_path": track.selected_path,
                 "position": track.position,
                 "score": track.score,
                 "note": track.note,

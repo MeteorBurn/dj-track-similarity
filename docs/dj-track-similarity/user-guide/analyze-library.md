@@ -1,157 +1,79 @@
-# Analyze the library from the UI
+# Analyze a library with v7
 
-> Audience: Users running analysis jobs in the browser.
-> Goal: Explain model selection, job progress, and reset behavior.
+> Audience: Users running local analysis from the current Python runtime.
+> Goal: Choose safe v7 analysis commands and understand their storage boundary.
 > Type: guide
 
-Use the analysis area after scanning tracks. A scan can find titles and tags, but it cannot answer
-questions such as "what sounds near this track?" or "what fits this energy direction?" Analysis
-creates the local evidence needed to answer those questions.
+The current runtime uses greenfield schema v7. Analysis reads source audio
+and writes local SQLite state. It does not modify source audio files. Scan first, then select the
+analysis family that answers your listening question.
 
-You usually analyze a track once per model contract, then reuse the stored result across searches.
-Analysis reads audio and writes SQLite results. It does not modify source audio files.
+## Current UI status
 
-## Choose a useful first outcome
+The frontend v7 port is deferred. The existing browser analysis controls are not v7-compatible, so
+do not use this page as a guide to current checkboxes, limits, or reset buttons. Use the CLI or API
+while the frontend is being ported.
 
-| First outcome | Select |
-| --- | --- |
-| Find tracks near a familiar reference | MERT |
-| Search with audible feature controls | SONARA |
-| Search by a written sound description | CLAP |
-| Build complete SET and Hybrid previews | SONARA, MAEST, MERT, and CLAP |
-| Compare separate model neighborhoods in LAB | Add MuQ |
-| Apply a concept you trained in Rhythm Lab | CLASSIFIERS after its required inputs |
+## Prepare SONARA before the first run
 
-Start with a small limit and familiar tracks. The aim is to learn which result surface helps your
-collection before committing to a long full-library run.
+Every fresh v7 bundle must activate the loaded immutable four-output SONARA release before the first
+SONARA analysis:
 
-## Pick models
+```powershell
+mkdir .\backups
+dj-sim prepare-sonara-release --db .\data\library.sqlite --backup-dir .\backups --confirm "PREPARE SONARA RELEASE"
+```
 
-The UI lists these choices:
+The backup directory must exist and be writable. Preparation derives the exact `core`, `timeline`,
+`embedding`, and `fingerprint` contracts from the loaded runtime. It also verifies Core and
+Artifacts backups before writing a durable resumable receipt.
 
-- **SONARA** lets you ask a more explainable question about rhythm, sound, dynamics, harmony, and
-  tempo. It also supplies transition and energy evidence for SET.
-- **MAEST** adds genre-like labels and another audio comparison view used by SET and Hybrid.
-- **MERT** supplies the broad "find tracks near this track" audio neighborhood.
-- **MuQ** adds a separate comparison column in LAB Reference Compare.
-- **CLAP** connects written descriptions to audio and also supplies audio comparison evidence to
-  SET and Hybrid.
-- **CLASSIFIERS** apply promoted personal profiles after the inputs declared by each profile exist.
+## Run a family
 
-The compact analysis block has one **Analyze** button. SONARA with Core is selected when the page
-opens. SONARA, the ML-model group, and CLASSIFIERS are separate analysis families: selecting one
-clears selections from the other families, while multiple ML models can remain selected together.
-Use **FULL** to explicitly select every stage at once. Analyze submits exactly the checked models,
-and the checkboxes remain unchanged after the job starts. All stages use one sequential in-memory queue.
+After preparation, SONARA runs alone. Select all four outputs for the complete active release:
 
-## Technical details: SONARA results
+```powershell
+dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --db .\data\library.sqlite
+```
 
-SONARA runs separately from the ML models and classifiers. It passes path batches to
-`sonara.analyze_batch()`, whose Symphonia path owns decoding. There is no project FFmpeg,
-`DecodedAudio`, `analyze_signal`, or per-file fallback in the SONARA job. SONARA BPM analysis uses
-the project range `70.0..180.0`. Tempo-aware workflows start with current
-signed SONARA evidence but do not trust it blindly. Below `0.45` confidence, the resolver checks
-SONARA candidates and the Mutagen BPM tag. A corroborated tag can become the working BPM.
-`grid_stability` can lower reliability, which moves the tempo score toward neutral. If you analyzed
-tracks before the current range was configured, select SONARA and run analysis again. The legacy
-signature does not match, so those tracks are queued automatically without a reset.
+ML families can run together:
 
-The default SONARA v0.2.9 Core result also stores raw BPM, `bpm_confidence`, tempo candidates, Camelot key, compact structure/loudness data, vocalness v2, mood, and other lightweight values. The metadata dialog shows Core values beside saved provenance such as schema version, sample rate, hop length, analysis mode, requested features, and installed package version.
+```powershell
+dj-sim analyze --models maest,mert,muq,clap --db .\data\library.sqlite
+```
 
-## Choose SONARA outputs
+Omit `--limit` to consider the whole library. A positive limit selects only candidates missing the
+requested current outputs. Use `--device auto`, `--device cpu`, or `--device cuda` for MAEST, MERT,
+MuQ, and CLAP. SONARA uses its native CPU path.
 
-When SONARA is selected, three checkboxes appear:
+## SONARA outputs and storage
 
-- **Core** (default) writes lightweight scalar and fixed-vector results to the selected main database.
-- **Timeline** writes complete time arrays, events, and segments to the adjacent `*.timeline.sqlite` database.
-- **Representations** writes the SONARA embedding and fingerprint to the adjacent `*.representations.sqlite` database.
+The only SONARA output names are `core`, `timeline`, `embedding`, and `fingerprint`. Core is always
+included. Core feature rows live in Core; Timeline payloads, the SONARA embedding, and the
+fingerprint live in the mandatory `*.artifacts.sqlite` companion. MAEST, MERT, MuQ, and CLAP
+embeddings also live in Artifacts. Core and Artifacts must share one `catalog_uuid`.
 
-You can run Core first and add Timeline or Representations later. One native batch requests the
-union of selected outputs from Rust. Each output has its own deterministic
-signature, so adding Timeline does not invalidate a current Core result.
+`*.evaluation.sqlite` is optional evaluation state. The runtime does not migrate v5/v6 databases,
+adapt old SONARA results, or recreate the removed Timeline/Representations sidecars.
 
-Mood and instrumentalness are stored and displayed but do not enter current similarity, SET,
-Hybrid, or classifier calculations. True peak and ReplayGain are stored for possible future
-loudness-management work rather than direct SONARA similarity scoring. Complete beat/onset
-positions, chord labels/events, tempo, energy and loudness curves, downbeat arrays, and structure
-segments are Timeline data. The SONARA embedding and fingerprint are Representations data.
+## Prepare again when the SONARA release changes
 
-The metadata dialog displays all Core values. For Timeline and Representations it displays only
-`Data present` plus the exact stored field names. It never loads the heavy values just to open the
-dialog. The Timeline API remains available for future workflows that explicitly need the payload.
+The project SONARA feature revision is `6`. A changed SONARA release, decoder, output feature
+profile, or feature revision requires the same preparation before new SONARA work. The process is
+ordered and crash-resumable, not a distributed atomic transaction. After preparation, reanalyze
+SONARA and retrain, promote, and rescore every classifier that uses SONARA.
 
-## Limit behavior
+## Pipeline and classifiers
 
-`Analyze limit = 0` in the UI means the whole library. Positive limits count tracks missing selected results.
+The backend pipeline order is always SONARA, then ML, then CLASSIFIERS. Per-file failures are kept
+in job status. A fatal initialization failure or cancellation stops later stages.
 
-The CLI differs: omit `--limit` for the whole library.
+Classifier scoring is database-only and does not decode source audio. It requires a compatible
+manifest version `2`; checked-in version `1` or unversioned artifacts are blocked until retrained
+and promoted. Scores stay scoped to their `classifier_key`.
 
-## Device
+## Reset and interpretation
 
-- `AUTO` selects CUDA when PyTorch sees a GPU, otherwise CPU.
-- `CPU` forces CPU.
-- `CUDA` requests CUDA and should fail clearly if CUDA is unavailable.
-
-SONARA runs as a CPU runner. MAEST, MERT, MuQ, and CLAP use the selected device through their adapters. MuQ uses official `OpenMuQ/MuQ-large-msd-iter` weights and is fed only 24 kHz `float32` audio. It currently supports LAB Reference Compare, with no SET, Hybrid, Audio Dedup, or classifier-scoring integration.
-
-## Batch controls
-
-- **SONARA native batch**: `1..16` paths; default `8`. Cancellation takes effect between returned batches.
-- **Track batch size**: `1..64`, decoded tracks held and processed together. The measured default is `8`.
-- **Inference batch size**: `1..128`, MAEST/MERT/MuQ/CLAP model samples per forward pass. The measured RTX 3090 default is `16`.
-
-The SONARA value controls concurrent full-file native reads, not model inference. Keep the default
-for a library on one HDD. Increase it only after a measured pilot shows that the storage device can
-sustain the extra parallel reads. SONARA-only jobs process candidates in path order so adjacent
-batches retain filesystem locality instead of jumping between artist-sorted folders.
-
-## Progress and logs
-
-The UI polls the current job and shows:
-
-- state: queued, running, completed, cancelled, or failed,
-- total, processed, analyzed, failed, and skipped counts,
-- current model and path,
-- per-model progress,
-- event log and errors.
-
-The queued message also reflects only the active stage. SONARA lists its selected outputs and
-SONARA batch. ML lists its selected models, Device, Track batch, and Inference batch. CLASSIFIERS
-lists its selected profile count and does not show ML settings.
-
-Initial database and track loading runs independently from classifier readiness counts, so a
-classifier artifact check cannot hold the main library table behind it.
-
-Each completed SONARA batch adds separate `analyze`, `prepare`, and `store` durations to the event
-log, along with native-read MiB/s. Selected Core, Timeline, and Representations results are committed
-through one SQLite transaction per batch. A per-track savepoint prevents a failed sidecar write from
-leaving that track partially updated while allowing other tracks in the batch to commit.
-
-The square stop button requests cancellation. It does not kill Python mid-write. A SONARA chunk is
-persisted only after the native batch returns, and cancellation is checked before the next chunk.
-
-## Pipeline and classifier readiness
-
-The Analyze pipeline always runs SONARA, then ML, then CLASSIFIERS, regardless of selection order.
-Per-file errors remain visible but do not stop later stages; fatal initialization errors and
-cancellation stop the parent and cancel stages that have not started.
-
-CLASSIFIERS never decode audio. The block shows ready/not-ready counts and manifest blockers. Its
-total counts classifier-track pairs that are ready and have a missing score or a score from another
-model ID. Rerun the stage later to pick up tracks that became ready after more SONARA or ML coverage.
-
-## Reset buttons
-
-Reset is SQLite-only:
-
-- SONARA reset removes Core features, Timeline rows, SONARA embedding/fingerprint rows, flags, and dependent main-library classifier scores. Labels and feedback remain intact.
-- MAEST reset removes MAEST metadata and MAEST embeddings.
-- MERT, MuQ, and CLAP reset delete embeddings for that key.
-- CLASSIFIERS reset deletes selected `track_classifier_scores` rows.
-
-Before the first native SONARA job, old-contract data is a blocker. Back up the database and use the
-explicit SONARA reset; the application does not adapt, mix, or automatically delete those rows.
-Afterward, current partial output coverage can resume normally by signature.
-
-For a complete existing-library procedure, including backups and classifier rebuilding, follow
-[Reanalyze with split SONARA storage](../workflows/reanalyze-sonara-split-storage.md).
+Resets affect SQLite data only. Do not use a reset as a substitute for the ordered SONARA release
+preparation flow. Model outputs are ranking evidence for listening-led shortlists, not objective
+truth or automatic DJ decisions.

@@ -21,7 +21,7 @@ Standalone metadata / container repair helper. Independent safety domain — see
 ## What This Tool Must Not Do
 
 - Never mutate audio outside `--apply`, and never touch files not previously classified as repairable.
-- Never modify library SQLite rows — Audio Doctor only reads `tracks.path` when `--db` is passed; repair operates on the filesystem, not on stored metadata.
+- Never modify library SQLite rows — Audio Doctor only reads `tracks.file_path` when `--db` is passed; repair operates on the filesystem, not on stored metadata.
 - Never delete files. Repair may rewrite; deletion is Audio Dedup's territory.
 - Never chain into Audio Dedup or classifier scoring.
 

@@ -6,6 +6,9 @@
 
 The API is local and unauthenticated by design. Bind the server carefully. Use `127.0.0.1` unless you intentionally expose it on a LAN.
 
+The backend schemas below are the active v7 contract. The checked-in React client still uses
+pre-v7 payloads and has not yet been ported, so this page does not claim frontend compatibility.
+
 ## Database
 
 | Method | Path | Purpose |
@@ -16,6 +19,10 @@ The API is local and unauthenticated by design. Bind the server carefully. Use `
 | `POST` | `/api/database/clear` | delete SQLite library records |
 
 `/api/database/clear` does not delete audio files.
+
+Database state returns `path`, `artifacts_path`, `evaluation_path`, `catalog_uuid`, and `selected`.
+A fresh path creates schema-v7 Core plus mandatory Artifacts. Evaluation remains optional. Existing
+non-v7 or incomplete bundles are rejected rather than migrated.
 
 ## Library and media
 
@@ -34,11 +41,13 @@ The API is local and unauthenticated by design. Bind the server carefully. Use `
 
 Track list query ranges include `limit=1..500`, `offset>=0`, `search_mode=like|fts`, and `preset=all|syncopated`.
 
-The Timeline endpoint returns complete stored `beats`, `onset_frames`, `chord_sequence`,
+The timeline endpoint returns complete stored `beats`, `onset_frames`, `chord_sequence`,
 `chord_events`, `tempo_curve`, `energy_curve`, `segments`, `loudness_curve`, and `downbeats` payloads
-when available. It returns `{}` when no Timeline row exists or its signature is stale, and `404` for
-an unknown track. Regular track rows expose only `timeline_fields` and `representation_fields` name
-lists. The metadata dialog uses those manifests and does not request heavy values.
+when available. It returns `{}` when no current timeline row exists and `404` for an unknown track.
+Regular track rows use the v7 `TrackSummaryV7` shape: composite identity (`catalog_uuid`,
+`track_id`, `track_uuid`, `content_generation`), `file_path`, compact tags, `analysis_coverage`, and
+classifier-score summaries. Detailed rows expose `optional_outputs.timeline_fields`,
+`sonara_embedding_available`, and `audio_fingerprint_available`.
 
 Each field is a serialized payload rather than a raw top-level array. The response shape is:
 
@@ -61,6 +70,7 @@ Each field is a serialized payload rather than a raw top-level array. The respon
 | `GET` | `/api/analysis/jobs/{job_id}` | job status |
 | `POST` | `/api/analysis/jobs/{job_id}/cancel` | request cancellation |
 | `POST` | `/api/analysis/reset` | reset one family |
+| `POST` | `/api/analysis/sonara/releases/prepare` | back up and activate the loaded four-output SONARA release |
 | `GET` | `/api/classifiers` | promoted classifier profiles |
 | `POST` | `/api/classifiers/analyze` | score selected classifiers; empty list means all compatible |
 | `POST` | `/api/classifiers/{classifier_key}/analyze` | score one classifier |
@@ -73,11 +83,23 @@ Each field is a serialized payload rather than a raw top-level array. The respon
 Audio analysis payload fields include `models` and `limit`. ML requests add `device`, `top_k`,
 `track_batch_size`, and `inference_batch_size`. SONARA requests add `sonara_outputs` and
 `sonara_batch_size`. `classifier_keys` is not accepted.
-Allowed SONARA outputs are `core`,
-`timeline`, and `representations`; omission defaults to `["core"]`. At least one is required for a
-SONARA job. SONARA runs alone, and its scheduler compares the independent signature for every
-selected output. It passes paths to native `analyze_batch`; ML models continue to use shared FFmpeg
-decode. Old SONARA contracts return `409` until an explicit backup/reset is performed.
+Allowed SONARA outputs are `core`, `timeline`, `embedding`, and `fingerprint`. Omission defaults to
+`["core"]`. At least one is required for a SONARA job, and normalization always includes `core`.
+SONARA runs alone, and its scheduler compares the independent contract for every selected output. It
+passes paths to native `analyze_batch`. ML models continue to use shared FFmpeg decode. An
+unprepared release returns `409` with `SONARA_RELEASE_PREPARATION_REQUIRED`.
+
+The prepare payload is:
+
+```json
+{
+  "backup_dir": "C:\\backups\\dj-track-similarity",
+  "confirm": "PREPARE SONARA RELEASE"
+}
+```
+
+Clients cannot supply output kinds or a release hash. Preparation verifies Core and Artifacts
+backups and uses an ordered, receipt-backed flow that can resume after interruption.
 
 The aggregate classifier payload is `{ "classifier_keys": [], "limit": null }`. Readiness is
 manifest-specific, totals count ready classifier-track pairs, and not-ready tracks are excluded
@@ -85,17 +107,19 @@ rather than failed. A pipeline payload selects `sonara`, `ml`, and/or `classifie
 limit and nested stage settings. Execution order is always SONARA, ML, CLASSIFIERS. All manual and
 pipeline stages share one sequential application queue.
 
-`GET /api/library/summary` reports current Core coverage. Timeline and Representations presence is
-reported per track through the manifest fields; analysis scheduling is the authoritative exact-output
-coverage check.
+`GET /api/library/summary` reports current coverage for SONARA, MAEST analysis and embedding, MERT,
+MuQ, CLAP, likes, and compatible classifiers. Per-track `analysis_coverage` separates `sonara_core`,
+`timeline`, `sonara_embedding`, and `fingerprint`.
 
-A SONARA reset response can include `classifier_scores_deleted`. These are only scores whose stored feature set depends on SONARA; labels, feedback, and embedding-only scores are not deleted.
+Reset requests use `{ "analysis_family": "sonara" }` (or `maest`, `mert`, `muq`, `clap`). The typed
+response returns `core_rows_deleted`, `artifact_rows_deleted`, and `classifier_rows_deleted`.
+SONARA removes only dependent classifier rows; labels, feedback, and embedding-only results remain.
 
 ## Search and SET
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/api/search` | MERT seed search |
+| `POST` | `/api/search` | seed search for `maest`, `mert`, `muq`, or `clap` |
 | `POST` | `/api/search/sonara` | SONARA seed search |
 | `POST` | `/api/search/text` | CLAP text search |
 | `POST` | `/api/search/hybrid` | weighted Hybrid preview |

@@ -14,6 +14,7 @@ venv/
 *.sqlite
 *.sqlite-*
 *.sqlite.*.bak
+.dj-track-similarity.sqlite.bootstrap.lock
 *.db
 *.log
 *.log.*

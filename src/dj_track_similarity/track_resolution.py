@@ -1,74 +1,49 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 import math
 import re
-from typing import Any
 
-from .metadata_payload import optional_float, string_or_none
-from .models import Track
-from .sonara_contract import current_sonara_features
+from .analysis_models import SonaraFeatureRow
+from .library_models import TrackSummary
 from .tempo_resolution import resolve_tempo_evidence
+from .track_models import TrackIdentity
 
 
 def resolve_track_bpm(
-    track: Mapping[str, Any] | Track,
-    *,
-    sonara_values: Mapping[str, object] | None = None,
-    sonara_features: Mapping[str, object] | None = None,
+    identity: TrackIdentity,
+    track: TrackSummary,
+    sonara: SonaraFeatureRow | None = None,
 ) -> float | None:
-    return resolve_tempo_evidence(
-        track,
-        sonara_values=sonara_values,
-        sonara_features=sonara_features,
-    ).bpm
+    return resolve_tempo_evidence(identity, track, sonara).bpm
 
 
 def resolve_track_key(
-    track: Mapping[str, Any] | Track,
-    *,
-    sonara_features: Mapping[str, object] | None = None,
+    identity: TrackIdentity,
+    track: TrackSummary,
+    sonara: SonaraFeatureRow | None = None,
 ) -> str | None:
-    metadata = _track_metadata(track)
-    tag_key = _metadata_text(metadata, "key", "initialkey")
+    values = _validated_sonara_values(identity, track, sonara)
+    tag_key = _text(track.tag_key)
     if tag_key:
         return tag_key
-    features = sonara_features if sonara_features is not None else _track_sonara_features(track)
-    if features is not None:
-        sonara_key = string_or_none(_unwrap_feature_value(features.get("key")))
-        if sonara_key:
-            return sonara_key
-    if _has_persisted_sonara(track, metadata):
-        return None
-    return string_or_none(_track_value(track, "musical_key")) or string_or_none(_track_value(track, "key"))
+    return _text(values.get("detected_key_name"))
 
 
 def resolve_track_energy(
-    track: Mapping[str, Any] | Track,
-    *,
-    sonara_features: Mapping[str, object] | None = None,
+    identity: TrackIdentity,
+    track: TrackSummary,
+    sonara: SonaraFeatureRow | None = None,
 ) -> float | None:
-    """Resolve energy without trusting a column left behind by stale SONARA analysis."""
+    """Resolve energy only from an identity-validated SONARA Core row."""
 
-    metadata = _track_metadata(track)
-    features = sonara_features if sonara_features is not None else _track_sonara_features(track)
-    if features is not None:
-        sonara_energy = optional_float(_unwrap_feature_value(features.get("energy")))
-        if sonara_energy is not None and math.isfinite(sonara_energy):
-            return float(sonara_energy)
-    tag_energy = optional_float(_first_metadata_value(metadata.get("energy")))
-    if tag_energy is not None and math.isfinite(tag_energy):
-        return float(tag_energy)
-    if _has_persisted_sonara(track, metadata):
-        return None
-    track_energy = optional_float(_track_value(track, "energy"))
-    return float(track_energy) if track_energy is not None and math.isfinite(track_energy) else None
+    values = _validated_sonara_values(identity, track, sonara)
+    return _finite_float(values.get("energy_score"))
 
 
 def resolve_track_camelot(
-    track: Mapping[str, Any] | Track,
-    *,
-    sonara_features: Mapping[str, object] | None = None,
+    identity: TrackIdentity,
+    track: TrackSummary,
+    sonara: SonaraFeatureRow | None = None,
 ) -> str | None:
     """Resolve one canonical Camelot code without treating a key name as a Camelot code.
 
@@ -77,65 +52,69 @@ def resolve_track_camelot(
     from masking SONARA's already-normalized ``8A`` value.
     """
 
-    camelot, _source = _resolve_track_camelot_with_source(track, sonara_features=sonara_features)
+    camelot, _source = _resolve_track_camelot_with_source(
+        identity,
+        track,
+        sonara,
+    )
     return camelot
 
 
 def resolve_track_key_confidence(
-    track: Mapping[str, Any] | Track,
-    *,
-    sonara_features: Mapping[str, object] | None = None,
+    identity: TrackIdentity,
+    track: TrackSummary,
+    sonara: SonaraFeatureRow | None = None,
 ) -> float | None:
     """Return SONARA key confidence only when the resolved Camelot value came from SONARA."""
 
-    _camelot, source = _resolve_track_camelot_with_source(track, sonara_features=sonara_features)
+    _camelot, source = _resolve_track_camelot_with_source(
+        identity,
+        track,
+        sonara,
+    )
     if source != "sonara":
         return None
-    features = sonara_features if sonara_features is not None else _track_sonara_features(track)
-    if features is None:
+    values = _validated_sonara_values(identity, track, sonara)
+    sonara_camelot = _text(values.get("detected_key_camelot"))
+    sonara_key = _text(values.get("detected_key_name"))
+    if (
+        canonical_camelot(sonara_camelot) is None
+        and key_name_to_camelot(sonara_key) is None
+    ):
         return None
-    sonara_camelot = string_or_none(_unwrap_feature_value(features.get("key_camelot")))
-    sonara_key = string_or_none(_unwrap_feature_value(features.get("key")))
-    if canonical_camelot(sonara_camelot) is None and key_name_to_camelot(sonara_key) is None:
-        return None
-    confidence = optional_float(_unwrap_feature_value(features.get("key_confidence")))
-    if confidence is None or not math.isfinite(confidence):
+    confidence = _finite_float(values.get("key_confidence"))
+    if confidence is None:
         return None
     return max(0.0, min(1.0, confidence))
 
 
 def _resolve_track_camelot_with_source(
-    track: Mapping[str, Any] | Track,
-    *,
-    sonara_features: Mapping[str, object] | None = None,
+    identity: TrackIdentity,
+    track: TrackSummary,
+    sonara: SonaraFeatureRow | None,
 ) -> tuple[str | None, str | None]:
-    metadata = _track_metadata(track)
-    tag_keys = _metadata_key_texts(metadata)
-    for tag_key in tag_keys:
-        if (camelot := canonical_camelot(tag_key)) is not None:
-            return camelot, "tag"
+    values = _validated_sonara_values(identity, track, sonara)
+    tag_key = _text(track.tag_key)
+    if (camelot := canonical_camelot(tag_key)) is not None:
+        return camelot, "tag"
 
-    features = sonara_features if sonara_features is not None else _track_sonara_features(track)
-    if features is not None:
-        sonara_camelot = string_or_none(_unwrap_feature_value(features.get("key_camelot")))
-        if (camelot := canonical_camelot(sonara_camelot)) is not None:
-            return camelot, "sonara"
+    sonara_camelot = _text(values.get("detected_key_camelot"))
+    if (camelot := canonical_camelot(sonara_camelot)) is not None:
+        return camelot, "sonara"
 
-    sonara_key = string_or_none(_unwrap_feature_value(features.get("key"))) if features is not None else None
-    track_key = None
-    if not _has_persisted_sonara(track, metadata):
-        track_key = string_or_none(_track_value(track, "musical_key")) or string_or_none(_track_value(track, "key"))
+    sonara_key = _text(values.get("detected_key_name"))
     for value, source in (
-        *((tag_key, "tag") for tag_key in tag_keys),
+        (tag_key, "tag"),
         (sonara_key, "sonara"),
-        (track_key, "track"),
     ):
         if (camelot := key_name_to_camelot(value)) is not None:
             return camelot, source
     return None, None
 
 
-def camelot_compatibility(candidate_key: str | None, previous_key: str | None) -> tuple[str, float]:
+def camelot_compatibility(
+    candidate_key: str | None, previous_key: str | None
+) -> tuple[str, float]:
     if not candidate_key or not previous_key:
         return "unknown", 0.55
     candidate = _parse_camelot(key_name_to_camelot(candidate_key) or "")
@@ -150,14 +129,12 @@ def camelot_compatibility(candidate_key: str | None, previous_key: str | None) -
         return "same", 1.0
     if candidate_number == previous_number and candidate_letter != previous_letter:
         return "relative", 0.9
-    if candidate_letter == previous_letter and candidate_number in {_wrap_camelot(previous_number - 1), _wrap_camelot(previous_number + 1)}:
+    if candidate_letter == previous_letter and candidate_number in {
+        _wrap_camelot(previous_number - 1),
+        _wrap_camelot(previous_number + 1),
+    }:
         return "adjacent", 0.95
     return "clash", 0.2
-
-
-def camelot_compatible(candidate_key: str | None, previous_key: str | None) -> bool:
-    relation, _score = camelot_compatibility(candidate_key, previous_key)
-    return relation in {"same", "relative", "adjacent"}
 
 
 def attenuate_harmonic_score(
@@ -201,58 +178,50 @@ def key_name_to_camelot(value: str | None) -> str | None:
     return _KEY_NAME_TO_CAMELOT.get((note, mode))
 
 
-def _metadata_text(metadata: Mapping[str, object], *keys: str) -> str | None:
-    for key in keys:
-        text = string_or_none(_first_metadata_value(metadata.get(key)))
-        if text:
-            return text
-    return None
+def _validated_sonara_values(
+    identity: TrackIdentity,
+    track: TrackSummary,
+    sonara: SonaraFeatureRow | None,
+) -> dict[str, object]:
+    if not isinstance(identity, TrackIdentity):
+        raise TypeError("identity must be a TrackIdentity")
+    if not isinstance(track, TrackSummary):
+        raise TypeError("track must be a TrackSummary")
+    if (
+        identity.catalog_uuid != track.catalog_uuid
+        or identity.track_id != track.track_id
+        or identity.track_uuid != track.track_uuid
+        or identity.content_generation != track.content_generation
+    ):
+        raise ValueError("track identity does not match the current track summary")
+    if sonara is None:
+        return {}
+    target = sonara.target
+    if (
+        target.catalog_uuid != identity.catalog_uuid
+        or target.track_id != identity.track_id
+        or target.track_uuid != identity.track_uuid
+        or target.content_generation != identity.content_generation
+    ):
+        raise ValueError("SONARA row identity does not match the current track summary")
+    return dict(sonara.values)
 
 
-def _metadata_key_texts(metadata: Mapping[str, object]) -> tuple[str, ...]:
-    values: list[str] = []
-    for key in ("key", "initialkey"):
-        raw_value = metadata.get(key)
-        items = raw_value if isinstance(raw_value, (list, tuple)) else (raw_value,)
-        for item in items:
-            text = string_or_none(item)
-            if text is not None and text not in values:
-                values.append(text)
-    return tuple(values)
-
-
-def _first_metadata_value(value: object) -> object:
-    if isinstance(value, (list, tuple)):
-        for item in value:
-            if item is not None and item != "":
-                return item
+def _finite_float(value: object) -> float | None:
+    if value is None or isinstance(value, bool):
         return None
-    return value
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
 
 
-def _track_value(track: Mapping[str, Any] | Track, field_name: str) -> object:
-    if isinstance(track, Mapping):
-        return track.get(field_name)
-    return getattr(track, field_name, None)
-
-
-def _track_metadata(track: Mapping[str, Any] | Track) -> Mapping[str, object]:
-    metadata = track.get("metadata") if isinstance(track, Mapping) else track.metadata
-    return metadata if isinstance(metadata, Mapping) else {}
-
-
-def _track_sonara_features(track: Mapping[str, Any] | Track) -> Mapping[str, object] | None:
-    return current_sonara_features(_track_metadata(track), allow_unsigned=isinstance(track, Mapping))
-
-
-def _has_persisted_sonara(track: Mapping[str, Any] | Track, metadata: Mapping[str, object]) -> bool:
-    return isinstance(track, Track) and isinstance(metadata.get("sonara_features"), Mapping)
-
-
-def _unwrap_feature_value(value: object) -> object:
-    if isinstance(value, Mapping) and "value" in value:
-        return value.get("value")
-    return value
+def _text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text or None
 
 
 def _parse_camelot(value: str) -> tuple[int, str] | None:
@@ -275,7 +244,9 @@ def _wrap_camelot(number: int) -> int:
     return ((number - 1) % 12) + 1
 
 
-_KEY_NAME_PATTERN = re.compile(r"([A-Ga-g])\s*([#b♯♭]?)\s*(major|maj|minor|min|m)?", re.IGNORECASE)
+_KEY_NAME_PATTERN = re.compile(
+    r"([A-Ga-g])\s*([#b♯♭]?)\s*(major|maj|minor|min|m)?", re.IGNORECASE
+)
 KEY_CONFIDENCE_FULL_WEIGHT = 0.45
 
 _KEY_NAME_TO_CAMELOT = {

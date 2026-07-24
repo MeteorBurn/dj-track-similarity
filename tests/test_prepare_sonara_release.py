@@ -1,373 +1,821 @@
-"""Tests for the prepare-sonara-release command and protocol.
-
-Run with:
-    python -m pytest tests/test_prepare_sonara_release.py --override-ini addopts= -q
-
-No conftest.py; each test constructs its own temp SQLite database.
-"""
-
 from __future__ import annotations
 
+import hashlib
+import inspect
 import json
 import sqlite3
 import struct
-import tempfile
-from datetime import datetime, timezone
+from contextlib import closing
 from pathlib import Path
 
 import pytest
 
-from dj_track_similarity.db_schema_v7 import create_v7_schema
+import dj_track_similarity.prepare_sonara_release as release_prepare
+from dj_track_similarity.analysis_models import (
+    SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY,
+    AnalysisOutput,
+    active_contract_setting_key,
+)
+from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.prepare_sonara_release import (
-    ACTIVE_RELEASE_HASH_KEY,
     CONFIRM_STRING,
-    RECEIPT_KEY,
     LockHeldError,
     PrepareSonaraReleaseError,
     prepare_sonara_release,
     validate_backup_dir,
     validate_confirm,
-    validate_sonara_outputs,
+)
+from dj_track_similarity.sonara_contract import (
+    SONARA_EXPECTED_VERSION,
+    sonara_runtime_contracts,
 )
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _make_blobs() -> tuple[bytes, bytes, bytes]:
-    """Return minimal valid BLOB values for the sonara table."""
-    mfcc = struct.pack("<13f", *([0.0] * 13))       # 52 bytes
-    chroma = struct.pack("<12f", *([0.0] * 12))     # 48 bytes
-    contrast = struct.pack("<7f", *([0.0] * 7))     # 28 bytes
-    return mfcc, chroma, contrast
+class PreviousSonara:
+    __version__ = SONARA_EXPECTED_VERSION
+    SIMILARITY_VERSION = 2
+    __sonara_build_id__ = "sha256:" + "1" * 64
+    __sonara_vocalness_model_id__ = "sonara-vocalness-v2"
+    __sonara_vocalness_model_build_id__ = "sha256:" + "2" * 64
 
 
-def _open_v7(path: str) -> sqlite3.Connection:
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    create_v7_schema(conn)
-    return conn
+class CurrentSonara(PreviousSonara):
+    __sonara_build_id__ = "sha256:" + "3" * 64
+    __sonara_vocalness_model_build_id__ = "sha256:" + "4" * 64
 
 
-def _insert_track(conn: sqlite3.Connection, track_id: int, uuid: str, path: str) -> None:
-    now = _now()
-    conn.execute(
-        """
-        INSERT INTO tracks(
-            track_id, track_uuid, file_path, file_size_bytes, file_modified_ns,
-            content_generation, last_scanned_at, created_at, updated_at
-        ) VALUES (?, ?, ?, 1000, 1000000, 1, ?, ?, ?)
-        """,
-        (track_id, uuid, path, now, now, now),
+class FutureSonara(CurrentSonara):
+    __sonara_build_id__ = "sha256:" + "5" * 64
+
+
+def _outputs(sonara_module: object) -> tuple[AnalysisOutput, ...]:
+    return tuple(
+        AnalysisOutput(identity)
+        for identity in sonara_runtime_contracts(sonara_module).identities
     )
 
 
-def _insert_contract(conn: sqlite3.Connection, contract_hash: str) -> None:
-    now = _now()
-    conn.execute(
+def _new_library(tmp_path: Path) -> tuple[LibraryDatabase, Path]:
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+    return LibraryDatabase(tmp_path / "library.sqlite"), backup_dir
+
+
+def _insert_track(connection: sqlite3.Connection) -> int:
+    timestamp = "2026-07-24T00:00:00+00:00"
+    cursor = connection.execute(
         """
-        INSERT OR IGNORE INTO contracts(
-            contract_hash, analysis_family, output_kind, model_name,
-            release_hash, canonical_payload_json, created_at
-        ) VALUES (?, 'sonara', 'core', 'sonara', ?, '{}', ?)
+        INSERT INTO tracks (
+            track_uuid,
+            file_path,
+            file_size_bytes,
+            file_modified_ns,
+            content_generation,
+            last_scanned_at,
+            created_at,
+            updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (contract_hash, "sha256:releasehash", now),
+        (
+            "track-uuid-1",
+            r"C:\Music\track.wav",
+            1024,
+            1,
+            1,
+            timestamp,
+            timestamp,
+            timestamp,
+        ),
     )
-
-
-def _insert_sonara_row(conn: sqlite3.Connection, track_id: int, contract_hash: str) -> None:
-    mfcc, chroma, contrast = _make_blobs()
-    now = _now()
-    conn.execute(
+    track_id = int(cursor.lastrowid)
+    connection.execute(
         """
-        INSERT INTO sonara(
-            track_id, content_generation, contract_hash,
-            mfcc_mean_blob, chroma_mean_blob, spectral_contrast_mean_blob,
+        INSERT INTO likes(track_id, liked_at)
+        VALUES (?, ?)
+        """,
+        (track_id, timestamp),
+    )
+    return track_id
+
+
+def _insert_core_sonara(
+    connection: sqlite3.Connection,
+    *,
+    track_id: int,
+    contract_hash: str,
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO sonara (
+            track_id,
+            content_generation,
+            contract_hash,
+            mfcc_mean_blob,
+            chroma_mean_blob,
+            spectral_contrast_mean_blob,
             analyzed_at
         ) VALUES (?, 1, ?, ?, ?, ?, ?)
         """,
-        (track_id, contract_hash, mfcc, chroma, contrast, now),
+        (
+            track_id,
+            contract_hash,
+            struct.pack("<13f", *([0.0] * 13)),
+            struct.pack("<12f", *([0.0] * 12)),
+            struct.pack("<7f", *([0.0] * 7)),
+            "2026-07-24T00:01:00+00:00",
+        ),
     )
 
 
-def _insert_maest_row(conn: sqlite3.Connection, track_id: int, contract_hash: str) -> None:
-    now = _now()
-    conn.execute(
+def _insert_artifact_sonara(
+    connection: sqlite3.Connection,
+    *,
+    track_id: int,
+    outputs: tuple[AnalysisOutput, ...],
+) -> None:
+    by_kind = {output.contract.output_kind: output for output in outputs}
+    timestamp = "2026-07-24T00:01:00+00:00"
+    connection.execute(
         """
-        INSERT INTO maest_scores(
-            track_id, content_generation, contract_hash,
-            genres_json, analyzed_at
-        ) VALUES (?, 1, ?, '[]', ?)
+        INSERT INTO sonara_timeline (
+            track_id,
+            track_uuid,
+            content_generation,
+            contract_hash,
+            payload_json,
+            analyzed_at
+        ) VALUES (?, 'track-uuid-1', 1, ?, '{}', ?)
         """,
-        (track_id, contract_hash, now),
+        (track_id, by_kind["timeline"].contract_hash, timestamp),
+    )
+    embedding = by_kind["embedding"].contract
+    connection.execute(
+        """
+        INSERT INTO sonara_similarity_embeddings (
+            track_id,
+            track_uuid,
+            content_generation,
+            contract_hash,
+            dim,
+            normalization,
+            embedding_blob,
+            analyzed_at
+        ) VALUES (?, 'track-uuid-1', 1, ?, ?, ?, ?, ?)
+        """,
+        (
+            track_id,
+            embedding.contract_hash,
+            embedding.dim,
+            embedding.normalization,
+            bytes(embedding.dim * 4),
+            timestamp,
+        ),
+    )
+    fingerprint = by_kind["fingerprint"].contract
+    fingerprint_parameters = dict(fingerprint.parameters)
+    connection.execute(
+        """
+        INSERT INTO sonara_fingerprints (
+            track_id,
+            track_uuid,
+            content_generation,
+            contract_hash,
+            fingerprint_version,
+            word_count,
+            byte_order,
+            fingerprint_blob,
+            analyzed_at
+        ) VALUES (?, 'track-uuid-1', 1, ?, ?, 1, 'little', ?, ?)
+        """,
+        (
+            track_id,
+            fingerprint.contract_hash,
+            fingerprint_parameters["fingerprint_version"],
+            b"\x01\x00\x00\x00",
+            timestamp,
+        ),
     )
 
 
 def _insert_classifier_score(
-    conn: sqlite3.Connection,
+    connection: sqlite3.Connection,
+    *,
     track_id: int,
     classifier_key: str,
     uses_sonara: int,
-    sonara_release_hash: str | None,
+    release_hash: str | None,
 ) -> None:
-    now = _now()
-    conn.execute(
+    connection.execute(
         """
-        INSERT INTO classifier_scores(
-            track_id, classifier_key, content_generation, model_id,
-            feature_set, feature_manifest_hash,
-            uses_sonara, sonara_release_hash,
-            positive_label, predicted_class, score_bucket,
-            score, confidence, probabilities_json, analyzed_at
-        ) VALUES (?, ?, 1, 'model_v1', 'features', 'hash123',
-                  ?, ?,
-                  'positive', 'positive', 'high',
-                  0.9, 0.8, '{}', ?)
+        INSERT INTO classifier_scores (
+            track_id,
+            classifier_key,
+            content_generation,
+            model_id,
+            feature_set,
+            feature_manifest_hash,
+            required_outputs_hash,
+            uses_sonara,
+            sonara_release_hash,
+            positive_label,
+            predicted_class,
+            score_bucket,
+            score,
+            confidence,
+            probabilities_json,
+            analyzed_at
+        ) VALUES (?, ?, 1, 'model', ?, ?, ?, ?, ?, 'yes', 'yes',
+                  'high', 0.9, 0.8, '{"no":0.1,"yes":0.9}', ?)
         """,
-        (track_id, classifier_key, uses_sonara, sonara_release_hash, now),
+        (
+            track_id,
+            classifier_key,
+            "sonara+maest" if uses_sonara else "mert",
+            "sha256:" + "9" * 64,
+            "sha256:" + "8" * 64,
+            uses_sonara,
+            release_hash,
+            "2026-07-24T00:02:00+00:00",
+        ),
     )
 
 
-def _set_library_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
-    now = _now()
-    conn.execute(
-        """
-        INSERT INTO library_settings(setting_key, setting_value, updated_at)
-        VALUES(?, ?, ?)
-        ON CONFLICT(setting_key) DO UPDATE SET
-            setting_value = excluded.setting_value,
-            updated_at    = excluded.updated_at
-        """,
-        (key, value, now),
+def _seed_previous_release(
+    database: LibraryDatabase,
+) -> tuple[int, tuple[AnalysisOutput, ...]]:
+    previous_outputs = _outputs(PreviousSonara)
+    seed_backup_dir = database.path.parent / "previous-release-backups"
+    seed_backup_dir.mkdir(exist_ok=True)
+    prepare_sonara_release(
+        database,
+        backup_dir=seed_backup_dir,
+        confirm=CONFIRM_STRING,
+        sonara_module=PreviousSonara,
     )
+    current_release_hash = sonara_runtime_contracts(CurrentSonara).release_hash
+    previous_release_hash = previous_outputs[0].contract.release_hash
+
+    with closing(database.connect()) as core:
+        track_id = _insert_track(core)
+        _insert_core_sonara(
+            core,
+            track_id=track_id,
+            contract_hash=previous_outputs[0].contract_hash,
+        )
+        _insert_classifier_score(
+            core,
+            track_id=track_id,
+            classifier_key="old-sonara",
+            uses_sonara=1,
+            release_hash=previous_release_hash,
+        )
+        _insert_classifier_score(
+            core,
+            track_id=track_id,
+            classifier_key="already-new-sonara",
+            uses_sonara=1,
+            release_hash=current_release_hash,
+        )
+        _insert_classifier_score(
+            core,
+            track_id=track_id,
+            classifier_key="mert-only",
+            uses_sonara=0,
+            release_hash=None,
+        )
+        core.commit()
+
+    with closing(database.connect_artifacts()) as artifacts:
+        _insert_artifact_sonara(
+            artifacts,
+            track_id=track_id,
+            outputs=previous_outputs,
+        )
+        artifacts.execute(
+            """
+            INSERT INTO mert_embeddings (
+                track_id,
+                track_uuid,
+                content_generation,
+                contract_hash,
+                dim,
+                normalization,
+                embedding_blob,
+                analyzed_at
+            ) VALUES (?, 'track-uuid-1', 1, ?, 1, 'none', ?, ?)
+            """,
+            (
+                track_id,
+                "sha256:" + "8" * 64,
+                struct.pack("<f", 0.5),
+                "2026-07-24T00:03:00+00:00",
+            ),
+        )
+        artifacts.commit()
+    return track_id, previous_outputs
 
 
-def _get_library_setting(conn: sqlite3.Connection, key: str) -> str | None:
-    row = conn.execute(
-        "SELECT setting_value FROM library_settings WHERE setting_key = ?", (key,)
-    ).fetchone()
-    return row[0] if row else None
+def _table_count(connection: sqlite3.Connection, table: str) -> int:
+    return int(connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0])
 
 
-def _insert_maest_contract(conn: sqlite3.Connection, contract_hash: str) -> None:
-    now = _now()
-    conn.execute(
-        """
-        INSERT OR IGNORE INTO contracts(
-            contract_hash, analysis_family, output_kind, model_name,
-            release_hash, canonical_payload_json, created_at
-        ) VALUES (?, 'maest', 'analysis', 'maest', NULL, '{}', ?)
-        """,
-        (contract_hash, now),
+def _read_json(path: Path) -> dict[str, object]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert isinstance(payload, dict)
+    return payload
+
+
+def _file_hash(path: Path) -> str:
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_public_api_is_v7_only_and_requires_confirmation(tmp_path: Path) -> None:
+    signature = inspect.signature(prepare_sonara_release)
+
+    assert tuple(signature.parameters) == (
+        "database",
+        "backup_dir",
+        "confirm",
+        "sonara_module",
     )
+    for removed_name in (
+        "db_path",
+        "sonara_outputs",
+        "new_release_hash",
+        "previous_release_hash",
+    ):
+        assert removed_name not in signature.parameters
 
+    with pytest.raises(ValueError, match="must be exactly"):
+        validate_confirm("yes")
+    validate_confirm(CONFIRM_STRING)
 
-# ---------------------------------------------------------------------------
-# test_prepare_clears_only_sonara_rows
-# ---------------------------------------------------------------------------
-
-def test_prepare_clears_only_sonara_rows(tmp_path: Path) -> None:
-    """Happy-path: sonara rows cleared, maest_scores and uses_sonara=0 classifier retained."""
-    db_file = tmp_path / "library.sqlite"
-    backup_dir = tmp_path / "bak"
-    backup_dir.mkdir()
-
-    OLD_HASH = "sha256:oldhash"
-    NEW_HASH = "sha256:newhash"
-    SONARA_CONTRACT = "sha256:sonara_contract_abc"
-    MAEST_CONTRACT = "sha256:maest_contract_abc"
-
-    conn = _open_v7(str(db_file))
-
-    # Insert contracts
-    _insert_contract(conn, SONARA_CONTRACT)
-    _insert_maest_contract(conn, MAEST_CONTRACT)
-
-    # Insert 2 tracks
-    _insert_track(conn, 1, "uuid-1", "/music/track1.mp3")
-    _insert_track(conn, 2, "uuid-2", "/music/track2.mp3")
-
-    # Insert 2 sonara rows
-    _insert_sonara_row(conn, 1, SONARA_CONTRACT)
-    _insert_sonara_row(conn, 2, SONARA_CONTRACT)
-
-    # Insert 2 maest_scores rows
-    _insert_maest_row(conn, 1, MAEST_CONTRACT)
-    _insert_maest_row(conn, 2, MAEST_CONTRACT)
-
-    # Insert 2 classifier_scores: one uses_sonara=1, one uses_sonara=0
-    _insert_classifier_score(conn, 1, "sonara_classifier", 1, OLD_HASH)
-    _insert_classifier_score(conn, 2, "ml_only_classifier", 0, None)
-
-    # Set active release hash
-    _set_library_setting(conn, ACTIVE_RELEASE_HASH_KEY, OLD_HASH)
-
-    conn.commit()
-    conn.close()
-
-    # Run prepare
-    receipt = prepare_sonara_release(
-        db_path=db_file,
-        backup_dir=backup_dir,
-        sonara_outputs=["core", "timeline", "embedding", "fingerprint"],
-        new_release_hash=NEW_HASH,
-    )
-
-    # Verify receipt
-    assert receipt["step"] == 7
-    assert receipt["new_release_hash"] == NEW_HASH
-    assert "finalized_at" in receipt
-
-    # Verify DB state
-    conn = sqlite3.connect(str(db_file))
-    conn.row_factory = sqlite3.Row
-
-    # sonara table must be empty
-    sonara_count = conn.execute("SELECT COUNT(*) FROM sonara").fetchone()[0]
-    assert sonara_count == 0, f"Expected sonara empty, got {sonara_count} rows"
-
-    # maest_scores must be untouched (2 rows)
-    maest_count = conn.execute("SELECT COUNT(*) FROM maest_scores").fetchone()[0]
-    assert maest_count == 2, f"Expected 2 maest_scores rows, got {maest_count}"
-
-    # classifier_scores: uses_sonara=1 row deleted, uses_sonara=0 row retained
-    cs_rows = conn.execute(
-        "SELECT classifier_key, uses_sonara FROM classifier_scores ORDER BY classifier_key"
-    ).fetchall()
-    assert len(cs_rows) == 1, f"Expected 1 classifier_scores row, got {len(cs_rows)}"
-    assert cs_rows[0]["classifier_key"] == "ml_only_classifier"
-    assert cs_rows[0]["uses_sonara"] == 0
-
-    # active release hash updated
-    active_hash = _get_library_setting(conn, ACTIVE_RELEASE_HASH_KEY)
-    assert active_hash == NEW_HASH, f"Expected {NEW_HASH}, got {active_hash}"
-
-    # receipt deleted
-    receipt_val = _get_library_setting(conn, RECEIPT_KEY)
-    assert receipt_val is None, f"Expected receipt deleted, got {receipt_val!r}"
-
-    conn.close()
-
-    # Backup must exist
-    assert (backup_dir / "library.sqlite.bak").exists(), "Core backup not found"
-
-
-# ---------------------------------------------------------------------------
-# test_crash_resume
-# ---------------------------------------------------------------------------
-
-def test_crash_resume(tmp_path: Path) -> None:
-    """Crash-resume: if receipt exists at step 4, resume from step 5 and complete."""
-    db_file = tmp_path / "library.sqlite"
-    backup_dir = tmp_path / "bak"
-    backup_dir.mkdir()
-
-    OLD_HASH = "sha256:oldhash"
-    NEW_HASH = "sha256:newhash"
-    SONARA_CONTRACT = "sha256:sonara_contract_xyz"
-    MAEST_CONTRACT = "sha256:maest_contract_xyz"
-
-    conn = _open_v7(str(db_file))
-
-    _insert_contract(conn, SONARA_CONTRACT)
-    _insert_maest_contract(conn, MAEST_CONTRACT)
-
-    _insert_track(conn, 1, "uuid-1", "/music/track1.mp3")
-    _insert_track(conn, 2, "uuid-2", "/music/track2.mp3")
-
-    _insert_sonara_row(conn, 1, SONARA_CONTRACT)
-    _insert_sonara_row(conn, 2, SONARA_CONTRACT)
-
-    _insert_maest_row(conn, 1, MAEST_CONTRACT)
-    _insert_maest_row(conn, 2, MAEST_CONTRACT)
-
-    _insert_classifier_score(conn, 1, "sonara_classifier", 1, OLD_HASH)
-    _insert_classifier_score(conn, 2, "ml_only_classifier", 0, None)
-
-    _set_library_setting(conn, ACTIVE_RELEASE_HASH_KEY, OLD_HASH)
-
-    # Simulate crash after step 4: write a receipt with step=4
-    # (sidecars were cleared, but Core transaction not yet done)
-    crash_receipt = {
-        "step": 4,
-        "started_at": _now(),
-        "previous_release_hash": OLD_HASH,
-        "new_release_hash": NEW_HASH,
-    }
-    _set_library_setting(conn, RECEIPT_KEY, json.dumps(crash_receipt))
-
-    conn.commit()
-    conn.close()
-
-    # Also write a fake backup so step 2 is considered done (step=4 > 2)
-    (backup_dir / "library.sqlite.bak").write_bytes(b"fake_backup")
-
-    # Run prepare — should detect receipt and resume from step 5
-    receipt = prepare_sonara_release(
-        db_path=db_file,
-        backup_dir=backup_dir,
-        sonara_outputs=["core", "timeline", "embedding", "fingerprint"],
-        new_release_hash=NEW_HASH,
-    )
-
-    # Verify receipt
-    assert receipt["step"] == 7
-    assert receipt["new_release_hash"] == NEW_HASH
-    assert "finalized_at" in receipt
-
-    # Verify DB state — same final state as happy path
-    conn = sqlite3.connect(str(db_file))
-    conn.row_factory = sqlite3.Row
-
-    sonara_count = conn.execute("SELECT COUNT(*) FROM sonara").fetchone()[0]
-    assert sonara_count == 0, f"Expected sonara empty after resume, got {sonara_count}"
-
-    maest_count = conn.execute("SELECT COUNT(*) FROM maest_scores").fetchone()[0]
-    assert maest_count == 2, f"Expected 2 maest_scores rows after resume, got {maest_count}"
-
-    cs_rows = conn.execute(
-        "SELECT classifier_key, uses_sonara FROM classifier_scores ORDER BY classifier_key"
-    ).fetchall()
-    assert len(cs_rows) == 1, f"Expected 1 classifier_scores row after resume, got {len(cs_rows)}"
-    assert cs_rows[0]["classifier_key"] == "ml_only_classifier"
-
-    active_hash = _get_library_setting(conn, ACTIVE_RELEASE_HASH_KEY)
-    assert active_hash == NEW_HASH
-
-    receipt_val = _get_library_setting(conn, RECEIPT_KEY)
-    assert receipt_val is None, "Receipt should be deleted after successful resume"
-
-    conn.close()
-
-
-# ---------------------------------------------------------------------------
-# Validation unit tests
-# ---------------------------------------------------------------------------
-
-def test_validate_confirm_ok() -> None:
-    validate_confirm(CONFIRM_STRING)  # must not raise
-
-
-def test_validate_confirm_wrong() -> None:
-    with pytest.raises(ValueError, match="PREPARE SONARA RELEASE"):
-        validate_confirm("wrong string")
-
-
-def test_validate_sonara_outputs_ok() -> None:
-    validate_sonara_outputs(["core", "timeline", "embedding", "fingerprint"])
-
-
-def test_validate_sonara_outputs_unknown() -> None:
-    with pytest.raises(ValueError, match="Unknown"):
-        validate_sonara_outputs(["core", "bogus"])
-
-
-def test_validate_backup_dir_missing(tmp_path: Path) -> None:
-    missing = tmp_path / "nonexistent"
+    missing = tmp_path / "missing"
     with pytest.raises(ValueError, match="does not exist"):
         validate_backup_dir(missing)
+    assert validate_backup_dir(tmp_path) == tmp_path.resolve()
+
+
+def test_fresh_library_activates_exact_four_contracts_and_backs_up(
+    tmp_path: Path,
+) -> None:
+    database, backup_dir = _new_library(tmp_path)
+    contracts = sonara_runtime_contracts(CurrentSonara)
+
+    receipt = prepare_sonara_release(
+        database,
+        backup_dir=backup_dir,
+        confirm=CONFIRM_STRING,
+        sonara_module=CurrentSonara,
+    )
+
+    assert receipt["stage"] == "completed"
+    assert receipt["release_hash"] == contracts.release_hash
+    assert len(str(receipt["release_hash"])) == len("sha256:") + 64
+    assert receipt["contract_hashes"] == {
+        identity.output_kind: identity.contract_hash
+        for identity in contracts.identities
+    }
+    assert receipt["activation_result"] == {
+        "core_rows_deleted": 0,
+        "artifact_rows_deleted": 0,
+        "classifier_rows_deleted": 0,
+    }
+
+    backups = receipt["backups"]
+    assert isinstance(backups, dict)
+    for kind in ("core", "artifacts"):
+        record = backups[kind]
+        assert isinstance(record, dict)
+        backup_path = Path(record["path"])
+        assert backup_path.is_file()
+        assert record["sha256"] == _file_hash(backup_path)
+        with closing(sqlite3.connect(backup_path)) as connection:
+            assert connection.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+
+    receipt_path = database.path.with_name(
+        f".{database.path.name}.prepare-sonara-release.json"
+    )
+    assert _read_json(receipt_path) == receipt
+    archive_path = backup_dir / (
+        f"{database.path.stem}.pre-sonara-"
+        f"{str(receipt['operation_id']).removeprefix('sha256:')}.receipt.json"
+    )
+    assert _read_json(archive_path) == receipt
+
+    expected_settings = {
+        SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY: contracts.release_hash,
+        **{
+            active_contract_setting_key(
+                AnalysisOutput(identity)
+            ): identity.contract_hash
+            for identity in contracts.identities
+        },
+    }
+    with closing(database.connect()) as core:
+        actual_settings = {
+            str(row[0]): str(row[1])
+            for row in core.execute(
+                """
+                SELECT setting_key, setting_value
+                FROM library_settings
+                WHERE setting_key = ?
+                   OR setting_key LIKE 'analysis.active_contract.sonara.%'
+                """,
+                (SONARA_ACTIVE_RELEASE_HASH_SETTING_KEY,),
+            )
+        }
+        assert actual_settings == expected_settings
+        assert _table_count(core, "contracts") == 4
+
+
+def test_activation_clears_every_sonara_row_and_preserves_independent_data(
+    tmp_path: Path,
+) -> None:
+    database, backup_dir = _new_library(tmp_path)
+    _seed_previous_release(database)
+
+    receipt = prepare_sonara_release(
+        database,
+        backup_dir=backup_dir,
+        confirm=CONFIRM_STRING,
+        sonara_module=CurrentSonara,
+    )
+
+    assert receipt["activation_result"] == {
+        "core_rows_deleted": 1,
+        "artifact_rows_deleted": 3,
+        "classifier_rows_deleted": 2,
+    }
+    with closing(database.connect()) as core:
+        assert _table_count(core, "tracks") == 1
+        assert _table_count(core, "likes") == 1
+        assert _table_count(core, "sonara") == 0
+        classifier_keys = {
+            str(row[0])
+            for row in core.execute("SELECT classifier_key FROM classifier_scores")
+        }
+        assert classifier_keys == {"mert-only"}
+    with closing(database.connect_artifacts()) as artifacts:
+        assert _table_count(artifacts, "sonara_timeline") == 0
+        assert _table_count(artifacts, "sonara_similarity_embeddings") == 0
+        assert _table_count(artifacts, "sonara_fingerprints") == 0
+        assert _table_count(artifacts, "mert_embeddings") == 1
+
+    backups = receipt["backups"]
+    assert isinstance(backups, dict)
+    core_backup = Path(backups["core"]["path"])
+    artifacts_backup = Path(backups["artifacts"]["path"])
+    with closing(sqlite3.connect(core_backup)) as core:
+        assert _table_count(core, "sonara") == 1
+        assert _table_count(core, "classifier_scores") == 3
+    with closing(sqlite3.connect(artifacts_backup)) as artifacts:
+        assert _table_count(artifacts, "sonara_timeline") == 1
+        assert _table_count(artifacts, "sonara_similarity_embeddings") == 1
+        assert _table_count(artifacts, "sonara_fingerprints") == 1
+        assert _table_count(artifacts, "mert_embeddings") == 1
+
+
+def test_completed_operation_is_deterministic_and_preserves_new_outputs(
+    tmp_path: Path,
+) -> None:
+    database, backup_dir = _new_library(tmp_path)
+    track_id, _ = _seed_previous_release(database)
+    current_outputs = _outputs(CurrentSonara)
+
+    first = prepare_sonara_release(
+        database,
+        backup_dir=backup_dir,
+        confirm=CONFIRM_STRING,
+        sonara_module=CurrentSonara,
+    )
+    with closing(database.connect()) as core:
+        _insert_core_sonara(
+            core,
+            track_id=track_id,
+            contract_hash=current_outputs[0].contract_hash,
+        )
+        core.commit()
+    with closing(database.connect_artifacts()) as artifacts:
+        _insert_artifact_sonara(
+            artifacts,
+            track_id=track_id,
+            outputs=current_outputs,
+        )
+        artifacts.commit()
+
+    backup_paths = {Path(record["path"]) for record in first["backups"].values()}
+    before = {
+        path: (path.stat().st_mtime_ns, _file_hash(path)) for path in backup_paths
+    }
+    second = prepare_sonara_release(
+        database,
+        backup_dir=backup_dir,
+        confirm=CONFIRM_STRING,
+        sonara_module=CurrentSonara,
+    )
+
+    assert second == first
+    assert {
+        path: (path.stat().st_mtime_ns, _file_hash(path)) for path in backup_paths
+    } == before
+    with closing(database.connect()) as core:
+        assert _table_count(core, "sonara") == 1
+    with closing(database.connect_artifacts()) as artifacts:
+        assert _table_count(artifacts, "sonara_timeline") == 1
+        assert _table_count(artifacts, "sonara_similarity_embeddings") == 1
+        assert _table_count(artifacts, "sonara_fingerprints") == 1
+
+
+@pytest.mark.parametrize("crash_stage", ["started", "backed_up"])
+def test_resume_before_gateway(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    crash_stage: str,
+) -> None:
+    database, backup_dir = _new_library(tmp_path)
+    _seed_previous_release(database)
+
+    def crash(stage: str) -> None:
+        if stage == crash_stage:
+            raise RuntimeError(f"crash after {stage}")
+
+    monkeypatch.setattr(release_prepare, "_stage_checkpoint", crash)
+    with pytest.raises(RuntimeError, match=f"crash after {crash_stage}"):
+        prepare_sonara_release(
+            database,
+            backup_dir=backup_dir,
+            confirm=CONFIRM_STRING,
+            sonara_module=CurrentSonara,
+        )
+
+    receipt_path = database.path.with_name(
+        f".{database.path.name}.prepare-sonara-release.json"
+    )
+    pending = _read_json(receipt_path)
+    assert pending["stage"] == crash_stage
+
+    monkeypatch.setattr(release_prepare, "_stage_checkpoint", lambda _stage: None)
+    completed = prepare_sonara_release(
+        database,
+        backup_dir=backup_dir,
+        confirm=CONFIRM_STRING,
+        sonara_module=CurrentSonara,
+    )
+    assert completed["stage"] == "completed"
+    with closing(database.connect()) as core:
+        assert _table_count(core, "sonara") == 0
+        assert _table_count(core, "classifier_scores") == 1
+    with closing(database.connect_artifacts()) as artifacts:
+        assert _table_count(artifacts, "sonara_timeline") == 0
+        assert _table_count(artifacts, "sonara_similarity_embeddings") == 0
+        assert _table_count(artifacts, "sonara_fingerprints") == 0
+
+
+def test_resume_after_gateway_commit_is_safe_for_same_release_outputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database, backup_dir = _new_library(tmp_path)
+    track_id, _ = _seed_previous_release(database)
+    current_outputs = _outputs(CurrentSonara)
+
+    def crash(stage: str) -> None:
+        if stage == "gateway_committed":
+            raise RuntimeError("crash after gateway commit")
+
+    monkeypatch.setattr(release_prepare, "_stage_checkpoint", crash)
+    with pytest.raises(RuntimeError, match="crash after gateway commit"):
+        prepare_sonara_release(
+            database,
+            backup_dir=backup_dir,
+            confirm=CONFIRM_STRING,
+            sonara_module=CurrentSonara,
+        )
+
+    with closing(database.connect()) as core:
+        _insert_core_sonara(
+            core,
+            track_id=track_id,
+            contract_hash=current_outputs[0].contract_hash,
+        )
+        _insert_classifier_score(
+            core,
+            track_id=track_id,
+            classifier_key="new-sonara",
+            uses_sonara=1,
+            release_hash=current_outputs[0].contract.release_hash,
+        )
+        core.commit()
+    with closing(database.connect_artifacts()) as artifacts:
+        _insert_artifact_sonara(
+            artifacts,
+            track_id=track_id,
+            outputs=current_outputs,
+        )
+        artifacts.commit()
+
+    monkeypatch.setattr(release_prepare, "_stage_checkpoint", lambda _stage: None)
+    completed = prepare_sonara_release(
+        database,
+        backup_dir=backup_dir,
+        confirm=CONFIRM_STRING,
+        sonara_module=CurrentSonara,
+    )
+
+    assert completed["stage"] == "completed"
+    assert completed["activation_result"] == {
+        "core_rows_deleted": 0,
+        "artifact_rows_deleted": 0,
+        "classifier_rows_deleted": 0,
+    }
+    with closing(database.connect()) as core:
+        assert _table_count(core, "sonara") == 1
+        assert {
+            str(row[0])
+            for row in core.execute("SELECT classifier_key FROM classifier_scores")
+        } == {"mert-only", "new-sonara"}
+    with closing(database.connect_artifacts()) as artifacts:
+        assert _table_count(artifacts, "sonara_timeline") == 1
+        assert _table_count(artifacts, "sonara_similarity_embeddings") == 1
+        assert _table_count(artifacts, "sonara_fingerprints") == 1
+
+
+def test_corrupt_recorded_backup_blocks_resume_before_gateway(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database, backup_dir = _new_library(tmp_path)
+    previous_outputs = _seed_previous_release(database)[1]
+
+    def crash(stage: str) -> None:
+        if stage == "backed_up":
+            raise RuntimeError("crash after backup")
+
+    monkeypatch.setattr(release_prepare, "_stage_checkpoint", crash)
+    with pytest.raises(RuntimeError, match="crash after backup"):
+        prepare_sonara_release(
+            database,
+            backup_dir=backup_dir,
+            confirm=CONFIRM_STRING,
+            sonara_module=CurrentSonara,
+        )
+
+    receipt_path = database.path.with_name(
+        f".{database.path.name}.prepare-sonara-release.json"
+    )
+    pending = _read_json(receipt_path)
+    core_backup = Path(pending["backups"]["core"]["path"])
+    with core_backup.open("ab") as stream:
+        stream.write(b"corrupt")
+
+    monkeypatch.setattr(release_prepare, "_stage_checkpoint", lambda _stage: None)
+    with pytest.raises(PrepareSonaraReleaseError, match="size does not match"):
+        prepare_sonara_release(
+            database,
+            backup_dir=backup_dir,
+            confirm=CONFIRM_STRING,
+            sonara_module=CurrentSonara,
+        )
+
+    active_core = database.active_analysis_output("sonara", "core")
+    assert active_core is not None
+    assert active_core.contract_hash == previous_outputs[0].contract_hash
+
+
+def test_backup_catalog_mismatch_blocks_resume(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database, backup_dir = _new_library(tmp_path)
+    _seed_previous_release(database)
+
+    def crash(stage: str) -> None:
+        if stage == "backed_up":
+            raise RuntimeError("crash after backup")
+
+    monkeypatch.setattr(release_prepare, "_stage_checkpoint", crash)
+    with pytest.raises(RuntimeError, match="crash after backup"):
+        prepare_sonara_release(
+            database,
+            backup_dir=backup_dir,
+            confirm=CONFIRM_STRING,
+            sonara_module=CurrentSonara,
+        )
+
+    other = LibraryDatabase(tmp_path / "other.sqlite")
+    receipt_path = database.path.with_name(
+        f".{database.path.name}.prepare-sonara-release.json"
+    )
+    pending = _read_json(receipt_path)
+    artifacts_record = pending["backups"]["artifacts"]
+    artifacts_backup = Path(artifacts_record["path"])
+    replacement = artifacts_backup.with_suffix(".replacement")
+    with (
+        closing(other.connect_artifacts()) as source,
+        closing(sqlite3.connect(replacement)) as target,
+    ):
+        source.backup(target)
+        target.execute("PRAGMA journal_mode = DELETE")
+    replacement.replace(artifacts_backup)
+    artifacts_record["size_bytes"] = artifacts_backup.stat().st_size
+    artifacts_record["sha256"] = _file_hash(artifacts_backup)
+    release_prepare._atomic_write_json(receipt_path, pending)
+
+    monkeypatch.setattr(release_prepare, "_stage_checkpoint", lambda _stage: None)
+    with pytest.raises(
+        PrepareSonaraReleaseError,
+        match="another library catalog",
+    ):
+        prepare_sonara_release(
+            database,
+            backup_dir=backup_dir,
+            confirm=CONFIRM_STRING,
+            sonara_module=CurrentSonara,
+        )
+
+
+def test_pending_receipt_for_another_runtime_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database, backup_dir = _new_library(tmp_path)
+
+    def crash(stage: str) -> None:
+        if stage == "started":
+            raise RuntimeError("crash after receipt")
+
+    monkeypatch.setattr(release_prepare, "_stage_checkpoint", crash)
+    with pytest.raises(RuntimeError, match="crash after receipt"):
+        prepare_sonara_release(
+            database,
+            backup_dir=backup_dir,
+            confirm=CONFIRM_STRING,
+            sonara_module=CurrentSonara,
+        )
+
+    monkeypatch.setattr(release_prepare, "_stage_checkpoint", lambda _stage: None)
+    with pytest.raises(
+        PrepareSonaraReleaseError,
+        match="different SONARA release activation is incomplete",
+    ):
+        prepare_sonara_release(
+            database,
+            backup_dir=backup_dir,
+            confirm=CONFIRM_STRING,
+            sonara_module=FutureSonara,
+        )
+
+
+def test_corrupt_receipt_and_concurrent_lock_fail_closed(
+    tmp_path: Path,
+) -> None:
+    database, backup_dir = _new_library(tmp_path)
+    receipt_path = database.path.with_name(
+        f".{database.path.name}.prepare-sonara-release.json"
+    )
+    receipt_path.write_text("{broken", encoding="utf-8")
+
+    with pytest.raises(PrepareSonaraReleaseError, match="invalid JSON"):
+        prepare_sonara_release(
+            database,
+            backup_dir=backup_dir,
+            confirm=CONFIRM_STRING,
+            sonara_module=CurrentSonara,
+        )
+
+    receipt_path.unlink()
+    with release_prepare._release_file_lock(database.path):
+        with pytest.raises(LockHeldError, match="already running"):
+            prepare_sonara_release(
+                database,
+                backup_dir=backup_dir,
+                confirm=CONFIRM_STRING,
+                sonara_module=CurrentSonara,
+            )
+
+
+def test_completed_receipt_allows_later_distinct_release(
+    tmp_path: Path,
+) -> None:
+    database, backup_dir = _new_library(tmp_path)
+    _seed_previous_release(database)
+
+    current = prepare_sonara_release(
+        database,
+        backup_dir=backup_dir,
+        confirm=CONFIRM_STRING,
+        sonara_module=CurrentSonara,
+    )
+    future = prepare_sonara_release(
+        database,
+        backup_dir=backup_dir,
+        confirm=CONFIRM_STRING,
+        sonara_module=FutureSonara,
+    )
+
+    assert future["stage"] == "completed"
+    assert future["operation_id"] != current["operation_id"]
+    assert future["release_hash"] == sonara_runtime_contracts(FutureSonara).release_hash
+    archives = sorted(backup_dir.glob("*.receipt.json"))
+    assert len(archives) == 2

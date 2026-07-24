@@ -14,7 +14,8 @@ Indexes live beside the selected SQLite database by default under:
 .dj-track-similarity-indexes/
 ```
 
-They store generated vector-index artifacts and manifests for one adapter at a time: `mert`, `maest`, or `clap`. They do not copy audio files and they do not write new SQLite rows.
+They store generated vector-index artifacts and manifests for one model family at a time: `maest`,
+`mert`, `muq`, or `clap`. They do not copy audio files and they do not write new SQLite rows.
 
 ## Install optional backend
 
@@ -24,30 +25,30 @@ The `ann` extra installs `hnswlib`:
 python -m pip install -e ".[ann,dev]"
 ```
 
-The CLI backend option can use `auto`, `hnswlib`, or `exact-numpy`. `auto` prefers hnswlib when available.
+The persistent CLI backend is `hnswlib`.
 
 ## Build and verify
 
 ```powershell
-dj-sim index build --adapter clap --db .\data\library.sqlite
+dj-sim index build --model clap --db .\data\library.sqlite
 ```
 
 ```powershell
-dj-sim index verify --adapter clap --db .\data\library.sqlite
+dj-sim index verify --model clap --db .\data\library.sqlite
 ```
 
-Adapters are selected with `--adapter` or `--embedding-key`.
+Select the active embedding family with the required `--model` option.
 
 Optional build controls:
 
 ```powershell
-dj-sim index build --adapter clap --backend auto --ef-construction 200 --m 16 --ef-search 100 --db .\data\library.sqlite
+dj-sim index build --model clap --backend hnswlib --ef-construction 200 --m 16 --ef-search 100 --db .\data\library.sqlite
 ```
 
 ## Benchmark recall
 
 ```powershell
-dj-sim index benchmark --adapter clap --recall-k 50 --seed-count 20 --db .\data\library.sqlite
+dj-sim index benchmark --model clap --recall-k 50 --seed-count 20 --db .\data\library.sqlite
 ```
 
 The benchmark compares against exact search and reports pass/fail using the chosen threshold.
@@ -64,14 +65,14 @@ If the sidecar is missing, stale, or unsupported, the command warns and falls ba
 
 ## Rebuild after embeddings change
 
-Rebuild after adapter analysis changes. Also rebuild after embedding reset, database replacement, or index directory moves.
+Rebuild after the selected model's analysis changes. Also rebuild after embedding reset, database replacement, or index directory moves.
 
 ## Clear generated files
 
-Clear one adapter:
+Clear one model family:
 
 ```powershell
-dj-sim index clear --adapter clap --db .\data\library.sqlite
+dj-sim index clear --model clap --db .\data\library.sqlite
 ```
 
 Clear all sidecar index files in the resolved index directory:

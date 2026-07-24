@@ -4,28 +4,101 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 import hashlib
 import math
-from typing import Any
+from typing import Any, Protocol
 
-from .database import LibraryDatabase
-from .evaluation.candidates import (
-    ALLOWED_CANDIDATE_SOURCES,
-    CandidateExportRequest,
-    CandidatePoolRow,
-    CandidateSourceContribution,
-    generate_candidate_pool_rows,
+import numpy as np
+
+from .analysis_models import (
+    AnalysisOutput,
+    AnalysisTarget,
+    AnalysisVectorRow,
+    SonaraFeatureRow,
 )
 from .evaluation.score_profiles import ScoreProfile, score_profile_from_dict
-from .evaluation.weighted_candidates import weighted_rrf_components, weighted_rrf_score
 from .hybrid_explanation import build_hybrid_explanation
-from .hybrid_transition import candidate_transition_diagnostics as _candidate_transition_diagnostics
-from .models import Track
-from .classifier_manifest import legacy_hybrid_signal_for_classifier
-from .classifier_scoring import promoted_classifiers
-from .sonara_similarity_scoring import optional_float
+from .hybrid_transition import (
+    candidate_transition_diagnostics as _candidate_transition_diagnostics,
+)
+from .library_models import (
+    ClassifierScoreDetail,
+    TrackDetail,
+    TrackSummary,
+)
+from .track_models import TrackIdentity
+from .tempo_resolution import (
+    TempoEvidence,
+    confidence_aware_tempo_score,
+    resolve_tempo_evidence_v7,
+)
 from .transition_diagnostics import TRANSITION_RISK_V2, TRANSITION_RISK_VERSIONS
+from .transition_diagnostics import TransitionTrack
+
+
+class HybridRepository(Protocol):
+    def list_track_summaries(
+        self,
+        *,
+        include_missing: bool = False,
+    ) -> tuple[TrackSummary, ...]: ...
+
+    def get_track_detail(
+        self,
+        track_id: int,
+        *,
+        include_missing: bool = False,
+    ) -> TrackDetail: ...
+
+    def get_track_identities(
+        self,
+        track_ids: Sequence[int],
+        *,
+        include_missing: bool = False,
+    ) -> dict[int, TrackIdentity]: ...
+
+    def active_analysis_output(
+        self,
+        analysis_family: str,
+        output_kind: str,
+    ) -> AnalysisOutput | None: ...
+
+    def load_analysis_vectors(
+        self,
+        output: AnalysisOutput,
+        *,
+        targets: Sequence[AnalysisTarget] | None = None,
+    ) -> tuple[AnalysisVectorRow, ...]: ...
+
+    def load_sonara_feature_rows(
+        self,
+        output: AnalysisOutput,
+        *,
+        targets: Sequence[AnalysisTarget] | None = None,
+    ) -> tuple[SonaraFeatureRow, ...]: ...
+
+    def get_pair_feedback_map(
+        self,
+    ) -> Mapping[tuple[int, int, str], Mapping[str, Any]]: ...
+
+    def create_search_session(
+        self,
+        mode: str,
+        seed_track_ids: Sequence[int],
+        request: Mapping[str, Any],
+    ) -> int: ...
+
+    def record_search_result_event(
+        self,
+        session_id: int,
+        candidate_track_id: int,
+        *,
+        rank: int,
+        total_score: float,
+        score_breakdown: Mapping[str, Any],
+    ) -> None: ...
 
 
 DEFAULT_HYBRID_SOURCES = ("mert", "maest", "sonara", "clap")
+ALLOWED_CANDIDATE_SOURCES = DEFAULT_HYBRID_SOURCES
 HYBRID_UI_FEEDBACK_SOURCE = "hybrid_ui"
 HYBRID_SEARCH_SESSION_MODE = "hybrid_search_preview"
 HYBRID_SEARCH_LIMITATIONS = (
@@ -39,9 +112,51 @@ HYBRID_SEARCH_LIMITATIONS = (
 CLASSIFIER_SCORE_ADJUSTMENT_SCALE = 0.15
 
 
+def _required_embedding_outputs(
+    outputs: Mapping[str, AnalysisOutput],
+    families: Sequence[str],
+) -> dict[str, AnalysisOutput]:
+    selected: dict[str, AnalysisOutput] = {}
+    for family in families:
+        output = outputs.get(family)
+        if not isinstance(output, AnalysisOutput):
+            raise ValueError(
+                f"analysis_outputs must include current {family}/embedding"
+            )
+        if output.key != (family, "embedding"):
+            raise ValueError(
+                "analysis_outputs contains the wrong output identity for "
+                f"{family!r}: {output.key!r}"
+            )
+        selected[family] = output
+    return selected
+
+
+def _require_current_embedding_output(
+    repository: HybridRepository,
+    family: str,
+    expected: AnalysisOutput,
+) -> AnalysisOutput:
+    active = repository.active_analysis_output(family, "embedding")
+    if active is None:
+        raise RuntimeError(
+            f"No active {family!r} embedding contract; reanalysis is required"
+        )
+    if (
+        active.contract_hash != expected.contract_hash
+        or active.contract.canonical_payload_json
+        != expected.contract.canonical_payload_json
+    ):
+        raise RuntimeError(
+            "Current runtime embedding contract does not match the active "
+            f"{family!r} contract; reanalysis is required before Hybrid search"
+        )
+    return expected
+
+
 @dataclass(frozen=True)
 class HybridSearchResultRow:
-    track: Track
+    track: TrackSummary
     score: float
     total_score: float
     calibrated_score: None
@@ -76,12 +191,19 @@ class HybridSearchResultRow:
             "rank": self.rank,
             "score_breakdown": dict(self.score_breakdown),
             "risk_breakdown": dict(self.risk_breakdown),
-            "source_support": {source: dict(support) for source, support in self.source_support.items()},
-            "classifier_support": {classifier: dict(support) for classifier, support in self.classifier_support.items()},
+            "source_support": {
+                source: dict(support) for source, support in self.source_support.items()
+            },
+            "classifier_support": {
+                classifier: dict(support)
+                for classifier, support in self.classifier_support.items()
+            },
             "match_character": dict(self.match_character),
             "warnings": list(self.warnings),
             "explanation": list(self.explanation),
-            "transition_diagnostics": dict(self.transition_diagnostics) if include_diagnostics else {},
+            "transition_diagnostics": dict(self.transition_diagnostics)
+            if include_diagnostics
+            else {},
             "diagnostics": dict(self.diagnostics) if include_diagnostics else {},
             "feedback": dict(self.feedback) if self.feedback is not None else None,
         }
@@ -96,25 +218,44 @@ class HybridSearchResult:
     limitations: tuple[str, ...]
     diagnostics: Mapping[str, Any]
     session_id: int | None
+    source_contract_hashes: Mapping[str, str]
 
     def api_response(self, *, include_diagnostics: bool) -> dict[str, Any]:
         return {
-            "results": [row.api_row(include_diagnostics=include_diagnostics) for row in self.results],
+            "results": [
+                row.api_row(include_diagnostics=include_diagnostics)
+                for row in self.results
+            ],
             "warnings": list(self.warnings),
             "weights_used": dict(self.weights_used),
             "sources": list(self.sources),
             "limitations": list(self.limitations),
             "diagnostics": dict(self.diagnostics) if include_diagnostics else {},
             "session_id": self.session_id,
+            "source_contract_hashes": dict(self.source_contract_hashes),
         }
 
 
 @dataclass(frozen=True)
+class _SourceContribution:
+    rank: int
+    score: float
+
+
+@dataclass(frozen=True)
 class _HybridCandidate:
-    track: Track
-    source_contributions: Mapping[str, CandidateSourceContribution]
+    track: TrackSummary
+    source_contributions: Mapping[str, _SourceContribution]
     source_seed_diagnostics: Mapping[str, Mapping[str, Any]]
     seed_track_ids: tuple[int, ...]
+    identity: TrackIdentity | None = None
+    sonara: SonaraFeatureRow | None = None
+
+    @property
+    def transition_track(self) -> TransitionTrack:
+        if self.identity is None:
+            raise RuntimeError("Hybrid candidate is missing its current track identity")
+        return TransitionTrack(self.identity, self.track, self.sonara)
 
 
 @dataclass(frozen=True)
@@ -151,9 +292,10 @@ class _ClassifierControls:
 
 
 def build_hybrid_search_preview(
-    db: LibraryDatabase,
+    db: HybridRepository,
     *,
     seed_track_ids: Sequence[int],
+    analysis_outputs: Mapping[str, AnalysisOutput],
     sources: Sequence[str] | None = None,
     weights: Mapping[str, float] | None = None,
     score_profile: Mapping[str, Any] | None = None,
@@ -168,14 +310,21 @@ def build_hybrid_search_preview(
     record_session: bool = False,
 ) -> HybridSearchResult:
     clean_seed_track_ids = _positive_unique_ints(seed_track_ids, "seed_track_id")
-    clean_seed_tracks = _load_seed_tracks(db, clean_seed_track_ids)
     clean_sources = _clean_sources(sources)
-    clean_weights = _resolve_weights(clean_sources, weights=weights, score_profile=score_profile)
+    expected_outputs = _required_embedding_outputs(
+        analysis_outputs,
+        tuple(source for source in clean_sources if source != "sonara"),
+    )
+    clean_weights = _resolve_weights(
+        clean_sources, weights=weights, score_profile=score_profile
+    )
     clean_per_source = _positive_int(per_source, "per_source")
     clean_limit = _positive_int(limit, "limit")
     clean_rrf_k = _positive_int(rrf_k, "rrf_k")
     clean_random_seed = _int_value(random_seed, "random_seed")
-    clean_transition_risk_weight = _risk_weight(transition_risk_weight, "transition_risk_weight")
+    clean_transition_risk_weight = _risk_weight(
+        transition_risk_weight, "transition_risk_weight"
+    )
     clean_transition_risk_version = _transition_risk_version(transition_risk_version)
     clean_classifier_controls = _classifier_controls(
         classifier_preferences=classifier_preferences,
@@ -183,17 +332,19 @@ def build_hybrid_search_preview(
     )
     clean_record_session = bool(record_session)
 
-    candidate_rows, warnings = generate_candidate_pool_rows(
+    (
+        candidates,
+        clean_seed_tracks,
+        warnings,
+        source_contract_hashes,
+        candidate_row_count,
+    ) = _load_hybrid_candidates(
         db,
-        CandidateExportRequest(
-            seed_track_ids=clean_seed_track_ids,
-            sources=clean_sources,
-            per_source=clean_per_source,
-            random_seed=clean_random_seed,
-            record_session=False,
-        ),
+        seed_track_ids=clean_seed_track_ids,
+        sources=clean_sources,
+        analysis_outputs=expected_outputs,
+        per_source=clean_per_source,
     )
-    candidates = _hybrid_candidates(candidate_rows, seed_track_ids=clean_seed_track_ids)
     scored_candidates = _scored_hybrid_candidates(
         candidates,
         weights=clean_weights,
@@ -206,6 +357,7 @@ def build_hybrid_search_preview(
         scored_candidates,
         limit=clean_limit,
         sources=clean_sources,
+        weights=clean_weights,
         seed_tracks=clean_seed_tracks,
         seed_track_ids=clean_seed_track_ids,
         feedback_map=db.get_pair_feedback_map(),
@@ -214,7 +366,9 @@ def build_hybrid_search_preview(
         transition_risk_version=clean_transition_risk_version,
         classifier_controls=clean_classifier_controls,
     )
-    all_warnings = tuple([*warnings, *_classifier_control_warnings(clean_classifier_controls, results)])
+    all_warnings = tuple(
+        [*warnings, *_classifier_control_warnings(clean_classifier_controls, results)]
+    )
     session_id = _record_hybrid_search_session(
         db,
         results,
@@ -228,6 +382,7 @@ def build_hybrid_search_preview(
         transition_risk_weight=clean_transition_risk_weight,
         transition_risk_version=clean_transition_risk_version,
         classifier_controls=clean_classifier_controls,
+        source_contract_hashes=source_contract_hashes,
         feedback_source=HYBRID_UI_FEEDBACK_SOURCE,
         record_session=clean_record_session,
     )
@@ -238,6 +393,7 @@ def build_hybrid_search_preview(
         sources=clean_sources,
         limitations=HYBRID_SEARCH_LIMITATIONS,
         session_id=session_id,
+        source_contract_hashes=source_contract_hashes,
         diagnostics={
             "method": "weighted_rrf",
             "seed_track_ids": list(clean_seed_track_ids),
@@ -250,75 +406,450 @@ def build_hybrid_search_preview(
             "classifier_risk_weights": dict(clean_classifier_controls.risk_weights),
             "record_session": clean_record_session,
             "session_id": session_id,
-            "candidate_rows": len(candidate_rows),
+            "candidate_rows": candidate_row_count,
             "unique_candidates": len(candidates),
             "results_returned": len(results),
+            "source_contract_hashes": dict(source_contract_hashes),
         },
     )
 
 
-def _hybrid_candidates(rows: Sequence[CandidatePoolRow], *, seed_track_ids: Sequence[int]) -> tuple[_HybridCandidate, ...]:
-    seed_id_set = set(seed_track_ids)
-    candidates: dict[int, dict[str, Any]] = {}
-    for row in rows:
-        if row.candidate_track_id in seed_id_set:
-            continue
-        candidate = candidates.setdefault(
-            row.candidate_track_id,
-            {
-                "track": row.candidate_track,
-                "source_contributions": {},
-                "source_seed_diagnostics": {},
-                "seed_track_ids": set(),
-            },
+def _load_hybrid_candidates(
+    db: HybridRepository,
+    *,
+    seed_track_ids: Sequence[int],
+    sources: Sequence[str],
+    analysis_outputs: Mapping[str, AnalysisOutput],
+    per_source: int,
+) -> tuple[
+    tuple[_HybridCandidate, ...],
+    tuple[TransitionTrack, ...],
+    tuple[str, ...],
+    dict[str, str],
+    int,
+]:
+    summaries = db.list_track_summaries(include_missing=False)
+    summaries_by_id = {track.track_id: track for track in summaries}
+    identities = db.get_track_identities(
+        tuple(summaries_by_id),
+        include_missing=False,
+    )
+    missing_identities = sorted(set(summaries_by_id) - set(identities))
+    if missing_identities:
+        raise RuntimeError(
+            f"library repository omitted current track identities: {missing_identities}"
         )
-        candidate["seed_track_ids"].add(row.seed_track_id)
-        _merge_candidate_source_contributions(candidate, row)
+    _validate_summary_identities(summaries_by_id, identities)
+    missing_seeds = [
+        track_id for track_id in seed_track_ids if track_id not in identities
+    ]
+    if missing_seeds:
+        raise ValueError(f"Unknown current seed tracks: {missing_seeds}")
 
-    return tuple(
-        _HybridCandidate(
-            track=payload["track"],
-            source_contributions=dict(sorted(payload["source_contributions"].items())),
-            source_seed_diagnostics=dict(sorted(payload["source_seed_diagnostics"].items())),
-            seed_track_ids=tuple(sorted(payload["seed_track_ids"])),
+    warnings: list[str] = []
+    source_contract_hashes: dict[str, str] = {}
+    vectors_by_source: dict[str, dict[int, np.ndarray]] = {}
+
+    sonara_output = db.active_analysis_output("sonara", "core")
+    sonara_rows = (
+        db.load_sonara_feature_rows(sonara_output) if sonara_output is not None else ()
+    )
+    sonara_by_id = _validate_sonara_rows(
+        sonara_rows,
+        summaries_by_id,
+        identities,
+        expected_output=sonara_output,
+    )
+    if "sonara" in sources:
+        if sonara_output is None:
+            warnings.append("source=sonara skipped: no active SONARA Core contract")
+        else:
+            source_contract_hashes["sonara"] = sonara_output.contract_hash
+
+    for source in sources:
+        if source == "sonara":
+            continue
+        output = _require_current_embedding_output(
+            db,
+            source,
+            analysis_outputs[source],
         )
-        for _candidate_id, payload in sorted(candidates.items())
+        rows = db.load_analysis_vectors(output)
+        vectors_by_source[source] = _validate_vector_rows(
+            rows,
+            summaries_by_id,
+            identities,
+            expected_output=output,
+        )
+        source_contract_hashes[source] = output.contract_hash
+
+    candidates: dict[int, dict[str, Any]] = {}
+    candidate_row_count = 0
+    seed_ids = set(seed_track_ids)
+    for source in sources:
+        if source not in source_contract_hashes:
+            continue
+        for seed_track_id in seed_track_ids:
+            if source == "sonara":
+                ranked = _rank_sonara_source(
+                    seed_track_id,
+                    sonara_by_id,
+                )
+            else:
+                ranked = _rank_embedding_source(
+                    seed_track_id,
+                    vectors_by_source[source],
+                )
+            ranked = [item for item in ranked if item[0] not in seed_ids][:per_source]
+            if not ranked:
+                warnings.append(
+                    f"seed_track_id={seed_track_id} source={source} "
+                    "returned no current candidates"
+                )
+                continue
+            candidate_row_count += len(ranked)
+            for rank, (candidate_id, score) in enumerate(ranked, start=1):
+                payload = candidates.setdefault(
+                    candidate_id,
+                    {
+                        "source_contributions": {},
+                        "source_seed_diagnostics": {},
+                        "seed_track_ids": set(),
+                    },
+                )
+                payload["seed_track_ids"].add(seed_track_id)
+                _merge_source_contribution(
+                    payload,
+                    source=source,
+                    seed_track_id=seed_track_id,
+                    contribution=_SourceContribution(rank=rank, score=score),
+                )
+
+    result = tuple(
+        _HybridCandidate(
+            track=summaries_by_id[track_id],
+            source_contributions=dict(sorted(payload["source_contributions"].items())),
+            source_seed_diagnostics=dict(
+                sorted(payload["source_seed_diagnostics"].items())
+            ),
+            seed_track_ids=tuple(sorted(payload["seed_track_ids"])),
+            identity=identities[track_id],
+            sonara=sonara_by_id.get(track_id),
+        )
+        for track_id, payload in sorted(candidates.items())
+    )
+    seed_tracks = tuple(
+        TransitionTrack(
+            identities[track_id],
+            summaries_by_id[track_id],
+            sonara_by_id.get(track_id),
+        )
+        for track_id in seed_track_ids
+    )
+    return (
+        result,
+        seed_tracks,
+        tuple(warnings),
+        dict(sorted(source_contract_hashes.items())),
+        candidate_row_count,
     )
 
 
-def _merge_candidate_source_contributions(candidate: dict[str, Any], row: CandidatePoolRow) -> None:
-    contributions: dict[str, CandidateSourceContribution] = candidate["source_contributions"]
+def _merge_source_contribution(
+    candidate: dict[str, Any],
+    *,
+    source: str,
+    seed_track_id: int,
+    contribution: _SourceContribution,
+) -> None:
+    contributions: dict[str, _SourceContribution] = candidate["source_contributions"]
     diagnostics: dict[str, dict[str, Any]] = candidate["source_seed_diagnostics"]
-    for source, contribution in row.source_contributions.items():
-        current = contributions.get(source)
-        if current is None or contribution.rank < current.rank or (contribution.rank == current.rank and contribution.score > current.score):
-            supporting_seed_track_ids = _source_supporting_seed_track_ids(diagnostics.get(source), row.seed_track_id)
-            contributions[source] = contribution
-            diagnostics[source] = {
-                "best_seed_track_id": row.seed_track_id,
-                "best_rank": contribution.rank,
-                "best_source_score": contribution.score,
-                "supporting_seed_track_ids": supporting_seed_track_ids,
-            }
+    current = contributions.get(source)
+    source_diagnostics = diagnostics.get(source)
+    supporting_ids = {
+        seed_track_id,
+        *(
+            source_diagnostics.get("supporting_seed_track_ids", ())
+            if source_diagnostics is not None
+            else ()
+        ),
+    }
+    if (
+        current is None
+        or contribution.rank < current.rank
+        or (contribution.rank == current.rank and contribution.score > current.score)
+    ):
+        contributions[source] = contribution
+        diagnostics[source] = {
+            "best_seed_track_id": seed_track_id,
+            "best_rank": contribution.rank,
+            "best_source_score": contribution.score,
+            "supporting_seed_track_ids": sorted(supporting_ids),
+        }
+        return
+    assert source_diagnostics is not None
+    source_diagnostics["supporting_seed_track_ids"] = sorted(supporting_ids)
+
+
+def _rank_embedding_source(
+    seed_track_id: int,
+    vectors: Mapping[int, np.ndarray],
+) -> list[tuple[int, float]]:
+    seed = vectors.get(seed_track_id)
+    if seed is None:
+        return []
+    return sorted(
+        (
+            (track_id, float(np.dot(seed, vector)))
+            for track_id, vector in vectors.items()
+            if track_id != seed_track_id
+        ),
+        key=lambda item: (-item[1], item[0]),
+    )
+
+
+_SONARA_DISTANCE_FIELDS: Mapping[str, float] = {
+    "detected_bpm": 3.0,
+    "onset_density_per_second": 2.0,
+    "energy_score": 1.3,
+    "danceability_score": 1.3,
+    "chord_changes_per_second": 1.0,
+    "dissonance_score": 1.0,
+    "mfcc_mean_blob": 1.8,
+    "chroma_mean_blob": 1.2,
+    "spectral_centroid_hz": 1.0,
+    "spectral_bandwidth_hz": 1.0,
+    "spectral_rolloff_hz": 1.0,
+    "spectral_flatness": 0.9,
+    "spectral_contrast_mean_blob": 0.9,
+    "zero_crossing_rate": 0.8,
+    "rms_mean": 0.8,
+    "rms_max": 0.5,
+}
+
+
+def _rank_sonara_source(
+    seed_track_id: int,
+    rows: Mapping[int, SonaraFeatureRow],
+) -> list[tuple[int, float]]:
+    seed = rows.get(seed_track_id)
+    if seed is None:
+        return []
+    ranges = _sonara_dimension_ranges(rows.values())
+    scored = [
+        (
+            track_id,
+            _sonara_weighted_euclidean_similarity(
+                seed,
+                row,
+                ranges,
+            ),
+        )
+        for track_id, row in rows.items()
+        if track_id != seed_track_id
+    ]
+    return sorted(
+        ((track_id, score) for track_id, score in scored if score is not None),
+        key=lambda item: (-item[1], item[0]),
+    )
+
+
+def _sonara_dimension_ranges(
+    rows: Sequence[SonaraFeatureRow],
+) -> dict[tuple[str, int | None], tuple[float, float]]:
+    observed: dict[tuple[str, int | None], list[float]] = {}
+    for row in rows:
+        for field in _SONARA_DISTANCE_FIELDS:
+            for dimension, value in _sonara_field_values(row, field):
+                observed.setdefault((field, dimension), []).append(value)
+    return {
+        key: (min(values), max(values))
+        for key, values in observed.items()
+        if len(values) >= 2
+    }
+
+
+def _sonara_weighted_euclidean_similarity(
+    seed: SonaraFeatureRow,
+    candidate: SonaraFeatureRow,
+    ranges: Mapping[tuple[str, int | None], tuple[float, float]],
+) -> float | None:
+    squared_distance = 0.0
+    total_weight = 0.0
+    for field, field_weight in _SONARA_DISTANCE_FIELDS.items():
+        if field == "detected_bpm":
+            seed_tempo = _tempo_from_sonara(seed)
+            candidate_tempo = _tempo_from_sonara(
+                candidate,
+            )
+            tempo_score = _tempo_similarity(candidate_tempo, seed_tempo)
+            if tempo_score is None:
+                continue
+            squared_distance += field_weight * (1.0 - tempo_score) ** 2
+            total_weight += field_weight
             continue
-        source_diagnostics = diagnostics.setdefault(
-            source,
-            {
-                "best_seed_track_id": row.seed_track_id,
-                "best_rank": current.rank,
-                "best_source_score": current.score,
-                "supporting_seed_track_ids": [],
-            },
-        )
-        source_diagnostics["supporting_seed_track_ids"] = sorted(
-            set(source_diagnostics["supporting_seed_track_ids"]) | {row.seed_track_id},
-        )
+        seed_values = dict(_sonara_field_values(seed, field))
+        candidate_values = dict(_sonara_field_values(candidate, field))
+        shared = sorted(set(seed_values) & set(candidate_values))
+        dimensions = [dimension for dimension in shared if (field, dimension) in ranges]
+        if not dimensions:
+            continue
+        per_dimension_weight = field_weight / len(dimensions)
+        for dimension in dimensions:
+            lower, upper = ranges[(field, dimension)]
+            if upper == lower:
+                distance = 0.0
+            else:
+                seed_value = (seed_values[dimension] - lower) / (upper - lower)
+                candidate_value = (candidate_values[dimension] - lower) / (
+                    upper - lower
+                )
+                distance = min(1.0, abs(candidate_value - seed_value))
+            squared_distance += per_dimension_weight * distance**2
+            total_weight += per_dimension_weight
+    if total_weight <= 0.0:
+        return None
+    return _clamp01(1.0 - math.sqrt(squared_distance / total_weight))
 
 
-def _source_supporting_seed_track_ids(source_diagnostics: Mapping[str, Any] | None, seed_track_id: int) -> list[int]:
-    if source_diagnostics is None:
-        return [seed_track_id]
-    return sorted(set(source_diagnostics["supporting_seed_track_ids"]) | {seed_track_id})
+def _sonara_field_values(
+    row: SonaraFeatureRow,
+    field: str,
+) -> tuple[tuple[int | None, float], ...]:
+    value = row.values.get(field)
+    if isinstance(value, (tuple, list, np.ndarray)):
+        return tuple(
+            (index, number)
+            for index, item in enumerate(value)
+            if (number := _optional_finite_float(item)) is not None
+        )
+    number = _optional_finite_float(value)
+    return ((None, number),) if number is not None else ()
+
+
+def _tempo_from_sonara(
+    row: SonaraFeatureRow,
+) -> TempoEvidence:
+    return resolve_tempo_evidence_v7(row.values, tag_bpm=None)
+
+
+def _tempo_similarity(
+    candidate: TempoEvidence,
+    seed: TempoEvidence,
+) -> float | None:
+    return confidence_aware_tempo_score(candidate, seed)
+
+
+def _validate_summary_identities(
+    summaries: Mapping[int, TrackSummary],
+    identities: Mapping[int, TrackIdentity],
+) -> None:
+    for track_id, summary in summaries.items():
+        identity = identities.get(track_id)
+        if identity is None or (
+            identity.catalog_uuid != summary.catalog_uuid
+            or identity.track_id != summary.track_id
+            or identity.track_uuid != summary.track_uuid
+            or identity.content_generation != summary.content_generation
+        ):
+            raise RuntimeError(
+                "library summary identity does not match the current "
+                f"track identity: track_id={track_id}"
+            )
+    if len({identity.catalog_uuid for identity in identities.values()}) > 1:
+        raise RuntimeError("library repository returned multiple catalog UUIDs")
+
+
+def _validate_sonara_rows(
+    rows: Sequence[SonaraFeatureRow],
+    summaries: Mapping[int, TrackSummary],
+    identities: Mapping[int, TrackIdentity],
+    *,
+    expected_output: AnalysisOutput | None,
+) -> dict[int, SonaraFeatureRow]:
+    result: dict[int, SonaraFeatureRow] = {}
+    for row in rows:
+        _validate_analysis_target(
+            row.target,
+            summaries,
+            identities,
+        )
+        if expected_output is None or row.output != expected_output:
+            raise RuntimeError(
+                "analysis repository returned SONARA data for the wrong contract"
+            )
+        result[row.target.track_id] = row
+    return result
+
+
+def _validate_vector_rows(
+    rows: Sequence[AnalysisVectorRow],
+    summaries: Mapping[int, TrackSummary],
+    identities: Mapping[int, TrackIdentity],
+    *,
+    expected_output: AnalysisOutput,
+) -> dict[int, np.ndarray]:
+    result: dict[int, np.ndarray] = {}
+    for row in rows:
+        _validate_analysis_target(
+            row.target,
+            summaries,
+            identities,
+        )
+        if row.output != expected_output:
+            raise RuntimeError(
+                "analysis repository returned a vector for the wrong contract"
+            )
+        track_id = row.target.track_id
+        if track_id in result:
+            raise RuntimeError(
+                "analysis repository returned duplicate embedding rows for one track"
+            )
+        vector = np.asarray(row.vector, dtype=np.float32)
+        if vector.shape != (expected_output.contract.dim,):
+            raise RuntimeError(
+                "analysis repository returned an embedding vector with a "
+                "dimension that does not match the active contract"
+            )
+        if not bool(np.all(np.isfinite(vector))):
+            raise RuntimeError(
+                "analysis repository returned an invalid embedding vector"
+            )
+        if expected_output.contract.normalization == "l2":
+            norm = float(np.linalg.norm(vector.astype(np.float64, copy=False)))
+            if not math.isfinite(norm) or not np.isclose(
+                norm,
+                1.0,
+                rtol=1e-4,
+                atol=1e-5,
+            ):
+                raise RuntimeError(
+                    "analysis repository returned an L2 embedding vector "
+                    "that is not unit-normalized"
+                )
+        result[track_id] = vector
+    return result
+
+
+def _validate_analysis_target(
+    target: AnalysisTarget,
+    summaries: Mapping[int, TrackSummary],
+    identities: Mapping[int, TrackIdentity],
+) -> None:
+    summary = summaries.get(target.track_id)
+    identity = identities.get(target.track_id)
+    if summary is None or identity is None:
+        raise RuntimeError("analysis repository returned a row without a current track")
+    if (
+        target.catalog_uuid != identity.catalog_uuid
+        or target.track_id != identity.track_id
+        or target.track_uuid != identity.track_uuid
+        or target.content_generation != identity.content_generation
+        or summary.catalog_uuid != identity.catalog_uuid
+        or summary.track_uuid != identity.track_uuid
+        or summary.content_generation != identity.content_generation
+    ):
+        raise RuntimeError("analysis row identity does not match the current track")
 
 
 def _scored_hybrid_candidates(
@@ -331,10 +862,18 @@ def _scored_hybrid_candidates(
 ) -> tuple[_ScoredHybridCandidate, ...]:
     scored_candidates: list[_ScoredHybridCandidate] = []
     for candidate in candidates:
-        source_score_breakdown = _weighted_rrf_components_with_source_scores(candidate.source_contributions, weights, rrf_k)
-        classifier_score_breakdown, classifier_adjustment = _classifier_score_breakdown(candidate.track, classifier_controls)
+        source_score_breakdown = _weighted_rrf_components_with_source_scores(
+            candidate.source_contributions, weights, rrf_k
+        )
+        classifier_score_breakdown, classifier_adjustment = _classifier_score_breakdown(
+            candidate.track, classifier_controls
+        )
         score_breakdown = {**source_score_breakdown, **classifier_score_breakdown}
-        raw_rrf_score = weighted_rrf_score(candidate.source_contributions, weights, rrf_k)
+        raw_rrf_score = _weighted_rrf_score(
+            candidate.source_contributions,
+            weights,
+            rrf_k,
+        )
         if raw_rrf_score <= 0:
             continue
         scored_candidates.append(
@@ -343,36 +882,91 @@ def _scored_hybrid_candidates(
                 raw_rrf_score=raw_rrf_score,
                 score_breakdown=score_breakdown,
                 classifier_adjustment=classifier_adjustment,
-                tie_token=_tie_token(random_seed, candidate.track.id),
+                tie_token=_tie_token(
+                    random_seed,
+                    _scoring_track_id(candidate.track),
+                ),
             ),
         )
     return tuple(
         sorted(
             scored_candidates,
-            key=lambda candidate: (-candidate.raw_rrf_score, candidate.tie_token, candidate.candidate.track.id),
+            key=lambda candidate: (
+                -candidate.raw_rrf_score,
+                candidate.tie_token,
+                _scoring_track_id(candidate.candidate.track),
+            ),
         ),
     )
 
 
 def _weighted_rrf_components_with_source_scores(
-    contributions: Mapping[str, CandidateSourceContribution],
+    contributions: Mapping[str, object],
     weights: Mapping[str, float],
     rrf_k: int,
 ) -> dict[str, dict[str, float | int]]:
-    components = weighted_rrf_components(contributions, weights, rrf_k)
+    components = _weighted_rrf_components(contributions, weights, rrf_k)
     return {
-        source: {**component, "score": contributions[source].score}
+        source: {
+            **component,
+            "score": float(getattr(contributions[source], "score")),
+        }
         for source, component in components.items()
     }
 
 
+def _weighted_rrf_score(
+    contributions: Mapping[str, object],
+    weights: Mapping[str, float],
+    rrf_k: int,
+) -> float:
+    return sum(
+        float(component["contribution"])
+        for component in _weighted_rrf_components(
+            contributions,
+            weights,
+            rrf_k,
+        ).values()
+    )
+
+
+def _weighted_rrf_components(
+    contributions: Mapping[str, object],
+    weights: Mapping[str, float],
+    rrf_k: int,
+) -> dict[str, dict[str, float | int]]:
+    clean_rrf_k = _positive_int(rrf_k, "rrf_k")
+    components: dict[str, dict[str, float | int]] = {}
+    for source, weight in sorted(weights.items()):
+        contribution = contributions.get(source)
+        if contribution is None:
+            continue
+        rank = _positive_int(
+            getattr(contribution, "rank", None),
+            f"{source}.rank",
+        )
+        clean_weight = _non_negative_finite_float(
+            weight,
+            f"weights.{source}",
+        )
+        if clean_weight <= 0.0:
+            continue
+        components[source] = {
+            "rank": rank,
+            "weight": clean_weight,
+            "contribution": clean_weight / (clean_rrf_k + rank),
+        }
+    return components
+
+
 def _ranked_result_rows(
-    db: LibraryDatabase,
+    db: HybridRepository,
     scored_candidates: Sequence[_ScoredHybridCandidate],
     *,
     limit: int,
     sources: Sequence[str],
-    seed_tracks: Sequence[Track],
+    weights: Mapping[str, float],
+    seed_tracks: Sequence[TransitionTrack],
     seed_track_ids: Sequence[int],
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
     feedback_source: str,
@@ -380,8 +974,14 @@ def _ranked_result_rows(
     transition_risk_version: str,
     classifier_controls: _ClassifierControls,
 ) -> tuple[HybridSearchResultRow, ...]:
-    max_score = max((candidate.raw_rrf_score for candidate in scored_candidates), default=0.0)
-    transition_sources = _effective_transition_sources(scored_candidates, sources)
+    max_score = max(
+        (candidate.raw_rrf_score for candidate in scored_candidates), default=0.0
+    )
+    transition_sources = _effective_transition_sources(
+        scored_candidates,
+        sources,
+        weights,
+    )
     ranked_candidates = _ranked_candidates_with_transition_risk(
         scored_candidates,
         limit=limit,
@@ -392,16 +992,22 @@ def _ranked_result_rows(
         transition_risk_version=transition_risk_version,
         classifier_controls=classifier_controls,
     )
-    classifier_metadata = _promoted_classifier_metadata_by_key() if classifier_controls.requested_keys else {}
     result_rows: list[HybridSearchResultRow] = []
     for rank, ranked_candidate in enumerate(ranked_candidates, start=1):
         candidate = ranked_candidate.scored_candidate
-        candidate_track = db.get_track(candidate.candidate.track.id)
+        candidate_track = candidate.candidate.transition_track
+        candidate_detail = (
+            db.get_track_detail(
+                candidate_track.summary.track_id,
+                include_missing=False,
+            )
+            if classifier_controls.requested_keys
+            else None
+        )
         classifier_support = _classifier_support(
-            candidate_track,
+            candidate_detail,
             classifier_controls,
             score_breakdown=candidate.score_breakdown,
-            classifier_metadata=classifier_metadata,
         )
         explanation = build_hybrid_explanation(
             candidate_track=candidate_track,
@@ -416,7 +1022,7 @@ def _ranked_result_rows(
         )
         result_rows.append(
             HybridSearchResultRow(
-                track=candidate_track,
+                track=candidate_track.summary,
                 score=ranked_candidate.adjusted_score,
                 total_score=explanation.total_score,
                 calibrated_score=explanation.calibrated_score,
@@ -437,7 +1043,7 @@ def _ranked_result_rows(
                 diagnostics=_candidate_diagnostics(candidate.candidate),
                 feedback=_candidate_feedback(
                     seed_track_ids,
-                    candidate.candidate.track.id,
+                    candidate.candidate.track.track_id,
                     feedback_map=feedback_map,
                     source=feedback_source,
                 ),
@@ -446,19 +1052,29 @@ def _ranked_result_rows(
     return tuple(result_rows)
 
 
-def _effective_transition_sources(scored_candidates: Sequence[_ScoredHybridCandidate], sources: Sequence[str]) -> tuple[str, ...]:
+def _effective_transition_sources(
+    scored_candidates: Sequence[_ScoredHybridCandidate],
+    sources: Sequence[str],
+    weights: Mapping[str, float],
+) -> tuple[str, ...]:
+    positive_sources = tuple(
+        source for source in sources if float(weights.get(source, 0.0)) > 0.0
+    )
     effective_sources = tuple(
         source
-        for source in sources
-        if any(source in candidate.candidate.source_contributions for candidate in scored_candidates)
+        for source in positive_sources
+        if any(
+            source in candidate.candidate.source_contributions
+            for candidate in scored_candidates
+        )
     )
     if effective_sources:
         return effective_sources
-    return tuple(sources)
+    return positive_sources
 
 
 def _record_hybrid_search_session(
-    db: LibraryDatabase,
+    db: HybridRepository,
     results: Sequence[HybridSearchResultRow],
     *,
     seed_track_ids: Sequence[int],
@@ -471,11 +1087,24 @@ def _record_hybrid_search_session(
     transition_risk_weight: float,
     transition_risk_version: str,
     classifier_controls: _ClassifierControls,
+    source_contract_hashes: Mapping[str, str],
     feedback_source: str,
     record_session: bool,
 ) -> int | None:
     if not record_session:
         return None
+    contributing_sources = {
+        source
+        for row in results
+        for source in row.source_support
+        if row.source_support[source].get("available") is True
+    }
+    unproven_sources = sorted(contributing_sources - set(source_contract_hashes))
+    if unproven_sources:
+        raise RuntimeError(
+            "cannot record Hybrid session with unproven source contracts: "
+            f"{unproven_sources}"
+        )
     session_id = db.create_search_session(
         HYBRID_SEARCH_SESSION_MODE,
         seed_track_ids,
@@ -493,20 +1122,30 @@ def _record_hybrid_search_session(
             "feedback_source": feedback_source,
             "record_session": True,
             "candidate_count": len(results),
+            "source_contract_hashes": dict(source_contract_hashes),
         },
     )
     for row in results:
         db.record_search_result_event(
             session_id,
-            row.track.id,
+            row.track.track_id,
             rank=row.rank,
             total_score=row.score,
-            score_breakdown=_hybrid_event_score_breakdown(row, rrf_k=rrf_k),
+            score_breakdown=_hybrid_event_score_breakdown(
+                row,
+                rrf_k=rrf_k,
+                source_contract_hashes=source_contract_hashes,
+            ),
         )
     return session_id
 
 
-def _hybrid_event_score_breakdown(row: HybridSearchResultRow, *, rrf_k: int) -> dict[str, Any]:
+def _hybrid_event_score_breakdown(
+    row: HybridSearchResultRow,
+    *,
+    rrf_k: int,
+    source_contract_hashes: Mapping[str, str],
+) -> dict[str, Any]:
     source_payload = {
         source: {
             "rank": details.get("rank"),
@@ -528,16 +1167,29 @@ def _hybrid_event_score_breakdown(row: HybridSearchResultRow, *, rrf_k: int) -> 
         "transition_risk_penalty": row.transition_risk_penalty,
         "transition_risk_weight": row.transition_risk_weight,
         "rrf_k": rrf_k,
-        "source_ranks": {source: details.get("rank") for source, details in sorted(source_payload.items())},
+        "source_ranks": {
+            source: details.get("rank")
+            for source, details in sorted(source_payload.items())
+        },
         "weighted_rrf": {
             "score": row.score,
             "components": source_payload,
         },
         "sources": source_payload,
-        "score_breakdown": {source: dict(details) for source, details in sorted(row.score_breakdown.items())},
+        "source_contract_hashes": dict(source_contract_hashes),
+        "score_breakdown": {
+            source: dict(details)
+            for source, details in sorted(row.score_breakdown.items())
+        },
         "risk_breakdown": dict(row.risk_breakdown),
-        "source_support": {source: dict(support) for source, support in sorted(row.source_support.items())},
-        "classifier_support": {classifier: dict(support) for classifier, support in sorted(row.classifier_support.items())},
+        "source_support": {
+            source: dict(support)
+            for source, support in sorted(row.source_support.items())
+        },
+        "classifier_support": {
+            classifier: dict(support)
+            for classifier, support in sorted(row.classifier_support.items())
+        },
         "match_character": dict(row.match_character),
         "warnings": list(row.warnings),
         "explanation": list(row.explanation),
@@ -564,14 +1216,18 @@ def _ranked_candidates_with_transition_risk(
     *,
     limit: int,
     sources: Sequence[str],
-    seed_tracks: Sequence[Track],
+    seed_tracks: Sequence[TransitionTrack],
     max_score: float,
     transition_risk_weight: float,
     transition_risk_version: str,
     classifier_controls: _ClassifierControls,
 ) -> tuple[_RankedHybridCandidate, ...]:
-    applies_adjustment = transition_risk_weight > 0 or classifier_controls.has_score_preferences
-    candidates_to_score = scored_candidates if applies_adjustment else scored_candidates[:limit]
+    applies_adjustment = (
+        transition_risk_weight > 0 or classifier_controls.has_score_preferences
+    )
+    candidates_to_score = (
+        scored_candidates if applies_adjustment else scored_candidates[:limit]
+    )
     ranked_candidates = tuple(
         _ranked_candidate(
             candidate,
@@ -593,7 +1249,7 @@ def _ranked_candidates_with_transition_risk(
                 -candidate.adjusted_score,
                 -candidate.normalized_rrf_score,
                 candidate.scored_candidate.tie_token,
-                candidate.scored_candidate.candidate.track.id,
+                _scoring_track_id(candidate.scored_candidate.candidate.track),
             ),
         )[:limit]
     )
@@ -603,13 +1259,15 @@ def _ranked_candidate(
     candidate: _ScoredHybridCandidate,
     *,
     sources: Sequence[str],
-    seed_tracks: Sequence[Track],
+    seed_tracks: Sequence[TransitionTrack],
     max_score: float,
     transition_risk_weight: float,
     transition_risk_version: str,
     classifier_controls: _ClassifierControls,
 ) -> _RankedHybridCandidate:
-    normalized_rrf_score = _normalized_response_score(candidate.raw_rrf_score, max_score)
+    normalized_rrf_score = _normalized_response_score(
+        candidate.raw_rrf_score, max_score
+    )
     transition_diagnostics = _candidate_transition_diagnostics(
         candidate.candidate,
         seed_tracks=seed_tracks,
@@ -618,8 +1276,12 @@ def _ranked_candidate(
         classifier_risk_weights=classifier_controls.risk_weights,
     )
     transition_risk = transition_diagnostics["transition_risk"]
-    transition_risk_penalty = transition_risk_weight * (float(transition_risk) if transition_risk is not None else 0.0)
-    adjusted_score = normalized_rrf_score + candidate.classifier_adjustment - transition_risk_penalty
+    transition_risk_penalty = transition_risk_weight * (
+        float(transition_risk) if transition_risk is not None else 0.0
+    )
+    adjusted_score = (
+        normalized_rrf_score + candidate.classifier_adjustment - transition_risk_penalty
+    )
     return _RankedHybridCandidate(
         scored_candidate=candidate,
         normalized_rrf_score=normalized_rrf_score,
@@ -654,7 +1316,8 @@ def _candidate_feedback(
     rows = [
         feedback
         for seed_track_id in seed_track_ids
-        if (feedback := feedback_map.get((seed_track_id, candidate_track_id, source))) is not None
+        if (feedback := feedback_map.get((seed_track_id, candidate_track_id, source)))
+        is not None
     ]
     if not rows:
         return None
@@ -682,7 +1345,9 @@ def _candidate_feedback(
         "seed_track_ids": list(seed_track_ids),
         "candidate_track_id": candidate_track_id,
         "rating": next(iter(ratings)) if len(ratings) == 1 else None,
-        "reason_tags": list(next(iter(reason_tag_sets))) if len(reason_tag_sets) == 1 else _sorted_reason_tag_union(rows),
+        "reason_tags": list(next(iter(reason_tag_sets)))
+        if len(reason_tag_sets) == 1
+        else _sorted_reason_tag_union(rows),
         "notes": next(iter(notes)) if len(notes) == 1 else None,
         "per_seed": per_seed,
     }
@@ -693,7 +1358,7 @@ def _sorted_reason_tag_union(rows: Sequence[Mapping[str, Any]]) -> list[str]:
 
 
 def _classifier_score_breakdown(
-    track: Track,
+    track: TrackSummary,
     controls: _ClassifierControls,
 ) -> tuple[dict[str, dict[str, float | int]], float]:
     if not controls.preferences:
@@ -708,7 +1373,12 @@ def _classifier_score_breakdown(
         score = _track_classifier_score(track, classifier_key)
         if score is None:
             continue
-        contribution = CLASSIFIER_SCORE_ADJUSTMENT_SCALE * preference * (score * 2.0 - 1.0) / denominator
+        contribution = (
+            CLASSIFIER_SCORE_ADJUSTMENT_SCALE
+            * preference
+            * (score * 2.0 - 1.0)
+            / denominator
+        )
         adjustment += contribution
         breakdown[_classifier_breakdown_key(classifier_key)] = {
             "rank": 0,
@@ -720,48 +1390,57 @@ def _classifier_score_breakdown(
 
 
 def _classifier_support(
-    track: Track,
+    track: TrackDetail | None,
     controls: _ClassifierControls,
     *,
     score_breakdown: Mapping[str, Mapping[str, float | int]],
-    classifier_metadata: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, dict[str, Any]]:
     support: dict[str, dict[str, Any]] = {}
     for classifier_key in controls.requested_keys:
-        payload = _track_classifier_payload(track, classifier_key)
-        score = _classifier_payload_score(payload)
-        contribution = optional_float((score_breakdown.get(_classifier_breakdown_key(classifier_key)) or {}).get("contribution"))
+        detail = _classifier_detail(track, classifier_key)
+        score = detail.score if detail is not None else None
+        contribution = _optional_finite_float(
+            (score_breakdown.get(_classifier_breakdown_key(classifier_key)) or {}).get(
+                "contribution"
+            )
+        )
         risk_weight = float(controls.risk_weights.get(classifier_key, 0.0))
-        metadata = classifier_metadata.get(classifier_key, {})
-        signal = _classifier_hybrid_signal(classifier_key, metadata)
-        expected_model_id = _optional_text(metadata.get("model_id"))
-        stored_model_id = _optional_text(payload.get("model_id")) if payload is not None else None
-        fresh, stale = _stored_score_freshness(score=score, expected_model_id=expected_model_id, stored_model_id=stored_model_id)
+        role = "risk_penalty" if risk_weight > 0.0 else "preference"
         support[classifier_key] = {
             "available": score is not None,
             "score": score,
             "preference": controls.preferences.get(classifier_key, 0.0),
             "risk_weight": risk_weight,
             "score_contribution": contribution,
-            "risk_contribution": _clamp01(score * risk_weight) if score is not None and risk_weight > 0.0 else None,
-            "fresh": fresh,
-            "stale": stale,
-            "stored_model_id": stored_model_id,
-            "current_model_id": expected_model_id,
-            "manifest_status": _optional_text(metadata.get("manifest_status")),
-            "production_status": _optional_text(metadata.get("production_status")),
-            "hybrid_signal_source": _optional_text(metadata.get("hybrid_signal_source")),
+            "risk_contribution": _clamp01(score * risk_weight)
+            if score is not None and risk_weight > 0.0
+            else None,
+            "fresh": None,
+            "stale": None,
+            "stored_model_id": detail.model_id if detail is not None else None,
+            "current_model_id": None,
+            "manifest_status": None,
+            "production_status": None,
+            "hybrid_signal_source": "request_control",
+            "role": role,
+            "axis": None,
+            "label": (detail.predicted_class if detail is not None else None),
+            "description": (
+                "Current-generation stored classifier score"
+                if detail is not None
+                else None
+            ),
+            "missing_score_policy": "neutral",
+            "feature_set": (detail.feature_set if detail is not None else None),
+            "feature_manifest_hash": (
+                detail.feature_manifest_hash if detail is not None else None
+            ),
+            "uses_sonara": (detail.uses_sonara if detail is not None else None),
+            "sonara_release_hash": (
+                detail.sonara_release_hash if detail is not None else None
+            ),
+            "positive_label": (detail.positive_label if detail is not None else None),
         }
-        if signal:
-            support[classifier_key].update(
-                {
-                    "role": _optional_text(signal.get("role")),
-                    "axis": _optional_text(signal.get("axis")),
-                    "label": _optional_text(signal.get("label")),
-                    "description": _optional_text(signal.get("description")),
-                    "missing_score_policy": _optional_text(signal.get("missing_score_policy")),
-                }
-            )
     return support
 
 
@@ -780,78 +1459,33 @@ def _classifier_control_warnings(
     warnings: list[str] = []
     for classifier_key in controls.requested_keys:
         if classifier_key not in available_keys:
-            warnings.append(f"Classifier signal {classifier_key!r} has no stored scores in this preview; contribution stayed neutral.")
-            continue
-        key_support = [
-            support
-            for row in rows
-            if (support := row.classifier_support.get(classifier_key)) is not None and support.get("available") is True
-        ]
-        if any(support.get("stale") is True for support in key_support):
             warnings.append(
-                f"Classifier signal {classifier_key!r} has stale stored scores for this preview; "
-                "using them as an uncalibrated local signal until the classifier is rescored."
+                f"Classifier signal {classifier_key!r} has no stored scores in this preview; contribution stayed neutral."
             )
-        status = next((_optional_text(support.get("manifest_status")) for support in key_support if support.get("manifest_status")), None)
-        production_status = next((_optional_text(support.get("production_status")) for support in key_support if support.get("production_status")), None)
-        if status is None:
-            warnings.append(f"Classifier signal {classifier_key!r} has stored scores but no promoted manifest was discovered; using it as an uncalibrated local signal.")
-        elif status == "legacy":
-            warnings.append(f"Classifier signal {classifier_key!r} uses a legacy manifest state; stored scores were used as an uncalibrated local signal.")
-        elif status not in {"valid"}:
-            warnings.append(f"Classifier signal {classifier_key!r} has manifest status {status!r}; stored scores were used without rescoring.")
-        elif production_status in {"valid_uncalibrated", "experimental"}:
-            warnings.append(f"Classifier signal {classifier_key!r} is {production_status.replace('_', ' ')}; stored scores were used as a local signal.")
+            continue
     return tuple(warnings)
 
 
-def _promoted_classifier_metadata_by_key() -> dict[str, Mapping[str, Any]]:
-    try:
-        classifiers = promoted_classifiers()
-    except (OSError, ValueError):
-        return {}
-    return {
-        str(classifier.get("classifier_key")): classifier
-        for classifier in classifiers
-        if classifier.get("classifier_key")
-    }
+def _track_classifier_score(
+    track: TrackSummary,
+    classifier_key: str,
+) -> float | None:
+    for score in track.classifier_scores:
+        if score.classifier_key == classifier_key:
+            return _clamp01(score.score)
+    return None
 
 
-def _track_classifier_score(track: Track, classifier_key: str) -> float | None:
-    return _classifier_payload_score(_track_classifier_payload(track, classifier_key))
-
-
-def _track_classifier_payload(track: Track, classifier_key: str) -> Mapping[str, Any] | None:
-    payload = (track.classifier_scores or {}).get(classifier_key)
-    if not isinstance(payload, Mapping):
+def _classifier_detail(
+    track: TrackDetail | None,
+    classifier_key: str,
+) -> ClassifierScoreDetail | None:
+    if track is None:
         return None
-    return payload
-
-
-def _classifier_payload_score(payload: Mapping[str, Any] | None) -> float | None:
-    if payload is None:
-        return None
-    score = optional_float(payload.get("score"))
-    return _clamp01(score) if score is not None else None
-
-
-def _classifier_hybrid_signal(classifier_key: str, metadata: Mapping[str, Any]) -> Mapping[str, Any] | None:
-    signal = metadata.get("hybrid_signal")
-    if isinstance(signal, Mapping):
-        return signal
-    return legacy_hybrid_signal_for_classifier(classifier_key)
-
-
-def _stored_score_freshness(
-    *,
-    score: float | None,
-    expected_model_id: str | None,
-    stored_model_id: str | None,
-) -> tuple[bool | None, bool | None]:
-    if score is None or expected_model_id is None:
-        return None, None
-    fresh = stored_model_id == expected_model_id
-    return fresh, not fresh
+    for detail in track.classifier_scores_detail:
+        if detail.classifier_key == classifier_key:
+            return detail
+    return None
 
 
 def _optional_text(value: object) -> str | None:
@@ -859,6 +1493,16 @@ def _optional_text(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _optional_finite_float(value: object) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 def _classifier_breakdown_key(classifier_key: str) -> str:
@@ -885,7 +1529,9 @@ def _resolve_weights(
     return {source: 1.0 / len(sources) for source in sources}
 
 
-def _require_profile_sources_match(sources: Sequence[str], profile: ScoreProfile) -> None:
+def _require_profile_sources_match(
+    sources: Sequence[str], profile: ScoreProfile
+) -> None:
     profile_sources = tuple(profile.sources)
     if set(profile_sources) == set(sources):
         return
@@ -895,16 +1541,24 @@ def _require_profile_sources_match(sources: Sequence[str], profile: ScoreProfile
     )
 
 
-def _normalize_weights(weights: Mapping[str, float], sources: Sequence[str]) -> dict[str, float]:
+def _normalize_weights(
+    weights: Mapping[str, float], sources: Sequence[str]
+) -> dict[str, float]:
     source_set = set(sources)
     clean_weights: dict[str, float] = {}
     for source, value in weights.items():
         source_name = str(source).strip().lower()
         if source_name in clean_weights:
-            raise ValueError(f"weights contains duplicate normalized source {source_name!r}")
+            raise ValueError(
+                f"weights contains duplicate normalized source {source_name!r}"
+            )
         if source_name not in source_set:
-            raise ValueError(f"weights contains source {source_name!r} outside requested sources: {', '.join(sources)}")
-        clean_weights[source_name] = _non_negative_finite_float(value, f"weights.{source_name}")
+            raise ValueError(
+                f"weights contains source {source_name!r} outside requested sources: {', '.join(sources)}"
+            )
+        clean_weights[source_name] = _non_negative_finite_float(
+            value, f"weights.{source_name}"
+        )
     missing = sorted(source_set - set(clean_weights))
     if missing:
         raise ValueError(f"weights missing requested source(s): {', '.join(missing)}")
@@ -916,13 +1570,21 @@ def _normalize_weights(weights: Mapping[str, float], sources: Sequence[str]) -> 
 
 def _clean_sources(sources: Sequence[str] | None) -> tuple[str, ...]:
     values = DEFAULT_HYBRID_SOURCES if sources is None else sources
-    clean_sources = tuple(dict.fromkeys(text for source in values if (text := str(source).strip().lower())))
+    clean_sources = tuple(
+        dict.fromkeys(
+            text for source in values if (text := str(source).strip().lower())
+        )
+    )
     if not clean_sources:
         raise ValueError("At least one hybrid source is required")
-    unsupported = [source for source in clean_sources if source not in ALLOWED_CANDIDATE_SOURCES]
+    unsupported = [
+        source for source in clean_sources if source not in ALLOWED_CANDIDATE_SOURCES
+    ]
     if unsupported:
         allowed = ", ".join(ALLOWED_CANDIDATE_SOURCES)
-        raise ValueError(f"Unsupported hybrid source(s): {', '.join(unsupported)}. Allowed: {allowed}")
+        raise ValueError(
+            f"Unsupported hybrid source(s): {', '.join(unsupported)}. Allowed: {allowed}"
+        )
     return clean_sources
 
 
@@ -931,12 +1593,18 @@ def _classifier_controls(
     classifier_preferences: Mapping[str, float] | None,
     classifier_risk_weights: Mapping[str, float] | None,
 ) -> _ClassifierControls:
-    preferences = _clean_signed_weight_map(classifier_preferences, "classifier_preferences")
-    risk_weights = _clean_unit_weight_map(classifier_risk_weights, "classifier_risk_weights")
+    preferences = _clean_signed_weight_map(
+        classifier_preferences, "classifier_preferences"
+    )
+    risk_weights = _clean_unit_weight_map(
+        classifier_risk_weights, "classifier_risk_weights"
+    )
     return _ClassifierControls(preferences=preferences, risk_weights=risk_weights)
 
 
-def _clean_signed_weight_map(values: Mapping[str, float] | None, field_name: str) -> dict[str, float]:
+def _clean_signed_weight_map(
+    values: Mapping[str, float] | None, field_name: str
+) -> dict[str, float]:
     if not values:
         return {}
     clean_values: dict[str, float] = {}
@@ -945,14 +1613,18 @@ def _clean_signed_weight_map(values: Mapping[str, float] | None, field_name: str
         if not classifier_key:
             continue
         if classifier_key in clean_values:
-            raise ValueError(f"{field_name} contains duplicate classifier key {classifier_key!r}")
+            raise ValueError(
+                f"{field_name} contains duplicate classifier key {classifier_key!r}"
+            )
         weight = _signed_weight(value, f"{field_name}.{classifier_key}")
         if weight != 0.0:
             clean_values[classifier_key] = weight
     return clean_values
 
 
-def _clean_unit_weight_map(values: Mapping[str, float] | None, field_name: str) -> dict[str, float]:
+def _clean_unit_weight_map(
+    values: Mapping[str, float] | None, field_name: str
+) -> dict[str, float]:
     if not values:
         return {}
     clean_values: dict[str, float] = {}
@@ -961,7 +1633,9 @@ def _clean_unit_weight_map(values: Mapping[str, float] | None, field_name: str) 
         if not classifier_key:
             continue
         if classifier_key in clean_values:
-            raise ValueError(f"{field_name} contains duplicate classifier key {classifier_key!r}")
+            raise ValueError(
+                f"{field_name} contains duplicate classifier key {classifier_key!r}"
+            )
         weight = _risk_weight(value, f"{field_name}.{classifier_key}")
         if weight != 0.0:
             clean_values[classifier_key] = weight
@@ -972,24 +1646,15 @@ def _transition_risk_version(value: object) -> str:
     text = str(value or "").strip().lower()
     if text in TRANSITION_RISK_VERSIONS:
         return text
-    raise ValueError(f"transition_risk_version must be one of: {', '.join(TRANSITION_RISK_VERSIONS)}")
-
-
-def _load_seed_tracks(db: LibraryDatabase, seed_track_ids: Sequence[int]) -> tuple[Track, ...]:
-    seed_tracks: list[Track] = []
-    unknown: list[int] = []
-    for track_id in seed_track_ids:
-        try:
-            seed_tracks.append(db.get_track(track_id))
-        except KeyError:
-            unknown.append(track_id)
-    if unknown:
-        raise ValueError(f"Unknown seed track(s): {unknown}")
-    return tuple(seed_tracks)
+    raise ValueError(
+        f"transition_risk_version must be one of: {', '.join(TRANSITION_RISK_VERSIONS)}"
+    )
 
 
 def _positive_unique_ints(values: Sequence[int], field_name: str) -> tuple[int, ...]:
-    clean_values = tuple(dict.fromkeys(_positive_int(value, field_name) for value in values))
+    clean_values = tuple(
+        dict.fromkeys(_positive_int(value, field_name) for value in values)
+    )
     if not clean_values:
         raise ValueError(f"At least one {field_name} value is required")
     return clean_values
@@ -1022,7 +1687,9 @@ def _non_negative_finite_float(value: object, field_name: str) -> float:
     try:
         number = float(value)
     except (TypeError, ValueError) as error:
-        raise ValueError(f"{field_name} must be a finite non-negative number") from error
+        raise ValueError(
+            f"{field_name} must be a finite non-negative number"
+        ) from error
     if not math.isfinite(number) or number < 0:
         raise ValueError(f"{field_name} must be a finite non-negative number")
     return number
@@ -1060,70 +1727,16 @@ def _normalized_response_score(raw_score: float, max_score: float) -> float:
 
 
 def _tie_token(random_seed: int, candidate_track_id: int) -> int:
-    digest = hashlib.sha256(f"hybrid:{random_seed}:{candidate_track_id}".encode("utf-8")).digest()
+    digest = hashlib.sha256(
+        f"hybrid:{random_seed}:{candidate_track_id}".encode("utf-8")
+    ).digest()
     return int.from_bytes(digest[:8], "big")
 
 
-# ---------------------------------------------------------------------------
-# v7 read-path adapter — SONARA scalar reader from v7 Core DB (Todo 21)
-# ---------------------------------------------------------------------------
+def _scoring_track_id(track: object) -> int:
+    """Return the candidate id for pure scoring tests and v7 DTOs."""
 
-def _read_v7_sonara_scalars(
-    core_conn: "Any",
-    track_id: int,
-) -> dict | None:
-    """Read SONARA scalar values needed for Hybrid transition-risk and SONARA
-    source contribution from the v7 ``sonara`` table.
-
-    Returns a dict with the following keys (all optional — absent when NULL):
-    - ``detected_bpm``, ``bpm_confidence``, ``beat_grid_stability``
-    - ``detected_key_name``, ``detected_key_camelot``, ``key_confidence``
-    - ``energy_score``, ``danceability_score``, ``valence_score``
-    - ``acousticness_score``, ``dissonance_score``
-    - ``onset_density_per_second``, ``dynamic_range_db``
-    - ``integrated_loudness_lufs``, ``rms_mean``
-    - ``intro_end_seconds``, ``outro_start_seconds``
-    - ``analyzed_duration_seconds``
-
-    Returns ``None`` when the v7 ``sonara`` table does not exist or no row
-    exists for *track_id*.  NULL column values are omitted from the dict.
-    """
-    import sqlite3 as _sqlite3
-
-    _SCALAR_COLS = (
-        "detected_bpm",
-        "bpm_confidence",
-        "beat_grid_stability",
-        "detected_key_name",
-        "detected_key_camelot",
-        "key_confidence",
-        "energy_score",
-        "danceability_score",
-        "valence_score",
-        "acousticness_score",
-        "dissonance_score",
-        "onset_density_per_second",
-        "dynamic_range_db",
-        "integrated_loudness_lufs",
-        "rms_mean",
-        "intro_end_seconds",
-        "outro_start_seconds",
-        "analyzed_duration_seconds",
-    )
-    col_list = ", ".join(_SCALAR_COLS)
-    try:
-        row = core_conn.execute(
-            f"SELECT {col_list} FROM sonara WHERE track_id = ?",  # noqa: S608
-            (track_id,),
-        ).fetchone()
-    except _sqlite3.OperationalError:
-        return None
-
-    if row is None:
-        return None
-
-    result: dict = {}
-    for col_name, value in zip(_SCALAR_COLS, row):
-        if value is not None:
-            result[col_name] = value
-    return result
+    if isinstance(track, TrackSummary):
+        return track.track_id
+    value = getattr(track, "id", None)
+    return _positive_int(value, "candidate_track_id")

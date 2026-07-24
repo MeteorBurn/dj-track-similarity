@@ -13,7 +13,7 @@ from .classifier_manifest import (
 )
 from .classifier_scoring import default_classifier_model_path
 from .database import LibraryDatabase
-from .metadata_payload import metadata_from_json
+from .library_models import ClassifierScoreDetail, TrackSummary
 
 
 LABEL_SUGGESTION_MODES = (
@@ -42,7 +42,12 @@ class ClassifierScoreRow:
     confidence: float
     probabilities: dict[str, object]
     feature_set: str
+    feature_manifest_hash: str
+    required_outputs_hash: str
     model_id: str
+    uses_sonara: bool
+    sonara_release_hash: str | None
+    positive_label: str
     analyzed_at: str
     liked: bool
     feedback_count: int
@@ -59,6 +64,14 @@ class ClassifierScoreRow:
         return self.feedback_count == 0
 
 
+@dataclass(frozen=True)
+class _FeedbackAggregate:
+    feedback_count: int
+    positive_feedback_count: int
+    negative_feedback_count: int
+    average_rating: float | None
+
+
 def build_classifier_calibration_report(
     db: LibraryDatabase,
     classifier_key: str,
@@ -68,10 +81,24 @@ def build_classifier_calibration_report(
 ) -> dict[str, object]:
     key = _clean_classifier_key(classifier_key)
     manifest = _manifest_for_classifier(key, classifier_info)
-    total_tracks = _count_tracks(db)
-    score_rows = _load_classifier_score_rows(db, key)
+    track_summaries = db.list_track_summaries()
+    liked_track_ids = frozenset(db.list_liked_track_ids())
+    pair_feedback = db.get_pair_feedback_map()
+    total_tracks = len(track_summaries)
+    score_rows = _load_classifier_score_rows(
+        db,
+        key,
+        track_summaries=track_summaries,
+        liked_track_ids=liked_track_ids,
+        pair_feedback=pair_feedback,
+    )
     scores = [row.score for row in score_rows]
-    feedback = _classifier_feedback_summary(db, key)
+    feedback = _classifier_feedback_summary(
+        db,
+        score_rows,
+        pair_feedback=pair_feedback,
+        liked_track_ids=liked_track_ids,
+    )
     freshness = _score_freshness(manifest, score_rows)
     status = _calibration_report_status(
         manifest,
@@ -81,12 +108,16 @@ def build_classifier_calibration_report(
         stale_scores=freshness["stale_scores"],
     )
     warnings = [*manifest.warnings]
-    if manifest.status == "legacy":
-        warnings.append("Legacy promoted classifier: re-promote from Rhythm Lab to write production metadata.")
     if not manifest.has_calibrated_probability:
-        warnings.append("Stored classifier scores are model output probabilities, not calibrated probabilities.")
+        warnings.append(
+            "Stored classifier scores are model output probabilities, not calibrated probabilities."
+        )
     if freshness["stale_scores"]:
-        warnings.append("Stored classifier scores were produced by a different model identity and are stale until this classifier is rescored.")
+        warnings.append(
+            "Stored classifier scores were produced by a different full "
+            "classifier identity and are stale until this classifier is "
+            "rescored."
+        )
     if feedback["candidate_feedback_count"] < min_feedback:
         warnings.append(
             f"Only {feedback['candidate_feedback_count']} candidate feedback rows are available; "
@@ -102,7 +133,18 @@ def build_classifier_calibration_report(
             **freshness,
             "coverage_ratio": _ratio(len(score_rows), total_tracks),
             "feature_sets": _count_values(row.feature_set for row in score_rows),
+            "feature_manifest_hashes": _count_values(
+                row.feature_manifest_hash for row in score_rows
+            ),
+            "required_outputs_hashes": _count_values(
+                row.required_outputs_hash for row in score_rows
+            ),
             "model_ids": _count_values(row.model_id for row in score_rows),
+            "sonara_release_hashes": _count_values(
+                row.sonara_release_hash
+                for row in score_rows
+                if row.sonara_release_hash is not None
+            ),
         },
         "score_distribution": {
             "count": len(scores),
@@ -114,7 +156,9 @@ def build_classifier_calibration_report(
         "available_labels_feedback": feedback,
         "status_gate": {
             "manifest_scoring_compatible": manifest.is_scoring_compatible,
-            "calibrated_probability_available": manifest.has_calibrated_probability and freshness["stale_scores"] == 0 and bool(score_rows),
+            "calibrated_probability_available": manifest.has_calibrated_probability
+            and freshness["stale_scores"] == 0
+            and bool(score_rows),
             "min_feedback_requested": max(1, int(min_feedback)),
             "feedback_rows_available": feedback["candidate_feedback_count"],
             "fresh_scores": freshness["fresh_scores"],
@@ -164,8 +208,22 @@ def suggest_classifier_labels(
             "warnings": warnings,
         }
 
-    rows = _load_classifier_score_rows(db, key)
-    if not rows:
+    track_summaries = db.list_track_summaries()
+    rows = _load_classifier_score_rows(
+        db,
+        key,
+        track_summaries=track_summaries,
+        liked_track_ids=frozenset(db.list_liked_track_ids()),
+        pair_feedback=db.get_pair_feedback_map(),
+    )
+    fresh_rows = _fresh_score_rows(manifest, rows)
+    stale_count = len(rows) - len(fresh_rows)
+    if stale_count:
+        warnings.append(
+            f"{stale_count} stored classifier score rows do not match the "
+            "current full classifier identity and were excluded."
+        )
+    if not fresh_rows:
         return {
             "classifier_key": key,
             "mode": clean_mode,
@@ -174,11 +232,23 @@ def suggest_classifier_labels(
             "status": "insufficient_data",
             "manifest": manifest.to_api_dict(),
             "suggestions": [],
-            "warnings": [*warnings, "No stored classifier scores are available for label suggestions."],
+            "warnings": [
+                *warnings,
+                "No current classifier scores are available for label suggestions.",
+            ],
         }
-    ordered_rows = _ordered_suggestion_rows(rows, classifier_key=key, mode=clean_mode, random_seed=clean_seed)
-    if clean_mode == "hard_negative" and not any(row.negative_feedback_count for row in rows):
-        warnings.append("No negative feedback rows are available; hard_negative mode falls back to high-score unlabeled tracks.")
+    ordered_rows = _ordered_suggestion_rows(
+        fresh_rows,
+        classifier_key=key,
+        mode=clean_mode,
+        random_seed=clean_seed,
+    )
+    if clean_mode == "hard_negative" and not any(
+        row.negative_feedback_count for row in fresh_rows
+    ):
+        warnings.append(
+            "No negative feedback rows are available; hard_negative mode falls back to high-score unlabeled tracks."
+        )
     return {
         "classifier_key": key,
         "mode": clean_mode,
@@ -219,124 +289,145 @@ def _manifest_for_classifier(
     )
 
 
-def _count_tracks(db: LibraryDatabase) -> int:
-    with db.connect() as connection:
-        return int(connection.execute("SELECT COUNT(*) FROM tracks").fetchone()[0])
-
-
-def _load_classifier_score_rows(db: LibraryDatabase, classifier_key: str) -> list[ClassifierScoreRow]:
-    with db.connect() as connection:
-        rows = connection.execute(
-            """
-            WITH candidate_feedback AS (
-                SELECT
-                    candidate_track_id AS track_id,
-                    COUNT(*) AS feedback_count,
-                    SUM(CASE WHEN rating >= 2 THEN 1 ELSE 0 END) AS positive_feedback_count,
-                    SUM(CASE WHEN rating <= 1 THEN 1 ELSE 0 END) AS negative_feedback_count,
-                    AVG(rating) AS average_rating
-                FROM track_pair_feedback
-                GROUP BY candidate_track_id
+def _load_classifier_score_rows(
+    db: LibraryDatabase,
+    classifier_key: str,
+    *,
+    track_summaries: Sequence[TrackSummary],
+    liked_track_ids: frozenset[int],
+    pair_feedback: Mapping[
+        tuple[int, int, str],
+        Mapping[str, object],
+    ],
+) -> list[ClassifierScoreRow]:
+    feedback_by_track = _candidate_feedback_aggregates(pair_feedback)
+    score_rows: list[ClassifierScoreRow] = []
+    for track in track_summaries:
+        if not any(
+            score.classifier_key == classifier_key for score in track.classifier_scores
+        ):
+            continue
+        detail = db.get_track_detail(track.track_id)
+        score = _classifier_score_detail(
+            detail.classifier_scores_detail, classifier_key
+        )
+        if score is None:
+            continue
+        feedback = feedback_by_track.get(
+            track.track_id,
+            _FeedbackAggregate(0, 0, 0, None),
+        )
+        energy = (
+            detail.sonara_core.energy_score if detail.sonara_core is not None else None
+        )
+        score_rows.append(
+            ClassifierScoreRow(
+                track_id=track.track_id,
+                path=track.file_path,
+                artist=track.artist,
+                title=track.title,
+                album=track.album,
+                bpm=_optional_float(track.tag_bpm),
+                musical_key=track.tag_key,
+                energy=_optional_float(energy),
+                score=_finite_score(score.score),
+                label=score.predicted_class,
+                confidence=_finite_score(score.confidence),
+                probabilities={
+                    str(label): _finite_score(probability)
+                    for label, probability in score.probabilities.items()
+                },
+                feature_set=score.feature_set,
+                feature_manifest_hash=score.feature_manifest_hash,
+                required_outputs_hash=score.required_outputs_hash,
+                model_id=score.model_id,
+                uses_sonara=score.uses_sonara,
+                sonara_release_hash=score.sonara_release_hash,
+                positive_label=score.positive_label,
+                analyzed_at=score.analyzed_at,
+                liked=track.track_id in liked_track_ids,
+                feedback_count=feedback.feedback_count,
+                positive_feedback_count=feedback.positive_feedback_count,
+                negative_feedback_count=feedback.negative_feedback_count,
+                average_rating=feedback.average_rating,
             )
-            SELECT
-                t.id, t.path, t.artist, t.title, t.album, t.bpm, t.musical_key, t.energy,
-                EXISTS(SELECT 1 FROM track_likes tl WHERE tl.track_id = t.id) AS liked,
-                s.score, s.label, s.confidence, s.probabilities_json, s.feature_set, s.model_id, s.analyzed_at,
-                COALESCE(cf.feedback_count, 0) AS feedback_count,
-                COALESCE(cf.positive_feedback_count, 0) AS positive_feedback_count,
-                COALESCE(cf.negative_feedback_count, 0) AS negative_feedback_count,
-                cf.average_rating AS average_rating
-            FROM track_classifier_scores s
-            JOIN tracks t ON t.id = s.track_id
-            LEFT JOIN candidate_feedback cf ON cf.track_id = t.id
-            WHERE s.classifier = ?
-            ORDER BY t.id
-            """,
-            (classifier_key,),
-        ).fetchall()
-    return [_score_row_from_sql(row) for row in rows]
-
-
-def _score_row_from_sql(row: object) -> ClassifierScoreRow:
-    probabilities = metadata_from_json(row["probabilities_json"])
-    return ClassifierScoreRow(
-        track_id=int(row["id"]),
-        path=str(row["path"]),
-        artist=row["artist"],
-        title=row["title"],
-        album=row["album"],
-        bpm=_optional_float(row["bpm"]),
-        musical_key=row["musical_key"],
-        energy=_optional_float(row["energy"]),
-        score=_finite_score(row["score"]),
-        label=str(row["label"]),
-        confidence=_finite_score(row["confidence"]),
-        probabilities=probabilities if isinstance(probabilities, dict) else {},
-        feature_set=str(row["feature_set"]),
-        model_id=str(row["model_id"]),
-        analyzed_at=str(row["analyzed_at"]),
-        liked=bool(row["liked"]),
-        feedback_count=int(row["feedback_count"]),
-        positive_feedback_count=int(row["positive_feedback_count"]),
-        negative_feedback_count=int(row["negative_feedback_count"]),
-        average_rating=_optional_float(row["average_rating"]),
-    )
-
-
-def _classifier_feedback_summary(db: LibraryDatabase, classifier_key: str) -> dict[str, object]:
-    with db.connect() as connection:
-        rating_rows = connection.execute(
-            """
-            SELECT f.rating, COUNT(*) AS count
-            FROM track_pair_feedback f
-            JOIN track_classifier_scores s ON s.track_id = f.candidate_track_id AND s.classifier = ?
-            GROUP BY f.rating
-            ORDER BY f.rating
-            """,
-            (classifier_key,),
-        ).fetchall()
-        source_rows = connection.execute(
-            """
-            SELECT f.source, COUNT(*) AS count
-            FROM track_pair_feedback f
-            JOIN track_classifier_scores s ON s.track_id = f.candidate_track_id AND s.classifier = ?
-            GROUP BY f.source
-            ORDER BY f.source
-            """,
-            (classifier_key,),
-        ).fetchall()
-        liked_count = int(
-            connection.execute(
-                """
-                SELECT COUNT(*)
-                FROM track_likes tl
-                JOIN track_classifier_scores s ON s.track_id = tl.track_id AND s.classifier = ?
-                """,
-                (classifier_key,),
-            ).fetchone()[0]
         )
-        transition_count = int(
-            connection.execute(
-                """
-                SELECT COUNT(*)
-                FROM transition_feedback tf
-                WHERE EXISTS (
-                    SELECT 1 FROM track_classifier_scores s
-                    WHERE s.classifier = ? AND s.track_id IN (tf.outgoing_track_id, tf.incoming_track_id)
-                )
-                """,
-                (classifier_key,),
-            ).fetchone()[0]
+    return score_rows
+
+
+def _classifier_score_detail(
+    scores: Sequence[ClassifierScoreDetail],
+    classifier_key: str,
+) -> ClassifierScoreDetail | None:
+    matches = [score for score in scores if score.classifier_key == classifier_key]
+    if len(matches) > 1:
+        raise ValueError(
+            f"Multiple current scores exist for classifier {classifier_key!r}"
         )
-    rating_counts = {str(int(row["rating"])): int(row["count"]) for row in rating_rows}
-    source_counts = {str(row["source"]): int(row["count"]) for row in source_rows}
+    return matches[0] if matches else None
+
+
+def _candidate_feedback_aggregates(
+    pair_feedback: Mapping[
+        tuple[int, int, str],
+        Mapping[str, object],
+    ],
+) -> dict[int, _FeedbackAggregate]:
+    ratings_by_track: dict[int, list[int]] = {}
+    for key, feedback in pair_feedback.items():
+        candidate_track_id = int(feedback.get("candidate_track_id", key[1]))
+        ratings_by_track.setdefault(candidate_track_id, []).append(
+            int(feedback["rating"])
+        )
+    return {
+        track_id: _FeedbackAggregate(
+            feedback_count=len(ratings),
+            positive_feedback_count=sum(1 for rating in ratings if rating >= 2),
+            negative_feedback_count=sum(1 for rating in ratings if rating <= 1),
+            average_rating=sum(ratings) / len(ratings) if ratings else None,
+        )
+        for track_id, ratings in ratings_by_track.items()
+    }
+
+
+def _classifier_feedback_summary(
+    db: LibraryDatabase,
+    score_rows: Sequence[ClassifierScoreRow],
+    *,
+    pair_feedback: Mapping[
+        tuple[int, int, str],
+        Mapping[str, object],
+    ],
+    liked_track_ids: frozenset[int],
+) -> dict[str, object]:
+    scored_track_ids = {row.track_id for row in score_rows}
+    rating_counts: dict[str, int] = {}
+    source_counts: dict[str, int] = {}
+    for key, feedback in pair_feedback.items():
+        candidate_track_id = int(feedback.get("candidate_track_id", key[1]))
+        if candidate_track_id not in scored_track_ids:
+            continue
+        rating = str(int(feedback["rating"]))
+        source = str(feedback.get("source", key[2]))
+        rating_counts[rating] = rating_counts.get(rating, 0) + 1
+        source_counts[source] = source_counts.get(source, 0) + 1
+    evaluation_counts = db.count_evaluation_rows()
+    transition_count = int(evaluation_counts.get("transition_feedback", 0))
     return {
         "candidate_feedback_count": sum(rating_counts.values()),
-        "candidate_feedback_rating_counts": rating_counts,
-        "candidate_feedback_source_counts": source_counts,
-        "liked_scored_tracks": liked_count,
-        "transition_feedback_rows_touching_scored_tracks": transition_count,
-        "label_source_note": "No main-app classifier label table exists; Rhythm Lab labels stay in the separate lab database.",
+        "candidate_feedback_rating_counts": dict(sorted(rating_counts.items())),
+        "candidate_feedback_source_counts": dict(sorted(source_counts.items())),
+        "liked_scored_tracks": len(scored_track_ids & liked_track_ids),
+        "transition_feedback_rows_touching_scored_tracks": None,
+        "transition_feedback_rows_total": transition_count,
+        "transition_feedback_scope_note": (
+            "The v7 repository exposes the total transition-feedback count, "
+            "not a classifier-scoped transition-feedback reader."
+        ),
+        "label_source_note": (
+            "No main-app classifier label repository exists; Rhythm Lab "
+            "labels stay in the separate lab database."
+        ),
     }
 
 
@@ -370,7 +461,11 @@ def _status_gate_decision(
     if not score_rows:
         return "No stored classifier scores are available yet."
     if stale_scores:
-        return "Stored classifier scores are stale for the current manifest model identity; rescore this classifier before treating them as fresh calibrated evidence."
+        return (
+            "Stored classifier scores are stale for the current full "
+            "manifest identity; rescore this classifier before treating "
+            "them as fresh calibrated evidence."
+        )
     if feedback_count < max(1, int(min_feedback)):
         return "Insufficient app feedback for calibration diagnostics; use this as a coverage report only."
     return "Enough app feedback exists for diagnostics, but this report still does not prove benchmark quality."
@@ -380,24 +475,103 @@ def _score_freshness(
     manifest: ClassifierManifestSummary,
     score_rows: Sequence[ClassifierScoreRow],
 ) -> dict[str, object]:
-    expected_model_id = manifest.model_id
-    if not expected_model_id:
+    expected_identity = _manifest_score_identity(manifest)
+    if expected_identity is None:
         return {
-            "expected_model_id": None,
-            "fresh_scores": len(score_rows),
+            "expected_model_id": manifest.model_id,
+            "expected_identity": None,
+            "fresh_scores": 0,
             "stale_scores": 0,
             "unknown_freshness_scores": len(score_rows),
             "stale_model_ids": {},
+            "stale_identity_fields": {},
         }
-    stale_model_ids = _count_values(row.model_id for row in score_rows if row.model_id != expected_model_id)
-    stale_scores = sum(stale_model_ids.values())
+    stale_rows: list[ClassifierScoreRow] = []
+    mismatch_counts: dict[str, int] = {}
+    for row in score_rows:
+        row_identity = _score_row_identity(row)
+        mismatched_fields = [
+            field_name
+            for field_name, expected_value in expected_identity.items()
+            if row_identity[field_name] != expected_value
+        ]
+        if not mismatched_fields:
+            continue
+        stale_rows.append(row)
+        for field_name in mismatched_fields:
+            mismatch_counts[field_name] = mismatch_counts.get(field_name, 0) + 1
+    stale_model_ids = _count_values(
+        row.model_id
+        for row in stale_rows
+        if row.model_id != expected_identity["model_id"]
+    )
+    stale_scores = len(stale_rows)
     return {
-        "expected_model_id": expected_model_id,
+        "expected_model_id": expected_identity["model_id"],
+        "expected_identity": expected_identity,
         "fresh_scores": len(score_rows) - stale_scores,
         "stale_scores": stale_scores,
         "unknown_freshness_scores": 0,
         "stale_model_ids": stale_model_ids,
+        "stale_identity_fields": dict(sorted(mismatch_counts.items())),
     }
+
+
+def _manifest_score_identity(
+    manifest: ClassifierManifestSummary,
+) -> dict[str, object] | None:
+    model_id = _optional_text(manifest.model_id)
+    feature_set = _optional_text(manifest.feature_set)
+    feature_manifest_hash = _optional_text(manifest.feature_manifest_hash)
+    required_outputs_hash = _optional_text(manifest.required_outputs_hash)
+    positive_label = _optional_text(manifest.positive_label)
+    uses_sonara = manifest.uses_sonara
+    sonara_release_hash = _optional_text(manifest.sonara_release_hash)
+    if not all(
+        (
+            model_id,
+            feature_set,
+            feature_manifest_hash,
+            required_outputs_hash,
+            positive_label,
+        )
+    ):
+        return None
+    if uses_sonara and sonara_release_hash is None:
+        return None
+    return {
+        "model_id": model_id,
+        "feature_set": feature_set,
+        "feature_manifest_hash": feature_manifest_hash,
+        "required_outputs_hash": required_outputs_hash,
+        "uses_sonara": uses_sonara,
+        "sonara_release_hash": (sonara_release_hash if uses_sonara else None),
+        "positive_label": positive_label,
+    }
+
+
+def _score_row_identity(
+    row: ClassifierScoreRow,
+) -> dict[str, object]:
+    return {
+        "model_id": row.model_id,
+        "feature_set": row.feature_set,
+        "feature_manifest_hash": row.feature_manifest_hash,
+        "required_outputs_hash": row.required_outputs_hash,
+        "uses_sonara": row.uses_sonara,
+        "sonara_release_hash": (row.sonara_release_hash if row.uses_sonara else None),
+        "positive_label": row.positive_label,
+    }
+
+
+def _fresh_score_rows(
+    manifest: ClassifierManifestSummary,
+    rows: Sequence[ClassifierScoreRow],
+) -> list[ClassifierScoreRow]:
+    expected_identity = _manifest_score_identity(manifest)
+    if expected_identity is None:
+        return []
+    return [row for row in rows if _score_row_identity(row) == expected_identity]
 
 
 def _ordered_suggestion_rows(
@@ -408,8 +582,15 @@ def _ordered_suggestion_rows(
     random_seed: int,
 ) -> list[ClassifierScoreRow]:
     if mode == "diversity":
-        return _diverse_suggestion_order(rows, classifier_key=classifier_key, mode=mode, random_seed=random_seed)
-    return sorted(rows, key=lambda row: _suggestion_sort_key(row, classifier_key=classifier_key, mode=mode, random_seed=random_seed))
+        return _diverse_suggestion_order(
+            rows, classifier_key=classifier_key, mode=mode, random_seed=random_seed
+        )
+    return sorted(
+        rows,
+        key=lambda row: _suggestion_sort_key(
+            row, classifier_key=classifier_key, mode=mode, random_seed=random_seed
+        ),
+    )
 
 
 def _suggestion_sort_key(
@@ -422,15 +603,46 @@ def _suggestion_sort_key(
     tie_breaker = _stable_tie_breaker(classifier_key, mode, row.track_id, random_seed)
     if mode == "hard_negative":
         if row.negative_feedback_count:
-            return (-row.negative_feedback_count, -row.score, row.uncertainty, tie_breaker, row.track_id)
-        return (1, 0 if row.is_unlabeled else 1, -row.score, row.uncertainty, tie_breaker, row.track_id)
+            return (
+                -row.negative_feedback_count,
+                -row.score,
+                row.uncertainty,
+                tie_breaker,
+                row.track_id,
+            )
+        return (
+            1,
+            0 if row.is_unlabeled else 1,
+            -row.score,
+            row.uncertainty,
+            tie_breaker,
+            row.track_id,
+        )
     if mode == "disagreement":
         disagreement = _disagreement_score(row)
-        return (-disagreement, 0 if row.is_unlabeled else 1, row.uncertainty, tie_breaker, row.track_id)
+        return (
+            -disagreement,
+            0 if row.is_unlabeled else 1,
+            row.uncertainty,
+            tie_breaker,
+            row.track_id,
+        )
     if mode == "high_impact_unlabeled":
         impact = 1.0 - min(1.0, row.uncertainty * 2.0)
-        return (0 if row.is_unlabeled else 1, -impact, -row.confidence, tie_breaker, row.track_id)
-    return (0 if row.is_unlabeled else 1, row.uncertainty, -row.confidence, tie_breaker, row.track_id)
+        return (
+            0 if row.is_unlabeled else 1,
+            -impact,
+            -row.confidence,
+            tie_breaker,
+            row.track_id,
+        )
+    return (
+        0 if row.is_unlabeled else 1,
+        row.uncertainty,
+        -row.confidence,
+        tie_breaker,
+        row.track_id,
+    )
 
 
 def _diverse_suggestion_order(
@@ -445,7 +657,14 @@ def _diverse_suggestion_order(
         bucket = min(4, max(0, int(row.score * 5)))
         buckets.setdefault(bucket, []).append(row)
     for bucket_rows in buckets.values():
-        bucket_rows.sort(key=lambda row: _suggestion_sort_key(row, classifier_key=classifier_key, mode="uncertainty", random_seed=random_seed))
+        bucket_rows.sort(
+            key=lambda row: _suggestion_sort_key(
+                row,
+                classifier_key=classifier_key,
+                mode="uncertainty",
+                random_seed=random_seed,
+            )
+        )
     bucket_order = sorted(buckets, key=lambda bucket: (abs(bucket - 2), bucket))
     if bucket_order:
         offset = random_seed % len(bucket_order)
@@ -459,7 +678,9 @@ def _diverse_suggestion_order(
     return ordered
 
 
-def _suggestion_payload(row: ClassifierScoreRow, *, rank: int, mode: str) -> dict[str, object]:
+def _suggestion_payload(
+    row: ClassifierScoreRow, *, rank: int, mode: str
+) -> dict[str, object]:
     return {
         "rank": rank,
         "track": {
@@ -495,7 +716,9 @@ def _suggestion_reason(row: ClassifierScoreRow, mode: str) -> str:
         return "Selected from a score bucket to keep the next labels spread across classifier coverage."
     if row.is_unlabeled:
         return "No app feedback is stored for this scored track, and the score is informative for review."
-    return "Existing feedback is sparse; the score remains useful for another review pass."
+    return (
+        "Existing feedback is sparse; the score remains useful for another review pass."
+    )
 
 
 def _disagreement_score(row: ClassifierScoreRow) -> float:
@@ -506,7 +729,9 @@ def _disagreement_score(row: ClassifierScoreRow) -> float:
     return 1.0 - min(1.0, row.uncertainty * 2.0)
 
 
-def _stable_tie_breaker(classifier_key: str, mode: str, track_id: int, random_seed: int) -> int:
+def _stable_tie_breaker(
+    classifier_key: str, mode: str, track_id: int, random_seed: int
+) -> int:
     text = f"{classifier_key}:{mode}:{random_seed}:{track_id}".encode("utf-8")
     return int.from_bytes(hashlib.blake2b(text, digest_size=8).digest(), "big")
 
@@ -583,6 +808,13 @@ def _optional_float(value: object) -> float | None:
         return None
     number = float(value)
     return number if math.isfinite(number) else None
+
+
+def _optional_text(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _clean_classifier_key(value: object) -> str:

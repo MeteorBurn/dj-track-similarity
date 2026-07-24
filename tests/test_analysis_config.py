@@ -60,11 +60,11 @@ def test_build_analysis_job_config_normalizes_shared_cli_api_values() -> None:
     assert config.sonara_outputs == ()
 
 
-def test_build_analysis_job_config_allows_all_explicit_sonara_outputs() -> None:
+def test_build_analysis_job_config_canonicalizes_exact_sonara_outputs() -> None:
     assert build_analysis_job_config(
         models=["sonara"],
-        sonara_outputs=["representations", "core", "timeline"],
-    ).sonara_outputs == ("core", "timeline", "representations")
+        sonara_outputs=["fingerprint", "timeline", "embedding"],
+    ).sonara_outputs == ("core", "timeline", "embedding", "fingerprint")
 
 
 def test_build_analysis_job_config_defaults_sonara_to_core() -> None:
@@ -76,6 +76,11 @@ def test_build_analysis_job_config_rejects_invalid_sonara_outputs() -> None:
         build_analysis_job_config(models=["mert"], sonara_outputs=["timeline"])
     with pytest.raises(ValueError, match="At least one SONARA output"):
         build_analysis_job_config(models=["sonara"], sonara_outputs=[])
+    with pytest.raises(ValueError, match="unsupported SONARA output 'representations'"):
+        build_analysis_job_config(
+            models=["sonara"],
+            sonara_outputs=["representations"],
+        )
 
 
 @pytest.mark.parametrize(

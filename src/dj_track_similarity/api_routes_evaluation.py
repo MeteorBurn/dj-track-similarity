@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import json
 import sqlite3
 from typing import Any
 
@@ -16,7 +15,7 @@ from .api_schemas import (
 )
 from .api_state import AppDatabaseState
 from .database import LibraryDatabase
-from .db_schema import CURRENT_SCHEMA_VERSION
+from .db_schema_v7 import SCHEMA_VERSION
 from .evaluation.score_profiles import (
     DEFAULT_LIMITATIONS,
     PROFILE_KIND,
@@ -39,7 +38,7 @@ def register_evaluation_routes(app: FastAPI, state: AppDatabaseState) -> None:
         db = _require_current_evaluation_db(state)
         try:
             return {
-                "schema_version": CURRENT_SCHEMA_VERSION,
+                "schema_version": SCHEMA_VERSION,
                 "counts": db.count_evaluation_rows(),
             }
         except (RuntimeError, sqlite3.OperationalError) as error:
@@ -198,18 +197,7 @@ def register_evaluation_routes(app: FastAPI, state: AppDatabaseState) -> None:
 
 
 def _require_current_evaluation_db(state: AppDatabaseState) -> LibraryDatabase:
-    db = state.require_db()
-    try:
-        with db.connect() as connection:
-            schema_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-    except RuntimeError as error:
-        raise _evaluation_schema_error(error) from error
-    if schema_version != CURRENT_SCHEMA_VERSION:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Evaluation API requires SQLite schema v{CURRENT_SCHEMA_VERSION}; found v{schema_version}.",
-        )
-    return db
+    return state.require_db()
 
 
 def _score_profile_from_source_profile(source_profile: dict[str, Any], profile_name: str | None, include_profile: bool) -> dict[str, Any] | None:
@@ -274,32 +262,13 @@ def _score_profile_name(value: str | None) -> str:
 
 
 def _latest_calibration_runs(db: LibraryDatabase) -> list[dict[str, Any]]:
-    with db.connect() as connection:
-        rows = connection.execute(
-            """
-            SELECT id, profile_name, search_mode, config_json, metrics_json, created_at
-            FROM calibration_runs
-            ORDER BY created_at DESC, id DESC
-            LIMIT 10
-            """,
-        ).fetchall()
-    return [
-        {
-            "id": int(row["id"]),
-            "profile_name": str(row["profile_name"]),
-            "search_mode": str(row["search_mode"]),
-            "config": json.loads(row["config_json"]),
-            "metrics": json.loads(row["metrics_json"]),
-            "created_at": row["created_at"],
-        }
-        for row in rows
-    ]
+    return db.list_calibration_runs(limit=10)
 
 
 def _evaluation_schema_error(error: Exception) -> HTTPException:
     return HTTPException(
         status_code=409,
-        detail=f"Evaluation API requires SQLite schema v{CURRENT_SCHEMA_VERSION}. {error}",
+        detail=f"Evaluation API requires SQLite schema v{SCHEMA_VERSION}. {error}",
     )
 
 

@@ -14,9 +14,9 @@ Guidance specific to `src/dj_track_similarity/`. See root `AGENTS.md` for global
 
 - `sonara_contract.py` — every SONARA signature constant (`SONARA_EXPECTED_VERSION`, `SONARA_EXPECTED_SCHEMA_VERSION`, `SONARA_ANALYSIS_MODE`, `SONARA_SAMPLE_RATE`, `SONARA_BPM_MIN/MAX`, `SONARA_PROJECT_FEATURE_REVISION`, `SONARA_DECODER_BACKEND`, `SONARA_EXECUTION_PATH`). Bumping any invalidates every stored SONARA result; follow the reanalysis + classifier-retrain protocol in root `AGENTS.md`.
 - `classifier_manifest.py` — `CLASSIFIER_MANIFEST_VERSION = 2`, `CLASSIFIER_REQUIRED_INPUTS = ("sonara", "mert", "maest")`, `CLASSIFIER_SUPPORTED_INPUTS` adds CLAP. Changing required inputs or the manifest version blocks scoring on old artifacts.
-- `db_schema.py` (SONARA sidecar migration + classifier-score invalidation on feature-revision bump) — never add a code path that silently keeps SONARA-dependent scores after a revision change.
+- `db_connection.py` + `db_schema.py` + `db_schema_v7.py` — greenfield Core/Artifacts creation, exact v7 validation, and canonical Core DDL/domain models. Non-v7 or definition-mismatched bundles are rejected; do not add an in-place migration path.
 - `tags.py` + `wave_tags.py` — the only sanctioned audio-write path (MAEST genre only). Do not add other write paths here.
-- `db_tracks.py` — relocation mutates only `tracks.path`; never touch files.
+- `db_tracks.py` — relocation mutates only `tracks.file_path`; never touch files.
 - `media_preview.py` — temporary WAV transcoding for AIFF preview only; must clean up the temp file.
 - `audio_doctor_jobs.py` + `audio_dedup_jobs.py` — dry-run / report-first invariants plus the exact `APPLY REPAIR` / `APPLY DELETE` phrases. Do not weaken.
 - `embedding.py::MuqEmbeddingAdapter` — 24 kHz `float32`, torchaudio-only. No librosa, no half-precision, no autocast, no `torch.compile`.
@@ -27,7 +27,7 @@ Guidance specific to `src/dj_track_similarity/`. See root `AGENTS.md` for global
 - `cli.py` (~1213 lines) — Typer surface for every top-level command.
 - `hybrid_search.py` (~1064 lines) + `hybrid_explanation.py` (~710 lines) — hybrid scoring + user-facing reasons.
 - `db_analysis.py` (~1061 lines) + `ann_index.py` (~964 lines) — analysis persistence + optional ANN sidecars.
-- `db_schema.py` (~595 lines) — every migration lives here; migrations are one-way and must not leave mixed-signature data.
+- `db_connection.py` + `db_schema.py` + `db_schema_v7.py` — bundle creation/validation, exact Core schema checks, and canonical v7 DDL; preserve fail-closed rejection of non-v7 or mismatched bundles.
 - `transition_diagnostics.py` (~629 lines) — mixing compatibility scoring; leans on `tempo_resolution.py` + `track_resolution.py`.
 
 ## Evaluation Subsystem (`evaluation/`)

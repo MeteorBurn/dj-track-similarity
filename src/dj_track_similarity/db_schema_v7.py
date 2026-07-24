@@ -39,6 +39,31 @@ CREATE TABLE library_catalog (
     created_at   TEXT    NOT NULL,
     updated_at   TEXT    NOT NULL
 );
+CREATE TRIGGER library_catalog_immutable_insert
+BEFORE INSERT ON library_catalog
+WHEN EXISTS (SELECT 1 FROM library_catalog)
+BEGIN
+    SELECT RAISE(ABORT, 'library_catalog is immutable')
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM library_catalog
+        WHERE singleton_id IS NEW.singleton_id
+          AND catalog_uuid IS NEW.catalog_uuid
+          AND created_at IS NEW.created_at
+          AND updated_at IS NEW.updated_at
+    );
+    SELECT RAISE(IGNORE);
+END;
+CREATE TRIGGER library_catalog_immutable_update
+BEFORE UPDATE ON library_catalog
+BEGIN
+    SELECT RAISE(ABORT, 'library_catalog is immutable');
+END;
+CREATE TRIGGER library_catalog_immutable_delete
+BEFORE DELETE ON library_catalog
+BEGIN
+    SELECT RAISE(ABORT, 'library_catalog is immutable');
+END;
 """
 
 _DDL_LIBRARY_SETTINGS = """
@@ -63,11 +88,45 @@ CREATE TABLE contracts (
     CHECK(
       (analysis_family='sonara' AND output_kind IN ('core','timeline','embedding','fingerprint'))
       OR
-      (analysis_family<>'sonara' AND output_kind IN ('embedding','analysis'))
+      (analysis_family='maest' AND output_kind IN ('embedding','analysis'))
+      OR
+      (analysis_family IN ('mert','muq','clap') AND output_kind='embedding')
     )
 );
 CREATE INDEX idx_contracts_family_output ON contracts(analysis_family, output_kind, contract_hash);
 CREATE INDEX idx_contracts_release       ON contracts(release_hash, analysis_family, output_kind) WHERE release_hash IS NOT NULL;
+CREATE TRIGGER contracts_append_only_insert
+BEFORE INSERT ON contracts
+WHEN EXISTS (
+    SELECT 1 FROM contracts
+    WHERE contract_hash IS NEW.contract_hash
+)
+BEGIN
+    SELECT RAISE(ABORT, 'contracts registry is append-only')
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM contracts
+        WHERE contract_hash IS NEW.contract_hash
+          AND analysis_family IS NEW.analysis_family
+          AND output_kind IS NEW.output_kind
+          AND model_name IS NEW.model_name
+          AND model_version IS NEW.model_version
+          AND release_hash IS NEW.release_hash
+          AND canonical_payload_json IS NEW.canonical_payload_json
+          AND created_at IS NEW.created_at
+    );
+    SELECT RAISE(IGNORE);
+END;
+CREATE TRIGGER contracts_append_only_update
+BEFORE UPDATE ON contracts
+BEGIN
+    SELECT RAISE(ABORT, 'contracts registry is append-only');
+END;
+CREATE TRIGGER contracts_append_only_delete
+BEFORE DELETE ON contracts
+BEGIN
+    SELECT RAISE(ABORT, 'contracts registry is append-only');
+END;
 """
 
 _DDL_TRACKS = """
@@ -209,6 +268,7 @@ CREATE TABLE classifier_scores (
     model_id               TEXT    NOT NULL,
     feature_set            TEXT    NOT NULL,
     feature_manifest_hash  TEXT    NOT NULL,
+    required_outputs_hash  TEXT    NOT NULL,
     uses_sonara            INTEGER NOT NULL CHECK(uses_sonara IN (0,1)),
     sonara_release_hash    TEXT,
     positive_label         TEXT    NOT NULL,
@@ -305,6 +365,7 @@ _ALL_DDL: list[str] = [
 # Schema creation function
 # ---------------------------------------------------------------------------
 
+
 def create_v7_schema(db: "sqlite3.Connection | str") -> None:
     """Create the v7 Core schema in *db*.
 
@@ -327,35 +388,26 @@ def _apply_schema(conn: sqlite3.Connection) -> None:
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA synchronous = NORMAL")
     conn.execute("PRAGMA foreign_keys = ON")
-
-    for ddl_block in _ALL_DDL:
-        # executescript() commits any open transaction and does not support
-        # parameterised statements, but is fine for DDL.  We strip comments
-        # (lines starting with --) so SQLite doesn't choke on inline comments
-        # inside CREATE TABLE bodies when using execute() per statement.
-        for statement in _split_statements(ddl_block):
-            conn.execute(statement)
-
-    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-    conn.commit()
-
-
-def _split_statements(ddl: str) -> list[str]:
-    """Split a DDL block into individual statements, stripping SQL comments."""
-    # Remove single-line comments (-- ...) to avoid issues with inline comments
-    # inside multi-line CREATE TABLE statements when splitting on semicolons.
-    lines = []
-    for line in ddl.splitlines():
-        stripped = line.split("--")[0]
-        lines.append(stripped)
-    cleaned = "\n".join(lines)
-    statements = [s.strip() for s in cleaned.split(";")]
-    return [s for s in statements if s]
+    script = "\n".join(
+        (
+            "BEGIN IMMEDIATE;",
+            *_ALL_DDL,
+            f"PRAGMA user_version = {SCHEMA_VERSION};",
+            "COMMIT;",
+        )
+    )
+    try:
+        conn.executescript(script)
+    except BaseException:
+        if conn.in_transaction:
+            conn.rollback()
+        raise
 
 
 # ---------------------------------------------------------------------------
 # Python domain models (frozen dataclasses, no Pydantic)
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class TrackV7:
@@ -473,8 +525,8 @@ class SonaraRowV7:
     mood_relaxed_score: Optional[float]
     mood_sad_score: Optional[float]
     # Timbre BLOBs (float32-le, NOT NULL in DB)
-    mfcc_mean_blob: bytes              # 13 * 4 = 52 bytes
-    chroma_mean_blob: bytes            # 12 * 4 = 48 bytes
+    mfcc_mean_blob: bytes  # 13 * 4 = 52 bytes
+    chroma_mean_blob: bytes  # 12 * 4 = 48 bytes
     spectral_contrast_mean_blob: bytes  # 7 * 4 = 28 bytes
     # Provenance
     analyzed_at: str
@@ -490,6 +542,7 @@ class ClassifierScoreV7:
     model_id: str
     feature_set: str
     feature_manifest_hash: str
+    required_outputs_hash: str
     uses_sonara: int  # 0 or 1
     sonara_release_hash: Optional[str]
     positive_label: str

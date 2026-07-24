@@ -1,24 +1,33 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
 import csv
 from datetime import datetime, timezone
-import hashlib
 import json
 from pathlib import Path
-import shutil
 
+from dj_track_similarity.analysis_contracts import ContractIdentity
 from dj_track_similarity.classifier_production import normalize_label_suggestion_mode, suggest_classifier_labels
 from dj_track_similarity.classifier_manifest import CLASSIFIER_MANIFEST_VERSION
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.logging_config import uvicorn_log_config
-from dj_track_similarity.rhythm_lab_collections import RhythmLabCollections
-from dj_track_similarity.sonara_contract import feature_set_uses_sonara, sonara_analysis_signature_errors
+from dj_track_similarity.rhythm_lab_collections import (
+    RhythmLabCollectionSelection,
+    RhythmLabCollections,
+    RhythmLabTrackSelection,
+)
 
 from .ablation import ABLATION_FEATURE_SETS, cli_summary, run_ablation_benchmark
+from .artifact_io import (
+    ArtifactIntegrityError,
+    load_verified_artifact,
+    publish_promoted_artifact,
+)
 from .features import feature_sources
 from .lab_db import RhythmLabDatabase
 from .predictions import apply_model_to_lab, export_predictions_csv
+from .source_db import SourceDatabase
 from .training import benchmark_lab_database
 
 
@@ -108,8 +117,7 @@ def build_parser() -> argparse.ArgumentParser:
     queue_mark_parser = subcommands.add_parser("queue-mark", help="Set one queue row state explicitly.")
     queue_mark_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
     queue_mark_parser.add_argument("--profile", required=True)
-    queue_mark_parser.add_argument("--track-id", type=int, required=True)
-    queue_mark_parser.add_argument("--mode", default="uncertainty")
+    queue_mark_parser.add_argument("--queue-id", type=int, required=True)
     queue_mark_parser.add_argument("--state", required=True)
     queue_mark_parser.set_defaults(func=_queue_mark)
 
@@ -121,6 +129,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     collection_save_parser = subcommands.add_parser("collection-save", help="Create, append, or replace a Rhythm Lab review collection.")
     collection_save_parser.add_argument("--labels", type=Path, default=DEFAULT_LABELS_DB)
+    collection_save_parser.add_argument("--source-db", type=Path, default=DEFAULT_SOURCE_DB)
     collection_save_parser.add_argument("--name", required=True)
     collection_save_parser.add_argument("--source", default="agent")
     collection_save_parser.add_argument("--note", default=None)
@@ -219,7 +228,11 @@ def promote_profile_model(
             feature_set or "combined",
             calibration=calibration_filter,
         )
-    payload = _load_artifact_payload(artifact)
+    try:
+        verified_artifact = load_verified_artifact(artifact)
+    except ArtifactIntegrityError as error:
+        raise PromotionError(str(error)) from error
+    payload = verified_artifact.payload
     classifier_key = str(payload.get("classifier_key") or "")
     if classifier_key != profile.classifier_key:
         raise PromotionError(
@@ -228,38 +241,34 @@ def promote_profile_model(
     artifact_feature_set = str(payload.get("feature_set") or "")
     if feature_set is not None and artifact_feature_set != feature_set:
         raise PromotionError(f"Expected a {feature_set!r} artifact, got feature_set={artifact_feature_set!r}")
-    required_inputs = list(feature_sources(artifact_feature_set))
-    sonara_analysis_signature = payload.get("sonara_analysis_signature")
-    if feature_set_uses_sonara(artifact_feature_set):
-        signature_errors = sonara_analysis_signature_errors(sonara_analysis_signature)
-        if signature_errors:
-            raise PromotionError(
-                "SONARA-dependent artifacts must be retrained with the current analysis signature: "
-                + "; ".join(signature_errors)
-            )
+    feature_sources(artifact_feature_set)
+    required_outputs = _validated_required_outputs(
+        payload.get("required_outputs"),
+        feature_set=artifact_feature_set,
+    )
     production_calibration = _artifact_calibration_payload(payload)
     if require_calibration and production_calibration.get("status") != "calibrated":
         reason = production_calibration.get("reason") or production_calibration.get("status") or "unknown"
         raise PromotionError(f"Artifact calibration is required but not available: {reason}")
 
     target = Path(target_root) / profile.artifact_prefix
-    target.mkdir(parents=True, exist_ok=True)
-    model_path = target / "model.joblib"
-    metadata_path = target / "model.json"
-    shutil.copyfile(artifact, model_path)
-    artifact_hash = _sha256_file(model_path)
+    artifact_hash = verified_artifact.artifact_hash
     promoted_at = datetime.now(timezone.utc)
     promoted_stamp = promoted_at.strftime("%Y%m%dT%H%M%SZ")
-    model_id = f"{profile.classifier_key}_{promoted_stamp}_{artifact_hash[:8]}"
+    model_id = (
+        f"{profile.classifier_key}_{promoted_stamp}_"
+        f"{artifact_hash.removeprefix('sha256:')[:8]}"
+    )
     metadata = {
         "classifier_key": profile.classifier_key,
         "manifest_version": CLASSIFIER_MANIFEST_VERSION,
         "model_id": model_id,
-        "artifact_hash": f"sha256:{artifact_hash}",
+        "artifact_hash": artifact_hash,
         "profile_name": profile.name,
         "profile_type": profile.profile_type,
         "feature_set": artifact_feature_set,
         "feature_count": len(payload.get("feature_names", [])),
+        "feature_names": list(payload.get("feature_names", [])),
         "label_order": payload.get("label_order", list(profile.training_label_keys)),
         "positive_label": payload.get("positive_label", profile.positive_label),
         "negative_label": profile.negative_label,
@@ -267,21 +276,30 @@ def promote_profile_model(
         "promoted_at": promoted_at.isoformat(),
         "production": {
             "score_semantics": "positive_label_probability",
-            "required_inputs": required_inputs,
+            "required_outputs": required_outputs,
             "calibration": _manifest_calibration_payload(production_calibration),
             "limitations": _manifest_limitations(production_calibration),
         },
         "trained_label_counts": labels_db.label_counts(),
     }
-    if feature_set_uses_sonara(artifact_feature_set):
-        assert isinstance(sonara_analysis_signature, dict)
-        metadata["production"]["sonara_analysis_signature"] = dict(sonara_analysis_signature)
     if production_calibration.get("status") == "uncalibrated" and allow_uncalibrated:
         metadata["production"]["calibration"]["allowed_uncalibrated"] = True
-    metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+    try:
+        published = publish_promoted_artifact(
+            target,
+            artifact_bytes=verified_artifact.artifact_bytes,
+            metadata=metadata,
+            expected_classifier_key=profile.classifier_key,
+        )
+    except (ArtifactIntegrityError, OSError, TypeError, ValueError) as error:
+        raise PromotionError(
+            f"Cannot publish promoted classifier atomically: {error}"
+        ) from error
     return {
-        "model_path": model_path,
-        "metadata_path": metadata_path,
+        "model_path": published.model_path,
+        "metadata_path": published.metadata_path,
+        "pointer_path": published.pointer_path,
+        "generation_id": published.generation_id,
         "source_artifact": artifact,
         "metadata": metadata,
     }
@@ -348,8 +366,7 @@ def _queue_export(args: argparse.Namespace) -> None:
 
 def _queue_mark(args: argparse.Namespace) -> None:
     row = RhythmLabDatabase(args.labels, classifier_key=args.profile).mark_queue_item(
-        args.track_id,
-        mode=args.mode,
+        args.queue_id,
         state=args.state,
     )
     print(json.dumps(row, ensure_ascii=False, sort_keys=True))
@@ -362,10 +379,28 @@ def _queue_clear(args: argparse.Namespace) -> None:
 
 def _collection_save(args: argparse.Namespace) -> None:
     track_ids = _collection_track_ids_from_args(args)
+    source_db = SourceDatabase(args.source_db)
+    tracks_by_id = source_db.tracks_by_ids(track_ids)
+    if len(tracks_by_id) != len(set(track_ids)):
+        missing = sorted(set(track_ids) - set(tracks_by_id))
+        raise SystemExit(f"Unknown current source track ids: {missing}")
+    selection = RhythmLabCollectionSelection(
+        catalog_uuid=source_db.catalog_uuid,
+        tracks=tuple(
+            RhythmLabTrackSelection(
+                catalog_uuid=track.catalog_uuid,
+                track_uuid=track.track_uuid,
+                content_generation=track.content_generation,
+                selected_path=track.file_path,
+            )
+            for track_id in track_ids
+            for track in (tracks_by_id[track_id],)
+        ),
+    )
     mode = "replace" if args.replace else "append"
     collection = RhythmLabCollections(args.labels).save_collection(
         args.name,
-        track_ids,
+        selection,
         source=args.source,
         note=args.note,
         mode=mode,
@@ -430,15 +465,10 @@ def _latest_feature_artifact(
 
 
 def _load_artifact_payload(path: Path) -> dict[str, object]:
-    import joblib
-
     try:
-        payload = joblib.load(path)
-    except Exception as error:
-        raise PromotionError(f"Unsupported artifact payload: {path}") from error
-    if not isinstance(payload, dict):
-        raise PromotionError(f"Unsupported artifact payload: {path}")
-    return payload
+        return load_verified_artifact(path).payload
+    except ArtifactIntegrityError as error:
+        raise PromotionError(str(error)) from error
 
 
 def _artifact_matches_calibration_filter(path: Path, calibration: str) -> bool:
@@ -451,6 +481,72 @@ def _artifact_matches_calibration_filter(path: Path, calibration: str) -> bool:
     if calibration == "uncalibrated":
         return status != "calibrated"
     raise PromotionError(f"Unsupported calibration filter: {calibration}")
+
+
+def _validated_required_outputs(
+    value: object,
+    *,
+    feature_set: str,
+) -> list[dict[str, object]]:
+    if not isinstance(value, list) or not value:
+        raise PromotionError(
+            "Artifact must declare a non-empty ordered required_outputs list"
+        )
+    contracts: list[ContractIdentity] = []
+    result: list[dict[str, object]] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, Mapping) or set(item) != {
+            "contract_hash",
+            "canonical_payload",
+        }:
+            raise PromotionError(
+                f"required_outputs[{index}] must contain exactly "
+                "contract_hash and canonical_payload"
+            )
+        canonical_payload = item["canonical_payload"]
+        if not isinstance(canonical_payload, Mapping):
+            raise PromotionError(
+                f"required_outputs[{index}].canonical_payload must be an object"
+            )
+        try:
+            canonical_json = json.dumps(
+                dict(canonical_payload),
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            )
+            contract = ContractIdentity.from_canonical_payload_json(canonical_json)
+        except (TypeError, ValueError) as error:
+            raise PromotionError(
+                f"required_outputs[{index}] is not a canonical analysis contract"
+            ) from error
+        if item["contract_hash"] != contract.contract_hash:
+            raise PromotionError(
+                f"required_outputs[{index}].contract_hash does not match "
+                "canonical_payload"
+            )
+        contracts.append(contract)
+        result.append(
+            {
+                "contract_hash": contract.contract_hash,
+                "canonical_payload": contract.canonical_payload,
+            }
+        )
+    expected = [
+        (source, "core" if source == "sonara" else "embedding")
+        for source in feature_sources(feature_set)
+    ]
+    actual = [
+        (contract.analysis_family, contract.output_kind)
+        for contract in contracts
+    ]
+    if actual != expected:
+        raise PromotionError(
+            "required_outputs must exactly follow feature source order; "
+            f"expected={expected!r}, actual={actual!r}"
+        )
+    return result
 
 
 def _artifact_calibration_payload(payload: dict[str, object]) -> dict[str, object]:
@@ -505,14 +601,6 @@ def _manifest_limitations(calibration: dict[str, object]) -> list[str]:
     ]
 
 
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _queue_items_from_suggestions(suggestions: object) -> list[dict[str, object]]:
     if not isinstance(suggestions, list):
         return []
@@ -527,7 +615,10 @@ def _queue_items_from_suggestions(suggestions: object) -> list[dict[str, object]
         rank = int(suggestion.get("rank") or len(items) + 1)
         items.append(
             {
-                "source_track_id": track.get("id"),
+                "catalog_uuid": track.get("catalog_uuid"),
+                "track_uuid": track.get("track_uuid"),
+                "content_generation": track.get("content_generation"),
+                "selected_path": track.get("file_path"),
                 "score": suggestion.get("score"),
                 "priority": float(total - rank + 1),
                 "reason": {
@@ -545,7 +636,10 @@ def _write_queue_csv(path: Path, rows: list[dict[str, object]]) -> None:
     fieldnames = [
         "id",
         "classifier_key",
-        "source_track_id",
+        "catalog_uuid",
+        "track_uuid",
+        "content_generation",
+        "selected_path",
         "mode",
         "score",
         "priority",
@@ -562,7 +656,10 @@ def _write_queue_csv(path: Path, rows: list[dict[str, object]]) -> None:
                 {
                     "id": row["id"],
                     "classifier_key": row["classifier_key"],
-                    "source_track_id": row["source_track_id"],
+                    "catalog_uuid": row["catalog_uuid"],
+                    "track_uuid": row["track_uuid"],
+                    "content_generation": row["content_generation"],
+                    "selected_path": row["selected_path"],
                     "mode": row["mode"],
                     "score": row["score"],
                     "priority": row["priority"],

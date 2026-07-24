@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 import math
-from typing import Any
 
-from .metadata_payload import optional_float
-from .models import Track
-from .sonara_contract import current_sonara_features
+from .analysis_models import SonaraFeatureRow
+from .library_models import TrackSummary
+from .track_models import TrackIdentity
 
 
 LOW_BPM_CONFIDENCE = 0.45
@@ -27,81 +27,37 @@ class TempoEvidence:
 
 
 def resolve_tempo_evidence(
-    track: Mapping[str, Any] | Track,
-    *,
-    sonara_values: Mapping[str, object] | None = None,
-    sonara_features: Mapping[str, object] | None = None,
+    identity: TrackIdentity,
+    track: TrackSummary,
+    sonara: SonaraFeatureRow | None = None,
 ) -> TempoEvidence:
-    """Resolve tempo plus its trust signals without treating confidence as similarity.
+    """Resolve tempo from one current v7 summary and optional SONARA row."""
 
-    SONARA remains the primary source when its confidence is usable. Below the configured
-    low-confidence threshold, candidates and the file-tag BPM are retained as alternatives. A tag
-    corroborated by any SONARA candidate becomes the working BPM while the original confidence
-    still controls how strongly tempo affects ranking.
-    """
-
-    metadata = _track_metadata(track)
-    stored_features = _metadata_sonara_features(metadata, allow_unsigned=isinstance(track, Mapping))
-    sources = tuple(
-        source
-        for source in (sonara_values, sonara_features, stored_features)
-        if isinstance(source, Mapping)
-    )
-    sonara_bpm = _valid_bpm(_first_sonara_value(sources, "bpm"))
-    confidence = _unit_interval_or_none(_first_sonara_value(sources, "bpm_confidence"))
-    grid_stability = _unit_interval_or_none(_first_sonara_value(sources, "grid_stability"))
-    candidate_bpms = _candidate_bpms(_first_sonara_value(sources, "bpm_candidates"))
-    tag_bpm = _metadata_bpm(metadata)
-
-    if sonara_bpm is None:
-        persisted_sonara_is_stale = isinstance(track, Track) and isinstance(metadata.get("sonara_features"), Mapping)
-        track_bpm = None if persisted_sonara_is_stale else _valid_bpm(_track_value(track, "bpm"))
-        fallback = tag_bpm or track_bpm
-        return TempoEvidence(
-            bpm=fallback,
-            alternatives=(fallback,) if fallback is not None else (),
-            confidence=None,
-            grid_stability=None,
-            reliability=1.0 if fallback is not None else 0.0,
-            source="tag" if tag_bpm is not None else ("track" if fallback is not None else None),
-        )
-
-    reliability = confidence if confidence is not None else 0.0
-    if grid_stability is not None:
-        reliability = math.sqrt(reliability * grid_stability)
-
-    low_confidence = confidence is None or confidence < LOW_BPM_CONFIDENCE
-    if not low_confidence:
-        return TempoEvidence(
-            bpm=sonara_bpm,
-            alternatives=(sonara_bpm,),
-            confidence=confidence,
-            grid_stability=grid_stability,
-            reliability=_clamp01(reliability),
-            source="sonara",
-        )
-
-    alternatives = _ordered_unique_bpms((sonara_bpm, *candidate_bpms))
-    selected_bpm = sonara_bpm
-    source = "sonara_low_confidence"
-    if confidence is None:
-        # NULL confidence → reliability stays 0.0 (set above); yield neutral score.
-        # Tag BPM is not used as a scoring input when confidence is missing.
-        pass
-    elif tag_bpm is not None:
-        sonara_options = (sonara_bpm, *candidate_bpms)
-        if any(best_tempo_distance(tag_bpm, option) <= TAG_CANDIDATE_TOLERANCE_BPM for option in sonara_options):
-            selected_bpm = tag_bpm
-            source = "tag_confirmed_by_sonara_candidate"
-            alternatives = _ordered_unique_bpms((*alternatives, tag_bpm))
-
-    return TempoEvidence(
-        bpm=selected_bpm,
-        alternatives=alternatives,
-        confidence=confidence,
-        grid_stability=grid_stability,
-        reliability=_clamp01(reliability),
-        source=source,
+    if not isinstance(identity, TrackIdentity):
+        raise TypeError("identity must be a TrackIdentity")
+    if not isinstance(track, TrackSummary):
+        raise TypeError("track must be a TrackSummary")
+    if (
+        identity.catalog_uuid != track.catalog_uuid
+        or identity.track_id != track.track_id
+        or identity.track_uuid != track.track_uuid
+        or identity.content_generation != track.content_generation
+    ):
+        raise ValueError("track identity does not match the current track summary")
+    if sonara is not None:
+        target = sonara.target
+        if (
+            target.catalog_uuid != identity.catalog_uuid
+            or target.track_id != identity.track_id
+            or target.track_uuid != identity.track_uuid
+            or target.content_generation != identity.content_generation
+        ):
+            raise ValueError(
+                "SONARA row identity does not match the current track summary"
+            )
+    return resolve_tempo_evidence_v7(
+        sonara.values if sonara is not None else None,
+        tag_bpm=track.tag_bpm,
     )
 
 
@@ -138,7 +94,10 @@ def confidence_aware_tempo_risk(
         for reference_bpm in reference.alternatives or (reference.bpm,)
     )
     reliability = tempo_pair_reliability(candidate, reference)
-    return _clamp01(reliability * _clamp01(measured_risk) + (1.0 - reliability) * _clamp01(neutral_risk))
+    return _clamp01(
+        reliability * _clamp01(measured_risk)
+        + (1.0 - reliability) * _clamp01(neutral_risk)
+    )
 
 
 def confidence_aware_target_score(
@@ -154,10 +113,15 @@ def confidence_aware_target_score(
         _clamp01(1.0 - abs(option - target_bpm) / tolerance_bpm)
         for option in evidence.alternatives or (evidence.bpm,)
     )
-    return _clamp01(evidence.reliability * measured + (1.0 - evidence.reliability) * _clamp01(neutral_score))
+    return _clamp01(
+        evidence.reliability * measured
+        + (1.0 - evidence.reliability) * _clamp01(neutral_score)
+    )
 
 
-def tempo_filter_compatible(candidate: TempoEvidence, reference: TempoEvidence, tolerance_bpm: float) -> bool:
+def tempo_filter_compatible(
+    candidate: TempoEvidence, reference: TempoEvidence, tolerance_bpm: float
+) -> bool:
     if candidate.bpm is None or reference.bpm is None:
         return False
     distance = min(
@@ -177,7 +141,9 @@ def tempo_pair_reliability(candidate: TempoEvidence, reference: TempoEvidence) -
 
 
 def measured_tempo_score(candidate_bpm: float, reference_bpm: float) -> float:
-    return _clamp01(1.0 - best_tempo_distance(candidate_bpm, reference_bpm) / TEMPO_MATCH_WINDOW_BPM)
+    return _clamp01(
+        1.0 - best_tempo_distance(candidate_bpm, reference_bpm) / TEMPO_MATCH_WINDOW_BPM
+    )
 
 
 def best_tempo_distance(candidate_bpm: float, reference_bpm: float) -> float:
@@ -207,15 +173,7 @@ def _relative_tempo_delta(candidate_bpm: float, reference_bpm: float) -> float:
     )
 
 
-def _first_sonara_value(sources: Sequence[Mapping[str, object]], key: str) -> object:
-    for source in sources:
-        if key in source:
-            return _unwrap_feature_value(source.get(key))
-    return None
-
-
 def _candidate_bpms(value: object) -> tuple[float, ...]:
-    value = _unwrap_feature_value(value)
     if not isinstance(value, (list, tuple)):
         return ()
     result: list[float] = []
@@ -227,52 +185,16 @@ def _candidate_bpms(value: object) -> tuple[float, ...]:
     return _ordered_unique_bpms(result)
 
 
-def _metadata_bpm(metadata: Mapping[str, object]) -> float | None:
-    for key in ("bpm", "tbpm"):
-        raw_value = metadata.get(key)
-        if isinstance(raw_value, (list, tuple)):
-            raw_value = next((item for item in raw_value if item not in (None, "")), None)
-        bpm = _valid_bpm(raw_value)
-        if bpm is not None:
-            return bpm
-    return None
-
-
-def _metadata_sonara_features(
-    metadata: Mapping[str, object],
-    *,
-    allow_unsigned: bool,
-) -> Mapping[str, object] | None:
-    return current_sonara_features(metadata, allow_unsigned=allow_unsigned)
-
-
-def _track_metadata(track: Mapping[str, Any] | Track) -> Mapping[str, object]:
-    metadata = track.get("metadata") if isinstance(track, Mapping) else track.metadata
-    return metadata if isinstance(metadata, Mapping) else {}
-
-
-def _track_value(track: Mapping[str, Any] | Track, field_name: str) -> object:
-    if isinstance(track, Mapping):
-        return track.get(field_name)
-    return getattr(track, field_name, None)
-
-
-def _unwrap_feature_value(value: object) -> object:
-    if isinstance(value, Mapping) and "value" in value:
-        return value.get("value")
-    return value
-
-
 def _valid_bpm(value: object) -> float | None:
-    bpm = optional_float(value)
-    if bpm is None or not math.isfinite(bpm) or not 20.0 <= bpm <= 300.0:
+    bpm = _finite_float(value)
+    if bpm is None or not 20.0 <= bpm <= 300.0:
         return None
     return float(bpm)
 
 
 def _unit_interval_or_none(value: object) -> float | None:
-    number = optional_float(value)
-    if number is None or not math.isfinite(number):
+    number = _finite_float(value)
+    if number is None:
         return None
     return _clamp01(float(number))
 
@@ -293,39 +215,16 @@ def _clamp01(value: float) -> float:
     return min(1.0, max(0.0, float(value)))
 
 
-# ---------------------------------------------------------------------------
-# v7 read-path adapter — tempo evidence from v7 sonara row dict (Todo 21)
-# ---------------------------------------------------------------------------
-
 def resolve_tempo_evidence_v7(
-    sonara_row: dict[str, Any] | None,
+    sonara_row: Mapping[str, object] | None,
     tag_bpm: float | None,
 ) -> TempoEvidence:
-    """Resolve tempo evidence from a v7 ``sonara`` table row dict.
+    """Resolve tempo from canonical v7 columns.
 
-    Semantically equivalent to :func:`resolve_tempo_evidence` but consumes a
-    dict read directly from the v7 ``sonara`` typed columns instead of parsing
-    ``metadata_json``.
-
-    Expected keys in *sonara_row* (all optional):
-    - ``detected_bpm``     — primary SONARA BPM estimate
-    - ``raw_bpm``          — raw (unrounded) BPM before post-processing
-    - ``bpm_confidence``   — float in [0, 1] or NULL
-    - ``beat_grid_stability`` — float in [0, 1] or NULL
-    - ``bpm_candidates_json`` — JSON array string of ``[[bpm, weight], ...]``
-
-    BUG-R3 fix preserved: NULL ``bpm_confidence`` → ``reliability = 0.0`` →
-    neutral score 0.5 (same as the v6 path fix at lines 87-90).
-
-    Args:
-        sonara_row: Dict from the v7 ``sonara`` table, or ``None`` when no row
-            exists for the track.
-        tag_bpm: BPM from the file tag (Mutagen), or ``None``.
-
-    Returns:
-        A :class:`TempoEvidence` instance.
+    A NULL SONARA confidence deliberately has zero reliability. It keeps the
+    detected BPM as evidence, does not promote the tag BPM, and therefore
+    yields the neutral 0.5 score in confidence-aware comparisons.
     """
-    import json as _json
 
     if sonara_row is None:
         fallback = _valid_bpm(tag_bpm)
@@ -347,7 +246,7 @@ def resolve_tempo_evidence_v7(
     candidate_bpms: tuple[float, ...] = ()
     if isinstance(raw_candidates, str):
         try:
-            parsed = _json.loads(raw_candidates)
+            parsed = json.loads(raw_candidates)
         except (ValueError, TypeError):
             parsed = None
         candidate_bpms = _candidate_bpms(parsed)
@@ -392,7 +291,10 @@ def resolve_tempo_evidence_v7(
         pass
     elif clean_tag_bpm is not None:
         sonara_options = (sonara_bpm, *candidate_bpms)
-        if any(best_tempo_distance(clean_tag_bpm, option) <= TAG_CANDIDATE_TOLERANCE_BPM for option in sonara_options):
+        if any(
+            best_tempo_distance(clean_tag_bpm, option) <= TAG_CANDIDATE_TOLERANCE_BPM
+            for option in sonara_options
+        ):
             selected_bpm = clean_tag_bpm
             source = "tag_confirmed_by_sonara_candidate"
             alternatives = _ordered_unique_bpms((*alternatives, clean_tag_bpm))
@@ -405,3 +307,13 @@ def resolve_tempo_evidence_v7(
         reliability=_clamp01(reliability),
         source=source,
     )
+
+
+def _finite_float(value: object) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None

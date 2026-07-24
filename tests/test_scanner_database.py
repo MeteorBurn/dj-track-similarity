@@ -1,422 +1,32 @@
-from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
-import json
-import math
-import sqlite3
+from __future__ import annotations
 
-import numpy as np
+import json
+from pathlib import Path
+
 import pytest
 
 import dj_track_similarity.scanner as scanner
-from dj_track_similarity.db_schema import CURRENT_SCHEMA_VERSION
+from dj_track_similarity.analysis_model_runners import (
+    current_embedding_analysis_output,
+)
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.db_tracks import canonical_file_path
 from dj_track_similarity.scanner import read_audio_metadata, scan_library
-from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature
-from dj_track_similarity.sonara_features import sonara_analysis_signatures_for_outputs
 
 
-def test_database_uses_wal_and_busy_timeout_for_concurrent_jobs(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-
-    with db.connect() as connection:
-        journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
-        busy_timeout = connection.execute("PRAGMA busy_timeout").fetchone()[0]
-        synchronous = connection.execute("PRAGMA synchronous").fetchone()[0]
-        temp_store = connection.execute("PRAGMA temp_store").fetchone()[0]
-
-    assert str(journal_mode).lower() == "wal"
-    assert busy_timeout >= 30_000
-    assert synchronous == 1
-    assert temp_store == 2
+def _scanned_state(database: LibraryDatabase, path: Path):
+    state = database.get_track_file_state(path)
+    assert state is not None
+    return state
 
 
-def test_new_database_uses_current_schema_version_and_indexes(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-
-    with db.connect() as connection:
-        version = connection.execute("PRAGMA user_version").fetchone()[0]
-        tables = {row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-        track_columns = {row["name"] for row in connection.execute("PRAGMA table_info(tracks)").fetchall()}
-        track_indexes = {row["name"] for row in connection.execute("PRAGMA index_list(tracks)").fetchall()}
-        embedding_indexes = {
-            row["name"]
-            for row in connection.execute("PRAGMA index_list(embeddings)").fetchall()
-        }
-
-    assert version == CURRENT_SCHEMA_VERSION
-    assert "library_settings" in tables
-    assert "track_search_fts" in tables
-    assert {
-        "idx_tracks_sort_artist_title_path",
-        "idx_tracks_syncopated_sort",
-        "idx_tracks_missing_sonara_flag_sort",
-        "idx_tracks_missing_maest_embedding_flag_sort",
-        "idx_tracks_missing_mert_embedding_flag_sort",
-        "idx_tracks_missing_muq_embedding_flag_sort",
-        "idx_tracks_missing_clap_embedding_flag_sort",
-        "idx_tracks_present_sonara_flag",
-        "idx_tracks_present_maest_embedding_flag",
-        "idx_tracks_present_mert_embedding_flag",
-        "idx_tracks_present_muq_embedding_flag",
-        "idx_tracks_present_clap_embedding_flag",
-    }.issubset(track_indexes)
-    assert {
-        "has_sonara_analysis",
-        "has_maest_embedding",
-        "has_mert_embedding",
-        "has_muq_embedding",
-        "has_clap_embedding",
-    }.issubset(track_columns)
-    assert not {
-        "idx_tracks_sonara_present",
-        "idx_tracks_maest_present",
-        "idx_tracks_sonara_missing_sort",
-        "idx_tracks_maest_missing_sort",
-    }.intersection(track_indexes)
-    assert "idx_embeddings_key_track" in embedding_indexes
-    assert db.timeline_path == tmp_path / "library.timeline.sqlite"
-    assert db.representations_path == tmp_path / "library.representations.sqlite"
-    assert db.timeline_path.is_file()
-    assert db.representations_path.is_file()
+def _mert_output():
+    return current_embedding_analysis_output("mert")
 
 
-def test_existing_v4_database_is_rejected_instead_of_adapted(tmp_path: Path) -> None:
-    db_path = tmp_path / "library.sqlite"
-    with sqlite3.connect(db_path) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE tracks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                path TEXT NOT NULL UNIQUE,
-                size INTEGER NOT NULL,
-                mtime REAL NOT NULL,
-                artist TEXT,
-                title TEXT,
-                album TEXT,
-                bpm REAL,
-                musical_key TEXT,
-                energy REAL,
-                duration REAL,
-                has_sonara_analysis INTEGER NOT NULL DEFAULT 0,
-                has_maest_embedding INTEGER NOT NULL DEFAULT 0,
-                has_mert_embedding INTEGER NOT NULL DEFAULT 0,
-                has_clap_embedding INTEGER NOT NULL DEFAULT 0,
-                metadata_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata_json)),
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE embeddings (
-                track_id INTEGER NOT NULL,
-                embedding_key TEXT NOT NULL DEFAULT 'mert',
-                model_name TEXT NOT NULL,
-                dim INTEGER NOT NULL,
-                vector BLOB NOT NULL,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY(track_id, embedding_key)
-            );
-            INSERT INTO tracks (path, size, mtime, title, metadata_json)
-            VALUES ('muq.wav', 10, 1, 'MuQ', '{}'), ('mert.wav', 10, 1, 'MERT', '{}');
-            INSERT INTO embeddings (track_id, embedding_key, model_name, dim, vector)
-            VALUES (1, 'muq', 'muq-test', 2, X'0000'), (2, 'mert', 'mert-test', 2, X'0000');
-            CREATE TABLE library_settings (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE VIRTUAL TABLE track_search_fts USING fts5(
-                track_id UNINDEXED,
-                search_text,
-                tokenize = 'unicode61'
-            );
-            CREATE TABLE search_sessions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                mode TEXT NOT NULL,
-                seed_track_ids_json TEXT NOT NULL CHECK(json_valid(seed_track_ids_json)),
-                request_json TEXT NOT NULL CHECK(json_valid(request_json)),
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE search_result_events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id INTEGER NOT NULL REFERENCES search_sessions(id) ON DELETE CASCADE,
-                track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
-                rank INTEGER NOT NULL,
-                total_score REAL NOT NULL,
-                score_breakdown_json TEXT NOT NULL CHECK(json_valid(score_breakdown_json)),
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE track_pair_feedback (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                seed_track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
-                candidate_track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
-                rating INTEGER NOT NULL CHECK(rating BETWEEN 0 AND 3),
-                reason_tags_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(reason_tags_json)),
-                notes TEXT,
-                source TEXT NOT NULL DEFAULT 'manual',
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(seed_track_id, candidate_track_id, source)
-            );
-            CREATE TABLE transition_feedback (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                outgoing_track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
-                incoming_track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
-                rating INTEGER NOT NULL CHECK(rating BETWEEN 0 AND 3),
-                risk_tags_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(risk_tags_json)),
-                notes TEXT,
-                source TEXT NOT NULL DEFAULT 'manual',
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE calibration_runs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                profile_name TEXT NOT NULL,
-                search_mode TEXT NOT NULL,
-                config_json TEXT NOT NULL CHECK(json_valid(config_json)),
-                metrics_json TEXT NOT NULL CHECK(json_valid(metrics_json)),
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-            PRAGMA user_version = 4;
-            """
-        )
-
-    with pytest.raises(RuntimeError, match="schema is not current"):
-        LibraryDatabase(db_path)
-
-    with sqlite3.connect(db_path) as connection:
-        version = connection.execute("PRAGMA user_version").fetchone()[0]
-        track_columns = {row[1] for row in connection.execute("PRAGMA table_info(tracks)").fetchall()}
-        paths = connection.execute("SELECT path FROM tracks ORDER BY id").fetchall()
-
-    assert version == 4
-    assert "has_muq_embedding" not in track_columns
-    assert paths == [("muq.wav",), ("mert.wav",)]
-
-
-def test_v5_migration_preserves_ml_data_and_invalidates_only_old_sonara_analysis(tmp_path: Path) -> None:
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    track_id = db.upsert_track(
-        path=tmp_path / "track.wav",
-        size=10,
-        mtime=1,
-        metadata={"title": "Track", "bpm": 120, "initialkey": "A minor", "duration": 90},
-    )
-    with sqlite3.connect(db_path) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE sonara_curves (
-                track_id INTEGER PRIMARY KEY,
-                payload_json TEXT NOT NULL
-            );
-            """
-        )
-        connection.executemany(
-            """
-            INSERT INTO embeddings (track_id, embedding_key, model_name, dim, vector)
-            VALUES (?, ?, ?, 1, ?)
-            """,
-            [
-                (track_id, embedding_key, f"{embedding_key}-old", np.asarray([1.0], dtype=np.float32).tobytes())
-                for embedding_key in ("maest", "mert", "muq", "clap")
-            ],
-        )
-        connection.execute(
-            "INSERT INTO sonara_curves (track_id, payload_json) VALUES (?, '{}')",
-            (track_id,),
-        )
-        connection.execute(
-            """
-            UPDATE tracks
-            SET bpm = 128,
-                musical_key = 'F major',
-                energy = 0.8,
-                duration = 100,
-                has_sonara_analysis = 1,
-                has_maest_embedding = 1,
-                has_mert_embedding = 1,
-                has_muq_embedding = 1,
-                has_clap_embedding = 1,
-                metadata_json = json_set(
-                    metadata_json,
-                    '$.sonara_features', json('{"bpm":{"value":128}}'),
-                    '$.sonara_model', 'old-sonara',
-                    '$.maest_genres', json('[{"label":"Techno","score":0.9}]')
-                )
-            WHERE id = ?
-            """,
-            (track_id,),
-        )
-        connection.execute(
-            """
-            INSERT INTO track_classifier_scores (
-                track_id, classifier, score, label, confidence, probabilities_json, feature_set, model_id
-            ) VALUES (?, 'old', 0.9, 'high', 0.9, '{}', 'combined', 'old-model')
-            """,
-            (track_id,),
-        )
-        connection.execute(
-            """
-            INSERT INTO track_classifier_scores (
-                track_id, classifier, score, label, confidence, probabilities_json, feature_set, model_id
-            ) VALUES (?, 'vector-only', 0.8, 'high', 0.8, '{}', 'mert+clap', 'vector-model')
-            """,
-            (track_id,),
-        )
-        connection.execute("PRAGMA user_version = 5")
-
-    migrated = LibraryDatabase(db_path)
-    track = migrated.get_track(track_id)
-    with migrated.connect() as connection:
-        version = connection.execute("PRAGMA user_version").fetchone()[0]
-        main_tables = {
-            row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
-        }
-        flags = connection.execute(
-            """
-            SELECT has_sonara_analysis, has_maest_embedding, has_mert_embedding,
-                   has_muq_embedding, has_clap_embedding
-            FROM tracks WHERE id = ?
-            """,
-            (track_id,),
-        ).fetchone()
-        score_rows = connection.execute(
-            "SELECT classifier, feature_set FROM track_classifier_scores ORDER BY classifier"
-        ).fetchall()
-        embedding_keys = [
-            row[0]
-            for row in connection.execute(
-                "SELECT embedding_key FROM embeddings WHERE track_id = ? ORDER BY embedding_key",
-                (track_id,),
-            ).fetchall()
-        ]
-        sonara_representation_count = connection.execute(
-            "SELECT COUNT(*) FROM representations.embeddings WHERE track_id = ?",
-            (track_id,),
-        ).fetchone()[0]
-
-    assert version == CURRENT_SCHEMA_VERSION
-    assert "embeddings" in main_tables
-    assert "sonara_curves" not in main_tables
-    assert tuple(flags) == (0, 1, 1, 1, 1)
-    assert [tuple(row) for row in score_rows] == [("vector-only", "mert+clap")]
-    assert embedding_keys == ["clap", "maest", "mert", "muq"]
-    assert sonara_representation_count == 0
-    assert track.bpm == 120
-    assert track.musical_key == "A minor"
-    assert track.energy is None
-    assert track.duration == 90
-    assert "sonara_features" not in track.metadata
-    assert track.metadata["maest_genres"] == [{"label": "Techno", "score": 0.9}]
-    assert migrated.timeline_path.is_file()
-    assert migrated.representations_path.is_file()
-
-
-def test_track_search_fts_mode_is_explicit_token_search(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    substring_id = db.upsert_track(
-        path=tmp_path / "substring.wav",
-        size=10,
-        mtime=1,
-        metadata={"artist": "DJ One", "title": "AlphaBeta"},
-    )
-    token_id = db.upsert_track(
-        path=tmp_path / "token.wav",
-        size=10,
-        mtime=1,
-        metadata={"artist": "DJ Two", "title": "Deep House"},
-    )
-
-    like_page = db.list_tracks_page(query="phaB")
-    fts_substring_page = db.list_tracks_page(query="phaB", search_mode="fts")
-    fts_token_page = db.list_tracks_page(query="deep house", search_mode="fts")
-
-    assert [track.id for track in like_page["items"]] == [substring_id]
-    assert fts_substring_page["total"] == 0
-    assert [track.id for track in fts_token_page["items"]] == [token_id]
-
-
-def test_database_persists_library_root_setting(tmp_path: Path) -> None:
-    db_path = tmp_path / "library.sqlite"
-    music_root = tmp_path / "music"
-    music_root.mkdir()
-    db = LibraryDatabase(db_path)
-
-    assert db.get_library_root() is None
-    db.set_library_root(music_root)
-
-    assert db.get_library_root() == music_root.as_posix()
-    assert LibraryDatabase(db_path).get_library_root() == music_root.as_posix()
-
-
-def test_database_instances_for_same_file_share_write_lock(tmp_path: Path) -> None:
-    db_path = tmp_path / "library.sqlite"
-    first = LibraryDatabase(db_path)
-    second = LibraryDatabase(db_path)
-
-    assert first._write_lock is second._write_lock
-
-
-def test_database_serializes_parallel_sonara_feature_writes(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_ids = [
-        db.upsert_track(path=tmp_path / f"track-{index}.wav", size=10, mtime=1, metadata={"title": f"Track {index}"})
-        for index in range(16)
-    ]
-
-    def save(track_id: int) -> None:
-        db.save_sonara_features(
-            track_id,
-            {"bpm": {"value": 120 + track_id}},
-            bpm=120 + track_id,
-            model_name="sonara-test",
-        )
-
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        list(executor.map(save, track_ids))
-
-    tracks = db.list_tracks()
-    assert len(tracks) == len(track_ids)
-    assert all(track.metadata["sonara_model"] == "sonara-test" for track in tracks)
-
-
-def test_database_serializes_mixed_parallel_analysis_writes_across_instances(tmp_path: Path) -> None:
-    import numpy as np
-
-    db_path = tmp_path / "library.sqlite"
-    setup_db = LibraryDatabase(db_path)
-    sonara_id = setup_db.upsert_track(path=tmp_path / "sonara.wav", size=10, mtime=1, metadata={"title": "Sonara"})
-    maest_id = setup_db.upsert_track(path=tmp_path / "maest.wav", size=10, mtime=1, metadata={"title": "Maest"})
-    mert_id = setup_db.upsert_track(path=tmp_path / "mert.wav", size=10, mtime=1, metadata={"title": "Mert"})
-
-    def save_sonara() -> None:
-        LibraryDatabase(db_path).save_sonara_features(
-            sonara_id,
-            {"energy": {"value": 0.7}},
-            energy=0.7,
-            model_name="sonara-test",
-        )
-
-    def save_genres() -> None:
-        LibraryDatabase(db_path).save_genres(maest_id, [{"label": "Techno", "score": 0.9}], model_name="maest-test")
-
-    def save_embedding() -> None:
-        LibraryDatabase(db_path).save_embedding(
-            mert_id,
-            np.array([1, 0, 0], dtype=np.float32),
-            "mert-test",
-            3,
-            embedding_key="mert",
-        )
-
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        list(executor.map(lambda action: action(), [save_sonara, save_genres, save_embedding]))
-
-    tracks = {Path(track.path).name: track for track in LibraryDatabase(db_path).list_tracks()}
-    assert tracks["sonara.wav"].metadata["sonara_model"] == "sonara-test"
-    assert tracks["maest.wav"].metadata["maest_model"] == "maest-test"
-    assert tracks["mert.wav"].analyses == ["mert"]
-
-
-def test_scan_library_indexes_supported_audio_files_and_skips_unchanged(tmp_path: Path) -> None:
+def test_scan_library_indexes_supported_audio_files_and_skips_unchanged(
+    tmp_path: Path,
+) -> None:
     music_root = tmp_path / "music"
     music_root.mkdir()
     first = music_root / "Artist - Track.mp3"
@@ -426,38 +36,48 @@ def test_scan_library_indexes_supported_audio_files_and_skips_unchanged(tmp_path
     second.write_bytes(b"RIFF0000WAVE")
     ignored.write_text("skip me", encoding="utf-8")
 
-    db = LibraryDatabase(tmp_path / "library.sqlite")
+    database = LibraryDatabase(tmp_path / "library.sqlite")
 
-    first_stats = scan_library(db, music_root)
-    second_stats = scan_library(db, music_root)
+    first_scan = scan_library(database, music_root)
+    second_scan = scan_library(database, music_root)
 
-    tracks = db.list_tracks()
-    assert first_stats.added == 2
-    assert first_stats.updated == 0
-    assert first_stats.unchanged == 0
-    assert second_stats.added == 0
-    assert second_stats.updated == 0
-    assert second_stats.unchanged == 2
-    assert {Path(track.path).name for track in tracks} == {"Artist - Track.mp3", "ambient.wav"}
-    assert all(track.size > 0 for track in tracks)
+    assert first_scan.added == 2
+    assert first_scan.updated == 0
+    assert first_scan.unchanged == 0
+    assert second_scan.added == 0
+    assert second_scan.updated == 0
+    assert second_scan.unchanged == 2
+    states = database.list_track_paths()
+    assert {item.file_path for item in states} == {
+        canonical_file_path(first),
+        canonical_file_path(second),
+    }
+    assert all(Path(item.file_path).stat().st_size > 0 for item in states)
 
 
-def test_scan_library_skips_appledouble_resource_fork_audio_names(tmp_path: Path) -> None:
+def test_scan_library_skips_appledouble_resource_fork_audio_names(
+    tmp_path: Path,
+) -> None:
     music_root = tmp_path / "music"
     music_root.mkdir()
     audio = music_root / "01. Lampetee.aiff"
     resource_fork = music_root / "._01. Lampetee.aiff"
     audio.write_bytes(b"FORM\x00\x00\x00\x04AIFF")
     resource_fork.write_bytes(b"not an audio stream")
-    db = LibraryDatabase(tmp_path / "library.sqlite")
+    database = LibraryDatabase(tmp_path / "library.sqlite")
 
-    stats = scan_library(db, music_root)
+    stats = scan_library(database, music_root)
 
     assert stats.added == 1
-    assert [Path(track.path).name for track in db.list_tracks()] == ["01. Lampetee.aiff"]
+    assert [item.file_path for item in database.list_track_paths()] == [
+        canonical_file_path(audio)
+    ]
 
 
-def test_read_audio_metadata_skips_tag_keys_that_mutagen_rejects(monkeypatch, tmp_path: Path) -> None:
+def test_read_audio_metadata_skips_tag_keys_that_mutagen_rejects(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     class RejectingTags(dict):
         def __contains__(self, key: object) -> bool:
             if key == "\xa9ART":
@@ -476,7 +96,10 @@ def test_read_audio_metadata_skips_tag_keys_that_mutagen_rejects(monkeypatch, tm
     assert "artist" not in metadata
 
 
-def test_read_audio_metadata_uses_fixed_tag_whitelist(monkeypatch, tmp_path: Path) -> None:
+def test_read_audio_metadata_uses_fixed_tag_whitelist(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     class FakeInfo:
         length = 123.4
         codec = "FLAC"
@@ -515,7 +138,10 @@ def test_read_audio_metadata_uses_fixed_tag_whitelist(monkeypatch, tmp_path: Pat
     }
 
 
-def test_read_audio_metadata_converts_mutagen_objects_to_json_safe_values(monkeypatch, tmp_path: Path) -> None:
+def test_read_audio_metadata_converts_mutagen_objects_to_json_safe_values(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     class FakeTimestamp:
         def __str__(self) -> str:
             return "2025-04-01"
@@ -539,814 +165,146 @@ def test_read_audio_metadata_converts_mutagen_objects_to_json_safe_values(monkey
     assert json.dumps(metadata)
 
 
-def test_database_stores_multiple_embedding_spaces_per_track(tmp_path: Path) -> None:
-    import numpy as np
-
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_id = db.upsert_track(path=tmp_path / "track.wav", size=10, mtime=1, metadata={"title": "Track"})
-
-    db.save_embedding(track_id, np.array([1, 0, 0], dtype=np.float32), "mert-model", 3, embedding_key="mert")
-    db.save_embedding(track_id, np.array([0, 0, 1], dtype=np.float32), "muq-model", 3, embedding_key="muq")
-    db.save_embedding(track_id, np.array([0, 1, 0], dtype=np.float32), "clap-model", 3, embedding_key="clap")
-
-    mert_tracks, mert_matrix = db.load_embedding_matrix("mert")
-    muq_tracks, muq_matrix = db.load_embedding_matrix("muq")
-    clap_tracks, clap_matrix = db.load_embedding_matrix("clap")
-
-    assert [track.id for track in mert_tracks] == [track_id]
-    assert [track.id for track in muq_tracks] == [track_id]
-    assert [track.id for track in clap_tracks] == [track_id]
-    assert mert_tracks[0].embedding_model == "mert-model"
-    assert muq_tracks[0].embedding_model == "muq-model"
-    assert clap_tracks[0].embedding_model == "clap-model"
-    assert mert_matrix.shape == (1, 3)
-    assert muq_matrix.shape == (1, 3)
-    assert clap_matrix.shape == (1, 3)
-
-    track = db.get_track(track_id)
-    with db.connect() as connection:
-        main_keys = [
-            row["embedding_key"]
-            for row in connection.execute("SELECT embedding_key FROM embeddings ORDER BY embedding_key").fetchall()
-        ]
-        sonara_representation_count = connection.execute(
-            "SELECT COUNT(*) FROM representations.embeddings"
-        ).fetchone()[0]
-        with pytest.raises(sqlite3.IntegrityError):
-            connection.execute(
-                """
-                INSERT INTO representations.embeddings (track_id, embedding_key, model_name, dim, vector)
-                VALUES (?, 'mert', 'wrong-store', 1, ?)
-                """,
-                (track_id, np.asarray([1.0], dtype=np.float32).tobytes()),
-            )
-
-    assert track.analyses == ["mert", "muq", "clap"]
-    assert main_keys == ["clap", "mert", "muq"]
-    assert sonara_representation_count == 0
-
-
-def test_database_keeps_embedding_matrix_cache_when_unembedded_track_changes(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    embedded_id = db.upsert_track(path=tmp_path / "embedded.wav", size=10, mtime=1, metadata={"title": "Embedded"})
-    plain_id = db.upsert_track(path=tmp_path / "plain.wav", size=10, mtime=1, metadata={"title": "Plain"})
-    db.save_embedding(embedded_id, np.array([1, 0, 0], dtype=np.float32), "mert-model", 3, embedding_key="mert")
-
-    cached = db.load_embedding_matrix("mert")
-    db.set_track_liked(plain_id, True)
-    db.upsert_track(path=tmp_path / "new.wav", size=10, mtime=1, metadata={"title": "New"})
-
-    assert db.load_embedding_matrix("mert") is cached
-
-
-def test_database_invalidates_only_changed_track_embedding_keys(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    mert_id = db.upsert_track(path=tmp_path / "mert.wav", size=10, mtime=1, metadata={"title": "Mert"})
-    clap_id = db.upsert_track(path=tmp_path / "clap.wav", size=10, mtime=1, metadata={"title": "Clap"})
-    db.save_embedding(mert_id, np.array([1, 0, 0], dtype=np.float32), "mert-model", 3, embedding_key="mert")
-    db.save_embedding(clap_id, np.array([0, 1, 0], dtype=np.float32), "clap-model", 3, embedding_key="clap")
-
-    db.load_embedding_matrix("mert")
-    cached_clap = db.load_embedding_matrix("clap")
-    db.save_sonara_features(mert_id, {"energy": {"value": 0.8}}, energy=0.8, model_name="sonara")
-
-    assert ("mert", False) not in db._embedding_matrix_cache
-    assert ("mert", True) not in db._embedding_matrix_cache
-    assert db.load_embedding_matrix("clap") is cached_clap
-
-
-def test_database_resets_embedding_analysis_independently(tmp_path: Path) -> None:
-    import numpy as np
-
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_id = db.upsert_track(path=tmp_path / "track.wav", size=10, mtime=1, metadata={"title": "Track"})
-    db.save_embedding(track_id, np.array([1, 0, 0], dtype=np.float32), "mert-model", 3, embedding_key="mert")
-    db.save_embedding(track_id, np.array([0, 0, 1], dtype=np.float32), "muq-model", 3, embedding_key="muq")
-    db.save_embedding(track_id, np.array([0, 1, 0], dtype=np.float32), "clap-model", 3, embedding_key="clap")
-
-    result = db.reset_analysis("muq")
-
-    assert result == {"adapter": "muq", "tracks_updated": 0, "embeddings_deleted": 1}
-    assert [track.id for track in db.load_embedding_matrix("mert")[0]] == [track_id]
-    assert db.load_embedding_matrix("muq")[0] == []
-    assert [track.id for track in db.load_embedding_matrix("clap")[0]] == [track_id]
-    assert db.get_track(track_id).analyses == ["mert", "clap"]
-
-
-def test_database_maintains_analysis_presence_flags(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_id = db.upsert_track(path=tmp_path / "track.wav", size=10, mtime=1, metadata={"title": "Track"})
-
-    assert _analysis_flag_row(db, track_id) == {
-        "has_sonara_analysis": 0,
-        "has_maest_embedding": 0,
-        "has_mert_embedding": 0,
-        "has_muq_embedding": 0,
-        "has_clap_embedding": 0,
-    }
-
-    db.save_sonara_features(track_id, {"bpm": {"value": 128}}, model_name="sonara")
-    db.save_embedding(track_id, np.asarray([1.0, 0.0], dtype=np.float32), "maest", embedding_key="maest")
-    db.save_embedding(track_id, np.asarray([0.0, 1.0], dtype=np.float32), "mert", embedding_key="mert")
-    db.save_embedding(track_id, np.asarray([1.0, 0.0], dtype=np.float32), "muq", embedding_key="muq")
-    db.save_embedding(track_id, np.asarray([1.0, 1.0], dtype=np.float32), "clap", embedding_key="clap")
-
-    assert _analysis_flag_row(db, track_id) == {
-        "has_sonara_analysis": 1,
-        "has_maest_embedding": 1,
-        "has_mert_embedding": 1,
-        "has_muq_embedding": 1,
-        "has_clap_embedding": 1,
-    }
-
-    db.reset_analysis("mert")
-    db.reset_analysis("muq")
-    db.reset_analysis("sonara")
-    db.reset_analysis("maest")
-
-    assert _analysis_flag_row(db, track_id) == {
-        "has_sonara_analysis": 0,
-        "has_maest_embedding": 0,
-        "has_mert_embedding": 0,
-        "has_muq_embedding": 0,
-        "has_clap_embedding": 1,
-    }
-
-
-def test_database_lists_lean_analysis_candidates_with_missing_models(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    missing_mert = db.upsert_track(path=tmp_path / "a-missing-mert.wav", size=10, mtime=1, metadata={"title": "A"})
-    missing_sonara = db.upsert_track(path=tmp_path / "b-missing-sonara.wav", size=10, mtime=1, metadata={"title": "B"})
-    complete = db.upsert_track(path=tmp_path / "c-complete.wav", size=10, mtime=1, metadata={"title": "C"})
-    missing_unselected = db.upsert_track(path=tmp_path / "d-missing-clap.wav", size=10, mtime=1, metadata={"title": "D"})
-
-    core_signature = sonara_analysis_signatures_for_outputs(["core"])["core"]
-    db.save_sonara_features(
-        missing_mert,
-        {"bpm": {"value": 128.0}},
-        model_name="sonara",
-        analysis_signature=core_signature,
-    )
-    db.save_embedding(missing_sonara, np.asarray([1.0, 0.0], dtype=np.float32), "mert", embedding_key="mert")
-    for track_id in (complete, missing_unselected):
-        db.save_sonara_features(
-            track_id,
-            {"bpm": {"value": 128.0}},
-            model_name="sonara",
-            analysis_signature=core_signature,
-        )
-        db.save_embedding(track_id, np.asarray([1.0, 0.0], dtype=np.float32), "mert", embedding_key="mert")
-
-    candidates = db.list_analysis_candidates(["sonara", "mert"], limit=10)
-
-    assert [(candidate.id, candidate.missing_models, candidate.analyses) for candidate in candidates] == [
-        (missing_mert, ("mert",), ("sonara",)),
-        (missing_sonara, ("sonara",), ("mert",)),
-    ]
-
-
-def test_database_lists_muq_analysis_candidates_from_muq_flag(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    missing_muq = db.upsert_track(path=tmp_path / "a-missing-muq.wav", size=10, mtime=1, metadata={"title": "A"})
-    present_muq = db.upsert_track(path=tmp_path / "b-present-muq.wav", size=10, mtime=1, metadata={"title": "B"})
-    db.save_embedding(present_muq, np.asarray([1.0, 0.0], dtype=np.float32), "muq", embedding_key="muq")
-
-    candidates = db.list_analysis_candidates(["muq"], limit=10)
-
-    assert [(candidate.id, candidate.missing_models, candidate.analyses) for candidate in candidates] == [
-        (missing_muq, ("muq",), ()),
-    ]
-
-
-def test_database_lists_analysis_candidates_with_one_read_connection(tmp_path: Path) -> None:
-    class CountingDatabase(LibraryDatabase):
-        connect_calls = 0
-
-        def connect(self):
-            self.connect_calls += 1
-            return super().connect()
-
-    db = CountingDatabase(tmp_path / "library.sqlite")
-    db.upsert_track(path=tmp_path / "a-missing-mert.wav", size=10, mtime=1, metadata={"title": "A"})
-    db.upsert_track(path=tmp_path / "b-missing-sonara.wav", size=10, mtime=1, metadata={"title": "B"})
-    db.connect_calls = 0
-
-    candidates = db.list_analysis_candidates(["sonara", "mert"], limit=10)
-
-    assert len(candidates) == 2
-    assert db.connect_calls == 1
-
-
-def test_database_lists_sonara_only_candidates_in_path_order_before_limit(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    created = [
-        (tmp_path / "z-folder" / "track.wav", "A Artist"),
-        (tmp_path / "a-folder" / "track.wav", "Z Artist"),
-        (tmp_path / "m-folder" / "track.wav", "M Artist"),
-    ]
-    stored_paths = []
-    for path, artist in created:
-        track_id = db.upsert_track(path=path, size=10, mtime=1, metadata={"artist": artist, "title": "Track"})
-        stored_paths.append(db.get_track(track_id).path)
-
-    candidates = db.list_analysis_candidates(["sonara"], limit=2)
-
-    assert [candidate.path for candidate in candidates] == sorted(stored_paths)[:2]
-
-
-@pytest.mark.parametrize(
-    ("model", "index_name"),
-    [
-        ("mert", "idx_tracks_missing_mert_embedding_flag_sort"),
-        ("muq", "idx_tracks_missing_muq_embedding_flag_sort"),
-    ],
-)
-def test_database_analysis_candidates_use_presence_flag_indexes(
+def test_analysis_candidates_are_path_ordered_limited_and_skip_missing_tracks(
     tmp_path: Path,
-    monkeypatch,
-    model: str,
-    index_name: str,
 ) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    db.upsert_track(path=tmp_path / f"a-missing-{model}.wav", size=10, mtime=1, metadata={"title": "A"})
-    present_id = db.upsert_track(path=tmp_path / f"b-present-{model}.wav", size=10, mtime=1, metadata={"title": "B"})
-    db.save_embedding(present_id, np.asarray([1.0, 0.0], dtype=np.float32), model, embedding_key=model)
-    statements: list[str] = []
-    original_connect = db.connect
-
-    def traced_connect():
-        connection = original_connect()
-        connection.set_trace_callback(statements.append)
-        return connection
-
-    monkeypatch.setattr(db, "connect", traced_connect)
-
-    candidates = db.list_analysis_candidates([model], limit=10)
-
-    assert [candidate.path for candidate in candidates] == [(tmp_path / f"a-missing-{model}.wav").as_posix()]
-    candidate_sql = next(statement for statement in statements if "SELECT t.id" in statement and f"has_{model}_embedding" in statement)
-    assert "LEFT JOIN embeddings" not in candidate_sql
-    with db.connect() as connection:
-        plan = "\n".join(
-            str(row["detail"])
-            for row in connection.execute(f"EXPLAIN QUERY PLAN {candidate_sql}").fetchall()
-        )
-    assert index_name in plan
-
-
-def test_database_reset_rejects_removed_fake_adapter(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-
-    with pytest.raises(ValueError, match="Unsupported analysis adapter reset: fake"):
-        db.reset_analysis("fake")
-
-
-def test_database_clear_library_removes_tracks_and_embeddings(tmp_path: Path) -> None:
-    import numpy as np
-
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    audio_path = tmp_path / "track.wav"
-    audio_path.write_bytes(b"audio")
-    original_audio = audio_path.read_bytes()
-    track_id = db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": "Track"})
-    db.save_embedding(track_id, np.array([1, 0, 0], dtype=np.float32), "mert-model", 3, embedding_key="mert")
-    db.save_classifier_score(
-        track_id,
-        classifier="break_energy",
-        score=0.9,
-        label="high",
-        confidence=0.9,
-        probabilities={"break_energy": 0.9, "straight_energy": 0.1},
-        feature_set="combined",
-        model_id="model.joblib",
-    )
-
-    result = db.clear_library()
-
-    assert result == {
-        "tracks_deleted": 1,
-        "embeddings_deleted": 1,
-    }
-    assert db.list_tracks() == []
-    assert db.load_embedding_matrix("mert")[0] == []
-    assert audio_path.read_bytes() == original_audio
-
-
-def test_existing_database_with_old_user_version_is_rejected(tmp_path: Path) -> None:
-    db_path = tmp_path / "library.sqlite"
-    with sqlite3.connect(db_path) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE tracks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                path TEXT NOT NULL UNIQUE,
-                size INTEGER NOT NULL,
-                mtime REAL NOT NULL,
-                artist TEXT,
-                title TEXT,
-                album TEXT,
-                bpm REAL,
-                musical_key TEXT,
-                energy REAL,
-                duration REAL,
-                metadata_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata_json)),
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE TABLE embeddings (
-                track_id INTEGER NOT NULL,
-                embedding_key TEXT NOT NULL DEFAULT 'mert',
-                model_name TEXT NOT NULL,
-                dim INTEGER NOT NULL,
-                vector BLOB NOT NULL,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY(track_id, embedding_key),
-                FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
-            );
-            INSERT INTO tracks (path, size, mtime, title, metadata_json)
-            VALUES ('track.wav', 10, 1, 'Track', '{}');
-            """
-        )
-
-    with pytest.raises(RuntimeError, match="schema is not current"):
-        LibraryDatabase(db_path)
-
-
-def test_database_stores_maest_genres_in_track_metadata(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_id = db.upsert_track(
-        path=tmp_path / "track.wav",
-        size=10,
-        mtime=1,
-        metadata={"title": "Track", "artist": "Artist"},
-    )
-
-    db.save_genres(
-        track_id,
-        [{"label": "Electronic---Techno", "score": 0.91}, {"label": "Electronic---Dub_Techno", "score": 0.72}],
-        model_name="discogs-maest-30s-pw-129e-519l",
-    )
-
-    track = db.get_track(track_id)
-    with db.connect() as connection:
-        metadata_json = connection.execute("SELECT metadata_json FROM tracks WHERE id = ?", (track_id,)).fetchone()["metadata_json"]
-    metadata_keys = list(json.loads(metadata_json).keys())
-
-    assert track.metadata["title"] == "Track"
-    assert track.metadata["artist"] == "Artist"
-    assert metadata_keys[-3:] == ["maest_model", "maest_genres", "maest_syncopated_rhythm"]
-    assert track.analyses is None
-    assert track.genres == ["Techno", "Dub Techno"]
-    assert track.genre_scores == {"Techno": 0.91, "Dub Techno": 0.72}
-    assert track.metadata["maest_syncopated_rhythm"] is False
-    assert track.artist == "Artist"
-
-    db.save_embedding(
-        track_id,
-        np.asarray([1.0, 0.0, 0.0], dtype=np.float32),
-        "discogs-maest-30s-pw-129e-519l",
-        embedding_key="maest",
-    )
-    assert db.get_track(track_id).analyses == ["maest"]
-
-
-def test_database_marks_maest_syncopated_rhythm_from_saved_genres(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    breaks_id = db.upsert_track(path=tmp_path / "breaks.wav", size=10, mtime=1, metadata={"title": "Breaks"})
-    house_id = db.upsert_track(path=tmp_path / "house.wav", size=10, mtime=1, metadata={"title": "House"})
-
-    db.save_genres(breaks_id, [{"label": "Electronic---Breakbeat", "score": 0.91}], model_name="maest")
-    db.save_genres(house_id, [{"label": "Electronic---Tech House", "score": 0.82}], model_name="maest")
-
-    assert db.get_track(breaks_id).metadata["maest_syncopated_rhythm"] is True
-    assert db.get_track(house_id).metadata["maest_syncopated_rhythm"] is False
-
-
-def test_database_stores_metadata_json_without_non_finite_numbers(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_id = db.upsert_track(
-        path=tmp_path / "track.wav",
-        size=10,
-        mtime=1,
-        metadata={"title": "Track", "tag_confidence": math.nan},
-    )
-    db.save_genres(track_id, [{"label": "Breakbeat", "score": math.nan}], model_name="maest")
-    db.save_sonara_features(track_id, {"energy": {"value": math.inf}}, energy=math.inf, model_name="sonara")
-
-    with db.connect() as connection:
-        row = connection.execute(
-            "SELECT metadata_json, json_valid(metadata_json) AS valid FROM tracks WHERE id = ?",
-            (track_id,),
-        ).fetchone()
-
-    assert row["valid"] == 1
-    metadata = json.loads(row["metadata_json"])
-    assert metadata["tag_confidence"] is None
-    assert metadata["maest_genres"][0]["score"] == 0.0
-    assert metadata["sonara_features"]["energy"]["value"] is None
-    assert db.get_track(track_id).energy is None
-
-
-def test_database_rejects_non_finite_embedding_vectors(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_id = db.upsert_track(path=tmp_path / "track.wav", size=10, mtime=1, metadata={"title": "Track"})
-
-    for vector in (
-        np.asarray([1.0, np.nan, 0.0], dtype=np.float32),
-        np.asarray([1.0, np.inf, 0.0], dtype=np.float32),
-        np.asarray([1.0, -np.inf, 0.0], dtype=np.float32),
-    ):
-        with pytest.raises(ValueError, match="finite"):
-            db.save_embedding(track_id, vector, "mert-test", embedding_key="mert")
-
-    assert db.load_embedding_matrix("mert")[0] == []
-
-
-def test_database_resets_metadata_backed_analyses(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    audio_path = tmp_path / "track.wav"
-    audio_path.write_bytes(b"audio")
-    original_audio = audio_path.read_bytes()
-    track_id = db.upsert_track(
-        path=audio_path,
-        size=10,
-        mtime=1,
-        metadata={"title": "Track", "bpm": 120, "initialkey": "A minor", "duration": 90},
-    )
-    db.save_genres(track_id, [{"label": "Techno", "score": 0.91}], model_name="maest")
-    db.save_embedding(
-        track_id,
-        np.asarray([1.0, 0.0, 0.0], dtype=np.float32),
-        "maest",
-        embedding_key="maest",
-    )
-    db.save_sonara_features(
-        track_id,
-        {"bpm": {"value": 128}},
-        bpm=128,
-        musical_key="F major",
-        energy=0.8,
-        duration=100,
-        model_name="sonara",
-        analysis_signature=expected_sonara_analysis_signature([]),
-    )
-
-    sonara_result = db.reset_analysis("sonara")
-    after_sonara = db.get_track(track_id)
-    maest_result = db.reset_analysis("maest")
-    after_maest = db.get_track(track_id)
-
-    assert sonara_result["tracks_updated"] == 1
-    assert maest_result["embeddings_deleted"] == 1
-    assert after_sonara.bpm == 120
-    assert after_sonara.musical_key == "A minor"
-    assert after_sonara.energy is None
-    assert after_sonara.duration == 90
-    assert "sonara_features" not in after_sonara.metadata
-    assert after_sonara.analyses == ["maest"]
-    assert maest_result["tracks_updated"] == 1
-    assert "maest_genres" not in after_maest.metadata
-    assert db.load_embedding_matrix("maest")[0] == []
-    assert "maest_syncopated_rhythm" not in after_maest.metadata
-    assert after_maest.analyses is None
-    assert audio_path.read_bytes() == original_audio
-
-
-def test_database_does_not_enrich_existing_sonara_key_with_camelot_on_read(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_id = db.upsert_track(
-        path=tmp_path / "track.wav",
-        size=10,
-        mtime=1,
-        metadata={
-            "title": "Track",
-            "sonara_features": {
-                "bpm": {"value": 128, "type": "float"},
-                "key": {"value": "F major", "type": "str"},
-            },
-            "sonara_model": "sonara-playlist-lab",
-        },
-        bpm=128,
-        musical_key="F major",
-    )
-
-    track = db.get_track(track_id)
-
-    assert track.musical_key == "F major"
-    assert "camelot_key" not in track.metadata["sonara_features"]
-
-
-def test_file_change_clears_analysis(tmp_path: Path) -> None:
-    """BUG-C3: when size/mtime changes during scan, analysis rows must be deleted."""
     music_root = tmp_path / "music"
-    music_root.mkdir()
-    audio_path = music_root / "track.wav"
-    audio_path.write_bytes(b"RIFF\x00\x00\x00\x00WAVE")
+    first = music_root / "Zeta.wav"
+    second = music_root / "alpha.wav"
+    first.parent.mkdir()
+    first.write_bytes(b"zeta")
+    second.write_bytes(b"alpha")
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    assert scan_library(database, music_root).added == 2
 
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    scan_library(db, music_root)
-    track_id = db.get_track_by_path(audio_path).id
+    output = _mert_output()
+    database.register_analysis_outputs((output,))
 
-    # Add analysis data: embedding, classifier score, sonara features
-    db.save_embedding(track_id, np.asarray([1.0, 0.0], dtype=np.float32), "mert-test", embedding_key="mert")
-    db.save_embedding(track_id, np.asarray([0.0, 1.0], dtype=np.float32), "clap-test", embedding_key="clap")
-    db.save_classifier_score(
-        track_id,
-        classifier="test-classifier",
-        score=0.9,
-        label="high",
-        confidence=0.9,
-        probabilities={"high": 0.9, "low": 0.1},
-        feature_set="mert",
-        model_id="test-model",
-    )
-    db.save_sonara_features(
-        track_id,
-        {"bpm": {"value": 128}},
-        bpm=128,
-        musical_key="F major",
-        energy=0.8,
-        duration=100,
-        model_name="sonara",
-        analysis_signature=expected_sonara_analysis_signature([]),
-    )
-    # Add a like — must be preserved
-    db.set_track_liked(track_id, True)
+    limited = database.list_analysis_candidates((output,), limit=1)
+    assert [candidate.file_path for candidate in limited] == [
+        canonical_file_path(second)
+    ]
 
-    # Verify analysis is present before the file change
-    with db.connect() as connection:
-        emb_count_before = connection.execute(
-            "SELECT COUNT(*) FROM embeddings WHERE track_id = ?", (track_id,)
-        ).fetchone()[0]
-        cls_count_before = connection.execute(
-            "SELECT COUNT(*) FROM track_classifier_scores WHERE track_id = ?", (track_id,)
-        ).fetchone()[0]
-    assert emb_count_before == 2
-    assert cls_count_before == 1
-
-    # Simulate file content change: write different bytes (changes size and mtime)
-    audio_path.write_bytes(b"RIFF\x00\x00\x00\x00WAVE" + b"\x00" * 100)
-
-    # Re-scan — scanner must detect size/mtime change and clear analysis
-    scan_library(db, music_root)
-
-    track = db.get_track(track_id)
-    with db.connect() as connection:
-        emb_count_after = connection.execute(
-            "SELECT COUNT(*) FROM embeddings WHERE track_id = ?", (track_id,)
-        ).fetchone()[0]
-        cls_count_after = connection.execute(
-            "SELECT COUNT(*) FROM track_classifier_scores WHERE track_id = ?", (track_id,)
-        ).fetchone()[0]
-        like_count = connection.execute(
-            "SELECT COUNT(*) FROM track_likes WHERE track_id = ?", (track_id,)
-        ).fetchone()[0]
-
-    # Analysis must be cleared
-    assert emb_count_after == 0, "embeddings must be deleted when file changes"
-    assert cls_count_after == 0, "classifier scores must be deleted when file changes"
-    assert "sonara_features" not in track.metadata, "sonara features must be cleared when file changes"
-    assert track.metadata.get("has_sonara_analysis") != 1
-    # Human decisions must be preserved
-    assert like_count == 1, "track_likes must be preserved when file changes"
-    assert track.liked is True
+    alpha_state = _scanned_state(database, second)
+    assert database.mark_missing(alpha_state.track_id)
+    candidates = database.list_analysis_candidates((output,))
+    assert [candidate.file_path for candidate in candidates] == [
+        canonical_file_path(first)
+    ]
+    assert candidates[0].missing_outputs == (output,)
 
 
-def test_refresh_track_file_metadata_preserves_analysis_outputs(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    audio_path = tmp_path / "track.wav"
-    audio_path.write_bytes(b"audio")
-    original_audio = audio_path.read_bytes()
-    track_id = db.upsert_track(
-        path=audio_path,
-        size=10,
-        mtime=1,
-        metadata={"title": "Old", "year": "2023", "random_old": "kept"},
-    )
-    db.save_sonara_features(
-        track_id,
-        {"bpm": {"value": 128}},
-        bpm=128,
-        musical_key="F major",
-        energy=0.8,
-        duration=100,
-        model_name="sonara",
-        analysis_signature=expected_sonara_analysis_signature([]),
-    )
-
-    db.refresh_track_file_metadata(
-        track_id,
-        size=20,
-        mtime=2,
-        metadata={"title": "New", "year": "2024", "country": "DE", "duration": 90, "bpm": 120, "key": "A minor"},
-        replace_metadata_keys=("title", "year", "country", "duration", "bpm", "key"),
-    )
-    track = db.get_track(track_id)
-
-    assert track.title == "New"
-    assert track.bpm == 128
-    assert track.musical_key == "F major"
-    assert track.duration == 100
-    assert track.metadata["year"] == "2024"
-    assert track.metadata["country"] == "DE"
-    assert track.metadata["random_old"] == "kept"
-    assert track.analyses == ["sonara"]
-    assert audio_path.read_bytes() == original_audio
-
-
-def test_liked_toggle_is_db_only_and_invalidates_changed_embedding_cache(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    audio_path = tmp_path / "liked.wav"
-    audio_path.write_bytes(b"audio")
-    original_audio = audio_path.read_bytes()
-    track_id = db.upsert_track(path=audio_path, size=audio_path.stat().st_size, mtime=1, metadata={"title": "Liked"})
-    db.save_embedding(track_id, np.asarray([1.0, 0.0], dtype=np.float32), "mert-test", embedding_key="mert")
-    db.load_embedding_matrix("mert")
-
-    liked_track = db.set_track_liked(track_id, True)
-
-    assert liked_track.liked is True
-    assert ("mert", False) not in db._embedding_matrix_cache
-    assert db.get_track(track_id).path == audio_path.as_posix()
-    assert audio_path.read_bytes() == original_audio
-
-
-def test_database_blocks_new_invalid_metadata_json_values(tmp_path: Path) -> None:
-    db_path = tmp_path / "library.sqlite"
-    db = LibraryDatabase(db_path)
-    track_id = db.upsert_track(path=tmp_path / "track.wav", size=10, mtime=1, metadata={"title": "Track"})
-
-    with db.connect() as connection:
-        with pytest.raises(sqlite3.DatabaseError):
-            connection.execute(
-                "UPDATE tracks SET metadata_json = ? WHERE id = ?",
-                ("{", track_id),
-            )
-
-
-def test_relocate_library_dry_run_preserves_tracks_and_reports_missing_files(tmp_path: Path) -> None:
+def test_relocate_library_dry_run_preserves_track_and_reports_missing_file(
+    tmp_path: Path,
+) -> None:
     old_root = tmp_path / "ssd_music"
     new_root = tmp_path / "archive_music"
-    old_root.mkdir()
-    new_root.mkdir()
     old_file = old_root / "Artist" / "track.wav"
-    old_file.parent.mkdir()
+    old_file.parent.mkdir(parents=True)
+    new_root.mkdir()
     old_file.write_bytes(b"audio")
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    assert scan_library(database, old_root).added == 1
+    before = _scanned_state(database, old_file)
+    assert database.set_library_root(old_root) == canonical_file_path(old_root)
 
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_id = db.upsert_track(path=old_file, size=old_file.stat().st_size, mtime=old_file.stat().st_mtime)
-    db.save_sonara_features(
-        track_id,
-        {"tempo": 128},
-        bpm=128.0,
-        model_name="sonara-test",
-        analysis_signature=expected_sonara_analysis_signature([]),
-    )
-
-    result = db.relocate_library(old_root, new_root, apply=False)
+    result = database.relocate_library(old_root, new_root, apply=False)
 
     assert result["dry_run"] is True
     assert result["tracks_matched"] == 1
     assert result["tracks_updated"] == 0
     assert result["missing_files"] == [
         {
-            "track_id": track_id,
-            "path": (new_root / "Artist" / "track.wav").as_posix(),
+            "track_id": before.track_id,
+            "path": canonical_file_path(new_root / "Artist" / "track.wav"),
         }
     ]
-    assert db.get_track(track_id).path == old_file.as_posix()
-    assert db.get_track(track_id).bpm == 128.0
+    assert _scanned_state(database, old_file) == before
+    assert database.get_library_root() == canonical_file_path(old_root)
 
 
-def test_relocate_library_apply_updates_paths_without_losing_analysis(tmp_path: Path) -> None:
+def test_relocate_library_apply_updates_only_database_paths_and_identity(
+    tmp_path: Path,
+) -> None:
     old_root = tmp_path / "ssd_music"
     new_root = tmp_path / "archive_music"
-    old_root.mkdir()
-    new_root.mkdir()
     old_file = old_root / "Artist" / "track.wav"
     new_file = new_root / "Artist" / "track.wav"
-    old_file.parent.mkdir()
-    new_file.parent.mkdir()
-    old_file.write_bytes(b"audio")
-    new_file.write_bytes(b"audio")
-    old_file_bytes = old_file.read_bytes()
-    new_file_bytes = new_file.read_bytes()
+    old_file.parent.mkdir(parents=True)
+    new_file.parent.mkdir(parents=True)
+    old_file.write_bytes(b"old audio")
+    new_file.write_bytes(b"new audio")
+    old_bytes = old_file.read_bytes()
+    new_bytes = new_file.read_bytes()
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    assert scan_library(database, old_root).added == 1
+    before = _scanned_state(database, old_file)
+    database.set_library_root(old_root)
 
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_id = db.upsert_track(path=old_file, size=old_file.stat().st_size, mtime=old_file.stat().st_mtime)
-    db.save_sonara_features(
-        track_id,
-        {"tempo": 128},
-        bpm=128.0,
-        model_name="sonara-test",
-        analysis_signature=expected_sonara_analysis_signature([]),
-    )
-    db.save_embedding(track_id, np.asarray([1.0, 0.0], dtype=np.float32), "mert-test", embedding_key="mert")
-    db.save_classifier_score(
-        track_id,
-        classifier="break_energy",
-        score=0.91,
-        label="high",
-        confidence=0.91,
-        probabilities={"break_energy": 0.91, "straight_energy": 0.09},
-        feature_set="combined",
-        model_id="model.joblib",
-    )
-    db.set_track_liked(track_id, True)
-
-    result = db.relocate_library(old_root, new_root, apply=True)
+    result = database.relocate_library(old_root, new_root, apply=True)
 
     assert result["dry_run"] is False
     assert result["tracks_matched"] == 1
     assert result["tracks_updated"] == 1
     assert result["missing_files"] == []
-    track = db.get_track(track_id)
-    assert track.path == new_file.as_posix()
-    assert track.bpm == 128.0
-    assert track.liked is True
-    assert track.analyses == ["sonara", "mert"]
-    assert track.classifier_scores is not None
-    assert track.classifier_scores["break_energy"]["score"] == 0.91
-    assert old_file.read_bytes() == old_file_bytes
-    assert new_file.read_bytes() == new_file_bytes
+    assert database.get_track_file_state(old_file) is None
+    after = _scanned_state(database, new_file)
+    assert (after.track_id, after.track_uuid, after.content_generation) == (
+        before.track_id,
+        before.track_uuid,
+        before.content_generation,
+    )
+    assert database.get_library_root() == canonical_file_path(new_root)
+    assert old_file.read_bytes() == old_bytes
+    assert new_file.read_bytes() == new_bytes
 
 
-def test_relocate_library_apply_rejects_path_conflicts(tmp_path: Path) -> None:
+def test_relocate_library_conflict_is_rejected_without_partial_updates(
+    tmp_path: Path,
+) -> None:
     old_root = tmp_path / "ssd_music"
     new_root = tmp_path / "archive_music"
-    old_root.mkdir()
-    new_root.mkdir()
-    old_file = old_root / "track.wav"
-    new_file = new_root / "track.wav"
-    old_file.write_bytes(b"old")
-    new_file.write_bytes(b"new")
-
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    old_track_id = db.upsert_track(path=old_file, size=old_file.stat().st_size, mtime=old_file.stat().st_mtime)
-    existing_track_id = db.upsert_track(path=new_file, size=new_file.stat().st_size, mtime=new_file.stat().st_mtime)
-
-    result = db.relocate_library(old_root, new_root, apply=False)
-
-    assert result["conflicts"] == [
-        {
-            "track_id": old_track_id,
-            "old_path": old_file.as_posix(),
-            "new_path": new_file.as_posix(),
-            "existing_track_id": existing_track_id,
-        }
-    ]
-    try:
-        db.relocate_library(old_root, new_root, apply=True)
-    except ValueError as error:
-        assert "conflict" in str(error).lower()
-    else:
-        raise AssertionError("relocate_library should reject conflicting paths")
-    assert db.get_track(old_track_id).path == old_file.as_posix()
-
-
-def test_relocate_library_apply_rejects_conflicts_without_partial_path_updates(tmp_path: Path) -> None:
-    old_root = tmp_path / "ssd_music"
-    new_root = tmp_path / "archive_music"
-    old_root.mkdir()
-    new_root.mkdir()
     movable_old = old_root / "movable.wav"
     movable_new = new_root / "movable.wav"
     conflicting_old = old_root / "conflict.wav"
     conflicting_new = new_root / "conflict.wav"
+    old_root.mkdir()
+    new_root.mkdir()
     movable_old.write_bytes(b"old movable")
     movable_new.write_bytes(b"new movable")
     conflicting_old.write_bytes(b"old conflict")
     conflicting_new.write_bytes(b"new conflict")
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    assert scan_library(database, old_root).added == 2
+    assert scan_library(database, new_root).added == 2
+    before = {
+        path: _scanned_state(database, path)
+        for path in (movable_old, conflicting_old, conflicting_new)
+    }
 
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    movable_id = db.upsert_track(path=movable_old, size=movable_old.stat().st_size, mtime=movable_old.stat().st_mtime)
-    conflicting_id = db.upsert_track(
-        path=conflicting_old,
-        size=conflicting_old.stat().st_size,
-        mtime=conflicting_old.stat().st_mtime,
-    )
-    existing_id = db.upsert_track(
-        path=conflicting_new,
-        size=conflicting_new.stat().st_size,
-        mtime=conflicting_new.stat().st_mtime,
-    )
-
+    preview = database.relocate_library(old_root, new_root, apply=False)
+    assert preview["tracks_matched"] == 2
+    assert {
+        (
+            item["old_path"],
+            item["new_path"],
+            item["existing_track_id"],
+        )
+        for item in preview["conflicts"]
+    } == {
+        (
+            canonical_file_path(conflicting_old),
+            canonical_file_path(conflicting_new),
+            before[conflicting_new].track_id,
+        ),
+        (
+            canonical_file_path(movable_old),
+            canonical_file_path(movable_new),
+            _scanned_state(database, movable_new).track_id,
+        ),
+    }
     with pytest.raises(ValueError, match="conflict"):
-        db.relocate_library(old_root, new_root, apply=True)
+        database.relocate_library(old_root, new_root, apply=True)
 
-    assert db.get_track(movable_id).path == movable_old.as_posix()
-    assert db.get_track(conflicting_id).path == conflicting_old.as_posix()
-    assert db.get_track(existing_id).path == conflicting_new.as_posix()
-
-
-def _analysis_flag_row(db: LibraryDatabase, track_id: int) -> dict[str, int]:
-    with db.connect() as connection:
-        row = connection.execute(
-            """
-            SELECT has_sonara_analysis, has_maest_embedding, has_mert_embedding, has_muq_embedding, has_clap_embedding
-            FROM tracks
-            WHERE id = ?
-            """,
-            (track_id,),
-        ).fetchone()
-    return {key: int(row[key]) for key in row.keys()}
+    for path, state in before.items():
+        assert _scanned_state(database, path) == state

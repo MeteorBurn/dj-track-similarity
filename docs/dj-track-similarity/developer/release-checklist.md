@@ -13,7 +13,7 @@
 - Focused tests cover touched behavior.
 - Generated reports, SQLite files, logs, node_modules, and local model artifacts are not staged.
 - SONARA upstream version/schema, project feature revision, default profile, and signature example agree with `sonara_contract.py` and `sonara_features.py`.
-- A SONARA semantic change also reviews classifier revision invalidation, manifest compatibility, the migration workflow, and focused SONARA tests.
+- A SONARA semantic change also reviews classifier invalidation, manifest compatibility, the prepare/reset/reanalysis workflow, and focused SONARA tests.
 - Sidebar entries and local links include every new documentation page.
 
 ## Safety audit

@@ -10,7 +10,11 @@ import numpy as np
 import pytest
 
 import dj_track_similarity.audio_loader as audio_loader
-from dj_track_similarity.audio_loader import load_audio_mono, load_decoded_audio, load_sonara_decoded_audio, torch_compatible_audio
+from dj_track_similarity.audio_loader import (
+    load_audio_mono,
+    load_decoded_audio,
+    torch_compatible_audio,
+)
 from dj_track_similarity.logging_config import set_analysis_diagnostics_enabled
 
 
@@ -125,29 +129,6 @@ def test_load_decoded_audio_preserves_native_sample_rate(monkeypatch, tmp_path: 
     assert result.sample_rate == 44_100
     assert np.allclose(result.audio, decoded)
     assert "-ar" not in commands[0]
-
-
-def test_load_sonara_decoded_audio_uses_ffmpeg_at_22050_hz(monkeypatch, tmp_path: Path) -> None:
-    audio_path = tmp_path / "track.flac"
-    audio_path.write_bytes(b"not real flac bytes")
-    decoded = np.array([0.1, -0.2, 0.3], dtype=np.float32)
-    commands = []
-
-    def fake_run(command, *, check, stdout, stderr):
-        commands.append(command)
-        return subprocess.CompletedProcess(command, 0, stdout=decoded.tobytes(), stderr=b"")
-
-    monkeypatch.setattr(audio_loader, "shutil", SimpleNamespace(which=lambda name: "ffmpeg"), raising=False)
-    monkeypatch.setattr(audio_loader, "subprocess", SimpleNamespace(run=fake_run, PIPE=subprocess.PIPE), raising=False)
-
-    result = load_sonara_decoded_audio(audio_path)
-
-    assert result.sample_rate == 22_050
-    assert np.allclose(result.audio, decoded)
-    assert commands[0][commands[0].index("-ar") + 1] == "22050"
-    assert commands[0][commands[0].index("-af") + 1] == audio_loader.FFMPEG_ARITHMETIC_MONO_FILTER
-    assert "ffmpeg decode @ 22050 Hz" in result.detail
-    assert "arithmetic channel mean" in result.detail
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is required for the integration check")

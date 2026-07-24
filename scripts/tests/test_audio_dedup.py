@@ -10,7 +10,16 @@ import zipfile
 import numpy as np
 import pytest
 
-from dj_track_similarity.db_storage import sidecar_database_paths
+from dj_track_similarity.analysis_contracts import (
+    ContractIdentity,
+    register_contract,
+)
+from dj_track_similarity.analysis_model_runners import (
+    current_embedding_analysis_output,
+)
+from dj_track_similarity.analysis_models import ACTIVE_CONTRACT_SETTING_PREFIX
+from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
 def _load_dedup_module():
@@ -24,88 +33,7 @@ def _load_dedup_module():
 
 
 def _create_library_db(path: Path) -> None:
-    with sqlite3.connect(path) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE tracks (
-                id INTEGER PRIMARY KEY,
-                path TEXT NOT NULL UNIQUE,
-                size INTEGER NOT NULL,
-                mtime REAL NOT NULL,
-                artist TEXT,
-                title TEXT,
-                album TEXT,
-                bpm REAL,
-                musical_key TEXT,
-                energy REAL,
-                duration REAL,
-                metadata_json TEXT NOT NULL DEFAULT '{}'
-            );
-
-            CREATE TABLE library_settings (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            );
-            CREATE TABLE embeddings (
-                track_id INTEGER NOT NULL,
-                embedding_key TEXT NOT NULL,
-                model_name TEXT NOT NULL,
-                dim INTEGER NOT NULL,
-                vector BLOB NOT NULL,
-                PRIMARY KEY(track_id, embedding_key),
-                FOREIGN KEY(track_id) REFERENCES tracks(id) ON DELETE CASCADE
-            );
-            INSERT INTO library_settings(key, value) VALUES ('storage.catalog_id', 'test-catalog');
-            """
-        )
-
-    sidecars = sidecar_database_paths(path)
-    with sqlite3.connect(sidecars.timeline) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE sonara_timeline (
-                track_id INTEGER PRIMARY KEY,
-                fields_json TEXT NOT NULL,
-                payload_json TEXT NOT NULL,
-                analysis_signature_id TEXT NOT NULL,
-                analysis_signature_json TEXT NOT NULL,
-                provenance_json TEXT NOT NULL DEFAULT '{}'
-            );
-
-            CREATE TABLE storage_metadata (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            );
-            INSERT INTO storage_metadata(key, value) VALUES ('storage.catalog_id', 'test-catalog');
-            """
-        )
-    with sqlite3.connect(sidecars.representations) as connection:
-        connection.executescript(
-            """
-            CREATE TABLE embeddings (
-                track_id INTEGER NOT NULL,
-                embedding_key TEXT NOT NULL CHECK(embedding_key = 'sonara'),
-                model_name TEXT NOT NULL,
-                dim INTEGER NOT NULL,
-                vector BLOB NOT NULL,
-                PRIMARY KEY(track_id, embedding_key)
-            );
-
-            CREATE TABLE fingerprints (
-                track_id INTEGER NOT NULL,
-                fingerprint_key TEXT NOT NULL CHECK(fingerprint_key = 'fingerprint'),
-                model_name TEXT NOT NULL,
-                payload_json TEXT NOT NULL,
-                PRIMARY KEY(track_id, fingerprint_key)
-            );
-
-            CREATE TABLE storage_metadata (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            );
-            INSERT INTO storage_metadata(key, value) VALUES ('storage.catalog_id', 'test-catalog');
-            """
-        )
+    LibraryDatabase(path)
 
 
 def _create_rhythm_lab_db(path: Path) -> None:
@@ -114,20 +42,25 @@ def _create_rhythm_lab_db(path: Path) -> None:
             """
             CREATE TABLE classifier_labels (
                 classifier_key TEXT NOT NULL,
-                source_track_id INTEGER NOT NULL,
-                path TEXT,
-                size INTEGER,
-                mtime REAL,
+                catalog_uuid TEXT NOT NULL,
+                track_uuid TEXT NOT NULL,
+                content_generation INTEGER NOT NULL,
+                selected_path TEXT NOT NULL,
                 label TEXT NOT NULL,
                 note TEXT,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY(classifier_key, source_track_id)
+                PRIMARY KEY(
+                    classifier_key, catalog_uuid, track_uuid,
+                    content_generation
+                )
             );
 
             CREATE TABLE classifier_predictions (
                 classifier_key TEXT NOT NULL,
-                source_track_id INTEGER NOT NULL,
-                path TEXT NOT NULL,
+                catalog_uuid TEXT NOT NULL,
+                track_uuid TEXT NOT NULL,
+                content_generation INTEGER NOT NULL,
+                selected_path TEXT NOT NULL,
                 artist TEXT,
                 title TEXT,
                 feature_set TEXT NOT NULL,
@@ -136,7 +69,10 @@ def _create_rhythm_lab_db(path: Path) -> None:
                 confidence REAL NOT NULL,
                 probabilities_json TEXT NOT NULL DEFAULT '{}',
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY(classifier_key, source_track_id, feature_set, model_artifact)
+                PRIMARY KEY(
+                    classifier_key, catalog_uuid, track_uuid,
+                    content_generation, feature_set, model_artifact
+                )
             );
 
             CREATE TABLE classifier_training_checkpoints (
@@ -145,6 +81,24 @@ def _create_rhythm_lab_db(path: Path) -> None:
             );
             """
         )
+
+
+def _current_embedding_fixture(
+    family: str,
+    values: list[float],
+) -> tuple[ContractIdentity, np.ndarray]:
+    contract = current_embedding_analysis_output(family).contract
+    supplied = np.asarray(values, dtype="<f4")
+    if supplied.ndim != 1 or supplied.size > contract.dim:
+        raise ValueError(
+            f"{family} fixture must contain at most {contract.dim} values"
+        )
+    vector = np.zeros(contract.dim, dtype="<f4")
+    vector[: supplied.size] = supplied
+    norm = float(np.linalg.norm(vector))
+    if not np.isfinite(norm) or norm <= 0:
+        raise ValueError(f"{family} fixture must have a finite positive norm")
+    return contract, np.ascontiguousarray(vector / norm, dtype="<f4")
 
 
 def _insert_track(
@@ -163,41 +117,139 @@ def _insert_track(
     sonara: dict[str, object] | None = None,
     vectors: dict[str, list[float]] | None = None,
 ) -> None:
-    metadata = {"duration": duration}
+    database = LibraryDatabase(db_path)
+    mutation = database.upsert_scanned_track(
+        file=ScannedFile(
+            file_path=path,
+            file_size_bytes=size,
+            file_modified_ns=int(mtime * 1_000_000_000),
+            audio_duration_seconds=duration,
+        ),
+        tags=FileTags(
+            artist=artist,
+            title=title,
+            album=album,
+            tag_bpm=bpm,
+            tag_key=musical_key,
+            genres=("Test",),
+        ),
+        scanned_at="2026-07-24T00:00:00.000000Z",
+    )
+    identity = mutation.identity
+    assert identity.track_id == track_id
+
     if sonara is not None:
-        metadata["sonara_features"] = sonara
-    with sqlite3.connect(db_path) as connection:
-        connection.execute(
-            """
-            INSERT INTO tracks(id, path, size, mtime, artist, title, album, bpm, musical_key, energy, duration, metadata_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                track_id,
-                path,
-                size,
-                mtime,
-                artist,
-                title,
-                album,
-                bpm,
-                musical_key,
-                0.7,
-                duration,
-                json.dumps(metadata),
-            ),
+        contract = ContractIdentity(
+            analysis_family="sonara",
+            output_kind="core",
+            model_name="sonara-test",
+            model_version="1",
+            release_hash="sha256:test-sonara-release",
         )
-    with sqlite3.connect(db_path) as connection:
-        for key, values in (vectors or {}).items():
-            vector = np.asarray(values, dtype=np.float32)
-            vector = vector / np.linalg.norm(vector)
+        with database.connect() as connection:
+            register_contract(connection, contract)
             connection.execute(
                 """
-                INSERT INTO embeddings(track_id, embedding_key, model_name, dim, vector)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO library_settings(
+                    setting_key, setting_value, updated_at
+                ) VALUES (?, ?, '2026-07-24T00:00:00.000000Z')
+                ON CONFLICT(setting_key) DO UPDATE
+                SET setting_value = excluded.setting_value,
+                    updated_at = excluded.updated_at
                 """,
-                (track_id, key, f"{key}-test", int(vector.shape[0]), vector.tobytes()),
+                (
+                    f"{ACTIVE_CONTRACT_SETTING_PREFIX}.sonara.core",
+                    contract.contract_hash,
+                ),
             )
+            connection.execute(
+                """
+                INSERT INTO sonara(
+                    track_id, content_generation, contract_hash,
+                    detected_bpm, onset_density_per_second,
+                    energy_score, danceability_score, valence_score,
+                    acousticness_score, spectral_centroid_hz,
+                    integrated_loudness_lufs, dynamic_range_db,
+                    mfcc_mean_blob, chroma_mean_blob,
+                    spectral_contrast_mean_blob, analyzed_at
+                ) VALUES(
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    zeroblob(52), zeroblob(48), zeroblob(28),
+                    '2026-07-24T00:00:00.000000Z'
+                )
+                """,
+                (
+                    identity.track_id,
+                    identity.content_generation,
+                    contract.contract_hash,
+                    sonara.get("bpm"),
+                    sonara.get("onset_density"),
+                    sonara.get("energy"),
+                    sonara.get("danceability"),
+                    sonara.get("valence"),
+                    sonara.get("acousticness"),
+                    sonara.get("spectral_centroid_mean"),
+                    sonara.get("loudness_lufs"),
+                    sonara.get("dynamic_range_db"),
+                ),
+            )
+            connection.commit()
+
+    for key, values in (vectors or {}).items():
+        contract, vector = _current_embedding_fixture(key, values)
+        with database.connect() as connection:
+            register_contract(connection, contract)
+            connection.execute(
+                """
+                INSERT INTO library_settings(
+                    setting_key, setting_value, updated_at
+                ) VALUES (?, ?, '2026-07-24T00:00:00.000000Z')
+                ON CONFLICT(setting_key) DO UPDATE
+                SET setting_value = excluded.setting_value,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    f"{ACTIVE_CONTRACT_SETTING_PREFIX}.{key}.embedding",
+                    contract.contract_hash,
+                ),
+            )
+            connection.commit()
+        with database.connect_artifacts() as connection:
+            connection.execute(
+                f"""
+                INSERT INTO {key}_embeddings(
+                    track_id, track_uuid, content_generation,
+                    contract_hash, dim, normalization,
+                    embedding_blob, analyzed_at
+                ) VALUES(
+                    ?, ?, ?, ?, ?, ?, ?,
+                    '2026-07-24T00:00:00.000000Z'
+                )
+                """,
+                (
+                    identity.track_id,
+                    identity.track_uuid,
+                    identity.content_generation,
+                    contract.contract_hash,
+                    contract.dim,
+                    contract.normalization,
+                    vector.tobytes(),
+                ),
+            )
+            connection.commit()
+
+
+def _identity_tuple(
+    db_path: Path,
+    track_id: int,
+) -> tuple[str, str, int]:
+    identity = LibraryDatabase(db_path).get_track_identity(track_id)
+    assert identity is not None
+    return (
+        identity.catalog_uuid,
+        identity.track_uuid,
+        identity.content_generation,
+    )
 
 
 def test_root_filter_selects_only_tracks_inside_root(tmp_path: Path) -> None:
@@ -223,6 +275,54 @@ def test_path_contains_additionally_filters_inside_root(tmp_path: Path) -> None:
     tracks = dedup.load_tracks(db_path, root=Path("M:/Volumes/Abstracted"), path_contains=["keep"])
 
     assert [track.track_id for track in tracks] == [1]
+
+
+def test_load_tracks_rejects_non_unit_l2_embedding(tmp_path: Path) -> None:
+    dedup = _load_dedup_module()
+    db_path = tmp_path / "library.sqlite"
+    _create_library_db(db_path)
+    vectors = {
+        "mert": [1.0, 0.0, 0.0],
+        "maest": [0.0, 1.0, 0.0],
+    }
+    _insert_track(
+        db_path,
+        track_id=1,
+        path="M:/Volumes/Abstracted/one.flac",
+        vectors=vectors,
+    )
+
+    mert_contract = current_embedding_analysis_output("mert").contract
+    malformed = np.zeros(mert_contract.dim, dtype="<f4")
+    malformed[0] = 2.0
+    database = LibraryDatabase(db_path)
+    with database.connect_artifacts() as connection:
+        connection.execute(
+            """
+            UPDATE mert_embeddings
+            SET embedding_blob = ?
+            WHERE track_id = 1
+            """,
+            (malformed.tobytes(),),
+        )
+        connection.commit()
+
+    tracks = dedup.load_tracks(
+        db_path,
+        root=Path("M:/Volumes/Abstracted"),
+        path_contains=[],
+    )
+
+    assert len(tracks) == 1
+    assert "mert" not in tracks[0].embeddings
+    _maest_contract, expected_maest = _current_embedding_fixture(
+        "maest",
+        vectors["maest"],
+    )
+    np.testing.assert_array_equal(
+        tracks[0].embeddings["maest"],
+        expected_maest,
+    )
 
 
 def test_min_score_overrides_preset_threshold() -> None:
@@ -646,23 +746,34 @@ def test_report_includes_rhythm_lab_impact_for_safe_candidates(tmp_path: Path, m
     vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
     _insert_track(db_path, track_id=1, path=str(keeper_path), size=20_000_000, mtime=100, vectors=vectors)
     _insert_track(db_path, track_id=2, path=str(duplicate_path), size=8_000_000, mtime=200, vectors=vectors)
+    keeper_identity = _identity_tuple(db_path, 1)
+    duplicate_identity = _identity_tuple(db_path, 2)
     with sqlite3.connect(rhythm_lab_db) as connection:
         connection.executemany(
             """
-            INSERT INTO classifier_labels(classifier_key, source_track_id, path, size, mtime, label)
-            VALUES ('break_energy', ?, ?, 1, 1, ?)
+            INSERT INTO classifier_labels(
+                classifier_key, catalog_uuid, track_uuid,
+                content_generation, selected_path, label
+            ) VALUES ('break_energy', ?, ?, ?, ?, ?)
             """,
-            [(1, str(keeper_path), "keep_label"), (2, str(duplicate_path), "delete_label")],
+            [
+                (*keeper_identity, str(keeper_path), "keep_label"),
+                (*duplicate_identity, str(duplicate_path), "delete_label"),
+            ],
         )
         connection.execute(
             """
             INSERT INTO classifier_predictions(
-                classifier_key, source_track_id, path, feature_set, model_artifact,
-                label, confidence, probabilities_json
+                classifier_key, catalog_uuid, track_uuid,
+                content_generation, selected_path, feature_set,
+                model_artifact, label, confidence, probabilities_json
             )
-            VALUES ('break_energy', 2, ?, 'combined', 'model.joblib', 'delete_prediction', 0.9, '{}')
+            VALUES (
+                'break_energy', ?, ?, ?, ?, 'combined',
+                'model.joblib', 'delete_prediction', 0.9, '{}'
+            )
             """,
-            (str(duplicate_path),),
+            (*duplicate_identity, str(duplicate_path)),
         )
 
     result = dedup.run_report(
@@ -689,7 +800,14 @@ def test_report_includes_rhythm_lab_impact_for_safe_candidates(tmp_path: Path, m
     assert impact["affected_track_count"] == 1
     assert impact["affected_row_count"] == 2
     assert {row["table_name"] for row in impact["affected_rows"]} == {"classifier_labels", "classifier_predictions"}
-    assert {row["source_track_id"] for row in impact["affected_rows"]} == {2}
+    assert {
+        (
+            row["catalog_uuid"],
+            row["track_uuid"],
+            row["content_generation"],
+        )
+        for row in impact["affected_rows"]
+    } == {duplicate_identity}
     assert all(row["action"] == "DELETE ON APPLY" for row in impact["affected_rows"])
     with zipfile.ZipFile(result.xlsx_path) as archive:
         workbook_xml = archive.read("xl/workbook.xml").decode("utf-8")
@@ -721,13 +839,18 @@ def test_report_only_cli_prints_rhythm_lab_summary(tmp_path: Path, monkeypatch: 
     vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
     _insert_track(db_path, track_id=1, path=str(keeper_path), size=20_000_000, mtime=100, vectors=vectors)
     _insert_track(db_path, track_id=2, path=str(duplicate_path), size=8_000_000, mtime=200, vectors=vectors)
+    duplicate_identity = _identity_tuple(db_path, 2)
     with sqlite3.connect(rhythm_lab_db) as connection:
         connection.execute(
             """
-            INSERT INTO classifier_labels(classifier_key, source_track_id, path, size, mtime, label)
-            VALUES ('break_energy', 2, ?, 1, 1, 'delete_label')
+            INSERT INTO classifier_labels(
+                classifier_key, catalog_uuid, track_uuid,
+                content_generation, selected_path, label
+            ) VALUES (
+                'break_energy', ?, ?, ?, ?, 'delete_label'
+            )
             """,
-            (str(duplicate_path),),
+            (*duplicate_identity, str(duplicate_path)),
         )
 
     exit_code = dedup.main(["--db", str(db_path), "--root", str(audio_dir), "--out-dir", str(out_dir)])
@@ -760,32 +883,44 @@ def test_apply_duplicate_deletions_removes_only_safe_temp_files_and_database_row
     vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
     _insert_track(db_path, track_id=1, path=str(keeper_path), size=20_000_000, mtime=100, vectors=vectors)
     _insert_track(db_path, track_id=2, path=str(duplicate_path), size=8_000_000, mtime=200, vectors=vectors)
-    sidecars = sidecar_database_paths(db_path)
-    with sqlite3.connect(sidecars.timeline) as connection:
+    database = LibraryDatabase(db_path)
+    duplicate_identity = database.get_track_identity(2)
+    assert duplicate_identity is not None
+    with database.connect_artifacts() as connection:
         connection.execute(
             """
             INSERT INTO sonara_timeline (
-                track_id, fields_json, payload_json, analysis_signature_id,
-                analysis_signature_json, provenance_json
-            ) VALUES (?, ?, '{}', 'test', '{}', '{}')
+                track_id, track_uuid, content_generation,
+                contract_hash, payload_json, analyzed_at
+            ) VALUES (?, ?, ?, 'sha256:test-timeline', '{}', ?)
             """,
-            (2, '["tempo_curve"]'),
-        )
-    with sqlite3.connect(sidecars.representations) as connection:
-        vector = np.asarray([1.0, 0.0], dtype=np.float32)
-        connection.execute(
-            """
-            INSERT INTO embeddings(track_id, embedding_key, model_name, dim, vector)
-            VALUES (2, 'sonara', 'sonara-test', 2, ?)
-            """,
-            (vector.tobytes(),),
+            (
+                duplicate_identity.track_id,
+                duplicate_identity.track_uuid,
+                duplicate_identity.content_generation,
+                "2026-07-24T00:00:00.000000Z",
+            ),
         )
         connection.execute(
             """
-            INSERT INTO fingerprints(track_id, fingerprint_key, model_name, payload_json)
-            VALUES (2, 'fingerprint', 'sonara-test', '{}')
-            """
+            INSERT INTO sonara_fingerprints(
+                track_id, track_uuid, content_generation,
+                contract_hash, fingerprint_version, word_count,
+                byte_order, fingerprint_blob, analyzed_at
+            ) VALUES(
+                ?, ?, ?, 'sha256:test-fingerprint', '1', 1,
+                'little', ?, ?
+            )
+            """,
+            (
+                duplicate_identity.track_id,
+                duplicate_identity.track_uuid,
+                duplicate_identity.content_generation,
+                np.asarray([1], dtype="<u4").tobytes(),
+                "2026-07-24T00:00:00.000000Z",
+            ),
         )
+        connection.commit()
     result = dedup.run_report(
         db_path=db_path,
         root=audio_dir,
@@ -802,17 +937,31 @@ def test_apply_duplicate_deletions_removes_only_safe_temp_files_and_database_row
     assert not duplicate_path.exists()
     assert apply_result.deleted_track_ids == (2,)
     connection = sqlite3.connect(db_path)
-    timeline = sqlite3.connect(sidecars.timeline)
-    representations = sqlite3.connect(sidecars.representations)
+    artifacts = database.connect_artifacts()
     try:
-        assert connection.execute("SELECT id FROM tracks ORDER BY id").fetchall() == [(1,)]
-        assert connection.execute("SELECT track_id FROM embeddings ORDER BY track_id").fetchall() == [(1,), (1,)]
-        assert timeline.execute("SELECT track_id FROM sonara_timeline").fetchall() == []
-        assert representations.execute("SELECT track_id FROM embeddings ORDER BY track_id").fetchall() == []
-        assert representations.execute("SELECT track_id FROM fingerprints").fetchall() == []
+        assert connection.execute(
+            "SELECT track_id FROM tracks ORDER BY track_id"
+        ).fetchall() == [(1,)]
+        assert [
+            int(row[0])
+            for row in artifacts.execute(
+                "SELECT track_id FROM mert_embeddings ORDER BY track_id"
+            )
+        ] == [1]
+        assert [
+            int(row[0])
+            for row in artifacts.execute(
+                "SELECT track_id FROM maest_embeddings ORDER BY track_id"
+            )
+        ] == [1]
+        assert list(
+            artifacts.execute("SELECT track_id FROM sonara_timeline")
+        ) == []
+        assert list(
+            artifacts.execute("SELECT track_id FROM sonara_fingerprints")
+        ) == []
     finally:
-        representations.close()
-        timeline.close()
+        artifacts.close()
         connection.close()
 
 
@@ -876,23 +1025,37 @@ def test_apply_duplicate_deletions_removes_deleted_tracks_from_default_rhythm_la
     vectors = {"mert": [1.0, 0.0, 0.0], "maest": [1.0, 0.0, 0.0]}
     _insert_track(db_path, track_id=1, path=str(keeper_path), size=20_000_000, mtime=100, vectors=vectors)
     _insert_track(db_path, track_id=2, path=str(duplicate_path), size=8_000_000, mtime=200, vectors=vectors)
+    keeper_identity = _identity_tuple(db_path, 1)
+    duplicate_identity = _identity_tuple(db_path, 2)
     with sqlite3.connect(rhythm_lab_db) as connection:
         connection.executemany(
             """
-            INSERT INTO classifier_labels(classifier_key, source_track_id, path, size, mtime, label)
-            VALUES ('break_energy', ?, ?, 1, 1, 'broken')
+            INSERT INTO classifier_labels(
+                classifier_key, catalog_uuid, track_uuid,
+                content_generation, selected_path, label
+            ) VALUES ('break_energy', ?, ?, ?, ?, 'broken')
             """,
-            [(1, str(keeper_path)), (2, str(duplicate_path))],
+            [
+                (*keeper_identity, str(keeper_path)),
+                (*duplicate_identity, str(duplicate_path)),
+            ],
         )
         connection.executemany(
             """
             INSERT INTO classifier_predictions(
-                classifier_key, source_track_id, path, feature_set, model_artifact,
-                label, confidence, probabilities_json
+                classifier_key, catalog_uuid, track_uuid,
+                content_generation, selected_path, feature_set,
+                model_artifact, label, confidence, probabilities_json
             )
-            VALUES ('break_energy', ?, ?, 'combined', 'model.joblib', 'broken', 0.9, '{}')
+            VALUES(
+                'break_energy', ?, ?, ?, ?, 'combined',
+                'model.joblib', 'broken', 0.9, '{}'
+            )
             """,
-            [(1, str(keeper_path)), (2, str(duplicate_path))],
+            [
+                (*keeper_identity, str(keeper_path)),
+                (*duplicate_identity, str(duplicate_path)),
+            ],
         )
         connection.execute(
             "INSERT INTO classifier_training_checkpoints(classifier_key, counts_json) VALUES ('break_energy', '{}')"
@@ -911,6 +1074,10 @@ def test_apply_duplicate_deletions_removes_deleted_tracks_from_default_rhythm_la
 
     assert apply_result.rhythm_lab_deleted_rows == 2
     with sqlite3.connect(rhythm_lab_db) as connection:
-        assert connection.execute("SELECT source_track_id FROM classifier_labels").fetchall() == [(1,)]
-        assert connection.execute("SELECT source_track_id FROM classifier_predictions").fetchall() == [(1,)]
+        assert connection.execute(
+            "SELECT track_uuid FROM classifier_labels"
+        ).fetchall() == [(keeper_identity[1],)]
+        assert connection.execute(
+            "SELECT track_uuid FROM classifier_predictions"
+        ).fetchall() == [(keeper_identity[1],)]
         assert connection.execute("SELECT classifier_key FROM classifier_training_checkpoints").fetchall() == [("break_energy",)]

@@ -1,260 +1,328 @@
-"""Tests for v7 artifacts sidecar fingerprint read helpers in audio_dedup_jobs.
-
-Covers:
-  - read_v7_fingerprint()  — single-row lookup, missing-row None return
-  - list_v7_fingerprint_pairs()  — full-table iteration filtered by contract_hash
-  - apply-mode confirmation guard (APPLY DELETE) still enforced by AudioDedupJobManager
-
-No conftest.py; each test constructs its own temp SQLite.
-Run with:
-    python -m pytest tests/test_audio_dedup_v7.py --override-ini addopts= -q
-"""
 from __future__ import annotations
 
-import sqlite3
-import struct
 from pathlib import Path
+import struct
 
 import pytest
 
+from dj_track_similarity.analysis_contracts import (
+    ContractIdentity,
+    register_contract,
+)
+from dj_track_similarity.analysis_models import ACTIVE_CONTRACT_SETTING_PREFIX
 from dj_track_similarity.audio_dedup_jobs import (
     APPLY_CONFIRMATION,
     AudioDedupJobManager,
-    list_v7_fingerprint_pairs,
-    read_v7_fingerprint,
+    _load_audio_dedup_core,
 )
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.track_models import FileTags, ScannedFile, TrackIdentity
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-_CONTRACT_A = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-_CONTRACT_B = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+_SCANNED_AT = "2026-07-24T00:00:00.000000Z"
 
 
-def _make_blob(words: list[int]) -> bytes:
-    """Pack a list of uint32 values as little-endian bytes."""
-    return struct.pack(f"<{len(words)}I", *words)
-
-
-def _create_artifacts_sidecar(path: Path) -> sqlite3.Connection:
-    """Create a minimal v7 artifacts sidecar with the sonara_fingerprints table."""
-    conn = sqlite3.connect(str(path))
-    conn.executescript(
-        """
-        PRAGMA journal_mode = WAL;
-        CREATE TABLE sonara_fingerprints (
-            track_id            INTEGER PRIMARY KEY,
-            track_uuid          TEXT    NOT NULL,
-            content_generation  INTEGER NOT NULL,
-            contract_hash       TEXT    NOT NULL,
-            fingerprint_version TEXT    NOT NULL,
-            word_count          INTEGER NOT NULL CHECK(word_count >= 0),
-            byte_order          TEXT    NOT NULL CHECK(byte_order = 'little'),
-            fingerprint_blob    BLOB    NOT NULL CHECK(length(fingerprint_blob) = word_count * 4),
-            analyzed_at         TEXT    NOT NULL
-        );
-        CREATE INDEX idx_sonara_fingerprints_contract_generation
-            ON sonara_fingerprints(contract_hash, content_generation, track_id);
-        """
-    )
-    return conn
-
-
-def _insert_fingerprint(
-    conn: sqlite3.Connection,
+def _scan(
+    database: LibraryDatabase,
+    path: Path,
     *,
-    track_id: int,
-    words: list[int],
-    contract_hash: str = _CONTRACT_A,
-    track_uuid: str | None = None,
-    content_generation: int = 1,
-    fingerprint_version: str = "v1",
-) -> bytes:
-    blob = _make_blob(words)
-    conn.execute(
-        """
-        INSERT INTO sonara_fingerprints(
-            track_id, track_uuid, content_generation, contract_hash,
-            fingerprint_version, word_count, byte_order, fingerprint_blob, analyzed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 'little', ?, '2026-07-22T00:00:00Z')
-        """,
-        (
-            track_id,
-            track_uuid or f"uuid-{track_id}",
-            content_generation,
-            contract_hash,
-            fingerprint_version,
-            len(words),
-            blob,
+    title: str,
+) -> TrackIdentity:
+    stat = path.stat()
+    return database.upsert_scanned_track(
+        file=ScannedFile(
+            file_path=str(path),
+            file_size_bytes=stat.st_size,
+            file_modified_ns=stat.st_mtime_ns,
+            audio_duration_seconds=300.0,
         ),
-    )
-    conn.commit()
-    return blob
+        tags=FileTags(
+            title=title,
+            artist="Artist",
+            album="Album",
+            tag_bpm=128.0,
+            tag_key="8A",
+            genres=("Test",),
+        ),
+        scanned_at=_SCANNED_AT,
+    ).identity
 
 
-def _create_library_db(path: Path) -> LibraryDatabase:
-    """Create a full library DB via LibraryDatabase (creates proper schema)."""
-    return LibraryDatabase(path)
+def _candidate(
+    database: LibraryDatabase,
+    identity: TrackIdentity,
+    path: Path,
+) -> dict[str, object]:
+    state = database.get_track_file_states_by_ids((identity.track_id,))[0]
+    return {
+        "track_id": identity.track_id,
+        "catalog_uuid": identity.catalog_uuid,
+        "track_uuid": identity.track_uuid,
+        "content_generation": identity.content_generation,
+        "path": state.file_path,
+        "size": state.file_size_bytes,
+        "file_modified_ns": state.file_modified_ns,
+        "decision": "delete_candidate",
+        "safe_to_delete": "true_candidate",
+    }
 
 
-# ---------------------------------------------------------------------------
-# test_v7_fingerprint_read
-# ---------------------------------------------------------------------------
+def _payload(*candidates: dict[str, object]) -> dict[str, object]:
+    return {
+        "groups": [
+            {
+                "candidate_deletes": list(candidates),
+            }
+        ]
+    }
 
 
-def test_v7_fingerprint_read(tmp_path: Path) -> None:
-    """read_v7_fingerprint returns bytes for existing rows, None for missing."""
-    artifacts_path = tmp_path / "library.artifacts.sqlite"
-    conn = _create_artifacts_sidecar(artifacts_path)
-
-    # Insert 3 tracks with distinct fingerprint blobs
-    blob1 = _insert_fingerprint(conn, track_id=1, words=[0xDEAD, 0xBEEF, 0xCAFE])
-    blob2 = _insert_fingerprint(conn, track_id=2, words=[0x0001, 0x0002])
-    blob3 = _insert_fingerprint(conn, track_id=3, words=[0xFFFF, 0x1234, 0x5678, 0xABCD])
-
-    # --- read_v7_fingerprint: existing rows ---
-    result1 = read_v7_fingerprint(conn, track_id=1)
-    assert result1 is not None
-    assert isinstance(result1, bytes)
-    assert result1 == blob1
-
-    result2 = read_v7_fingerprint(conn, track_id=2)
-    assert result2 == blob2
-
-    result3 = read_v7_fingerprint(conn, track_id=3)
-    assert result3 == blob3
-
-    # --- read_v7_fingerprint: missing row returns None ---
-    assert read_v7_fingerprint(conn, track_id=99) is None
-    assert read_v7_fingerprint(conn, track_id=0) is None
-
-    # --- list_v7_fingerprint_pairs: all 3 rows under CONTRACT_A ---
-    pairs = list(list_v7_fingerprint_pairs(conn, _CONTRACT_A))
-    assert len(pairs) == 3
-    assert pairs[0] == (1, blob1)
-    assert pairs[1] == (2, blob2)
-    assert pairs[2] == (3, blob3)
-
-    conn.close()
-
-
-def test_list_v7_fingerprint_pairs_filters_by_contract_hash(tmp_path: Path) -> None:
-    """list_v7_fingerprint_pairs only yields rows matching the given contract_hash."""
-    artifacts_path = tmp_path / "library.artifacts.sqlite"
-    conn = _create_artifacts_sidecar(artifacts_path)
-
-    blob_a1 = _insert_fingerprint(conn, track_id=1, words=[0x0001], contract_hash=_CONTRACT_A)
-    blob_a2 = _insert_fingerprint(conn, track_id=2, words=[0x0002], contract_hash=_CONTRACT_A)
-    _insert_fingerprint(conn, track_id=3, words=[0x0003], contract_hash=_CONTRACT_B)
-
-    pairs_a = list(list_v7_fingerprint_pairs(conn, _CONTRACT_A))
-    pairs_b = list(list_v7_fingerprint_pairs(conn, _CONTRACT_B))
-    pairs_none = list(list_v7_fingerprint_pairs(conn, "sha256:nonexistent"))
-
-    assert len(pairs_a) == 2
-    assert pairs_a[0] == (1, blob_a1)
-    assert pairs_a[1] == (2, blob_a2)
-
-    assert len(pairs_b) == 1
-    assert pairs_b[0][0] == 3
-
-    assert pairs_none == []
-
-    conn.close()
-
-
-def test_list_v7_fingerprint_pairs_empty_table(tmp_path: Path) -> None:
-    """list_v7_fingerprint_pairs on an empty table yields nothing."""
-    artifacts_path = tmp_path / "library.artifacts.sqlite"
-    conn = _create_artifacts_sidecar(artifacts_path)
-
-    pairs = list(list_v7_fingerprint_pairs(conn, _CONTRACT_A))
-    assert pairs == []
-
-    conn.close()
-
-
-def test_v7_fingerprint_blob_round_trips_as_uint32_le(tmp_path: Path) -> None:
-    """Blob stored as little-endian uint32 words round-trips correctly."""
-    import struct
-
-    artifacts_path = tmp_path / "library.artifacts.sqlite"
-    conn = _create_artifacts_sidecar(artifacts_path)
-
-    words = [0x00000001, 0xDEADBEEF, 0xCAFEBABE, 0xFFFFFFFF]
-    blob = _insert_fingerprint(conn, track_id=10, words=words)
-
-    result = read_v7_fingerprint(conn, track_id=10)
-    assert result is not None
-    unpacked = list(struct.unpack(f"<{len(words)}I", result))
-    assert unpacked == words
-
-    conn.close()
-
-
-# ---------------------------------------------------------------------------
-# test_v7_dedup_apply_requires_exact_confirmation
-# ---------------------------------------------------------------------------
-
-
-def test_v7_dedup_apply_requires_exact_confirmation(tmp_path: Path) -> None:
-    """AudioDedupJobManager.create_job() rejects apply=True without exact APPLY DELETE."""
-    db_path = tmp_path / "library.sqlite"
-    _create_library_db(db_path)
-    db = LibraryDatabase(db_path)
-    manager = AudioDedupJobManager(db)
-    root = tmp_path / "music"
-    root.mkdir()
-
-    # Wrong confirmation strings must raise ValueError
-    wrong_strings = [
+@pytest.mark.parametrize(
+    "confirmation",
+    [
         None,
         "",
-        "apply delete",          # lowercase
-        "APPLY DELETE ",         # trailing space
-        " APPLY DELETE",         # leading space
-        "APPLY  DELETE",         # double space
+        "apply delete",
+        "APPLY DELETE ",
+        " APPLY DELETE",
+        "APPLY  DELETE",
         "DELETE",
-        "APPLY",
-        "apply",
-    ]
-    for bad_confirmation in wrong_strings:
-        with pytest.raises(ValueError, match="APPLY DELETE"):
-            manager.create_job(
-                root=root,
-                apply=True,
-                confirmation=bad_confirmation,
-            )
-
-    # Correct confirmation must NOT raise
-    job_id = manager.create_job(
-        root=root,
-        apply=True,
-        confirmation=APPLY_CONFIRMATION,
+    ],
+)
+def test_apply_requires_exact_confirmation(
+    tmp_path: Path,
+    confirmation: str | None,
+) -> None:
+    manager = AudioDedupJobManager(
+        LibraryDatabase(tmp_path / "library.sqlite")
     )
-    assert job_id  # a UUID string was returned
+
+    with pytest.raises(ValueError, match="APPLY DELETE"):
+        manager.create_job(
+            root=tmp_path,
+            apply=True,
+            confirmation=confirmation,
+        )
+
+    assert APPLY_CONFIRMATION == "APPLY DELETE"
 
 
-def test_v7_dedup_apply_confirmation_not_required_for_dry_run(tmp_path: Path) -> None:
-    """create_job() with apply=False does not require any confirmation string."""
-    db_path = tmp_path / "library.sqlite"
-    _create_library_db(db_path)
-    db = LibraryDatabase(db_path)
-    manager = AudioDedupJobManager(db)
+@pytest.mark.parametrize(
+    ("response", "accepted"),
+    [
+        ("APPLY DELETE", True),
+        ("APPLY DELETE ", False),
+        (" APPLY DELETE", False),
+        ("apply delete", False),
+    ],
+)
+def test_cli_prompt_requires_exact_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+    response: str,
+    accepted: bool,
+) -> None:
+    core = _load_audio_dedup_core()
+    monkeypatch.setattr("builtins.input", lambda _prompt: response)
+
+    assert core.confirm_apply(
+        [{}],
+        Path("C:/fixture/library.sqlite"),
+        Path("C:/fixture/music"),
+    ) is accepted
+
+
+def test_report_reader_carries_public_v7_identity(
+    tmp_path: Path,
+) -> None:
+    core = _load_audio_dedup_core()
     root = tmp_path / "music"
     root.mkdir()
+    audio_path = root / "track.wav"
+    audio_path.write_bytes(b"fixture")
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    identity = _scan(database, audio_path, title="Track")
 
-    # No confirmation needed for dry-run (apply=False is the default)
-    job_id = manager.create_job(root=root, apply=False)
-    assert job_id
+    records = core.load_tracks(
+        database,
+        root=root,
+        path_contains=[],
+    )
 
-    job_id2 = manager.create_job(root=root)  # apply defaults to False
-    assert job_id2
+    assert len(records) == 1
+    record = records[0]
+    assert (
+        record.catalog_uuid,
+        record.track_uuid,
+        record.content_generation,
+    ) == (
+        identity.catalog_uuid,
+        identity.track_uuid,
+        identity.content_generation,
+    )
+    report_track = core.track_payload(
+        record,
+        include_keeper_reasons=False,
+    )
+    assert report_track["catalog_uuid"] == identity.catalog_uuid
+    assert report_track["track_uuid"] == identity.track_uuid
+    assert report_track["content_generation"] == 1
+    assert report_track["file_modified_ns"] == audio_path.stat().st_mtime_ns
 
 
-def test_apply_confirmation_constant_is_exact_string() -> None:
-    """APPLY_CONFIRMATION sentinel must be exactly 'APPLY DELETE' — never change it."""
-    assert APPLY_CONFIRMATION == "APPLY DELETE"
+def test_report_reader_rejects_nonunit_active_l2_embedding(
+    tmp_path: Path,
+) -> None:
+    core = _load_audio_dedup_core()
+    root = tmp_path / "music"
+    root.mkdir()
+    audio_path = root / "track.wav"
+    audio_path.write_bytes(b"fixture")
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    identity = _scan(database, audio_path, title="Track")
+    contract = ContractIdentity(
+        analysis_family="mert",
+        output_kind="embedding",
+        model_name="mert-test",
+        model_version="1",
+        dim=2,
+        encoding="float32-le",
+        normalization="l2",
+    )
+    with database.connect() as core_connection:
+        register_contract(core_connection, contract)
+        core_connection.execute(
+            """
+            INSERT INTO library_settings(
+                setting_key, setting_value, updated_at
+            ) VALUES (?, ?, ?)
+            """,
+            (
+                f"{ACTIVE_CONTRACT_SETTING_PREFIX}.mert.embedding",
+                contract.contract_hash,
+                _SCANNED_AT,
+            ),
+        )
+        core_connection.commit()
+    with database.connect_artifacts() as artifacts:
+        artifacts.execute(
+            """
+            INSERT INTO mert_embeddings(
+                track_id, track_uuid, content_generation,
+                contract_hash, dim, normalization,
+                embedding_blob, analyzed_at
+            ) VALUES (?, ?, ?, ?, 2, 'l2', ?, ?)
+            """,
+            (
+                identity.track_id,
+                identity.track_uuid,
+                identity.content_generation,
+                contract.contract_hash,
+                struct.pack("<2f", 2.0, 0.0),
+                _SCANNED_AT,
+            ),
+        )
+        artifacts.commit()
+
+    records = core.load_tracks(
+        database,
+        root=root,
+        path_contains=[],
+    )
+
+    assert len(records) == 1
+    assert "mert" not in records[0].embeddings
+
+
+def test_apply_uses_generation_cas_and_leaves_stale_candidate_file(
+    tmp_path: Path,
+) -> None:
+    core = _load_audio_dedup_core()
+    root = tmp_path / "music"
+    root.mkdir()
+    audio_path = root / "duplicate.wav"
+    audio_path.write_bytes(b"old")
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    old_identity = _scan(database, audio_path, title="Old")
+    stale_candidate = _candidate(database, old_identity, audio_path)
+
+    audio_path.write_bytes(b"new-content")
+    new_identity = _scan(database, audio_path, title="New")
+    assert new_identity.content_generation == 2
+
+    result = core.apply_duplicate_deletions(
+        database=database,
+        root=root,
+        payload=_payload(stale_candidate),
+        rhythm_lab_db=tmp_path / "missing-lab.sqlite",
+    )
+
+    assert result.deleted_track_ids == ()
+    assert result.skipped == (
+        f"track_id={old_identity.track_id}: report identity is stale",
+    )
+    assert audio_path.exists()
+    assert database.get_track_identity(old_identity.track_id) == new_identity
+
+
+def test_apply_removes_only_exact_deleted_track_through_repository(
+    tmp_path: Path,
+) -> None:
+    core = _load_audio_dedup_core()
+    root = tmp_path / "music"
+    root.mkdir()
+    delete_path = root / "duplicate.wav"
+    keep_path = root / "keep.wav"
+    outside_path = tmp_path / "outside.wav"
+    for path in (delete_path, keep_path, outside_path):
+        path.write_bytes(path.name.encode("utf-8"))
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    delete_identity = _scan(database, delete_path, title="Delete")
+    keep_identity = _scan(database, keep_path, title="Keep")
+    outside_identity = _scan(database, outside_path, title="Outside")
+
+    with database.connect_artifacts() as artifacts:
+        artifacts.execute(
+            """
+            INSERT INTO sonara_fingerprints(
+                track_id, track_uuid, content_generation,
+                contract_hash, fingerprint_version, word_count,
+                byte_order, fingerprint_blob, analyzed_at
+            ) VALUES (?, ?, ?, 'sha256:test', '1', 1, 'little', ?, ?)
+            """,
+            (
+                delete_identity.track_id,
+                delete_identity.track_uuid,
+                delete_identity.content_generation,
+                b"\x01\x00\x00\x00",
+                _SCANNED_AT,
+            ),
+        )
+        artifacts.commit()
+
+    result = core.apply_duplicate_deletions(
+        database=database,
+        root=root,
+        payload=_payload(
+            _candidate(database, delete_identity, delete_path),
+            _candidate(database, outside_identity, outside_path),
+        ),
+        rhythm_lab_db=tmp_path / "missing-lab.sqlite",
+    )
+
+    assert result.deleted_track_ids == (delete_identity.track_id,)
+    assert result.skipped == (
+        f"track_id={outside_identity.track_id}: path outside root",
+    )
+    assert not delete_path.exists()
+    assert keep_path.exists()
+    assert outside_path.exists()
+    assert database.get_track_identity(delete_identity.track_id) is None
+    assert database.get_track_identity(keep_identity.track_id) == keep_identity
+    assert (
+        database.get_track_identity(outside_identity.track_id)
+        == outside_identity
+    )
+    with database.connect_artifacts() as artifacts:
+        assert artifacts.execute(
+            "SELECT COUNT(*) FROM sonara_fingerprints"
+        ).fetchone()[0] == 0

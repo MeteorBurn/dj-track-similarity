@@ -10,7 +10,7 @@ Audio Doctor inspects audio files for known metadata/container issues and can re
 
 Open Audio Doctor from the wrench icon in the top bar.
 
-**Selected DB** reads `tracks.path` from the selected SQLite database. Optional **DB roots** restrict stored paths, and **File root** remaps matching DB roots before filesystem checks.
+**Selected DB** reads `tracks.file_path` from the selected SQLite database. Optional **DB roots** restrict stored paths, and **File root** remaps matching DB roots before filesystem checks.
 
 **Folder** recursively scans a filesystem folder.
 

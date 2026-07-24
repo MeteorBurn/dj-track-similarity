@@ -14,7 +14,9 @@ class AnalysisStageQueue:
 
     def __init__(self) -> None:
         self._items: queue.Queue[Callable[[], object]] = queue.Queue()
-        self._thread = threading.Thread(target=self._work, name="analysis-stage-queue", daemon=True)
+        self._thread = threading.Thread(
+            target=self._work, name="analysis-stage-queue", daemon=True
+        )
         self._thread.start()
 
     def submit(self, callback: Callable[[], object]) -> None:

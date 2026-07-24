@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 
-from .api_schemas import DatabaseSwitchRequest
+from .api_schemas import DatabaseStateResponse, DatabaseSwitchRequest
 from .api_state import AppDatabaseState
 
 
@@ -15,11 +15,11 @@ def register_database_routes(
     *,
     open_database_file_dialog: Callable[[], Path | None],
 ) -> None:
-    @app.get("/api/database/current")
+    @app.get("/api/database/current", response_model=DatabaseStateResponse)
     def current_database():
         return state.current()
 
-    @app.post("/api/database/switch")
+    @app.post("/api/database/switch", response_model=DatabaseStateResponse)
     def switch_database(request: DatabaseSwitchRequest):
         try:
             return state.switch(request.path)
@@ -28,7 +28,7 @@ def register_database_routes(
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
-    @app.post("/api/database/dialog")
+    @app.post("/api/database/dialog", response_model=DatabaseStateResponse)
     def database_dialog():
         try:
             selected = open_database_file_dialog()

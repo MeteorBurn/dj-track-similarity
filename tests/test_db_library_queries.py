@@ -1,33 +1,111 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from dj_track_similarity.db_library_queries import build_track_filter_sql, track_order_sql
+from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
-def test_build_track_filter_sql_combines_search_preset_liked_and_classifier_filters() -> None:
-    where_sql, params = build_track_filter_sql(
+def test_public_library_filter_combines_search_and_liked_state(
+    tmp_path: Path,
+) -> None:
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    selected = _add_track(
+        database,
+        tmp_path / "selected.wav",
+        title="Breaks One",
+        artist="Alpha",
+    )
+    _add_track(
+        database,
+        tmp_path / "unliked.wav",
+        title="Breaks Two",
+        artist="Beta",
+    )
+    _add_track(
+        database,
+        tmp_path / "other.wav",
+        title="House",
+        artist="Gamma",
+    )
+    database.set_track_liked(expected=selected, liked=True)
+
+    rows = database.filter_track_summaries(
         query="Breaks",
-        preset="syncopated",
         liked_only=True,
-        classifier_min_scores={"live": 0.75},
     )
 
-    assert where_sql.startswith("WHERE ")
-    assert "LOWER(COALESCE(t.artist, '')) LIKE ?" in where_sql
-    assert "json_extract(t.metadata_json, '$.maest_syncopated_rhythm') = 1" in where_sql
-    assert "track_likes" in where_sql
-    assert "track_classifier_scores" in where_sql
-    assert params == ["%breaks%", "%breaks%", "%breaks%", "%breaks%", "%breaks%", "live", 0.75]
+    assert [row.track_id for row in rows] == [selected.track_id]
+    assert rows[0].liked
 
 
-def test_build_track_filter_sql_rejects_unknown_library_preset() -> None:
-    with pytest.raises(ValueError, match="Unknown library preset"):
-        build_track_filter_sql(query="", preset="legacy", liked_only=False)
+def test_public_library_filter_rejects_unknown_search_mode(
+    tmp_path: Path,
+) -> None:
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+
+    with pytest.raises(ValueError, match="search_mode"):
+        database.filter_track_summaries(
+            query="Breaks",
+            search_mode="legacy",
+        )
 
 
-def test_track_order_sql_prefers_classifier_score_when_thresholds_are_active() -> None:
-    assert track_order_sql(classifier_min_scores={}) == "COALESCE(t.artist, ''), COALESCE(t.title, ''), t.path"
-    assert track_order_sql(classifier_min_scores={"break'energy": 0.5}).startswith(
-        "(SELECT cs.score FROM track_classifier_scores cs WHERE cs.track_id = t.id AND cs.classifier = 'break''energy') DESC"
+def test_public_library_order_is_deterministic_by_artist_title_and_path(
+    tmp_path: Path,
+) -> None:
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    _add_track(
+        database,
+        tmp_path / "z.wav",
+        title="Second",
+        artist="Beta",
     )
+    _add_track(
+        database,
+        tmp_path / "b.wav",
+        title="Second",
+        artist="Alpha",
+    )
+    _add_track(
+        database,
+        tmp_path / "a.wav",
+        title="First",
+        artist="Alpha",
+    )
+
+    rows = database.list_track_summaries()
+
+    assert [
+        (row.artist, row.title, Path(row.file_path).name)
+        for row in rows
+    ] == [
+        ("Alpha", "First", "a.wav"),
+        ("Alpha", "Second", "b.wav"),
+        ("Beta", "Second", "z.wav"),
+    ]
+
+
+def _add_track(
+    database: LibraryDatabase,
+    path: Path,
+    *,
+    title: str,
+    artist: str,
+):
+    mutation = database.upsert_scanned_track(
+        file=ScannedFile(
+            file_path=str(path),
+            file_size_bytes=100,
+            file_modified_ns=1_000,
+            audio_format="wav",
+        ),
+        tags=FileTags(
+            title=title,
+            artist=artist,
+            album="Fixture",
+        ),
+    )
+    return mutation.identity

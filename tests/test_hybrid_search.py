@@ -1,18 +1,43 @@
 from __future__ import annotations
 
-from pathlib import Path
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 import pytest
 
-from dj_track_similarity.database import LibraryDatabase
-from dj_track_similarity.evaluation.candidates import CandidatePoolRow, CandidateSourceContribution
 import dj_track_similarity.hybrid_search as hybrid_search
+from dj_track_similarity.analysis_contracts import FLOAT32_LE_ENCODING
+from dj_track_similarity.analysis_model_runners import (
+    current_embedding_analysis_output,
+)
+from dj_track_similarity.analysis_models import (
+    AnalysisOutput,
+    AnalysisTarget,
+    AnalysisVectorRow,
+    SonaraFeatureRow,
+)
 from dj_track_similarity.hybrid_explanation import MATCH_CHARACTER_AXES
 from dj_track_similarity.hybrid_search import build_hybrid_search_preview
-from dj_track_similarity.sonara_contract import expected_sonara_analysis_signature
+from dj_track_similarity.library_models import (
+    AnalysisCoverage,
+    TrackDetail,
+    TrackSummary,
+)
+from dj_track_similarity.sonara_contract import (
+    SONARA_CORE_REQUESTED_FEATURES,
+    SONARA_EMBEDDING_REQUESTED_FEATURES,
+    SONARA_FINGERPRINT_REQUESTED_FEATURES,
+    SONARA_PROJECT_FEATURE_REVISION,
+    SONARA_TIMELINE_REQUESTED_FEATURES,
+    SonaraContractSet,
+    SonaraRuntimeIdentity,
+    build_sonara_contracts,
+)
+from dj_track_similarity.track_models import TrackIdentity
 
-RISK_BREAKDOWN_KEYS = {
+
+_CATALOG_UUID = "00000000-0000-4000-8000-000000000001"
+_RISK_BREAKDOWN_KEYS = {
     "bpm",
     "tonal",
     "energy_jump",
@@ -27,12 +52,313 @@ RISK_BREAKDOWN_KEYS = {
 }
 
 
-def test_hybrid_search_uses_equal_weights_by_default(tmp_path: Path) -> None:
-    db, track_ids = _hybrid_library(tmp_path)
+def _sonara_contracts() -> SonaraContractSet:
+    return build_sonara_contracts(
+        SonaraRuntimeIdentity(
+            package_version="0.2.9",
+            package_build_id="sha256:" + "5" * 64,
+            schema_version=4,
+            mode="playlist",
+            sample_rate_hz=22_050,
+            bpm_min=70,
+            bpm_max=180,
+            project_feature_revision=SONARA_PROJECT_FEATURE_REVISION,
+            decoder_backend="sonara-symphonia",
+            execution_path="analyze_batch",
+            analysis_hop_samples=512,
+            vocalness_model_id="sonara-vocalness",
+            vocalness_model_build_id="sha256:" + "6" * 64,
+            embedding_version=2,
+            embedding_dim=48,
+            embedding_normalization="none",
+            embedding_encoding=FLOAT32_LE_ENCODING,
+            fingerprint_version=1,
+            fingerprint_encoding="uint32-le",
+            fingerprint_byte_order="little",
+            core_requested_features=SONARA_CORE_REQUESTED_FEATURES,
+            timeline_requested_features=SONARA_TIMELINE_REQUESTED_FEATURES,
+            embedding_requested_features=SONARA_EMBEDDING_REQUESTED_FEATURES,
+            fingerprint_requested_features=SONARA_FINGERPRINT_REQUESTED_FEATURES,
+        )
+    )
 
-    result = build_hybrid_search_preview(
-        db,
-        seed_track_ids=[track_ids["seed"]],
+
+def _identity(track_id: int) -> TrackIdentity:
+    return TrackIdentity(
+        catalog_uuid=_CATALOG_UUID,
+        track_id=track_id,
+        track_uuid=f"00000000-0000-4000-8000-{track_id:012d}",
+        content_generation=1,
+    )
+
+
+def _target(track_id: int) -> AnalysisTarget:
+    identity = _identity(track_id)
+    return AnalysisTarget(
+        identity.catalog_uuid,
+        identity.track_id,
+        identity.track_uuid,
+        identity.content_generation,
+    )
+
+
+def _summary(
+    track_id: int,
+    *,
+    bpm: float = 124.0,
+    musical_key: str = "8A",
+    energy: float = 0.5,
+) -> TrackSummary:
+    identity = _identity(track_id)
+    return TrackSummary(
+        track_id=track_id,
+        catalog_uuid=identity.catalog_uuid,
+        track_uuid=identity.track_uuid,
+        content_generation=identity.content_generation,
+        file_path=f"C:/music/track-{track_id}.wav",
+        title=f"Track {track_id}",
+        artist=f"Artist {track_id}",
+        album="Fixture",
+        tag_bpm=bpm,
+        tag_key=musical_key,
+        audio_duration_seconds=240.0,
+        liked=False,
+        analysis_coverage=AnalysisCoverage(
+            sonara_core=True,
+            maest_embedding=True,
+            mert=True,
+            clap=True,
+        ),
+        classifier_scores=(),
+    )
+
+
+def _sonara_row(
+    output: AnalysisOutput,
+    track_id: int,
+    *,
+    bpm: float,
+    energy: float,
+) -> SonaraFeatureRow:
+    return SonaraFeatureRow(
+        target=_target(track_id),
+        output=output,
+        values={
+            "detected_bpm": bpm,
+            "bpm_confidence": 0.95,
+            "beat_grid_stability": 0.9,
+            "detected_key_camelot": "8A",
+            "key_confidence": 0.9,
+            "onset_density_per_second": energy * 4.0,
+            "energy_score": energy,
+            "danceability_score": energy,
+            "valence_score": energy,
+            "acousticness_score": 1.0 - energy,
+            "dissonance_score": 0.2,
+            "chord_changes_per_second": 0.2,
+            "rms_mean": energy,
+            "rms_max": min(1.0, energy + 0.1),
+            "integrated_loudness_lufs": -18.0 + energy * 8.0,
+            "dynamic_range_db": 8.0,
+            "spectral_centroid_hz": 1_000.0 + energy * 2_000.0,
+            "spectral_bandwidth_hz": 1_000.0,
+            "spectral_rolloff_hz": 3_000.0,
+            "spectral_flatness": 0.1,
+            "zero_crossing_rate": 0.08,
+            "mfcc_mean_blob": tuple(energy for _ in range(13)),
+            "chroma_mean_blob": tuple(energy for _ in range(12)),
+            "spectral_contrast_mean_blob": tuple(energy for _ in range(7)),
+            "analyzed_duration_seconds": 240.0,
+            "intro_end_seconds": 16.0,
+            "outro_start_seconds": 224.0,
+            "energy_curve_mean": energy,
+            "energy_curve_stddev": 0.1,
+            "energy_curve_min": max(0.0, energy - 0.1),
+            "energy_curve_max": min(1.0, energy + 0.1),
+        },
+    )
+
+
+class _Repository:
+    def __init__(self) -> None:
+        contracts = _sonara_contracts()
+        self.outputs = {
+            ("sonara", "core"): AnalysisOutput(contracts.core),
+            **{
+                (family, "embedding"): current_embedding_analysis_output(family)
+                for family in ("mert", "maest", "clap")
+            },
+        }
+        self.summaries: dict[int, TrackSummary] = {}
+        self.sonara_rows: dict[int, SonaraFeatureRow] = {}
+        self.vectors: dict[str, dict[int, np.ndarray]] = {
+            family: {} for family in ("mert", "maest", "clap")
+        }
+        self.session_requests: list[dict[str, object]] = []
+        self.events: list[dict[str, object]] = []
+
+    def add(
+        self,
+        track_id: int,
+        *,
+        mert: Sequence[float],
+        maest: Sequence[float],
+        clap: Sequence[float] | None = None,
+        bpm: float = 124.0,
+        energy: float = 0.5,
+        musical_key: str = "8A",
+    ) -> None:
+        self.summaries[track_id] = _summary(
+            track_id,
+            bpm=bpm,
+            musical_key=musical_key,
+            energy=energy,
+        )
+        self.sonara_rows[track_id] = _sonara_row(
+            self.outputs[("sonara", "core")],
+            track_id,
+            bpm=bpm,
+            energy=energy,
+        )
+        vectors = {
+            "mert": mert,
+            "maest": maest,
+            "clap": mert if clap is None else clap,
+        }
+        for family, values in vectors.items():
+            compact = np.asarray(values, dtype=np.float32)
+            dimension = int(self.outputs[(family, "embedding")].contract.dim)
+            vector = np.zeros(dimension, dtype=np.float32)
+            vector[: compact.size] = compact
+            vector /= np.linalg.norm(vector)
+            self.vectors[family][track_id] = vector
+
+    def list_track_summaries(
+        self, *, include_missing: bool = False
+    ) -> tuple[TrackSummary, ...]:
+        assert include_missing is False
+        return tuple(self.summaries.values())
+
+    def get_track_identities(
+        self,
+        track_ids: Sequence[int],
+        *,
+        include_missing: bool = False,
+    ) -> dict[int, TrackIdentity]:
+        assert include_missing is False
+        return {
+            track_id: _identity(track_id)
+            for track_id in track_ids
+            if track_id in self.summaries
+        }
+
+    def active_analysis_output(
+        self, analysis_family: str, output_kind: str
+    ) -> AnalysisOutput | None:
+        return self.outputs.get((analysis_family, output_kind))
+
+    def load_analysis_vectors(
+        self,
+        output: AnalysisOutput,
+        *,
+        targets: Sequence[AnalysisTarget] | None = None,
+    ) -> tuple[AnalysisVectorRow, ...]:
+        assert targets is None
+        return tuple(
+            AnalysisVectorRow(_target(track_id), output, vector)
+            for track_id, vector in self.vectors[
+                output.contract.analysis_family
+            ].items()
+        )
+
+    def load_sonara_feature_rows(
+        self,
+        output: AnalysisOutput,
+        *,
+        targets: Sequence[AnalysisTarget] | None = None,
+    ) -> tuple[SonaraFeatureRow, ...]:
+        assert targets is None
+        assert output == self.outputs[("sonara", "core")]
+        return tuple(self.sonara_rows.values())
+
+    def get_track_detail(
+        self, track_id: int, *, include_missing: bool = False
+    ) -> TrackDetail:
+        raise AssertionError("classifier detail is not needed by these tests")
+
+    def get_pair_feedback_map(
+        self,
+    ) -> Mapping[tuple[int, int, str], Mapping[str, object]]:
+        return {}
+
+    def create_search_session(
+        self,
+        mode: str,
+        seed_track_ids: Sequence[int],
+        request: Mapping[str, object],
+    ) -> int:
+        self.session_requests.append(
+            {
+                "mode": mode,
+                "seed_track_ids": tuple(seed_track_ids),
+                **dict(request),
+            }
+        )
+        return 41
+
+    def record_search_result_event(
+        self,
+        session_id: int,
+        candidate_track_id: int,
+        *,
+        rank: int,
+        total_score: float,
+        score_breakdown: Mapping[str, object],
+    ) -> None:
+        self.events.append(
+            {
+                "session_id": session_id,
+                "candidate_track_id": candidate_track_id,
+                "rank": rank,
+                "total_score": total_score,
+                "score_breakdown": dict(score_breakdown),
+            }
+        )
+
+
+def _analysis_outputs(repository: _Repository) -> dict[str, AnalysisOutput]:
+    return {
+        family: repository.outputs[(family, "embedding")]
+        for family in ("mert", "maest", "clap")
+    }
+
+
+def _hybrid_library() -> _Repository:
+    repository = _Repository()
+    repository.add(1, mert=[1.0, 0.0], maest=[0.0, 1.0])
+    repository.add(2, mert=[0.99, 0.01], maest=[1.0, 0.0])
+    repository.add(3, mert=[0.0, 1.0], maest=[0.01, 0.99])
+    repository.add(4, mert=[0.8, 0.2], maest=[0.2, 0.8])
+    return repository
+
+
+def _build(
+    repository: _Repository,
+    **kwargs: object,
+):
+    return build_hybrid_search_preview(
+        repository,
+        analysis_outputs=_analysis_outputs(repository),
+        **kwargs,
+    )
+
+
+def test_hybrid_search_uses_equal_weights_and_typed_contracts() -> None:
+    repository = _hybrid_library()
+
+    result = _build(
+        repository,
+        seed_track_ids=[1],
         sources=["mert", "maest"],
         per_source=3,
         limit=3,
@@ -40,719 +366,313 @@ def test_hybrid_search_uses_equal_weights_by_default(tmp_path: Path) -> None:
 
     assert result.weights_used == {"mert": 0.5, "maest": 0.5}
     assert result.sources == ("mert", "maest")
+    assert result.source_contract_hashes == {
+        family: repository.outputs[(family, "embedding")].contract_hash
+        for family in ("mert", "maest")
+    }
     assert len(result.results) == 3
-    assert all(row.score <= 1.0 for row in result.results)
-    assert result.results[0].transition_risk is not None
-    assert result.results[0].transition_diagnostics["supporting_seed_count"] == 1
-    assert "source_disagreement_risk" in result.results[0].transition_diagnostics["components"]
-    assert result.results[0].total_score == result.results[0].adjusted_score
-    assert result.results[0].calibrated_score is None
+    assert all(row.track.track_id != 1 for row in result.results)
     assert tuple(result.results[0].match_character) == MATCH_CHARACTER_AXES
-    assert set(result.results[0].risk_breakdown) == RISK_BREAKDOWN_KEYS
+    assert set(result.results[0].risk_breakdown) == _RISK_BREAKDOWN_KEYS
 
 
-def test_hybrid_transition_hydrates_current_sonara_context_from_embedding_candidates(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    seed_id = _track(db, tmp_path, "hydrated-seed")
-    candidate_id = _track(db, tmp_path, "hydrated-candidate")
-    _save_embeddings(db, seed_id, mert=[1.0, 0.0], maest=[1.0, 0.0])
-    _save_embeddings(db, candidate_id, mert=[0.99, 0.01], maest=[0.99, 0.01])
-    signature = expected_sonara_analysis_signature([])
-    db.save_sonara_features(
-        seed_id,
-        {
-            "bpm": {"value": 128.0},
-            "bpm_confidence": {"value": 0.9},
-            "grid_stability": {"value": 1.0},
-            "duration_sec": {"value": 200.0},
-            "outro_start_sec": {"value": 180.0},
-            "segments": {"value": [{"energy": 0.4}]},
-        },
-        bpm=128.0,
-        analysis_signature=signature,
-    )
-    db.save_sonara_features(
-        candidate_id,
-        {
-            "bpm": {"value": 129.0},
-            "bpm_confidence": {"value": 0.8},
-            "grid_stability": {"value": 0.64},
-            "intro_end_sec": {"value": 20.0},
-            "segments": {"value": [{"energy": 0.5}]},
-        },
-        bpm=129.0,
-        analysis_signature=signature,
-    )
+def test_hybrid_custom_weights_change_rrf_order() -> None:
+    repository = _hybrid_library()
 
-    result = build_hybrid_search_preview(
-        db,
-        seed_track_ids=[seed_id],
-        sources=["mert", "maest"],
-        per_source=1,
-        limit=1,
-    )
-
-    row = result.results[0]
-    assert row.track.metadata is not None
-    assert row.transition_diagnostics["components"]["grid_instability_risk"] is not None
-    assert row.transition_diagnostics["components"]["structure_transition_risk"] is not None
-
-
-def test_hybrid_search_custom_weights_change_order(tmp_path: Path) -> None:
-    db, track_ids = _hybrid_library(tmp_path)
-
-    mert_weighted = build_hybrid_search_preview(
-        db,
-        seed_track_ids=[track_ids["seed"]],
+    mert = _build(
+        repository,
+        seed_track_ids=[1],
         sources=["mert", "maest"],
         weights={"mert": 1.0, "maest": 0.0},
         per_source=3,
         limit=3,
     )
-    maest_weighted = build_hybrid_search_preview(
-        db,
-        seed_track_ids=[track_ids["seed"]],
+    maest = _build(
+        repository,
+        seed_track_ids=[1],
         sources=["mert", "maest"],
         weights={"mert": 0.0, "maest": 1.0},
         per_source=3,
         limit=3,
     )
 
-    assert mert_weighted.results[0].track.id == track_ids["mert_top"]
-    assert maest_weighted.results[0].track.id == track_ids["maest_top"]
-    assert mert_weighted.weights_used == {"mert": 1.0, "maest": 0.0}
+    assert mert.results[0].track.track_id == 2
+    assert maest.results[0].track.track_id == 3
 
 
-def test_hybrid_search_zero_transition_risk_weight_keeps_rrf_order(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_ids = {
-        "seed": _track(db, tmp_path, "seed", bpm=120.0, musical_key="1A", energy=0.5),
-        "risky": _track(db, tmp_path, "risky", bpm=200.0, musical_key="8B", energy=1.0),
-        "safe": _track(db, tmp_path, "safe", bpm=120.0, musical_key="1A", energy=0.5),
-    }
-    rows = (
-        _candidate_row(db, track_ids["seed"], track_ids["risky"], {"mert": (1, 0.9)}),
-        _candidate_row(db, track_ids["seed"], track_ids["safe"], {"mert": (2, 0.8)}),
-    )
-    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
-
-    result = build_hybrid_search_preview(
-        db,
-        seed_track_ids=[track_ids["seed"]],
+def test_hybrid_zero_weight_source_does_not_change_transition_adjusted_scores() -> None:
+    repository = _Repository()
+    for track_id, mert, maest in (
+        (1, [1.0, 0.0], [1.0, 0.0]),
+        (2, [0.98, 0.02], [0.99, 0.01]),
+        (3, [0.99, 0.01], [0.0, 1.0]),
+        (4, [0.0, 1.0], [0.98, 0.02]),
+    ):
+        repository.add(
+            track_id,
+            mert=mert,
+            maest=maest,
+            bpm=124.0,
+            energy=0.5,
+            musical_key="8A",
+        )
+    mert_only = _build(
+        repository,
+        seed_track_ids=[1],
         sources=["mert"],
+        weights={"mert": 1.0},
         per_source=2,
         limit=2,
-        rrf_k=1,
-        transition_risk_weight=0.0,
-    )
-
-    assert [row.track.id for row in result.results] == [track_ids["risky"], track_ids["safe"]]
-    assert result.results[0].score == pytest.approx(1.0)
-    assert result.results[0].adjusted_score == pytest.approx(result.results[0].score)
-    assert result.results[0].transition_risk_penalty == 0.0
-
-
-def test_hybrid_search_transition_risk_weight_demotes_high_risk_candidate(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_ids = {
-        "seed": _track(db, tmp_path, "seed", bpm=120.0, musical_key="1A", energy=0.5),
-        "risky": _track(db, tmp_path, "risky", bpm=200.0, musical_key="8B", energy=1.0),
-        "safe": _track(db, tmp_path, "safe", bpm=120.0, musical_key="1A", energy=0.5),
-    }
-    rows = (
-        _candidate_row(db, track_ids["seed"], track_ids["risky"], {"mert": (1, 0.9)}),
-        _candidate_row(db, track_ids["seed"], track_ids["safe"], {"mert": (2, 0.8)}),
-    )
-    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
-
-    result = build_hybrid_search_preview(
-        db,
-        seed_track_ids=[track_ids["seed"]],
-        sources=["mert"],
-        per_source=2,
-        limit=2,
-        rrf_k=1,
         transition_risk_weight=1.0,
     )
-
-    assert [row.track.id for row in result.results] == [track_ids["safe"], track_ids["risky"]]
-    assert result.results[1].transition_risk_penalty > 0.0
-    assert result.results[0].adjusted_score > result.results[1].adjusted_score
-
-
-def test_hybrid_search_missing_transition_risk_has_no_penalty(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_ids = {
-        "seed": _track(db, tmp_path, "seed"),
-        "candidate": _track(db, tmp_path, "candidate"),
-    }
-    rows = (_candidate_row(db, track_ids["seed"], track_ids["candidate"], {"mert": (1, 0.9)}),)
-    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
-    monkeypatch.setattr(
-        hybrid_search,
-        "_candidate_transition_diagnostics",
-        lambda _candidate, *, seed_tracks, sources, risk_version, classifier_risk_weights: {"transition_risk": None, "warnings": []},
-    )
-
-    result = build_hybrid_search_preview(
-        db,
-        seed_track_ids=[track_ids["seed"]],
-        sources=["mert"],
-        per_source=1,
-        limit=1,
-        transition_risk_weight=1.0,
-    )
-
-    assert result.results[0].transition_risk is None
-    assert result.results[0].transition_risk_penalty == 0.0
-    assert result.results[0].adjusted_score == pytest.approx(1.0)
-
-
-def test_hybrid_classifier_preferences_are_neutral_when_scores_are_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_ids = {
-        "seed": _track(db, tmp_path, "seed"),
-        "candidate": _track(db, tmp_path, "candidate"),
-    }
-    rows = (_candidate_row(db, track_ids["seed"], track_ids["candidate"], {"mert": (1, 0.9)}),)
-    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
-
-    baseline = build_hybrid_search_preview(db, seed_track_ids=[track_ids["seed"]], sources=["mert"], per_source=1, limit=1)
-    controlled = build_hybrid_search_preview(
-        db,
-        seed_track_ids=[track_ids["seed"]],
-        sources=["mert"],
-        per_source=1,
-        limit=1,
-        classifier_preferences={"break_energy": 1.0},
-    )
-
-    assert controlled.results[0].score == pytest.approx(baseline.results[0].score)
-    assert "classifier_break_energy" not in controlled.results[0].score_breakdown
-    assert controlled.results[0].classifier_support["break_energy"]["available"] is False
-    assert not any("break_energy" in line for line in controlled.results[0].explanation)
-    assert any("break_energy" in warning and "neutral" in warning for warning in controlled.warnings)
-
-
-def test_hybrid_classifier_preferences_are_scoped_by_classifier_key(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_ids = {
-        "seed": _track(db, tmp_path, "seed"),
-        "candidate": _track(db, tmp_path, "candidate"),
-    }
-    db.save_classifier_score(
-        track_ids["candidate"],
-        classifier="abstract_edge",
-        score=1.0,
-        label="positive",
-        confidence=1.0,
-        probabilities={"positive": 1.0},
-        feature_set="combined",
-        model_id="test",
-    )
-    rows = (_candidate_row(db, track_ids["seed"], track_ids["candidate"], {"mert": (1, 0.9)}),)
-    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
-
-    wrong_key = build_hybrid_search_preview(
-        db,
-        seed_track_ids=[track_ids["seed"]],
-        sources=["mert"],
-        per_source=1,
-        limit=1,
-        classifier_preferences={"break_energy": 1.0},
-    )
-    matching_key = build_hybrid_search_preview(
-        db,
-        seed_track_ids=[track_ids["seed"]],
-        sources=["mert"],
-        per_source=1,
-        limit=1,
-        classifier_preferences={"abstract_edge": 1.0},
-    )
-
-    assert wrong_key.results[0].adjusted_score == pytest.approx(1.0)
-    assert matching_key.results[0].adjusted_score == pytest.approx(1.0 + hybrid_search.CLASSIFIER_SCORE_ADJUSTMENT_SCALE)
-    assert matching_key.results[0].score_breakdown["classifier_abstract_edge"]["contribution"] > 0
-    assert matching_key.results[0].classifier_support["abstract_edge"]["available"] is True
-
-
-def test_hybrid_classifier_support_uses_manifest_signal_metadata(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_ids = {
-        "seed": _track(db, tmp_path, "seed"),
-        "candidate": _track(db, tmp_path, "candidate"),
-    }
-    db.save_classifier_score(
-        track_ids["candidate"],
-        classifier="deep_groove",
-        score=0.9,
-        label="positive",
-        confidence=0.9,
-        probabilities={"positive": 0.9},
-        feature_set="combined",
-        model_id="groove-v2",
-    )
-    rows = (_candidate_row(db, track_ids["seed"], track_ids["candidate"], {"mert": (1, 0.9)}),)
-    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
-    monkeypatch.setattr(
-        hybrid_search,
-        "promoted_classifiers",
-        lambda: [
-            {
-                "classifier_key": "deep_groove",
-                "manifest_status": "valid",
-                "production_status": "valid_calibrated",
-                "model_id": "groove-v2",
-                "hybrid_signal": {
-                    "role": "preference_boost",
-                    "axis": "groove",
-                    "label": "Boost deep groove",
-                    "description": "Uses stored deep_groove scores as a groove preference.",
-                    "default_preference": 0.55,
-                    "allowed_modes": ["hybrid"],
-                    "missing_score_policy": "neutral",
-                },
-                "hybrid_signal_source": "manifest",
-            }
-        ],
-    )
-
-    result = build_hybrid_search_preview(
-        db,
-        seed_track_ids=[track_ids["seed"]],
-        sources=["mert"],
-        per_source=1,
-        limit=1,
-        classifier_preferences={"deep_groove": 0.55},
-    )
-
-    support = result.results[0].classifier_support["deep_groove"]
-    assert support["available"] is True
-    assert support["role"] == "preference_boost"
-    assert support["axis"] == "groove"
-    assert support["label"] == "Boost deep groove"
-    assert support["fresh"] is True
-    assert support["stale"] is False
-    assert support["production_status"] == "valid_calibrated"
-    assert result.results[0].score_breakdown["classifier_deep_groove"]["contribution"] > 0
-    assert any("Boost deep groove" in line and "groove" in line for line in result.results[0].explanation)
-
-
-def test_hybrid_classifier_support_marks_stale_scores_without_dropping_signal(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_ids = {
-        "seed": _track(db, tmp_path, "seed"),
-        "candidate": _track(db, tmp_path, "candidate"),
-    }
-    db.save_classifier_score(
-        track_ids["candidate"],
-        classifier="deep_groove",
-        score=0.9,
-        label="positive",
-        confidence=0.9,
-        probabilities={"positive": 0.9},
-        feature_set="combined",
-        model_id="old-model",
-    )
-    rows = (_candidate_row(db, track_ids["seed"], track_ids["candidate"], {"mert": (1, 0.9)}),)
-    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
-    monkeypatch.setattr(
-        hybrid_search,
-        "promoted_classifiers",
-        lambda: [
-            {
-                "classifier_key": "deep_groove",
-                "manifest_status": "valid",
-                "production_status": "valid_calibrated",
-                "model_id": "new-model",
-                "hybrid_signal": {
-                    "role": "preference_boost",
-                    "axis": "groove",
-                    "label": "Boost deep groove",
-                    "default_preference": 0.55,
-                    "allowed_modes": ["hybrid"],
-                    "missing_score_policy": "neutral",
-                },
-                "hybrid_signal_source": "manifest",
-            }
-        ],
-    )
-
-    result = build_hybrid_search_preview(
-        db,
-        seed_track_ids=[track_ids["seed"]],
-        sources=["mert"],
-        per_source=1,
-        limit=1,
-        classifier_preferences={"deep_groove": 0.55},
-    )
-
-    support = result.results[0].classifier_support["deep_groove"]
-    assert support["available"] is True
-    assert support["fresh"] is False
-    assert support["stale"] is True
-    assert result.results[0].score_breakdown["classifier_deep_groove"]["contribution"] > 0
-    assert any("deep_groove" in warning and "stale" in warning.lower() for warning in result.warnings)
-
-
-def test_hybrid_risk_classifier_signal_feeds_risk_breakdown_and_warnings(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_ids = {
-        "seed": _track(db, tmp_path, "seed"),
-        "candidate": _track(db, tmp_path, "candidate"),
-    }
-    db.save_classifier_score(
-        track_ids["candidate"],
-        classifier="harsh_noise",
-        score=0.8,
-        label="positive",
-        confidence=0.8,
-        probabilities={"positive": 0.8},
-        feature_set="combined",
-        model_id="noise-v1",
-    )
-    rows = (_candidate_row(db, track_ids["seed"], track_ids["candidate"], {"mert": (1, 0.9)}),)
-    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
-    monkeypatch.setattr(
-        hybrid_search,
-        "promoted_classifiers",
-        lambda: [
-            {
-                "classifier_key": "harsh_noise",
-                "manifest_status": "valid",
-                "production_status": "valid_calibrated",
-                "model_id": "noise-v1",
-                "hybrid_signal": {
-                    "role": "risk_penalty",
-                    "axis": "texture",
-                    "label": "Penalize harsh noise",
-                    "default_risk_weight": 0.75,
-                    "allowed_modes": ["hybrid"],
-                    "missing_score_policy": "neutral",
-                },
-                "hybrid_signal_source": "manifest",
-            }
-        ],
-    )
-
-    result = build_hybrid_search_preview(
-        db,
-        seed_track_ids=[track_ids["seed"]],
-        sources=["mert"],
-        per_source=1,
-        limit=1,
-        classifier_risk_weights={"harsh_noise": 0.75},
-    )
-
-    row = result.results[0]
-    support = row.classifier_support["harsh_noise"]
-    assert support["role"] == "risk_penalty"
-    assert support["axis"] == "texture"
-    assert support["risk_contribution"] == pytest.approx(0.6)
-    assert row.risk_breakdown["texture_clash"] == pytest.approx(0.6)
-    assert any("Penalize harsh noise" in warning and "texture" in warning for warning in row.warnings)
-
-
-def test_hybrid_search_excludes_zero_weight_source_only_candidates(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_ids = {
-        "seed": _track(db, tmp_path, "seed"),
-        "positive_source": _track(db, tmp_path, "positive_source"),
-        "zero_source_only": _track(db, tmp_path, "zero_source_only"),
-    }
-    rows = (
-        _candidate_row(db, track_ids["seed"], track_ids["positive_source"], {"mert": (1, 0.9)}),
-        _candidate_row(db, track_ids["seed"], track_ids["zero_source_only"], {"maest": (1, 0.99)}),
-    )
-    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
-
-    result = build_hybrid_search_preview(
-        db,
-        seed_track_ids=[track_ids["seed"]],
+    zero_weight_maest = _build(
+        repository,
+        seed_track_ids=[1],
         sources=["mert", "maest"],
         weights={"mert": 1.0, "maest": 0.0},
         per_source=2,
-        limit=10,
+        limit=2,
+        transition_risk_weight=1.0,
     )
 
-    assert [row.track.id for row in result.results] == [track_ids["positive_source"]]
-    assert all(row.raw_rrf_score > 0 for row in result.results)
+    assert [row.track.track_id for row in mert_only.results] == [3, 2]
+    assert [row.track.track_id for row in zero_weight_maest.results] == [3, 2]
+    for baseline, with_zero_weight_source in zip(
+        mert_only.results,
+        zero_weight_maest.results,
+        strict=True,
+    ):
+        assert with_zero_weight_source.raw_rrf_score == pytest.approx(
+            baseline.raw_rrf_score
+        )
+        assert with_zero_weight_source.transition_risk == pytest.approx(
+            baseline.transition_risk
+        )
+        assert with_zero_weight_source.adjusted_score == pytest.approx(
+            baseline.adjusted_score
+        )
+        assert (
+            with_zero_weight_source.transition_diagnostics["components"][
+                "source_disagreement_risk"
+            ]
+            == 0.0
+        )
 
 
-def test_hybrid_search_excludes_seed_track(tmp_path: Path) -> None:
-    db, track_ids = _hybrid_library(tmp_path)
+def test_hybrid_rejects_wrong_embedding_dimension_before_scoring(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = _hybrid_library()
+    repository.vectors["mert"][1] = np.asarray([1.0, 0.0], dtype=np.float32)
+    monkeypatch.setattr(
+        hybrid_search,
+        "_rank_embedding_source",
+        lambda *_args, **_kwargs: pytest.fail("scoring must not run"),
+    )
 
-    result = build_hybrid_search_preview(
-        db,
-        seed_track_ids=[track_ids["seed"]],
+    with pytest.raises(RuntimeError, match="dimension"):
+        _build(
+            repository,
+            seed_track_ids=[1],
+            sources=["mert"],
+            weights={"mert": 1.0},
+        )
+
+
+def test_hybrid_rejects_non_unit_l2_embedding_before_scoring(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = _hybrid_library()
+    repository.vectors["mert"][1] *= 2.0
+    monkeypatch.setattr(
+        hybrid_search,
+        "_rank_embedding_source",
+        lambda *_args, **_kwargs: pytest.fail("scoring must not run"),
+    )
+
+    with pytest.raises(RuntimeError, match="not unit-normalized"):
+        _build(
+            repository,
+            seed_track_ids=[1],
+            sources=["mert"],
+            weights={"mert": 1.0},
+        )
+
+
+def test_hybrid_rejects_duplicate_embedding_target_before_scoring(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = _hybrid_library()
+    load_vectors = repository.load_analysis_vectors
+
+    def duplicate_first_row(
+        output: AnalysisOutput,
+        *,
+        targets: Sequence[AnalysisTarget] | None = None,
+    ) -> tuple[AnalysisVectorRow, ...]:
+        rows = load_vectors(output, targets=targets)
+        return (*rows, rows[0])
+
+    monkeypatch.setattr(repository, "load_analysis_vectors", duplicate_first_row)
+    monkeypatch.setattr(
+        hybrid_search,
+        "_rank_embedding_source",
+        lambda *_args, **_kwargs: pytest.fail("scoring must not run"),
+    )
+
+    with pytest.raises(RuntimeError, match="duplicate embedding rows"):
+        _build(
+            repository,
+            seed_track_ids=[1],
+            sources=["mert"],
+            weights={"mert": 1.0},
+        )
+
+
+def test_hybrid_transition_risk_can_demote_a_risky_rrf_winner() -> None:
+    repository = _Repository()
+    repository.add(
+        1,
+        mert=[1.0, 0.0],
+        maest=[1.0, 0.0],
+        bpm=120.0,
+        energy=0.5,
+    )
+    repository.add(
+        2,
+        mert=[0.99, 0.01],
+        maest=[0.99, 0.01],
+        bpm=200.0,
+        energy=1.0,
+        musical_key="8B",
+    )
+    repository.add(
+        3,
+        mert=[0.98, 0.02],
+        maest=[0.98, 0.02],
+        bpm=120.0,
+        energy=0.5,
+    )
+
+    raw = _build(
+        repository,
+        seed_track_ids=[1],
         sources=["mert"],
-        per_source=4,
-        limit=10,
+        weights={"mert": 1.0},
+        rrf_k=1,
+        transition_risk_weight=0.0,
+        limit=2,
+    )
+    adjusted = _build(
+        repository,
+        seed_track_ids=[1],
+        sources=["mert"],
+        weights={"mert": 1.0},
+        rrf_k=1,
+        transition_risk_weight=1.0,
+        limit=2,
     )
 
-    assert track_ids["seed"] not in {row.track.id for row in result.results}
+    assert [row.track.track_id for row in raw.results] == [2, 3]
+    raw_by_id = {row.track.track_id: row for row in raw.results}
+    adjusted_by_id = {row.track.track_id: row for row in adjusted.results}
+    assert (
+        adjusted_by_id[2].transition_risk_penalty
+        > adjusted_by_id[3].transition_risk_penalty
+    )
+    assert adjusted_by_id[2].adjusted_score < raw_by_id[2].adjusted_score
+
+
+def test_hybrid_tie_break_is_deterministic_for_random_seed() -> None:
+    repository = _Repository()
+    repository.add(1, mert=[1.0, 0.0], maest=[1.0, 0.0])
+    repository.add(2, mert=[0.8, 0.2], maest=[0.8, 0.2])
+    repository.add(3, mert=[0.8, 0.2], maest=[0.8, 0.2])
+
+    first = _build(
+        repository,
+        seed_track_ids=[1],
+        sources=["mert"],
+        weights={"mert": 1.0},
+        random_seed=17,
+        limit=2,
+    )
+    second = _build(
+        repository,
+        seed_track_ids=[1],
+        sources=["mert"],
+        weights={"mert": 1.0},
+        random_seed=17,
+        limit=2,
+    )
+
+    assert [row.track.track_id for row in first.results] == [
+        row.track.track_id for row in second.results
+    ]
 
 
 @pytest.mark.parametrize(
     "weights",
     (
-        {"mert": -1.0, "maest": 2.0},
+        {"mert": -0.1},
+        {"mert": float("nan")},
         {"mert": 0.0, "maest": 0.0},
-        {"mert": 1.0},
+        {"unknown": 1.0},
     ),
 )
-def test_hybrid_search_rejects_invalid_weights(tmp_path: Path, weights: dict[str, float]) -> None:
-    db, track_ids = _hybrid_library(tmp_path)
+def test_hybrid_search_rejects_invalid_weights(
+    weights: dict[str, float],
+) -> None:
+    repository = _hybrid_library()
 
     with pytest.raises(ValueError):
-        build_hybrid_search_preview(
-            db,
-            seed_track_ids=[track_ids["seed"]],
+        _build(
+            repository,
+            seed_track_ids=[1],
             sources=["mert", "maest"],
             weights=weights,
         )
 
 
-def test_hybrid_search_rejects_duplicate_normalized_weight_keys(tmp_path: Path) -> None:
-    db, track_ids = _hybrid_library(tmp_path)
+def test_hybrid_search_reports_missing_source_coverage() -> None:
+    repository = _Repository()
+    repository.add(1, mert=[1.0, 0.0], maest=[1.0, 0.0])
+    del repository.vectors["clap"][1]
 
-    with pytest.raises(ValueError, match="duplicate normalized source"):
-        build_hybrid_search_preview(
-            db,
-            seed_track_ids=[track_ids["seed"]],
-            sources=["mert", "maest"],
-            weights={"mert": 0.2, " MERT ": 0.3, "maest": 0.5},
-        )
-
-
-def test_hybrid_search_preserves_source_supporting_seed_ids_after_best_replacement(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_ids = {
-        "seed_a": _track(db, tmp_path, "seed_a"),
-        "seed_b": _track(db, tmp_path, "seed_b"),
-        "candidate": _track(db, tmp_path, "candidate"),
-    }
-    rows = (
-        _candidate_row(db, track_ids["seed_a"], track_ids["candidate"], {"mert": (2, 0.4)}),
-        _candidate_row(db, track_ids["seed_b"], track_ids["candidate"], {"mert": (1, 0.9)}),
-    )
-    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
-
-    result = build_hybrid_search_preview(
-        db,
-        seed_track_ids=[track_ids["seed_a"], track_ids["seed_b"]],
-        sources=["mert"],
-        weights={"mert": 1.0},
-        per_source=2,
-        limit=5,
-    )
-
-    diagnostics = result.results[0].diagnostics
-    source_support = diagnostics["source_support"]["mert"]
-    assert diagnostics["supporting_seed_track_ids"] == [track_ids["seed_a"], track_ids["seed_b"]]
-    assert source_support["best_seed_track_id"] == track_ids["seed_b"]
-    assert source_support["supporting_seed_track_ids"] == [track_ids["seed_a"], track_ids["seed_b"]]
-    assert result.results[0].transition_diagnostics["supporting_seed_count"] == 2
-
-
-def test_hybrid_search_transition_diagnostics_use_supporting_seed_scope(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_ids = {
-        "seed_a": _track(db, tmp_path, "seed_a", bpm=120.0, musical_key="8A", energy=0.5),
-        "seed_b": _track(db, tmp_path, "seed_b", bpm=180.0, musical_key="9A", energy=1.0),
-        "candidate": _track(db, tmp_path, "candidate", bpm=120.0, musical_key="8A", energy=0.5),
-    }
-    rows = (_candidate_row(db, track_ids["seed_a"], track_ids["candidate"], {"mert": (1, 0.9)}),)
-    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
-
-    result = build_hybrid_search_preview(
-        db,
-        seed_track_ids=[track_ids["seed_a"], track_ids["seed_b"]],
-        sources=["mert", "maest"],
-        per_source=2,
-        limit=5,
-    )
-
-    transition_diagnostics = result.results[0].transition_diagnostics
-    components = transition_diagnostics["components"]
-    component_values = [value for value in components.values() if value is not None]
-    assert transition_diagnostics["supporting_seed_track_ids"] == [track_ids["seed_a"]]
-    assert transition_diagnostics["supporting_seed_count"] == 1
-    assert transition_diagnostics["seed_scope"] == "candidate_supporting_seeds"
-    assert components["bpm_risk"] == 0.0
-    assert components["source_disagreement_risk"] == 0.0
-    assert transition_diagnostics["transition_risk"] == pytest.approx(sum(component_values) / len(component_values))
-
-
-def test_hybrid_search_configured_clap_without_rows_does_not_inflate_source_risk(tmp_path: Path) -> None:
-    db, track_ids = _hybrid_library(tmp_path)
-
-    result = build_hybrid_search_preview(
-        db,
-        seed_track_ids=[track_ids["seed"]],
-        sources=["mert", "maest", "clap"],
-        per_source=3,
+    result = _build(
+        repository,
+        seed_track_ids=[1],
+        sources=["clap"],
+        weights={"clap": 1.0},
         limit=3,
-        transition_risk_weight=1.0,
     )
-
-    shared_row = next(row for row in result.results if row.track.id == track_ids["shared"])
-    assert result.weights_used == {"mert": pytest.approx(1 / 3), "maest": pytest.approx(1 / 3), "clap": pytest.approx(1 / 3)}
-    assert any("source=clap returned no candidates" in warning for warning in result.warnings)
-    assert set(shared_row.score_breakdown) == {"mert", "maest"}
-    assert shared_row.source_support["clap"]["available"] is False
-    assert shared_row.transition_diagnostics["components"]["source_disagreement_risk"] == 0.0
-
-
-def test_hybrid_search_transition_risk_matches_aggregated_components(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_ids = {
-        "seed_a": _track(db, tmp_path, "seed_a", bpm=120.0, musical_key="8A", energy=0.0),
-        "seed_b": _track(db, tmp_path, "seed_b", bpm=None, musical_key="9A", energy=0.4),
-        "candidate": _track(db, tmp_path, "candidate", bpm=126.0, musical_key="8A", energy=1.0),
-    }
-    rows = (
-        _candidate_row(db, track_ids["seed_a"], track_ids["candidate"], {"mert": (1, 0.9)}),
-        _candidate_row(db, track_ids["seed_b"], track_ids["candidate"], {"mert": (2, 0.8)}),
-    )
-    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
-
-    result = build_hybrid_search_preview(
-        db,
-        seed_track_ids=[track_ids["seed_a"], track_ids["seed_b"]],
-        sources=["mert", "maest"],
-        per_source=2,
-        limit=5,
-    )
-
-    transition_diagnostics = result.results[0].transition_diagnostics
-    components = transition_diagnostics["components"]
-    component_values = [value for value in components.values() if value is not None]
-    assert transition_diagnostics["supporting_seed_count"] == 2
-    assert transition_diagnostics["transition_risk"] == pytest.approx(sum(component_values) / len(component_values))
-    assert result.results[0].transition_risk == transition_diagnostics["transition_risk"]
-
-
-def test_hybrid_search_returns_empty_results_with_warnings_when_sources_lack_coverage(tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    seed_id = db.upsert_track(path=tmp_path / "seed.wav", size=10, mtime=1, metadata={"title": "Seed"})
-
-    result = build_hybrid_search_preview(db, seed_track_ids=[seed_id], sources=["mert"], per_source=5)
 
     assert result.results == ()
-    assert any("source=mert returned no candidates" in warning for warning in result.warnings)
-    assert any("produced no candidate rows" in warning for warning in result.warnings)
+    assert any("returned no current candidates" in warning for warning in result.warnings)
 
 
-def test_hybrid_search_records_session_only_when_requested(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_ids = {
-        "seed": _track(db, tmp_path, "seed", bpm=120.0, musical_key="8A", energy=0.4),
-        "candidate": _track(db, tmp_path, "candidate", bpm=124.0, musical_key="9A", energy=0.6),
-    }
-    rows = (_candidate_row(db, track_ids["seed"], track_ids["candidate"], {"mert": (1, 0.9)}),)
-    monkeypatch.setattr(hybrid_search, "generate_candidate_pool_rows", lambda _db, _request: (rows, ()))
+def test_hybrid_search_records_only_when_requested() -> None:
+    repository = _hybrid_library()
 
-    dry_run = build_hybrid_search_preview(
-        db,
-        seed_track_ids=[track_ids["seed"]],
+    dry_run = _build(
+        repository,
+        seed_track_ids=[1],
         sources=["mert"],
-        per_source=1,
         limit=1,
         record_session=False,
     )
-    recorded = build_hybrid_search_preview(
-        db,
-        seed_track_ids=[track_ids["seed"]],
+    recorded = _build(
+        repository,
+        seed_track_ids=[1],
         sources=["mert"],
-        per_source=1,
         limit=1,
-        rrf_k=7,
-        transition_risk_weight=0.25,
         record_session=True,
     )
 
-    sessions = db.list_search_sessions_with_events()
     assert dry_run.session_id is None
-    assert recorded.session_id is not None
-    assert len(sessions) == 1
-    assert sessions[0]["mode"] == hybrid_search.HYBRID_SEARCH_SESSION_MODE
-    assert sessions[0]["seed_track_ids"] == [track_ids["seed"]]
-    assert sessions[0]["request"]["record_session"] is True
-    assert sessions[0]["request"]["transition_risk_weight"] == 0.25
-    assert sessions[0]["events"][0]["track_id"] == track_ids["candidate"]
-    event_breakdown = sessions[0]["events"][0]["score_breakdown"]
-    assert event_breakdown["score_kind"] == "weighted_rrf_adjusted"
-    assert event_breakdown["sources"]["mert"]["rank"] == 1
-    assert event_breakdown["transition_risk_weight"] == 0.25
-    assert "source_support" in event_breakdown
-
-
-def _hybrid_library(tmp_path: Path) -> tuple[LibraryDatabase, dict[str, int]]:
-    db = LibraryDatabase(tmp_path / "library.sqlite")
-    track_ids = {
-        "seed": _track(db, tmp_path, "seed"),
-        "mert_top": _track(db, tmp_path, "mert_top"),
-        "maest_top": _track(db, tmp_path, "maest_top"),
-        "shared": _track(db, tmp_path, "shared"),
+    assert recorded.session_id == 41
+    assert len(repository.session_requests) == 1
+    assert repository.events
+    assert repository.session_requests[0]["source_contract_hashes"] == {
+        "mert": repository.outputs[("mert", "embedding")].contract_hash
     }
-    _save_embeddings(db, track_ids["seed"], mert=[1.0, 0.0], maest=[0.0, 1.0])
-    _save_embeddings(db, track_ids["mert_top"], mert=[0.99, 0.01], maest=[1.0, 0.0])
-    _save_embeddings(db, track_ids["maest_top"], mert=[0.0, 1.0], maest=[0.01, 0.99])
-    _save_embeddings(db, track_ids["shared"], mert=[0.8, 0.2], maest=[0.2, 0.8])
-    return db, track_ids
-
-
-def _track(
-    db: LibraryDatabase,
-    tmp_path: Path,
-    stem: str,
-    *,
-    bpm: float | None = 124.0,
-    musical_key: str | None = "8A",
-    energy: float | None = 0.5,
-) -> int:
-    return db.upsert_track(
-        path=tmp_path / f"{stem}.wav",
-        size=10,
-        mtime=1,
-        metadata={"artist": f"Artist {stem}", "title": stem.replace("_", " ").title()},
-        bpm=bpm,
-        musical_key=musical_key,
-        energy=energy,
-    )
-
-
-def _save_embeddings(db: LibraryDatabase, track_id: int, *, mert: list[float], maest: list[float]) -> None:
-    db.save_embedding(track_id, np.asarray(mert, dtype=np.float32), "test-mert", embedding_key="mert")
-    db.save_embedding(track_id, np.asarray(maest, dtype=np.float32), "test-maest", embedding_key="maest")
-
-
-def _candidate_row(db: LibraryDatabase, seed_id: int, candidate_id: int, contributions: dict[str, tuple[int, float]]) -> CandidatePoolRow:
-    return CandidatePoolRow(
-        seed_track=db.get_track(seed_id),
-        candidate_track=db.get_track(candidate_id),
-        blind_rank=1,
-        source_contributions={
-            source: CandidateSourceContribution(rank=rank, score=score)
-            for source, (rank, score) in contributions.items()
-        },
-    )

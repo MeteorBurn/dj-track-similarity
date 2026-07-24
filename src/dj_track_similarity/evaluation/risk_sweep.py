@@ -7,7 +7,12 @@ import json
 import math
 from typing import TYPE_CHECKING, Any
 
-from ..transition_diagnostics import TRANSITION_RISK_V2, TRANSITION_RISK_VERSIONS, compute_transition_diagnostics
+from ..transition_diagnostics import (
+    TRANSITION_RISK_V2,
+    TRANSITION_RISK_VERSIONS,
+    TransitionTrack,
+    compute_transition_diagnostics,
+)
 from .candidates import ALLOWED_CANDIDATE_SOURCES
 from .metrics import (
     bad_suggestion_rate_at_k,
@@ -23,11 +28,12 @@ from .metrics import (
 )
 from .judged import build_judged_label_gate, matching_label as matched_judged_label, session_feedback_source as judged_session_feedback_source
 from .reports import RELEVANCE_THRESHOLD
+from .recorded_sessions import load_current_evaluation_sessions
 from .score_profiles import DEFAULT_K_VALUES, DEFAULT_RRF_K, LABEL_POLICY, ScoreProfile, score_profile_to_dict, validate_score_profile
+from .track_views import load_transition_tracks_for_ids
 
 if TYPE_CHECKING:
     from ..database import LibraryDatabase
-    from ..models import Track
 
 
 DEFAULT_RISK_SWEEP_WEIGHTS = (0.0, 0.25, 0.5, 1.0)
@@ -74,7 +80,7 @@ def build_risk_penalty_sweep_report(
     clean_rrf_k = _positive_int(rrf_k, "rrf_k")
     clean_risk_version = _risk_version(risk_version)
 
-    raw_sessions = db.list_search_sessions_with_events()
+    raw_sessions = load_current_evaluation_sessions(db)
     feedback_map = db.get_pair_feedback_map()
     judged_gate = build_judged_label_gate(raw_sessions, feedback_map, judged_only=False)
     parsed_sessions, warnings = _recorded_candidate_sessions(db, profile, feedback_map, clean_rrf_k, clean_risk_version, raw_sessions)
@@ -143,7 +149,7 @@ def _recorded_candidate_sessions(
     raw_sessions: Sequence[Mapping[str, Any]],
 ) -> tuple[tuple[RiskSweepSession, ...], list[str]]:
     warnings: list[str] = []
-    track_cache: dict[int, Track] = {}
+    track_cache: dict[int, TransitionTrack] = {}
     sessions: list[RiskSweepSession] = []
     for session in raw_sessions:
         parsed_session = _recorded_candidate_session(db, session, profile, feedback_map, rrf_k, risk_version, track_cache, warnings)
@@ -162,7 +168,7 @@ def _recorded_candidate_session(
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
     rrf_k: int,
     risk_version: str,
-    track_cache: dict[int, Track],
+    track_cache: dict[int, TransitionTrack],
     warnings: list[str],
 ) -> RiskSweepSession | None:
     seed_track_ids = _seed_track_ids(session.get("seed_track_ids"))
@@ -189,7 +195,7 @@ def _session_candidates(
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
     rrf_k: int,
     risk_version: str,
-    track_cache: dict[int, Track],
+    track_cache: dict[int, TransitionTrack],
     warnings: list[str],
 ) -> tuple[RiskSweepCandidate, ...]:
     raw_candidates: list[dict[str, Any]] = []
@@ -235,7 +241,7 @@ def _raw_candidate(
     rrf_k: int,
     max_source_count: int,
     risk_version: str,
-    track_cache: dict[int, Track],
+    track_cache: dict[int, TransitionTrack],
     warnings: list[str],
 ) -> dict[str, Any] | None:
     if not sources:
@@ -452,7 +458,7 @@ def _event_transition_risk(
     source_count: int,
     max_source_count: int,
     risk_version: str,
-    track_cache: dict[int, Track],
+    track_cache: dict[int, TransitionTrack],
 ) -> tuple[float | None, str]:
     stored_risk = _stored_transition_risk(event, risk_version)
     if stored_risk is not None:
@@ -500,7 +506,7 @@ def _recomputed_transition_risk(
     source_count: int,
     max_source_count: int,
     risk_version: str,
-    track_cache: dict[int, Track],
+    track_cache: dict[int, TransitionTrack],
 ) -> float | None:
     try:
         seed_track = _cached_track(db, seed_track_id, track_cache)
@@ -511,9 +517,17 @@ def _recomputed_transition_risk(
     return diagnostics.transition_risk
 
 
-def _cached_track(db: LibraryDatabase, track_id: int, track_cache: dict[int, Track]) -> Track:
+def _cached_track(
+    db: LibraryDatabase,
+    track_id: int,
+    track_cache: dict[int, TransitionTrack],
+) -> TransitionTrack:
     if track_id not in track_cache:
-        track_cache[track_id] = db.get_track(track_id)
+        views = load_transition_tracks_for_ids(db, (track_id,))
+        track = views.get(track_id)
+        if track is None:
+            raise KeyError(track_id)
+        track_cache[track_id] = track
     return track_cache[track_id]
 
 
@@ -632,19 +646,6 @@ def _matching_label(
     feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
 ) -> Mapping[str, Any] | None:
     return matched_judged_label(seed_track_ids, candidate_track_id, preferred_source, feedback_map)
-
-
-def _first_label_for_source(
-    seed_track_ids: Sequence[int],
-    candidate_track_id: int,
-    source: str,
-    feedback_map: Mapping[tuple[int, int, str], Mapping[str, Any]],
-) -> Mapping[str, Any] | None:
-    for seed_track_id in seed_track_ids:
-        label = feedback_map.get((seed_track_id, candidate_track_id, source))
-        if label is not None:
-            return label
-    return None
 
 
 def _first_label_for_any_source(

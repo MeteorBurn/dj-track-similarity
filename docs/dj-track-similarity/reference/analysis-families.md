@@ -6,12 +6,12 @@
 
 | Family | Reads | Writes | Unlocks |
 | --- | --- | --- | --- |
-| SONARA | file paths decoded natively by SONARA/Symphonia | SONARA metadata, working BPM/key/energy/duration | SONARA search, SET, Hybrid, classifier input |
-| MAEST | shared FFmpeg-decoded audio | genre labels, syncopated rhythm data, MAEST embedding | genre display, genre tag apply, SET, Hybrid, Audio Dedup signal |
-| MERT | shared FFmpeg-decoded audio | MERT embedding | MERT seed search, SET, Hybrid, Audio Dedup signal, classifier input |
-| MuQ | shared FFmpeg decode, resampled to 24 kHz `float32` | MuQ embedding | LAB Reference Compare evidence |
-| CLAP | shared FFmpeg-decoded audio | CLAP audio embedding | CLAP text search, SET, Hybrid, Audio Dedup signal |
-| CLASSIFIERS | exact stored inputs from each promoted manifest | `track_classifier_scores` | CLASS filters, SET preferences, Hybrid diagnostics |
+| SONARA | file paths decoded natively by SONARA/Symphonia | signed `core`, `timeline`, `embedding`, and `fingerprint` outputs | SONARA search, SET, Hybrid, classifier input |
+| MAEST | shared FFmpeg-decoded audio | Core genre/syncopation rows and an Artifacts embedding | genre display, genre tag apply, SET, Hybrid, Audio Dedup signal |
+| MERT | shared FFmpeg-decoded audio | Artifacts embedding | MERT seed search, SET, Hybrid, Audio Dedup signal, classifier input |
+| MuQ | shared FFmpeg decode, resampled to 24 kHz `float32` | Artifacts embedding | LAB Reference Compare evidence |
+| CLAP | shared FFmpeg-decoded audio | Artifacts audio embedding | CLAP text search, SET, Hybrid, Audio Dedup signal |
+| CLASSIFIERS | exact stored inputs from each promoted manifest | Core `classifier_scores` rows | CLASS filters, SET preferences, Hybrid diagnostics |
 
 ## Device behavior
 
@@ -41,65 +41,76 @@ Before any native job, the presence of an older decoder/execution contract block
 requires an explicit backup and SONARA reset. Once the database contains only the native contract,
 missing current outputs can resume normally.
 
-## SONARA output blocks
+## SONARA output kinds
 
-SONARA v0.2.9 is exposed as three independently selectable outputs. Core is the default. Timeline
-and Representations can be added during the first analysis or computed later without replacing Core.
+SONARA v0.2.9 has one immutable release identity derived from four output contracts: `core`,
+`timeline`, `embedding`, and `fingerprint`. A job can select which active contracts to materialize;
+`core` is the CLI and API default. Selecting another output later does not change the four-contract
+release identity or replace current `core` rows.
 
 | Output | Main contents | Physical store |
 | --- | --- | --- |
-| Core | BPM/key/confidence, loudness, dynamics, spectral and timbral values, Contrast (7), MFCC (13), Chroma (12), compact structure/beat-grid values, vocalness v2, mood, silence | `sonara` table in Core |
-| Timeline | beats, onsets, chord sequence/events, tempo/energy/loudness curves, downbeats, structure segments | `sonara_timeline` in Artifacts |
-| Representations | SONARA embedding and fingerprint | `sonara_similarity_embeddings` and `sonara_fingerprints` in Artifacts |
+| `core` | BPM/key/confidence, loudness, dynamics, spectral and timbral values, Contrast (7), MFCC (13), Chroma (12), compact structure/beat-grid values, vocalness v2, mood, silence | Core `sonara` table |
+| `timeline` | beats, onsets, chord sequence/events, tempo/energy/loudness curves, downbeats, structure segments | Artifacts `sonara_timeline` |
+| `embedding` | 48-dimensional SONARA similarity vector | Artifacts `sonara_similarity_embeddings` |
+| `fingerprint` | versioned SONARA audio fingerprint | Artifacts `sonara_fingerprints` |
 
 `bpm_confidence` is SONARA's `0..1` trust signal for the working BPM. `key_camelot` is SONARA's own Camelot code rather than a project-side derivation.
 
-The track metadata also stores `sonara_provenance` separately from feature values. It preserves the provenance fields returned by SONARA, such as schema version, sample rate, hop length, mode, and requested features, and adds the installed SONARA package version when the package exposes it. The metadata dialog displays this information for result audits and reanalysis decisions. Reset SONARA removes the provenance with the feature data.
+The contract registry stores canonical contract JSON plus contract and release hashes. Analyzer
+provenance is validated during ingestion, but the runtime does not promise to round-trip the raw
+analyzer provenance payload.
 
-Each output has a separate compatibility signature. Its deterministic digest covers SONARA `0.2.9`, upstream schema `4`, playlist mode, sample rate `22050`, BPM range `70..180`, the output's sorted feature profile, project feature revision `5`, `decoder_backend="sonara-symphonia"`, and `execution_path="analyze_batch"`. Core keeps its full signature in track metadata. Side rows keep their own signature and digest.
+Each output has a separate compatibility signature. Its deterministic digest covers SONARA `0.2.9`, upstream schema `4`, playlist mode, sample rate `22050`, BPM range `70..180`, the output's sorted feature profile, project feature revision `6`, `decoder_backend="sonara-symphonia"`, and `execution_path="analyze_batch"`.
 
 Core deliberately does not request SONARA's Full-only `time_signature` metrogram. It was not used by search, SET, Hybrid, or classifier inputs, while real-library results had no usable confidence and the calculation more than doubled Core compute time. Beatgrid uses SONARA's normal 4/4 fallback instead of consuming an untrusted meter estimate.
 
-The project model label `sonara-playlist-lab` is informational and is not a freshness check. The
-signature contains expanded, sorted upstream feature names rather than only the three project output
-names. Hop length remains in provenance, not in the signature. See the
+The project model label `sonara-playlist` is informational and is not a freshness check. The
+signature contains expanded, sorted upstream feature names rather than only the four project output
+names. The analysis hop is part of the common parameters in every output contract and the
+family-wide release hash. See the
 [SONARA v0.2.9 project contract](./sonara-v0-2-9-contract.md) for the exact storage and signature rules.
 
-The browser presents three checkboxes. The API uses `sonara_outputs`, and the CLI uses
-`--sonara-outputs core,timeline,representations`. A combined request sends the union of required
-upstream features to one native path batch, then splits the result by store. Core explicitly selects
-the bundled SONARA vocalness v2 model. `sonara_batch_size` is independent from ML batching, accepts
-`1..16`, and defaults to `8`. It bounds concurrent full-file reads as well as native analysis, which
-avoids excessive seek contention on a library stored on one HDD.
+The backend API uses `sonara_outputs`, and the CLI uses
+`--sonara-outputs core,timeline,embedding,fingerprint`. Every native batch requests the same
+canonical union of upstream features required by all four output contracts. The selection controls
+persistence only: the converter writes each selected output to its contract-owned table. `core`
+explicitly selects the bundled SONARA vocalness v2 model.
+`sonara_batch_size` is independent from ML batching and accepts `1..16`. Its default is `8`. The React
+frontend has not yet been ported to this v7 contract, so no current browser-control claim is made.
 
 The adapter does not request upstream file-tag passthrough or a SONARA genre model. Mutagen remains
 the project's file-tag source, so SONARA `tags.original_year` is not stored in this analysis family.
 
 Light fields (scalars, compact candidates, and fixed vectors) stay in Core metadata. This includes
-all four `mood_*` values, `instrumentalness`, true peak, ReplayGain, momentary loudness maximum, and
-loudness range. Contrast, MFCC, and Chroma retain every component because they are fixed vectors,
-not time-series data. Long numeric sequences are reduced to a summary only when Core needs a compact
-descriptor such as `energy_curve_summary`.
+all four `mood_*` values, true peak, ReplayGain, momentary loudness maximum, and loudness range.
+Contrast, MFCC, and Chroma retain every component because they are fixed vectors, not time-series
+data. Long numeric sequences are reduced to a summary only when Core needs a compact descriptor
+such as `energy_curve_summary`.
 
 Complete `beats`, `onset_frames`, `chord_sequence`, `chord_events`, `tempo_curve`, `energy_curve`,
-`segments`, `loudness_curve`, and `downbeats` sequences are Timeline. Embedding and fingerprint are
-Representations. The metadata dialog receives only the sorted field names from both side databases;
-it does not load the values. Search and classifiers never load Timeline payloads. SONARA reset and
-library clear remove all three SONARA stores.
+`segments`, `loudness_curve`, and `downbeats` sequences belong to the `timeline` output. `embedding`
+and `fingerprint` are separate outputs. Search and classifiers do not load timeline payloads.
 
 Transition-risk v2 uses `grid_stability` as a beat-grid reliability signal. When structure data is
 available, it also compares the outgoing outro window with the incoming intro, segment-boundary
 energy, energy level, and the light `energy_curve_summary` stored beside those fields. Missing opt-in data
-does not become a zero-valued feature. Mood, instrumentalness, true peak, and ReplayGain remain
-outside transition scoring.
+does not become a zero-valued feature. Mood, true peak, and ReplayGain remain outside transition
+scoring.
 
-Storage does not imply scoring. `mood_*` and `instrumentalness` are retained for inspection and future workflows but are not current SONARA similarity, SET, Hybrid, or Rhythm Lab classifier inputs. True peak and ReplayGain are not direct SONARA similarity dimensions. They are retained for possible loudness-management features. Loudness scalars remain available to the `sonara2` classifier variant, momentary loudness maximum and loudness range remain available to the existing SONARA dynamics comparison, and `vocalness` remains an explicit search modifier and an optional `sonara2vocal` variant.
+Storage does not imply scoring. `mood_*` values are retained for inspection and future workflows but
+are not current SONARA similarity, SET, Hybrid, or Rhythm Lab classifier inputs. True peak and
+ReplayGain are not direct SONARA similarity dimensions. They are retained for possible
+loudness-management features. Loudness scalars remain available to the `sonara2` classifier
+variant, momentary loudness maximum and loudness range remain available to the existing SONARA
+dynamics comparison, and `vocalness` remains an explicit search modifier and an optional
+`sonara2vocal` variant.
 
 The SONARA `embedding`, `fingerprint`, and tempo curve are data-only today. MERT and CLAP remain the search embeddings, while Audio Dedup and the current similarity and classifier matrices ignore the SONARA representations.
 
 ## Dedicated storage tables
 
-In v7, each analysis family stores its embeddings in a dedicated table in the Artifacts sidecar:
+The required Artifacts database stores embeddings in dedicated tables:
 
 - `maest_embeddings`
 - `mert_embeddings`
@@ -107,17 +118,8 @@ In v7, each analysis family stores its embeddings in a dedicated table in the Ar
 - `clap_embeddings`
 - `sonara_similarity_embeddings`
 
-This replaces the generic `embeddings` table from v6.
-
-## Schema migration
-
-Migrating a v6 library to v7 is available via:
-
-```powershell
-dj-sim migrate-schema-v7 SOURCE_DB --destination DEST_DB [--rhythm-lab-labels SRC --rhythm-lab-destination DEST] [--report REPORT_JSON]
-```
-
-This command requires explicit user approval. SONARA data is discarded during migration and requires fresh reanalysis.
+There is no generic runtime `embeddings` table and no v6-to-v7 migration command. A fresh selected
+path creates the v7 Core plus mandatory Artifacts bundle. A non-v7 database is rejected.
 
 ## Batch and label ranges
 
@@ -130,10 +132,14 @@ This command requires explicit user approval. SONARA data is discarded during mi
 
 ## Missing-result behavior
 
-Analysis jobs target missing selected results. For SONARA, each selected output must have its exact current signature. A missing Timeline row does not make Core stale, and a missing fingerprint does not force Core to be rewritten. Other already-complete analysis families remain skipped until reset.
+Analysis jobs target missing selected results. For SONARA, each selected output must have its exact
+current contract from the active four-contract release. A missing `timeline` row does not make
+`core` stale, and a missing fingerprint does not force `core` to be rewritten. Selecting fewer
+outputs changes only which rows the job materializes, not the immutable release identity. Other
+already-complete analysis families remain skipped until reset.
 
-Saving Core replaces only the Core feature object. Saving Timeline or Representations independently
-upserts that side output. Unselected current outputs remain intact.
+Saving `core` replaces only the Core feature row. Saving `timeline`, `embedding`, or `fingerprint`
+upserts that Artifacts output. Unselected current outputs remain intact.
 
 ## Classifier requirement
 
@@ -150,3 +156,6 @@ covers `combined` and every plus-separated source whose name starts with `sonara
 `sonara`, `sonara2`, and `sonara2vocal` combinations. Labels and feedback remain intact. Existing
 stale artifacts are not trusted: scoring stays blocked until the affected profile is retrained and
 promoted with a current signed manifest.
+
+The repository's current promoted `model.json` files still declare manifest version `1`. Runtime
+version `2` blocks them until their profiles are retrained and promoted.

@@ -18,15 +18,20 @@ dj-sim scan D:\Music --db .\data\library.sqlite
 Проанализировать выбранные семейства:
 
 ```powershell
-dj-sim analyze --models sonara --db .\data\library.sqlite
+mkdir .\backup
+dj-sim prepare-sonara-release --db .\data\library.sqlite --backup-dir .\backup --confirm "PREPARE SONARA RELEASE"
+dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --db .\data\library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --db .\data\library.sqlite
 ```
 
-Запустить интерфейс:
+Запустить бэкенд:
 
 ```powershell
 dj-sim serve --host 127.0.0.1 --port 8765 --db .\data\library.sqlite
 ```
+
+Клиент React ещё не перенесён на API v7. Не считайте существующую сборку `frontend/dist`
+проверенным интерфейсом для v7.
 
 Выполнить текстовый поиск CLAP:
 
@@ -73,6 +78,23 @@ dj-sim analyze-pipeline --stages sonara,ml,classifiers --db .\data\library.sqlit
 dj-sim doctor
 ```
 
+## Обслуживание комплекта и релиза
+
+Среда Python принимает только чистые комплекты схемы v7. Для нового пути она создаёт Core и
+обязательную соседнюю базу Artifacts, но не обновляет существующую v6. Команд `migrate-v7` и
+`migrate-schema-v7` больше нет.
+
+Подготовьте выбранный комплект для загруженного релиза SONARA:
+
+```powershell
+dj-sim prepare-sonara-release --db .\data\library.sqlite --backup-dir .\backup --confirm "PREPARE SONARA RELEASE"
+```
+
+Команда требует существующий доступный для записи каталог резервных копий и точную фразу
+подтверждения. Она сама определяет четыре контракта и хеш релиза, проверяет пару копий Core и
+Artifacts и сохраняет квитанцию для продолжения после прерывания. Передать идентичность или выбрать
+результаты вручную нельзя.
+
 ## Параметры анализа
 
 `dj-sim analyze` поддерживает:
@@ -86,27 +108,26 @@ dj-sim doctor
 | `--track-batch-size` | `1..64` декодированных треков в партии, по умолчанию `8` |
 | `--inference-batch-size` | `1..128` примеров за проход модели, по умолчанию `16` |
 | `--diagnostics` | диагностика декодирования и времени партий в файловом журнале |
-| `--sonara-outputs` | разделённые запятыми `core`, `timeline`, `representations`; по умолчанию `core` |
+| `--sonara-outputs` | разделённые запятыми `core`, `timeline`, `embedding`, `fingerprint`; по умолчанию `core` |
 | `--sonara-batch-size` | `1..16` путей, одновременно обрабатываемых нативным анализом, по умолчанию `8` |
 
-Обычный анализ SONARA записывает только Core. Для трёх хранилищ используйте
-`--sonara-outputs core,timeline,representations`; при расширении существующего анализа можно выбрать
-только отсутствующий результат. Core находится в основной выбранной базе, Timeline — в соседней
-`*.timeline.sqlite`, а эмбеддинг и отпечаток — в `*.representations.sqlite`. Эти два значения
-относятся к SONARA; поисковые эмбеддинги MAEST/MERT/MuQ/CLAP остаются в Core. Диалог метаданных
-читает значения Core и только списки имён полей дополнительных баз.
+Обычный анализ SONARA материализует только `core`, но активный релиз всегда содержит четыре
+неизменяемых контракта. Чтобы материализовать все четыре результата, используйте
+`--sonara-outputs core,timeline,embedding,fingerprint`. Следующая задача может выбрать другой
+отсутствующий результат того же активного релиза, не меняя его идентичность. `core` хранится в Core,
+а остальные три результата — в отдельных таблицах обязательной базы Artifacts. Эмбеддинги
+MAEST/MERT/MuQ/CLAP также находятся в отдельных таблицах Artifacts.
 
 Точный профиль запроса каждого результата и нативный путь декодирования и выполнения входят в
-сигнатуру SONARA. Строки старого контракта блокируют первую нативную задачу до резервного
-копирования и явного сброса SONARA. После этого частичное актуальное покрытие можно продолжать по
-сигнатуре результата.
+контракт SONARA. Неподготовленный релиз возвращает конфликт с требованием подготовки. Запустите
+`prepare-sonara-release`, после чего частичное актуальное покрытие можно продолжать по контрактам.
 
 `analyze-classifiers` создаёт отдельную задачу, которая работает только с базой. Без `--classifiers` выбираются все
 совместимые опубликованные артефакты. `analyze-pipeline` принимает те же настройки этапов и всегда
 выполняет этапы SONARA, ML, CLASSIFIERS именно в таком порядке; `--ml-models` не может содержать SONARA.
 
-Для базы схемы v5 используйте
-[повторный анализ с раздельным хранением](../workflows/reanalyze-sonara-split-storage.md).
+Полный порядок описан в
+[подготовке и пересоздании релиза SONARA](../workflows/reanalyze-sonara-split-storage.md).
 
 ## Параметры текстового поиска
 
@@ -126,13 +147,14 @@ dj-sim doctor
 ## Команды постоянных индексов
 
 ```powershell
-dj-sim index build --adapter clap --db .\data\library.sqlite
-dj-sim index verify --adapter clap --db .\data\library.sqlite
-dj-sim index benchmark --adapter clap --db .\data\library.sqlite
-dj-sim index clear --adapter clap --db .\data\library.sqlite
+dj-sim index build --model clap --db .\data\library.sqlite
+dj-sim index verify --model clap --db .\data\library.sqlite
+dj-sim index benchmark --model clap --db .\data\library.sqlite
+dj-sim index clear --model clap --db .\data\library.sqlite
 ```
 
-Доступные адаптеры: `mert`, `maest`, `clap`.
+Доступные модели: `maest`, `mert`, `muq`, `clap`. Для `build`, `verify` и `benchmark` параметр
+`--model` обязателен; в `clear` его можно не указывать только для очистки всех созданных индексов.
 
 ## Команды оценки
 

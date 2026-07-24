@@ -24,6 +24,7 @@ from .metrics import (
     strong_match_rate_at_k,
 )
 from .judged import build_judged_label_gate, matching_label as matched_judged_label, report_status_for_judged_gate
+from .recorded_sessions import load_current_evaluation_sessions
 
 DEFAULT_K_VALUES = (5, 10, 20)
 RELEVANCE_THRESHOLD = 2
@@ -36,7 +37,7 @@ def build_search_evaluation_report(
     judged_only: bool = False,
 ) -> dict[str, Any]:
     clean_k_values = _clean_k_values(k_values)
-    sessions = db.list_search_sessions_with_events()
+    sessions = load_current_evaluation_sessions(db)
     feedback_map = db.get_pair_feedback_map()
     row_counts = db.count_evaluation_rows()
     judged_gate = build_judged_label_gate(sessions, feedback_map, judged_only=judged_only)

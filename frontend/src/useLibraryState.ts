@@ -14,7 +14,8 @@ import {
   libraryRequestKey,
   libraryTrackIdentityKey,
   libraryTracksBelongToCatalog,
-  mergeLibraryTracks
+  mergeLibraryTracks,
+  sameClassifierMinScores
 } from "./libraryLoading";
 import {
   libraryCurrentPageNumber,
@@ -71,11 +72,13 @@ export function useLibraryState({
   const [librarySortDirection, setLibrarySortDirection] = useState<LibrarySortDirection>("forward");
   const [likedOnly, setLikedOnly] = useState(false);
   const [classifierMinScoresState, setClassifierMinScoresState] = useState<Record<string, number>>({});
+  const classifierMinScoresRef = useRef(classifierMinScoresState);
   const coordinatorRef = useRef(createLibraryLoadCoordinator());
   const summaryRequestIdRef = useRef(0);
   const databaseKeyRef = useRef(databaseKey);
   const previousDatabaseScopeRef = useRef(databaseSelected ? databaseKey : null);
   databaseKeyRef.current = databaseKey;
+  classifierMinScoresRef.current = classifierMinScoresState;
 
   const orderedTracks = useMemo(
     () => orderedLibraryTracks(tracks, librarySortDirection),
@@ -115,7 +118,15 @@ export function useLibraryState({
 
   const setQuery = cancelBeforeStateChange(setQueryState);
   const setSearchMode = cancelBeforeStateChange(setSearchModeState);
-  const setClassifierMinScores = cancelBeforeStateChange(setClassifierMinScoresState);
+  const setClassifierMinScores: Dispatch<SetStateAction<Record<string, number>>> = (next) => {
+    const current = classifierMinScoresRef.current;
+    const resolved = typeof next === "function" ? next(current) : next;
+    if (sameClassifierMinScores(current, resolved)) return;
+    cancelLibraryLoad();
+    clearVisibleLibraryResult();
+    classifierMinScoresRef.current = resolved;
+    setClassifierMinScoresState(resolved);
+  };
 
   useEffect(() => {
     const nextScope = databaseSelected ? databaseKey : null;

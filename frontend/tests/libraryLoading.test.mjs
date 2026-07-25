@@ -135,3 +135,37 @@ test("request keys include catalog, filters, scores, and page offset", async () 
   assert.equal(firstPage, reorderedScores);
   assert.notEqual(firstPage, otherCatalog);
 });
+
+test("equivalent classifier score state does not clear the visible library", async () => {
+  const { sameClassifierMinScores } = await loadLibraryLoadingModule();
+  const setter = libraryStateSource.match(
+    /const setClassifierMinScores:[\s\S]*?setClassifierMinScoresState\(resolved\);\s*\};/
+  )?.[0] || "";
+
+  assert.equal(sameClassifierMinScores({}, {}), true);
+  assert.equal(
+    sameClassifierMinScores(
+      { voice_presence: 0.7, break_energy: 0.4 },
+      { break_energy: 0.4, voice_presence: 0.7 }
+    ),
+    true
+  );
+  assert.equal(
+    sameClassifierMinScores(
+      { voice_presence: 0.7 },
+      { voice_presence: 0.6 }
+    ),
+    false
+  );
+  assert.equal(
+    sameClassifierMinScores(
+      { voice_presence: 0.7 },
+      { voice_presence: 0.7, break_energy: 0.4 }
+    ),
+    false
+  );
+  assert.match(setter, /if \(sameClassifierMinScores\(current, resolved\)\) return;/);
+  assert.ok(
+    setter.indexOf("sameClassifierMinScores(current, resolved)") < setter.indexOf("clearVisibleLibraryResult()")
+  );
+});

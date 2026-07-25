@@ -122,6 +122,29 @@ test("nested SET tabs are independently labelled and switching only updates tab 
   assert.doesNotMatch(panelSource, /onClick=\{\(\) => \{[\s\S]*setActiveSetWorkflowTab\(tab\)[\s\S]*api\./);
 });
 
+test("SET seed source uses one select aligned with conditionally enabled Auto anchors", () => {
+  const seedRowStart = panelSource.indexOf('className="set-builder-seed-row"');
+  const seedRowEnd = panelSource.indexOf('className="search-filter-grid set-builder-grid set-builder-basic-grid"', seedRowStart);
+  const seedRow = panelSource.slice(seedRowStart, seedRowEnd);
+  const rowRule = cssRule(".set-builder-seed-row");
+  const alignedControlsRule = cssRule(".set-builder-seed-source-control select,\n.set-builder-auto-anchors-control input");
+
+  assert.match(seedRow, /className="set-builder-seed-mode-select"/);
+  assert.match(seedRow, /value=\{setSeedMode\}/);
+  assert.match(seedRow, /onChange=\{\(event\) => setSetSeedMode\(event\.target\.value as SetBuilderSeedMode\)\}/);
+  assert.match(seedRow, /setSeedModeOptions\.map/);
+  assert.doesNotMatch(seedRow, /set-builder-seed-mode-button|aria-pressed/);
+  assert.match(panelSource, /const autoSeedCountDisabled = setSeedMode !== "auto"/);
+  assert.match(seedRow, /disabled=\{autoSeedCountDisabled\}/);
+  assert.match(rowRule, /grid-template-columns:\s*minmax\(0,\s*1\.15fr\)\s*minmax\(112px,\s*0\.85fr\)/);
+  assert.match(alignedControlsRule, /min-height:\s*34px/);
+  assert.match(alignedControlsRule, /width:\s*100%/);
+  assert.match(
+    styles,
+    /@media \(max-width: 360px\)[\s\S]*?\.set-builder-seed-row\s*\{[\s\S]*?grid-template-columns:\s*1fr;/
+  );
+});
+
 test("SET BPM trajectory controls stay visible outside the Advanced disclosure", () => {
   const bpmGridIndex = panelSource.indexOf('className="search-filter-grid set-builder-grid set-builder-bpm-grid"');
   const secondaryGridIndex = panelSource.indexOf('className="search-filter-grid set-builder-grid set-builder-secondary-grid"');

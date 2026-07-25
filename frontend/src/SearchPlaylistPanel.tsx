@@ -1007,25 +1007,22 @@ export function SearchPlaylistPanel({
             <div className="set-builder-controls">
               <div className="set-builder-basic-controls">
                 <div className="set-builder-seed-row">
-                  <div className="set-builder-seed-source-control" title={setSeedModeTitle}>
+                  <label className="set-builder-seed-source-control" title={setSeedModeTitle}>
                     <span>Seed source</span>
-                    <div className="segmented set-builder-seed-toggle" role="group" aria-label="Seed source">
+                    <select
+                      className="set-builder-seed-mode-select"
+                      value={setSeedMode}
+                      title={setSeedModeTitle}
+                      aria-label="Seed source"
+                      onChange={(event) => setSetSeedMode(event.target.value as SetBuilderSeedMode)}
+                    >
                       {setSeedModeOptions.map((option) => (
-                        <button
-                          key={option.value}
-                          className={`set-builder-seed-mode-button ${setSeedMode === option.value ? "active" : ""}`}
-                          title={option.title}
-                          aria-pressed={setSeedMode === option.value}
-                          onClick={() => setSetSeedMode(option.value)}
-                          type="button"
-                        >
-                          {option.label}
-                        </button>
+                        <option key={option.value} value={option.value} title={option.title}>{option.label}</option>
                       ))}
-                    </div>
-                  </div>
+                    </select>
+                  </label>
                   <label className={`set-builder-auto-anchors-control ${autoSeedCountDisabled ? "disabled-filter" : ""}`} title={autoSeedCountControlTitle}>
-                    Auto anchors
+                    <span>Auto anchors</span>
                     <input type="number" value={setAutoSeedCount} min={1} max={5} title={autoSeedCountControlTitle} disabled={autoSeedCountDisabled} onChange={(event) => {
                       if (Number.isFinite(event.currentTarget.valueAsNumber)) setSetAutoSeedCount(Math.round(clampNumber(event.currentTarget.valueAsNumber, 1, 5)));
                     }} />

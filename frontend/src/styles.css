@@ -2822,7 +2822,7 @@ h2 {
   align-items: end;
   display: grid;
   gap: 8px;
-  grid-template-columns: minmax(0, 2fr) minmax(112px, 1fr);
+  grid-template-columns: minmax(0, 1.15fr) minmax(112px, 0.85fr);
 }
 
 .set-builder-seed-source-control,
@@ -2835,15 +2835,10 @@ h2 {
   min-width: 0;
 }
 
-.set-builder-seed-toggle {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.set-builder-seed-toggle button {
-  line-height: 1.2;
+.set-builder-seed-source-control select,
+.set-builder-auto-anchors-control input {
   min-height: 34px;
-  padding: 6px 8px;
-  white-space: normal;
+  width: 100%;
 }
 
 .set-builder-auto-anchors-control.disabled-filter {
@@ -4434,6 +4429,12 @@ button.metadata-copy-path-button:hover:not(:disabled) {
   }
 
   .hybrid-classifier-controls {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 360px) {
+  .set-builder-seed-row {
     grid-template-columns: 1fr;
   }
 }

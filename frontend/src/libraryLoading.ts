@@ -36,6 +36,19 @@ export function libraryTracksBelongToCatalog(
   return tracks.every((track) => track.catalog_uuid === catalogUuid);
 }
 
+export function sameClassifierMinScores(
+  left: Record<string, number>,
+  right: Record<string, number>
+) {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key) => (
+      Object.prototype.hasOwnProperty.call(right, key)
+      && left[key] === right[key]
+    ));
+}
+
 export function mergeLibraryTracks(current: Track[], incoming: Track[]) {
   const merged: Track[] = [];
   const indexes = new Map<string, number>();

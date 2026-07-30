@@ -32,9 +32,9 @@ This change covers:
 - focused backend and frontend tests for those contracts.
 
 The internal output-kind identifiers remain. They are still required for
-artifact registration, storage validation, coverage, missing-result checks,
-job status, and reporting. Low-level storage helpers may continue to accept an
-explicit output set when that is necessary for isolated validation tests.
+artifact registration, storage validation, coverage, completeness checks, job
+status, and reporting. Runtime job, runner, conversion, and repository-write
+APIs do not accept a subset.
 
 The explicit pipeline engine remains available for sequential orchestration.
 This change removes the invalid `FULL` shortcut from the Library panel and
@@ -84,50 +84,58 @@ When an analysis configuration includes SONARA, the backend assigns
 `sonara_outputs`, but for a SONARA job it always reports all four kinds. For a
 non-SONARA job it remains empty.
 
-Internal job and runner construction must not offer a user-derived override
-that can narrow the set. The canonical tuple is supplied by analysis
-configuration or the SONARA runner itself.
+Internal job and runner construction must not offer an override that can
+narrow the set. The canonical tuple is supplied by analysis configuration or
+the SONARA runner itself.
+
+### Per-track write invariant
+
+Conversion succeeds only when one analyzer result contains valid Core,
+Timeline, Embedding, and Fingerprint data. `SonaraWrite` carries all four
+non-optional outputs with one shared timestamp. The repository persists the
+four outputs within the existing coordinated per-track savepoint. A conversion
+or write error fails that track and does not publish a SONARA result.
+
+If a process interruption leaves unmatched artifact residue, Core remains
+missing and existing readiness checks schedule the track again. Such residue
+is not a valid or visible SONARA result.
 
 ## Metadata Contract
 
-Replace the availability-only optional-output fields with typed summaries:
+Replace the availability-only optional-output fields with one nullable,
+indivisible summary:
 
 ```text
-sonara_completed_at: string | null
-
-timeline: {
-  fields: string[]
-} | null
-
-embedding: {
-  dim: number
-  normalization: string
-} | null
-
-fingerprint: {
-  version: string
-  word_count: number
-  byte_order: string
+optional_outputs: {
+  analyzed_at: string
+  timeline: {
+    fields: string[]
+  }
+  embedding: {
+    dim: number
+    normalization: string
+  }
+  fingerprint: {
+    version: string
+    word_count: number
+    byte_order: string
+  }
 } | null
 ```
 
-The repository builds these summaries only from artifact rows that pass the
-existing identity, generation, output-registration, and payload validators.
-An absent or invalid artifact becomes `null`; it must not leak stale metadata.
+The repository builds this object only when Core and all three artifact rows
+pass the existing identity, generation, output-registration, and payload
+validators and share one `analyzed_at` value. Otherwise `optional_outputs` is
+`null`, and the track is treated as not analyzed by SONARA.
 
 Timeline exposes only its stored top-level field names. Embedding exposes
 dimension and normalization. Fingerprint exposes version, word count, and byte
 order. The API never sends the Timeline value arrays, embedding vector, or
 fingerprint blob as part of track details.
 
-`sonara_completed_at` is the one timestamp for the complete SONARA result. It
-is populated only when current, valid Core, Timeline, Embedding, and
-Fingerprint rows all exist and carry the same `analyzed_at` value. The current
-SONARA write path already creates one timestamp after analysis and shares it
-across the four outputs before saving them through the coordinated write path.
-Historical outputs created by separate partial runs can have different
-timestamps; those rows remain visible, but `sonara_completed_at` is `null`
-until one complete SONARA run replaces them.
+`optional_outputs.analyzed_at` is the one timestamp for the complete SONARA
+result. The SONARA write path creates it after analysis and shares it across
+the four outputs before saving them through the coordinated write path.
 
 The existing dedicated Timeline endpoint remains unchanged for workflows that
 explicitly need Timeline values.
@@ -139,9 +147,9 @@ it now contains both Core features and summaries of the three artifact
 outputs.
 
 Preserve the current Core feature groups and value formatting, except that the
-`Analysis` group's timestamp source changes from the Core row alone to
-`sonara_completed_at`. After `Vector summaries`, use these categories in
-order:
+`Analysis` group's timestamp source changes to
+`optional_outputs.analyzed_at`. After `Vector summaries`, use these categories
+in order:
 
 1. `Timeline`
 2. `Embedding`
@@ -160,16 +168,13 @@ stored payload. Human-readable dimensions and counts use the dialog's existing
 number and timestamp formatters. Raw vectors and binary values are never
 rendered.
 
-Each missing category displays the same subdued `Не рассчитано` state. This
-is required for databases created before all four outputs became mandatory and
-for tracks whose prior job failed after writing only part of its result.
-
 The `Analysis` category contains the single field `Analyzed`. It renders
-`sonara_completed_at` using the existing timestamp formatter. Timeline,
-Embedding, and Fingerprint never render their own timestamps. If the four
-current outputs do not form one complete result, `Analyzed` renders
-`Не рассчитано` rather than presenting the time of an older partial output as
-the completion time.
+`optional_outputs.analyzed_at` using the existing timestamp formatter.
+Timeline, Embedding, and Fingerprint never render their own timestamps.
+
+When `optional_outputs` is `null`, the metadata dialog shows one SONARA-level
+`Не рассчитано` state. It does not present separately missing output
+categories, because a subset is not a valid SONARA analysis.
 
 The generic `Embedding analyses` section continues to show MAEST, MERT, MuQ,
 and CLAP summaries. It filters out SONARA so the new dedicated Embedding
@@ -182,21 +187,19 @@ category is not duplicated.
    output list.
 3. Backend configuration assigns all four canonical SONARA outputs.
 4. The SONARA runner analyzes and stores Core plus all three artifact outputs.
-5. Track-detail queries validate current rows, return their small typed
-   summaries, and expose one completion timestamp only when all four output
-   timestamps match.
+5. Track-detail queries validate the complete four-output bundle and return
+   its small typed summaries plus one shared timestamp.
 6. The metadata dialog converts each summary to badges through one shared
    presentation model and renderer.
 
 ## Compatibility and Failure Handling
 
-- Existing partial SONARA data stays readable. Missing outputs render as
-  `Не рассчитано`; `Analyzed` also stays `Не рассчитано` until the next full
-  SONARA run.
+- Any incomplete legacy residue is treated as no SONARA result and is replaced
+  by the next SONARA run.
 - Existing databases require no schema migration; the required summary fields
   already exist in the artifact tables.
-- A failed SONARA job retains normal per-output status reporting, even though
-  the requested set is fixed.
+- A failed per-track conversion or write publishes none of the four outputs as
+  a valid result. Job status still identifies the failing track and error.
 - API clients that still send an output list receive a validation error and
   must remove the obsolete field.
 - Artifact validation remains the trust boundary. UI availability is never
@@ -212,14 +215,14 @@ Use test-first slices:
 2. Update frontend analysis-control tests to require no FULL control, no
    SONARA output checkboxes, no output-selection state, and no output list in
    requests. Confirm the tests fail first.
-3. Add repository and API tests for the three typed artifact summaries,
-   including absent and invalid-artifact cases. Prove that the one completion
-   timestamp is present only when all four valid rows share it. Confirm the
-   tests fail first.
+3. Add repository and API tests for the indivisible typed artifact summary.
+   Prove that all three summaries and the one timestamp appear together, and
+   that an absent, invalid, or timestamp-mismatched row makes the whole result
+   unavailable. Confirm the tests fail first.
 4. Update metadata-model tests for category order, badge content, uniform
-   missing states, one `Analyzed` field, no per-output timestamps, and SONARA
-   de-duplication from generic embedding summaries. Confirm the tests fail
-   first.
+   SONARA-level missing state, one `Analyzed` field, no per-output timestamps,
+   and SONARA de-duplication from generic embedding summaries. Confirm the
+   tests fail first.
 
 After each focused red/green cycle, run:
 

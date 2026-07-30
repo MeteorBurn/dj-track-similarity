@@ -139,21 +139,6 @@ test("filtered tracks client sends defaulted domain payloads for library view co
   });
 });
 
-test("SONARA timeline client fetches sidecar data for one track", async () => {
-  const calls = [];
-  const { api } = loadApiModule(async (path, options) => {
-    calls.push({ path, options });
-    return jsonResponse({ energy_curve: { type: "list", length: 3, value: [0.1, 0.4, 0.8] } });
-  });
-
-  const timeline = await api.sonaraTimeline(42);
-
-  assert.equal(calls[0].path, "/api/tracks/42/sonara-timeline");
-  assert.equal(calls[0].options.headers["Content-Type"], "application/json");
-  assert.equal(calls[0].options.method, undefined);
-  assert.equal(timeline.energy_curve.length, 3);
-});
-
 test("analysis job client preserves ML defaults without classifier scoring", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options) => {
@@ -174,7 +159,7 @@ test("analysis job client preserves ML defaults without classifier scoring", asy
   });
 });
 
-test("analysis job client defaults a SONARA-only request to Core storage", async () => {
+test("analysis job client sends a SONARA-only Core request without output selection", async () => {
   const calls = [];
   const { api } = loadApiModule(async (path, options) => {
     calls.push({ path, options });
@@ -186,8 +171,7 @@ test("analysis job client defaults a SONARA-only request to Core storage", async
   assert.deepEqual(JSON.parse(calls[0].options.body), {
     models: ["sonara"],
     limit: null,
-    sonara_batch_size: 8,
-    sonara_outputs: ["core"]
+    sonara_batch_size: 8
   });
 });
 
@@ -315,9 +299,6 @@ test("liked mutation serializes the exact optimistic track identity", async () =
     liked: false,
     analysis_coverage: {
       sonara_core: true,
-      timeline: false,
-      sonara_embedding: true,
-      fingerprint: false,
       maest_analysis: true,
       maest_embedding: true,
       mert: true,

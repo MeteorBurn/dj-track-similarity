@@ -538,7 +538,7 @@ class _ResponseModel(BaseModel):
 
 
 class SonaraStatusOutputResponse(_ResponseModel):
-    output_kind: Literal["core", "timeline", "embedding", "fingerprint"]
+    output_kind: Literal["core"]
     present_count: int = Field(ge=0)
     missing_count: int = Field(ge=0)
 
@@ -551,9 +551,6 @@ class SonaraStatusResponse(_ResponseModel):
 
 class AnalysisCoverageResponse(_ResponseModel):
     sonara_core: bool
-    timeline: bool
-    sonara_embedding: bool
-    fingerprint: bool
     maest_analysis: bool
     maest_embedding: bool
     mert: bool
@@ -707,12 +704,6 @@ class TrackSummaryResponse(_ResponseModel):
     classifier_scores: list[ClassifierScoreSummaryResponse]
 
 
-class OptionalOutputsResponse(_ResponseModel):
-    timeline_fields: list[str]
-    sonara_embedding_available: bool
-    audio_fingerprint_available: bool
-
-
 class TrackDetailResponse(TrackSummaryResponse):
     file: FileTechnicalResponse
     file_tags: FileTagsResponse | None
@@ -720,7 +711,6 @@ class TrackDetailResponse(TrackSummaryResponse):
     maest: MaestResponse | None
     embeddings: list[EmbeddingSummaryResponse]
     classifier_scores_detail: list[ClassifierScoreDetailResponse]
-    optional_outputs: OptionalOutputsResponse
 
 
 class TrackPageResponse(_ResponseModel):

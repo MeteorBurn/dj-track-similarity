@@ -367,6 +367,32 @@ def _beat_count(analysis: Mapping[str, object]) -> int | None:
     return count
 
 
+def _frame_indices(value: object, field_name: str) -> list[int]:
+    array = np.asarray(value)
+    if array.ndim != 1:
+        raise ValueError(f"{field_name} must be one-dimensional")
+    normalized: list[int] = []
+    previous = -1
+    for index, raw_value in enumerate(array.tolist()):
+        if isinstance(raw_value, bool) or not isinstance(
+            raw_value,
+            (int, np.integer),
+        ):
+            raise ValueError(
+                f"{field_name}[{index}] must be a non-negative frame integer"
+            )
+        frame = int(raw_value)
+        if frame < 0:
+            raise ValueError(
+                f"{field_name}[{index}] must be a non-negative frame integer"
+            )
+        if frame <= previous:
+            raise ValueError(f"{field_name} must be strictly increasing")
+        previous = frame
+        normalized.append(frame)
+    return normalized
+
+
 def _optional_float32_curve(
     value: object,
     *,
@@ -633,219 +659,3 @@ def _canonical_json_array(value: list[dict[str, object]]) -> str:
         ensure_ascii=False,
         allow_nan=False,
     )
-
-
-def _timeline_payload(
-    analysis: Mapping[str, object],
-    *,
-    unit_interval_epsilon: float,
-) -> dict[str, object]:
-    missing = [key for key in SONARA_TIMELINE_KEYS if analysis.get(key) is None]
-    if missing:
-        raise ValueError(
-            "SONARA timeline output is incomplete; "
-            f"missing fields: {', '.join(missing)}"
-        )
-
-    beats = _frame_indices(analysis["beats"], "timeline.beats")
-    onset_frames = _frame_indices(
-        analysis["onset_frames"],
-        "timeline.onset_frames",
-    )
-    downbeats = _frame_indices(analysis["downbeats"], "timeline.downbeats")
-    if not set(downbeats).issubset(beats):
-        raise ValueError("timeline.downbeats must be a subset of timeline.beats")
-
-    tempo_curve = _finite_number_sequence(
-        analysis["tempo_curve"],
-        "timeline.tempo_curve",
-        minimum=0.0,
-        strict_minimum=True,
-    )
-    expected_tempo_count = max(len(beats) - 1, 0)
-    if len(tempo_curve) != expected_tempo_count:
-        raise ValueError(
-            "timeline.tempo_curve length must equal max(len(beats) - 1, 0)"
-        )
-
-    energy_curve = _optional_float32_curve(
-        analysis["energy_curve"],
-        epsilon=unit_interval_epsilon,
-    )
-    if energy_curve is None:
-        raise ValueError("timeline.energy_curve is required")
-
-    duration = _optional_float(analysis, "duration_sec", minimum=0.0)
-    return {
-        "beats": beats,
-        "onset_frames": onset_frames,
-        "chord_sequence": _text_sequence(
-            analysis["chord_sequence"],
-            "timeline.chord_sequence",
-        ),
-        "chord_events": _timed_label_events(
-            analysis["chord_events"],
-            "timeline.chord_events",
-            duration=duration,
-        ),
-        "tempo_curve": tempo_curve,
-        "downbeats": downbeats,
-        "energy_curve": energy_curve.astype(float).tolist(),
-        "segments": _energy_segments(
-            analysis["segments"],
-            duration=duration,
-            unit_interval_epsilon=unit_interval_epsilon,
-        ),
-        "loudness_curve": _finite_number_sequence(
-            analysis["loudness_curve"],
-            "timeline.loudness_curve",
-        ),
-    }
-
-
-def _frame_indices(value: object, field_name: str) -> list[int]:
-    array = np.asarray(value)
-    if array.ndim != 1:
-        raise ValueError(f"{field_name} must be one-dimensional")
-    normalized: list[int] = []
-    previous = -1
-    for index, raw_value in enumerate(array.tolist()):
-        if isinstance(raw_value, bool) or not isinstance(
-            raw_value,
-            (int, np.integer),
-        ):
-            raise ValueError(
-                f"{field_name}[{index}] must be a non-negative frame integer"
-            )
-        frame = int(raw_value)
-        if frame < 0:
-            raise ValueError(
-                f"{field_name}[{index}] must be a non-negative frame integer"
-            )
-        if frame <= previous:
-            raise ValueError(f"{field_name} must be strictly increasing")
-        previous = frame
-        normalized.append(frame)
-    return normalized
-
-
-def _finite_number_sequence(
-    value: object,
-    field_name: str,
-    *,
-    minimum: float | None = None,
-    maximum: float | None = None,
-    strict_minimum: bool = False,
-) -> list[float]:
-    if not _is_non_text_sequence(value) and not isinstance(value, np.ndarray):
-        raise ValueError(f"{field_name} must be a sequence")
-    return [
-        _required_float(
-            child,
-            f"{field_name}[{index}]",
-            minimum=minimum,
-            maximum=maximum,
-            strict_minimum=strict_minimum,
-        )
-        for index, child in enumerate(value)
-    ]
-
-
-def _text_sequence(value: object, field_name: str) -> list[str]:
-    sequence = _candidate_sequence(value, field_name)
-    return [
-        _required_candidate_text(child, f"{field_name}[{index}]")
-        for index, child in enumerate(sequence)
-    ]
-
-
-def _timed_label_events(
-    value: object,
-    field_name: str,
-    *,
-    duration: float | None,
-) -> list[dict[str, object]]:
-    sequence = _candidate_sequence(value, field_name)
-    normalized: list[dict[str, object]] = []
-    previous_end = 0.0
-    for index, event in enumerate(sequence):
-        if not isinstance(event, Mapping) or set(event) != {
-            "label",
-            "start_sec",
-            "end_sec",
-        }:
-            raise ValueError(
-                f"{field_name}[{index}] must contain exactly "
-                "label, start_sec, and end_sec"
-            )
-        label = _required_candidate_text(
-            event["label"],
-            f"{field_name}[{index}].label",
-        )
-        start = _required_float(
-            event["start_sec"],
-            f"{field_name}[{index}].start_sec",
-            minimum=0.0,
-        )
-        end = _required_float(
-            event["end_sec"],
-            f"{field_name}[{index}].end_sec",
-            minimum=0.0,
-        )
-        if end < start:
-            raise ValueError(f"{field_name}[{index}] end_sec precedes start_sec")
-        if start < previous_end:
-            raise ValueError(f"{field_name} events must not overlap")
-        if duration is not None and end > duration:
-            raise ValueError(f"{field_name}[{index}] exceeds duration_sec")
-        previous_end = end
-        normalized.append({"label": label, "start_sec": start, "end_sec": end})
-    return normalized
-
-
-def _energy_segments(
-    value: object,
-    *,
-    duration: float | None,
-    unit_interval_epsilon: float,
-) -> list[dict[str, float]]:
-    field_name = "timeline.segments"
-    sequence = _candidate_sequence(value, field_name)
-    normalized: list[dict[str, float]] = []
-    previous_end = 0.0
-    for index, segment in enumerate(sequence):
-        if not isinstance(segment, Mapping) or set(segment) != {
-            "start_sec",
-            "end_sec",
-            "energy",
-        }:
-            raise ValueError(
-                f"{field_name}[{index}] must contain exactly "
-                "start_sec, end_sec, and energy"
-            )
-        start = _required_float(
-            segment["start_sec"],
-            f"{field_name}[{index}].start_sec",
-            minimum=0.0,
-        )
-        end = _required_float(
-            segment["end_sec"],
-            f"{field_name}[{index}].end_sec",
-            minimum=0.0,
-        )
-        energy = _unit_interval(
-            segment["energy"],
-            f"{field_name}[{index}].energy",
-            epsilon=unit_interval_epsilon,
-        )
-        if end <= start:
-            raise ValueError(
-                f"{field_name}[{index}] end_sec must be greater than start_sec"
-            )
-        if start < previous_end:
-            raise ValueError(f"{field_name} entries must not overlap")
-        if duration is not None and end > duration:
-            raise ValueError(f"{field_name}[{index}] exceeds duration_sec")
-        previous_end = end
-        normalized.append({"start_sec": start, "end_sec": end, "energy": energy})
-    return normalized

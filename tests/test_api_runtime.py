@@ -54,9 +54,6 @@ def test_track_responses_expose_current_identity_and_split_coverage(
     assert item["content_generation"] == identity.content_generation
     assert item["analysis_coverage"] == {
         "sonara_core": False,
-        "timeline": False,
-        "sonara_embedding": False,
-        "fingerprint": False,
         "maest_analysis": False,
         "maest_embedding": False,
         "mert": False,

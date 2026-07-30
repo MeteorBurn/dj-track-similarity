@@ -180,20 +180,14 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.match(appSource, /if \(model === "sonara" \|\| model === "classifiers"\) \{[\s\S]*?return \[model\]/);
   assert.match(appSource, /current\.filter\(\(item\) => item !== "sonara" && item !== "classifiers"\)/);
   assert.match(appSource, /function toggleAllAnalysisModels\(\)[\s\S]*?analysisSelectionOrder\.length[\s\S]*?setSelectedAnalysisModels\(\["sonara"\]\)[\s\S]*?\[\.\.\.analysisSelectionOrder\]/);
-  assert.match(
-    appSource,
-    /useState<SonaraOutput\[]>\(\[\s*"core",\s*"timeline",\s*"embedding",\s*"fingerprint"\s*\]\)/
-  );
-  assert.match(appSource, /if \(output === "core"\) return/);
-  assert.match(source, /className="sonara-output-row"[\s\S]*?className="sonara-core-option"[\s\S]*?<input type="checkbox" checked disabled[\s\S]*?Timeline[\s\S]*?Embedding[\s\S]*?Fingerprint/);
-  assert.match(styles, /\.sonara-output-row\s*{[\s\S]*?display:\s*flex[\s\S]*?flex-wrap:\s*nowrap[\s\S]*?overflow-x:\s*auto/);
-  assert.match(styles, /\.sonara-output-options input\s*{[\s\S]*?height:\s*12px[\s\S]*?min-height:\s*0[\s\S]*?width:\s*12px/);
-  assert.match(styles, /\.sonara-output-options label span\s*{[\s\S]*?display:\s*block[\s\S]*?white-space:\s*nowrap/);
+  assert.doesNotMatch(appSource, /SonaraOutput|sonaraOutputs|toggleSonaraOutput/);
+  assert.doesNotMatch(source, /sonara-output|Timeline|Fingerprint/);
+  assert.doesNotMatch(styles, /\.sonara-output-/);
   assert.match(styles, /\.analysis-model-count\s*{[\s\S]*?align-self:\s*center[\s\S]*?height:\s*34px[\s\S]*?min-height:\s*34px/);
   assert.doesNotMatch(source, /Active SONARA release|Prepare release|sonaraAnalysisBlockedReason/);
   assert.match(appSource, /const childJobId = currentStage \? job\.stages\[currentStage\]\?\.child_job_id : null/);
   assert.match(appSource, /currentStage === "classifiers"[\s\S]*?api\.aggregateClassifierJob\(childJobId\)[\s\S]*?api\.analysisJob\(childJobId\)/);
-  assert.match(appSource, /SONARA · \$\{outputs\} · SONARA batch \$\{sonaraBatchSize\}/);
+  assert.match(appSource, /SONARA · Core · SONARA batch \$\{sonaraBatchSize\}/);
   assert.match(appSource, /Track batch \$\{analysisTrackBatchSize\} · Inference batch \$\{analysisInferenceBatchSize\}/);
   assert.match(appSource, /CLASSIFIERS · profiles \$\{classifierKeys\.length\}/);
 
@@ -207,7 +201,6 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   const batchSizeIndex = source.indexOf("Inference batch");
   const analyzeSelectedIndex = source.indexOf("analyze-selected-button");
   const sonaraRowIndex = source.indexOf('{modelRow("sonara")}');
-  const sonaraDataIndex = source.indexOf('className="sonara-output-options"');
   const sonaraBatchIndex = source.indexOf("SONARA batch");
   const mlRowsIndex = source.indexOf("mlAnalysisModelOrder.map(modelRow)");
   const mlSettingsIndex = source.indexOf('className="analysis-settings-grid ml-analysis-settings"');
@@ -226,8 +219,7 @@ test("analysis controls expose one checkbox-driven Analyze action", () => {
   assert.ok(modelNameIndex < modelCountIndex);
   assert.ok(modelCountIndex < resetButtonIndex);
   assert.doesNotMatch(modelRowBlock, /<label\b[\s\S]*analysis-model-check/);
-  assert.ok(sonaraRowIndex < sonaraDataIndex);
-  assert.ok(sonaraDataIndex < sonaraBatchIndex);
+  assert.ok(sonaraRowIndex < sonaraBatchIndex);
   assert.ok(sonaraBatchIndex < mlRowsIndex);
   assert.ok(mlRowsIndex < mlSettingsIndex);
   assert.match(source, /analysis-family-card sonara-analysis-block/);

@@ -26,11 +26,6 @@ from dj_track_similarity.db_ddl import (
 from dj_track_similarity.sonara_similarity import (
     SonaraSimilaritySearch,
 )
-from dj_track_similarity.sonara_similarity_scoring import (
-    _scaled_weighted_euclidean_distance,
-)
-
-
 _NOW = "2026-07-24T10:00:00.000000Z"
 
 
@@ -291,34 +286,3 @@ def test_sonara_search_rejects_stale_full_target(
         match="content_generation mismatch",
     ):
         SonaraSimilaritySearch(repository).search((seed,))
-
-
-def test_sonara_data_only_embedding_distance_is_scaled_euclidean() -> None:
-    left = np.zeros(48, dtype=np.float32)
-    right = np.zeros(48, dtype=np.float32)
-    left[0] = 10.0
-    right[0] = 20.0
-    scales = np.ones(48, dtype=np.float32)
-    scales[0] = 2.0
-    weights = np.zeros(48, dtype=np.float32)
-    weights[0] = 3.0
-
-    distance = _scaled_weighted_euclidean_distance(
-        left,
-        right,
-        scales=scales,
-        weights=weights,
-    )
-    assert distance == pytest.approx(5.0)
-    assert float(np.dot(left, right)) > 0.0
-    assert float(
-        np.dot(left, right) / (np.linalg.norm(left) * np.linalg.norm(right))
-    ) == pytest.approx(1.0)
-
-    with pytest.raises(ValueError, match="scales must be positive"):
-        _scaled_weighted_euclidean_distance(
-            left,
-            right,
-            scales=np.zeros(48, dtype=np.float32),
-            weights=np.ones(48, dtype=np.float32),
-        )

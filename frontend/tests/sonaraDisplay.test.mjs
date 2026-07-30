@@ -25,37 +25,31 @@ test("metadata dialog reads every current detail surface directly", () => {
     "track.maest",
     "track.embeddings",
     "track.classifier_scores_detail",
-    "track.optional_outputs",
   ]) {
     assert.ok(source.includes(field), `missing detailed consumer: ${field}`);
   }
 });
 
-test("SONARA storage is shown as Core Timeline Embedding and Fingerprint", () => {
+test("SONARA metadata shows Core only", () => {
   const source = readFileSync(dialogPath, "utf8");
 
   assert.match(source, />SONARA · Core</);
-  assert.match(source, /<strong>SONARA · Timeline<\/strong>/);
-  assert.match(source, /title="SONARA · Embedding"/);
-  assert.match(source, /title="SONARA · Fingerprint"/);
-  assert.match(source, /track\.optional_outputs\.timeline_fields/);
-  assert.match(source, /track\.optional_outputs\.sonara_embedding_available/);
-  assert.match(source, /track\.optional_outputs\.audio_fingerprint_available/);
+  assert.doesNotMatch(source, /SONARA · Timeline|SONARA · Embedding|SONARA · Fingerprint/);
+  assert.doesNotMatch(source, /optional_outputs/);
   assert.doesNotMatch(source, /Representations|representation_fields/);
 });
 
-test("API keeps the four independent SONARA output identifiers", () => {
+test("API exposes only Core in SONARA status", () => {
   const source = readFileSync(apiPath, "utf8");
 
-  assert.match(source, /export type SonaraOutput = "core" \| "timeline" \| "embedding" \| "fingerprint";/);
-  assert.doesNotMatch(source, /SonaraOutput[^\n]*representations/);
+  assert.match(source, /output_kind: "core";/);
+  assert.doesNotMatch(source, /SonaraOutput|timeline|sonara_embedding|fingerprint/);
 });
 
-test("metadata lists timeline manifest names without loading timeline values", () => {
+test("metadata has no timeline loader or manifest", () => {
   const source = readFileSync(dialogPath, "utf8");
 
-  assert.match(source, /fields\.map\(\(field\) => <code key=\{field\}>\{field\}<\/code>\)/);
-  assert.doesNotMatch(source, /api\.sonaraTimeline|JSON\.stringify\(timeline/);
+  assert.doesNotMatch(source, /TimelinePresenceBlock|timelineFields|sonaraTimeline/);
 });
 
 test("metadata copies the canonical file_path", () => {

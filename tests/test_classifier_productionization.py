@@ -14,7 +14,6 @@ from dj_track_similarity.library_models import (
     ClassifierScoreDetail,
     ClassifierScoreSummary,
     FileTechnical,
-    OptionalOutputs,
     TrackDetail,
     TrackSummary,
 )
@@ -146,11 +145,6 @@ def _track(
         maest=None,
         embeddings=(),
         classifier_scores_detail=tuple(scores),
-        optional_outputs=OptionalOutputs(
-            timeline_fields=(),
-            sonara_embedding_available=False,
-            audio_fingerprint_available=False,
-        ),
     )
     return summary, detail
 

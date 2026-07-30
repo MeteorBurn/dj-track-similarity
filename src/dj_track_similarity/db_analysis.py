@@ -49,9 +49,7 @@ from .db_analysis_candidates import (
 from .db_artifacts import (
     ArtifactTrackIdentity,
     read_valid_embedding,
-    validate_fingerprint_row_payload,
     validate_storage_binding,
-    validate_timeline_row_payload,
     write_valid_embedding_in_transaction,
 )
 from .db_ddl import ClassifierScoreRecord
@@ -291,110 +289,6 @@ def _upsert_maest_analysis(
                 "genres_json",
                 "analyzed_at",
             )
-        ),
-    )
-
-
-def _upsert_sonara_timeline(
-    artifacts_connection: sqlite3.Connection,
-    *,
-    write: SonaraWrite,
-) -> None:
-    timeline = write.timeline
-    if timeline is None:
-        return
-    payload_json = timeline.payload_json
-    valid, reason = validate_timeline_row_payload(
-        row={
-            "track_id": write.target.track_id,
-            "track_uuid": write.target.track_uuid,
-            "content_generation": write.target.content_generation,
-            "payload_json": payload_json,
-        },
-        expected_track=_artifact_track(write.target),
-    )
-    if not valid:
-        raise ValueError(f"invalid SONARA timeline payload: {reason}")
-    _delete_stale_artifact_generation(
-        artifacts_connection,
-        table="sonara_timeline",
-        target=write.target,
-    )
-    artifacts_connection.execute(
-        """
-        INSERT INTO sonara_timeline (
-            track_id, track_uuid, content_generation,
-            payload_json, analyzed_at
-        ) VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(track_id) DO UPDATE SET
-            track_uuid = excluded.track_uuid,
-            content_generation = excluded.content_generation,
-            payload_json = excluded.payload_json,
-            analyzed_at = excluded.analyzed_at
-        """,
-        (
-            write.target.track_id,
-            write.target.track_uuid,
-            write.target.content_generation,
-            payload_json,
-            timeline.analyzed_at,
-        ),
-    )
-
-
-def _upsert_sonara_fingerprint(
-    artifacts_connection: sqlite3.Connection,
-    *,
-    write: SonaraWrite,
-) -> None:
-    fingerprint = write.fingerprint
-    if fingerprint is None:
-        return
-    word_count = int(fingerprint.words.shape[0])
-    fingerprint_blob = fingerprint.fingerprint_blob
-    valid, reason = validate_fingerprint_row_payload(
-        row={
-            "track_id": write.target.track_id,
-            "track_uuid": write.target.track_uuid,
-            "content_generation": write.target.content_generation,
-            "fingerprint_version": fingerprint.fingerprint_version,
-            "word_count": word_count,
-            "byte_order": "little",
-            "fingerprint_blob": fingerprint_blob,
-        },
-        expected_track=_artifact_track(write.target),
-    )
-    if not valid:
-        raise ValueError(f"invalid SONARA fingerprint payload: {reason}")
-    _delete_stale_artifact_generation(
-        artifacts_connection,
-        table="sonara_fingerprints",
-        target=write.target,
-    )
-    artifacts_connection.execute(
-        """
-        INSERT INTO sonara_fingerprints (
-            track_id, track_uuid, content_generation,
-            fingerprint_version, word_count, byte_order,
-            fingerprint_blob, analyzed_at
-        ) VALUES (?, ?, ?, ?, ?, 'little', ?, ?)
-        ON CONFLICT(track_id) DO UPDATE SET
-            track_uuid = excluded.track_uuid,
-            content_generation = excluded.content_generation,
-            fingerprint_version = excluded.fingerprint_version,
-            word_count = excluded.word_count,
-            byte_order = excluded.byte_order,
-            fingerprint_blob = excluded.fingerprint_blob,
-            analyzed_at = excluded.analyzed_at
-        """,
-        (
-            write.target.track_id,
-            write.target.track_uuid,
-            write.target.content_generation,
-            fingerprint.fingerprint_version,
-            word_count,
-            fingerprint_blob,
-            fingerprint.analyzed_at,
         ),
     )
 
@@ -651,21 +545,13 @@ class AnalysisRepository:
             raise TypeError("writes must contain only SonaraWrite values")
         if not selected:
             return ()
-        needs_artifacts = any(
-            write.timeline is not None
-            or write.similarity_embedding is not None
-            or write.fingerprint is not None
-            for write in selected
-        )
         results: list[AnalysisWriteResult] = []
         with self._write_lock:
             with (
                 closing(self.connect()) as core_connection,
                 closing(self.connect_artifacts()) as artifacts_connection,
             ):
-                coordinated_artifacts = (
-                    artifacts_connection if needs_artifacts else None
-                )
+                coordinated_artifacts = None
                 try:
                     core_connection.execute("BEGIN IMMEDIATE")
                     storage_binding = validate_storage_binding(
@@ -695,32 +581,6 @@ class AnalysisRepository:
                                 core_connection,
                                 write=write,
                             )
-                            if coordinated_artifacts is not None:
-                                _upsert_sonara_timeline(
-                                    coordinated_artifacts,
-                                    write=write,
-                                )
-                                if write.similarity_embedding is not None:
-                                    _delete_stale_artifact_generation(
-                                        coordinated_artifacts,
-                                        table=("sonara_similarity_embeddings"),
-                                        target=write.target,
-                                    )
-                                    write_valid_embedding_in_transaction(
-                                        core_connection=core_connection,
-                                        artifacts_connection=(coordinated_artifacts),
-                                        track=_artifact_track(write.target),
-                                        family=write.similarity_embedding.family,
-                                        embedding=(write.similarity_embedding.vector),
-                                        analyzed_at=(
-                                            write.similarity_embedding.analyzed_at
-                                        ),
-                                        storage_binding=storage_binding,
-                                    )
-                                _upsert_sonara_fingerprint(
-                                    coordinated_artifacts,
-                                    write=write,
-                                )
                         except Exception as error:
                             _rollback_savepoint(
                                 core_connection,
@@ -1424,18 +1284,6 @@ class AnalysisRepository:
                                 int(cursor.rowcount),
                             )
                     classifier_deleted = 0
-                    sonara_output_kinds = {
-                        output.output_kind
-                        for output in normalized
-                        if output.analysis_family == "sonara"
-                    }
-                    if sonara_output_kinds == {
-                        "core",
-                        "timeline",
-                        "embedding",
-                        "fingerprint",
-                    }:
-                        pass
                     _commit_coordinated(
                         core_connection,
                         coordinated_artifacts,

@@ -13,7 +13,6 @@ from dj_track_similarity.library_models import (
     ClassifierScoreDetail,
     EmbeddingSummary,
     FileTechnical,
-    OptionalOutputs,
     TrackDetail,
 )
 from dj_track_similarity.track_models import FileTags, ScannedFile, TrackIdentity
@@ -309,11 +308,6 @@ def test_track_detail_endpoint_exposes_structural_analysis_metadata_only(
                     positive_label="present",
                     analyzed_at="2026-07-30T00:00:00Z",
                 ),
-            ),
-            optional_outputs=OptionalOutputs(
-                timeline_fields=(),
-                sonara_embedding_available=False,
-                audio_fingerprint_available=False,
             ),
         )
 

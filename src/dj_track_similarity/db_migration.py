@@ -26,8 +26,6 @@ from .db_artifacts import (
     create_artifacts_sidecar_schema,
     validate_artifacts_sidecar_schema,
     validate_embedding_row_payload,
-    validate_fingerprint_row_payload,
-    validate_timeline_row_payload,
 )
 from .db_connection import write_lock_for_path
 from .db_ddl import create_core_schema
@@ -58,18 +56,12 @@ _ARTIFACT_COPY_ORDER = (
     "mert_embeddings",
     "muq_embeddings",
     "clap_embeddings",
-    "sonara_similarity_embeddings",
-    "sonara_timeline",
-    "sonara_fingerprints",
 )
 _ARTIFACT_FAMILY = {
     "maest_embeddings": "maest",
     "mert_embeddings": "mert",
     "muq_embeddings": "muq",
     "clap_embeddings": "clap",
-    "sonara_similarity_embeddings": "sonara",
-    "sonara_timeline": "sonara",
-    "sonara_fingerprints": "sonara",
 }
 _CORE_DERIVED_FAMILY = {
     "sonara": "sonara",
@@ -1027,22 +1019,11 @@ def _exclude_derived_row(
         track_uuid=track_uuid,
         content_generation=current_generation,
     )
-    if table.endswith("_embeddings"):
-        valid, _ = validate_embedding_row_payload(
-            family=_ARTIFACT_FAMILY[table],
-            row=values,
-            expected_track=expected_track,
-        )
-    elif table == "sonara_timeline":
-        valid, _ = validate_timeline_row_payload(
-            row=values,
-            expected_track=expected_track,
-        )
-    else:
-        valid, _ = validate_fingerprint_row_payload(
-            row=values,
-            expected_track=expected_track,
-        )
+    valid, _ = validate_embedding_row_payload(
+        family=_ARTIFACT_FAMILY[table],
+        row=values,
+        expected_track=expected_track,
+    )
     return not valid
 
 

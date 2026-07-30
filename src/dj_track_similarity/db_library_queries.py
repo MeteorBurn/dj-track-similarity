@@ -20,8 +20,6 @@ from .analysis_models import (
 from .db_artifacts import (
     ArtifactTrackIdentity,
     validate_embedding_row_payload,
-    validate_fingerprint_row_payload,
-    validate_timeline_row_payload,
 )
 from .db_tracks import utc_now_text
 from .library_models import (
@@ -36,7 +34,6 @@ from .library_models import (
     LibrarySummary,
     MaestAnalysis,
     MaestGenre,
-    OptionalOutputs,
     SonaraCore,
     TrackDetail,
     TrackPage,
@@ -60,7 +57,6 @@ _EMBEDDING_TABLES: tuple[tuple[str, str, str], ...] = (
     ("mert", "embedding", "mert_embeddings"),
     ("muq", "embedding", "muq_embeddings"),
     ("clap", "embedding", "clap_embeddings"),
-    ("sonara", "embedding", "sonara_similarity_embeddings"),
 )
 _SONARA_VECTOR_SUMMARIES = (
     VectorSummary("mfcc_mean", 13),
@@ -717,116 +713,6 @@ def _valid_artifact_rows(
     return valid
 
 
-def _valid_timeline_rows(
-    connection: sqlite3.Connection,
-    *,
-    catalog_uuid: str,
-    output: AnalysisOutput | None,
-    identities: Mapping[int, tuple[str, int]],
-    drive_from_requested: bool,
-) -> dict[int, Mapping[str, object]]:
-    if output is None or not identities:
-        return {}
-    if drive_from_requested:
-        rows = connection.execute(
-            """
-            SELECT stored.track_id, stored.track_uuid, stored.content_generation,
-                   stored.payload_json, stored.analyzed_at
-            FROM json_each(?) requested
-            CROSS JOIN sonara_timeline stored
-            WHERE stored.track_id = CAST(requested.value AS INTEGER)
-            """,
-            (_json_ids(identities),),
-        )
-    else:
-        rows = connection.execute(
-            """
-            SELECT track_id, track_uuid, content_generation,
-                   payload_json, analyzed_at
-            FROM sonara_timeline
-            WHERE track_id IN (
-                  SELECT CAST(value AS INTEGER)
-                  FROM json_each(?)
-              )
-            """,
-            (_json_ids(identities),),
-        )
-    valid: dict[int, Mapping[str, object]] = {}
-    for row in rows:
-        track_id = int(row["track_id"])
-        expected = identities.get(track_id)
-        if expected is None:
-            continue
-        is_valid, _reason = validate_timeline_row_payload(
-            row=row,
-            expected_track=ArtifactTrackIdentity(
-                catalog_uuid=catalog_uuid,
-                track_id=track_id,
-                track_uuid=expected[0],
-                content_generation=expected[1],
-            ),
-        )
-        if is_valid:
-            valid[track_id] = row
-    return valid
-
-
-def _valid_fingerprint_ids(
-    connection: sqlite3.Connection,
-    *,
-    catalog_uuid: str,
-    output: AnalysisOutput | None,
-    identities: Mapping[int, tuple[str, int]],
-    drive_from_requested: bool,
-) -> set[int]:
-    if output is None or not identities:
-        return set()
-    if drive_from_requested:
-        rows = connection.execute(
-            """
-            SELECT stored.track_id, stored.track_uuid, stored.content_generation,
-                   stored.fingerprint_version,
-                   stored.word_count, stored.byte_order, stored.fingerprint_blob
-            FROM json_each(?) requested
-            CROSS JOIN sonara_fingerprints stored
-            WHERE stored.track_id = CAST(requested.value AS INTEGER)
-            """,
-            (_json_ids(identities),),
-        )
-    else:
-        rows = connection.execute(
-            """
-            SELECT track_id, track_uuid, content_generation,
-                   fingerprint_version, word_count, byte_order,
-                   fingerprint_blob
-            FROM sonara_fingerprints
-            WHERE track_id IN (
-                  SELECT CAST(value AS INTEGER)
-                  FROM json_each(?)
-              )
-            """,
-            (_json_ids(identities),),
-        )
-    valid: set[int] = set()
-    for row in rows:
-        track_id = int(row["track_id"])
-        expected = identities.get(track_id)
-        if expected is None:
-            continue
-        is_valid, _reason = validate_fingerprint_row_payload(
-            row=row,
-            expected_track=ArtifactTrackIdentity(
-                catalog_uuid=catalog_uuid,
-                track_id=track_id,
-                track_uuid=expected[0],
-                content_generation=expected[1],
-            ),
-        )
-        if is_valid:
-            valid.add(track_id)
-    return valid
-
-
 def _current_classifier_details(
     connection: sqlite3.Connection,
     *,
@@ -956,27 +842,9 @@ def _coverage_and_classifiers(
             embedding=True,
             drive_from_requested=drive_from_requested,
         )
-    timeline = _valid_timeline_rows(
-        artifacts_connection,
-        catalog_uuid=context.catalog_uuid,
-        output=context.outputs.get(("sonara", "timeline")),
-        identities=identities,
-        drive_from_requested=drive_from_requested,
-    )
-    artifact_rows[("sonara", "timeline")] = timeline
-    fingerprint = _valid_fingerprint_ids(
-        artifacts_connection,
-        catalog_uuid=context.catalog_uuid,
-        output=context.outputs.get(("sonara", "fingerprint")),
-        identities=identities,
-        drive_from_requested=drive_from_requested,
-    )
     coverage = {
         track_id: AnalysisCoverage(
             sonara_core=track_id in sonara_core,
-            timeline=track_id in timeline,
-            sonara_embedding=track_id in artifact_rows[("sonara", "embedding")],
-            fingerprint=track_id in fingerprint,
             maest_analysis=track_id in maest_analysis,
             maest_embedding=track_id in artifact_rows[("maest", "embedding")],
             mert=track_id in artifact_rows[("mert", "embedding")],
@@ -1495,17 +1363,6 @@ class LibraryQueryRepository:
                 )
                 is not None
             )
-            timeline_row = artifact_rows[("sonara", "timeline")].get(numeric_id)
-            timeline_fields = (
-                ()
-                if timeline_row is None
-                else tuple(
-                    _json_object(
-                        timeline_row["payload_json"],
-                        "sonara_timeline.payload_json",
-                    )
-                )
-            )
             return TrackDetail(
                 **summary.__dict__,
                 file=FileTechnical(
@@ -1527,11 +1384,6 @@ class LibraryQueryRepository:
                 maest=maest,
                 embeddings=embeddings,
                 classifier_scores_detail=classifier_details,
-                optional_outputs=OptionalOutputs(
-                    timeline_fields=timeline_fields,
-                    sonara_embedding_available=coverage[numeric_id].sonara_embedding,
-                    audio_fingerprint_available=coverage[numeric_id].fingerprint,
-                ),
             )
 
     def get_media_path(
@@ -1730,50 +1582,6 @@ class LibraryQueryRepository:
                     )
                 )
             return tuple(candidates)
-
-    def load_sonara_timeline(
-        self,
-        track_id: int,
-    ) -> Mapping[str, object] | None:
-        with self._open_library_bundle() as (
-            core_connection,
-            artifacts_connection,
-            context,
-        ):
-            track = core_connection.execute(
-                """
-                SELECT track_id, track_uuid, content_generation
-                FROM tracks
-                WHERE track_id = ?
-                  AND missing_since IS NULL
-                """,
-                (int(track_id),),
-            ).fetchone()
-            if track is None:
-                raise KeyError(f"Unknown current track id: {track_id}")
-            rows = _valid_timeline_rows(
-                artifacts_connection,
-                catalog_uuid=context.catalog_uuid,
-                output=context.outputs.get(("sonara", "timeline")),
-                identities={
-                    int(track["track_id"]): (
-                        str(track["track_uuid"]),
-                        int(track["content_generation"]),
-                    )
-                },
-                drive_from_requested=True,
-            )
-            timeline = rows.get(int(track_id))
-            if timeline is None:
-                return None
-            return _json_object(
-                timeline["payload_json"],
-                "sonara_timeline.payload_json",
-            )
-
-    def get_optional_outputs(self, track_id: int) -> OptionalOutputs:
-        detail = self.get_track_detail(track_id)
-        return detail.optional_outputs
 
     def export_track_rows(
         self,

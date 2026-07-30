@@ -27,13 +27,12 @@ import numpy as np
 from dj_track_similarity.analysis_models import current_embedding_spec
 
 
-SUPPORTED_SOURCES = ("maest", "mert", "muq", "clap", "sonara")
+SUPPORTED_SOURCES = ("maest", "mert", "muq", "clap")
 SOURCE_TABLES: Mapping[str, str] = {
     "maest": "maest_embeddings",
     "mert": "mert_embeddings",
     "muq": "muq_embeddings",
     "clap": "clap_embeddings",
-    "sonara": "sonara_similarity_embeddings",
 }
 SOURCE_RELATIONSHIPS: Mapping[str, str] = {
     source: f"SIMILAR_{source.upper()}" for source in SUPPORTED_SOURCES

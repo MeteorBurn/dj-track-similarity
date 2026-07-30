@@ -40,18 +40,14 @@ import type {
   ServerShutdownResult,
   SetBuilderGeneratePayload,
   SetBuilderGenerateResult,
-  SonaraTimeline,
   SonaraMixerWeights,
   SonaraModifiers,
-  SonaraOutput,
   SonaraStatus,
   SonaraSearchMode,
   Track,
   TrackDetail,
   TrackPage
 } from "./api";
-
-const DEFAULT_SONARA_OUTPUTS = ["core"] as const;
 
 type TrackQueryParams = {
   query?: string;
@@ -80,7 +76,6 @@ type AnalysisJobStartPayload = {
   track_batch_size?: number;
   inference_batch_size?: number;
   sonara_batch_size?: number;
-  sonara_outputs?: SonaraOutput[];
 };
 
 type SonaraSearchPayload = {
@@ -196,7 +191,6 @@ const libraryApi = {
     request<TrackDetail>(`/api/tracks/${trackId}`, {
       signal: options?.signal,
     }),
-  sonaraTimeline: (trackId: number) => request<SonaraTimeline>(`/api/tracks/${trackId}/sonara-timeline`),
   setTrackLiked: (track: Track, liked: boolean) =>
     request<Track>(`/api/tracks/${track.track_id}/liked`, {
       method: "POST",
@@ -292,8 +286,7 @@ const analysisApi = {
       ? {
           models: payload.models,
           limit: payload.limit ?? null,
-          sonara_batch_size: payload.sonara_batch_size ?? 8,
-          sonara_outputs: payload.sonara_outputs ?? [...DEFAULT_SONARA_OUTPUTS]
+          sonara_batch_size: payload.sonara_batch_size ?? 8
         }
       : {
           models: payload.models,
@@ -332,7 +325,7 @@ const analysisApi = {
   analysisPipelineStart: (payload: {
     stages: Array<"sonara" | "ml" | "classifiers">;
     limit?: number | null;
-    sonara: { outputs: SonaraOutput[]; batch_size: number };
+    sonara: { batch_size: number };
     ml: { models: AnalysisModel[]; device: "auto" | "cpu" | "cuda"; top_k: number; track_batch_size: number; inference_batch_size: number };
     classifiers: { classifier_keys: string[] };
   }) => request<AnalysisPipelineStatus>("/api/analysis/pipelines", { method: "POST", body: JSON.stringify(payload) }),

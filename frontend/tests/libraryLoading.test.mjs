@@ -42,9 +42,6 @@ function track(trackId, generation = 1, catalogUuid = "catalog-a") {
     liked: false,
     analysis_coverage: {
       sonara_core: false,
-      timeline: false,
-      sonara_embedding: false,
-      fingerprint: false,
       maest_analysis: false,
       maest_embedding: false,
       mert: false,

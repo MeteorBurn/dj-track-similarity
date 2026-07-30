@@ -466,31 +466,6 @@ def test_set_builder_rejects_stale_analysis_generation() -> None:
         )
 
 
-def test_set_builder_rejects_wrong_sonara_output_kind() -> None:
-    repository = _Repository()
-    inactive_output = AnalysisOutput("sonara", "timeline")
-    repository.sonara_rows = (
-        replace(repository.sonara_rows[0], output=inactive_output),
-        *repository.sonara_rows[1:],
-    )
-
-    with pytest.raises(
-        RuntimeError,
-        match="SONARA data for the wrong output",
-    ):
-        SmartSetBuilder(
-            repository,
-            analysis_outputs=_analysis_outputs(repository),
-        ).generate(
-            SetBuilderConfig(
-                seed_mode="manual",
-                seed_track_ids=[1],
-                limit=2,
-                random_seed=0,
-            )
-        )
-
-
 def test_set_builder_rejects_wrong_embedding_output() -> None:
     repository = _Repository()
     expected = _analysis_outputs(repository)

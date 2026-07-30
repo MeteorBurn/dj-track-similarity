@@ -230,9 +230,6 @@ def test_api_sonara_status_returns_neutral_coverage(
             "total_tracks": 3,
             "outputs": [
                 {"output_kind": "core", "present_count": 2, "missing_count": 1},
-                {"output_kind": "timeline", "present_count": 1, "missing_count": 2},
-                {"output_kind": "embedding", "present_count": 0, "missing_count": 3},
-                {"output_kind": "fingerprint", "present_count": 3, "missing_count": 0},
             ],
         }
 
@@ -246,9 +243,6 @@ def test_api_sonara_status_returns_neutral_coverage(
         "total_tracks": 3,
         "outputs": [
             {"output_kind": "core", "present_count": 2, "missing_count": 1},
-            {"output_kind": "timeline", "present_count": 1, "missing_count": 2},
-            {"output_kind": "embedding", "present_count": 0, "missing_count": 3},
-            {"output_kind": "fingerprint", "present_count": 3, "missing_count": 0},
         ],
     }
 

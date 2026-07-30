@@ -18,10 +18,7 @@ from dj_track_similarity.analysis_pipeline import AnalysisPipelineManager
 from dj_track_similarity.analysis_queue import AnalysisStageQueue
 
 
-_OUTPUTS = tuple(
-    AnalysisOutput("sonara", output_kind)
-    for output_kind in ("core", "timeline", "embedding", "fingerprint")
-)
+_OUTPUTS = (AnalysisOutput("sonara", "core"),)
 
 
 def _candidate(
@@ -53,7 +50,6 @@ class _CoverageRepository:
         assert tuple(outputs) == _OUTPUTS
         assert limit is None
         return [
-            _candidate(1, (_OUTPUTS[1], _OUTPUTS[2])),
             _candidate(2, _OUTPUTS),
         ]
 
@@ -72,9 +68,6 @@ def test_sonara_status_reports_current_data_coverage_without_release_identity() 
         for output in status.outputs
     ] == [
         ("core", 2, 1),
-        ("timeline", 1, 2),
-        ("embedding", 1, 2),
-        ("fingerprint", 2, 1),
     ]
 
 
@@ -98,21 +91,6 @@ def test_sonara_status_endpoint_is_neutral_and_release_routes_are_removed(
         "outputs": [
             {
                 "output_kind": "core",
-                "present_count": 0,
-                "missing_count": 0,
-            },
-            {
-                "output_kind": "timeline",
-                "present_count": 0,
-                "missing_count": 0,
-            },
-            {
-                "output_kind": "embedding",
-                "present_count": 0,
-                "missing_count": 0,
-            },
-            {
-                "output_kind": "fingerprint",
                 "present_count": 0,
                 "missing_count": 0,
             },
@@ -166,7 +144,7 @@ def test_pipeline_job_creation_does_not_run_release_preflight() -> None:
     job_id = manager.create_job(
         stages=["sonara"],
         limit=None,
-        sonara={"outputs": ["core"]},
+        sonara={},
     )
 
     assert manager.get(job_id).order == ["sonara"]

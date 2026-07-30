@@ -13,8 +13,6 @@ from .analysis_models import (
 from .db_artifacts import (
     ArtifactTrackIdentity,
     validate_embedding_row_payload,
-    validate_fingerprint_row_payload,
-    validate_timeline_row_payload,
 )
 from .maest_analysis_validation import (
     MAEST_ANALYSIS_COLUMNS,
@@ -35,9 +33,6 @@ _ARTIFACT_TABLE_BY_OUTPUT = {
     ("mert", "embedding"): "mert_embeddings",
     ("muq", "embedding"): "muq_embeddings",
     ("clap", "embedding"): "clap_embeddings",
-    ("sonara", "embedding"): "sonara_similarity_embeddings",
-    ("sonara", "timeline"): "sonara_timeline",
-    ("sonara", "fingerprint"): "sonara_fingerprints",
 }
 
 
@@ -235,10 +230,6 @@ def _valid_artifact_rows(
 ) -> tuple[sqlite3.Row, ...]:
     if output.output_kind == "embedding":
         payload_fields = "dim, normalization, embedding_blob"
-    elif output.key == ("sonara", "timeline"):
-        payload_fields = "payload_json"
-    elif output.key == ("sonara", "fingerprint"):
-        payload_fields = "fingerprint_version, word_count, byte_order, fingerprint_blob"
     else:
         raise ValueError(
             "unsupported artifact output "
@@ -262,15 +253,10 @@ def _valid_artifact_rows(
                 row=row,
                 expected_track=expected_track,
             )
-        elif output.key == ("sonara", "timeline"):
-            is_valid, _reason = validate_timeline_row_payload(
-                row=row,
-                expected_track=expected_track,
-            )
         else:
-            is_valid, _reason = validate_fingerprint_row_payload(
-                row=row,
-                expected_track=expected_track,
+            raise ValueError(
+                "unsupported artifact output "
+                f"{output.analysis_family}/{output.output_kind}"
             )
         if is_valid:
             valid.append(row)

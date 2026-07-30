@@ -14,9 +14,6 @@ ScoreBucket = Literal["low", "medium", "high"]
 @dataclass(frozen=True)
 class AnalysisCoverage:
     sonara_core: bool = False
-    timeline: bool = False
-    sonara_embedding: bool = False
-    fingerprint: bool = False
     maest_analysis: bool = False
     maest_embedding: bool = False
     mert: bool = False
@@ -26,9 +23,6 @@ class AnalysisCoverage:
     def as_dict(self) -> dict[str, bool]:
         return {
             "sonara_core": self.sonara_core,
-            "timeline": self.timeline,
-            "sonara_embedding": self.sonara_embedding,
-            "fingerprint": self.fingerprint,
             "maest_analysis": self.maest_analysis,
             "maest_embedding": self.maest_embedding,
             "mert": self.mert,
@@ -176,13 +170,6 @@ class EmbeddingSummary:
 
 
 @dataclass(frozen=True)
-class OptionalOutputs:
-    timeline_fields: tuple[str, ...]
-    sonara_embedding_available: bool
-    audio_fingerprint_available: bool
-
-
-@dataclass(frozen=True)
 class TrackSummary:
     track_id: int
     catalog_uuid: str
@@ -208,7 +195,6 @@ class TrackDetail(TrackSummary):
     maest: MaestAnalysis | None
     embeddings: tuple[EmbeddingSummary, ...]
     classifier_scores_detail: tuple[ClassifierScoreDetail, ...]
-    optional_outputs: OptionalOutputs
 
 
 @dataclass(frozen=True)

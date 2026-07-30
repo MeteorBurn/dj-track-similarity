@@ -328,33 +328,14 @@ def test_catalog_binding_mismatch_fails_closed(tmp_path: Path) -> None:
     assert artifacts_path.exists()
 
 
-def test_structurally_invalid_sonara_vector_is_not_projected(
+def test_sonara_embedding_source_is_disabled(
     tmp_path: Path,
 ) -> None:
-    core_path, artifacts_path, _audio_paths, _dimension = _fixture_bundle(tmp_path)
-    vector = np.asarray([1.0, 0.0], dtype="<f4")
-    with sqlite3.connect(artifacts_path) as artifacts:
-        artifacts.execute(
-            """
-            INSERT INTO sonara_similarity_embeddings(
-                track_id, track_uuid, content_generation, dim,
-                normalization, embedding_blob, analyzed_at
-            ) VALUES(1, 'track-uuid-1', 1, 2, 'l2', ?, ?)
-            """,
-            (vector.tobytes(), "2026-01-01T00:00:00.000000Z"),
+    with pytest.raises(BridgeError, match="unsupported embedding source"):
+        build_projection(
+            BuildOptions(
+                core_path=tmp_path / "library.sqlite",
+                artifacts_path=tmp_path / "library.artifacts.sqlite",
+                sources=("sonara",),
+            )
         )
-        artifacts.commit()
-
-    projection = build_projection(
-        BuildOptions(
-            core_path=core_path,
-            artifacts_path=artifacts_path,
-            sources=("sonara",),
-        )
-    )
-
-    report = projection.report.source_reports[0]
-    assert report.family == "sonara"
-    assert report.invalid_rows == 1
-    assert report.valid_vectors == 0
-    assert "SIMILAR_SONARA" not in projection.report.edges_by_type

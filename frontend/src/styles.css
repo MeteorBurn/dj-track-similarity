@@ -1244,62 +1244,6 @@ h2 {
   width: 100%;
 }
 
-.sonara-output-options {
-  border: 0;
-  border-top: 1px solid var(--border-soft);
-  box-sizing: border-box;
-  display: block;
-  margin: 0;
-  min-width: 0;
-  padding: 9px 2px 8px;
-  width: 100%;
-}
-
-.sonara-output-options legend {
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 760;
-  padding: 0 4px;
-  text-transform: uppercase;
-}
-
-.sonara-output-row {
-  align-items: center;
-  display: flex;
-  flex-wrap: nowrap;
-  gap: 6px;
-  justify-content: space-between;
-  min-width: 0;
-  overflow-x: auto;
-  padding: 1px 0 2px;
-}
-
-.sonara-output-options label {
-  align-items: center;
-  cursor: pointer;
-  display: flex;
-  flex: 0 0 auto;
-  font-size: 11px;
-  font-weight: 700;
-  gap: 3px;
-  line-height: 12px;
-  white-space: nowrap;
-}
-
-.sonara-output-options input {
-  flex: 0 0 12px;
-  height: 12px;
-  margin: 0;
-  min-height: 0;
-  padding: 0;
-  width: 12px;
-}
-
-.sonara-output-options label span {
-  display: block;
-  white-space: nowrap;
-}
-
 .analysis-settings-grid {
   display: grid;
   gap: 6px;

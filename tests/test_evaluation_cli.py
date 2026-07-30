@@ -996,7 +996,6 @@ def _save_cli_candidate_analysis(
         (
             mert,
             AnalysisOutput("sonara", "core"),
-            AnalysisOutput("sonara", "embedding"),
         )
     )
     embedding_result = db.save_embedding_results(
@@ -1024,14 +1023,6 @@ def _save_cli_candidate_analysis(
                     bpm=bpm,
                     energy=energy,
                     danceability=danceability,
-                ),
-                similarity_embedding=EmbeddingOutput(
-                    family="sonara",
-                    vector=_expanded_unit_vector(
-                        current_embedding_spec("sonara").dimension,
-                        embedding,
-                    ),
-                    analyzed_at=_NOW,
                 ),
             ),
         )

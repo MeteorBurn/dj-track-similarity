@@ -18,7 +18,6 @@ from typing import Literal
 import numpy as np
 
 from .db_ddl import ClassifierScoreRecord, SonaraRow
-from .sonara_runtime import SONARA_EMBEDDING_DIM
 
 OUTPUT_KINDS_BY_FAMILY: Mapping[str, frozenset[str]] = MappingProxyType(
     {
@@ -139,7 +138,6 @@ CURRENT_EMBEDDING_SPECS: Mapping[str, EmbeddingFamilySpec] = MappingProxyType(
         "mert": EmbeddingFamilySpec(MERT_EMBEDDING_DIM, "l2"),
         "muq": EmbeddingFamilySpec(MUQ_EMBEDDING_DIM, "l2"),
         "clap": EmbeddingFamilySpec(CLAP_EMBEDDING_DIM, "l2"),
-        "sonara": EmbeddingFamilySpec(SONARA_EMBEDDING_DIM, "none"),
     }
 )
 
@@ -531,22 +529,6 @@ def _readonly_float32_vector(
     result = np.ascontiguousarray(vector, dtype="<f4").copy()
     result.setflags(write=False)
     return result
-
-
-def _readonly_uint32_words(value: Sequence[int] | np.ndarray) -> np.ndarray:
-    raw = np.asarray(value)
-    if raw.ndim != 1:
-        raise ValueError("fingerprint words must be one-dimensional")
-    if raw.dtype.kind not in {"i", "u"}:
-        raise ValueError("fingerprint words must be integers")
-    if raw.size and (
-        bool(np.any(raw < 0))
-        or bool(np.any(raw.astype(object) > np.iinfo(np.uint32).max))
-    ):
-        raise ValueError("fingerprint words must fit uint32")
-    words = np.ascontiguousarray(raw, dtype="<u4").copy()
-    words.setflags(write=False)
-    return words
 
 
 def _validate_short_float_blob(blob: bytes, *, dim: int, field_name: str) -> None:

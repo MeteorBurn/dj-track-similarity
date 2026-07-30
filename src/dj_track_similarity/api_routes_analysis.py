@@ -339,7 +339,7 @@ def _outputs_for_family(
     analysis_family: str,
 ) -> tuple[AnalysisOutput, ...]:
     output_kinds = {
-        "sonara": ("core", "timeline", "embedding", "fingerprint"),
+        "sonara": ("core",),
         "maest": ("analysis", "embedding"),
         "mert": ("embedding",),
         "muq": ("embedding",),

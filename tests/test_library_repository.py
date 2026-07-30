@@ -438,15 +438,13 @@ def test_library_coverage_rejects_malformed_embedding_payload(
     assert repository.library_summary().mert == 0
 
 
-def test_sonara_rows_are_current_and_validate_artifact_shapes(
+def test_sonara_reads_core_and_ignores_reserved_optional_artifacts(
     repository: _Repository,
 ) -> None:
     track = _insert_track(repository, title="SONARA", artist="Artist A")
     _register_active(
         repository,
         AnalysisOutput("sonara", "core"),
-        AnalysisOutput("sonara", "timeline"),
-        AnalysisOutput("sonara", "fingerprint"),
     )
     _insert_sonara_core(
         repository,
@@ -509,8 +507,9 @@ def test_sonara_rows_are_current_and_validate_artifact_shapes(
     detail = repository.get_track_detail(track.track_id)
 
     assert detail.analysis_coverage.sonara_core
-    assert detail.analysis_coverage.timeline
-    assert detail.analysis_coverage.fingerprint
+    assert not hasattr(detail.analysis_coverage, "timeline")
+    assert not hasattr(detail.analysis_coverage, "sonara_embedding")
+    assert not hasattr(detail.analysis_coverage, "fingerprint")
     assert detail.sonara_core is not None
     assert detail.sonara_core.detected_bpm == 126.0
     assert detail.sonara_core.aggression_score == 0.505047082901001
@@ -519,23 +518,8 @@ def test_sonara_rows_are_current_and_validate_artifact_shapes(
     assert detail.sonara_core.aggression_harshness == 0.4789124131202698
     assert detail.sonara_core.aggression_tension == 0.731246829032898
     assert detail.sonara_core.aggression_rhythm == 0.8567891120910645
-    assert detail.optional_outputs.timeline_fields == tuple(timeline_payload)
-    assert detail.optional_outputs.audio_fingerprint_available
-    assert repository.load_sonara_timeline(track.track_id) == timeline_payload
-
-    with _artifacts(repository) as artifacts:
-        artifacts.execute(
-            """
-            UPDATE sonara_fingerprints
-            SET fingerprint_version = ''
-            WHERE track_id = ?
-            """,
-            (track.track_id,),
-        )
-
-    malformed = repository.get_track_detail(track.track_id)
-    assert not malformed.analysis_coverage.fingerprint
-    assert not malformed.optional_outputs.audio_fingerprint_available
+    assert not hasattr(detail, "optional_outputs")
+    assert not hasattr(repository, "load_sonara_timeline")
 
 
 def test_maest_analysis_and_embedding_have_independent_readiness(

@@ -30,8 +30,6 @@ from dj_track_similarity.db_artifacts import (  # noqa: E402
     ArtifactTrackIdentity,
     validate_artifacts_sidecar_schema,
     validate_embedding_row_payload,
-    validate_fingerprint_row_payload,
-    validate_timeline_row_payload,
 )
 from dj_track_similarity.db_evaluation_sidecar import (  # noqa: E402
     validate_evaluation_sidecar_schema,
@@ -46,13 +44,8 @@ _EMBEDDING_TABLE_FAMILIES: Mapping[str, str] = {
     "mert_embeddings": "mert",
     "muq_embeddings": "muq",
     "clap_embeddings": "clap",
-    "sonara_similarity_embeddings": "sonara",
 }
-_ARTIFACT_TABLES: tuple[str, ...] = (
-    *_EMBEDDING_TABLE_FAMILIES,
-    "sonara_timeline",
-    "sonara_fingerprints",
-)
+_ARTIFACT_TABLES: tuple[str, ...] = tuple(_EMBEDDING_TABLE_FAMILIES)
 _SONARA_SHORT_VECTORS: Mapping[str, int] = {
     "mfcc_mean_blob": 13,
     "chroma_mean_blob": 12,
@@ -495,22 +488,11 @@ def _validate_artifacts(
                 content_generation=row["content_generation"],
                 context=context,
             )
-            if table in _EMBEDDING_TABLE_FAMILIES:
-                valid, reason = validate_embedding_row_payload(
-                    family=_EMBEDDING_TABLE_FAMILIES[table],
-                    row=row,
-                    expected_track=expected_track,
-                )
-            elif table == "sonara_timeline":
-                valid, reason = validate_timeline_row_payload(
-                    row=row,
-                    expected_track=expected_track,
-                )
-            else:
-                valid, reason = validate_fingerprint_row_payload(
-                    row=row,
-                    expected_track=expected_track,
-                )
+            valid, reason = validate_embedding_row_payload(
+                family=_EMBEDDING_TABLE_FAMILIES[table],
+                row=row,
+                expected_track=expected_track,
+            )
             if not valid:
                 raise QAError(f"{context}: {reason or 'invalid payload'}")
     return counts

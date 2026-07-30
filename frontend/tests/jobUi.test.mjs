@@ -38,7 +38,7 @@ test("analysis status shows only settings that belong to the active stage", () =
   const statusBlock = source.match(/function AnalysisProcessStatus[\s\S]*?function GenreTagProcessStatus/)?.[0] || "";
 
   assert.match(statusBlock, /sonaraJob \? <span>SONARA batch \{job\.sonara_batch_size/);
-  assert.match(statusBlock, /sonaraJob && sonaraOutputs \? <span>\{sonaraOutputs\}<\/span>/);
+  assert.doesNotMatch(statusBlock, /sonaraOutputs|sonara_outputs/);
   assert.match(statusBlock, /!sonaraJob && !classifierJob \? <span>Track batch/);
   assert.match(statusBlock, /!sonaraJob && !classifierJob && job\.inference_batch_size \? <span>Inference batch/);
   assert.match(statusBlock, /classifierJob \? <span>profiles/);

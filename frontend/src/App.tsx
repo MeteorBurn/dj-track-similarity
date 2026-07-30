@@ -15,7 +15,6 @@ import {
   PromotedClassifier,
   RhythmLabLaunchResult,
   ScanStats,
-  SonaraOutput,
   Track,
 } from "./api";
 import { analysisSelectionOrder, defaultAnalysisSelections, isAudioAnalysisModel, type AnalysisSelection } from "./analysisSelection";
@@ -170,12 +169,6 @@ export function App() {
   const [sonaraBatchSize, setSonaraBatchSize] = useState(8);
   const [analysisDevice, setAnalysisDevice] = useState<DeviceMode>("auto");
   const [selectedAnalysisModels, setSelectedAnalysisModels] = useState<AnalysisSelection[]>(defaultAnalysisSelections);
-  const [sonaraOutputs, setSonaraOutputs] = useState<SonaraOutput[]>([
-    "core",
-    "timeline",
-    "embedding",
-    "fingerprint"
-  ]);
   const [notice, setNotice] = useState<Notice>(defaultNotice);
   const [logFrameOpen, setLogFrameOpen] = useState(false);
   const [audioDedupOpen, setAudioDedupOpen] = useState(false);
@@ -727,17 +720,6 @@ export function App() {
     setSelectedAnalysisModels([...analysisSelectionOrder]);
   }
 
-  function toggleSonaraOutput(output: SonaraOutput) {
-    if (output === "core") return;
-    const order: SonaraOutput[] = ["core", "timeline", "embedding", "fingerprint"];
-    setSonaraOutputs((current) => {
-      const next = current.includes(output)
-        ? current.filter((item) => item !== output)
-        : [...current, output, "core"];
-      return order.filter((item) => next.includes(item));
-    });
-  }
-
   async function addVisibleTracksToPlaylist() {
     if (!databasePath || libraryLoading) return;
     setBusy(true);
@@ -1019,8 +1001,7 @@ export function App() {
     const limit = analysisLimit > 0 ? analysisLimit : undefined;
     const settings: string[] = [];
     if (includeSonara) {
-      const outputs = sonaraOutputs.map((output) => output[0].toUpperCase() + output.slice(1)).join(", ");
-      settings.push(`SONARA · ${outputs} · SONARA batch ${sonaraBatchSize}`);
+      settings.push(`SONARA · Core · SONARA batch ${sonaraBatchSize}`);
     }
     if (mlModels.length) {
       settings.push(
@@ -1038,7 +1019,7 @@ export function App() {
         return api.analysisPipelineStart({
           stages,
           limit: limit ?? null,
-          sonara: { outputs: sonaraOutputs, batch_size: sonaraBatchSize },
+          sonara: { batch_size: sonaraBatchSize },
           ml: {
             models: mlModels, device: analysisDevice, top_k: 3,
             track_batch_size: analysisTrackBatchSize, inference_batch_size: analysisInferenceBatchSize
@@ -1529,8 +1510,6 @@ export function App() {
           selectedAnalysisModels={selectedAnalysisModels}
           onToggleAnalysisModel={toggleAnalysisModel}
           onToggleAllAnalysisModels={toggleAllAnalysisModels}
-          sonaraOutputs={sonaraOutputs}
-          onToggleSonaraOutput={toggleSonaraOutput}
           onAnalyzeSelected={() => void handleAnalyzeSelected()}
           onResetAnalysis={(adapter) => requestConfirmation({
             title: `Сбросить ${adapter.toUpperCase()}?`,

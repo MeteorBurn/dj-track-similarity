@@ -1,5 +1,5 @@
 import { Cpu, Database, FolderOpen, Minus, Play, Plus, RefreshCcw, Save, Trash2 } from "lucide-react";
-import { AnalysisJobStatus, AnalysisModel, AnalysisPipelineStatus, PromotedClassifier, SonaraOutput } from "./api";
+import { AnalysisJobStatus, AnalysisModel, AnalysisPipelineStatus, PromotedClassifier } from "./api";
 import { audioAnalysisModelOrder, mlAnalysisModelOrder, type AnalysisSelection } from "./analysisSelection";
 
 type DeviceMode = "auto" | "cpu" | "cuda";
@@ -72,8 +72,6 @@ export function LibraryPanel({
   selectedAnalysisModels,
   onToggleAnalysisModel,
   onToggleAllAnalysisModels,
-  sonaraOutputs,
-  onToggleSonaraOutput,
   onAnalyzeSelected,
   onResetAnalysis,
   onResetClassifiers
@@ -118,8 +116,6 @@ export function LibraryPanel({
   selectedAnalysisModels: AnalysisSelection[];
   onToggleAnalysisModel: (model: AnalysisSelection) => void;
   onToggleAllAnalysisModels: () => void;
-  sonaraOutputs: SonaraOutput[];
-  onToggleSonaraOutput: (output: SonaraOutput) => void;
   onAnalyzeSelected: () => void;
   onResetAnalysis: (adapter: AnalysisModel) => void;
   onResetClassifiers: () => void;
@@ -128,7 +124,6 @@ export function LibraryPanel({
   const readyClassifiers = classifiers.reduce((sum, item) => sum + (item.ready || 0), 0);
   const notReadyClassifiers = classifiers.reduce((sum, item) => sum + (item.not_ready || 0), 0);
   const blockerCount = classifiers.filter((item) => item.readiness_blockers?.length).length;
-  const sonaraSelected = selectedAnalysisModels.includes("sonara");
   const classifiersSelected = selectedAnalysisModels.includes("classifiers");
   const fullAnalysisSelected = selectedAnalysisModels.length === audioAnalysisModelOrder.length + 1;
 
@@ -191,27 +186,6 @@ export function LibraryPanel({
       </div>
       <div className="analysis-family-card sonara-analysis-block">
         <div className="analysis-actions">{modelRow("sonara")}</div>
-        <fieldset className="sonara-output-options" disabled={busy || stageRunning || !sonaraSelected}>
-          <legend>Данные SONARA</legend>
-          <div className="sonara-output-row">
-            <label className="sonara-core-option" title="Обязательные основные признаки SONARA.">
-              <input type="checkbox" checked disabled />
-              <span>Core</span>
-            </label>
-            <label title="Полные временные ряды, события и сегменты в обязательной Artifacts-базе.">
-              <input type="checkbox" checked={sonaraOutputs.includes("timeline")} onChange={() => onToggleSonaraOutput("timeline")} />
-              <span>Timeline</span>
-            </label>
-            <label title="SONARA embedding в обязательной Artifacts-базе.">
-              <input type="checkbox" checked={sonaraOutputs.includes("embedding")} onChange={() => onToggleSonaraOutput("embedding")} />
-              <span>Embedding</span>
-            </label>
-            <label title="Аудио-fingerprint SONARA в обязательной Artifacts-базе.">
-              <input type="checkbox" checked={sonaraOutputs.includes("fingerprint")} onChange={() => onToggleSonaraOutput("fingerprint")} />
-              <span>Fingerprint</span>
-            </label>
-          </div>
-        </fieldset>
         <div className="analysis-settings-grid sonara-analysis-settings">
           <div className="worker-control">
             <span>SONARA batch</span>

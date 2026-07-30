@@ -153,13 +153,6 @@ def register_library_routes(
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 
-    @app.get("/api/tracks/{track_id}/sonara-timeline")
-    def track_sonara_timeline(track_id: int):
-        try:
-            return state.require_db().load_sonara_timeline(track_id) or {}
-        except KeyError as error:
-            raise HTTPException(status_code=404, detail=str(error)) from error
-
     @app.post("/api/tracks/filtered", response_model=list[TrackSummaryResponse])
     def filtered_tracks(request: FilteredTracksRequest):
         classifier_specifications = current_classifier_specifications(

@@ -139,7 +139,7 @@ def test_fresh_storage_has_no_contract_identity_schema() -> None:
 
 @pytest.mark.parametrize(
     "family",
-    ("maest", "mert", "muq", "clap", "sonara"),
+    ("maest", "mert", "muq", "clap"),
 )
 def test_embedding_gateway_round_trip_uses_data_identity(family: str) -> None:
     dimensions = {
@@ -147,12 +147,9 @@ def test_embedding_gateway_round_trip_uses_data_identity(family: str) -> None:
         "mert": 768,
         "muq": 1024,
         "clap": 512,
-        "sonara": 48,
     }
     vector = np.zeros(dimensions[family], dtype=np.float32)
     vector[0] = 1.0
-    if family == "sonara":
-        vector[1] = 0.25
     with _bound_bundle() as (core, artifacts):
         write_valid_embedding(
             core_connection=core,
@@ -432,29 +429,6 @@ def test_embedding_reader_fails_closed_on_invalid_l2_payload(
         )
 
     assert restored is None
-
-
-def test_sonara_none_normalization_preserves_finite_nonunit_vector() -> None:
-    vector = np.zeros(48, dtype=np.float32)
-    vector[:4] = (1.0, 2.0, 3.0, 4.0)
-    with _bound_bundle() as (core, artifacts):
-        write_valid_embedding(
-            core_connection=core,
-            artifacts_connection=artifacts,
-            track=_track(),
-            family="sonara",
-            embedding=vector,
-            analyzed_at=ANALYZED_AT,
-        )
-        restored = read_valid_embedding(
-            family="sonara",
-            track_id=1,
-            core_connection=core,
-            artifacts_connection=artifacts,
-        )
-
-    assert restored is not None
-    np.testing.assert_array_equal(restored, vector)
 
 
 def test_in_transaction_gateway_requires_both_transactions() -> None:

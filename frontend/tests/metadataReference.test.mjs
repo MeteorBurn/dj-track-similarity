@@ -90,9 +90,6 @@ function summary(overrides = {}) {
     liked: false,
     analysis_coverage: {
       sonara_core: true,
-      timeline: true,
-      sonara_embedding: true,
-      fingerprint: true,
       maest_analysis: true,
       maest_embedding: true,
       mert: true,
@@ -166,11 +163,6 @@ function detail() {
       positive_label: "present",
       analyzed_at: "2026-07-24T10:04:00Z",
     }],
-    optional_outputs: {
-      timeline_fields: ["beats", "energy_curve"],
-      sonara_embedding_available: true,
-      audio_fingerprint_available: true,
-    },
   };
 }
 
@@ -240,7 +232,7 @@ test("syncopated rhythm reads the detailed MAEST record", () => {
   assert.equal(syncopatedRhythm.hasMaestSyncopatedRhythm({ ...detail(), maest: null }), false);
 });
 
-test("metadata model maps detailed file tags optional outputs MuQ and classifiers", () => {
+test("metadata model maps detailed file tags MuQ and classifiers", () => {
   const model = metadataDialog.metadataDialogModel(detail());
   const entries = Array.from(
     model.primaryEntries,
@@ -271,9 +263,6 @@ test("metadata model maps detailed file tags optional outputs MuQ and classifier
     ["Missing Since", "-"],
   ]);
   assert.equal(model.tagEntries, undefined);
-  assert.equal(model.timelineFields.join(","), "beats,energy_curve");
-  assert.equal(model.sonaraEmbeddingAvailable, true);
-  assert.equal(model.audioFingerprintAvailable, true);
   assert.equal(model.syncopatedRhythm, true);
   assert.equal(model.embeddings[0].label, "MUQ");
   assert.match(model.embeddings[0].value, /1024D/);

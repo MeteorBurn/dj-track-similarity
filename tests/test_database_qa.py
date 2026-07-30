@@ -329,7 +329,7 @@ def test_qa_rejects_artifact_invariant_corruption(
     _assert_failure(bundle, capsys, *needles)
 
 
-def test_qa_rejects_invalid_timeline_payload(
+def test_qa_does_not_validate_reserved_timeline_payload(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -345,10 +345,11 @@ def test_qa_rejects_invalid_timeline_payload(
             (bundle.track_id, bundle.track_uuid, _NOW),
         )
 
-    _assert_failure(bundle, capsys, "sonara_timeline", "timeline payload")
+    assert _run_default(bundle) == 0
+    assert "QA PASSED" in capsys.readouterr().out
 
 
-def test_qa_rejects_empty_fingerprint_payload(
+def test_qa_does_not_validate_reserved_fingerprint_payload(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -365,7 +366,8 @@ def test_qa_rejects_empty_fingerprint_payload(
             (bundle.track_id, bundle.track_uuid, _NOW),
         )
 
-    _assert_failure(bundle, capsys, "sonara_fingerprints", "at least one word")
+    assert _run_default(bundle) == 0
+    assert "QA PASSED" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(

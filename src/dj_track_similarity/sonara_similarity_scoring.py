@@ -130,58 +130,6 @@ MODIFIER_GAIN = 2.5
 KEY_TONAL_FIELDS = {"detected_key_name", "detected_key_camelot"}
 KEY_CONFIDENCE_CONTEXT = "_key_confidence"
 TonalContext = dict[str, set[str] | float]
-SONARA_SIMILARITY_EMBEDDING_DIM = 48
-
-
-def _scaled_weighted_euclidean_distance(
-    left: np.ndarray,
-    right: np.ndarray,
-    *,
-    scales: np.ndarray,
-    weights: np.ndarray,
-) -> float:
-    """Distance for the data-only SONARA 48-d representation.
-
-    The representation explicitly uses ``normalization='none'``.
-    Consequently, it must never be compared with cosine similarity. A caller
-    that eventually promotes this data-only output to a search surface must
-    supply versioned positive per-dimension scales and non-negative weights.
-    """
-
-    expected_shape = (SONARA_SIMILARITY_EMBEDDING_DIM,)
-    left_vector = np.asarray(left, dtype=np.float64).reshape(-1)
-    right_vector = np.asarray(right, dtype=np.float64).reshape(-1)
-    scale_vector = np.asarray(scales, dtype=np.float64).reshape(-1)
-    weight_vector = np.asarray(weights, dtype=np.float64).reshape(-1)
-    for field_name, vector in (
-        ("left", left_vector),
-        ("right", right_vector),
-        ("scales", scale_vector),
-        ("weights", weight_vector),
-    ):
-        if vector.shape != expected_shape:
-            raise ValueError(
-                f"SONARA {field_name} must have shape {expected_shape}"
-            )
-        if not bool(np.all(np.isfinite(vector))):
-            raise ValueError(
-                f"SONARA {field_name} contains non-finite values"
-            )
-    if bool(np.any(scale_vector <= 0.0)):
-        raise ValueError("SONARA per-dimension scales must be positive")
-    if bool(np.any(weight_vector < 0.0)):
-        raise ValueError("SONARA per-dimension weights must be non-negative")
-    total_weight = float(np.sum(weight_vector))
-    if not math.isfinite(total_weight) or total_weight <= 0.0:
-        raise ValueError(
-            "SONARA per-dimension weights must include a positive value"
-        )
-    scaled_delta = (left_vector - right_vector) / scale_vector
-    squared_distance = float(
-        np.dot(weight_vector, np.square(scaled_delta))
-        / total_weight
-    )
-    return math.sqrt(max(0.0, squared_distance))
 
 
 def numeric_weights_for_mode(mode: str) -> dict[str, float]:

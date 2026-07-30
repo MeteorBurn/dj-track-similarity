@@ -144,9 +144,6 @@ export function metadataDialogModel(track: TrackDetail) {
     embeddings: readableEmbeddings(track),
     genres,
     syncopatedRhythm: hasMaestSyncopatedRhythm(track),
-    timelineFields: track.optional_outputs.timeline_fields,
-    sonaraEmbeddingAvailable: track.optional_outputs.sonara_embedding_available,
-    audioFingerprintAvailable: track.optional_outputs.audio_fingerprint_available,
   };
 }
 
@@ -249,20 +246,6 @@ export function TrackMetadataDialog({
           )}
         </div>
 
-        <TimelinePresenceBlock fields={view.timelineFields} />
-        <OutputPresenceBlock
-          title="SONARA · Embedding"
-          available={view.sonaraEmbeddingAvailable}
-          presentText="Similarity embedding present"
-          missingText="Embedding ещё не рассчитан"
-        />
-        <OutputPresenceBlock
-          title="SONARA · Fingerprint"
-          available={view.audioFingerprintAvailable}
-          presentText="Audio fingerprint present"
-          missingText="Fingerprint ещё не рассчитан"
-        />
-
         <div className="sonara-storage-block">
           <strong>Embedding analyses</strong>
           {view.embeddings.length ? (
@@ -312,47 +295,6 @@ export function TrackMetadataDialog({
           )}
         </div>
       </section>
-    </div>
-  );
-}
-
-function TimelinePresenceBlock({ fields }: { fields: string[] }) {
-  return (
-    <div className="sonara-storage-block">
-      <strong>SONARA · Timeline</strong>
-      {fields.length ? (
-        <>
-          <span className="sonara-storage-present"><Check size={14} /> Timeline present</span>
-          <div className="sonara-storage-fields">
-            {fields.map((field) => <code key={field}>{field}</code>)}
-          </div>
-        </>
-      ) : (
-        <span className="empty-genres">Timeline данные ещё не рассчитаны</span>
-      )}
-    </div>
-  );
-}
-
-function OutputPresenceBlock({
-  title,
-  available,
-  presentText,
-  missingText,
-}: {
-  title: string;
-  available: boolean;
-  presentText: string;
-  missingText: string;
-}) {
-  return (
-    <div className="sonara-storage-block">
-      <strong>{title}</strong>
-      {available ? (
-        <span className="sonara-storage-present"><Check size={14} /> {presentText}</span>
-      ) : (
-        <span className="empty-genres">{missingText}</span>
-      )}
     </div>
   );
 }

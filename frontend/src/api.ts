@@ -2,10 +2,8 @@ export type EmbeddingSource = "mert" | "maest" | "muq" | "clap";
 export type EvaluationSource = EmbeddingSource | "sonara";
 export type HybridSearchSource = EvaluationSource;
 export type AnalysisModel = "sonara" | EmbeddingSource;
-export type SonaraOutput = "core" | "timeline" | "embedding" | "fingerprint";
-
 export type SonaraStatusOutput = {
-  output_kind: SonaraOutput;
+  output_kind: "core";
   present_count: number;
   missing_count: number;
 };
@@ -18,9 +16,6 @@ export type SonaraStatus = {
 
 export type AnalysisCoverage = {
   sonara_core: boolean;
-  timeline: boolean;
-  sonara_embedding: boolean;
-  fingerprint: boolean;
   maest_analysis: boolean;
   maest_embedding: boolean;
   mert: boolean;
@@ -188,26 +183,7 @@ export interface TrackDetail extends TrackSummary {
     maest: Maest | null;
     embeddings: EmbeddingSummary[];
     classifier_scores_detail: ClassifierScoreDetail[];
-    optional_outputs: {
-        timeline_fields: string[];
-        sonara_embedding_available: boolean;
-        audio_fingerprint_available: boolean;
-    };
 }
-
-export type SonaraFeaturePayload = {
-  value?: unknown;
-  type?: string;
-  shape?: number[];
-  size?: number;
-  dtype?: string;
-  summary?: Record<string, unknown>;
-  storage?: string;
-  length?: number;
-  fields?: Record<string, SonaraFeaturePayload>;
-};
-
-export type SonaraTimeline = Record<string, SonaraFeaturePayload>;
 
 export type SearchResult = {
   position?: number;
@@ -504,7 +480,6 @@ export type AnalysisJobStatus = {
   inference_batch_size?: number;
   sonara_batch_size?: number;
   top_k?: number;
-  sonara_outputs?: SonaraOutput[];
   readiness?: Record<string, { candidates: number; ready: number; not_ready: number; selected: number }>;
   blockers?: Record<string, string[]>;
   not_ready?: number;

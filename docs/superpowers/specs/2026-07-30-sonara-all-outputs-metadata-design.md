@@ -100,6 +100,44 @@ If a process interruption leaves unmatched artifact residue, Core remains
 missing and existing readiness checks schedule the track again. Such residue
 is not a valid or visible SONARA result.
 
+## Storage and UI Loading
+
+Heavy SONARA data stays exclusively in the mandatory Artifacts database:
+
+- `sonara_timeline.payload_json` stores Timeline arrays, events, curves, and
+  segments;
+- `sonara_similarity_embeddings.embedding_blob` stores the similarity vector;
+- `sonara_fingerprints.fingerprint_blob` stores packed fingerprint words.
+
+The Core database keeps only the existing queryable SONARA scalars, compact
+vector summaries, identity fields, and the shared analysis timestamp. React
+state, list responses, and track-detail responses never contain raw Timeline
+payloads, embedding vectors, or fingerprint words.
+
+Library-list coverage and track-detail metadata use metadata-only SQL
+projections:
+
+- Timeline selects identity, generation, and `analyzed_at`, but not
+  `payload_json`. Its field badges come from the canonical
+  `SONARA_TIMELINE_KEYS`, because every accepted Timeline result must contain
+  exactly that fixed set.
+- Embedding selects `dim`, `normalization`, `analyzed_at`, and
+  `length(embedding_blob)` for structural validation, but not
+  `embedding_blob`.
+- Fingerprint selects `fingerprint_version`, `word_count`, `byte_order`,
+  `analyzed_at`, and `length(fingerprint_blob)` for structural validation, but
+  not `fingerprint_blob`.
+
+Full payload validation happens before every write. Server-side workflows that
+actually consume an artifact load and validate it on demand. The existing
+Timeline endpoint remains the explicit lazy-load path for Timeline values; the
+metadata dialog does not call it. Embeddings and fingerprints remain
+server-side inputs and are never serialized into the metadata UI.
+
+This projection design requires no database migration: the heavy tables
+already contain all required metadata columns, and Timeline's accepted key set
+is fixed by the current storage contract.
+
 ## Metadata Contract
 
 Replace the availability-only optional-output fields with one nullable,
@@ -187,8 +225,9 @@ category is not duplicated.
    output list.
 3. Backend configuration assigns all four canonical SONARA outputs.
 4. The SONARA runner analyzes and stores Core plus all three artifact outputs.
-5. Track-detail queries validate the complete four-output bundle and return
-   its small typed summaries plus one shared timestamp.
+5. Track-detail queries validate the complete four-output bundle through
+   metadata-only projections and return its small typed summaries plus one
+   shared timestamp.
 6. The metadata dialog converts each summary to badges through one shared
    presentation model and renderer.
 
@@ -217,9 +256,13 @@ Use test-first slices:
    requests. Confirm the tests fail first.
 3. Add repository and API tests for the indivisible typed artifact summary.
    Prove that all three summaries and the one timestamp appear together, and
-   that an absent, invalid, or timestamp-mismatched row makes the whole result
-   unavailable. Confirm the tests fail first.
-4. Update metadata-model tests for category order, badge content, uniform
+   that an absent, metadata-invalid, or timestamp-mismatched row makes the
+   whole result unavailable. Confirm the tests fail first.
+4. Add repository query tests proving that Library coverage and track-detail
+   metadata do not select `payload_json`, `embedding_blob`, or
+   `fingerprint_blob`; structural byte-length checks may remain in SQL.
+   Confirm the tests fail first.
+5. Update metadata-model tests for category order, badge content, uniform
    SONARA-level missing state, one `Analyzed` field, no per-output timestamps,
    and SONARA de-duplication from generic embedding summaries. Confirm the
    tests fail first.

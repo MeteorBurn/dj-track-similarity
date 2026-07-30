@@ -74,12 +74,9 @@ _HUMAN_FTS_COLUMNS = (
     "album",
     "comment",
     "label",
-    "catalog_number",
     "country",
-    "isrc",
     "year",
     "track_number",
-    "disc_number",
     "file_genres",
 )
 
@@ -294,11 +291,8 @@ def _base_select_fields() -> str:
         ft.comment,
         ft.year,
         ft.label,
-        ft.catalog_number,
         ft.country,
-        ft.isrc,
         ft.track_number,
-        ft.disc_number,
         ft.genres_json,
         ft.tags_read_at,
         EXISTS(
@@ -349,17 +343,14 @@ def _filter_sql(
                     OR ft.album LIKE ? ESCAPE '\\'
                     OR ft.comment LIKE ? ESCAPE '\\'
                     OR ft.label LIKE ? ESCAPE '\\'
-                    OR ft.catalog_number LIKE ? ESCAPE '\\'
                     OR ft.country LIKE ? ESCAPE '\\'
-                    OR ft.isrc LIKE ? ESCAPE '\\'
                     OR CAST(ft.year AS TEXT) LIKE ? ESCAPE '\\'
                     OR ft.track_number LIKE ? ESCAPE '\\'
-                    OR ft.disc_number LIKE ? ESCAPE '\\'
                     OR ft.genres_json LIKE ? ESCAPE '\\'
                 )
                 """
             )
-            params.extend([pattern] * 13)
+            params.extend([pattern] * 10)
         else:
             raise ValueError("search_mode must be 'like' or 'fts'")
 
@@ -1081,11 +1072,8 @@ def _file_tags(row: sqlite3.Row) -> FileTags | None:
         comment=_optional_text(row["comment"]),
         year=_optional_int(row["year"]),
         label=_optional_text(row["label"]),
-        catalog_number=_optional_text(row["catalog_number"]),
         country=_optional_text(row["country"]),
-        isrc=_optional_text(row["isrc"]),
         track_number=_optional_text(row["track_number"]),
-        disc_number=_optional_text(row["disc_number"]),
         genres=_parse_genres(row["genres_json"]),
         tags_read_at=str(row["tags_read_at"]),
     )

@@ -71,12 +71,9 @@ def _track_search_row(
             ft.album,
             ft.comment,
             ft.label,
-            ft.catalog_number,
             ft.country,
-            ft.isrc,
             ft.year,
             ft.track_number,
-            ft.disc_number,
             ft.genres_json AS file_genres_json,
             ms.genres_json AS maest_genres_json
         FROM tracks AS t
@@ -103,13 +100,10 @@ def _track_search_row(
         values[5] or "",
         values[6] or "",
         values[7] or "",
-        values[8] or "",
+        str(values[8]) if values[8] is not None else "",
         values[9] or "",
-        str(values[10]) if values[10] is not None else "",
-        values[11] or "",
-        values[12] or "",
-        _file_genres_text(values[13]),
-        _maest_genres_text(values[14]),
+        _file_genres_text(values[10]),
+        _maest_genres_text(values[11]),
     )
 
 
@@ -146,15 +140,12 @@ def upsert_track_search_fts(
             album,
             comment,
             label,
-            catalog_number,
             country,
-            isrc,
             year,
             track_number,
-            disc_number,
             file_genres,
             maest_genres
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         row,
     )

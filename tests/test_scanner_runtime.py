@@ -92,7 +92,7 @@ def test_scan_library_uses_canonical_absolute_path_and_marks_missing(
         assert connection.execute(
             "SELECT COUNT(*) FROM track_search_fts"
         ).fetchone()[0] == 1
-    assert row["file_path"] == canonical_file_path(audio_path)
+    assert row["file_path"] == audio_path.resolve().as_posix()
     assert Path(row["file_path"]).is_absolute()
     assert int(row["file_size_bytes"]) == audio_path.stat().st_size
     assert int(row["file_modified_ns"]) == audio_path.stat().st_mtime_ns
@@ -315,7 +315,7 @@ def test_scan_job_manager_parallel_workers_share_thread_safe_repository(
             """
         ).fetchall()
     assert [row["file_path"] for row in facts] == sorted(
-        canonical_file_path(path)
+        path.resolve().as_posix()
         for path in music_root.glob("*.wav")
     )
     for row in facts:

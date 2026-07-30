@@ -8,6 +8,7 @@ import time
 import uuid
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
+from itertools import islice
 from pathlib import Path
 from typing import Callable, cast
 
@@ -54,6 +55,7 @@ class ScanJobStatus:
     events: list[ScanLogEvent] = field(default_factory=list)
     cancel_requested: bool = False
     workers: int = 1
+    limit: int | None = None
 
 
 @dataclass(frozen=True)
@@ -77,9 +79,21 @@ class ScanJobManager:
         root: str | Path,
         *,
         workers: int = 1,
+        limit: int | None = None,
     ) -> str:
         root_path = Path(root).expanduser().resolve(strict=False)
-        paths = list(iter_audio_files(root_path))
+        if limit is not None and (
+            isinstance(limit, bool)
+            or not isinstance(limit, int)
+            or limit < 1
+        ):
+            raise ValueError("limit must be a positive integer or None")
+        discovered_paths = iter_audio_files(root_path)
+        paths = list(
+            discovered_paths
+            if limit is None
+            else islice(discovered_paths, limit)
+        )
         job_id = str(uuid.uuid4())
         status = ScanJobStatus(
             job_id=job_id,
@@ -87,6 +101,7 @@ class ScanJobManager:
             root=str(root_path),
             total=len(paths),
             workers=max(1, workers),
+            limit=limit,
         )
         self._store.add(
             job_id,
@@ -96,7 +111,10 @@ class ScanJobManager:
         self._append_event(
             job_id,
             "info",
-            f"Scan queued · workers {status.workers}",
+            (
+                f"Scan queued · workers {status.workers}"
+                f" · limit {status.limit if status.limit is not None else 'all'}"
+            ),
             path=str(root_path),
         )
         return job_id
@@ -106,8 +124,9 @@ class ScanJobManager:
         root: str | Path,
         *,
         workers: int = 1,
+        limit: int | None = None,
     ) -> ScanJobStatus:
-        job_id = self.create_job(root, workers=workers)
+        job_id = self.create_job(root, workers=workers, limit=limit)
         thread = threading.Thread(
             target=self.run_job,
             args=(job_id,),
@@ -121,8 +140,9 @@ class ScanJobManager:
         root: str | Path,
         *,
         workers: int = 1,
+        limit: int | None = None,
     ) -> ScanJobStatus:
-        job_id = self.create_job(root, workers=workers)
+        job_id = self.create_job(root, workers=workers, limit=limit)
         return self.run_job(job_id)
 
     def create_tag_refresh_job(
@@ -247,31 +267,32 @@ class ScanJobManager:
                     "Scan cancelled",
                 )
 
-        try:
-            self.repository.mark_unseen_missing(
-                status.root,
-                payload.paths,
-            )
-        except Exception as error:
-            error_text = exception_summary(error)
-            log_failure(
-                LOGGER,
-                "Scan missing reconciliation failed job_id=%s error=%s",
-                job_id,
-                error_text,
-            )
-            self._update(
-                job_id,
-                state="failed",
-                finished_at=time.time(),
-                current_path=None,
-            )
-            self._append_event(
-                job_id,
-                "error",
-                f"Scan failed: {error_text}",
-            )
-            return self.get(job_id)
+        if status.limit is None:
+            try:
+                self.repository.mark_unseen_missing(
+                    status.root,
+                    payload.paths,
+                )
+            except Exception as error:
+                error_text = exception_summary(error)
+                log_failure(
+                    LOGGER,
+                    "Scan missing reconciliation failed job_id=%s error=%s",
+                    job_id,
+                    error_text,
+                )
+                self._update(
+                    job_id,
+                    state="failed",
+                    finished_at=time.time(),
+                    current_path=None,
+                )
+                self._append_event(
+                    job_id,
+                    "error",
+                    f"Scan failed: {error_text}",
+                )
+                return self.get(job_id)
 
         return self._finish_completed(
             job_id,
@@ -537,4 +558,5 @@ class ScanJobManager:
             events=list(status.events),
             cancel_requested=status.cancel_requested,
             workers=status.workers,
+            limit=status.limit,
         )

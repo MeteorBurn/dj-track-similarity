@@ -82,7 +82,13 @@ CREATE TABLE tracks (
     sample_rate_hz          INTEGER CHECK(sample_rate_hz IS NULL OR sample_rate_hz > 0),
     channel_count           INTEGER CHECK(channel_count   IS NULL OR channel_count   > 0),
     bit_rate_bps            INTEGER CHECK(bit_rate_bps    IS NULL OR bit_rate_bps    > 0),
-    audio_duration_seconds  REAL    CHECK(audio_duration_seconds IS NULL OR audio_duration_seconds > 0),
+    audio_duration_seconds  REAL    CHECK(
+        audio_duration_seconds IS NULL
+        OR (
+            audio_duration_seconds > 0
+            AND audio_duration_seconds = round(audio_duration_seconds, 2)
+        )
+    ),
     content_generation      INTEGER NOT NULL CHECK(content_generation >= 1),
     last_scanned_at         TEXT    NOT NULL,
     missing_since           TEXT,
@@ -103,11 +109,8 @@ CREATE TABLE file_tags (
     comment        TEXT,
     year           INTEGER CHECK(year IS NULL OR (year BETWEEN 1 AND 9999)),
     label          TEXT,
-    catalog_number TEXT,
     country        TEXT,
-    isrc           TEXT,
     track_number   TEXT,
-    disc_number    TEXT,
     genres_json    TEXT    NOT NULL DEFAULT '[]' CHECK(json_valid(genres_json) AND json_type(genres_json)='array'),
     tags_read_at   TEXT    NOT NULL
 );
@@ -268,12 +271,9 @@ CREATE VIRTUAL TABLE track_search_fts USING fts5(
     album,
     comment,
     label,
-    catalog_number,
     country,
-    isrc,
     year,
     track_number,
-    disc_number,
     file_genres,
     maest_genres,
     tokenize='unicode61'
@@ -377,11 +377,8 @@ class FileTagsRow:
     comment: Optional[str]
     year: Optional[int]
     label: Optional[str]
-    catalog_number: Optional[str]
     country: Optional[str]
-    isrc: Optional[str]
     track_number: Optional[str]
-    disc_number: Optional[str]
     genres_json: str  # JSON array string, e.g. '["Techno", "House"]'
     tags_read_at: str
 

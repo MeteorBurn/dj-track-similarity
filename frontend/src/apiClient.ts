@@ -208,10 +208,10 @@ const libraryApi = {
       })
     }),
   librarySummary: () => request<LibrarySummary>("/api/library/summary"),
-  scan: (root: string, workers: number) =>
+  scan: (root: string, workers: number, limit?: number) =>
     request<ScanStats>("/api/library/scan", {
       method: "POST",
-      body: JSON.stringify({ root, workers })
+      body: JSON.stringify({ root, workers, limit: limit ?? null })
     }),
   refreshTags: (workers: number) =>
     request<ScanStats>("/api/library/tags/refresh", {

@@ -94,12 +94,9 @@ def _fts_content_contains(
                 album,
                 comment,
                 label,
-                catalog_number,
                 country,
-                isrc,
                 year,
                 track_number,
-                disc_number,
                 file_genres,
                 maest_genres
             FROM track_search_fts
@@ -350,7 +347,7 @@ def test_new_track_creates_uuid_generation_typed_tags_and_live_fts(
             (mutation.identity.track_id,),
         ).fetchone()
     assert row is not None
-    assert row["file_path"] == canonical_file_path(path)
+    assert row["file_path"] == path.resolve().as_posix()
     assert int(row["content_generation"]) == 1
     assert row["title"] == "Typed Midnight"
     assert row["artist"] == "Repository Artist"
@@ -363,6 +360,64 @@ def test_new_track_creates_uuid_generation_typed_tags_and_live_fts(
     ):
         assert _TIMESTAMP_PATTERN.fullmatch(str(timestamp))
     assert _fts_ids(database, "midnight") == [mutation.identity.track_id]
+
+
+def test_unchanged_rescan_restores_filesystem_path_casing(
+    tmp_path: Path,
+) -> None:
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    path = tmp_path / "MixedCase" / "TrackName.wav"
+    mutation = _add_track(database, path, title="Mixed Case")
+    expected_path = path.resolve().as_posix()
+    lowered_path = expected_path.lower()
+    assert lowered_path != expected_path
+
+    with database.connect() as connection:
+        connection.execute(
+            "UPDATE tracks SET file_path = ? WHERE track_id = ?",
+            (lowered_path, mutation.identity.track_id),
+        )
+        connection.commit()
+
+    rescanned = database.upsert_scanned_track(
+        file=_scanned_file(path),
+        tags=FileTags(title="Mixed Case"),
+        scanned_at=_LATER,
+    )
+
+    with database.connect() as connection:
+        rows = connection.execute(
+            "SELECT track_id, file_path FROM tracks"
+        ).fetchall()
+    assert rescanned.action == "unchanged"
+    assert len(rows) == 1
+    assert int(rows[0]["track_id"]) == mutation.identity.track_id
+    assert rows[0]["file_path"] == expected_path
+
+
+def test_upsert_rounds_audio_duration_to_two_decimal_places(
+    tmp_path: Path,
+) -> None:
+    database = LibraryDatabase(tmp_path / "library.sqlite")
+    path = tmp_path / "Duration.wav"
+    path.write_bytes(b"duration")
+    scanned = replace(
+        _scanned_file(path),
+        audio_duration_seconds=247.368,
+    )
+
+    mutation = database.upsert_scanned_track(
+        file=scanned,
+        tags=FileTags(title="Duration"),
+        scanned_at=_NOW,
+    )
+
+    with database.connect() as connection:
+        stored = connection.execute(
+            "SELECT audio_duration_seconds FROM tracks WHERE track_id = ?",
+            (mutation.identity.track_id,),
+        ).fetchone()[0]
+    assert stored == 247.37
 
 
 def test_external_file_change_invalidates_derived_rows_but_preserves_human_data(
@@ -1112,11 +1167,8 @@ def test_fts_rebuild_indexes_only_human_text_and_is_idempotent(
             comment="Recorded live",
             year=2026,
             label="Subterranean Records",
-            catalog_number="SUB-042",
             country="DE",
-            isrc="DEABC2600001",
             track_number="1",
-            disc_number="1",
             genres=("Techno", "Industrial"),
         ),
         tags_read_at=_LATER,
@@ -1171,12 +1223,9 @@ def test_fts_rebuild_indexes_only_human_text_and_is_idempotent(
         "album",
         "comment",
         "label",
-        "catalog_number",
         "country",
-        "isrc",
         "year",
         "track_number",
-        "disc_number",
         "file_genres",
         "maest_genres",
     }

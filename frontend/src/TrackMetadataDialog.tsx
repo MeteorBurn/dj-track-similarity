@@ -15,34 +15,6 @@ type CoreFeatureGroup = {
   features: CoreFeature[];
 };
 
-const trackTagLabels = {
-  genres: "Genre",
-  tag_bpm: "BPM",
-  tag_key: "Key",
-  comment: "Comment",
-  year: "Year",
-  label: "Label",
-  catalog_number: "Catalog Number",
-  country: "Country",
-  isrc: "ISRC",
-  track_number: "Track Number",
-  disc_number: "Disc Number",
-} as const;
-
-const trackTagOrder: Array<keyof typeof trackTagLabels> = [
-  "genres",
-  "tag_bpm",
-  "tag_key",
-  "comment",
-  "year",
-  "label",
-  "catalog_number",
-  "country",
-  "isrc",
-  "track_number",
-  "disc_number",
-];
-
 const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
   {
     title: "Tempo and beat grid",
@@ -146,7 +118,6 @@ export function metadataDialogModel(track: TrackDetail) {
   const genres = track.maest?.genres ?? [];
   return {
     primaryEntries: readablePrimaryTrackInfo(track),
-    tagEntries: readableTrackTags(track),
     coreGroups: readableSonaraCoreGroups(track.sonara_core),
     analysisBadges: readableAnalysisBadges(track),
     classifierScores: readableClassifierScores(track),
@@ -209,7 +180,7 @@ export function TrackMetadataDialog({
         </div>
 
         <div className="mutagen-block">
-          <strong>File and Mutagen tags</strong>
+          <strong>Tags</strong>
           <dl className="metadata-grid mutagen-grid">
             {view.primaryEntries.map(([label, value]) => (
               <Fragment key={label}>
@@ -231,9 +202,6 @@ export function TrackMetadataDialog({
                   <dd>{value}</dd>
                 )}
               </Fragment>
-            ))}
-            {view.tagEntries.map(([label, value]) => (
-              <Fragment key={label}><dt>{label}</dt><dd>{value}</dd></Fragment>
             ))}
           </dl>
         </div>
@@ -370,38 +338,31 @@ function OutputPresenceBlock({
 }
 
 function readablePrimaryTrackInfo(track: TrackDetail): MetadataEntry[] {
-  const format = displayAudioFormat(track.file.audio_format, track.file_path);
-  const codec = formatOptionalText(track.file.audio_codec);
-  return [
-    ["Title", track.title || basename(track.file_path)],
-    ["Artist", formatOptionalText(track.artist)],
-    ["Album", formatOptionalText(track.album)],
-    ["Audio Length", formatDuration(track.file.audio_duration_seconds ?? track.audio_duration_seconds)],
-    ["Audio Format", formatAudioFormat(format, codec)],
-    ["Sample Rate", formatFrequency(track.file.sample_rate_hz)],
-    ["Channels", formatOptionalNumber(track.file.channel_count)],
-    ["Bit Rate", formatBitRate(track.file.bit_rate_bps)],
-    ["File Size", formatFileSizeMb(track.file.file_size_bytes)],
-    ["Last Scanned", track.file.last_scanned_at],
-    ["Missing Since", formatOptionalText(track.file.missing_since)],
-    ["File Path", track.file_path],
-  ];
-}
-
-function readableTrackTags(track: TrackDetail): MetadataEntry[] {
-  if (!track.file_tags) return [];
   const tags = track.file_tags;
-  const entries: MetadataEntry[] = [];
-  for (const key of trackTagOrder) {
-    const value = tags[key];
-    if (Array.isArray(value)) {
-      if (value.length) entries.push([trackTagLabels[key], value.join(", ")]);
-      continue;
-    }
-    if (value == null || value === "") continue;
-    entries.push([trackTagLabels[key], String(value)]);
-  }
-  return entries;
+  const duration = track.file.audio_duration_seconds ?? track.audio_duration_seconds;
+  return [
+    ["File Path", track.file_path],
+    ["File Name", basename(track.file_path)],
+    ["File Size", formatFileSizeMb(track.file.file_size_bytes)],
+    ["Title", formatOptionalText(tags?.title ?? track.title)],
+    ["Artist", formatOptionalText(tags?.artist ?? track.artist)],
+    ["Album", formatOptionalText(tags?.album ?? track.album)],
+    ["Year", formatOptionalNumber(tags?.year ?? null)],
+    ["Country", formatOptionalText(tags?.country ?? null)],
+    ["Label", formatOptionalText(tags?.label ?? null)],
+    ["Genre", tags?.genres.length ? tags.genres.join(", ") : "-"],
+    ["BPM", formatOptionalNumber(tags?.tag_bpm ?? track.tag_bpm)],
+    ["Key", formatOptionalText(tags?.tag_key ?? track.tag_key)],
+    ["Comment", formatOptionalText(tags?.comment ?? null)],
+    ["Audio Length", formatAudioLength(duration)],
+    ["Audio Format", formatOptionalText(track.file.audio_format)],
+    ["Audio Codec", formatOptionalText(track.file.audio_codec)],
+    ["Sample Rate", formatFrequency(track.file.sample_rate_hz)],
+    ["Bit Rate", formatBitRate(track.file.bit_rate_bps)],
+    ["Channels", formatOptionalNumber(track.file.channel_count)],
+    ["Last Scanned", formatTimestamp(track.file.last_scanned_at)],
+    ["Missing Since", formatTimestamp(track.file.missing_since)],
+  ];
 }
 
 function readableSonaraCoreGroups(core: SonaraCore | null) {
@@ -523,47 +484,6 @@ async function copyTextToClipboard(text: string) {
   }
 }
 
-function displayAudioFormat(value: string | null, path: string) {
-  const stored = formatOptionalText(value);
-  if (stored !== "-") {
-    if (stored.toLowerCase().startsWith("audio/")) {
-      return audioFormatFromPath(path) || stored.replace(/^audio\//i, "").toUpperCase();
-    }
-    return stored;
-  }
-  return audioFormatFromPath(path) || "-";
-}
-
-function audioFormatFromPath(path: string) {
-  const extension = path.split(".").pop()?.toLowerCase();
-  const formats: Record<string, string> = {
-    aif: "AIFF",
-    aiff: "AIFF",
-    alac: "ALAC",
-    flac: "FLAC",
-    m4a: "M4A",
-    mp3: "MP3",
-    ogg: "Ogg",
-    opus: "Opus",
-    wav: "Wave",
-    wave: "Wave",
-  };
-  return extension ? formats[extension] : undefined;
-}
-
-function formatAudioFormat(audioFormat: string, audioCodec: string) {
-  if (audioCodec === "-") return audioFormat;
-  if (audioFormat === "-") return audioCodec;
-  const normalizedFormat = normalizeAudioFormatPart(audioFormat);
-  const normalizedCodec = normalizeAudioFormatPart(audioCodec);
-  if (normalizedFormat && normalizedFormat === normalizedCodec) return audioFormat;
-  return `${audioFormat} / ${audioCodec}`;
-}
-
-function normalizeAudioFormatPart(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
-
 function formatScore(value: number) {
   return Number.isFinite(value) ? value.toFixed(6) : "-";
 }
@@ -581,6 +501,18 @@ function formatDuration(seconds: number | null) {
   const rest = (rounded % 60).toString().padStart(2, "0");
   if (hours > 0) return `${hours}:${minutes.toString().padStart(2, "0")}:${rest}`;
   return `${minutes}:${rest}`;
+}
+
+function formatAudioLength(seconds: number | null) {
+  if (seconds == null || !Number.isFinite(seconds)) return "-";
+  return `${formatDuration(seconds)} (${seconds.toFixed(2)} sec.)`;
+}
+
+function formatTimestamp(value: string | null) {
+  if (!value) return "-";
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?$/.exec(value);
+  if (!match) return value;
+  return `${match[3]}.${match[2]}.${match[1]} ${match[4]}:${match[5]}:${match[6]}`;
 }
 
 function formatFrequency(value: number | null) {

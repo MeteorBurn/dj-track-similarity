@@ -86,7 +86,7 @@ function summary(overrides = {}) {
     album: "Album",
     tag_bpm: 128,
     tag_key: "8A",
-    audio_duration_seconds: 301,
+    audio_duration_seconds: 247.37,
     liked: false,
     analysis_coverage: {
       sonara_core: true,
@@ -115,8 +115,8 @@ function detail() {
       sample_rate_hz: 48000,
       channel_count: 2,
       bit_rate_bps: 1000000,
-      audio_duration_seconds: 301,
-      last_scanned_at: "2026-07-24T10:00:00Z",
+      audio_duration_seconds: 247.37,
+      last_scanned_at: "2026-07-24T10:00:00.123456Z",
       missing_since: null,
     },
     file_tags: {
@@ -128,11 +128,8 @@ function detail() {
       comment: "Club mix",
       year: 2026,
       label: "Label",
-      catalog_number: "CAT-1",
       country: "UA",
-      isrc: "UA-AAA-26-00001",
       track_number: "1",
-      disc_number: "1",
       genres: ["Breakbeat"],
       tags_read_at: "2026-07-24T10:00:00Z",
     },
@@ -227,13 +224,35 @@ test("syncopated rhythm reads the detailed MAEST record", () => {
 
 test("metadata model maps detailed file tags optional outputs MuQ and classifiers", () => {
   const model = metadataDialog.metadataDialogModel(detail());
-  const primary = Object.fromEntries(model.primaryEntries);
-  const tags = Object.fromEntries(model.tagEntries);
+  const entries = Array.from(
+    model.primaryEntries,
+    ([label, value]) => [label, value],
+  );
 
-  assert.equal(primary["File Path"], "D:/Music/Artist - Track.flac");
-  assert.equal(primary["Audio Length"], "5:01");
-  assert.equal(tags.Genre, "Breakbeat");
-  assert.equal(tags.BPM, "128");
+  assert.deepEqual(entries, [
+    ["File Path", "D:/Music/Artist - Track.flac"],
+    ["File Name", "Artist - Track.flac"],
+    ["File Size", "40.00 MB"],
+    ["Title", "Track"],
+    ["Artist", "Artist"],
+    ["Album", "Album"],
+    ["Year", "2026"],
+    ["Country", "UA"],
+    ["Label", "Label"],
+    ["Genre", "Breakbeat"],
+    ["BPM", "128"],
+    ["Key", "8A"],
+    ["Comment", "Club mix"],
+    ["Audio Length", "4:07 (247.37 sec.)"],
+    ["Audio Format", "audio/flac"],
+    ["Audio Codec", "FLAC"],
+    ["Sample Rate", "48,000 Hz"],
+    ["Bit Rate", "1000 kbps"],
+    ["Channels", "2"],
+    ["Last Scanned", "24.07.2026 10:00:00"],
+    ["Missing Since", "-"],
+  ]);
+  assert.equal(model.tagEntries, undefined);
   assert.equal(model.timelineFields.join(","), "beats,energy_curve");
   assert.equal(model.sonaraEmbeddingAvailable, true);
   assert.equal(model.audioFingerprintAvailable, true);

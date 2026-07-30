@@ -10,7 +10,11 @@ from typing import Callable, Iterable
 
 from mutagen import File as MutagenFile
 
-from .db_tracks import TrackRepository, canonical_file_path
+from .db_tracks import (
+    TrackRepository,
+    canonical_file_path,
+    resolved_file_path,
+)
 from .track_models import (
     FileTags,
     ScannedFile,
@@ -64,18 +68,10 @@ MUTAGEN_TAG_LOOKUP = {
         "MusicBrainz Album Release Country",
     ],
     "label": ["label", "organization", "publisher", "TPUB"],
-    "catalog_number": [
-        "catalognumber",
-        "catalog",
-        "catalog_number",
-        "CATALOGNUMBER",
-    ],
     "track_number": ["tracknumber", "TRCK", "trkn"],
-    "disc_number": ["discnumber", "TPOS", "disk"],
     "bpm": ["bpm", "TBPM"],
     "key": ["initialkey", "key", "TKEY"],
     "comment": ["comment", "description", "COMM", "\xa9cmt"],
-    "isrc": ["isrc", "TSRC"],
 }
 
 
@@ -134,7 +130,7 @@ def scan_audio_file(
     ):
         return repository.upsert_scanned_track(
             file=ScannedFile(
-                file_path=canonical_file_path(audio_path),
+                file_path=resolved_file_path(audio_path),
                 file_size_bytes=initial_stat.st_size,
                 file_modified_ns=initial_stat.st_mtime_ns,
             ),
@@ -261,7 +257,7 @@ def scanned_file_from_metadata(
     file_modified_ns: int,
 ) -> ScannedFile:
     return ScannedFile(
-        file_path=canonical_file_path(path),
+        file_path=resolved_file_path(path),
         file_size_bytes=int(file_size_bytes),
         file_modified_ns=int(file_modified_ns),
         audio_format=_string_or_none(metadata.get("audio_format")),
@@ -292,11 +288,8 @@ def file_tags_from_metadata(
         comment=_string_or_none(metadata.get("comment")),
         year=_year_or_none(metadata.get("year")),
         label=_string_or_none(metadata.get("label")),
-        catalog_number=_string_or_none(metadata.get("catalog_number")),
         country=_string_or_none(metadata.get("country")),
-        isrc=_string_or_none(metadata.get("isrc")),
         track_number=_string_or_none(metadata.get("track_number")),
-        disc_number=_string_or_none(metadata.get("disc_number")),
         genres=_genres(metadata.get("genre")),
     )
 

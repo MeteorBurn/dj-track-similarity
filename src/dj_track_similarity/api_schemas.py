@@ -56,6 +56,7 @@ ClassifierRiskWeight = Annotated[float, Field(ge=0.0, le=1.0)]
 class ScanRequest(BaseModel):
     root: str
     workers: int = Field(default=8, ge=1, le=64)
+    limit: int | None = Field(default=None, ge=1, le=100_000)
 
 
 class TagRefreshRequest(BaseModel):
@@ -592,11 +593,8 @@ class FileTagsResponse(_ResponseModel):
     comment: str | None
     year: int | None
     label: str | None
-    catalog_number: str | None
     country: str | None
-    isrc: str | None
     track_number: str | None
-    disc_number: str | None
     genres: list[str]
     tags_read_at: str
 

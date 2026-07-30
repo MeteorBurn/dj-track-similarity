@@ -124,10 +124,42 @@ def ordinal_path_key(
 
 
 def canonical_file_path(path: str | Path) -> str:
-    """Resolve and normalize a path for persistent track identity."""
+    """Resolve and normalize a path for transient track identity."""
 
-    resolved = Path(path).expanduser().resolve(strict=False)
-    return ordinal_path_key(resolved.as_posix())
+    return ordinal_path_key(resolved_file_path(path))
+
+
+def resolved_file_path(path: str | Path) -> str:
+    """Return an absolute display path without changing component casing."""
+
+    return Path(path).expanduser().resolve(strict=False).as_posix()
+
+
+def _track_id_for_path(
+    connection: sqlite3.Connection,
+    path: str | Path,
+) -> int | None:
+    display_path = resolved_file_path(path)
+    exact = connection.execute(
+        "SELECT track_id FROM tracks WHERE file_path = ?",
+        (display_path,),
+    ).fetchone()
+    if exact is not None:
+        return int(exact[0])
+
+    identity_key = ordinal_path_key(display_path)
+    matches = [
+        int(row[0])
+        for row in connection.execute(
+            "SELECT track_id, file_path FROM tracks ORDER BY track_id"
+        )
+        if ordinal_path_key(str(row[1])) == identity_key
+    ]
+    if len(matches) > 1:
+        raise RuntimeError(
+            "Multiple tracks use the same case-insensitive Windows path"
+        )
+    return None if not matches else matches[0]
 
 
 def _genres_json(tags: FileTags) -> str:
@@ -151,6 +183,12 @@ def _validate_file_facts(file: ScannedFile) -> None:
         "audio_duration_seconds",
         file.audio_duration_seconds,
     )
+
+
+def _normalized_audio_duration(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return round(float(value), 2)
 
 
 def _validate_self_write_facts(
@@ -215,14 +253,11 @@ def _upsert_file_tags(
             comment,
             year,
             label,
-            catalog_number,
             country,
-            isrc,
             track_number,
-            disc_number,
             genres_json,
             tags_read_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(track_id) DO UPDATE SET
             title = excluded.title,
             artist = excluded.artist,
@@ -232,11 +267,8 @@ def _upsert_file_tags(
             comment = excluded.comment,
             year = excluded.year,
             label = excluded.label,
-            catalog_number = excluded.catalog_number,
             country = excluded.country,
-            isrc = excluded.isrc,
             track_number = excluded.track_number,
-            disc_number = excluded.disc_number,
             genres_json = excluded.genres_json,
             tags_read_at = excluded.tags_read_at
         """,
@@ -250,11 +282,8 @@ def _upsert_file_tags(
             tags.comment,
             tags.year,
             tags.label,
-            tags.catalog_number,
             tags.country,
-            tags.isrc,
             tags.track_number,
-            tags.disc_number,
             _genres_json(tags),
             tags_read_at,
         ),
@@ -297,10 +326,12 @@ def _relocated_path(
     old_root: str,
     new_root: str,
 ) -> str | None:
-    if file_path == old_root:
+    file_path_key = ordinal_path_key(file_path)
+    old_root_key = ordinal_path_key(old_root)
+    if file_path_key == old_root_key:
         return new_root
-    prefix = f"{old_root}/"
-    if not file_path.startswith(prefix):
+    prefix = f"{old_root_key}/"
+    if not file_path_key.startswith(prefix):
         return None
     return f"{new_root}/{file_path[len(prefix):]}"
 
@@ -336,12 +367,16 @@ def _plan_relocation(
         )
 
     moving_ids = {change["track_id"] for change in provisional}
-    existing_by_path = {str(row[3]): int(row[0]) for row in rows}
+    existing_by_path = {
+        ordinal_path_key(str(row[3])): int(row[0])
+        for row in rows
+    }
     planned_by_path: dict[str, int] = {}
     conflicts: list[RelocationConflict] = []
     missing_files: list[MissingRelocationFile] = []
     for change in provisional:
-        existing_track_id = existing_by_path.get(change["new_path"])
+        new_path_key = ordinal_path_key(change["new_path"])
+        existing_track_id = existing_by_path.get(new_path_key)
         if (
             existing_track_id is not None
             and existing_track_id != change["track_id"]
@@ -353,7 +388,7 @@ def _plan_relocation(
                     existing_track_id=existing_track_id,
                 )
             )
-        planned_track_id = planned_by_path.get(change["new_path"])
+        planned_track_id = planned_by_path.get(new_path_key)
         if (
             planned_track_id is not None
             and planned_track_id != change["track_id"]
@@ -364,7 +399,7 @@ def _plan_relocation(
                     existing_track_id=planned_track_id,
                 )
             )
-        planned_by_path[change["new_path"]] = change["track_id"]
+        planned_by_path[new_path_key] = change["track_id"]
         if not Path(change["new_path"]).is_file():
             missing_files.append(
                 MissingRelocationFile(
@@ -542,8 +577,10 @@ class TrackRepository:
         self,
         path: str | Path,
     ) -> TrackFileState | None:
-        stored_path = canonical_file_path(path)
         with closing(self.connect()) as connection:
+            track_id = _track_id_for_path(connection, path)
+            if track_id is None:
+                return None
             row = connection.execute(
                 """
                 SELECT
@@ -555,9 +592,9 @@ class TrackRepository:
                     content_generation,
                     missing_since
                 FROM tracks
-                WHERE file_path = ?
+                WHERE track_id = ?
                 """,
-                (stored_path,),
+                (track_id,),
             ).fetchone()
         if row is None:
             return None
@@ -584,12 +621,16 @@ class TrackRepository:
         _validate_file_facts(file)
         _validate_tags(tags)
         timestamp = _timestamp_or_now(scanned_at)
-        stored_path = canonical_file_path(file.file_path)
+        stored_path = resolved_file_path(file.file_path)
+        audio_duration_seconds = _normalized_audio_duration(
+            file.audio_duration_seconds
+        )
 
         with self._write_lock:
             with closing(self.connect()) as connection:
                 connection.execute("BEGIN IMMEDIATE")
                 try:
+                    track_id = _track_id_for_path(connection, stored_path)
                     row = connection.execute(
                         """
                         SELECT
@@ -599,10 +640,10 @@ class TrackRepository:
                             file_size_bytes,
                             file_modified_ns
                         FROM tracks
-                        WHERE file_path = ?
+                        WHERE track_id = ?
                         """,
-                        (stored_path,),
-                    ).fetchone()
+                        (track_id,),
+                    ).fetchone() if track_id is not None else None
 
                     if row is None:
                         track_uuid = str(uuid.uuid4())
@@ -636,7 +677,7 @@ class TrackRepository:
                                 file.sample_rate_hz,
                                 file.channel_count,
                                 file.bit_rate_bps,
-                                file.audio_duration_seconds,
+                                audio_duration_seconds,
                                 timestamp,
                                 timestamp,
                                 timestamp,
@@ -670,11 +711,16 @@ class TrackRepository:
                             connection.execute(
                                 """
                                 UPDATE tracks
-                                SET last_scanned_at = ?,
+                                SET file_path = ?,
+                                    last_scanned_at = ?,
                                     missing_since = NULL
                                 WHERE track_id = ?
                                 """,
-                                (timestamp, identity.track_id),
+                                (
+                                    stored_path,
+                                    timestamp,
+                                    identity.track_id,
+                                ),
                             )
                             upsert_track_search_fts(
                                 connection,
@@ -692,7 +738,8 @@ class TrackRepository:
                             connection.execute(
                                 """
                                 UPDATE tracks
-                                SET file_size_bytes = ?,
+                                SET file_path = ?,
+                                    file_size_bytes = ?,
                                     file_modified_ns = ?,
                                     audio_format = ?,
                                     audio_codec = ?,
@@ -707,6 +754,7 @@ class TrackRepository:
                                 WHERE track_id = ?
                                 """,
                                 (
+                                    stored_path,
                                     int(file.file_size_bytes),
                                     int(file.file_modified_ns),
                                     file.audio_format,
@@ -714,7 +762,7 @@ class TrackRepository:
                                     file.sample_rate_hz,
                                     file.channel_count,
                                     file.bit_rate_bps,
-                                    file.audio_duration_seconds,
+                                    audio_duration_seconds,
                                     next_generation,
                                     timestamp,
                                     timestamp,
@@ -758,7 +806,7 @@ class TrackRepository:
             raise TypeError("expected must be a TrackFileState")
         _validate_tags(tags)
         timestamp = _timestamp_or_now(tags_read_at)
-        source_path = Path(canonical_file_path(expected.file_path))
+        source_path = Path(resolved_file_path(expected.file_path))
         with self._write_lock:
             with closing(self.connect()) as connection:
                 connection.execute("BEGIN IMMEDIATE")
@@ -830,7 +878,7 @@ class TrackRepository:
         if not callable(validate_readback):
             raise TypeError("validate_readback must be callable")
         timestamp = _timestamp_or_now(tags_read_at)
-        source_path = Path(canonical_file_path(expected.file_path))
+        source_path = Path(resolved_file_path(expected.file_path))
 
         with self._write_lock:
             with closing(self.connect()) as connection:
@@ -926,7 +974,7 @@ class TrackRepository:
                 expected.track_id,
                 expected.track_uuid,
                 expected.content_generation,
-                canonical_file_path(expected.file_path),
+                expected.file_path,
                 expected.file_size_bytes,
                 expected.file_modified_ns,
             ),
@@ -958,7 +1006,8 @@ class TrackRepository:
             raise RuntimeError(
                 "Track candidate belongs to a different catalog"
             )
-        stored_path = canonical_file_path(expected.file_path)
+        stored_path_key = canonical_file_path(expected.file_path)
+        path_track_id = _track_id_for_path(connection, expected.file_path)
         row = connection.execute(
             """
             SELECT
@@ -971,25 +1020,19 @@ class TrackRepository:
                 missing_since
             FROM tracks
             WHERE track_id = ?
-               OR file_path = ?
-            ORDER BY track_id
             """,
-            (expected.track_id, stored_path),
-        ).fetchall()
-        exact = [
-            item
-            for item in row
-            if (
-                int(item[0]) == expected.track_id
-                and str(item[1]) == expected.track_uuid
-                and str(item[2]) == stored_path
-                and int(item[3]) == expected.file_size_bytes
-                and int(item[4]) == expected.file_modified_ns
-                and int(item[5]) == expected.content_generation
-                and item[6] is None
-            )
-        ]
-        if len(row) != 1 or len(exact) != 1:
+            (expected.track_id,),
+        ).fetchone()
+        if (
+            row is None
+            or path_track_id != expected.track_id
+            or str(row[1]) != expected.track_uuid
+            or canonical_file_path(str(row[2])) != stored_path_key
+            or int(row[3]) != expected.file_size_bytes
+            or int(row[4]) != expected.file_modified_ns
+            or int(row[5]) != expected.content_generation
+            or row[6] is not None
+        ):
             raise RuntimeError(
                 "Track identity or path changed, content generation changed, "
                 "or stored file facts changed after candidate selection"
@@ -1032,7 +1075,7 @@ class TrackRepository:
     def set_library_root(self, root: str | Path) -> str:
         """Persist one canonical library root in the settings table."""
 
-        canonical_root = canonical_file_path(root).rstrip("/")
+        canonical_root = resolved_file_path(root).rstrip("/")
         timestamp = utc_now_text()
         with self._write_lock:
             with closing(self.connect()) as connection:
@@ -1076,9 +1119,9 @@ class TrackRepository:
         setting. Stable UUIDs, generations, and all analysis rows are preserved.
         """
 
-        old_root_text = canonical_file_path(old_root).rstrip("/")
-        new_root_text = canonical_file_path(new_root).rstrip("/")
-        if old_root_text == new_root_text:
+        old_root_text = resolved_file_path(old_root).rstrip("/")
+        new_root_text = resolved_file_path(new_root).rstrip("/")
+        if ordinal_path_key(old_root_text) == ordinal_path_key(new_root_text):
             raise ValueError("Old and new library roots must be different")
 
         lock = self._write_lock if apply else threading.RLock()
@@ -1194,7 +1237,7 @@ class TrackRepository:
                         if (
                             root_row is not None
                             and canonical_file_path(str(root_row[0])).rstrip("/")
-                            == old_root_text
+                            == canonical_file_path(old_root_text).rstrip("/")
                         ):
                             connection.execute(
                                 """
@@ -1336,8 +1379,9 @@ class TrackRepository:
             raise RuntimeError(
                 "Track removal candidate belongs to a different catalog"
             )
-        stored_path = canonical_file_path(file_path)
-        source_path = Path(stored_path)
+        requested_path = resolved_file_path(file_path)
+        requested_path_key = canonical_file_path(requested_path)
+        source_path = Path(requested_path)
 
         with self._write_lock:
             with closing(self.connect()) as core_connection, closing(
@@ -1349,7 +1393,11 @@ class TrackRepository:
                         raise RuntimeError(
                             "Source path still exists; refusing database removal"
                         )
-                    rows = core_connection.execute(
+                    path_track_id = _track_id_for_path(
+                        core_connection,
+                        requested_path,
+                    )
+                    row = core_connection.execute(
                         """
                         SELECT
                             track_id,
@@ -1358,31 +1406,30 @@ class TrackRepository:
                             file_path
                         FROM tracks
                         WHERE track_id = ?
-                           OR file_path = ?
-                        ORDER BY track_id
                         """,
-                        (expected.track_id, stored_path),
-                    ).fetchall()
-                    exact_rows = [
-                        row
-                        for row in rows
-                        if (
-                            int(row[0]) == expected.track_id
-                            and str(row[1]) == expected.track_uuid
-                            and int(row[2])
-                            == expected.content_generation
-                            and str(row[3]) == stored_path
-                        )
-                    ]
-                    if rows and (
-                        len(rows) != 1
-                        or len(exact_rows) != 1
+                        (expected.track_id,),
+                    ).fetchone()
+                    row_present = row is not None
+                    if row_present and (
+                        path_track_id != expected.track_id
+                        or str(row[1]) != expected.track_uuid
+                        or int(row[2]) != expected.content_generation
+                        or canonical_file_path(str(row[3]))
+                        != requested_path_key
                     ):
                         raise RuntimeError(
                             "Track identity, generation, or path changed "
                             "before database removal"
                         )
-                    row_present = bool(exact_rows)
+                    if not row_present and path_track_id is not None:
+                        raise RuntimeError(
+                            "Track path now belongs to a different identity"
+                        )
+                    stored_path = (
+                        str(row[3])
+                        if row_present
+                        else requested_path
+                    )
 
                     if source_path.exists() or source_path.is_symlink():
                         raise RuntimeError(
@@ -1468,7 +1515,7 @@ class TrackRepository:
         if not isinstance(expected, TrackFileState):
             raise TypeError("expected must be a TrackFileState")
         timestamp = _timestamp_or_now(missing_at)
-        source_path = Path(canonical_file_path(expected.file_path))
+        source_path = Path(resolved_file_path(expected.file_path))
         with self._write_lock:
             with closing(self.connect()) as connection:
                 connection.execute("BEGIN IMMEDIATE")
@@ -1497,7 +1544,7 @@ class TrackRepository:
                             expected.track_id,
                             expected.track_uuid,
                             expected.content_generation,
-                            canonical_file_path(expected.file_path),
+                            expected.file_path,
                             expected.file_size_bytes,
                             expected.file_modified_ns,
                         ),
@@ -1583,8 +1630,10 @@ class TrackRepository:
                     missing_ids = [
                         int(row[0])
                         for row in candidates
-                        if str(row[1]).startswith(root_prefix)
-                        and str(row[1]) not in seen
+                        if canonical_file_path(str(row[1])).startswith(
+                            root_prefix
+                        )
+                        and canonical_file_path(str(row[1])) not in seen
                     ]
                     for track_id in missing_ids:
                         connection.execute(

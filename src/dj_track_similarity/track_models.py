@@ -33,11 +33,8 @@ class FileTags:
     comment: str | None = None
     year: int | None = None
     label: str | None = None
-    catalog_number: str | None = None
     country: str | None = None
-    isrc: str | None = None
     track_number: str | None = None
-    disc_number: str | None = None
     genres: tuple[str, ...] = ()
 
 

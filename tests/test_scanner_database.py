@@ -49,8 +49,8 @@ def test_scan_library_indexes_supported_audio_files_and_skips_unchanged(
     assert second_scan.unchanged == 2
     states = database.list_track_paths()
     assert {item.file_path for item in states} == {
-        canonical_file_path(first),
-        canonical_file_path(second),
+        first.resolve().as_posix(),
+        second.resolve().as_posix(),
     }
     assert all(Path(item.file_path).stat().st_size > 0 for item in states)
 
@@ -70,7 +70,7 @@ def test_scan_library_skips_appledouble_resource_fork_audio_names(
 
     assert stats.added == 1
     assert [item.file_path for item in database.list_track_paths()] == [
-        canonical_file_path(audio)
+        audio.resolve().as_posix()
     ]
 
 
@@ -127,10 +127,8 @@ def test_read_audio_metadata_uses_fixed_tag_whitelist(
         "artist": "Artist",
         "audio_codec": "FLAC",
         "audio_format": "FLAC",
-        "catalog_number": "CAT-001",
         "duration": 123.4,
         "genre": "Deep Techno",
-        "isrc": "US-ABC-24-00001",
         "country": "DE",
         "label": "Small Label",
         "title": "Warm Pad",
@@ -182,14 +180,14 @@ def test_analysis_candidates_are_path_ordered_limited_and_skip_missing_tracks(
 
     limited = database.list_analysis_candidates((output,), limit=1)
     assert [candidate.file_path for candidate in limited] == [
-        canonical_file_path(second)
+        second.resolve().as_posix()
     ]
 
     alpha_state = _scanned_state(database, second)
     assert database.mark_missing(alpha_state.track_id)
     candidates = database.list_analysis_candidates((output,))
     assert [candidate.file_path for candidate in candidates] == [
-        canonical_file_path(first)
+        first.resolve().as_posix()
     ]
     assert candidates[0].missing_outputs == (output,)
 
@@ -206,7 +204,7 @@ def test_relocate_library_dry_run_preserves_track_and_reports_missing_file(
     database = LibraryDatabase(tmp_path / "library.sqlite")
     assert scan_library(database, old_root).added == 1
     before = _scanned_state(database, old_file)
-    assert database.set_library_root(old_root) == canonical_file_path(old_root)
+    assert database.set_library_root(old_root) == old_root.resolve().as_posix()
 
     result = database.relocate_library(old_root, new_root, apply=False)
 
@@ -216,11 +214,11 @@ def test_relocate_library_dry_run_preserves_track_and_reports_missing_file(
     assert result["missing_files"] == [
         {
             "track_id": before.track_id,
-            "path": canonical_file_path(new_root / "Artist" / "track.wav"),
+            "path": (new_root / "Artist" / "track.wav").resolve().as_posix(),
         }
     ]
     assert _scanned_state(database, old_file) == before
-    assert database.get_library_root() == canonical_file_path(old_root)
+    assert database.get_library_root() == old_root.resolve().as_posix()
 
 
 def test_relocate_library_apply_updates_only_database_paths_and_identity(
@@ -254,7 +252,7 @@ def test_relocate_library_apply_updates_only_database_paths_and_identity(
         before.track_uuid,
         before.content_generation,
     )
-    assert database.get_library_root() == canonical_file_path(new_root)
+    assert database.get_library_root() == new_root.resolve().as_posix()
     assert old_file.read_bytes() == old_bytes
     assert new_file.read_bytes() == new_bytes
 
@@ -293,13 +291,13 @@ def test_relocate_library_conflict_is_rejected_without_partial_updates(
         for item in preview["conflicts"]
     } == {
         (
-            canonical_file_path(conflicting_old),
-            canonical_file_path(conflicting_new),
+            conflicting_old.resolve().as_posix(),
+            conflicting_new.resolve().as_posix(),
             before[conflicting_new].track_id,
         ),
         (
-            canonical_file_path(movable_old),
-            canonical_file_path(movable_new),
+            movable_old.resolve().as_posix(),
+            movable_new.resolve().as_posix(),
             _scanned_state(database, movable_new).track_id,
         ),
     }

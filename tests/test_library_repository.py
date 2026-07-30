@@ -143,12 +143,11 @@ def _insert_track(
             """
             INSERT INTO file_tags (
                 track_id, title, artist, album, tag_bpm, tag_key,
-                comment, year, label, catalog_number, country, isrc,
-                track_number, disc_number, genres_json, tags_read_at
+                comment, year, label, country, track_number,
+                genres_json, tags_read_at
             ) VALUES (
                 ?, ?, ?, ?, 128.0, '8A', 'fixture comment', 2026,
-                'Fixture Label', 'CAT-1', 'UA', 'UA-TEST-1',
-                '1', '1', ?, ?
+                'Fixture Label', 'UA', '1', ?, ?
             )
             """,
             (
@@ -164,9 +163,8 @@ def _insert_track(
             """
             INSERT INTO track_search_fts (
                 track_id, file_path, title, artist, album, comment, label,
-                catalog_number, country, isrc, year, track_number,
-                disc_number, file_genres, maest_genres
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                country, year, track_number, file_genres, maest_genres
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 track_id,
@@ -176,11 +174,8 @@ def _insert_track(
                 album,
                 "fixture comment",
                 "Fixture Label",
-                "CAT-1",
                 "UA",
-                "UA-TEST-1",
                 "2026",
-                "1",
                 "1",
                 " ".join(genres),
                 maest_fts_genres,

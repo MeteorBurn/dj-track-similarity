@@ -879,11 +879,16 @@ export function App() {
   }
 
   async function handleScan() {
-    appendActivity("info", "Сканирование запущено", musicRoot);
+    const limit = analysisLimit > 0 ? analysisLimit : undefined;
+    appendActivity(
+      "info",
+      "Сканирование запущено",
+      `${musicRoot} · limit ${limit ?? "all"}`,
+    );
     setProcessLogKind("scan");
     setScanJob(null);
     await run(
-      () => api.scan(musicRoot, scanWorkers),
+      () => api.scan(musicRoot, scanWorkers, limit),
       (value) => {
         setScanJob(value);
         const detail = value.job_id ? `job ${value.job_id.slice(0, 8)} · ${value.total || 0} файлов` : scanSummary(value);

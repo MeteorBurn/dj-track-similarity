@@ -86,11 +86,8 @@ export interface FileTags {
     comment: string | null;
     year: number | null;
     label: string | null;
-    catalog_number: string | null;
     country: string | null;
-    isrc: string | null;
     track_number: string | null;
-    disc_number: string | null;
     genres: string[];
     tags_read_at: string;
 }

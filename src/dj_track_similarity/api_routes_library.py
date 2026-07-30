@@ -38,7 +38,11 @@ def register_library_routes(
     def scan(request: ScanRequest):
         try:
             with state.job_start():
-                return state.require_scan_jobs().start(request.root, workers=request.workers)
+                return state.require_scan_jobs().start(
+                    request.root,
+                    workers=request.workers,
+                    limit=request.limit,
+                )
         except (FileNotFoundError, NotADirectoryError) as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
 

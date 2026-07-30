@@ -79,11 +79,8 @@ class FileTags:
     comment: str | None
     year: int | None
     label: str | None
-    catalog_number: str | None
     country: str | None
-    isrc: str | None
     track_number: str | None
-    disc_number: str | None
     genres: tuple[str, ...]
     tags_read_at: str
 

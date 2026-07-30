@@ -232,6 +232,9 @@ def test_track_detail_endpoint_returns_full_typed_tags(
     assert payload["track_uuid"] == identity.track_uuid
     assert payload["content_generation"] == identity.content_generation
     assert payload["file_tags"]["comment"] == "stored comment"
+    assert "catalog_number" not in payload["file_tags"]
+    assert "isrc" not in payload["file_tags"]
+    assert "disc_number" not in payload["file_tags"]
     assert payload["file"]["file_size_bytes"] == 5
 
 

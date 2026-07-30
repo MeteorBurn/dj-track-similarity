@@ -45,30 +45,28 @@ test("metadata header and file block are driven by the current detail", () => {
   const source = readFileSync(dialogPath, "utf8");
 
   assert.match(source, /metadata-track-title">\{displayTrack\(track\)\}/);
-  assert.match(source, /<strong>File and Mutagen tags<\/strong>/);
-  assert.match(source, /\["Audio Length", formatDuration\(track\.file\.audio_duration_seconds \?\? track\.audio_duration_seconds\)\]/);
+  assert.match(source, /<strong>Tags<\/strong>/);
+  assert.match(source, /\["Audio Length", formatAudioLength\(duration\)\]/);
+  assert.match(source, /seconds\.toFixed\(2\)/);
+  assert.match(source, /\["Last Scanned", formatTimestamp\(track\.file\.last_scanned_at\)\]/);
+  assert.match(source, /\["File Name", basename\(track\.file_path\)\]/);
   assert.match(source, /\["File Path", track\.file_path\]/);
 });
 
 test("metadata reads exact file_tags fields without legacy metadata fallback", () => {
   const source = readFileSync(dialogPath, "utf8");
 
-  assert.match(source, /if \(!track\.file_tags\) return \[\];/);
   for (const field of [
     "genres",
     "tag_bpm",
     "tag_key",
-    "comment",
     "year",
     "label",
-    "catalog_number",
     "country",
-    "isrc",
-    "track_number",
-    "disc_number",
   ]) {
-    assert.match(source, new RegExp(`${field}:\\s*"`));
+    assert.match(source, new RegExp(`tags\\?\\.${field}|tags\\.${field}`));
   }
+  assert.doesNotMatch(source, /catalog_number|disc_number|\bisrc\b/);
   assert.doesNotMatch(source, /track\.metadata|track\.genre_scores|track\.genres/);
 });
 

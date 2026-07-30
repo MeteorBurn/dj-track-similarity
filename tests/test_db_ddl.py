@@ -76,6 +76,22 @@ def test_new_database_matches_current_core_structure() -> None:
     track_cols = _columns(conn, "tracks")
     assert "file_modified_ns" in track_cols, "tracks missing 'file_modified_ns'"
 
+    assert _columns(conn, "file_tags") == {
+        "track_id",
+        "title",
+        "artist",
+        "album",
+        "tag_bpm",
+        "tag_key",
+        "comment",
+        "year",
+        "label",
+        "country",
+        "track_number",
+        "genres_json",
+        "tags_read_at",
+    }
+
     # --- tracks does NOT have metadata_json ---
     assert "metadata_json" not in track_cols, "tracks must NOT have 'metadata_json'"
 
@@ -438,6 +454,37 @@ def test_tracks_no_has_flags() -> None:
     conn.close()
 
 
+def test_tracks_duration_is_limited_to_two_decimal_places() -> None:
+    conn = _open_database()
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            """
+            INSERT INTO tracks(
+                track_uuid,
+                file_path,
+                file_size_bytes,
+                file_modified_ns,
+                audio_duration_seconds,
+                content_generation,
+                last_scanned_at,
+                created_at,
+                updated_at
+            ) VALUES (
+                'track-a',
+                'M:/Music/Track.wav',
+                1,
+                1,
+                247.368,
+                1,
+                '2026-07-30T00:00:00.000000Z',
+                '2026-07-30T00:00:00.000000Z',
+                '2026-07-30T00:00:00.000000Z'
+            )
+            """
+        )
+    conn.close()
+
+
 def test_fts5_table_columns() -> None:
     """track_search_fts has all required FTS5 columns."""
     conn = _open_database()
@@ -450,17 +497,13 @@ def test_fts5_table_columns() -> None:
         "album",
         "comment",
         "label",
-        "catalog_number",
         "country",
-        "isrc",
         "year",
         "track_number",
-        "disc_number",
         "file_genres",
         "maest_genres",
     }
-    missing = required_fts_cols - fts_cols
-    assert not missing, f"track_search_fts missing columns: {missing}"
+    assert fts_cols == required_fts_cols
     conn.close()
 
 

@@ -266,10 +266,10 @@ export function LibraryPanel({
         <span>Analyze limit</span>
         <div className="stepper">
           <button className="icon-button analysis-limit-decrement-button" title="Уменьшить Analyze limit" aria-label="Уменьшить Analyze limit" disabled={busy || stageRunning || analysisLimit <= 0} onClick={() => onAnalysisLimitChange(Math.max(0, analysisLimit - 1))} type="button"><Minus size={15} /></button>
-          <input type="number" min={0} max={100000} value={analysisLimit} aria-label="Analyze limit 0 = вся библиотека; применяется отдельно к каждой стадии" onChange={(event) => onAnalysisLimitChange(Math.min(100000, Math.max(0, Number(event.target.value) || 0)))} />
+          <input type="number" min={0} max={100000} value={analysisLimit} aria-label="Analyze limit 0 = все треки; ограничивает Scan и применяется отдельно к каждой стадии анализа" onChange={(event) => onAnalysisLimitChange(Math.min(100000, Math.max(0, Number(event.target.value) || 0)))} />
           <button className="icon-button analysis-limit-increment-button" title="Увеличить Analyze limit" aria-label="Увеличить Analyze limit" disabled={busy || stageRunning || analysisLimit >= 100000} onClick={() => onAnalysisLimitChange(Math.min(100000, analysisLimit + 1))} type="button"><Plus size={15} /></button>
         </div>
-        <small>0 = вся библиотека; применяется отдельно к каждой стадии</small>
+        <small>0 = все треки; ограничивает Scan и каждую стадию анализа</small>
       </div>
       {analysisJob ? <small className="analysis-muted">Job {analysisJob.state} · {analysisJob.processed}/{analysisJob.total} · {analysisJob.current_model || analysisJob.models?.join(", ")}</small> : null}
       {pipelineJob ? <small className="analysis-muted">Pipeline {pipelineJob.state} · {pipelineJob.order.map((stage) => `${stage}:${pipelineJob.stages[stage]?.state}`).join(" → ")}</small> : null}

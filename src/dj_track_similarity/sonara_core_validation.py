@@ -39,6 +39,12 @@ _UNIT_INTERVAL_FIELDS = (
     "mood_aggressive_score",
     "mood_relaxed_score",
     "mood_sad_score",
+    "aggression_score",
+    "aggression_confidence",
+    "aggression_forcefulness",
+    "aggression_harshness",
+    "aggression_tension",
+    "aggression_rhythm",
 )
 _NON_NEGATIVE_FIELDS = (
     "onset_density_per_second",

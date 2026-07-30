@@ -1167,6 +1167,12 @@ def _sonara_core(
         mood_aggressive_score=_optional_float(row["mood_aggressive_score"]),
         mood_relaxed_score=_optional_float(row["mood_relaxed_score"]),
         mood_sad_score=_optional_float(row["mood_sad_score"]),
+        aggression_score=_optional_float(row["aggression_score"]),
+        aggression_confidence=_optional_float(row["aggression_confidence"]),
+        aggression_forcefulness=_optional_float(row["aggression_forcefulness"]),
+        aggression_harshness=_optional_float(row["aggression_harshness"]),
+        aggression_tension=_optional_float(row["aggression_tension"]),
+        aggression_rhythm=_optional_float(row["aggression_rhythm"]),
         vector_summaries=_SONARA_VECTOR_SUMMARIES,
         analyzed_at=str(row["analyzed_at"]),
     )

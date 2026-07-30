@@ -408,6 +408,12 @@ def test_dataclasses_are_importable() -> None:
         mood_aggressive_score=None,
         mood_relaxed_score=None,
         mood_sad_score=None,
+        aggression_score=None,
+        aggression_confidence=None,
+        aggression_forcefulness=None,
+        aggression_harshness=None,
+        aggression_tension=None,
+        aggression_rhythm=None,
         mfcc_mean_blob=struct.pack("<13f", *([0.0] * 13)),
         chroma_mean_blob=struct.pack("<12f", *([0.0] * 12)),
         spectral_contrast_mean_blob=struct.pack("<7f", *([0.0] * 7)),
@@ -470,6 +476,12 @@ def test_all_sonara_scalar_columns_present() -> None:
         "mood_aggressive_score",
         "mood_relaxed_score",
         "mood_sad_score",
+        "aggression_score",
+        "aggression_confidence",
+        "aggression_forcefulness",
+        "aggression_harshness",
+        "aggression_tension",
+        "aggression_rhythm",
     }
     missing = expected_scalars - cols
     assert not missing, f"sonara table missing scalar columns: {sorted(missing)}"

@@ -14,6 +14,12 @@ SONARA_EMBEDDING_DIM = 48
 SONARA_UNIT_INTERVAL_EPSILON = 0.001
 SONARA_UNIT_INTERVAL_FIELDS = (
     "acousticness",
+    "aggression_confidence",
+    "aggression_forcefulness",
+    "aggression_harshness",
+    "aggression_rhythm",
+    "aggression_score",
+    "aggression_tension",
     "bpm_confidence",
     "danceability",
     "dissonance",
@@ -64,6 +70,7 @@ SONARA_CORE_REQUESTED_FEATURES = (
     "silence",
     "key_candidates",
     "vocalness",
+    "aggression",
     "mood",
 )
 SONARA_TIMELINE_REQUESTED_FEATURES = (

@@ -179,6 +179,13 @@ CREATE TABLE sonara (
     mood_aggressive_score          REAL    CHECK(mood_aggressive_score IS NULL OR (mood_aggressive_score BETWEEN 0 AND 1)),
     mood_relaxed_score             REAL    CHECK(mood_relaxed_score  IS NULL OR (mood_relaxed_score BETWEEN 0 AND 1)),
     mood_sad_score                 REAL    CHECK(mood_sad_score      IS NULL OR (mood_sad_score BETWEEN 0 AND 1)),
+    -- Aggression
+    aggression_score               REAL    CHECK(aggression_score        IS NULL OR (aggression_score BETWEEN 0 AND 1)),
+    aggression_confidence          REAL    CHECK(aggression_confidence   IS NULL OR (aggression_confidence BETWEEN 0 AND 1)),
+    aggression_forcefulness        REAL    CHECK(aggression_forcefulness IS NULL OR (aggression_forcefulness BETWEEN 0 AND 1)),
+    aggression_harshness           REAL    CHECK(aggression_harshness    IS NULL OR (aggression_harshness BETWEEN 0 AND 1)),
+    aggression_tension             REAL    CHECK(aggression_tension      IS NULL OR (aggression_tension BETWEEN 0 AND 1)),
+    aggression_rhythm              REAL    CHECK(aggression_rhythm       IS NULL OR (aggression_rhythm BETWEEN 0 AND 1)),
     -- Timbre (short vectors, float32 little-endian)
     mfcc_mean_blob                 BLOB    NOT NULL CHECK(length(mfcc_mean_blob) = 13*4),
     chroma_mean_blob               BLOB    NOT NULL CHECK(length(chroma_mean_blob) = 12*4),
@@ -453,6 +460,13 @@ class SonaraRow:
     mood_aggressive_score: Optional[float]
     mood_relaxed_score: Optional[float]
     mood_sad_score: Optional[float]
+    # Aggression
+    aggression_score: Optional[float]
+    aggression_confidence: Optional[float]
+    aggression_forcefulness: Optional[float]
+    aggression_harshness: Optional[float]
+    aggression_tension: Optional[float]
+    aggression_rhythm: Optional[float]
     # Timbre BLOBs (float32-le, NOT NULL in DB)
     mfcc_mean_blob: bytes  # 13 * 4 = 52 bytes
     chroma_mean_blob: bytes  # 12 * 4 = 48 bytes

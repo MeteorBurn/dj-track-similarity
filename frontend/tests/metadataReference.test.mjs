@@ -347,6 +347,56 @@ test("SONARA perceptual scores stay decimal while vocal probability is a percent
   assert.equal(features.get("mood_sad_score").value, "0.629");
 });
 
+test("SONARA model-backed groups precede Vector summaries and use dedicated formatting", () => {
+  const track = detail();
+  track.sonara_core = {
+    ...track.sonara_core,
+    mood_aggressive_score: 0.505047082901001,
+    aggression_score: 0.6189124584197998,
+    aggression_confidence: 0.9123457074165344,
+    aggression_forcefulness: 0.6432198286056519,
+    aggression_harshness: 0.4789124131202698,
+    aggression_tension: 0.731246829032898,
+    aggression_rhythm: 0.8567891120910645,
+    vector_summaries: [{ vector_type: "mfcc_mean", dim: 13 }],
+  };
+
+  const model = metadataDialog.metadataDialogModel(track);
+  const titles = Array.from(model.coreGroups, (group) => group.title);
+  const vectorSummariesIndex = titles.indexOf("Vector summaries");
+  assert.deepEqual(
+    titles.slice(vectorSummariesIndex - 2, vectorSummariesIndex + 1),
+    ["Vocalness", "Aggression", "Vector summaries"],
+  );
+
+  const mood = model.coreGroups.find((group) => group.title === "Mood");
+  const vocalness = model.coreGroups.find((group) => group.title === "Vocalness");
+  const aggression = model.coreGroups.find((group) => group.title === "Aggression");
+  assert.equal(
+    mood.features.some((feature) => feature.key === "vocal_probability"),
+    false,
+  );
+  assert.equal(
+    mood.features.find((feature) => feature.key === "mood_aggressive_score").label,
+    "Aggressive",
+  );
+  assert.deepEqual(
+    Array.from(vocalness.features, (feature) => feature.key),
+    ["vocal_probability"],
+  );
+  assert.deepEqual(
+    Array.from(aggression.features, (feature) => [feature.key, feature.value]),
+    [
+      ["aggression_score", "0.619"],
+      ["aggression_confidence", "0.912"],
+      ["aggression_forcefulness", "0.643"],
+      ["aggression_harshness", "0.479"],
+      ["aggression_tension", "0.731"],
+      ["aggression_rhythm", "0.857"],
+    ],
+  );
+});
+
 test("SONARA probability and variability formatting preserves open boundaries", () => {
   assert.equal(sonaraFeatures({ vocal_probability: 0 }).get("vocal_probability").value, "0%");
   assert.equal(

@@ -57,6 +57,12 @@ def _analysis() -> dict[str, object]:
         "energy": 0.75,
         "danceability": 0.82,
         "vocalness": 0.3,
+        "aggression_score": np.float32(0.5050471),
+        "aggression_confidence": np.float32(0.9123457),
+        "aggression_forcefulness": np.float32(0.6432198),
+        "aggression_harshness": np.float32(0.4789124),
+        "aggression_tension": np.float32(0.7312468),
+        "aggression_rhythm": np.float32(0.8567891),
         "duration_sec": 180.0,
         "intro_end_sec": 16.0,
         "outro_start_sec": 160.0,
@@ -126,6 +132,33 @@ def test_detected_bpm_preserves_sonara_precision() -> None:
     write = _prepare(analysis, outputs=("core",))
 
     assert write.core.detected_bpm == float(np.float32(128.125))
+
+
+def test_aggression_values_preserve_sonara_precision() -> None:
+    analysis = _analysis()
+
+    write = _prepare(analysis, outputs=("core",))
+
+    for field_name in (
+        "aggression_score",
+        "aggression_confidence",
+        "aggression_forcefulness",
+        "aggression_harshness",
+        "aggression_tension",
+        "aggression_rhythm",
+    ):
+        assert getattr(write.core, field_name) == float(analysis[field_name])
+
+
+def test_aggression_score_preserves_sonara_abstention() -> None:
+    analysis = _analysis()
+    analysis["aggression_score"] = None
+    analysis["aggression_confidence"] = np.float32(0.0)
+
+    write = _prepare(analysis, outputs=("core",))
+
+    assert write.core.aggression_score is None
+    assert write.core.aggression_confidence == 0.0
 
 
 def test_unknown_future_analyzer_fields_do_not_gate_conversion() -> None:

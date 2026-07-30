@@ -655,6 +655,12 @@ class SonaraCoreResponse(_ResponseModel):
     mood_aggressive_score: float | None
     mood_relaxed_score: float | None
     mood_sad_score: float | None
+    aggression_score: float | None
+    aggression_confidence: float | None
+    aggression_forcefulness: float | None
+    aggression_harshness: float | None
+    aggression_tension: float | None
+    aggression_rhythm: float | None
     vector_summaries: list[VectorSummaryResponse]
     analyzed_at: str
 

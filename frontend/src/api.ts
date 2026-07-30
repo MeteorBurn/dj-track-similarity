@@ -143,6 +143,12 @@ export interface SonaraCore {
     mood_aggressive_score: number | null;
     mood_relaxed_score: number | null;
     mood_sad_score: number | null;
+    aggression_score: number | null;
+    aggression_confidence: number | null;
+    aggression_forcefulness: number | null;
+    aggression_harshness: number | null;
+    aggression_tension: number | null;
+    aggression_rhythm: number | null;
     vector_summaries: Array<{ vector_type: string; dim: number }>;
     analyzed_at: string;
 }

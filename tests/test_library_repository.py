@@ -240,9 +240,18 @@ def _insert_sonara_core(
             INSERT INTO sonara (
                 track_id, content_generation,
                 detected_bpm, detected_key_name, detected_key_camelot,
-                energy_score, mfcc_mean_blob, chroma_mean_blob,
+                energy_score, aggression_score, aggression_confidence,
+                aggression_forcefulness, aggression_harshness,
+                aggression_tension, aggression_rhythm,
+                mfcc_mean_blob, chroma_mean_blob,
                 spectral_contrast_mean_blob, analyzed_at
-            ) VALUES (?, 1, 126.0, 'A minor', '8A', 0.77, ?, ?, ?, ?)
+            ) VALUES (
+                ?, 1, 126.0, 'A minor', '8A', 0.77,
+                0.505047082901001, 0.9123457074165344,
+                0.6432198286056519, 0.4789124131202698,
+                0.731246829032898, 0.8567891120910645,
+                ?, ?, ?, ?
+            )
             """,
             (
                 track.track_id,
@@ -504,6 +513,12 @@ def test_sonara_rows_are_current_and_validate_artifact_shapes(
     assert detail.analysis_coverage.fingerprint
     assert detail.sonara_core is not None
     assert detail.sonara_core.detected_bpm == 126.0
+    assert detail.sonara_core.aggression_score == 0.505047082901001
+    assert detail.sonara_core.aggression_confidence == 0.9123457074165344
+    assert detail.sonara_core.aggression_forcefulness == 0.6432198286056519
+    assert detail.sonara_core.aggression_harshness == 0.4789124131202698
+    assert detail.sonara_core.aggression_tension == 0.731246829032898
+    assert detail.sonara_core.aggression_rhythm == 0.8567891120910645
     assert detail.optional_outputs.timeline_fields == tuple(timeline_payload)
     assert detail.optional_outputs.audio_fingerprint_available
     assert repository.load_sonara_timeline(track.track_id) == timeline_payload

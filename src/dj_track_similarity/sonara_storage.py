@@ -42,6 +42,12 @@ SONARA_TIMELINE_KEYS = (
 _IMPLEMENTED_UNIT_INTERVAL_CLAMP_FIELDS = frozenset(
     {
         "acousticness",
+        "aggression_confidence",
+        "aggression_forcefulness",
+        "aggression_harshness",
+        "aggression_rhythm",
+        "aggression_score",
+        "aggression_tension",
         "bpm_confidence",
         "danceability",
         "dissonance",
@@ -366,6 +372,36 @@ def _sonara_core_row(
         mood_sad_score=_optional_unit_interval(
             analysis,
             "mood_sad",
+            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
+        ),
+        aggression_score=_optional_unit_interval(
+            analysis,
+            "aggression_score",
+            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
+        ),
+        aggression_confidence=_optional_unit_interval(
+            analysis,
+            "aggression_confidence",
+            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
+        ),
+        aggression_forcefulness=_optional_unit_interval(
+            analysis,
+            "aggression_forcefulness",
+            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
+        ),
+        aggression_harshness=_optional_unit_interval(
+            analysis,
+            "aggression_harshness",
+            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
+        ),
+        aggression_tension=_optional_unit_interval(
+            analysis,
+            "aggression_tension",
+            epsilon=SONARA_UNIT_INTERVAL_EPSILON,
+        ),
+        aggression_rhythm=_optional_unit_interval(
+            analysis,
+            "aggression_rhythm",
             epsilon=SONARA_UNIT_INTERVAL_EPSILON,
         ),
         mfcc_mean_blob=_float32_blob(analysis.get("mfcc_mean"), 13, "mfcc_mean"),

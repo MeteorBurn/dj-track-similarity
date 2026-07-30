@@ -43,9 +43,8 @@ const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
   {
     title: "Mood",
     features: [
-      feature("vocal_probability", "Vocal probability", "Probability returned by the bundled SONARA vocal model."),
       feature("mood_happy_score", "Happy", "SONARA happy-mood ranking signal."),
-      feature("mood_aggressive_score", "Aggressive", "SONARA aggressive-mood ranking signal."),
+      feature("mood_aggressive_score", "Aggressive", "SONARA aggressive-mood heuristic; distinct from the dedicated Aggression model."),
       feature("mood_relaxed_score", "Relaxed", "SONARA relaxed-mood ranking signal."),
       feature("mood_sad_score", "Sad", "SONARA sad-mood ranking signal."),
     ],
@@ -98,6 +97,23 @@ const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
       feature("spectral_rolloff_hz", "Spectral rolloff", "Rolloff frequency in hertz."),
       feature("spectral_flatness", "Spectral flatness", "Tonal-to-noise-like spectral measure."),
       feature("zero_crossing_rate", "Zero-crossing rate", "Rate of waveform sign changes."),
+    ],
+  },
+  {
+    title: "Vocalness",
+    features: [
+      feature("vocal_probability", "Vocal probability", "Probability returned by the bundled SONARA vocal model."),
+    ],
+  },
+  {
+    title: "Aggression",
+    features: [
+      feature("aggression_score", "Score", "Dedicated SONARA aggression perceptual rank; not the aggressive-mood heuristic."),
+      feature("aggression_confidence", "Evidence support", "Supported musical evidence for the aggression analysis, not rank certainty."),
+      feature("aggression_forcefulness", "Forcefulness", "SONARA forcefulness component of the aggression analysis."),
+      feature("aggression_harshness", "Harshness", "SONARA harshness component of the aggression analysis."),
+      feature("aggression_tension", "Tension", "SONARA tension component of the aggression analysis."),
+      feature("aggression_rhythm", "Rhythm", "SONARA rhythmic component of the aggression analysis."),
     ],
   },
   {

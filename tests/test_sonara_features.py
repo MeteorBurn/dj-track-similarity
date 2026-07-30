@@ -200,6 +200,7 @@ def test_default_batch_registers_all_outputs_and_writes_core_once() -> None:
     assert call["vocalness_model"] == "bundled"
     assert tuple(call["features"]) == sonara_requested_features()
     assert "vocalness" in call["features"]
+    assert "aggression" in call["features"]
     assert "embedding" in call["features"]
     assert "fingerprint" in call["features"]
     assert "instrumentalness" not in call["features"]

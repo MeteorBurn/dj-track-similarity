@@ -17,7 +17,7 @@ test("metadata uses current SONARA Core field names and reader labels", () => {
     ["spectral_centroid_hz", "Spectral centroid"],
     ["integrated_loudness_lufs", "Integrated loudness"],
     ["true_peak_dbtp", "True peak"],
-    ["vocal_probability", "Vocal"],
+    ["vocal_probability", "Vocal probability"],
     ["mood_happy_score", "Happy"],
   ]);
 

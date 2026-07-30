@@ -240,6 +240,37 @@ def test_tracks_file_modified_ns_is_integer() -> None:
     conn.close()
 
 
+def test_sonara_detected_bpm_accepts_source_precision() -> None:
+    """A valid SONARA BPM is not constrained to two decimal places."""
+    conn = _open_database()
+    conn.execute("PRAGMA foreign_keys = OFF")
+
+    conn.execute(
+        """
+        INSERT INTO sonara(
+            track_id,
+            content_generation,
+            detected_bpm,
+            mfcc_mean_blob,
+            chroma_mean_blob,
+            spectral_contrast_mean_blob,
+            analyzed_at
+        )
+        VALUES (1, 1, 128.125, ?, ?, ?, '2026-01-01T00:00:00.000000Z')
+        """,
+        (
+            b"\x00" * (13 * 4),
+            b"\x00" * (12 * 4),
+            b"\x00" * (7 * 4),
+        ),
+    )
+
+    assert conn.execute(
+        "SELECT detected_bpm FROM sonara WHERE track_id = 1"
+    ).fetchone()[0] == 128.125
+    conn.close()
+
+
 def test_sonara_blob_length_constraints() -> None:
     """BLOB length CHECK constraints are enforced on insert."""
     conn = _open_database()

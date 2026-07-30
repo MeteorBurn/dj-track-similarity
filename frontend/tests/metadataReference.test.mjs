@@ -174,6 +174,24 @@ function detail() {
   };
 }
 
+function sonaraFeatures(overrides = {}) {
+  const track = detail();
+  track.sonara_core = {
+    ...track.sonara_core,
+    ...overrides,
+  };
+  const model = metadataDialog.metadataDialogModel(track);
+  return new Map(
+    Array.from(
+      model.coreGroups,
+      (group) => Array.from(
+        group.features,
+        (feature) => [feature.key, feature],
+      ),
+    ).flat(),
+  );
+}
+
 test("track display and analysis coverage use only current summary fields", () => {
   const track = summary({ title: null, artist: null });
 
@@ -267,6 +285,166 @@ test("metadata model maps detailed file tags optional outputs MuQ and classifier
   );
   assert.ok(model.analysisBadges.some((badge) => badge.key === "muq"));
   assert.ok(model.analysisBadges.some((badge) => badge.key === "classifiers"));
+});
+
+test("SONARA tempo metadata uses tempo-specific units and omits raw BPM", () => {
+  const features = sonaraFeatures({
+    detected_bpm: 127.45889282226563,
+    raw_bpm: 63.72944641113281,
+    bpm_confidence: 0.9237096309661865,
+    bpm_candidates: [{
+      bpm: 129.19921875,
+      rank: 1,
+      score: 7.945353031158447,
+    }],
+    onset_density_per_second: 5.5766119956970215,
+    beat_count: 1280,
+    tempo_variability: 0.009005584754049778,
+    beat_grid_offset_seconds: 0.4876190423965454,
+    beat_grid_stability: 0.98765,
+    analyzed_duration_seconds: 459.3149719238281,
+  });
+
+  assert.equal(features.get("detected_bpm").value, "127.46");
+  assert.equal(features.has("raw_bpm"), false);
+  assert.equal(features.get("bpm_confidence").value, "0.924");
+  assert.equal(
+    features.get("bpm_candidates").value,
+    "#1 129.20 (score 7.95)",
+  );
+  assert.equal(features.get("onset_density_per_second").value, "5.58/s");
+  assert.equal(features.get("beat_count").value, "1,280");
+  assert.equal(features.get("tempo_variability").value, "0.90%");
+  assert.equal(features.get("beat_grid_offset_seconds").value, "488 ms");
+  assert.equal(features.get("beat_grid_stability").value, "98.8%");
+  assert.equal(features.get("analyzed_duration_seconds").value, "7:39.31");
+});
+
+test("SONARA perceptual scores stay decimal while vocal probability is a percentage", () => {
+  const features = sonaraFeatures({
+    energy_level: 8,
+    energy_score: 0.5127902626991272,
+    danceability_score: 0.7814155220985413,
+    valence_score: 0.4305143356323242,
+    acousticness_score: 0.34270256757736206,
+    vocal_probability: 0.0013234736397862434,
+    mood_happy_score: 0.40928906202316284,
+    mood_aggressive_score: 0.505047082901001,
+    mood_relaxed_score: 0.3425803780555725,
+    mood_sad_score: 0.6289721131324768,
+  });
+
+  assert.equal(features.get("energy_level").value, "8/10");
+  assert.equal(features.get("energy_score").value, "0.513");
+  assert.equal(features.get("danceability_score").value, "0.781");
+  assert.equal(features.get("valence_score").value, "0.431");
+  assert.equal(features.get("acousticness_score").value, "0.343");
+  assert.equal(features.get("vocal_probability").label, "Vocal probability");
+  assert.equal(features.get("vocal_probability").value, "0.13%");
+  assert.equal(features.get("mood_happy_score").value, "0.409");
+  assert.equal(features.get("mood_aggressive_score").value, "0.505");
+  assert.equal(features.get("mood_relaxed_score").value, "0.343");
+  assert.equal(features.get("mood_sad_score").value, "0.629");
+});
+
+test("SONARA probability and variability formatting preserves open boundaries", () => {
+  assert.equal(sonaraFeatures({ vocal_probability: 0 }).get("vocal_probability").value, "0%");
+  assert.equal(
+    sonaraFeatures({ vocal_probability: 0.000000026 }).get("vocal_probability").value,
+    "<0.01%",
+  );
+  assert.equal(
+    sonaraFeatures({ vocal_probability: 0.99995 }).get("vocal_probability").value,
+    ">99.99%",
+  );
+  assert.equal(sonaraFeatures({ vocal_probability: 1 }).get("vocal_probability").value, "100%");
+  assert.equal(sonaraFeatures({ tempo_variability: 0 }).get("tempo_variability").value, "0%");
+  assert.equal(
+    sonaraFeatures({ tempo_variability: 0.00005 }).get("tempo_variability").value,
+    "<0.01%",
+  );
+});
+
+test("SONARA tonal and loudness metadata uses meaningful precision", () => {
+  const features = sonaraFeatures({
+    detected_key_camelot: "8A",
+    detected_key_name: "A minor",
+    key_confidence: 0.14823633432388306,
+    key_candidates: [{
+      camelot: "8A",
+      key_name: "A minor",
+      rank: 1,
+      score: 0.26243653893470764,
+    }],
+    predominant_chord: "Am",
+    chord_changes_per_second: 1.7499626874923706,
+    dissonance_score: 0.018194174394011498,
+    rms_mean: 0.20517976582050324,
+    rms_max: 0.525765597820282,
+    integrated_loudness_lufs: -14.789587020874023,
+    dynamic_range_db: 21.840232849121094,
+    true_peak_dbtp: -0.04332813620567322,
+    replay_gain_db: 0.6638298034667969,
+    max_momentary_loudness_lufs: -11.292563438415527,
+    loudness_range_lu: 4.79802131652832,
+  });
+
+  assert.equal(features.get("detected_key_camelot").value, "8A");
+  assert.equal(features.get("detected_key_name").value, "A minor");
+  assert.equal(features.get("key_confidence").value, "0.148");
+  assert.equal(
+    features.get("key_candidates").value,
+    "#1 8A · A minor (0.262)",
+  );
+  assert.equal(features.get("predominant_chord").value, "Am");
+  assert.equal(features.get("chord_changes_per_second").value, "1.75/s");
+  assert.equal(features.get("dissonance_score").value, "0.0182");
+  assert.equal(features.get("rms_mean").value, "0.205");
+  assert.equal(features.get("rms_max").value, "0.526");
+  assert.equal(features.get("integrated_loudness_lufs").value, "-14.8 LUFS");
+  assert.equal(features.get("dynamic_range_db").value, "21.8 dB");
+  assert.equal(features.get("true_peak_dbtp").value, "-0.04 dBTP");
+  assert.equal(features.get("replay_gain_db").value, "+0.66 dB");
+  assert.equal(features.get("max_momentary_loudness_lufs").value, "-11.3 LUFS");
+  assert.equal(features.get("loudness_range_lu").value, "4.8 LU");
+});
+
+test("SONARA structure spectral and analysis metadata uses natural display units", () => {
+  const features = sonaraFeatures({
+    intro_end_seconds: 3.0650339126586914,
+    outro_start_seconds: 447.4949645996094,
+    leading_silence_seconds: 0.09287981688976288,
+    trailing_silence_seconds: 0.9055781960487366,
+    energy_curve_hop_seconds: 0.5108389854431152,
+    energy_curve_sample_count: 1206,
+    energy_curve_min: 0.20326408743858337,
+    energy_curve_max: 0.6382578015327454,
+    energy_curve_mean: 0.5131758797468076,
+    energy_curve_stddev: 0.07051395720072552,
+    spectral_centroid_hz: 2078.814697265625,
+    spectral_bandwidth_hz: 2462.879638671875,
+    spectral_rolloff_hz: 4500.17236328125,
+    spectral_flatness: 0.03053215704858303,
+    zero_crossing_rate: 0.059822872281074524,
+    analyzed_at: "2026-07-30T09:51:32.510995Z",
+  });
+
+  assert.equal(features.get("intro_end_seconds").value, "0:03.1");
+  assert.equal(features.get("outro_start_seconds").value, "7:27.5");
+  assert.equal(features.get("leading_silence_seconds").value, "0.09 s");
+  assert.equal(features.get("trailing_silence_seconds").value, "0.91 s");
+  assert.equal(features.get("energy_curve_hop_seconds").value, "511 ms");
+  assert.equal(features.get("energy_curve_sample_count").value, "1,206");
+  assert.equal(features.get("energy_curve_min").value, "0.203");
+  assert.equal(features.get("energy_curve_max").value, "0.638");
+  assert.equal(features.get("energy_curve_mean").value, "0.513");
+  assert.equal(features.get("energy_curve_stddev").value, "0.0705");
+  assert.equal(features.get("spectral_centroid_hz").value, "2,079 Hz");
+  assert.equal(features.get("spectral_bandwidth_hz").value, "2,463 Hz");
+  assert.equal(features.get("spectral_rolloff_hz").value, "4,500 Hz");
+  assert.equal(features.get("spectral_flatness").value, "0.0305");
+  assert.equal(features.get("zero_crossing_rate").value, "0.0598");
+  assert.equal(features.get("analyzed_at").value, "30.07.2026 09:51:32 UTC");
 });
 
 test("Reference Compare ordering preserves MuQ or supplies a model-scoped reason", () => {

@@ -43,7 +43,7 @@ const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
   {
     title: "Mood",
     features: [
-      feature("vocal_probability", "Vocal", "Probability returned by the bundled SONARA vocal model."),
+      feature("vocal_probability", "Vocal probability", "Probability returned by the bundled SONARA vocal model."),
       feature("mood_happy_score", "Happy", "SONARA happy-mood ranking signal."),
       feature("mood_aggressive_score", "Aggressive", "SONARA aggressive-mood ranking signal."),
       feature("mood_relaxed_score", "Relaxed", "SONARA relaxed-mood ranking signal."),
@@ -433,49 +433,86 @@ function readableClassifierName(key: string) {
 }
 
 function formatSonaraCoreValue(key: keyof SonaraCore, value: SonaraCore[keyof SonaraCore]) {
-  if (key === "analyzed_at") return formatTimestamp(String(value));
+  if (key === "analyzed_at") return formatSonaraTimestamp(String(value));
   if (key === "bpm_candidates" && Array.isArray(value)) return formatBpmCandidates(value);
   if (key === "key_candidates" && Array.isArray(value)) return formatKeyCandidates(value);
   if (key === "vector_summaries" && Array.isArray(value)) return formatVectorSummaries(value);
   if (Array.isArray(value)) return formatRecordList(value);
   if (typeof value === "number") {
-    if (key === "detected_bpm" || key === "raw_bpm") return value.toFixed(2);
-    if (key === "onset_density_per_second" || key === "chord_changes_per_second") return `${formatNumber(value)}/sec`;
-    if (key === "spectral_centroid_hz" || key === "spectral_bandwidth_hz" || key === "spectral_rolloff_hz") {
-      return `${formatNumber(value)} Hz`;
+    if (key === "detected_bpm") return value.toFixed(2);
+    if (key === "beat_count" || key === "energy_curve_sample_count") {
+      return formatInteger(value);
     }
-    if (key === "integrated_loudness_lufs" || key === "max_momentary_loudness_lufs") return `${value.toFixed(2)} LUFS`;
-    if (key === "dynamic_range_db" || key === "replay_gain_db") return `${value.toFixed(2)} dB`;
-    if (key === "true_peak_dbtp") return `${value.toFixed(2)} dBTP`;
-    if (key === "loudness_range_lu") return `${value.toFixed(2)} LU`;
-    if (key.endsWith("_seconds")) return `${formatNumber(value)} s`;
+    if (key === "bpm_confidence" || key === "key_confidence") return formatNumber(value);
+    if (key === "onset_density_per_second" || key === "chord_changes_per_second") {
+      return `${value.toFixed(2)}/s`;
+    }
+    if (key === "tempo_variability") return formatSmallPercentage(value);
+    if (key === "beat_grid_offset_seconds") return formatShortDuration(value);
+    if (key === "beat_grid_stability") return `${(value * 100).toFixed(1)}%`;
+    if (key === "analyzed_duration_seconds") return formatClockPosition(value, 2);
+    if (key === "energy_level") return `${formatInteger(value)}/10`;
+    if (key === "vocal_probability") return formatProbability(value);
+    if (
+      key === "dissonance_score"
+      || key === "energy_curve_stddev"
+      || key === "spectral_flatness"
+      || key === "zero_crossing_rate"
+    ) {
+      return value.toFixed(4);
+    }
+    if (key === "spectral_centroid_hz" || key === "spectral_bandwidth_hz" || key === "spectral_rolloff_hz") {
+      return `${formatInteger(value)} Hz`;
+    }
+    if (key === "integrated_loudness_lufs" || key === "max_momentary_loudness_lufs") {
+      return `${value.toFixed(1)} LUFS`;
+    }
+    if (key === "dynamic_range_db") return `${value.toFixed(1)} dB`;
+    if (key === "true_peak_dbtp") return `${formatSignedNumber(value, 2)} dBTP`;
+    if (key === "replay_gain_db") return `${formatSignedNumber(value, 2)} dB`;
+    if (key === "loudness_range_lu") return `${value.toFixed(1)} LU`;
+    if (key === "intro_end_seconds" || key === "outro_start_seconds") {
+      return formatClockPosition(value, 1);
+    }
+    if (key === "leading_silence_seconds" || key === "trailing_silence_seconds") {
+      return `${value.toFixed(2)} s`;
+    }
+    if (key === "energy_curve_hop_seconds") return `${Math.round(value * 1000)} ms`;
     return formatNumber(value);
   }
   return String(value);
 }
 
 function formatBpmCandidates(value: Record<string, unknown>[]) {
-  return value.map((candidate) => {
+  return value.map((candidate, index) => {
+    const rank = candidateRank(candidate, index);
     const bpm = typeof candidate.bpm === "number"
-      ? candidate.bpm.toFixed(2).replace(/\.00$/, "")
+      ? candidate.bpm.toFixed(2)
       : "-";
     const score = typeof candidate.score === "number"
-      ? ` (${formatNumber(candidate.score)})`
+      ? ` (score ${candidate.score.toFixed(2)})`
       : "";
-    return `${bpm}${score}`;
+    return `#${rank} ${bpm}${score}`;
   }).join(" · ");
 }
 
 function formatKeyCandidates(value: Record<string, unknown>[]) {
-  return value.map((candidate) => {
+  return value.map((candidate, index) => {
+    const rank = candidateRank(candidate, index);
     const camelot = typeof candidate.camelot === "string" ? candidate.camelot : "";
     const keyName = typeof candidate.key_name === "string" ? candidate.key_name : "";
     const name = [camelot, keyName].filter(Boolean).join(" · ") || "-";
     const score = typeof candidate.score === "number"
-      ? ` (${formatConfidence(candidate.score)})`
+      ? ` (${formatNumber(candidate.score)})`
       : "";
-    return `${name}${score}`;
+    return `#${rank} ${name}${score}`;
   }).join(" | ");
+}
+
+function candidateRank(candidate: Record<string, unknown>, index: number) {
+  return typeof candidate.rank === "number" && Number.isInteger(candidate.rank)
+    ? candidate.rank
+    : index + 1;
 }
 
 function formatVectorSummaries(value: Record<string, unknown>[]) {
@@ -537,8 +574,60 @@ function formatScore(value: number) {
 }
 
 function formatNumber(value: number) {
-  if (Math.abs(value) >= 100) return value.toFixed(1);
-  return value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+  return value.toFixed(3);
+}
+
+function formatInteger(value: number) {
+  return Math.round(value).toLocaleString("en-US");
+}
+
+function formatSmallPercentage(value: number) {
+  if (value === 0) return "0%";
+  if (value > 0 && value < 0.0001) return "<0.01%";
+  return `${(value * 100).toFixed(2)}%`;
+}
+
+function formatProbability(value: number) {
+  if (value === 0) return "0%";
+  if (value === 1) return "100%";
+  if (value > 0 && value < 0.0001) return "<0.01%";
+  if (value < 1 && value > 0.9999) return ">99.99%";
+  return `${(value * 100).toFixed(2)}%`;
+}
+
+function formatShortDuration(seconds: number) {
+  if (seconds < 1) return `${Math.round(seconds * 1000)} ms`;
+  return `${seconds.toFixed(2)} s`;
+}
+
+function formatClockPosition(seconds: number, decimalPlaces: number) {
+  const scale = 10 ** decimalPlaces;
+  const totalUnits = Math.round(Math.max(0, seconds) * scale);
+  const wholeSeconds = Math.floor(totalUnits / scale);
+  const fraction = totalUnits % scale;
+  const hours = Math.floor(wholeSeconds / 3600);
+  const minutes = Math.floor((wholeSeconds % 3600) / 60);
+  const rest = (wholeSeconds % 60).toString().padStart(2, "0");
+  const fractionText = decimalPlaces > 0
+    ? `.${fraction.toString().padStart(decimalPlaces, "0")}`
+    : "";
+  if (hours > 0) {
+    return `${hours}:${minutes.toString().padStart(2, "0")}:${rest}${fractionText}`;
+  }
+  return `${minutes}:${rest}${fractionText}`;
+}
+
+function formatSignedNumber(value: number, decimalPlaces: number) {
+  const rounded = Number(value.toFixed(decimalPlaces));
+  const sign = rounded > 0 ? "+" : rounded < 0 ? "-" : "";
+  return `${sign}${Math.abs(rounded).toFixed(decimalPlaces)}`;
+}
+
+function formatSonaraTimestamp(value: string) {
+  const timestamp = formatTimestamp(value);
+  if (value.endsWith("Z")) return `${timestamp} UTC`;
+  const offset = /([+-]\d{2}:\d{2})$/.exec(value)?.[1];
+  return offset ? `${timestamp} UTC${offset}` : timestamp;
 }
 
 function formatDuration(seconds: number | null) {

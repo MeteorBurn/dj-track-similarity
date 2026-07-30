@@ -119,6 +119,15 @@ def test_complete_analyzer_result_becomes_one_typed_sonara_write() -> None:
     assert write.fingerprint.words.tolist() == [0, 123, 4_294_967_295]
 
 
+def test_detected_bpm_preserves_sonara_precision() -> None:
+    analysis = _analysis()
+    analysis["bpm"] = np.float32(128.125)
+
+    write = _prepare(analysis, outputs=("core",))
+
+    assert write.core.detected_bpm == float(np.float32(128.125))
+
+
 def test_unknown_future_analyzer_fields_do_not_gate_conversion() -> None:
     analysis = _analysis()
     analysis["new_sonara_field"] = {"future": True}

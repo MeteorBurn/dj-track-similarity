@@ -122,13 +122,7 @@ CREATE TABLE sonara (
     track_id                       INTEGER PRIMARY KEY REFERENCES tracks(track_id) ON DELETE CASCADE,
     content_generation             INTEGER NOT NULL,
     -- Rhythm
-    detected_bpm                   REAL    CHECK(
-        detected_bpm IS NULL
-        OR (
-            detected_bpm > 0
-            AND detected_bpm = round(detected_bpm, 2)
-        )
-    ),
+    detected_bpm                   REAL    CHECK(detected_bpm IS NULL OR detected_bpm > 0),
     raw_bpm                        REAL    CHECK(raw_bpm      IS NULL OR raw_bpm      > 0),
     bpm_confidence                 REAL    CHECK(bpm_confidence IS NULL OR (bpm_confidence BETWEEN 0 AND 1)),
     onset_density_per_second       REAL    CHECK(onset_density_per_second IS NULL OR onset_density_per_second >= 0),

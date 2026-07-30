@@ -18,6 +18,7 @@ from typing import Literal
 import numpy as np
 
 from .db_ddl import ClassifierScoreRecord, SonaraRow
+from .maest_windows import MaestWindowContext
 
 OUTPUT_KINDS_BY_FAMILY: Mapping[str, frozenset[str]] = MappingProxyType(
     {
@@ -822,6 +823,7 @@ class AnalysisCandidate:
     file_size_bytes: int
     file_modified_ns: int
     missing_outputs: tuple[AnalysisOutput, ...]
+    maest_window_context: MaestWindowContext | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -845,6 +847,13 @@ class AnalysisCandidate:
         if not missing:
             raise ValueError("analysis candidate must have at least one missing output")
         object.__setattr__(self, "missing_outputs", missing)
+        if (
+            self.maest_window_context is not None
+            and not isinstance(self.maest_window_context, MaestWindowContext)
+        ):
+            raise TypeError(
+                "maest_window_context must be a MaestWindowContext or None"
+            )
 
 
 @dataclass(frozen=True, slots=True)

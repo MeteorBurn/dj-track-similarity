@@ -16,6 +16,7 @@ from dj_track_similarity.analysis_models import (
     MaestWrite,
 )
 from dj_track_similarity.database import LibraryDatabase
+from dj_track_similarity.maest_windows import MaestWindowContext
 
 
 ANALYZED_AT = "2026-07-30T00:00:00.000000Z"
@@ -37,6 +38,34 @@ def _repository(tmp_path: Path) -> LibraryDatabase:
         )
         connection.commit()
     return repository
+
+
+def _insert_sonara_window_context(
+    repository: LibraryDatabase,
+    *,
+    generation: int,
+) -> None:
+    with repository.connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO sonara(
+                track_id, content_generation,
+                analyzed_duration_seconds,
+                intro_end_seconds, outro_start_seconds,
+                leading_silence_seconds, trailing_silence_seconds,
+                mfcc_mean_blob, chroma_mean_blob,
+                spectral_contrast_mean_blob, analyzed_at
+            ) VALUES (1, ?, 200.0, 40.0, 170.0, 5.0, 10.0, ?, ?, ?, ?)
+            """,
+            (
+                generation,
+                np.zeros(13, dtype="<f4").tobytes(),
+                np.zeros(12, dtype="<f4").tobytes(),
+                np.zeros(7, dtype="<f4").tobytes(),
+                ANALYZED_AT,
+            ),
+        )
+        connection.commit()
 
 
 def _target(repository: LibraryDatabase, *, generation: int = 1) -> AnalysisTarget:
@@ -159,6 +188,43 @@ def test_candidate_readiness_is_keyed_by_track_generation_family_and_kind(
         connection.commit()
     candidates = repository.list_analysis_candidates((output,))
     assert [candidate.target.content_generation for candidate in candidates] == [2]
+
+
+def test_candidate_includes_current_sonara_maest_window_context(
+    tmp_path: Path,
+) -> None:
+    repository = _repository(tmp_path)
+    _insert_sonara_window_context(repository, generation=1)
+
+    candidate = repository.list_analysis_candidates(
+        (AnalysisOutput("maest", "embedding"),)
+    )[0]
+
+    assert candidate.maest_window_context == MaestWindowContext(
+        leading_silence_seconds=5.0,
+        trailing_silence_seconds=10.0,
+        intro_end_seconds=40.0,
+        outro_start_seconds=170.0,
+    )
+
+
+def test_candidate_ignores_stale_sonara_maest_window_context(
+    tmp_path: Path,
+) -> None:
+    repository = _repository(tmp_path)
+    _insert_sonara_window_context(repository, generation=1)
+    with repository.connect() as connection:
+        connection.execute(
+            "UPDATE tracks SET content_generation = 2 WHERE track_id = 1"
+        )
+        connection.commit()
+
+    candidate = repository.list_analysis_candidates(
+        (AnalysisOutput("maest", "embedding"),)
+    )[0]
+
+    assert candidate.target.content_generation == 2
+    assert candidate.maest_window_context is None
 
 
 def test_repeated_write_replaces_same_family_row_without_version_identity(

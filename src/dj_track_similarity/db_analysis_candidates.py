@@ -18,6 +18,7 @@ from .maest_analysis_validation import (
     MAEST_ANALYSIS_COLUMNS,
     validate_maest_analysis_row,
 )
+from .maest_windows import MaestWindowContext
 from .sonara_core_validation import (
     SONARA_CORE_COLUMNS,
     validate_sonara_core_row,
@@ -73,11 +74,20 @@ def read_current_track_rows(
 ) -> list[sqlite3.Row]:
     return core_connection.execute(
         """
-        SELECT track_id, track_uuid, file_path, file_size_bytes,
-               file_modified_ns, content_generation
+        SELECT
+            tracks.track_id, tracks.track_uuid, tracks.file_path,
+            tracks.file_size_bytes, tracks.file_modified_ns,
+            tracks.content_generation,
+            sonara.leading_silence_seconds,
+            sonara.trailing_silence_seconds,
+            sonara.intro_end_seconds,
+            sonara.outro_start_seconds
         FROM tracks
-        WHERE missing_since IS NULL
-        ORDER BY file_path COLLATE NOCASE, track_id
+        LEFT JOIN sonara
+          ON sonara.track_id = tracks.track_id
+         AND sonara.content_generation = tracks.content_generation
+        WHERE tracks.missing_since IS NULL
+        ORDER BY tracks.file_path COLLATE NOCASE, tracks.track_id
         """
     ).fetchall()
 
@@ -92,6 +102,27 @@ def target_from_track_row(
         track_id=int(row["track_id"]),
         track_uuid=str(row["track_uuid"]),
         content_generation=int(row["content_generation"]),
+    )
+
+
+def _maest_window_context(row: sqlite3.Row) -> MaestWindowContext | None:
+    values = (
+        row["leading_silence_seconds"],
+        row["trailing_silence_seconds"],
+        row["intro_end_seconds"],
+        row["outro_start_seconds"],
+    )
+    if all(value is None for value in values):
+        return None
+    return MaestWindowContext(
+        leading_silence_seconds=(
+            None if values[0] is None else float(values[0])
+        ),
+        trailing_silence_seconds=(
+            None if values[1] is None else float(values[1])
+        ),
+        intro_end_seconds=None if values[2] is None else float(values[2]),
+        outro_start_seconds=None if values[3] is None else float(values[3]),
     )
 
 
@@ -311,6 +342,7 @@ def collect_analysis_candidates(
                 file_size_bytes=int(row["file_size_bytes"]),
                 file_modified_ns=int(row["file_modified_ns"]),
                 missing_outputs=missing,
+                maest_window_context=_maest_window_context(row),
             )
         )
         if limit is not None and len(candidates) >= limit:

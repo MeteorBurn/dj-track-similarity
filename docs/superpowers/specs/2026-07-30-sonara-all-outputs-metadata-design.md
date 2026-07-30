@@ -36,6 +36,11 @@ artifact registration, storage validation, coverage, completeness checks, job
 status, and reporting. Runtime job, runner, conversion, and repository-write
 APIs do not accept a subset.
 
+Fingerprint retrieval, fingerprint matching, and duplicate-search workflows
+are outside this change. This change only guarantees that a valid fingerprint
+is calculated, persisted, linked to its track, and represented by a green
+checkmark in metadata so a later workflow can consume it without reanalysis.
+
 The explicit pipeline engine remains available for sequential orchestration.
 This change removes the invalid `FULL` shortcut from the Library panel and
 preserves the panel's existing mutually exclusive selection rules; it does not
@@ -108,6 +113,12 @@ Heavy SONARA data stays exclusively in the mandatory Artifacts database:
   segments;
 - `sonara_similarity_embeddings.embedding_blob` stores the similarity vector;
 - `sonara_fingerprints.fingerprint_blob` stores packed fingerprint words.
+
+Every fingerprint row is linked to the Core track by `track_id`, `track_uuid`,
+and `content_generation`; the Artifacts database is also bound to the Core
+database's `catalog_uuid`. A future duplicate-search workflow must validate
+that complete identity before using the stored fingerprint. This task does not
+add that workflow or expose a fingerprint-loading endpoint.
 
 The Core database keeps only the existing queryable SONARA scalars, compact
 vector summaries, identity fields, and the shared analysis timestamp. React
@@ -193,17 +204,22 @@ in order:
 3. `Fingerprint`
 4. `Analysis`
 
-Timeline, Embedding, and Fingerprint use one shared badge-category renderer.
-Example badges:
+Timeline, Embedding, and Fingerprint use one shared category shell. Timeline
+and Embedding render badges; Fingerprint renders only its status icon.
+Examples:
 
 - Timeline: `beats`, `downbeats`, `segments`, `energy_curve`;
 - Embedding: `48D`, `L2`;
-- Fingerprint: `Ready`.
+- Fingerprint: a green checkmark.
 
 Canonical Timeline field names remain code-like so they map directly to the
 stored payload. Human-readable dimensions and counts use the dialog's existing
 number and timestamp formatters. Raw vectors and binary values are never
 rendered.
+
+The Fingerprint category renders its `Fingerprint` title plus one green Check
+icon. It has no `Ready` text and no other badges. The icon has the accessible
+label `Fingerprint ready`; color is not the only availability signal.
 
 The `Analysis` category contains the single field `Analyzed`. It renders
 `optional_outputs.analyzed_at` using the existing timestamp formatter.
@@ -262,10 +278,10 @@ Use test-first slices:
    `fingerprint_blob`; structural byte-length checks may remain in SQL.
    Confirm the tests fail first.
 5. Update metadata-model tests for category order, badge content, the
-   Fingerprint `Ready` state without internal format metadata, uniform
-   SONARA-level missing state, one `Analyzed` field, no per-output timestamps,
-   and SONARA de-duplication from generic embedding summaries. Confirm the
-   tests fail first.
+   Fingerprint green checkmark without visible status text or internal format
+   metadata, uniform SONARA-level missing state, one `Analyzed` field, no
+   per-output timestamps, and SONARA de-duplication from generic embedding
+   summaries. Confirm the tests fail first.
 
 After each focused red/green cycle, run:
 

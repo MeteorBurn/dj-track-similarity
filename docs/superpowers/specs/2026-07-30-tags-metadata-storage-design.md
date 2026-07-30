@@ -55,10 +55,41 @@ Display `Last Scanned` and a populated `Missing Since` in European
 UTC RFC 3339 values and format them only for presentation so timestamp
 validation, ordering, and database semantics remain intact.
 
-Derive `File Name` from the existing canonical `file_path`. Preserve the raw
+Derive `File Name` from the stored `file_path`. Preserve the raw
 numeric database representation for file size, duration, sample rate, bit
 rate, and channel count; formatting these values remains a presentation
 responsibility.
+
+## Path storage
+
+Store the resolved Windows path with its filesystem-provided component casing
+directly in `tracks.file_path`. Normalize separators to `/`, but do not
+lowercase the stored display path. For example:
+
+```text
+M:/Volumes/Avantgarde/HiRes/Artist/Track.wav
+```
+
+Add an internal `tracks.file_path_key` column containing the ordinal,
+case-insensitive Windows identity key:
+
+```text
+m:/volumes/avantgarde/hires/artist/track.wav
+```
+
+Use `file_path_key` for uniqueness, exact lookup, scan reconciliation,
+relocation validation, and missing-file detection. Keep `file_path` as the
+path used for filesystem access and the only path returned by the API. Do not
+expose `file_path_key` through an API response.
+
+During scanning, obtain `file_path` from the path discovered by filesystem
+enumeration. Refresh its stored casing even when file size, modification time,
+and audio content are unchanged. Derive `File Name` from this stored
+case-preserving path.
+
+The separate identity key is required because SQLite's built-in `NOCASE`
+collation is not a complete Unicode-aware replacement for the application's
+existing ordinal Windows path identity rules.
 
 ## Removed stored tags
 
@@ -93,13 +124,17 @@ intentional and irreversible.
 Perform the following work directly in `volumes.sqlite`:
 
 1. Acquire an immediate write transaction.
-2. Rebuild `file_tags` with only the retained columns and copy all 3,017 rows.
-3. Recreate `idx_file_tags_sort`.
-4. Recreate `track_search_fts` without the three removed fields.
-5. Repopulate the FTS table from `tracks`, retained `file_tags` values, and
+2. Rebuild `tracks` with the case-preserving `file_path` and the internal
+   unique `file_path_key`.
+3. Recover the actual casing of existing paths from filesystem enumeration
+   under the accessible `M:/Volumes` tree.
+4. Rebuild `file_tags` with only the retained columns and copy all 3,017 rows.
+5. Recreate `idx_file_tags_sort`.
+6. Recreate `track_search_fts` without the three removed fields.
+7. Repopulate the FTS table from `tracks`, retained `file_tags` values, and
    MAEST genres.
-6. Verify row counts before committing.
-7. Commit only if all statements succeed.
+8. Verify row counts and path-key uniqueness before committing.
+9. Commit only if all statements succeed.
 
 Do not create backup or temporary database files. A temporary table inside
 the same transaction is allowed and must not remain after commit or rollback.
@@ -115,7 +150,11 @@ Use focused tests to prove:
 - the metadata dialog renders the exact requested order;
 - duration renders as `4:07 (247.37 sec.)`;
 - timestamps render as `DD.MM.YYYY HH:mm:ss`;
-- `File Name` is derived from `File Path`.
+- `File Name` is derived from `File Path`;
+- `tracks.file_path` preserves filesystem casing;
+- differently cased spellings of one Windows path resolve to one
+  `file_path_key` identity;
+- an unchanged rescan refreshes the stored display-path casing.
 
 After changing the real database, verify:
 
@@ -124,4 +163,7 @@ After changing the real database, verify:
 - `tracks` and `file_tags` still each contain 3,017 rows;
 - the three removed column names are absent from both relevant schemas;
 - no temporary maintenance table remains;
-- FTS contains one row per track.
+- FTS contains one row per track;
+- `file_path_key` is unique and matches every stored display path;
+- every available track path uses the casing returned by filesystem
+  enumeration.

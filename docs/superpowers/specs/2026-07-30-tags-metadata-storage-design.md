@@ -55,10 +55,16 @@ Display `Last Scanned` and a populated `Missing Since` in European
 UTC RFC 3339 values and format them only for presentation so timestamp
 validation, ordering, and database semantics remain intact.
 
-Derive `File Name` from the stored `file_path`. Preserve the raw
-numeric database representation for file size, duration, sample rate, bit
-rate, and channel count; formatting these values remains a presentation
-responsibility.
+Derive `File Name` from the stored `file_path`. Preserve numeric database
+representations for file size, sample rate, bit rate, and channel count;
+formatting these values remains a presentation responsibility.
+
+Store `tracks.audio_duration_seconds` as one `REAL` value measured in seconds
+and normalized to two decimal places before every write. Enforce that scale
+in the current Core DDL with a `round(audio_duration_seconds, 2)` check.
+Normalize all existing non-null durations in the real database with the same
+rounding rule. SQLite stores a numeric value rather than textual trailing
+zeroes; the UI must always render exactly two decimal places.
 
 ## Path storage
 
@@ -70,26 +76,16 @@ lowercase the stored display path. For example:
 M:/Volumes/Avantgarde/HiRes/Artist/Track.wav
 ```
 
-Add an internal `tracks.file_path_key` column containing the ordinal,
-case-insensitive Windows identity key:
-
-```text
-m:/volumes/avantgarde/hires/artist/track.wav
-```
-
-Use `file_path_key` for uniqueness, exact lookup, scan reconciliation,
-relocation validation, and missing-file detection. Keep `file_path` as the
-path used for filesystem access and the only path returned by the API. Do not
-expose `file_path_key` through an API response.
-
 During scanning, obtain `file_path` from the path discovered by filesystem
 enumeration. Refresh its stored casing even when file size, modification time,
 and audio content are unchanged. Derive `File Name` from this stored
 case-preserving path.
 
-The separate identity key is required because SQLite's built-in `NOCASE`
-collation is not a complete Unicode-aware replacement for the application's
-existing ordinal Windows path identity rules.
+Do not add or persist a normalized path-key column. Keep `file_path` unique.
+When repository operations must compare Windows paths without regard to
+case, derive the existing ordinal lowercase identity key transiently in
+memory. Perform the comparison and following write under the repository's
+existing path-scoped write lock.
 
 ## Removed stored tags
 
@@ -124,16 +120,18 @@ intentional and irreversible.
 Perform the following work directly in `volumes.sqlite`:
 
 1. Acquire an immediate write transaction.
-2. Rebuild `tracks` with the case-preserving `file_path` and the internal
-   unique `file_path_key`.
+2. Rebuild `tracks` with its existing columns, case-preserving `file_path`,
+   and the two-decimal `audio_duration_seconds` constraint.
 3. Recover the actual casing of existing paths from filesystem enumeration
-   under the accessible `M:/Volumes` tree.
+   under the accessible `M:/Volumes` tree and normalize all stored durations
+   to two decimal places.
 4. Rebuild `file_tags` with only the retained columns and copy all 3,017 rows.
 5. Recreate `idx_file_tags_sort`.
 6. Recreate `track_search_fts` without the three removed fields.
 7. Repopulate the FTS table from `tracks`, retained `file_tags` values, and
    MAEST genres.
-8. Verify row counts and path-key uniqueness before committing.
+8. Verify row counts, exact-path uniqueness, and normalized durations before
+   committing.
 9. Commit only if all statements succeed.
 
 Do not create backup or temporary database files. A temporary table inside
@@ -153,7 +151,7 @@ Use focused tests to prove:
 - `File Name` is derived from `File Path`;
 - `tracks.file_path` preserves filesystem casing;
 - differently cased spellings of one Windows path resolve to one
-  `file_path_key` identity;
+  transient in-memory identity;
 - an unchanged rescan refreshes the stored display-path casing.
 
 After changing the real database, verify:
@@ -164,6 +162,7 @@ After changing the real database, verify:
 - the three removed column names are absent from both relevant schemas;
 - no temporary maintenance table remains;
 - FTS contains one row per track;
-- `file_path_key` is unique and matches every stored display path;
+- no path-key column exists;
+- every non-null duration equals its value rounded to two decimal places;
 - every available track path uses the casing returned by filesystem
   enumeration.

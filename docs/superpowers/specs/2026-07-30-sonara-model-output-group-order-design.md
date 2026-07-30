@@ -11,7 +11,7 @@ columns, API fields, or value formatting.
 Keep `Mood` exclusively for SONARA's four heuristic mood affinities:
 
 - `Happy`
-- `Aggressive mood`
+- `Aggressive`
 - `Relaxed`
 - `Sad`
 
@@ -45,6 +45,7 @@ Update the focused metadata-reference test first and confirm it fails under
 the current grouping. The test must prove that:
 
 - `Mood` does not contain `vocal_probability`;
+- the mood heuristic keeps the UI label `Aggressive`;
 - `Vocalness` contains `vocal_probability`;
 - `Vocalness` and `Aggression` immediately precede `Vector summaries` in that
   order;

@@ -46,6 +46,24 @@ def test_adapter_runtime_parameters_do_not_encode_loader_package_identity() -> N
         assert forbidden.isdisjoint(adapter.runtime_parameters())
 
 
+def test_maest_runtime_parameters_describe_structure_aware_windows() -> None:
+    parameters = MaestGenreAdapter(device="cpu").runtime_parameters()
+
+    assert parameters["analysis_window_positions"] == (0.2, 0.5, 0.8)
+    assert (
+        parameters["window_selection"]
+        == "structure-aware-main-range-centered-20-50-80"
+    )
+    assert parameters["window_context"] == "sonara-current-generation-optional"
+    assert (
+        parameters["window_fallback"]
+        == "main-range->non-silent-range->full-duration"
+    )
+    assert parameters["window_dedup_tolerance_seconds"] == 1.0
+    assert "analysis_offset_seconds" not in parameters
+    assert "analysis_window_ratios" not in parameters
+
+
 def test_checkpoint_verification_rejects_wrong_bytes(tmp_path) -> None:
     checkpoint = tmp_path / "checkpoint.bin"
     checkpoint.write_bytes(b"not the pinned checkpoint")

@@ -61,6 +61,8 @@ _SYNCOPATED_RHYTHM_LABELS = frozenset(
 
 
 class AnalysisWriteRepository(Protocol):
+    def current_sonara_track_count(self) -> int: ...
+
     def register_analysis_outputs(
         self,
         outputs: Sequence[AnalysisOutput],
@@ -71,6 +73,7 @@ class AnalysisWriteRepository(Protocol):
         outputs: Sequence[AnalysisOutput],
         *,
         limit: int | None = None,
+        require_current_sonara: bool = False,
     ) -> list[AnalysisCandidate]: ...
 
     def save_sonara_results(
@@ -187,8 +190,7 @@ class MaestModelRunner:
             reserved=(
                 "sample_rate_hz",
                 "input_seconds",
-                "analysis_offset_seconds",
-                "analysis_window_ratios",
+                "analysis_window_positions",
                 "top_k",
                 "pooling",
             ),
@@ -198,13 +200,9 @@ class MaestModelRunner:
             **identity,
             sample_rate_hz=cast(int, facts["sample_rate_hz"]),
             input_seconds=cast(float, facts["input_seconds"]),
-            analysis_offset_seconds=cast(
-                float,
-                facts["analysis_offset_seconds"],
-            ),
-            analysis_window_ratios=cast(
+            analysis_window_positions=cast(
                 Sequence[float],
-                facts["analysis_window_ratios"],
+                facts["analysis_window_positions"],
             ),
             top_k=cast(int, facts["top_k"]),
             parameters=extras,
@@ -213,13 +211,9 @@ class MaestModelRunner:
             **identity,
             sample_rate_hz=cast(int, facts["sample_rate_hz"]),
             input_seconds=cast(float, facts["input_seconds"]),
-            analysis_offset_seconds=cast(
-                float,
-                facts["analysis_offset_seconds"],
-            ),
-            analysis_window_ratios=cast(
+            analysis_window_positions=cast(
                 Sequence[float],
-                facts["analysis_window_ratios"],
+                facts["analysis_window_positions"],
             ),
             pooling=cast(str, facts["pooling"]),
             parameters=extras,
@@ -251,7 +245,12 @@ class MaestModelRunner:
         items: Sequence[AnalysisBatchItem],
     ) -> Sequence[Exception | None]:
         decoded_items = _decoded_items(items)
-        genres_by_track = self.adapter.predict_decoded_batch(decoded_items)
+        genres_by_track = self.adapter.predict_decoded_batch(
+            decoded_items,
+            window_contexts=[
+                item.candidate.maest_window_context for item in items
+            ],
+        )
         if len(genres_by_track) != len(items):
             raise ValueError("MAEST batch result count does not match track count")
 
@@ -445,8 +444,7 @@ def embedding_analysis_output(
             reserved=(
                 "sample_rate_hz",
                 "input_seconds",
-                "analysis_offset_seconds",
-                "analysis_window_ratios",
+                "analysis_window_positions",
                 "top_k",
                 "pooling",
             ),
@@ -455,13 +453,9 @@ def embedding_analysis_output(
             **identity,
             sample_rate_hz=cast(int, facts["sample_rate_hz"]),
             input_seconds=cast(float, facts["input_seconds"]),
-            analysis_offset_seconds=cast(
-                float,
-                facts["analysis_offset_seconds"],
-            ),
-            analysis_window_ratios=cast(
+            analysis_window_positions=cast(
                 Sequence[float],
-                facts["analysis_window_ratios"],
+                facts["analysis_window_positions"],
             ),
             pooling=cast(str, facts["pooling"]),
             parameters=extras,

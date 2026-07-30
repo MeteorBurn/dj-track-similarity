@@ -87,6 +87,21 @@ dynamics comparison, and `vocalness` remains an explicit search modifier and an 
 MAEST, MERT, MuQ, and CLAP are the current generic seed-search embeddings. SONARA search uses stored
 Core features rather than a SONARA embedding.
 
+## ML prerequisite and MAEST windows
+
+Project ML jobs select only tracks with a valid SONARA Core result for the same
+current `content_generation`. ML and promoted-classifier jobs cannot start
+until the catalog contains at least one such track. A pipeline that includes
+SONARA can establish this prerequisite before its ML and classifier stages run.
+
+MAEST analyzes up to three 30-second windows centered at 20%, 50%, and 80% of
+the best available content range. Current SONARA leading and trailing silence
+form hard boundaries; intro end and outro start form preferred soft
+boundaries. A range shorter than 30 seconds falls back first to the non-silent
+range and then to the full track. If the current valid SONARA result has no
+structure boundaries, MAEST centers the windows over the full duration. Window
+scores are averaged before the top-K genres are selected.
+
 ## Dedicated storage tables
 
 The required Artifacts database stores embeddings in dedicated tables:
@@ -113,14 +128,17 @@ inspected with `dj-sim migrate-database --db <path> --dry-run`.
 ## Missing-result behavior
 
 Analysis jobs target missing selected results. SONARA skips a track when its current Core row is
-already present. Other already-complete analysis families remain skipped until reset.
+already present. ML jobs also skip every track without current SONARA Core.
+Other already-complete analysis families remain skipped until reset.
 
 ## Classifier requirement
 
 Classifier jobs use the inputs named by each promoted manifest: current SONARA Core when
 required, plus only the MERT, MAEST, MuQ, and/or CLAP embeddings named by its features or
 `required_inputs`. SONARA cannot share an audio job with GPU models, and classifier scoring is a
-third database-only job, so run missing stages before scoring.
+third database-only job. Classifier scoring remains unavailable until the
+catalog has at least one current SONARA result, so run SONARA before starting a
+classifier-only job.
 
 SONARA-dependent classifier artifacts carry their exact ordered feature names. Promotion and runtime
 scoring reject missing or mismatched recipes. A track must contain every requested SONARA value; an

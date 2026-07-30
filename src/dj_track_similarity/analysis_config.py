@@ -25,6 +25,7 @@ MAX_SONARA_BATCH_SIZE = 16
 @dataclass(frozen=True)
 class AnalysisJobConfig:
     models: tuple[str, ...]
+    require_current_sonara: bool
     limit: int | None
     device: str
     top_k: int
@@ -83,6 +84,9 @@ def build_analysis_job_config(
     )
     return AnalysisJobConfig(
         models=normalized_models,
+        require_current_sonara=bool(
+            normalized_models and normalized_models != ("sonara",)
+        ),
         limit=_normalize_limit(limit),
         device=normalize_analysis_device(device),
         top_k=_int_in_range(

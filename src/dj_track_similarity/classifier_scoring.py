@@ -247,6 +247,11 @@ def analyze_classifier(
 ) -> dict[str, object]:
     """Score the current ready population through the repository boundary."""
 
+    if db.current_sonara_track_count() < 1:
+        raise ValueError(
+            "Classifier analysis requires at least one track with current "
+            "SONARA analysis"
+        )
     requirements = load_classifier_requirements(
         db,
         classifier,

@@ -46,9 +46,16 @@ class _CoverageRepository:
     def library_summary(self):
         return SimpleNamespace(tracks=3)
 
-    def list_analysis_candidates(self, outputs, *, limit=None):
+    def list_analysis_candidates(
+        self,
+        outputs,
+        *,
+        limit=None,
+        require_current_sonara=False,
+    ):
         assert tuple(outputs) == _OUTPUTS
         assert limit is None
+        assert not require_current_sonara
         return [
             _candidate(2, _OUTPUTS),
         ]

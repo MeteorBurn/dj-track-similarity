@@ -52,6 +52,22 @@ def _insert_track(db: LibraryDatabase) -> AnalysisTarget:
             ),
         )
         track_id = int(cursor.lastrowid)
+        connection.execute(
+            """
+            INSERT INTO sonara(
+                track_id, content_generation,
+                mfcc_mean_blob, chroma_mean_blob,
+                spectral_contrast_mean_blob, analyzed_at
+            ) VALUES (?, 1, ?, ?, ?, ?)
+            """,
+            (
+                track_id,
+                np.zeros(13, dtype="<f4").tobytes(),
+                np.zeros(12, dtype="<f4").tobytes(),
+                np.zeros(7, dtype="<f4").tobytes(),
+                _NOW,
+            ),
+        )
     return AnalysisTarget(
         catalog_uuid=db.catalog_uuid,
         track_id=track_id,
@@ -166,6 +182,41 @@ def _score_count(db: LibraryDatabase, classifier_key: str) -> int:
                 (classifier_key,),
             ).fetchone()[0]
         )
+
+
+def test_classifier_job_is_unavailable_without_current_sonara(
+    tmp_path: Path,
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+    output = _mert_output()
+    db.register_analysis_outputs((output,))
+    requirements = _requirements("test_classifier", output)
+    manager = ClassifierJobManager(
+        db,
+        requirements_loader=lambda _key: requirements,
+        scorer_factory=_FakeScorer,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Classifier analysis requires at least one track "
+            "with current SONARA"
+        ),
+    ):
+        manager.create_job(classifier="test_classifier")
+
+    assert manager.readiness(["test_classifier"]) == {
+        "test_classifier": {
+            "candidates": 0,
+            "ready": 0,
+            "not_ready": 0,
+            "blockers": [
+                "Classifier analysis requires at least one track "
+                "with current SONARA analysis"
+            ],
+        }
+    }
 
 
 def test_aggregate_limit_caps_track_classifier_pairs_on_current_rows(
@@ -285,6 +336,7 @@ def test_custom_model_path_calls_current_requirements_loader_with_database(
     db = LibraryDatabase(tmp_path / "library.sqlite")
     output = _mert_output()
     db.register_analysis_outputs((output,))
+    _insert_track(db)
     requirements = _requirements("test_classifier", output)
     calls: list[tuple[object, str, Path | None]] = []
 

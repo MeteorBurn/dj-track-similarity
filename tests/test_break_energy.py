@@ -205,6 +205,7 @@ def test_break_energy_job_aggregates_only_feature_ready_tracks(
     db.register_analysis_outputs((output,))
     ready = _insert_track(db)
     missing = _insert_track(db)
+    _write_sonara_core(db, ready)
     _write_embedding(db, ready, output)
     model_path = _write_model(tmp_path / "break-energy", output)
     requirements = load_classifier_requirements(

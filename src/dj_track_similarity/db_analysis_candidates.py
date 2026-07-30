@@ -126,6 +126,31 @@ def _maest_window_context(row: sqlite3.Row) -> MaestWindowContext | None:
     )
 
 
+def current_sonara_target_keys(
+    core_connection: sqlite3.Connection,
+    *,
+    catalog_uuid: str,
+) -> set[tuple[int, str, int]]:
+    current_tracks = {
+        int(row["track_id"]): ArtifactTrackIdentity(
+            catalog_uuid=catalog_uuid,
+            track_id=int(row["track_id"]),
+            track_uuid=str(row["track_uuid"]),
+            content_generation=int(row["content_generation"]),
+        )
+        for row in read_current_track_rows(core_connection)
+    }
+    rows = _valid_sonara_core_rows(
+        core_connection,
+        output=AnalysisOutput("sonara", "core"),
+        current_tracks=current_tracks,
+    )
+    return {
+        (track_id, track_uuid, generation)
+        for track_id, track_uuid, generation in rows
+    }
+
+
 def ready_target_keys_by_output(
     *,
     core_connection: sqlite3.Connection,
@@ -316,22 +341,47 @@ def collect_analysis_candidates(
     catalog_uuid: str,
     outputs: Sequence[AnalysisOutput],
     limit: int | None,
+    require_current_sonara: bool = False,
 ) -> list[AnalysisCandidate]:
     normalized = require_active_analysis_outputs(core_connection, outputs)
+    if not isinstance(require_current_sonara, bool):
+        raise TypeError("require_current_sonara must be a boolean")
     if limit is not None:
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
             raise ValueError("limit must be a non-negative integer or None")
         if limit == 0:
             return []
+    needs_sonara_readiness = require_current_sonara or any(
+        output.analysis_family == "maest" for output in normalized
+    )
+    sonara_output = AnalysisOutput("sonara", "core")
+    readiness_outputs = (
+        normalized
+        if not needs_sonara_readiness
+        or any(output.key == sonara_output.key for output in normalized)
+        else (*normalized, sonara_output)
+    )
     ready = ready_target_keys_by_output(
         core_connection=core_connection,
         artifacts_connection=artifacts_connection,
         catalog_uuid=catalog_uuid,
-        outputs=normalized,
+        outputs=readiness_outputs,
+    )
+    sonara_ready = (
+        ready.get(sonara_output.key, set())
+        if needs_sonara_readiness
+        else set()
     )
     candidates: list[AnalysisCandidate] = []
     for row in read_current_track_rows(core_connection):
         target = target_from_track_row(row, catalog_uuid=catalog_uuid)
+        target_key = (
+            target.track_id,
+            target.track_uuid,
+            target.content_generation,
+        )
+        if require_current_sonara and target_key not in sonara_ready:
+            continue
         missing = missing_outputs_for_target(target, normalized, ready)
         if not missing:
             continue
@@ -342,7 +392,11 @@ def collect_analysis_candidates(
                 file_size_bytes=int(row["file_size_bytes"]),
                 file_modified_ns=int(row["file_modified_ns"]),
                 missing_outputs=missing,
-                maest_window_context=_maest_window_context(row),
+                maest_window_context=(
+                    _maest_window_context(row)
+                    if target_key in sonara_ready
+                    else None
+                ),
             )
         )
         if limit is not None and len(candidates) >= limit:

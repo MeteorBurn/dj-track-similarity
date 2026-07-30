@@ -168,6 +168,30 @@ def _write_mert_embedding(
     _write_embedding(db, target, output)
 
 
+def _write_sonara_core(
+    db: LibraryDatabase,
+    target: AnalysisTarget,
+) -> None:
+    with db.connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO sonara(
+                track_id, content_generation,
+                mfcc_mean_blob, chroma_mean_blob,
+                spectral_contrast_mean_blob, analyzed_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                target.track_id,
+                target.content_generation,
+                np.zeros(13, dtype="<f4").tobytes(),
+                np.zeros(12, dtype="<f4").tobytes(),
+                np.zeros(7, dtype="<f4").tobytes(),
+                _NOW,
+            ),
+        )
+
+
 def _score_write(
     target: AnalysisTarget,
     *,
@@ -262,6 +286,7 @@ def test_artifact_validation_preserves_existing_scores_on_failure(
     output = _mert_output()
     db.register_analysis_outputs((output,))
     target = _insert_track(db)
+    _write_sonara_core(db, target)
     _write_mert_embedding(db, target, output)
     assert db.save_classifier_scores(
         (
@@ -339,6 +364,25 @@ def test_artifact_validation_preserves_existing_scores_on_failure(
     assert len(_score_rows(db, "other_classifier")) == 1
 
 
+def test_standalone_classifier_analysis_requires_current_sonara(
+    tmp_path: Path,
+) -> None:
+    db = LibraryDatabase(tmp_path / "library.sqlite")
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Classifier analysis requires at least one track "
+            "with current SONARA"
+        ),
+    ):
+        analyze_classifier(
+            db,
+            classifier="test_classifier",
+            model_path=tmp_path / "missing.joblib",
+        )
+
+
 def test_production_scoring_loads_current_muq_embedding(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -347,6 +391,7 @@ def test_production_scoring_loads_current_muq_embedding(
     output = _muq_output()
     db.register_analysis_outputs((output,))
     target = _insert_track(db)
+    _write_sonara_core(db, target)
     _write_embedding(db, target, output)
     names = ("muq:0",)
     model_path = _write_artifact(

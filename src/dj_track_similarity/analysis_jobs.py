@@ -191,6 +191,11 @@ class AnalysisJobManager:
                 else sonara_batch_size
             ),
         )
+        if config.require_current_sonara and self.current_sonara_track_count() < 1:
+            raise ValueError(
+                "ML analysis requires at least one track with current "
+                "SONARA analysis"
+            )
         job_id = str(uuid.uuid4())
         status = AnalysisJobStatus(
             job_id=job_id,
@@ -229,6 +234,9 @@ class AnalysisJobManager:
             )
         self._append_event(job_id, "info", settings_message)
         return job_id
+
+    def current_sonara_track_count(self) -> int:
+        return self.db.current_sonara_track_count()
 
     def sonara_status(self) -> SonaraStatus:
         """Return SONARA Core coverage for the current catalog."""
@@ -384,6 +392,7 @@ class AnalysisJobManager:
         candidates = self.db.list_analysis_candidates(
             candidate_outputs,
             limit=config.limit,
+            require_current_sonara=config.require_current_sonara,
         )
         if any(
             not isinstance(candidate, AnalysisCandidate) for candidate in candidates

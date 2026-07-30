@@ -63,6 +63,15 @@ def test_build_analysis_job_config_has_no_sonara_output_selection() -> None:
     assert not hasattr(build_analysis_job_config(models=["sonara"]), "sonara_outputs")
 
 
+def test_ml_jobs_require_current_sonara_but_sonara_jobs_do_not() -> None:
+    assert build_analysis_job_config(
+        models=["maest", "mert"],
+    ).require_current_sonara
+    assert not build_analysis_job_config(
+        models=["sonara"],
+    ).require_current_sonara
+
+
 @pytest.mark.parametrize(
     ("kwargs", "message"),
     [

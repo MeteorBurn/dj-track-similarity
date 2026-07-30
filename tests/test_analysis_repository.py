@@ -227,6 +227,67 @@ def test_candidate_ignores_stale_sonara_maest_window_context(
     assert candidate.maest_window_context is None
 
 
+def test_candidate_filter_requires_current_sonara_generation(
+    tmp_path: Path,
+) -> None:
+    repository = _repository(tmp_path)
+    output = AnalysisOutput("maest", "embedding")
+
+    assert repository.list_analysis_candidates(
+        (output,),
+        require_current_sonara=True,
+    ) == []
+
+    _insert_sonara_window_context(repository, generation=1)
+    candidates = repository.list_analysis_candidates(
+        (output,),
+        require_current_sonara=True,
+    )
+    assert [candidate.target.track_id for candidate in candidates] == [1]
+
+    with repository.connect() as connection:
+        connection.execute(
+            "UPDATE tracks SET content_generation = 2 WHERE track_id = 1"
+        )
+        connection.commit()
+
+    assert repository.list_analysis_candidates(
+        (output,),
+        require_current_sonara=True,
+    ) == []
+
+
+def test_invalid_current_sonara_does_not_unlock_ml_candidates(
+    tmp_path: Path,
+) -> None:
+    repository = _repository(tmp_path)
+    invalid_mfcc = np.zeros(13, dtype="<f4")
+    invalid_mfcc[0] = np.nan
+    with repository.connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO sonara(
+                track_id, content_generation,
+                mfcc_mean_blob, chroma_mean_blob,
+                spectral_contrast_mean_blob, analyzed_at
+            ) VALUES (1, 1, ?, ?, ?, ?)
+            """,
+            (
+                invalid_mfcc.tobytes(),
+                np.zeros(12, dtype="<f4").tobytes(),
+                np.zeros(7, dtype="<f4").tobytes(),
+                ANALYZED_AT,
+            ),
+        )
+        connection.commit()
+
+    assert repository.current_sonara_track_count() == 0
+    assert repository.list_analysis_candidates(
+        (AnalysisOutput("maest", "embedding"),),
+        require_current_sonara=True,
+    ) == []
+
+
 def test_repeated_write_replaces_same_family_row_without_version_identity(
     tmp_path: Path,
 ) -> None:

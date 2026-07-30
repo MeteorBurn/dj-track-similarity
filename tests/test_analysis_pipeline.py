@@ -2,15 +2,21 @@ import threading
 import time
 from types import SimpleNamespace
 
+import pytest
+
 from dj_track_similarity.analysis_pipeline import AnalysisPipelineManager
 from dj_track_similarity.analysis_queue import AnalysisStageQueue
 
 
 class FakeJobs:
-    def __init__(self, states):
+    def __init__(self, states, *, sonara_count=1):
         self.states = list(states)
+        self.sonara_count = sonara_count
         self.created = []
         self.cancelled = []
+
+    def current_sonara_track_count(self):
+        return self.sonara_count
 
     def create_job(self, **kwargs):
         job_id = f"child-{len(self.created) + 1}"
@@ -25,7 +31,7 @@ class FakeJobs:
 
 
 def test_pipeline_uses_fixed_order_and_continues_after_completed_per_file_failures() -> None:
-    audio = FakeJobs(["completed", "completed"])
+    audio = FakeJobs(["completed", "completed"], sonara_count=0)
     classifiers = FakeJobs(["completed"])
     manager = AnalysisPipelineManager(audio, classifiers, AnalysisStageQueue())
     job_id = manager.create_job(
@@ -61,6 +67,25 @@ def test_pipeline_stops_after_fatal_stage_failure() -> None:
     assert status.stages["sonara"].state == "completed"
     assert status.stages["ml"].state == "failed"
     assert status.stages["classifiers"].state == "pending"
+    assert classifiers.created == []
+
+
+def test_pipeline_without_sonara_stage_requires_existing_sonara() -> None:
+    audio = FakeJobs([], sonara_count=0)
+    classifiers = FakeJobs([])
+    manager = AnalysisPipelineManager(
+        audio,
+        classifiers,
+        AnalysisStageQueue(),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="pipeline stages require at least one track with current SONARA",
+    ):
+        manager.create_job(stages=["ml", "classifiers"], limit=None)
+
+    assert audio.created == []
     assert classifiers.created == []
 
 

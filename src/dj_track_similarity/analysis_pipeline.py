@@ -89,6 +89,15 @@ class AnalysisPipelineManager:
             raise ValueError(f"Unknown pipeline stages: {', '.join(unknown)}")
         if not selected:
             raise ValueError("At least one pipeline stage must be selected")
+        if (
+            "sonara" not in selected
+            and any(stage in selected for stage in ("ml", "classifiers"))
+            and self.analysis_jobs.current_sonara_track_count() < 1
+        ):
+            raise ValueError(
+                "ML and classifier pipeline stages require at least one track "
+                "with current SONARA analysis"
+            )
         job_id = str(uuid.uuid4())
         status = AnalysisPipelineStatus(
             job_id=job_id,

@@ -17,7 +17,13 @@ import {
   ScanStats,
   Track,
 } from "./api";
-import { analysisSelectionOrder, defaultAnalysisSelections, isAudioAnalysisModel, type AnalysisSelection } from "./analysisSelection";
+import {
+  analysisSelectionOrder,
+  analysisStartBlockedByMissingSonara,
+  defaultAnalysisSelections,
+  isAudioAnalysisModel,
+  type AnalysisSelection
+} from "./analysisSelection";
 import { AudioDedupDialog } from "./AudioDedupDialog";
 import { AudioDoctorDialog } from "./AudioDoctorDialog";
 import { clapPromptPresets, defaultClapPromptPresetKey, promptQueriesFromText } from "./clapPrompt";
@@ -794,6 +800,12 @@ export function App() {
   }
 
   async function handleAnalyzeClassifier(classifier: PromotedClassifier) {
+    if (librarySummary.sonara < 1) {
+      const message = "Сначала выполните SONARA-анализ хотя бы одного трека";
+      setNotice({ kind: "error", text: message });
+      appendActivity("error", "CLASSIFIER недоступен", message);
+      return;
+    }
     await run(
       async () => {
         const promotedClassifiers = await api.classifiers();
@@ -991,6 +1003,17 @@ export function App() {
     if (includeClassifiers) stages.push("classifiers");
     if (!stages.length) {
       setNotice({ kind: "error", text: "Выберите хотя бы одну стадию анализа" });
+      return;
+    }
+    if (
+      analysisStartBlockedByMissingSonara(
+        selectedAnalysisModels,
+        librarySummary.sonara
+      )
+    ) {
+      const message = "Сначала выполните SONARA-анализ хотя бы одного трека";
+      setNotice({ kind: "error", text: message });
+      appendActivity("error", "ML/CLASSIFIERS недоступны", message);
       return;
     }
     const classifierKeys = compatibleClassifierKeys();

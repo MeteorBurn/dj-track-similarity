@@ -11,8 +11,8 @@ The selection should combine:
 - the existing SONARA Core structure fields when a current SONARA row exists;
 - evenly distributed window centers at 20%, 50%, and 80% of the selected
   content range;
-- deterministic fallback behavior when SONARA has not been run or its usable
-  range is too short.
+- deterministic fallback behavior when the stored structure boundaries are
+  absent or too close together.
 
 Genre score aggregation, checkpoint selection, embedding extraction, audio-file
 safety, and source precision remain unchanged.
@@ -33,7 +33,6 @@ It does not:
 
 - persist or consume SONARA `energy_curve` samples or `segments`;
 - add or migrate database columns;
-- make standalone MAEST analysis depend on SONARA;
 - change MAEST top-K selection or mean score aggregation;
 - round model scores or embeddings;
 - modify source audio or tags.
@@ -47,13 +46,23 @@ silence, trailing silence, intro end, and outro start values.
 it with a left join to the current-generation SONARA row. A stale SONARA row
 must never supply window context.
 
-The context remains optional so:
+The context remains optional at the adapter boundary so:
 
-- a standalone MAEST job works before SONARA analysis;
 - tests and non-MAEST callers can construct candidates without structure data;
-- a failed SONARA track does not block ML analysis in the pipeline.
+- a current SONARA row whose structure values are absent can still use the
+  full-duration window fallback.
 
 No model other than MAEST consumes the context.
+
+Project ML jobs have a stronger eligibility rule than the adapter boundary.
+MAEST, MERT, MuQ, and CLAP select only tracks with a valid SONARA Core result
+for the same current `content_generation`. A stale, missing, or invalid SONARA
+row excludes the track from every ML job.
+
+No ML or promoted-classifier job can start until the current catalog contains
+at least one valid current-generation SONARA result. A pipeline that includes
+the SONARA stage may bootstrap an empty catalog because the gate is checked
+when each later stage starts.
 
 ## Range selection
 
@@ -103,15 +112,16 @@ Keep starts in chronological order. Remove a start when it is within one second
 of an already selected start, matching the current clamped-window
 deduplication tolerance. The result therefore contains one to three windows.
 
-When no usable SONARA context exists, this becomes ordinary centered
-20%/50%/80% sampling over the full decoded duration. It replaces the current
-`60 seconds / 38% / 72%` start policy, whose first two windows overlap heavily
-on common three-minute tracks.
+When a current valid SONARA row has no structure boundaries, or when the
+adapter is called directly outside a project ML job, this becomes ordinary
+centered 20%/50%/80% sampling over the full decoded duration. It replaces the
+current `60 seconds / 38% / 72%` start policy, whose first two windows overlap
+heavily on common three-minute tracks.
 
 ## Data flow
 
-1. Candidate collection reads current track identity and optional
-   current-generation SONARA window context.
+1. Candidate collection excludes tracks without current-generation SONARA and
+   reads optional structure boundaries from the matching row.
 2. Shared audio decoding remains unchanged and still occurs once per ML batch
    item.
 3. `MaestModelRunner` passes the per-item optional contexts alongside decoded
@@ -125,8 +135,9 @@ on common three-minute tracks.
    windows and L2-normalized as they are today.
 
 SONARA and ML remain separate analysis stages. The fixed pipeline order
-SONARA → ML means a pipeline run normally benefits from the hints, while an
-explicit MAEST-only run retains deterministic fallback behavior.
+SONARA → ML lets a full pipeline establish the prerequisite before ML starts.
+An explicit MAEST-only project job is rejected while the catalog has no
+current SONARA results and skips individual tracks without current SONARA.
 
 ## Runtime metadata
 
@@ -147,8 +158,10 @@ change and is outside this initial scope.
 
 ## Error handling
 
-- Missing SONARA data selects the full-duration fallback.
-- A stale SONARA generation is treated as missing.
+- Missing or stale SONARA excludes a track from project ML jobs.
+- Zero current SONARA coverage rejects ML and classifier job creation.
+- Missing structure fields on an otherwise current SONARA row select the
+  full-duration fallback.
 - Non-finite, negative, out-of-duration, or reversed boundaries are ignored or
   clamped without failing MAEST.
 - If the preferred range is shorter than 30 seconds, relax intro/outro first.
@@ -184,7 +197,11 @@ Focused tests must prove:
     or embeddings;
 12. score aggregation still averages all label scores before top-K selection;
 13. MAEST embeddings remain finite, 768-dimensional, and L2-normalized;
-14. existing MERT, MuQ, CLAP, and SONARA analysis paths remain unchanged.
+14. every ML job filters out tracks without current-generation SONARA;
+15. ML and classifier job creation is rejected at zero current SONARA
+    coverage;
+16. a pipeline with SONARA first can establish the prerequisite for later
+    stages.
 
 Run the smallest focused backend tests covering candidate collection, MAEST
 window preparation, and MAEST model-runner persistence. No real project

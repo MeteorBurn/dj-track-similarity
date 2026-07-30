@@ -203,14 +203,14 @@ _ML_CANONICAL_RUNTIME_PARAMETERS: dict[
     ("maest", "analysis"): {
         "sample_rate_hz": 16_000,
         "input_seconds": 30.0,
-        "analysis_offset_seconds": 60.0,
-        "analysis_window_ratios": (0.38, 0.72),
+        "analysis_window_positions": (0.2, 0.5, 0.8),
         "channel_downmix": "arithmetic-mean",
         "decoder": "shared-load-audio-mono-v1",
         "resampler": "torchaudio",
-        "window_selection": (
-            "offset60s+duration-ratios-0.38,0.72-clamped-dedup-1s"
-        ),
+        "window_selection": "structure-aware-main-range-centered-20-50-80",
+        "window_context": "sonara-current-generation-optional",
+        "window_fallback": "main-range->non-silent-range->full-duration",
+        "window_dedup_tolerance_seconds": 1.0,
         "short_audio": "right-zero-pad-to-30s",
         "model_input": "raw-waveform-melspectrogram-input-false",
         "score_activation": "sigmoid-logits",
@@ -219,15 +219,15 @@ _ML_CANONICAL_RUNTIME_PARAMETERS: dict[
     ("maest", "embedding"): {
         "sample_rate_hz": 16_000,
         "input_seconds": 30.0,
-        "analysis_offset_seconds": 60.0,
-        "analysis_window_ratios": (0.38, 0.72),
+        "analysis_window_positions": (0.2, 0.5, 0.8),
         "pooling": "distilled-token-mean+window-mean+l2",
         "channel_downmix": "arithmetic-mean",
         "decoder": "shared-load-audio-mono-v1",
         "resampler": "torchaudio",
-        "window_selection": (
-            "offset60s+duration-ratios-0.38,0.72-clamped-dedup-1s"
-        ),
+        "window_selection": "structure-aware-main-range-centered-20-50-80",
+        "window_context": "sonara-current-generation-optional",
+        "window_fallback": "main-range->non-silent-range->full-duration",
+        "window_dedup_tolerance_seconds": 1.0,
         "short_audio": "right-zero-pad-to-30s",
         "model_input": "raw-waveform-melspectrogram-input-false",
         "score_activation": "sigmoid-logits",
@@ -288,8 +288,7 @@ _REQUIRED_PARAMETER_KEYS = {
             "adapter_revision",
             "sample_rate_hz",
             "input_seconds",
-            "analysis_offset_seconds",
-            "analysis_window_ratios",
+            "analysis_window_positions",
             "top_k",
             "dtype",
             "device_precision",
@@ -302,8 +301,7 @@ _REQUIRED_PARAMETER_KEYS = {
             "adapter_revision",
             "sample_rate_hz",
             "input_seconds",
-            "analysis_offset_seconds",
-            "analysis_window_ratios",
+            "analysis_window_positions",
             "pooling",
             "dtype",
             "device_precision",
@@ -563,24 +561,19 @@ def maest_analysis_output(
     preprocessing: str,
     sample_rate_hz: int,
     input_seconds: float,
-    analysis_offset_seconds: float,
-    analysis_window_ratios: Sequence[float],
+    analysis_window_positions: Sequence[float],
     top_k: int,
     model_name: str = MAEST_MODEL_NAME,
     parameters: Mapping[str, object] | None = None,
 ) -> "AnalysisOutput":
-    ratios = _validate_window_ratios(
-        analysis_window_ratios,
-        "analysis_window_ratios",
+    positions = _validate_window_ratios(
+        analysis_window_positions,
+        "analysis_window_positions",
     )
     reserved: dict[str, object] = {
         "sample_rate_hz": _positive_int(sample_rate_hz, "sample_rate_hz"),
         "input_seconds": _positive_number(input_seconds, "input_seconds"),
-        "analysis_offset_seconds": _non_negative_number(
-            analysis_offset_seconds,
-            "analysis_offset_seconds",
-        ),
-        "analysis_window_ratios": ratios,
+        "analysis_window_positions": positions,
         "top_k": _positive_int(top_k, "top_k"),
     }
     values = _with_ml_runtime_identity(
@@ -602,8 +595,7 @@ def maest_embedding_output(
     preprocessing: str,
     sample_rate_hz: int,
     input_seconds: float,
-    analysis_offset_seconds: float,
-    analysis_window_ratios: Sequence[float],
+    analysis_window_positions: Sequence[float],
     pooling: str,
     model_name: str = MAEST_MODEL_NAME,
     parameters: Mapping[str, object] | None = None,
@@ -611,13 +603,9 @@ def maest_embedding_output(
     reserved: dict[str, object] = {
         "sample_rate_hz": _positive_int(sample_rate_hz, "sample_rate_hz"),
         "input_seconds": _positive_number(input_seconds, "input_seconds"),
-        "analysis_offset_seconds": _non_negative_number(
-            analysis_offset_seconds,
-            "analysis_offset_seconds",
-        ),
-        "analysis_window_ratios": _validate_window_ratios(
-            analysis_window_ratios,
-            "analysis_window_ratios",
+        "analysis_window_positions": _validate_window_ratios(
+            analysis_window_positions,
+            "analysis_window_positions",
         ),
         "pooling": _required_text(pooling, "pooling"),
     }

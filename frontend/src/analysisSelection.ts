@@ -10,3 +10,13 @@ export const defaultAnalysisSelections: AnalysisSelection[] = ["sonara"];
 export function isAudioAnalysisModel(model: AnalysisSelection): model is AnalysisModel {
   return model !== "classifiers";
 }
+
+export function analysisStartBlockedByMissingSonara(
+  selections: readonly AnalysisSelection[],
+  currentSonaraTrackCount: number
+) {
+  if (currentSonaraTrackCount > 0 || selections.includes("sonara")) {
+    return false;
+  }
+  return selections.some((selection) => selection !== "sonara");
+}

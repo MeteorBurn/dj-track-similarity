@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Sequence
 import hashlib
 from pathlib import Path
 import time
@@ -15,6 +16,12 @@ from .analysis_models import (
     MAEST_PREPROCESSING,
 )
 from .audio_loader import DecodedAudio, load_audio_mono, torch_compatible_audio
+from .maest_windows import (
+    MAEST_WINDOW_DEDUP_TOLERANCE_SECONDS,
+    MAEST_WINDOW_POSITIONS,
+    MaestWindowContext,
+    select_maest_window_starts,
+)
 from .runtime import select_torch_device
 
 
@@ -35,8 +42,7 @@ class MaestGenreAdapter:
     dim = 768
     target_rate = 16_000
     input_seconds = 30.0
-    analysis_offset_seconds = 60.0
-    analysis_window_ratios = (0.38, 0.72)
+    analysis_window_positions = MAEST_WINDOW_POSITIONS
     pooling = "distilled-token-mean+window-mean+l2"
     encoding = "float32-le"
     normalization = "l2"
@@ -58,14 +64,22 @@ class MaestGenreAdapter:
             "adapter_revision": self.adapter_revision,
             "sample_rate_hz": self.target_rate,
             "input_seconds": self.input_seconds,
-            "analysis_offset_seconds": self.analysis_offset_seconds,
-            "analysis_window_ratios": self.analysis_window_ratios,
+            "analysis_window_positions": self.analysis_window_positions,
             "top_k": self.top_k,
             "pooling": self.pooling,
             "channel_downmix": "arithmetic-mean",
             "decoder": "shared-load-audio-mono-v1",
             "resampler": "torchaudio",
-            "window_selection": "offset60s+duration-ratios-0.38,0.72-clamped-dedup-1s",
+            "window_selection": (
+                "structure-aware-main-range-centered-20-50-80"
+            ),
+            "window_context": "sonara-current-generation-optional",
+            "window_fallback": (
+                "main-range->non-silent-range->full-duration"
+            ),
+            "window_dedup_tolerance_seconds": (
+                MAEST_WINDOW_DEDUP_TOLERANCE_SECONDS
+            ),
             "short_audio": "right-zero-pad-to-30s",
             "model_input": "raw-waveform-melspectrogram-input-false",
             "score_activation": "sigmoid-logits",
@@ -97,13 +111,34 @@ class MaestGenreAdapter:
         prepare_seconds = time.perf_counter() - prepare_started
         return self._predict_prepared_batch([str(path) for path in paths], prepared, window_track_indexes, decode_seconds, prepare_seconds)
 
-    def predict_decoded_batch(self, decoded_items: list[DecodedAudio]) -> list[list[dict[str, float | str]]]:
+    def predict_decoded_batch(
+        self,
+        decoded_items: list[DecodedAudio],
+        *,
+        window_contexts: Sequence[MaestWindowContext | None] | None = None,
+    ) -> list[list[dict[str, float | str]]]:
         self._load_model()
+        contexts = (
+            [None] * len(decoded_items)
+            if window_contexts is None
+            else list(window_contexts)
+        )
+        if len(contexts) != len(decoded_items):
+            raise ValueError(
+                "MAEST window context count does not match track count"
+            )
         prepared = []
         window_track_indexes: list[int] = []
         prepare_started = time.perf_counter()
-        for track_index, decoded in enumerate(decoded_items):
-            windows = self._prepare_audio_windows_from_audio(decoded.path, decoded.audio, decoded.sample_rate)
+        for track_index, (decoded, context) in enumerate(
+            zip(decoded_items, contexts)
+        ):
+            windows = self._prepare_audio_windows_from_audio(
+                decoded.path,
+                decoded.audio,
+                decoded.sample_rate,
+                window_context=context,
+            )
             prepared.extend(windows)
             window_track_indexes.extend([track_index] * len(windows))
         prepare_seconds = time.perf_counter() - prepare_started
@@ -174,7 +209,14 @@ class MaestGenreAdapter:
         decode_seconds = time.perf_counter() - decode_started
         return self._prepare_audio_windows_from_audio(path, audio_values, sample_rate), decode_seconds
 
-    def _prepare_audio_windows_from_audio(self, path: str | Path, audio_values: np.ndarray, sample_rate: int):
+    def _prepare_audio_windows_from_audio(
+        self,
+        path: str | Path,
+        audio_values: np.ndarray,
+        sample_rate: int,
+        *,
+        window_context: MaestWindowContext | None = None,
+    ):
         torch = self._torch
         torchaudio = self._torchaudio
         assert torch is not None
@@ -188,11 +230,10 @@ class MaestGenreAdapter:
         if audio.numel() < target_samples:
             return [torch.nn.functional.pad(audio, (0, target_samples - audio.numel()))]
 
-        starts = _analysis_window_starts(
+        starts = select_maest_window_starts(
             audio.numel() / self.target_rate,
             self.input_seconds,
-            self.analysis_offset_seconds,
-            self.analysis_window_ratios,
+            window_context,
         )
         windows = []
         for start_seconds in starts:
@@ -313,22 +354,6 @@ def _move_maest_runtime_modules(model: object, device: str) -> None:
         move = getattr(module, "to", None)
         if callable(move):
             move(device)
-
-
-def _analysis_window_starts(
-    duration_seconds: float,
-    input_seconds: float,
-    offset_seconds: float,
-    ratios: tuple[float, ...],
-) -> list[float]:
-    max_start = max(0.0, duration_seconds - input_seconds)
-    requested = [offset_seconds, *(duration_seconds * ratio for ratio in ratios)]
-    starts: list[float] = []
-    for value in requested:
-        start = min(max(0.0, value), max_start)
-        if not any(abs(start - existing) < 1.0 for existing in starts):
-            starts.append(start)
-    return starts or [0.0]
 
 
 def _average_window_rows(

@@ -31,6 +31,7 @@ from dj_track_similarity.audio_loader import DecodedAudio
 from dj_track_similarity.database import LibraryDatabase
 from dj_track_similarity.embedding import MertEmbeddingAdapter
 from dj_track_similarity.genres import MaestGenreAdapter
+from dj_track_similarity.maest_windows import MaestWindowContext
 from dj_track_similarity.track_models import FileTags, ScannedFile
 
 
@@ -72,6 +73,7 @@ def _decoded(path: str) -> DecodedAudio:
 @dataclass
 class _FakeRepository:
     candidates: list[AnalysisCandidate]
+    sonara_count: int = 1
     events: list[tuple[str, object]] = field(default_factory=list)
     active_by_key: dict[tuple[str, str], AnalysisOutput] = field(
         default_factory=dict,
@@ -95,14 +97,23 @@ class _FakeRepository:
     ) -> AnalysisOutput | None:
         return self.active_by_key.get((analysis_family, output_kind))
 
+    def current_sonara_track_count(self) -> int:
+        return self.sonara_count
+
     def list_analysis_candidates(
         self,
         outputs: Sequence[AnalysisOutput],
         *,
         limit: int | None = None,
+        require_current_sonara: bool = False,
     ) -> list[AnalysisCandidate]:
         assert self.events and self.events[0][0] == "register"
-        self.events.append(("candidates", (tuple(outputs), limit)))
+        self.events.append(
+            (
+                "candidates",
+                (tuple(outputs), limit, require_current_sonara),
+            )
+        )
         selected = self.candidates if limit is None else self.candidates[:limit]
         return list(selected)
 
@@ -172,6 +183,11 @@ def test_job_registers_exact_outputs_before_candidate_selection() -> None:
         ("mert", "embedding"),
         ("clap", "embedding"),
     ]
+    assert repository.events[1][1] == (
+        (mert, clap),
+        None,
+        True,
+    )
     assert status.state == "completed"
     assert status.total == 1
     assert status.processed == 1
@@ -180,6 +196,19 @@ def test_job_registers_exact_outputs_before_candidate_selection() -> None:
     assert not hasattr(status, "embedding_key")
     assert runners["mert"].items[0].candidate is candidate
     assert runners["clap"].items[0].candidate is candidate
+
+
+def test_ml_job_is_unavailable_without_current_sonara() -> None:
+    repository = _FakeRepository([], sonara_count=0)
+    manager = AnalysisJobManager(repository)
+
+    with pytest.raises(
+        ValueError,
+        match="ML analysis requires at least one track with current SONARA",
+    ):
+        manager.create_job(models=["mert"], device="cpu")
+
+    assert repository.events == []
 
 
 def test_per_file_runner_failure_does_not_fail_the_job() -> None:
@@ -413,6 +442,24 @@ def test_fresh_current_database_runs_candidate_to_typed_embedding_write(
         ),
         tags=FileTags(title="Typed analysis"),
     )
+    with database.connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO sonara(
+                track_id, content_generation,
+                mfcc_mean_blob, chroma_mean_blob,
+                spectral_contrast_mean_blob, analyzed_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                mutation.identity.track_id,
+                mutation.identity.content_generation,
+                np.zeros(13, dtype="<f4").tobytes(),
+                np.zeros(12, dtype="<f4").tobytes(),
+                np.zeros(7, dtype="<f4").tobytes(),
+                "2026-07-30T00:00:00.000000Z",
+            ),
+        )
     runner = EmbeddingModelRunner(
         "mert",
         device="cpu",
@@ -441,6 +488,7 @@ def test_fresh_current_database_runs_candidate_to_typed_embedding_write(
 
 class _FakeMaestAdapter(MaestGenreAdapter):
     _vectors: dict[str, np.ndarray]
+    received_window_contexts: tuple[MaestWindowContext | None, ...]
 
     def __init__(self) -> None:
         super().__init__(
@@ -449,6 +497,7 @@ class _FakeMaestAdapter(MaestGenreAdapter):
             inference_batch_size=2,
         )
         self._vectors = {}
+        self.received_window_contexts = ()
 
     def preflight(self) -> None:
         pass
@@ -456,7 +505,10 @@ class _FakeMaestAdapter(MaestGenreAdapter):
     def predict_decoded_batch(
         self,
         decoded_items: Sequence[DecodedAudio],
+        *,
+        window_contexts: Sequence[MaestWindowContext | None] | None = None,
     ) -> list[list[dict[str, object]]]:
+        self.received_window_contexts = tuple(window_contexts or ())
         for item in decoded_items:
             vector = np.zeros(768, dtype=np.float32)
             vector[:2] = (3.0, 4.0)
@@ -486,13 +538,28 @@ class _MaestWriteRepository:
 
 
 def test_maest_runner_persists_analysis_and_normalized_embedding_atomically() -> None:
+    context = MaestWindowContext(
+        leading_silence_seconds=5.0,
+        trailing_silence_seconds=10.0,
+        intro_end_seconds=40.0,
+        outro_start_seconds=170.0,
+    )
+    adapter = _FakeMaestAdapter()
     runner = MaestModelRunner(
         device="cpu",
         top_k=3,
         inference_batch_size=2,
-        adapter=_FakeMaestAdapter(),  # type: ignore[arg-type]
+        adapter=adapter,  # type: ignore[arg-type]
     )
-    candidate = _candidate(1, (runner.candidate_outputs[1],))
+    base_candidate = _candidate(1, (runner.candidate_outputs[1],))
+    candidate = AnalysisCandidate(
+        target=base_candidate.target,
+        file_path=base_candidate.file_path,
+        file_size_bytes=base_candidate.file_size_bytes,
+        file_modified_ns=base_candidate.file_modified_ns,
+        missing_outputs=(runner.candidate_outputs[1],),
+        maest_window_context=context,
+    )
     repository = _MaestWriteRepository()
 
     results = runner.analyze_batch(
@@ -516,3 +583,4 @@ def test_maest_runner_persists_analysis_and_normalized_embedding_atomically() ->
     assert write.syncopated_rhythm is True
     assert write.embedding is not None
     assert np.linalg.norm(write.embedding.vector) == pytest.approx(1.0)
+    assert adapter.received_window_contexts == (context,)

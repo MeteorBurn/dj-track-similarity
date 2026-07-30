@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Select up to three centered MAEST windows from the best available current-generation SONARA content range while preserving standalone full-duration fallback, score precision, and embedding behavior.
+**Goal:** Select up to three centered MAEST windows from the best available current-generation SONARA content range, require current SONARA before project ML/classifier work, and preserve score precision and embedding behavior.
 
 **Architecture:** Add a pure `maest_windows` module that owns the optional SONARA boundary value and deterministic start selection. Candidate collection attaches current-generation boundaries, and the existing MAEST runner passes them to the adapter without changing shared decoding or any other model family.
 
@@ -16,6 +16,13 @@
 - Deduplicate starts only when their distance is less than `1.0` second.
 - Range fallback order is main range, non-silent range, full decoded duration.
 - SONARA context is optional and must match the track's current `content_generation`.
+- Project ML jobs select only tracks with current-generation SONARA.
+- ML and classifier jobs cannot start until the catalog contains at least one
+  current-generation SONARA result.
+- A pipeline containing SONARA may establish that prerequisite before ML and
+  classifiers start.
+- Direct adapter calls and current SONARA rows without usable structure values
+  retain the full-duration window fallback.
 - Do not persist `energy_curve`, `segments`, or per-track MAEST offsets.
 - Preserve full scalar precision and the current mean-before-top-K score aggregation.
 - Preserve 768-dimensional MAEST window-mean plus L2-normalized embeddings.
@@ -888,7 +895,8 @@ starts = select_maest_window_starts(
 
 Remove the private `_analysis_window_starts` function from `genres.py`.
 `predict_batch(paths)` continues to pass no contexts and therefore selects
-centered full-duration windows.
+centered full-duration windows when the adapter is invoked directly. Project
+ML jobs filter candidates through current-generation SONARA first.
 
 - [ ] **Step 7: Pass contexts through `MaestModelRunner`**
 
@@ -1046,12 +1054,12 @@ description:
 
 ```markdown
 MAEST analyzes up to three 30-second windows centered at 20%, 50%, and 80% of
-the best available content range. When a current SONARA result exists, leading
-and trailing silence form hard boundaries and intro/outro form preferred soft
-boundaries. A range shorter than 30 seconds falls back first to the non-silent
-range and then to the full track. Without SONARA data, the centers are taken
-from the full track. Window scores are averaged before top-K genres are
-selected.
+the best available content range. Current SONARA leading and trailing silence
+form hard boundaries and intro/outro form preferred soft boundaries. A range
+shorter than 30 seconds falls back first to the non-silent range and then to
+the full track. Project ML jobs process only tracks with current SONARA; when
+its structure values are unusable, MAEST centers windows over the full track.
+Window scores are averaged before top-K genres are selected.
 ```
 
 - [ ] **Step 2: Update the Russian mirror**
@@ -1061,11 +1069,12 @@ Add the corresponding text near the MAEST description in
 
 ```markdown
 MAEST анализирует до трёх 30-секундных окон с центрами в 20%, 50% и 80%
-лучшего доступного диапазона содержимого. Если есть актуальный результат
-SONARA, начальная и конечная тишина задают жёсткие границы, а конец интро и
-начало аутро — предпочтительные мягкие границы. Диапазон короче 30 секунд
-сначала ослабляется до участка без краевой тишины, а затем до полного трека.
-Без данных SONARA центры выбираются по полной длительности. Оценки окон
+лучшего доступного диапазона содержимого. В актуальном результате SONARA
+начальная и конечная тишина задают жёсткие границы, а конец интро и начало
+аутро — предпочтительные мягкие границы. Диапазон короче 30 секунд сначала
+ослабляется до участка без краевой тишины, а затем до полного трека. Проектные
+ML-задачи обрабатывают только треки с актуальным SONARA; если его структурные
+поля непригодны, MAEST выбирает центры по полной длительности. Оценки окон
 усредняются до выбора жанров top-K.
 ```
 

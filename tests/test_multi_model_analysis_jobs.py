@@ -73,13 +73,22 @@ class _Repository:
     ) -> AnalysisOutput | None:
         return self.active_by_key.get((analysis_family, output_kind))
 
+    def current_sonara_track_count(self) -> int:
+        return 1
+
     def list_analysis_candidates(
         self,
         outputs: Sequence[AnalysisOutput],
         *,
         limit: int | None = None,
+        require_current_sonara: bool = False,
     ) -> list[AnalysisCandidate]:
-        self.events.append(("candidates", (tuple(outputs), limit)))
+        self.events.append(
+            (
+                "candidates",
+                (tuple(outputs), limit, require_current_sonara),
+            )
+        )
         if limit is None:
             return list(self.candidates)
         return list(self.candidates[:limit])

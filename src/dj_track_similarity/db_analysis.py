@@ -39,6 +39,7 @@ from .analysis_models import (
 from .db_analysis_candidates import (
     artifact_table_for_output,
     collect_analysis_candidates,
+    current_sonara_target_keys,
     missing_outputs_for_target,
     normalize_analysis_outputs,
     read_current_track_rows,
@@ -516,6 +517,7 @@ class AnalysisRepository:
         outputs: Sequence[AnalysisOutput],
         *,
         limit: int | None = None,
+        require_current_sonara: bool = False,
     ) -> list[AnalysisCandidate]:
         normalized = normalize_analysis_outputs(outputs)
         with self._write_lock:
@@ -534,6 +536,18 @@ class AnalysisRepository:
                     catalog_uuid=catalog_uuid,
                     outputs=normalized,
                     limit=limit,
+                    require_current_sonara=require_current_sonara,
+                )
+
+    def current_sonara_track_count(self) -> int:
+        with self._write_lock:
+            with closing(self.connect()) as core_connection:
+                catalog_uuid = _catalog_uuid(core_connection)
+                return len(
+                    current_sonara_target_keys(
+                        core_connection,
+                        catalog_uuid=catalog_uuid,
+                    )
                 )
 
     def save_sonara_results(

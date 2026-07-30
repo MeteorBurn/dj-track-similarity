@@ -28,8 +28,8 @@ It preserves:
 - the `sonara_broad` SET signal;
 - the SONARA source used by Hybrid;
 - SONARA Core inputs used by classifiers and Rhythm Lab;
-- the current Artifacts tables, columns, indexes, schema fingerprint, and
-  creation order.
+- the current Artifacts table/column placeholders, indexes, and creation
+  order.
 
 No existing or future database row is deleted by this change.
 
@@ -78,14 +78,15 @@ The following tables and their indexes remain in the Artifacts DDL:
 - `sonara_similarity_embeddings`
 - `sonara_fingerprints`
 
-They remain part of the exact Artifacts schema definition and are created in
-their current order. The change does not alter the schema fingerprint, database
-structure version, or migration behavior.
+They are created in their current order, but this does not define or freeze a
+SONARA payload schema, embedding dimension, fingerprint version, upstream
+version, or future application contract.
 
 No analysis path writes new rows to these tables. Generic schema validation,
-track cleanup, reset safety, and migration compatibility may continue to name
-the reserved tables where required to preserve database invariants. This
-compatibility code is not an active SONARA collection path.
+track cleanup, and reset safety may continue to name the reserved tables where
+required to preserve database invariants. The application does not validate or
+migrate Timeline/Embedding/Fingerprint row payloads while those outputs are
+disabled.
 
 ## Frontend and API
 

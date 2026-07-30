@@ -29,7 +29,7 @@
 
 | Семейство | Что записывает | Что включает |
 | --- | --- | --- |
-| SONARA | результаты `core`, `timeline`, `embedding` и `fingerprint` | поиск по признакам, оценку темпа с учётом уверенности, определение Camelot, порядок SET, диагностику переходов и входы классификаторов |
+| SONARA | строки признаков Core | поиск по признакам, оценку темпа с учётом уверенности, определение Camelot, порядок SET, диагностику переходов и входы классификаторов |
 | MAEST | жанры и синкопированность в Core, эмбеддинг в Artifacts | показ жанров, запись жанрового тега, поиск по референсному треку, SET, Hybrid, Audio Dedup и вход классификатора |
 | MERT | эмбеддинг в Artifacts | поиск по референсному треку, SET, Hybrid, Audio Dedup и вход классификатора |
 | MuQ | эмбеддинг в Artifacts | поиск по референсному треку, LAB Reference Compare, SET, Hybrid, Audio Dedup и вход классификатора |
@@ -45,16 +45,16 @@
 Сначала установите дополнительные зависимости. Затем выполните:
 
 ```powershell
-dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --limit 25 --db .\data\library.sqlite
+dj-sim analyze --models sonara --limit 25 --db .\data\library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --limit 25 --db .\data\library.sqlite
 dj-sim analyze-classifiers --db .\data\library.sqlite
-dj-sim analyze-pipeline --stages sonara,ml,classifiers --sonara-outputs core,timeline,embedding,fingerprint --db .\data\library.sqlite
+dj-sim analyze-pipeline --stages sonara,ml,classifiers --db .\data\library.sqlite
 ```
 
 Полезные варианты:
 
 ```powershell
-dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --db .\data\library.sqlite
+dj-sim analyze --models sonara --db .\data\library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --device auto --top-k 3 --track-batch-size 8 --inference-batch-size 16 --db .\data\library.sqlite
 ```
 
@@ -78,16 +78,13 @@ MuQ входит в необязательный набор `ml` и загруж
 ## Анализ в браузере
 
 Запускайте те же задачи флажками моделей в браузере. Начальное значение **Analyze limit** равно
-`0` и означает всю подходящую фонотеку. Результаты SONARA, размеры
+`0` и означает всю подходящую фонотеку. Размеры
 партий Track/Inference/SONARA, Device, прогресс, причины блокировки, отмена и сбросы только в SQLite
 передаются текущими запросами и ответами API. **CLASSIFIERS** остаётся отдельным этапом, а
 **FULL** последовательно запускает SONARA, ML и CLASSIFIERS.
 
-При запуске SONARA уже выбрана, и по умолчанию отмечены все четыре результата. Обязательный
-результат `core` заблокирован; `timeline`, `embedding` и `fingerprint` можно снять перед запуском
-задачи. В выбор ML входят MAEST, MERT, MuQ и CLAP, но не SONARA или CLASSIFIERS. Если выбранных
-результатов SONARA в каталоге ещё нет, **Analyze** запускает соответствующую работу без отдельного
-этапа подготовки.
+При запуске SONARA уже выбрана и всегда рассчитывает только Core; флажков результатов нет. В выбор
+ML входят MAEST, MERT, MuQ и CLAP, но не SONARA или CLASSIFIERS.
 
 SONARA получает пути нативными партиями и декодирует их через Symphonia внутри
 `sonara.analyze_batch()`. Загрузчик FFmpeg проекта, `analyze_signal` и резервный путь по одному файлу
@@ -99,10 +96,9 @@ ML-инференса. Для фонотеки на одном HDD оставь�
 
 ## Уже проанализированные треки
 
-Задачи выбирают только отсутствующие результаты отмеченных семейств. SONARA независимо
-материализует `core`, `timeline`, `embedding` и `fingerprint`, поэтому добавление ещё одного
-результата позже не заменяет уже сохранённый `core`. Завершённые результаты других семейств
-пропускаются. Используйте сброс только тогда, когда намеренно хотите удалить сохранённые результаты.
+Задачи выбирают только отсутствующие результаты отмеченных семейств. SONARA пропускает треки, для
+которых уже существует актуальная строка Core. Завершённые результаты других семейств пропускаются.
+Используйте сброс только тогда, когда намеренно хотите удалить сохранённые результаты.
 
 После обновления SONARA при необходимости явно адаптируйте хранилище и решите, какие результаты
 нужно сбросить или проанализировать повторно. Следуйте инструкции

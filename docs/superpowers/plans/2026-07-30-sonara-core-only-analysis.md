@@ -4,7 +4,7 @@
 
 **Goal:** Make SONARA analysis request, validate, persist, and expose Core only while preserving the existing reserved Artifacts tables and their creation order.
 
-**Architecture:** Collapse the application-level SONARA output contract from four selectable outputs to one fixed Core output. Keep the explicit Core feature allowlist, discard any non-Core values returned by SONARA at the adapter boundary, and remove optional-output controls and read surfaces vertically through backend, API, frontend, and documentation. Preserve the Artifacts DDL and schema fingerprint exactly so new databases still contain the reserved tables.
+**Architecture:** Collapse the application-level SONARA output contract from four selectable outputs to one fixed Core output. Keep the explicit Core feature allowlist, discard any non-Core values returned by SONARA at the adapter boundary, and remove optional-output controls and read surfaces vertically through backend, API, frontend, and documentation. Keep the current Artifacts table/column placeholders and creation order without defining an optional-output schema, dimension, version, or compatibility contract.
 
 **Tech Stack:** Python 3.12, Typer, FastAPI/Pydantic, SQLite, pytest, React 19, TypeScript, Vite, Node `node:test`, VitePress.
 
@@ -14,7 +14,8 @@
 - Do not request standalone SONARA features `"embedding"` or `"fingerprint"`.
 - Keep Core-required feature groups such as `beats`, `tempo_curve`, `beatgrid`, `structure`, and `loudness`.
 - Register and persist only `AnalysisOutput("sonara", "core")`.
-- Do not alter the DDL, columns, indexes, schema fingerprint, or creation order of `sonara_timeline`, `sonara_similarity_embeddings`, or `sonara_fingerprints`.
+- Keep the current DDL table/column placeholders, indexes, and creation order for `sonara_timeline`, `sonara_similarity_embeddings`, and `sonara_fingerprints`.
+- Do not retain payload validators, embedding specifications, version rules, or migration compatibility for disabled SONARA outputs.
 - Do not delete database rows or touch audio files.
 - Ignore extra fields returned by SONARA.
 - Keep `vocalness_model="bundled"`; any internal embedding computation remains SONARA's implementation detail.
@@ -365,8 +366,9 @@ table definition intact.
 Remove Timeline/fingerprint loaders, coverage aggregation, optional-output
 model fields, response fields, and `/api/tracks/{track_id}/sonara-timeline`.
 
-Keep reserved table names in track deletion/reset, schema validation, and
-migration code because those tables continue to exist.
+Keep reserved table names in track deletion/reset and DDL creation because
+those tables continue to exist. Remove disabled-output payload validation and
+migration support.
 
 - [ ] **Step 4: Write and run the DDL preservation test**
 
@@ -396,7 +398,7 @@ Run:
 python -m pytest tests\test_db_ddl.py tests\test_runtime_foundation.py tests\test_artifact_identity.py --override-ini addopts=
 ```
 
-Expected: all selected DDL checks pass with no schema fingerprint drift.
+Expected: all selected DDL placeholder checks pass.
 
 - [ ] **Step 5: Remove the KGLite SONARA embedding source**
 
@@ -623,7 +625,7 @@ git diff --stat
 
 Expected: no active optional-output selection symbols remain; any retained
 Timeline/embedding/fingerprint references are limited to reserved DDL,
-schema/migration compatibility, cleanup invariants, and database documentation.
+DDL placeholders, cleanup invariants, and database documentation.
 
 - [ ] **Step 7: Commit the documentation and verification slice**
 

@@ -29,7 +29,7 @@ which families deserve a full-library run.
 
 | Family | Writes | Unlocks |
 | --- | --- | --- |
-| SONARA | `core`, `timeline`, `embedding`, and `fingerprint` outputs | feature search, confidence-aware tempo, Camelot resolution, SET ordering, transition diagnostics, classifier inputs |
+| SONARA | Core feature rows | feature search, confidence-aware tempo, Camelot resolution, SET ordering, transition diagnostics, classifier inputs |
 | MAEST | Core genre/syncopation rows and an Artifacts embedding | genre display, genre tag apply, seed search, SET, Hybrid, Audio Dedup, classifier input |
 | MERT | Artifacts embedding | seed search, SET, Hybrid, Audio Dedup, classifier input |
 | MuQ | Artifacts embedding | seed search, LAB Reference Compare, SET, Hybrid, Audio Dedup, classifier input |
@@ -44,16 +44,16 @@ MAEST/MERT/MuQ/CLAP requirements. Incomplete tracks are counted as not ready rat
 Install optional analysis dependencies first. Then run:
 
 ```powershell
-dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --limit 25 --db .\data\library.sqlite
+dj-sim analyze --models sonara --limit 25 --db .\data\library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --limit 25 --db .\data\library.sqlite
 dj-sim analyze-classifiers --db .\data\library.sqlite
-dj-sim analyze-pipeline --stages sonara,ml,classifiers --sonara-outputs core,timeline,embedding,fingerprint --db .\data\library.sqlite
+dj-sim analyze-pipeline --stages sonara,ml,classifiers --db .\data\library.sqlite
 ```
 
 Useful options:
 
 ```powershell
-dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --db .\data\library.sqlite
+dj-sim analyze --models sonara --db .\data\library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --device auto --top-k 3 --track-batch-size 8 --inference-batch-size 16 --db .\data\library.sqlite
 ```
 
@@ -72,14 +72,13 @@ In the CLI, omit `--limit` for the whole library.
 ## Analyze in the browser
 
 Use the browser model checkboxes to start the same jobs. **Analyze limit** starts at `0` for the
-whole eligible library. SONARA outputs, Track/Inference/
+whole eligible library. Track/Inference/
 SONARA batch values, Device, progress, blockers, cancellation, and SQLite-only resets are carried
 through the typed requests and responses. **CLASSIFIERS** stays a separate stage; **FULL** runs
 SONARA, ML, and CLASSIFIERS in order.
 
-SONARA is selected at startup. All four outputs are selected by default. Its mandatory `core`
-output is locked; `timeline`, `embedding`, and `fingerprint` can be cleared before starting the
-job. The ML selection contains MAEST, MERT, MuQ, and CLAP, not SONARA or CLASSIFIERS.
+SONARA is selected at startup and always runs Core only. There are no output checkboxes. The ML
+selection contains MAEST, MERT, MuQ, and CLAP, not SONARA or CLASSIFIERS.
 
 SONARA receives paths in native batches and decodes them through its Symphonia path inside
 `sonara.analyze_batch()`. It does not call the project's FFmpeg loader and has no `analyze_signal`
@@ -90,10 +89,9 @@ default for a library on one HDD unless a measured pilot supports a larger value
 
 ## Already analyzed tracks
 
-Analysis jobs target missing results for the selected families. SONARA materializes `core`,
-`timeline`, `embedding`, and `fingerprint` independently, so adding another output later does not
-replace `core`. Other complete families are skipped. Use reset only when you intentionally want to
-delete stored results.
+Analysis jobs target missing results for the selected families. SONARA skips tracks whose current
+Core row is already present. Other complete families are skipped. Use reset only when you
+intentionally want to delete stored results.
 
 After adopting a SONARA change, adapt storage explicitly if needed and decide which outputs to
 reset or reanalyze. Follow [Migrate and reanalyze SONARA storage](../workflows/reanalyze-sonara-split-storage.md).

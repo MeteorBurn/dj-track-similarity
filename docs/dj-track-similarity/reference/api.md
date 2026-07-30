@@ -36,31 +36,16 @@ incompatible or incomplete bundles are rejected rather than migrated during norm
 | `GET` | `/api/tracks` | paginated lightweight track rows |
 | `POST` | `/api/tracks/filtered` | full filtered list for UI set actions |
 | `GET` | `/api/tracks/{track_id}` | full metadata row |
-| `GET` | `/api/tracks/{track_id}/sonara-timeline` | explicit Timeline payload read |
 | `POST` | `/api/tracks/{track_id}/liked` | toggle local liked state |
 | `GET` | `/media/{track_id}` | stream preview audio |
 
 Track list query ranges include `limit=1..500`, `offset>=0`, `search_mode=like|fts`, and `preset=all|syncopated`.
 
-The timeline endpoint returns complete stored `beats`, `onset_frames`, `chord_sequence`,
-`chord_events`, `tempo_curve`, `energy_curve`, `segments`, `loudness_curve`, and `downbeats` payloads
-when available. It returns `{}` when no current timeline row exists and `404` for an unknown track.
 Regular track rows use `TrackSummaryResponse`: composite identity (`catalog_uuid`,
 `track_id`, `track_uuid`, `content_generation`), `file_path`, compact tags, `analysis_coverage`, and
-classifier-score summaries. Detailed rows expose `optional_outputs.timeline_fields`,
-`sonara_embedding_available`, and `audio_fingerprint_available`.
-
-Each field is a serialized payload rather than a raw top-level array. The response shape is:
-
-```json
-{
-  "energy_curve": {
-    "value": [0.31, 0.44, 0.72],
-    "type": "list",
-    "length": 3
-  }
-}
-```
+classifier-score summaries. Detailed rows expose SONARA Core, MAEST, embedding summaries for the
+active ML families, and classifier details. Timeline, SONARA embedding, and fingerprint fields are
+not part of the response.
 
 ## Analysis and classifiers
 
@@ -81,10 +66,8 @@ Each field is a serialized payload rather than a raw top-level array. The respon
 | `POST` | `/api/analysis/pipelines/{job_id}/cancel` | cancel current and pending stages |
 
 Audio analysis payload fields include `models` and `limit`. ML requests add `device`, `top_k`,
-`track_batch_size`, and `inference_batch_size`. SONARA requests add `sonara_outputs` and
-`sonara_batch_size`. `classifier_keys` is not accepted.
-Allowed SONARA outputs are `core`, `timeline`, `embedding`, and `fingerprint`. Omission defaults to
-`["core"]`. At least one is required for a SONARA job, and normalization always includes `core`.
+`track_batch_size`, and `inference_batch_size`. SONARA requests add `sonara_batch_size`;
+there is no output selector. `classifier_keys` is not accepted.
 SONARA runs alone and passes paths to native `analyze_batch`. ML models continue to use shared
 FFmpeg decode. Database migration is intentionally not an API operation: use the local
 `dj-sim migrate-database` CLI after reviewing its dry-run plan.
@@ -95,9 +78,9 @@ rather than failed. A pipeline payload selects `sonara`, `ml`, and/or `classifie
 limit and nested stage settings. Execution order is always SONARA, ML, CLASSIFIERS. All manual and
 pipeline stages share one sequential application queue.
 
-`GET /api/library/summary` reports current coverage for SONARA, MAEST analysis and embedding, MERT,
-MuQ, CLAP, likes, and compatible classifiers. Per-track `analysis_coverage` separates `sonara_core`,
-`timeline`, `sonara_embedding`, and `fingerprint`.
+`GET /api/library/summary` reports current coverage for SONARA Core, MAEST analysis and embedding,
+MERT, MuQ, CLAP, likes, and compatible classifiers. Per-track `analysis_coverage` contains
+`sonara_core` only for SONARA.
 
 Reset requests use `{ "analysis_family": "sonara" }` (or `maest`, `mert`, `muq`, `clap`). The typed
 response returns `core_rows_deleted`, `artifact_rows_deleted`, and `classifier_rows_deleted`.

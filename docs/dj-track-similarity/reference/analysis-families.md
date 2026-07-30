@@ -6,7 +6,7 @@
 
 | Family | Reads | Writes | Unlocks |
 | --- | --- | --- | --- |
-| SONARA | file paths decoded natively by SONARA/Symphonia | `core`, `timeline`, `embedding`, and `fingerprint` outputs | SONARA search, SET, Hybrid, classifier input |
+| SONARA | file paths decoded natively by SONARA/Symphonia | Core feature rows | SONARA search, SET, Hybrid, classifier input |
 | MAEST | shared FFmpeg-decoded audio | Core genre/syncopation rows and an Artifacts embedding | genre display, genre tag apply, seed search, SET, Hybrid, Audio Dedup signal, classifier input |
 | MERT | shared FFmpeg-decoded audio | Artifacts embedding | MERT seed search, SET, Hybrid, Audio Dedup signal, classifier input |
 | MuQ | shared FFmpeg decode, resampled to 24 kHz `float32` | Artifacts embedding | seed search, LAB Reference Compare, SET, Hybrid, Audio Dedup signal, classifier input |
@@ -36,41 +36,30 @@ as same, relative, adjacent, or clash. `key_confidence` is not a similarity dime
 analyzed key only pulls the harmonic result toward neutral. Legacy transition-risk v1 keeps its
 original key behavior so recorded evaluations remain reproducible.
 
-Normal analysis jobs skip SONARA rows when the requested output is already present for the current
-track identity. Missing requested outputs can resume independently.
+Normal analysis jobs skip SONARA rows when Core is already present for the current track identity.
 
-## SONARA output kinds
+## SONARA Core
 
-SONARA exposes four project output kinds: `core`, `timeline`, `embedding`, and `fingerprint`. A job
-can select which outputs to materialize; `core` is the CLI and API default. Selecting another output
-later does not replace current `core` rows.
+SONARA analysis produces only Core. It stores BPM/key/confidence, loudness, dynamics,
+spectral and timbral values, Contrast (7), MFCC (13), Chroma (12), compact
+structure/beat-grid values, vocalness, mood, and silence in the Core `sonara` table.
 
-| Output | Main contents | Physical store |
-| --- | --- | --- |
-| `core` | BPM/key/confidence, loudness, dynamics, spectral and timbral values, Contrast (7), MFCC (13), Chroma (12), compact structure/beat-grid values, vocalness v2, mood, silence | Core `sonara` table |
-| `timeline` | beats, onsets, chord sequence/events, tempo/energy/loudness curves, downbeats, structure segments | Artifacts `sonara_timeline` |
-| `embedding` | 48-dimensional SONARA similarity vector | Artifacts `sonara_similarity_embeddings` |
-| `fingerprint` | versioned SONARA audio fingerprint | Artifacts `sonara_fingerprints` |
+Timeline, SONARA embedding, and fingerprint collection are disabled. Their empty Artifacts tables
+remain as layout placeholders only; the project does not fix their payload schema, dimensions,
+versions, or future contract.
 
 `bpm_confidence` is SONARA's `0..1` trust signal for the working BPM. `key_camelot` is SONARA's own Camelot code rather than a project-side derivation.
-
-SONARA `0.3.5` is the current tested release. The project validates the returned fields and payload
-shapes it consumes. This recorded version is descriptive and can be updated along with the affected
-source, storage, and tests.
 
 Core deliberately does not request SONARA's Full-only `time_signature` metrogram. It was not used by search, SET, Hybrid, or classifier inputs, while real-library results had no usable confidence and the calculation more than doubled Core compute time. Beatgrid uses SONARA's normal 4/4 fallback instead of consuming an untrusted meter estimate.
 
 See [SONARA integration](./sonara-integration.md) for the current decode, storage, and update
 boundaries.
 
-The backend API uses `sonara_outputs`, and the CLI uses
-`--sonara-outputs core,timeline,embedding,fingerprint`. Every native batch requests the same
-canonical union of upstream features required by the selected output processing. The selection
-controls persistence only: the converter writes each selected output to its dedicated table. `core`
-explicitly selects the bundled SONARA vocalness v2 model.
+Every native batch requests only the upstream features needed for Core. Extra values returned by
+SONARA are ignored at the conversion boundary. Core explicitly selects the bundled SONARA vocalness
+model.
 `sonara_batch_size` is independent from ML batching and accepts `1..16`. Its default is `8`. The
-browser selects SONARA at startup and keeps Core checked and locked. Timeline, embedding, and
-fingerprint remain optional.
+browser selects SONARA at startup. There are no output checkboxes.
 
 The adapter does not request upstream file-tag passthrough or a SONARA genre model. Mutagen remains
 the project's file-tag source, so SONARA `tags.original_year` is not stored in this analysis family.
@@ -80,10 +69,6 @@ all four `mood_*` values, true peak, ReplayGain, momentary loudness maximum, and
 Contrast, MFCC, and Chroma retain every component because they are fixed vectors, not time-series
 data. Long numeric sequences are reduced to a summary only when Core needs a compact descriptor
 such as `energy_curve_summary`.
-
-Complete `beats`, `onset_frames`, `chord_sequence`, `chord_events`, `tempo_curve`, `energy_curve`,
-`segments`, `loudness_curve`, and `downbeats` sequences belong to the `timeline` output. `embedding`
-and `fingerprint` are separate outputs. Search and classifiers do not load timeline payloads.
 
 Transition-risk v2 uses `grid_stability` as a beat-grid reliability signal. When structure data is
 available, it also compares the outgoing outro window with the incoming intro, segment-boundary
@@ -99,7 +84,8 @@ variant, momentary loudness maximum and loudness range remain available to the e
 dynamics comparison, and `vocalness` remains an explicit search modifier and an optional
 `sonara2vocal` variant.
 
-The SONARA `embedding`, `fingerprint`, and tempo curve are data-only today. MAEST, MERT, MuQ, and CLAP are the current generic seed-search embeddings. Audio Dedup and classifier matrices can use their current stored inputs, but still ignore the SONARA embedding and fingerprint representations.
+MAEST, MERT, MuQ, and CLAP are the current generic seed-search embeddings. SONARA search uses stored
+Core features rather than a SONARA embedding.
 
 ## Dedicated storage tables
 
@@ -109,7 +95,7 @@ The required Artifacts database stores embeddings in dedicated tables:
 - `mert_embeddings`
 - `muq_embeddings`
 - `clap_embeddings`
-- `sonara_similarity_embeddings`
+- `sonara_similarity_embeddings` (reserved empty layout placeholder)
 
 There is no generic runtime `embeddings` table. A fresh selected path creates the Core plus
 mandatory Artifacts bundle. An incompatible database is rejected during normal startup and can be
@@ -126,13 +112,8 @@ inspected with `dj-sim migrate-database --db <path> --dry-run`.
 
 ## Missing-result behavior
 
-Analysis jobs target missing selected results. A missing `timeline` row does not make `core` stale,
-and a missing fingerprint does not force `core` to be rewritten. Selecting fewer outputs changes
-only which rows the job materializes. Other
-already-complete analysis families remain skipped until reset.
-
-Saving `core` replaces only the Core feature row. Saving `timeline`, `embedding`, or `fingerprint`
-upserts that Artifacts output. Unselected current outputs remain intact.
+Analysis jobs target missing selected results. SONARA skips a track when its current Core row is
+already present. Other already-complete analysis families remain skipped until reset.
 
 ## Classifier requirement
 

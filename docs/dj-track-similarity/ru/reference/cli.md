@@ -18,7 +18,7 @@ dj-sim scan D:\Music --db .\data\library.sqlite
 Проанализировать выбранные семейства:
 
 ```powershell
-dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --db .\data\library.sqlite
+dj-sim analyze --models sonara --db .\data\library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --db .\data\library.sqlite
 ```
 
@@ -117,14 +117,11 @@ Artifacts, а после преобразования — целостность
 | `--track-batch-size` | `1..64` декодированных треков в партии, по умолчанию `8` |
 | `--inference-batch-size` | `1..128` примеров за проход модели, по умолчанию `16` |
 | `--diagnostics` | диагностика декодирования и времени партий в файловом журнале |
-| `--sonara-outputs` | разделённые запятыми `core`, `timeline`, `embedding`, `fingerprint`; по умолчанию `core` |
 | `--sonara-batch-size` | `1..16` путей, одновременно обрабатываемых нативным анализом, по умолчанию `8` |
 
-Обычный анализ SONARA материализует только `core`. Чтобы сохранить все четыре результата,
-используйте `--sonara-outputs core,timeline,embedding,fingerprint`. Следующая задача может выбрать
-другой отсутствующий результат. `core` хранится в Core, а остальные три результата — в отдельных
-таблицах обязательной базы Artifacts. Эмбеддинги MAEST/MERT/MuQ/CLAP также находятся в отдельных
-таблицах Artifacts.
+Анализ SONARA сохраняет только Core. Сбор Timeline, SONARA embedding и fingerprint отключён, и
+параметра выбора результатов в CLI нет. Их таблицы Artifacts остаются пустыми заготовками структуры
+без фиксации формата, размерности, версии или будущего контракта.
 
 `analyze-classifiers` создаёт отдельную задачу, которая работает только с базой. Без `--classifiers` выбираются все
 совместимые опубликованные артефакты. `analyze-pipeline` принимает те же настройки этапов и всегда

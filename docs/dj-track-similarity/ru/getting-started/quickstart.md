@@ -50,7 +50,7 @@ dj-sim scan D:\Music --db .\data\library.sqlite
 партию:
 
 ```powershell
-dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --limit 25 --db .\data\library.sqlite
+dj-sim analyze --models sonara --limit 25 --db .\data\library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --limit 25 --db .\data\library.sqlite
 ```
 

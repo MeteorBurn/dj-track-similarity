@@ -27,12 +27,10 @@ python -m pip check
 
 Restart `dj-sim serve` and any running Rhythm Lab process after changing the environment.
 
-## Timeline, embedding, or fingerprint data is unavailable
+## Timeline, SONARA embedding, or fingerprint data is unavailable
 
-Those outputs live in mandatory Artifacts and must be requested explicitly. Core is always
-included and locked. The browser analysis panel exposes Timeline, embedding, and
-fingerprint output checkboxes, while the metadata dialog shows whether each optional output is
-present. Use the explicit timeline API when you need its payload rather than only its presence.
+This is expected: their collection and public read surfaces are disabled. SONARA analysis stores
+Core only. The reserved Artifacts tables are empty layout placeholders, not active output formats.
 
 ## A classifier is incompatible
 

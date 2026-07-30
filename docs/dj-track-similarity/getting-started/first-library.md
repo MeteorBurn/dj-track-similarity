@@ -23,7 +23,7 @@ and SET previews.
 
 The selected Core file stores track
 identity, paths, tags, small analysis rows, likes, and classifier scores. Its required companion is
-`*.artifacts.sqlite`, which holds large embeddings, SONARA Timeline payloads, and fingerprints. The
+`*.artifacts.sqlite`, which holds active ML embeddings and reserved SONARA artifact tables. The
 two files must carry the same `catalog_uuid`. The runtime validates that binding before use.
 
 `*.evaluation.sqlite` is an optional adjacent database for evaluation data. It is not created just

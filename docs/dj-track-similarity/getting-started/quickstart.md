@@ -47,7 +47,7 @@ files.
 Install analysis extras first if you have not done so. Then run a small batch:
 
 ```powershell
-dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --limit 25 --db .\data\library.sqlite
+dj-sim analyze --models sonara --limit 25 --db .\data\library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --limit 25 --db .\data\library.sqlite
 ```
 

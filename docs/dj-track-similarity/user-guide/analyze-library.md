@@ -14,17 +14,16 @@ library. The initial batch values are Track `8`,
 Inference `16`, and SONARA `8`; **Device** defaults to `auto`.
 
 The panel keeps **SONARA**, **ML**, and **CLASSIFIERS** as separate stages. **FULL** runs them in the
-fixed order. SONARA is selected at startup with all four outputs enabled by default. Its mandatory
-`core` output is locked; `timeline`, `embedding`, and `fingerprint` can be cleared before starting
-the job. The ML selection contains MAEST, MERT, MuQ, and CLAP, not SONARA or CLASSIFIERS. Progress,
+fixed order. SONARA is selected at startup and always runs Core only; there are no output
+checkboxes. The ML selection contains MAEST, MERT, MuQ, and CLAP, not SONARA or CLASSIFIERS. Progress,
 per-file failures, blockers, cancellation, and reset results come from the typed job responses.
 
 ## Run a family
 
-SONARA can run alone. Select all four outputs when you need every optional output:
+SONARA Core can run alone:
 
 ```powershell
-dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --db .\data\library.sqlite
+dj-sim analyze --models sonara --db .\data\library.sqlite
 ```
 
 ML families can run together:
@@ -37,12 +36,12 @@ Omit `--limit` to consider the whole library. A positive limit selects only cand
 requested current outputs. Use `--device auto`, `--device cpu`, or `--device cuda` for MAEST, MERT,
 MuQ, and CLAP. SONARA uses its native CPU path.
 
-## SONARA outputs and storage
+## SONARA storage
 
-The only SONARA output names are `core`, `timeline`, `embedding`, and `fingerprint`. Core is always
-included. Core feature rows live in Core; Timeline payloads, the SONARA embedding, and the
-fingerprint live in the mandatory `*.artifacts.sqlite` companion. MAEST, MERT, MuQ, and CLAP
-embeddings also live in Artifacts. Core and Artifacts must share one `catalog_uuid`.
+SONARA writes Core feature rows to Core. Timeline, SONARA embedding, and fingerprint collection are
+disabled. Their empty tables remain in the mandatory `*.artifacts.sqlite` companion as layout
+placeholders only. MAEST, MERT, MuQ, and CLAP embeddings also live in Artifacts. Core and Artifacts
+must share one `catalog_uuid`.
 
 `*.evaluation.sqlite` is optional evaluation state. Normal startup refuses an incompatible
 Core/Artifacts layout rather than adapting it automatically.

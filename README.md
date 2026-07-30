@@ -161,7 +161,7 @@ audio files -> scan tags -> SQLite library -> browse/search/export
 The app keeps evidence sources separate:
 
 - **File tags** come from Mutagen during scan and Refresh Tags.
-- **SONARA** stores audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy. Its standalone CPU/Rust job passes file paths to `sonara.analyze_batch()`, so SONARA/Symphonia owns decoding. There is no FFmpeg or signal-analysis fallback. The four output kinds are `core`, `timeline`, `embedding`, and `fingerprint`; `core` is the default. SONARA BPM analysis uses the project range `70.0..180.0`.
+- **SONARA** stores Core audio features such as rhythm, dynamics, timbre, tonal signals, BPM, key, duration, and energy. Its standalone CPU/Rust job passes file paths to `sonara.analyze_batch()`, so SONARA/Symphonia owns decoding. There is no FFmpeg or signal-analysis fallback. SONARA BPM analysis uses the project range `70.0..180.0`.
 - **MAEST** stores genre labels and an audio embedding.
 - **MERT** stores an audio embedding for seed similarity.
 - **MuQ** stores a separate audio embedding. It is available to seed search, LAB Reference Compare, SET, Hybrid, Audio Dedup, and Rhythm Lab classifier feature sets.
@@ -175,19 +175,12 @@ instead of earning a similarity bonus or becoming an automatic hard rejection.
 
 SONARA mood values are retained for inspection and possible future audio workflows; they are not
 current similarity, SET, Hybrid, or classifier inputs. True peak and ReplayGain are also stored for
-future loudness-management work, not direct SONARA similarity scoring. Complete beat, onset,
-chord-event, tempo, energy, loudness, and downbeat sequences, the SONARA embedding and fingerprint,
-and the MAEST/MERT/MuQ/CLAP embeddings live in dedicated tables in the mandatory Artifacts database.
+future loudness-management work, not direct SONARA similarity scoring. MAEST/MERT/MuQ/CLAP
+embeddings live in dedicated tables in the mandatory Artifacts database.
 
-SONARA results are stored by output kind and validated against the current table shape and payload
-requirements. A normal analysis run fills missing requested outputs. Updating SONARA does not require
-creating a versioned project contract. Add or change fields in the project as needed, migrate the
-database explicitly when its structure must change, and start a reanalysis only when you choose to
-rebuild affected results.
-
-SONARA 0.3.5 provides an opt-in `aggression` feature, but this project does not request or store it.
-The existing `mood_aggressive_score` still comes from the separate `mood` feature and is not the
-new aggression model.
+SONARA analysis stores only the current Core fields. Timeline, SONARA embedding, and fingerprint
+collection are disabled. Empty tables for those outputs remain as layout placeholders without
+fixing a payload schema, dimension, version, or future contract.
 
 Promoted classifier artifacts must describe the feature names and inputs they actually use. If an
 analysis update changes that recipe, retrain and promote the affected profile before scoring it
@@ -351,20 +344,16 @@ Install the mutually compatible dependency set recorded by `pyproject.toml` and 
 files describe the tested environment, not a permanent ban on updates. When dependencies change,
 update the manifests and lockfile together and run focused compatibility checks.
 
-The current tested SONARA release is `0.3.5`, which publishes `cp310-abi3` wheels including Windows
-x64. A newer compatible release can be adopted by updating the project and verifying the affected
-analysis path.
-
 Run a small first pass:
 
 ```powershell
-dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --limit 25 --db ./data/library.sqlite
+dj-sim analyze --models sonara --limit 25 --db ./data/library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --limit 25 --db ./data/library.sqlite
 dj-sim analyze-classifiers --db ./data/library.sqlite
-dj-sim analyze-pipeline --stages sonara,ml,classifiers --sonara-outputs core,timeline,embedding,fingerprint --db ./data/library.sqlite
+dj-sim analyze-pipeline --stages sonara,ml,classifiers --db ./data/library.sqlite
 ```
 
-Normal reruns analyze only missing requested outputs. If a SONARA update requires a database layout
+Normal reruns analyze only missing Core rows. If a SONARA update requires a database layout
 change, inspect the explicit migration first:
 
 ```powershell
@@ -384,8 +373,6 @@ Useful options from the current CLI and API are:
 - `--track-batch-size 1..64`; default `8`
 - `--inference-batch-size 1..128`; default `16`
 - `--diagnostics` to write decoder and batch timing details to the file log
-- `--sonara-outputs core,timeline,embedding,fingerprint` selects all four output kinds;
-  omission selects `core` only
 
 CLI and API pipeline stages share one in-memory queue, so only one SONARA, ML, or CLASSIFIERS stage
 runs at a time. The pipeline fixes
@@ -393,8 +380,8 @@ the order to SONARA, then ML, then CLASSIFIERS. Per-file failures are retained i
 not stop the next stage. A fatal initialization error or cancellation does.
 
 The SONARA control limits concurrent native file analysis, including full-file reads, rather than
-neural-network inference. Each returned batch writes its selected `core`, `timeline`, `embedding`,
-and `fingerprint` results through the current repositories with a per-track savepoint. The process log
+neural-network inference. Each returned batch writes only the Core result through the current
+repository with a per-track savepoint. The process log
 reports separate native analysis, result preparation, and database storage times plus source MiB/s.
 SONARA-only jobs traverse candidates in path order to keep adjacent HDD reads in the same folders.
 Queued-stage messages contain only settings used by that stage. SONARA reports its outputs and

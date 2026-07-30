@@ -17,7 +17,7 @@ dj-sim scan D:\Music --db .\data\library.sqlite
 Analyze selected families:
 
 ```powershell
-dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --db .\data\library.sqlite
+dj-sim analyze --models sonara --db .\data\library.sqlite
 dj-sim analyze --models maest,mert,muq,clap --db .\data\library.sqlite
 ```
 
@@ -116,14 +116,12 @@ orphans. It never starts reanalysis.
 | `--track-batch-size` | `1..64` decoded tracks per job batch; default `8` |
 | `--inference-batch-size` | `1..128` model samples per forward pass; default `16` |
 | `--diagnostics` | file-log decoder and batch timing diagnostics |
-| `--sonara-outputs` | comma-separated `core`, `timeline`, `embedding`, `fingerprint`; default `core` |
 | `--sonara-batch-size` | `1..16` concurrent native paths; default `8` |
 
-Plain SONARA analysis materializes `core` only. Use
-`--sonara-outputs core,timeline,embedding,fingerprint` to materialize all four outputs. A later job
-can select another missing output. `core` is stored in Core. The other three outputs are stored in dedicated
-tables in the mandatory Artifacts database. MAEST/MERT/MuQ/CLAP embeddings also live in dedicated
-Artifacts tables.
+SONARA analysis materializes Core only. Timeline, SONARA embedding, and fingerprint collection are
+disabled and have no CLI selector. Their Artifacts tables remain empty placeholders; they do not
+define a payload format or version contract. MAEST/MERT/MuQ/CLAP embeddings continue to use their
+dedicated Artifacts tables.
 
 `analyze-classifiers` forms a separate database-only job. An omitted `--classifiers` list means all
 scoring-compatible promoted artifacts. `analyze-pipeline` accepts the same stage-specific settings

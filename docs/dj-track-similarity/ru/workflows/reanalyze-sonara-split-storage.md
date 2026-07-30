@@ -75,25 +75,23 @@ Evaluation проверяется для предупреждений, но эт
 Когда мигрированная база открывается нормально, начните со знакомых файлов:
 
 ```powershell
-dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --limit 100 --db .\data\library.sqlite
+dj-sim analyze --models sonara --limit 100 --db .\data\library.sqlite
 ```
 
-Текущая проверенная версия SONARA — `0.3.5`; это описание, а не постоянное ограничение проекта.
 Обновляйте SONARA и адаптируйте проект по своему решению, затем запускайте целевые проверки новых
-полей и возможностей.
+полей и возможностей Core. Проект не задаёт версионный контракт необязательных результатов.
 
 Проверьте ошибки и характерные результаты поиска до решения о продолжении.
 
-## 6. Завершите только выбранные результаты
+## 6. Завершите анализ Core
 
 Убирайте `--limit` только после одобрения запуска для всей фонотеки:
 
 ```powershell
-dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --db .\data\library.sqlite
+dj-sim analyze --models sonara --db .\data\library.sqlite
 ```
 
-`core` включается всегда. Запрашивайте необязательные результаты в соответствии с использующими их
-сценариями.
+SONARA записывает только Core. Сбор Timeline, SONARA embedding и fingerprint остаётся отключённым.
 
 ## 7. Переобучите затронутые классификаторы
 

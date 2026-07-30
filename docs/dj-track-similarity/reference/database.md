@@ -9,7 +9,7 @@ Selecting `library.sqlite` opens one catalog bundle:
 | Store | File | Creation | Contents |
 | --- | --- | --- | --- |
 | Core | `library.sqlite` | required | catalog identity, tracks, file tags, SONARA scalars, MAEST scores, classifier scores, likes, feedback, FTS, and settings |
-| Artifacts | `library.artifacts.sqlite` | required | dedicated MAEST/MERT/MuQ/CLAP and SONARA embedding tables, SONARA timeline rows, and fingerprints |
+| Artifacts | `library.artifacts.sqlite` | required | active MAEST/MERT/MuQ/CLAP embeddings plus reserved SONARA artifact tables |
 | Evaluation | `library.evaluation.sqlite` | optional | search sessions, result events, calibration runs, and evaluation settings |
 
 Core and Artifacts are created together for a fresh path and are bound by one generated
@@ -48,8 +48,9 @@ The mandatory Artifacts database contains dedicated tables:
 - `sonara_timeline`;
 - `sonara_fingerprints`.
 
-Normal track responses return small summaries and availability flags. The explicit
-`GET /api/tracks/{track_id}/sonara-timeline` route loads the stored timeline payload.
+The three SONARA artifact tables are empty layout placeholders while collection is disabled. Their
+columns do not fix a payload schema, embedding dimension, fingerprint version, or future contract.
+Normal track responses do not expose them.
 
 ## Structural migration
 

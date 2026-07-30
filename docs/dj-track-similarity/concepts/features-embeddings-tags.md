@@ -45,11 +45,9 @@ can enter the `sonara2` classifier variant. The existing SONARA dynamics compari
 loudness maximum and loudness range. Vocalness is available through an explicit search modifier
 and the optional `sonara2vocal` variant.
 
-Complete beat positions, onset positions, chord labels/events, tempo curves, energy curves, structure
-segments, loudness curves, and downbeat arrays live in Artifacts `sonara_timeline`. The SONARA
-embedding and fingerprint use separate Artifacts tables. MAEST, MERT, MuQ, and CLAP vectors also use
-dedicated tables in the mandatory Artifacts database. Compact SONARA scalars and fixed vectors stay
-in Core.
+SONARA analysis currently stores only compact Core scalars and fixed vectors. Timeline, SONARA
+embedding, and fingerprint collection are disabled. MAEST, MERT, MuQ, and CLAP vectors use
+dedicated tables in the mandatory Artifacts database.
 
 SONARA values are analysis results, not copied file tags. Tempo-aware workflows use current
 SONARA tempo evidence first. Below `0.45` confidence, they also inspect ranked tempo candidates and
@@ -59,9 +57,7 @@ toward a neutral score rather than creating similarity.
 The current SONARA `core` output stores `bpm_confidence` beside raw BPM, tempo candidates, and
 Camelot key. The confidence value records how strongly SONARA supports its working BPM estimate.
 
-CLI and API default to `core`. `timeline`, `embedding`, and `fingerprint` are independent output
-kinds. A missing optional output is queued without invalidating current `core` data. The browser
-exposes the same output selection and shows optional-output presence in the metadata detail.
+CLI, API, and browser run SONARA Core only. There is no output selector or optional-output metadata.
 
 The exact field and scoring boundaries are in the
 [SONARA integration reference](../reference/sonara-integration.md).

@@ -37,32 +37,16 @@ API намеренно локальный и не требует аутенти�
 | `GET` | `/api/tracks` | лёгкие строки треков с пагинацией |
 | `POST` | `/api/tracks/filtered` | полный отфильтрованный список для действий с сетом |
 | `GET` | `/api/tracks/{track_id}` | полная строка метаданных |
-| `GET` | `/api/tracks/{track_id}/sonara-timeline` | явное чтение Timeline |
 | `POST` | `/api/tracks/{track_id}/liked` | переключение локальной отметки |
 | `GET` | `/media/{track_id}` | поток аудио для прослушивания |
 
 Диапазоны запроса списка: `limit=1..500`, `offset>=0`, `search_mode=like|fts`,
 `preset=all|syncopated`.
 
-Конечная точка временных данных возвращает полные сохранённые `beats`, `onset_frames`, `chord_sequence`,
-`chord_events`, `tempo_curve`, `energy_curve`, `segments`, `loudness_curve` и `downbeats`. Если
-сохранённой строки нет, возвращается `{}`, а для неизвестного трека — `404`. Обычный ответ
-`TrackSummaryResponse` содержит составную идентичность (`catalog_uuid`, `track_id`, `track_uuid`,
+Обычный ответ `TrackSummaryResponse` содержит составную идентичность (`catalog_uuid`, `track_id`, `track_uuid`,
 `content_generation`), `file_path`, компактные теги, `analysis_coverage` и сводки классификаторов.
-Подробный ответ содержит `optional_outputs.timeline_fields`, `sonara_embedding_available` и
-`audio_fingerprint_available`.
-
-Каждое поле — сериализованный объект, а не исходный массив верхнего уровня:
-
-```json
-{
-  "energy_curve": {
-    "value": [0.31, 0.44, 0.72],
-    "type": "list",
-    "length": 3
-  }
-}
-```
+Подробный ответ содержит SONARA Core, MAEST, сводки активных ML-эмбеддингов и классификаторов.
+Timeline, SONARA embedding и fingerprint в ответ не входят.
 
 ## Анализ и классификаторы
 
@@ -83,13 +67,9 @@ API намеренно локальный и не требует аутенти�
 | `POST` | `/api/analysis/pipelines/{job_id}/cancel` | отмена текущего и ожидающих этапов |
 
 Тело анализа содержит `models` и `limit`. Для ML добавляются `device`, `top_k`,
-`track_batch_size` и `inference_batch_size`; для SONARA — `sonara_outputs` и
-`sonara_batch_size`. `classifier_keys` не принимается.
-
-Допустимые результаты SONARA: `core`, `timeline`, `embedding`, `fingerprint`. При отсутствии поля
-используется `["core"]`; нормализация всегда включает `core`. SONARA выполняется отдельно. В
+`track_batch_size` и `inference_batch_size`; для SONARA — `sonara_batch_size`. Выбора результатов
+нет. `classifier_keys` не принимается. SONARA выполняется отдельно. В
 нативный `analyze_batch` передаются пути; ML-модели используют общее декодирование FFmpeg.
-Отсутствующие результаты можно рассчитать отдельной задачей.
 
 API не мигрирует базу. Несовместимая структура отклоняется при выборе базы. Просмотр и применение
 одноразового преобразования доступны только через явную команду `dj-sim migrate-database` после
@@ -102,8 +82,8 @@ API не мигрирует базу. Несовместимая структу�
 очередь приложения.
 
 `GET /api/library/summary` сообщает покрытие SONARA, анализа и эмбеддинга MAEST, MERT, MuQ, CLAP,
-отметок и совместимых классификаторов. `analysis_coverage` трека разделяет `sonara_core`,
-`timeline`, `sonara_embedding` и `fingerprint`.
+отметок и совместимых классификаторов. Для SONARA `analysis_coverage` содержит только
+`sonara_core`.
 
 Сброс принимает `{ "analysis_family": "sonara" }` или `maest`, `mert`, `muq`, `clap`. Ответ содержит
 `core_rows_deleted`, `artifact_rows_deleted` и `classifier_rows_deleted`. Для SONARA удаляются

@@ -15,19 +15,17 @@
 размеры партий: Track `8`, Inference `16` и SONARA `8`; для **Device** выбран `auto`.
 
 Панель разделяет этапы **SONARA**, **ML** и **CLASSIFIERS**. **FULL** запускает их в фиксированном
-порядке. При запуске SONARA уже выбрана, и по умолчанию включены все четыре результата. Её
-обязательный результат `core` заблокирован; `timeline`, `embedding` и `fingerprint` можно снять
-перед запуском задачи. В выбор ML входят MAEST, MERT, MuQ и CLAP, но не SONARA или CLASSIFIERS.
+порядке. При запуске SONARA уже выбрана и всегда рассчитывает только Core; флажков результатов нет.
+В выбор ML входят MAEST, MERT, MuQ и CLAP, но не SONARA или CLASSIFIERS.
 Прогресс, ошибки отдельных файлов, причины блокировки, отмена и результаты сброса поступают из
 ответов текущего API.
 
 ## Запуск семейства
 
-SONARA можно запустить отдельно. Выберите все четыре результата, если нужны все необязательные
-данные:
+SONARA Core можно запустить отдельно:
 
 ```powershell
-dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --db .\data\library.sqlite
+dj-sim analyze --models sonara --db .\data\library.sqlite
 ```
 
 Семейства ML можно запускать вместе:
@@ -40,12 +38,12 @@ dj-sim analyze --models maest,mert,muq,clap --db .\data\library.sqlite
 кандидатов без запрошенных сохранённых результатов. Для MAEST, MERT, MuQ и CLAP используйте
 `--device auto`, `--device cpu` или `--device cuda`; SONARA работает по нативному пути CPU.
 
-## Результаты SONARA и хранение
+## Хранение SONARA
 
-Допустимые имена результатов SONARA: `core`, `timeline`, `embedding` и `fingerprint`. Core всегда
-включён. Строки признаков Core находятся в Core; payload Timeline, эмбеддинг SONARA и отпечаток
-находятся в обязательной соседней базе `*.artifacts.sqlite`. Эмбеддинги MAEST, MERT, MuQ и CLAP тоже
-хранятся в Artifacts. У Core и Artifacts должен совпадать `catalog_uuid`.
+SONARA записывает строки Core в базу Core. Сбор Timeline, SONARA embedding и fingerprint отключён.
+Их пустые таблицы остаются в обязательной соседней базе `*.artifacts.sqlite` только как заготовки
+структуры. Эмбеддинги MAEST, MERT, MuQ и CLAP тоже хранятся в Artifacts. У Core и Artifacts должен
+совпадать `catalog_uuid`.
 
 `*.evaluation.sqlite` хранит необязательные данные оценки. Обычный запуск отказывается работать с
 несовместимой компоновкой Core и Artifacts, а не адаптирует её автоматически.

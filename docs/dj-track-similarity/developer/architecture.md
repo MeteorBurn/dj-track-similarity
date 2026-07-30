@@ -30,7 +30,7 @@ flowchart LR
 - `analysis_jobs.py` and `sonara_features.py`: separate ML jobs, native batched SONARA capture, and
   phase timing. A SONARA batch is persisted in one transaction with a savepoint per track.
 - `analysis_pipeline.py`: fixed SONARA, ML, CLASSIFIERS parent/child orchestration.
-- `sonara_runtime.py`: current SONARA capability discovery and output selection.
+- `sonara_runtime.py`: current SONARA Core feature selection.
 - `tempo_resolution.py` and `track_resolution.py`: confidence-aware BPM and Camelot/key resolution.
 - `search.py`, `sonara_similarity*.py`, `set_builder.py`, and `transition_diagnostics.py`: search, SET ordering, and transition-risk logic.
 - `classifier_manifest.py`, `classifier_scoring.py`, and `classifier_jobs.py`: promoted artifact validation, manifest-specific readiness, aggregate progress, and database-only scoring.
@@ -41,6 +41,6 @@ Selecting a fresh `library.sqlite` path creates Core and mandatory `library.arti
 by one `catalog_uuid`. Optional
 `library.evaluation.sqlite` is created only by evaluation workflows. Core stores catalog, track,
 tags, compact analysis rows, scores, likes, feedback, and FTS. Artifacts stores dedicated
-MAEST/MERT/MuQ/CLAP embeddings plus SONARA `timeline`, `embedding`, and `fingerprint` outputs. A
+MAEST/MERT/MuQ/CLAP embeddings plus empty reserved SONARA artifact tables. A
 structurally incompatible or incomplete bundle fails closed. Normal startup never migrates it;
 `dj-sim migrate-database` is the explicit backup-first maintenance path.

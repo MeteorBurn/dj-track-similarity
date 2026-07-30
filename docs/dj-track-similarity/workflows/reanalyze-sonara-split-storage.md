@@ -73,24 +73,23 @@ classifier jobs.
 After the migrated database opens normally, start with familiar files:
 
 ```powershell
-dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --limit 100 --db .\data\library.sqlite
+dj-sim analyze --models sonara --limit 100 --db .\data\library.sqlite
 ```
 
-The current tested SONARA release is `0.3.5`; this is descriptive rather than a permanent project
-restriction. Update SONARA and adapt the project when you choose, then use focused checks for the
-new fields and capabilities.
+When you choose to update SONARA, adapt the project and use focused checks for the new Core fields
+and capabilities without defining an optional-output version contract.
 
 Review failures and representative search results before deciding whether to continue.
 
-## 6. Complete only the selected outputs
+## 6. Complete Core analysis
 
 Omit `--limit` only after approving a full-library run:
 
 ```powershell
-dj-sim analyze --models sonara --sonara-outputs core,timeline,embedding,fingerprint --db .\data\library.sqlite
+dj-sim analyze --models sonara --db .\data\library.sqlite
 ```
 
-`core` is always included. Request optional outputs according to the workflows that need them.
+SONARA writes Core only. Timeline, SONARA embedding, and fingerprint collection remain disabled.
 
 ## 7. Retrain affected classifiers
 

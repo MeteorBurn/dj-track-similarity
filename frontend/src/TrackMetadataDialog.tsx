@@ -15,6 +15,15 @@ type CoreFeatureGroup = {
   features: CoreFeature[];
 };
 
+const twoDecimalSonaraScoreKeys = new Set<keyof SonaraCore>([
+  "bpm_confidence",
+  "key_confidence",
+  "energy_score",
+  "danceability_score",
+  "valence_score",
+  "acousticness_score",
+]);
+
 const sonaraCoreFeatureGroups: CoreFeatureGroup[] = [
   {
     title: "Tempo",
@@ -401,19 +410,19 @@ function formatSonaraCoreValue(key: keyof SonaraCore, value: SonaraCore[keyof So
     if (key === "beat_count" || key === "energy_curve_sample_count") {
       return formatInteger(value);
     }
-    if (key === "bpm_confidence" || key === "key_confidence") return formatNumber(value);
+    if (twoDecimalSonaraScoreKeys.has(key)) return value.toFixed(2);
     if (key === "onset_density_per_second" || key === "chord_changes_per_second") {
       return `${value.toFixed(2)}/s`;
     }
     if (key === "tempo_variability") return formatSmallPercentage(value);
     if (key === "beat_grid_offset_seconds") return formatShortDuration(value);
     if (key === "beat_grid_stability") return `${(value * 100).toFixed(1)}%`;
-    if (key === "analyzed_duration_seconds") return formatClockPosition(value, 2);
+    if (key === "analyzed_duration_seconds") return formatClockPosition(value, 0);
     if (key === "energy_level") return `${formatInteger(value)}/10`;
     if (key === "vocal_probability") return formatProbability(value);
+    if (key === "dissonance_score") return value.toFixed(3);
     if (
-      key === "dissonance_score"
-      || key === "energy_curve_stddev"
+      key === "energy_curve_stddev"
       || key === "spectral_flatness"
       || key === "zero_crossing_rate"
     ) {
@@ -430,7 +439,7 @@ function formatSonaraCoreValue(key: keyof SonaraCore, value: SonaraCore[keyof So
     if (key === "replay_gain_db") return `${formatSignedNumber(value, 2)} dB`;
     if (key === "loudness_range_lu") return `${value.toFixed(1)} LU`;
     if (key === "intro_end_seconds" || key === "outro_start_seconds") {
-      return formatClockPosition(value, 1);
+      return formatClockPosition(value, 0);
     }
     if (key === "leading_silence_seconds" || key === "trailing_silence_seconds") {
       return `${value.toFixed(2)} s`;
@@ -461,7 +470,7 @@ function formatKeyCandidates(value: Record<string, unknown>[]) {
     const keyName = typeof candidate.key_name === "string" ? candidate.key_name : "";
     const name = [camelot, keyName].filter(Boolean).join(" · ") || "-";
     const score = typeof candidate.score === "number"
-      ? ` (${formatNumber(candidate.score)})`
+      ? ` (${candidate.score.toFixed(2)})`
       : "";
     return `#${rank} ${name}${score}`;
   }).join(" | ");

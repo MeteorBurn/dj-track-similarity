@@ -296,7 +296,7 @@ test("SONARA tempo metadata uses tempo-specific units and omits raw BPM", () => 
 
   assert.equal(features.get("detected_bpm").value, "127.46");
   assert.equal(features.has("raw_bpm"), false);
-  assert.equal(features.get("bpm_confidence").value, "0.924");
+  assert.equal(features.get("bpm_confidence").value, "0.92");
   assert.equal(
     features.get("bpm_candidates").value,
     "#1 129.20 (score 7.95)",
@@ -306,7 +306,29 @@ test("SONARA tempo metadata uses tempo-specific units and omits raw BPM", () => 
   assert.equal(features.get("tempo_variability").value, "0.90%");
   assert.equal(features.get("beat_grid_offset_seconds").value, "488 ms");
   assert.equal(features.get("beat_grid_stability").value, "98.8%");
-  assert.equal(features.get("analyzed_duration_seconds").value, "7:39.31");
+  assert.equal(features.get("analyzed_duration_seconds").value, "7:39");
+});
+
+test("SONARA clock fields use whole-second m:ss and h:mm:ss positions", () => {
+  const inspected = sonaraFeatures({
+    analyzed_duration_seconds: 584.421875,
+    intro_end_seconds: 0.5108389854431152,
+    outro_start_seconds: 559.8795776367188,
+  });
+  const common = sonaraFeatures({
+    intro_end_seconds: 18,
+    outro_start_seconds: 199,
+  });
+  const hour = sonaraFeatures({ analyzed_duration_seconds: 3723 });
+  const carry = sonaraFeatures({ analyzed_duration_seconds: 59.6 });
+
+  assert.equal(inspected.get("analyzed_duration_seconds").value, "9:44");
+  assert.equal(inspected.get("intro_end_seconds").value, "0:01");
+  assert.equal(inspected.get("outro_start_seconds").value, "9:20");
+  assert.equal(common.get("intro_end_seconds").value, "0:18");
+  assert.equal(common.get("outro_start_seconds").value, "3:19");
+  assert.equal(hour.get("analyzed_duration_seconds").value, "1:02:03");
+  assert.equal(carry.get("analyzed_duration_seconds").value, "1:00");
 });
 
 test("SONARA perceptual scores stay decimal while vocal probability is a percentage", () => {
@@ -324,10 +346,10 @@ test("SONARA perceptual scores stay decimal while vocal probability is a percent
   });
 
   assert.equal(features.get("energy_level").value, "8/10");
-  assert.equal(features.get("energy_score").value, "0.513");
-  assert.equal(features.get("danceability_score").value, "0.781");
-  assert.equal(features.get("valence_score").value, "0.431");
-  assert.equal(features.get("acousticness_score").value, "0.343");
+  assert.equal(features.get("energy_score").value, "0.51");
+  assert.equal(features.get("danceability_score").value, "0.78");
+  assert.equal(features.get("valence_score").value, "0.43");
+  assert.equal(features.get("acousticness_score").value, "0.34");
   assert.equal(features.get("vocal_probability").label, "Vocal probability");
   assert.equal(features.get("vocal_probability").value, "0.13%");
   assert.equal(features.get("mood_happy_score").value, "0.409");
@@ -430,14 +452,14 @@ test("SONARA tonal and loudness metadata uses meaningful precision", () => {
 
   assert.equal(features.get("detected_key_camelot").value, "8A");
   assert.equal(features.get("detected_key_name").value, "A minor");
-  assert.equal(features.get("key_confidence").value, "0.148");
+  assert.equal(features.get("key_confidence").value, "0.15");
   assert.equal(
     features.get("key_candidates").value,
-    "#1 8A · A minor (0.262)",
+    "#1 8A · A minor (0.26)",
   );
   assert.equal(features.get("predominant_chord").value, "Am");
   assert.equal(features.get("chord_changes_per_second").value, "1.75/s");
-  assert.equal(features.get("dissonance_score").value, "0.0182");
+  assert.equal(features.get("dissonance_score").value, "0.018");
   assert.equal(features.get("rms_mean").value, "0.205");
   assert.equal(features.get("rms_max").value, "0.526");
   assert.equal(features.get("integrated_loudness_lufs").value, "-14.8 LUFS");
@@ -468,8 +490,8 @@ test("SONARA structure spectral and analysis metadata uses natural display units
     analyzed_at: "2026-07-30T09:51:32.510995Z",
   });
 
-  assert.equal(features.get("intro_end_seconds").value, "0:03.1");
-  assert.equal(features.get("outro_start_seconds").value, "7:27.5");
+  assert.equal(features.get("intro_end_seconds").value, "0:03");
+  assert.equal(features.get("outro_start_seconds").value, "7:27");
   assert.equal(features.get("leading_silence_seconds").value, "0.09 s");
   assert.equal(features.get("trailing_silence_seconds").value, "0.91 s");
   assert.equal(features.get("energy_curve_hop_seconds").value, "511 ms");

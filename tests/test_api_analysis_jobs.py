@@ -57,7 +57,6 @@ def test_api_starts_selected_ml_job_without_classifier_fields(
             "sonara_batch_size": 8,
             "device": "cpu",
             "top_k": 4,
-            "sonara_outputs": [],
         }
     ]
 
@@ -74,7 +73,7 @@ def test_api_rejects_classifier_scoring_inside_audio_job(
     assert response.status_code == 422
 
 
-def test_api_normalizes_exact_sonara_outputs_and_native_batch_size(
+def test_api_sonara_job_is_core_only_and_keeps_native_batch_size(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -86,44 +85,34 @@ def test_api_normalizes_exact_sonara_outputs_and_native_batch_size(
         "/api/analysis/jobs",
         json={"models": ["sonara"], "limit": 0},
     )
-    explicit = client.post(
+    obsolete = client.post(
         "/api/analysis/jobs",
         json={
             "models": ["sonara"],
             "limit": 0,
-            "sonara_outputs": ["fingerprint", "timeline", "embedding"],
+            "sonara_outputs": ["fingerprint"],
             "sonara_batch_size": 12,
         },
     )
 
     assert defaulted.status_code == 200
-    assert defaulted.json()["sonara_outputs"] == ["core"]
+    assert "sonara_outputs" not in defaulted.json()
     assert defaulted.json()["sonara_batch_size"] == 8
-    assert explicit.status_code == 200
-    assert explicit.json()["sonara_outputs"] == [
-        "core",
-        "timeline",
-        "embedding",
-        "fingerprint",
-    ]
-    assert explicit.json()["sonara_batch_size"] == 12
-    assert [call["sonara_outputs"] for call in calls] == [
-        ["core"],
-        ["core", "timeline", "embedding", "fingerprint"],
-    ]
+    assert obsolete.status_code == 422
+    assert len(calls) == 1
+    assert "sonara_outputs" not in calls[0]
 
 
-def test_api_rejects_removed_representations_output(
+def test_api_rejects_obsolete_sonara_outputs_field(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     response = _client(monkeypatch, tmp_path).post(
         "/api/analysis/jobs",
-        json={"models": ["sonara"], "sonara_outputs": ["representations"]},
+        json={"models": ["sonara"], "sonara_outputs": ["timeline"]},
     )
 
-    assert response.status_code == 400
-    assert "representations" in response.json()["detail"]
+    assert response.status_code == 422
 
 
 def test_api_defaults_audio_job_to_ml_models_only(
@@ -140,7 +129,7 @@ def test_api_defaults_audio_job_to_ml_models_only(
 
     assert response.status_code == 200
     assert response.json()["models"] == ["maest", "mert", "muq", "clap"]
-    assert calls[0]["sonara_outputs"] == []
+    assert "sonara_outputs" not in calls[0]
 
 
 def test_api_pipeline_preserves_fixed_stage_order(

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import base64
-import binascii
 import json
 import math
 from collections.abc import Mapping, Sequence
@@ -12,31 +10,13 @@ import numpy as np
 
 from .analysis_models import (
     AnalysisCandidate,
-    EmbeddingOutput,
-    SonaraFingerprintOutput,
-    SonaraTimelineOutput,
     SonaraWrite,
 )
 from .db_ddl import SonaraRow
 from .sonara_runtime import (
     SONARA_BPM_MAX,
     SONARA_BPM_MIN,
-    SONARA_EMBEDDING_DIM,
     SONARA_UNIT_INTERVAL_EPSILON,
-    normalize_sonara_outputs,
-)
-
-
-SONARA_TIMELINE_KEYS = (
-    "beats",
-    "onset_frames",
-    "chord_sequence",
-    "chord_events",
-    "tempo_curve",
-    "downbeats",
-    "energy_curve",
-    "segments",
-    "loudness_curve",
 )
 
 _IMPLEMENTED_UNIT_INTERVAL_CLAMP_FIELDS = frozenset(
@@ -60,7 +40,6 @@ _IMPLEMENTED_UNIT_INTERVAL_CLAMP_FIELDS = frozenset(
         "mood_happy",
         "mood_relaxed",
         "mood_sad",
-        "segments[].energy",
         "spectral_flatness_mean",
         "valence",
         "vocalness",
@@ -73,7 +52,6 @@ def prepare_sonara_write(
     candidate: AnalysisCandidate,
     analysis: Mapping[str, object],
     *,
-    outputs: Sequence[str] | None,
     analyzed_at: str,
 ) -> SonaraWrite:
     """Validate one analyzer result and convert it to a typed repository write."""
@@ -82,57 +60,15 @@ def prepare_sonara_write(
         raise TypeError("candidate must be an AnalysisCandidate")
     if not isinstance(analysis, Mapping):
         raise TypeError("SONARA analysis result must be a mapping")
-    selected = normalize_sonara_outputs(outputs)
-
     core = _sonara_core_row(
         candidate,
         analysis,
         analyzed_at=analyzed_at,
     )
 
-    timeline = None
-    if "timeline" in selected:
-        timeline_payload = _timeline_payload(
-            analysis,
-            unit_interval_epsilon=SONARA_UNIT_INTERVAL_EPSILON,
-        )
-        timeline = SonaraTimelineOutput(
-            payload=timeline_payload,
-            analyzed_at=analyzed_at,
-        )
-
-    similarity_embedding = None
-    if "embedding" in selected:
-        vector = _float32_vector(
-            analysis.get("embedding"),
-            dim=SONARA_EMBEDDING_DIM,
-            field_name="embedding",
-        )
-        similarity_embedding = EmbeddingOutput(
-            family="sonara",
-            vector=vector,
-            analyzed_at=analyzed_at,
-        )
-
-    fingerprint = None
-    if "fingerprint" in selected:
-        fingerprint_version = _required_positive_int(
-            analysis.get("fingerprint_version"),
-            "fingerprint_version",
-        )
-        words = _decode_fingerprint_words(analysis.get("fingerprint"))
-        fingerprint = SonaraFingerprintOutput(
-            fingerprint_version=str(fingerprint_version),
-            words=words,
-            analyzed_at=analyzed_at,
-        )
-
     return SonaraWrite(
         target=candidate.target,
         core=core,
-        timeline=timeline,
-        similarity_embedding=similarity_embedding,
-        fingerprint=fingerprint,
     )
 
 
@@ -471,27 +407,6 @@ def _float32_vector(value: object, *, dim: int, field_name: str) -> np.ndarray:
 
 def _float32_blob(value: object, dim: int, field_name: str) -> bytes:
     return _float32_vector(value, dim=dim, field_name=field_name).tobytes(order="C")
-
-
-def _decode_fingerprint_words(value: object) -> np.ndarray:
-    if not isinstance(value, str) or not value:
-        raise ValueError("fingerprint must be a non-empty base64 string")
-    try:
-        payload = base64.b64decode(value, validate=True)
-    except (binascii.Error, ValueError) as error:
-        raise ValueError("fingerprint must be strict base64") from error
-    if not payload or len(payload) % 4:
-        raise ValueError("fingerprint must encode one or more complete uint32-le words")
-    return np.frombuffer(payload, dtype="<u4").copy()
-
-
-def _required_positive_int(value: object, field_name: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
-        raise ValueError(f"{field_name} must be a positive integer")
-    result = int(value)
-    if result <= 0:
-        raise ValueError(f"{field_name} must be a positive integer")
-    return result
 
 
 def _required_float(

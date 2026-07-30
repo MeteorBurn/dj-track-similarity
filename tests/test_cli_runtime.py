@@ -98,7 +98,7 @@ def test_scan_rejects_incomplete_database_without_creating_artifacts(
         )
 
 
-def test_analyze_opens_current_bundle_and_uses_canonical_output_names(
+def test_analyze_opens_current_bundle_for_sonara_core_only(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -127,12 +127,6 @@ def test_analyze_opens_current_bundle_and_uses_canonical_output_names(
                 track_batch_size=8,
                 inference_batch_size=16,
                 sonara_batch_size=8,
-                sonara_outputs=[
-                    "core",
-                    "timeline",
-                    "embedding",
-                    "fingerprint",
-                ],
             )
 
         def get(self, job_id: str):
@@ -146,8 +140,6 @@ def test_analyze_opens_current_bundle_and_uses_canonical_output_names(
             "analyze",
             "--models",
             "sonara",
-            "--sonara-outputs",
-            "core,timeline,embedding,fingerprint",
             "--db",
             str(core_path),
         ],
@@ -155,17 +147,11 @@ def test_analyze_opens_current_bundle_and_uses_canonical_output_names(
 
     assert result.exit_code == 0
     assert captured["database"].path == core_path.resolve()
-    assert captured["kwargs"]["sonara_outputs"] == [
-        "core",
-        "timeline",
-        "embedding",
-        "fingerprint",
-    ]
-    assert "representations" not in result.output
+    assert "sonara_outputs" not in captured["kwargs"]
     _assert_database_bundle(core_path)
 
 
-def test_analyze_rejects_removed_representations_output_before_opening_database(
+def test_analyze_rejects_removed_sonara_outputs_option_before_opening_database(
     tmp_path: Path,
 ) -> None:
     core_path = tmp_path / "library.sqlite"
@@ -177,14 +163,15 @@ def test_analyze_rejects_removed_representations_output_before_opening_database(
             "--models",
             "sonara",
             "--sonara-outputs",
-            "representations",
+            "timeline",
             "--db",
             str(core_path),
         ],
     )
 
     assert result.exit_code != 0
-    assert "representations" in result.output
+    assert "No such option" in result.output
+    assert "--sonara-outputs" in result.output
     assert not core_path.exists()
     assert not _artifacts_path(core_path).exists()
 

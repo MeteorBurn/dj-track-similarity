@@ -305,46 +305,21 @@ def test_cancelled_queued_job_performs_no_repository_work() -> None:
     assert repository.events == []
 
 
-def test_sonara_output_names_are_core_embedding_and_fingerprint(
+def test_sonara_runner_exposes_only_core_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    outputs = (
-        _sonara_output("core"),
-        _sonara_output("timeline"),
-        _sonara_output("embedding"),
-        _sonara_output("fingerprint"),
-    )
+    outputs = (_sonara_output("core"),)
     monkeypatch.setattr(
         runner_module,
         "analysis_outputs_for_sonara_runtime",
         lambda _module=None: outputs,
     )
 
-    runner = SonaraModelRunner(
-        outputs=("fingerprint", "embedding"),
-        sonara_module=object(),
-    )
+    runner = SonaraModelRunner(sonara_module=object())
 
-    assert [output.key for output in runner.active_outputs] == [
-        ("sonara", "core"),
-        ("sonara", "timeline"),
-        ("sonara", "embedding"),
-        ("sonara", "fingerprint"),
-    ]
-    assert [output.key for output in runner.candidate_outputs] == [
-        ("sonara", "core"),
-        ("sonara", "embedding"),
-        ("sonara", "fingerprint"),
-    ]
-    assert build_analysis_job_config(
-        models=["sonara"],
-        sonara_outputs=["fingerprint", "embedding"],
-    ).sonara_outputs == ("core", "embedding", "fingerprint")
-    with pytest.raises(ValueError, match="unsupported SONARA output"):
-        build_analysis_job_config(
-            models=["sonara"],
-            sonara_outputs=["representations"],
-        )
+    assert [output.key for output in runner.active_outputs] == [("sonara", "core")]
+    assert [output.key for output in runner.candidate_outputs] == [("sonara", "core")]
+    assert not hasattr(build_analysis_job_config(models=["sonara"]), "sonara_outputs")
 
 
 def _sonara_output(kind: str) -> AnalysisOutput:

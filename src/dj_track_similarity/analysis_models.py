@@ -22,7 +22,7 @@ from .sonara_runtime import SONARA_EMBEDDING_DIM
 
 OUTPUT_KINDS_BY_FAMILY: Mapping[str, frozenset[str]] = MappingProxyType(
     {
-        "sonara": frozenset({"core", "timeline", "embedding", "fingerprint"}),
+        "sonara": frozenset({"core"}),
         "maest": frozenset({"analysis", "embedding"}),
         "mert": frozenset({"embedding"}),
         "muq": frozenset({"embedding"}),
@@ -889,65 +889,9 @@ class EmbeddingOutput:
 
 
 @dataclass(frozen=True)
-class SonaraTimelineOutput:
-    payload: Mapping[str, object]
-    analyzed_at: str
-
-    def __post_init__(self) -> None:
-        payload = _json_copy(
-            self.payload,
-            expected="object",
-            field_name="timeline payload",
-        )
-        object.__setattr__(self, "payload", MappingProxyType(payload))
-        object.__setattr__(
-            self,
-            "analyzed_at",
-            _required_text(self.analyzed_at, "analyzed_at"),
-        )
-
-    @property
-    def payload_json(self) -> str:
-        return json.dumps(
-            dict(self.payload),
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-            allow_nan=False,
-        )
-
-
-@dataclass(frozen=True)
-class SonaraFingerprintOutput:
-    fingerprint_version: str
-    words: Sequence[int] | np.ndarray
-    analyzed_at: str
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "fingerprint_version",
-            _required_text(self.fingerprint_version, "fingerprint_version"),
-        )
-        object.__setattr__(self, "words", _readonly_uint32_words(self.words))
-        object.__setattr__(
-            self,
-            "analyzed_at",
-            _required_text(self.analyzed_at, "analyzed_at"),
-        )
-
-    @property
-    def fingerprint_blob(self) -> bytes:
-        return self.words.tobytes(order="C")
-
-
-@dataclass(frozen=True)
 class SonaraWrite:
     target: AnalysisTarget
     core: SonaraRow
-    timeline: SonaraTimelineOutput | None = None
-    similarity_embedding: EmbeddingOutput | None = None
-    fingerprint: SonaraFingerprintOutput | None = None
 
     def __post_init__(self) -> None:
         if self.core.track_id != self.target.track_id:
@@ -970,25 +914,9 @@ class SonaraWrite:
             dim=7,
             field_name="core.spectral_contrast_mean_blob",
         )
-
-        if (
-            self.similarity_embedding is not None
-            and self.similarity_embedding.family != "sonara"
-        ):
-            raise ValueError(
-                "similarity_embedding requires family='sonara'"
-            )
-
     @property
     def outputs(self) -> tuple[AnalysisOutput, ...]:
-        outputs = [AnalysisOutput("sonara", "core")]
-        if self.timeline is not None:
-            outputs.append(AnalysisOutput("sonara", "timeline"))
-        if self.similarity_embedding is not None:
-            outputs.append(AnalysisOutput("sonara", "embedding"))
-        if self.fingerprint is not None:
-            outputs.append(AnalysisOutput("sonara", "fingerprint"))
-        return tuple(outputs)
+        return (AnalysisOutput("sonara", "core"),)
 
 
 @dataclass(frozen=True)

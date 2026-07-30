@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 
 from dj_track_similarity.analysis_config import (
-    DEFAULT_SONARA_OUTPUTS,
     build_analysis_job_config,
     normalize_analysis_device,
     normalize_analysis_models,
@@ -57,30 +56,11 @@ def test_build_analysis_job_config_normalizes_shared_cli_api_values() -> None:
     assert config.top_k == 4
     assert config.track_batch_size == 3
     assert config.inference_batch_size == 18
-    assert config.sonara_outputs == ()
+    assert not hasattr(config, "sonara_outputs")
 
 
-def test_build_analysis_job_config_canonicalizes_exact_sonara_outputs() -> None:
-    assert build_analysis_job_config(
-        models=["sonara"],
-        sonara_outputs=["fingerprint", "timeline", "embedding"],
-    ).sonara_outputs == ("core", "timeline", "embedding", "fingerprint")
-
-
-def test_build_analysis_job_config_defaults_sonara_to_core() -> None:
-    assert build_analysis_job_config(models=["sonara"]).sonara_outputs == DEFAULT_SONARA_OUTPUTS
-
-
-def test_build_analysis_job_config_rejects_invalid_sonara_outputs() -> None:
-    with pytest.raises(ValueError, match="SONARA outputs can only"):
-        build_analysis_job_config(models=["mert"], sonara_outputs=["timeline"])
-    with pytest.raises(ValueError, match="At least one SONARA output"):
-        build_analysis_job_config(models=["sonara"], sonara_outputs=[])
-    with pytest.raises(ValueError, match="unsupported SONARA output 'representations'"):
-        build_analysis_job_config(
-            models=["sonara"],
-            sonara_outputs=["representations"],
-        )
+def test_build_analysis_job_config_has_no_sonara_output_selection() -> None:
+    assert not hasattr(build_analysis_job_config(models=["sonara"]), "sonara_outputs")
 
 
 @pytest.mark.parametrize(

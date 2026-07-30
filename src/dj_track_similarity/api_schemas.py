@@ -109,7 +109,6 @@ class AnalysisJobRequest(BaseModel):
         ge=MIN_SONARA_BATCH_SIZE,
         le=MAX_SONARA_BATCH_SIZE,
     )
-    sonara_outputs: list[str] | None = None
 
 
 class AudioDedupJobRequest(BaseModel):
@@ -169,7 +168,6 @@ class ClassifiersAnalyzeRequest(BaseModel):
 class SonaraPipelineSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    outputs: list[str] = Field(default_factory=lambda: ["core"])
     batch_size: int = Field(
         default=DEFAULT_SONARA_BATCH_SIZE,
         ge=MIN_SONARA_BATCH_SIZE,

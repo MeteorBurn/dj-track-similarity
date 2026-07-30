@@ -55,7 +55,6 @@ def register_analysis_routes(
                 track_batch_size=request.track_batch_size,
                 inference_batch_size=request.inference_batch_size,
                 sonara_batch_size=request.sonara_batch_size,
-                sonara_outputs=request.sonara_outputs,
             )
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
@@ -70,7 +69,6 @@ def register_analysis_routes(
                     sonara_batch_size=config.sonara_batch_size,
                     device=config.device,
                     top_k=config.top_k,
-                    sonara_outputs=list(config.sonara_outputs),
                 )
         except RuntimeError as error:
             raise HTTPException(
@@ -134,11 +132,9 @@ def register_analysis_routes(
             if "sonara" in request.stages:
                 sonara_config = build_analysis_job_config(
                     models=["sonara"],
-                    sonara_outputs=request.sonara.outputs,
                     sonara_batch_size=request.sonara.batch_size,
                 )
                 sonara_settings = {
-                    "outputs": list(sonara_config.sonara_outputs),
                     "batch_size": sonara_config.sonara_batch_size,
                 }
 

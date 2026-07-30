@@ -31,7 +31,6 @@ from .embedding import (
     MuqEmbeddingAdapter,
 )
 from .genres import MaestGenreAdapter
-from .sonara_runtime import normalize_sonara_outputs
 from .timestamps import utc_timestamp
 from .sonara_features import (
     SonaraBatchMetrics,
@@ -115,10 +114,7 @@ class AnalysisModelRunner(Protocol):
     ) -> Sequence[Exception | None]: ...
 
 
-RunnerFactory = Callable[
-    [str, str, int, int, tuple[str, ...]],
-    AnalysisModelRunner,
-]
+RunnerFactory = Callable[[str, str, int, int], AnalysisModelRunner]
 
 
 class SonaraModelRunner:
@@ -128,20 +124,11 @@ class SonaraModelRunner:
     def __init__(
         self,
         *,
-        outputs: tuple[str, ...] = ("core",),
         sonara_module: Any | None = None,
     ) -> None:
-        self.outputs = normalize_sonara_outputs(outputs)
         self._sonara_module = sonara_module
         self._active_outputs = analysis_outputs_for_sonara_runtime()
-        selected = set(self.outputs)
-        self._candidate_outputs = tuple(
-            output
-            for output in self._active_outputs
-            if output.output_kind in selected
-        )
-        if not self._candidate_outputs:
-            raise RuntimeError("SONARA runner has no requested outputs")
+        self._candidate_outputs = self._active_outputs
         self.progress: Callable[[int, int], None] | None = None
         self.last_metrics: SonaraBatchMetrics | None = None
 
@@ -170,7 +157,6 @@ class SonaraModelRunner:
             repository,
             [item.candidate for item in items],
             sonara_module=self._sonara_module,
-            outputs=self.outputs,
             progress=self.progress,
             metrics=self._capture_metrics,
         )
@@ -381,10 +367,9 @@ def default_model_runners(
     device: str,
     inference_batch_size: int,
     top_k: int,
-    sonara_outputs: tuple[str, ...] = ("core",),
 ) -> AnalysisModelRunner:
     if model == "sonara":
-        return SonaraModelRunner(outputs=sonara_outputs)
+        return SonaraModelRunner()
     if model == "maest":
         return MaestModelRunner(
             device=device,

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import base64
 import json
-import struct
 import uuid
 
 import numpy as np
@@ -12,10 +10,8 @@ from dj_track_similarity.analysis_models import (
     AnalysisCandidate,
     AnalysisOutput,
     AnalysisTarget,
-    SonaraFingerprintOutput,
 )
 from dj_track_similarity.sonara_runtime import (
-    SONARA_OUTPUT_KINDS,
     SONARA_UNIT_INTERVAL_FIELDS,
 )
 from dj_track_similarity.sonara_storage import (
@@ -35,10 +31,7 @@ def _candidate() -> AnalysisCandidate:
         file_path="/music/track.wav",
         file_size_bytes=123_456,
         file_modified_ns=456_789,
-        missing_outputs=tuple(
-            AnalysisOutput("sonara", output_kind)
-            for output_kind in SONARA_OUTPUT_KINDS
-        ),
+        missing_outputs=(AnalysisOutput("sonara", "core"),),
     )
 
 
@@ -80,9 +73,7 @@ def _analysis() -> dict[str, object]:
         "loudness_curve": np.asarray([-10.0, -9.5], dtype=np.float32),
         "embedding": np.linspace(0.05, 0.95, 48, dtype=np.float32),
         "embedding_version": 99,
-        "fingerprint": base64.b64encode(
-            struct.pack("<3I", 0, 123, 4_294_967_295)
-        ).decode("ascii"),
+        "fingerprint": "future-unused-payload",
         "fingerprint_version": 7,
         "provenance": {
             "future_analyzer_parameter": "accepted",
@@ -92,13 +83,10 @@ def _analysis() -> dict[str, object]:
 
 def _prepare(
     analysis: dict[str, object],
-    *,
-    outputs: tuple[str, ...] = SONARA_OUTPUT_KINDS,
 ):
     return prepare_sonara_write(
         _candidate(),
         analysis,
-        outputs=outputs,
         analyzed_at="2026-07-23T12:00:00.000000Z",
     )
 
@@ -112,24 +100,16 @@ def test_complete_analyzer_result_becomes_one_typed_sonara_write() -> None:
     assert write.target.content_generation == 3
     assert write.core.detected_bpm == 128.0
     assert write.core.beat_count == 3
-    assert write.timeline is not None
-    assert write.timeline.payload["beats"] == [0, 22, 43]
-    assert write.similarity_embedding is not None
-    assert write.similarity_embedding.family == "sonara"
-    np.testing.assert_array_equal(
-        write.similarity_embedding.vector,
-        np.asarray(analysis["embedding"], dtype="<f4"),
-    )
-    assert write.fingerprint is not None
-    assert write.fingerprint.fingerprint_version == "7"
-    assert write.fingerprint.words.tolist() == [0, 123, 4_294_967_295]
+    assert not hasattr(write, "timeline")
+    assert not hasattr(write, "similarity_embedding")
+    assert not hasattr(write, "fingerprint")
 
 
 def test_detected_bpm_preserves_sonara_precision() -> None:
     analysis = _analysis()
     analysis["bpm"] = np.float32(128.125)
 
-    write = _prepare(analysis, outputs=("core",))
+    write = _prepare(analysis)
 
     assert write.core.detected_bpm == float(np.float32(128.125))
 
@@ -137,7 +117,7 @@ def test_detected_bpm_preserves_sonara_precision() -> None:
 def test_aggression_values_preserve_sonara_precision() -> None:
     analysis = _analysis()
 
-    write = _prepare(analysis, outputs=("core",))
+    write = _prepare(analysis)
 
     for field_name in (
         "aggression_score",
@@ -155,7 +135,7 @@ def test_aggression_score_preserves_sonara_abstention() -> None:
     analysis["aggression_score"] = None
     analysis["aggression_confidence"] = np.float32(0.0)
 
-    write = _prepare(analysis, outputs=("core",))
+    write = _prepare(analysis)
 
     assert write.core.aggression_score is None
     assert write.core.aggression_confidence == 0.0
@@ -171,17 +151,7 @@ def test_unknown_future_analyzer_fields_do_not_gate_conversion() -> None:
     write = _prepare(analysis)
 
     assert write.core.vocal_probability == pytest.approx(0.3)
-    assert write.fingerprint is not None
-    assert write.fingerprint.fingerprint_version == "7"
-
-
-def test_output_selection_changes_only_emitted_artifacts() -> None:
-    write = _prepare(_analysis(), outputs=("core",))
-
     assert write.outputs == (AnalysisOutput("sonara", "core"),)
-    assert write.timeline is None
-    assert write.similarity_embedding is None
-    assert write.fingerprint is None
 
 
 def test_declared_clamp_fields_match_converter_implementation() -> None:
@@ -198,7 +168,7 @@ def test_unit_interval_values_inside_epsilon_are_clamped(value: np.float32) -> N
     analysis = _analysis()
     analysis["energy"] = value
 
-    write = _prepare(analysis, outputs=("core",))
+    write = _prepare(analysis)
 
     assert write.core.energy_score == (1.0 if value > 0 else 0.0)
 
@@ -217,13 +187,12 @@ def test_unit_interval_values_outside_epsilon_are_rejected(
     analysis["energy"] = value
 
     with pytest.raises(ValueError, match="allowed epsilon"):
-        _prepare(analysis, outputs=("core",))
+        _prepare(analysis)
 
 
 @pytest.mark.parametrize(
     ("field_name", "value", "message"),
     [
-        ("embedding", np.zeros(47, dtype=np.float32), "embedding must contain"),
         ("mfcc_mean", np.zeros(12, dtype=np.float32), "mfcc_mean"),
         ("chroma_mean", np.zeros((1, 12), dtype=np.float32), "chroma_mean"),
     ],
@@ -240,12 +209,15 @@ def test_fixed_shape_outputs_reject_wrong_shapes(
         _prepare(analysis)
 
 
-def test_non_finite_values_are_rejected() -> None:
+def test_non_core_values_are_ignored() -> None:
     analysis = _analysis()
     analysis["embedding"] = np.full(48, np.nan, dtype=np.float32)
+    analysis["fingerprint"] = object()
+    analysis["segments"] = [{"energy": float("nan")}]
 
-    with pytest.raises(ValueError, match="finite"):
-        _prepare(analysis)
+    write = _prepare(analysis)
+
+    assert write.core.detected_bpm == 128.0
 
 
 def test_track_and_generation_are_copied_from_candidate_not_analyzer_payload() -> None:
@@ -253,99 +225,12 @@ def test_track_and_generation_are_copied_from_candidate_not_analyzer_payload() -
     analysis["track_id"] = 999
     analysis["content_generation"] = 999
 
-    write = _prepare(analysis, outputs=("core",))
+    write = _prepare(analysis)
 
     assert write.target.track_id == 7
     assert write.target.content_generation == 3
     assert write.core.track_id == 7
     assert write.core.content_generation == 3
-
-
-@pytest.mark.parametrize(
-    ("field_name", "bad_value", "message"),
-    [
-        ("segments", None, "timeline output is incomplete"),
-        (
-            "beats",
-            np.asarray([0.0, 22.0, 43.0], dtype=np.float32),
-            "frame integer",
-        ),
-        ("downbeats", np.asarray([1], dtype=np.int64), "subset of timeline.beats"),
-        (
-            "tempo_curve",
-            np.asarray([128.0], dtype=np.float32),
-            "length must equal",
-        ),
-        (
-            "chord_events",
-            [{"label": "Am", "start": 0.0, "end": 8.0}],
-            "contain exactly",
-        ),
-    ],
-)
-def test_timeline_requires_complete_native_structure(
-    field_name: str,
-    bad_value: object,
-    message: str,
-) -> None:
-    analysis = _analysis()
-    analysis[field_name] = bad_value
-
-    with pytest.raises(ValueError, match=message):
-        _prepare(analysis)
-
-
-@pytest.mark.parametrize(
-    ("fingerprint", "message"),
-    [
-        ("not-base64", "strict base64"),
-        (base64.b64encode(b"\x00\x01").decode("ascii"), "complete uint32-le"),
-    ],
-)
-def test_fingerprint_requires_strict_aligned_base64(
-    fingerprint: str,
-    message: str,
-) -> None:
-    analysis = _analysis()
-    analysis["fingerprint"] = fingerprint
-
-    with pytest.raises(ValueError, match=message):
-        _prepare(analysis)
-
-
-@pytest.mark.parametrize("words", [[-1], [4_294_967_296]])
-def test_fingerprint_words_must_fit_uint32(words: list[int]) -> None:
-    with pytest.raises(ValueError, match="fit uint32"):
-        SonaraFingerprintOutput(
-            fingerprint_version="1",
-            words=words,
-            analyzed_at="2026-07-23T12:00:00.000000Z",
-        )
-
-
-@pytest.mark.parametrize(
-    ("field_name", "bad_value"),
-    [
-        (
-            "segments",
-            [{"start_sec": float("nan"), "end_sec": 1.0, "energy": 0.5}],
-        ),
-        (
-            "chord_events",
-            [{"label": "Am", "start_sec": 0.0, "end_sec": float("inf")}],
-        ),
-        ("loudness_curve", [-10.0, float("nan")]),
-    ],
-)
-def test_timeline_rejects_nested_non_finite_values(
-    field_name: str,
-    bad_value: object,
-) -> None:
-    analysis = _analysis()
-    analysis[field_name] = bad_value
-
-    with pytest.raises(ValueError, match="finite number"):
-        _prepare(analysis)
 
 
 @pytest.mark.parametrize(
@@ -421,5 +306,3 @@ def test_nested_bounded_values_are_clamped_without_clamping_bpm_scores() -> None
     assert write.core.energy_curve_max == 1.0
     assert json.loads(write.core.key_candidates_json or "null")[0]["score"] == 1.0
     assert json.loads(write.core.bpm_candidates_json or "null")[0]["score"] == 1.5
-    assert write.timeline is not None
-    assert write.timeline.payload["segments"][0]["energy"] == 1.0

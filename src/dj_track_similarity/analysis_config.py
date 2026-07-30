@@ -3,16 +3,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from .sonara_runtime import (
-    DEFAULT_SONARA_OUTPUTS as SONARA_DEFAULT_OUTPUTS,
-    SONARA_OUTPUT_KINDS,
-    normalize_sonara_outputs as normalize_sonara_output_kinds,
-)
-
 ML_ANALYSIS_MODEL_ORDER = ("maest", "mert", "muq", "clap")
 ANALYSIS_MODEL_ORDER = ("sonara", *ML_ANALYSIS_MODEL_ORDER)
-SONARA_OUTPUTS = SONARA_OUTPUT_KINDS
-DEFAULT_SONARA_OUTPUTS = SONARA_DEFAULT_OUTPUTS
 ANALYSIS_DEVICE_CHOICES = ("auto", "cpu", "cuda")
 ANALYSIS_DEVICE_PATTERN = "^(auto|cpu|cuda)$"
 DEFAULT_ANALYSIS_DEVICE = "auto"
@@ -39,7 +31,6 @@ class AnalysisJobConfig:
     track_batch_size: int
     inference_batch_size: int
     sonara_batch_size: int
-    sonara_outputs: tuple[str, ...] = ()
 
 
 def normalize_analysis_models(models: Sequence[str] | None) -> tuple[str, ...]:
@@ -74,12 +65,6 @@ def normalize_analysis_device(device: str | None) -> str:
     return text
 
 
-def normalize_sonara_outputs(outputs: Sequence[str] | None) -> tuple[str, ...]:
-    if not outputs:
-        raise ValueError("At least one SONARA output must be selected")
-    return normalize_sonara_output_kinds(outputs)
-
-
 def build_analysis_job_config(
     *,
     models: Sequence[str] | None = None,
@@ -89,24 +74,12 @@ def build_analysis_job_config(
     track_batch_size: int = DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
     inference_batch_size: int = DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
     sonara_batch_size: int = DEFAULT_SONARA_BATCH_SIZE,
-    sonara_outputs: Sequence[str] | None = None,
     allow_empty_models: bool = False,
 ) -> AnalysisJobConfig:
     normalized_models = (
         ()
         if allow_empty_models and models is not None and not models
         else normalize_analysis_models(models)
-    )
-    if "sonara" not in normalized_models and sonara_outputs:
-        raise ValueError(
-            "SONARA outputs can only be used with a SONARA-only analysis job"
-        )
-    normalized_sonara_outputs = (
-        normalize_sonara_outputs(
-            DEFAULT_SONARA_OUTPUTS if sonara_outputs is None else sonara_outputs
-        )
-        if "sonara" in normalized_models
-        else ()
     )
     return AnalysisJobConfig(
         models=normalized_models,
@@ -133,7 +106,6 @@ def build_analysis_job_config(
             minimum=MIN_SONARA_BATCH_SIZE,
             maximum=MAX_SONARA_BATCH_SIZE,
         ),
-        sonara_outputs=normalized_sonara_outputs,
     )
 
 

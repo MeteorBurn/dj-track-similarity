@@ -22,7 +22,6 @@ from .ann_index import (
 from .analysis_config import (
     DEFAULT_ANALYSIS_DEVICE,
     DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE,
-    DEFAULT_SONARA_OUTPUTS,
     DEFAULT_ANALYSIS_TOP_K,
     DEFAULT_ANALYSIS_TRACK_BATCH_SIZE,
     DEFAULT_SONARA_BATCH_SIZE,
@@ -1020,11 +1019,6 @@ def analyze(
         help="MERT/CLAP/MAEST model inference batch size.",
     ),
     diagnostics: bool = typer.Option(False, "--diagnostics", help="Write decoder fallback and batch timing diagnostics to the file log."),
-    sonara_outputs: str = typer.Option(
-        ",".join(DEFAULT_SONARA_OUTPUTS),
-        "--sonara-outputs",
-        help="Comma-separated SONARA outputs: core,timeline,embedding,fingerprint.",
-    ),
     sonara_batch_size: int = typer.Option(
         DEFAULT_SONARA_BATCH_SIZE,
         "--sonara-batch-size",
@@ -1036,7 +1030,6 @@ def analyze(
     set_analysis_diagnostics_enabled(diagnostics)
     try:
         selected_models = _parse_analysis_models(models)
-        selected_sonara_outputs = [item.strip() for item in sonara_outputs.split(",") if item.strip()]
         config = build_analysis_job_config(
             models=selected_models,
             limit=limit,
@@ -1045,7 +1038,6 @@ def analyze(
             track_batch_size=track_batch_size,
             inference_batch_size=inference_batch_size,
             sonara_batch_size=sonara_batch_size,
-            sonara_outputs=(selected_sonara_outputs if "sonara" in selected_models else None),
         )
     except ValueError as error:
         raise typer.BadParameter(str(error)) from error
@@ -1059,7 +1051,6 @@ def analyze(
             track_batch_size=config.track_batch_size,
             inference_batch_size=config.inference_batch_size,
             sonara_batch_size=config.sonara_batch_size,
-            sonara_outputs=list(config.sonara_outputs),
         )
         status = _run_cli_job_with_progress(manager, job_id, label=",".join(config.models))
     except (FileNotFoundError, RuntimeError, ValueError) as error:
@@ -1070,10 +1061,7 @@ def analyze(
         f"analyzed={status.analyzed} failed={status.failed} models={','.join(status.models)}"
     )
     if config.models == ("sonara",):
-        result_summary += (
-            f" sonara_outputs={','.join(config.sonara_outputs)}"
-            f" sonara_batch_size={config.sonara_batch_size}"
-        )
+        result_summary += f" sonara_batch_size={config.sonara_batch_size}"
     else:
         result_summary += (
             f" device={status.device} top_k={status.top_k}"
@@ -1120,7 +1108,6 @@ def analyze_pipeline(
     device: str = typer.Option(DEFAULT_ANALYSIS_DEVICE, "--device"),
     track_batch_size: int = typer.Option(DEFAULT_ANALYSIS_TRACK_BATCH_SIZE, "--track-batch-size", min=1, max=MAX_ANALYSIS_TRACK_BATCH_SIZE),
     inference_batch_size: int = typer.Option(DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE, "--inference-batch-size", min=1, max=MAX_ANALYSIS_INFERENCE_BATCH_SIZE),
-    sonara_outputs: str = typer.Option(",".join(DEFAULT_SONARA_OUTPUTS), "--sonara-outputs"),
     sonara_batch_size: int = typer.Option(DEFAULT_SONARA_BATCH_SIZE, "--sonara-batch-size", min=1, max=MAX_SONARA_BATCH_SIZE),
 ) -> None:
     selected_stages = [item.strip().lower() for item in stages.split(",") if item.strip()]
@@ -1149,7 +1136,6 @@ def analyze_pipeline(
             stages=selected_stages,
             limit=limit,
             sonara={
-                "outputs": [item.strip() for item in sonara_outputs.split(",") if item.strip()],
                 "batch_size": sonara_batch_size,
             },
             ml={

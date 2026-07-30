@@ -151,7 +151,6 @@ class AnalysisPipelineManager:
             job_id = self.analysis_jobs.create_job(
                 models=["sonara"],
                 limit=payload.limit,
-                sonara_outputs=cast(list[str] | None, payload.sonara.get("outputs")),
                 sonara_batch_size=cast(int | None, payload.sonara.get("batch_size")),
             )
             self._set_stage(parent_job_id, stage, state="running", child_job_id=job_id)

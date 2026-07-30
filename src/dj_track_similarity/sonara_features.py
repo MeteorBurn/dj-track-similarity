@@ -21,7 +21,6 @@ from .sonara_runtime import (
     SONARA_BPM_MIN,
     SONARA_SAMPLE_RATE,
     SONARA_VOCALNESS_MODEL_SELECTOR,
-    normalize_sonara_outputs,
     sonara_requested_features,
 )
 from .sonara_storage import prepare_sonara_write
@@ -63,13 +62,10 @@ class SonaraBatchMetrics:
 def analysis_outputs_for_sonara_runtime(
     sonara_module: Any | None = None,
 ) -> tuple[AnalysisOutput, ...]:
-    """Return the four current SONARA data outputs."""
+    """Return the current SONARA Core output."""
 
     del sonara_module
-    return tuple(
-        AnalysisOutput("sonara", output_kind)
-        for output_kind in ("core", "timeline", "embedding", "fingerprint")
-    )
+    return (AnalysisOutput("sonara", "core"),)
 
 
 def analyze_and_store_sonara_batch(
@@ -77,7 +73,6 @@ def analyze_and_store_sonara_batch(
     candidates: Sequence[AnalysisCandidate],
     *,
     sonara_module: Any | None = None,
-    outputs: Sequence[str] | None = None,
     progress: Callable[[int, int], None] | None = None,
     metrics: Callable[[SonaraBatchMetrics], None] | None = None,
 ) -> list[SonaraBatchTrackResult]:
@@ -98,7 +93,6 @@ def analyze_and_store_sonara_batch(
         raise TypeError("candidates must contain only AnalysisCandidate values")
 
     sonara = sonara_module or _import_sonara()
-    selected_outputs = normalize_sonara_outputs(outputs)
     active_outputs = analysis_outputs_for_sonara_runtime()
     repository.register_analysis_outputs(active_outputs)
 
@@ -126,7 +120,6 @@ def analyze_and_store_sonara_batch(
                 prepare_sonara_write(
                     candidate,
                     analysis,
-                    outputs=selected_outputs,
                     analyzed_at=utc_timestamp(),
                 )
             )

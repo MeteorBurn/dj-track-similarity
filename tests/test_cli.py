@@ -32,7 +32,6 @@ class _FakeAnalysisManager:
             track_batch_size=8,
             inference_batch_size=16,
             sonara_batch_size=8,
-            sonara_outputs=[],
             top_k=3,
             avg_seconds_per_track=0.5,
         )
@@ -43,7 +42,6 @@ class _FakeAnalysisManager:
         self.status.track_batch_size = int(kwargs["track_batch_size"])
         self.status.inference_batch_size = int(kwargs["inference_batch_size"])
         self.status.sonara_batch_size = int(kwargs["sonara_batch_size"])
-        self.status.sonara_outputs = list(kwargs["sonara_outputs"])
         return "job-1"
 
     def run_job(self, _job_id: str):
@@ -298,10 +296,10 @@ def test_analyze_cli_prints_default_ml_progress_and_settings(
     assert "state=completed" in result.output
     assert "models=maest,mert,muq,clap" in result.output
     assert "sonara_batch_size" not in result.output
-    assert _FakeAnalysisManager.last_kwargs["sonara_outputs"] == []
+    assert "sonara_outputs" not in _FakeAnalysisManager.last_kwargs
 
 
-def test_analyze_cli_uses_exact_sonara_outputs_without_release_preflight(
+def test_analyze_cli_runs_sonara_core_only(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -314,25 +312,17 @@ def test_analyze_cli_uses_exact_sonara_outputs_without_release_preflight(
             "analyze",
             "--models",
             "sonara",
-            "--sonara-outputs",
-            "timeline,embedding,fingerprint",
             "--db",
             str(tmp_path / "library.sqlite"),
         ],
     )
 
     assert result.exit_code == 0
-    assert _FakeAnalysisManager.last_kwargs["sonara_outputs"] == [
-        "core",
-        "timeline",
-        "embedding",
-        "fingerprint",
-    ]
-    assert "sonara_outputs=core,timeline,embedding,fingerprint sonara_batch_size=8" in result.output
-    assert "representations" not in result.output
+    assert "sonara_outputs" not in _FakeAnalysisManager.last_kwargs
+    assert "sonara_batch_size=8" in result.output
 
 
-def test_analyze_cli_rejects_removed_representations_before_opening_database(
+def test_analyze_cli_rejects_removed_sonara_outputs_option_before_opening_database(
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "library.sqlite"
@@ -344,14 +334,15 @@ def test_analyze_cli_rejects_removed_representations_before_opening_database(
             "--models",
             "sonara",
             "--sonara-outputs",
-            "representations",
+            "timeline",
             "--db",
             str(db_path),
         ],
     )
 
     assert result.exit_code != 0
-    assert "representations" in result.output
+    assert "No such option" in result.output
+    assert "--sonara-outputs" in result.output
     assert not db_path.exists()
 
 

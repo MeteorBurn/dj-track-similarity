@@ -56,7 +56,6 @@ from .logging_config import (
     log_failure,
     log_job_event,
 )
-from .sonara_runtime import SONARA_OUTPUT_KINDS
 from .sonara_features import (
     SonaraBatchMetrics,
     analysis_outputs_for_sonara_runtime,
@@ -122,7 +121,7 @@ class _SonaraStatusRepository(AnalysisWriteRepository, Protocol):
 
 @dataclass(frozen=True)
 class SonaraOutputStatus:
-    output_kind: Literal["core", "timeline", "embedding", "fingerprint"]
+    output_kind: Literal["core"]
     present_count: int
     missing_count: int
 
@@ -172,7 +171,6 @@ class AnalysisJobManager:
         sonara_batch_size: int | None = None,
         device: str = "auto",
         top_k: int = 3,
-        sonara_outputs: Sequence[str] | None = None,
     ) -> str:
         config = build_analysis_job_config(
             models=models,
@@ -192,7 +190,6 @@ class AnalysisJobManager:
                 if sonara_batch_size is None
                 else sonara_batch_size
             ),
-            sonara_outputs=sonara_outputs,
         )
         job_id = str(uuid.uuid4())
         status = AnalysisJobStatus(
@@ -211,7 +208,6 @@ class AnalysisJobManager:
             inference_batch_size=config.inference_batch_size,
             sonara_batch_size=config.sonara_batch_size,
             top_k=config.top_k,
-            sonara_outputs=list(config.sonara_outputs),
         )
         self._store.add(
             job_id,
@@ -219,9 +215,8 @@ class AnalysisJobManager:
             payload=_AnalysisPayload(config=config),
         )
         if config.models == ("sonara",):
-            output_names = ", ".join(output.title() for output in config.sonara_outputs)
             settings_message = (
-                f"SONARA queued · outputs {output_names} · "
+                "SONARA queued · output Core · "
                 f"batch {config.sonara_batch_size}"
             )
         else:
@@ -236,30 +231,22 @@ class AnalysisJobManager:
         return job_id
 
     def sonara_status(self) -> SonaraStatus:
-        """Return per-output SONARA coverage for the current catalog."""
+        """Return SONARA Core coverage for the current catalog."""
 
         repository = cast(_SonaraStatusRepository, self.db)
         outputs = analysis_outputs_for_sonara_runtime()
         total_tracks = int(repository.library_summary().tracks)
-        missing_counts = dict.fromkeys(SONARA_OUTPUT_KINDS, 0)
+        missing_count = 0
         for candidate in repository.list_analysis_candidates(outputs):
-            for output in candidate.missing_outputs:
-                if (
-                    output.analysis_family == "sonara"
-                    and output.output_kind in missing_counts
-                ):
-                    missing_counts[output.output_kind] += 1
+            if AnalysisOutput("sonara", "core") in candidate.missing_outputs:
+                missing_count += 1
 
-        statuses = tuple(
+        statuses = (
             SonaraOutputStatus(
-                output_kind=cast(
-                    Literal["core", "timeline", "embedding", "fingerprint"],
-                    output_kind,
-                ),
-                present_count=total_tracks - missing_counts[output_kind],
-                missing_count=missing_counts[output_kind],
-            )
-            for output_kind in SONARA_OUTPUT_KINDS
+                output_kind="core",
+                present_count=total_tracks - missing_count,
+                missing_count=missing_count,
+            ),
         )
         return SonaraStatus(
             catalog_uuid=str(repository.catalog_uuid),
@@ -549,7 +536,6 @@ class AnalysisJobManager:
             status.device_requested,
             status.inference_batch_size,
             status.top_k,
-            tuple(status.sonara_outputs),
         )
 
     def _run_model_batch(

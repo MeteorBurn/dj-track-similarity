@@ -74,7 +74,6 @@ class AnalysisJobStatus:
     inference_batch_size: int = DEFAULT_ANALYSIS_INFERENCE_BATCH_SIZE
     sonara_batch_size: int = DEFAULT_SONARA_BATCH_SIZE
     top_k: int = 3
-    sonara_outputs: list[str] = field(default_factory=list)
 
 
 def initial_model_progress(
@@ -189,5 +188,4 @@ def copy_analysis_status(status: AnalysisJobStatus) -> AnalysisJobStatus:
         inference_batch_size=status.inference_batch_size,
         sonara_batch_size=status.sonara_batch_size,
         top_k=status.top_k,
-        sonara_outputs=list(status.sonara_outputs),
     )

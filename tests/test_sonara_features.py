@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import struct
 import uuid
-from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -16,7 +15,7 @@ from dj_track_similarity.analysis_models import (
     SonaraWrite,
 )
 from dj_track_similarity.sonara_runtime import (
-    SONARA_OUTPUT_KINDS,
+    SONARA_CORE_REQUESTED_FEATURES,
     sonara_requested_features,
 )
 from dj_track_similarity.sonara_features import (
@@ -164,7 +163,7 @@ def _raw_analysis(path: str, *, features: tuple[str, ...]) -> TrackAnalysis:
     return result
 
 
-def test_default_batch_registers_all_outputs_and_writes_core_once() -> None:
+def test_default_batch_requests_registers_and_writes_core_only() -> None:
     FakeSonara.calls.clear()
     repository = RecordingRepository()
     candidates = (_candidate(1), _candidate(2))
@@ -180,17 +179,15 @@ def test_default_batch_registers_all_outputs_and_writes_core_once() -> None:
     assert [result.target.track_id for result in results] == [1, 2]
     assert all(result.error is None for result in results)
     assert len(repository.register_calls) == 1
-    assert [output.output_kind for output in repository.register_calls[0]] == [
-        "core",
-        "timeline",
-        "embedding",
-        "fingerprint",
-    ]
+    assert [output.output_kind for output in repository.register_calls[0]] == ["core"]
     assert len(repository.save_calls) == 1
     assert len(repository.save_calls[0]) == 2
-    assert all(write.timeline is None for write in repository.save_calls[0])
-    assert all(write.similarity_embedding is None for write in repository.save_calls[0])
-    assert all(write.fingerprint is None for write in repository.save_calls[0])
+    assert all(not hasattr(write, "timeline") for write in repository.save_calls[0])
+    assert all(
+        not hasattr(write, "similarity_embedding")
+        for write in repository.save_calls[0]
+    )
+    assert all(not hasattr(write, "fingerprint") for write in repository.save_calls[0])
 
     call = FakeSonara.calls[-1]
     assert call["paths"] == [candidate.file_path for candidate in candidates]
@@ -198,11 +195,12 @@ def test_default_batch_registers_all_outputs_and_writes_core_once() -> None:
     assert call["mode"] == "playlist"
     assert (call["bpm_min"], call["bpm_max"]) == (70, 180)
     assert call["vocalness_model"] == "bundled"
+    assert tuple(call["features"]) == SONARA_CORE_REQUESTED_FEATURES
     assert tuple(call["features"]) == sonara_requested_features()
     assert "vocalness" in call["features"]
     assert "aggression" in call["features"]
-    assert "embedding" in call["features"]
-    assert "fingerprint" in call["features"]
+    assert "embedding" not in call["features"]
+    assert "fingerprint" not in call["features"]
     assert "instrumentalness" not in call["features"]
 
     assert len(observed_metrics) == 1
@@ -233,74 +231,10 @@ def test_batch_clamps_float32_boundary_and_isolates_outside_epsilon_error() -> N
     assert repository.save_calls[0][0].core.energy_score == 1.0
 
 
-def test_all_four_outputs_are_converted_in_one_repository_call() -> None:
-    repository = RecordingRepository()
-    candidate = _candidate(1)
-
-    result = analyze_and_store_sonara_batch(
-        repository,
-        [candidate],
-        sonara_module=FakeSonara,
-        outputs=("core", "timeline", "embedding", "fingerprint"),
-    )
-
-    assert result[0].error is None
-    assert len(repository.save_calls) == 1
-    write = repository.save_calls[0][0]
-    assert write.timeline is not None
-    assert write.similarity_embedding is not None
-    assert write.similarity_embedding.family == "sonara"
-    assert write.fingerprint is not None
-    assert write.fingerprint.words.tolist() == [1, 2]
-
-
-def test_output_selection_changes_persistence_not_native_request_or_core() -> None:
-    FakeSonara.calls.clear()
-    candidate = _candidate(1)
-    core_repository = RecordingRepository()
-    all_repository = RecordingRepository()
-
-    core_result = analyze_and_store_sonara_batch(
-        core_repository,
-        [candidate],
-        sonara_module=FakeSonara,
-        outputs=("core",),
-    )
-    all_result = analyze_and_store_sonara_batch(
-        all_repository,
-        [candidate],
-        sonara_module=FakeSonara,
-        outputs=SONARA_OUTPUT_KINDS,
-    )
-
-    expected_features = sonara_requested_features()
-    assert len(FakeSonara.calls) == 2
-    assert tuple(FakeSonara.calls[0]["features"]) == expected_features
-    assert tuple(FakeSonara.calls[1]["features"]) == expected_features
-    assert core_repository.register_calls == all_repository.register_calls
-
-    assert core_result[0].error is None
-    assert all_result[0].error is None
-    core_write = core_repository.save_calls[0][0]
-    all_write = all_repository.save_calls[0][0]
-    assert replace(core_write.core, analyzed_at="") == replace(
-        all_write.core,
-        analyzed_at="",
-    )
-    assert tuple(output.output_kind for output in core_write.outputs) == (
-        "core",
-    )
-    assert tuple(output.output_kind for output in all_write.outputs) == (
-        SONARA_OUTPUT_KINDS
-    )
-
-
 def test_analysis_output_helper_is_unversioned_and_ignores_runtime_metadata() -> None:
     outputs = analysis_outputs_for_sonara_runtime(FakeSonara)
 
-    assert tuple(output.key for output in outputs) == tuple(
-        ("sonara", output_kind) for output_kind in SONARA_OUTPUT_KINDS
-    )
+    assert tuple(output.key for output in outputs) == (("sonara", "core"),)
 
 
 def test_empty_batch_performs_no_runtime_or_repository_work() -> None:
@@ -315,23 +249,6 @@ def test_empty_batch_performs_no_runtime_or_repository_work() -> None:
         )
         == []
     )
-    assert repository.register_calls == []
-    assert repository.save_calls == []
-    assert FakeSonara.calls == []
-
-
-def test_representations_alias_is_rejected_before_analysis() -> None:
-    repository = RecordingRepository()
-    FakeSonara.calls.clear()
-
-    with pytest.raises(ValueError, match="unsupported SONARA output"):
-        analyze_and_store_sonara_batch(
-            repository,
-            [_candidate(1)],
-            sonara_module=FakeSonara,
-            outputs=("representations",),
-        )
-
     assert repository.register_calls == []
     assert repository.save_calls == []
     assert FakeSonara.calls == []
